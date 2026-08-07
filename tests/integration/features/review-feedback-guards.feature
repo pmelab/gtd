@@ -2,9 +2,9 @@
 Feature: Review feedback — capture, classification, and the no-op guards
 
   The review feedback lap of the bundled unified workflow (see STATES.md §10).
-  A human comment at `await-review` routes to `review.deciding`, which CAPTURES
+  A human comment at `await-review` routes to `build.review.deciding`, which CAPTURES
   the raw material into `.gtd/REVIEW_RAW.md` (never interprets it). The new
-  `review.collecting` agent turns that raw material into an explicit
+  `build.review.collecting` agent turns that raw material into an explicit
   instruction list in `.gtd/REVIEW_FEEDBACK.md`; `build.addressing` then
   IMPLEMENTS the list and deletes it.
 
@@ -12,14 +12,14 @@ Feature: Review feedback — capture, classification, and the no-op guards
   flow fixes — feedback captured, then deleted on the next turn without being
   addressed):
 
-  - `review.collecting` declares no edge for "raw consumed, nothing written",
+  - `build.review.collecting` declares no edge for "raw consumed, nothing written",
     so a silent no-op (delete REVIEW_RAW.md, write no instructions) matches no
     pattern and is REFUSED by the pure engine.
   - `build.addressing` declares `requireProgress: true`, so the edge gate
     (`enforceFeedbackProgressGate`) REFUSES a turn whose only change is deleting
     the instructions file — unless it held a `NOTHING ACTIONABLE` sentinel.
 
-  Each check-actor turn (`review.deciding`) is simulated by writing its verdict
+  Each check-actor turn (`build.review.deciding`) is simulated by writing its verdict
   files and running `gtd step check`; @inmem never executes the scripts.
 
   Background:
@@ -29,7 +29,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(check): review.await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -52,9 +52,9 @@ Feature: Review feedback — capture, classification, and the no-op guards
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): review.await-review → review.deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
-    # review.deciding: CAPTURES raw material into REVIEW_RAW.md, removes REVIEW.md
+    # build.review.deciding: CAPTURES raw material into REVIEW_RAW.md, removes REVIEW.md
     Given a file ".gtd/REVIEW_RAW.md" with:
       """
       Raw review material captured for classification.
@@ -66,9 +66,9 @@ Feature: Review feedback — capture, classification, and the no-op guards
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review.deciding → review.collecting"
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
 
-    # review.collecting: raw material → instruction list, deletes the raw file
+    # build.review.collecting: raw material → instruction list, deletes the raw file
     Given a file ".gtd/REVIEW_FEEDBACK.md" with:
       """
       1. ./src/calc.ts#1 — rename the exported `add` to `sum`
@@ -76,7 +76,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
     And the file ".gtd/REVIEW_RAW.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): review.collecting → build.addressing"
+    And the last commit subject is "gtd(agent): build.review.collecting → build.addressing"
 
     # build.addressing: implements the instruction and deletes the file
     Given "src/calc.ts" is modified to:
@@ -89,8 +89,8 @@ Feature: Review feedback — capture, classification, and the no-op guards
     And the last commit subject is "gtd(agent): build.addressing → build.health.check"
 
   Scenario: build.addressing refuses a work-free turn that just deletes the instructions
-    Given an empty commit "gtd(human): review.await-review → review.deciding"
-    And a commit "gtd(agent): review.collecting → build.addressing" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+    Given an empty commit "gtd(human): build.review.await-review → build.review.deciding"
+    And a commit "gtd(agent): build.review.collecting → build.addressing" that adds ".gtd/REVIEW_FEEDBACK.md" with:
       """
       1. ./src/calc.ts#1 — rename the exported `add` to `sum`
       """
@@ -101,8 +101,8 @@ Feature: Review feedback — capture, classification, and the no-op guards
     And stderr contains "without addressing its instructions"
 
   Scenario: build.addressing allows deleting a NOTHING ACTIONABLE sentinel with no code change
-    Given an empty commit "gtd(human): review.await-review → review.deciding"
-    And a commit "gtd(agent): review.collecting → build.addressing" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+    Given an empty commit "gtd(human): build.review.await-review → build.review.deciding"
+    And a commit "gtd(agent): build.review.collecting → build.addressing" that adds ".gtd/REVIEW_FEEDBACK.md" with:
       """
       NOTHING ACTIONABLE — the human left only an approving remark.
       """
@@ -112,8 +112,8 @@ Feature: Review feedback — capture, classification, and the no-op guards
     Then it succeeds
     And the last commit subject is "gtd(agent): build.addressing → build.health.check"
 
-  Scenario: review.collecting refuses a silent no-op — raw consumed, nothing written
-    Given a commit "gtd(check): review.deciding → review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
+  Scenario: build.review.collecting refuses a silent no-op — raw consumed, nothing written
+    Given a commit "gtd(check): build.review.deciding → build.review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
       """
       Raw review material captured for classification.
 

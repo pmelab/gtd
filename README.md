@@ -105,14 +105,17 @@ for). The two steering-file entries are chosen by which file you create:
   runs your tests (looping on failures) — the check run also mechanically sweeps
   `.gtd/TODO.md` and other spent steering files, so a plan that's left in place
   by mistake never leaks into the review diff or the final squash.
-- Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: two-phase
-  product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`) —
-  each open question offers a couple of candidate answers plus a
-  `- [ ] _your answer_` slot, and you tick exactly one per question (the gate
-  won't let a phase advance while any question is unanswered) — then
-  decomposition into work **packages** (each a set of independent tasks a single
-  build turn fans out to parallel subagents), a per-package test loop, and a
-  per-package **agentic review** that verifies the package against its spec.
+- Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: one design
+  conversation across product then technical Q&A (`.gtd/REQUIREMENTS.md` →
+  `.gtd/ARCHITECTURE.md`) and decomposition — each open question offers a couple
+  of candidate answers plus a `- [ ] _your answer_` slot, and you tick exactly
+  one per question (the gate won't let a phase advance while any question is
+  unanswered) — then decomposition into work **packages** (each a set of
+  independent tasks a single build turn fans out to parallel subagents), a
+  per-package test loop, and a per-package **agentic review** that verifies the
+  package against its spec. All three phases share one machine identity, so the
+  agent never re-explores the codebase from scratch between them, and the
+  human's answers carry forward into decomposition.
 
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
 checkbox review of the diff — the prompt never inlines the diff itself; it names
@@ -124,11 +127,14 @@ Any comment sends a build + re-review round — an agent first turns your commen
 into an explicit instruction list, then a build turn implements it (a re-review
 then covers only the follow-through, and a hand-edit is treated as your own fix
 the agent completes without reverting your lines; a comment can't be silently
-dropped — a build turn that addresses nothing is refused). Ticking every box
-with no comment is the sign-off, which collapses the whole cycle into one commit
-(a **squash finale** whose message an agent drafts). Stepping with a box still
-unticked and no comment is refused (finish reviewing first), as is deleting
-`.gtd/REVIEW.md`.
+dropped — a build turn that addresses nothing is refused). For the simple flow,
+the build turn that follows through on feedback and the turn that drafts the
+final squash message both resume the same session that built the feature in the
+first place, since the review tail is nested inside that build identity rather
+than sitting beside it. Ticking every box with no comment is the sign-off, which
+collapses the whole cycle into one commit (a **squash finale** whose message an
+agent drafts). Stepping with a box still unticked and no comment is refused
+(finish reviewing first), as is deleting `.gtd/REVIEW.md`.
 
 The same review tail also has a direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -349,12 +355,18 @@ started FROM. Entering a **descendant** scope (e.g. dipping from `build` into
 `build.health`) does not break the parent's unbroken run — a full agent turn in
 a nested child machine, then back to the parent, still resumes the SAME parent
 conversation; entering a **sibling or unrelated** scope does start a fresh one.
-Two instances of the same reusable machine (e.g. `build.health` and
-`packages.item.health`, both instantiating `healthGate`) get different scopes
-and so never share a key, even though they're the "same shaped" machine. One
-consequence is a structural guarantee: **a reviewer's turn never resumes an
-implementer's session, and vice versa** — a reviewer machine and the implementer
-machine it reviews are always different instances with different scopes.
+The bundled template's `build.review` (the human review tail) is a worked
+example: it is nested INSIDE `build` (the builder's own machine) precisely
+because that descendant relationship is what lets `build.addressing` and
+`build.squashing` resume the session that built the feature across a full review
+round-trip, instead of a root-level sibling breaking that run on every pass
+through the tail. Two instances of the same reusable machine (e.g.
+`build.health` and `packages.item.health`, both instantiating `healthGate`) get
+different scopes and so never share a key, even though they're the "same shaped"
+machine. One consequence is a structural guarantee: **a reviewer's turn never
+resumes an implementer's session, and vice versa** — a reviewer machine and the
+implementer machine it reviews are always different instances with different
+scopes.
 
 The loop driver (`bin/gtd`) tracks this as a per-scope **session table** — one
 `<key> <session_id>` row per scope — persisted at `$gitdir/gtd-loop-memory` (the
@@ -623,10 +635,10 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > from its position in the machine tree instead of authored (see
 > [Driving the loop](#driving-the-loop)). The bundled template was also
 > restructured so machine boundaries line up with this new identity model,
-> renaming thirteen states:
+> renaming twenty-two states:
 >
 > - `building` → `build.building`
-> - `decompose` → `build.decompose`
+> - `decompose` → `build.decompose` → `design.decompose`
 > - `squashing` → `build.squashing`
 > - `review.building` → `build.addressing`
 > - `packages.building` → `packages.item.building`
@@ -638,12 +650,23 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > - `packages.spec.fix` → `packages.item.fix-spec`
 > - `build.check` → `build.health.check`
 > - `build.escalate` → `build.health.escalate`
+> - `review.reviewing` → `build.review.reviewing`
+> - `review.await-review` → `build.review.await-review`
+> - `review.deciding` → `build.review.deciding`
+> - `review.collecting` → `build.review.collecting`
+> - `product.author` → `design.product-author`
+> - `product.answer` → `design.product-answer`
+> - `technical.author` → `design.technical-author`
+> - `technical.answer` → `design.technical-answer`
 >
-> Because of these renames, an in-flight process left resting at one of the old
-> qualified state names can no longer be resumed after upgrading — those names
-> no longer exist in the definition, and gtd refuses loudly rather than silently
-> treating the rest as idle. Run `gtd abandon` to discard it and start over (or
-> finish the process on the pre-upgrade workflow version first).
+> (`decompose`'s two hops both land in this same release, so a process upgrading
+> from before either restructure only ever sees one hop: `decompose` →
+> `design.decompose`.) Because of these renames, an in-flight process left
+> resting at one of the old qualified state names can no longer be resumed after
+> upgrading — those names no longer exist in the definition, and gtd refuses
+> loudly rather than silently treating the rest as idle. Run `gtd abandon` to
+> discard it and start over (or finish the process on the pre-upgrade workflow
+> version first).
 
 ### Variables
 

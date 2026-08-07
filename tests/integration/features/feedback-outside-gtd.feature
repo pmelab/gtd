@@ -9,7 +9,7 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
   write's redirection fails silently: the shell command errors out before
   `printf` runs, the tree stays clean, and the check step wrongly reads that
   as a passing suite (`build.health.check`'s "C" pattern routes to
-  `review.reviewing`) instead of surfacing the failure. The fix adds a
+  `build.review.reviewing`) instead of surfacing the failure. The fix adds a
   `mkdir -p "$(dirname "$feedback")"`
   right after hoisting the feedback path, so a relocated feedbackFile's parent
   directory is created regardless of where it lives — `stateDir` stays at its
@@ -22,7 +22,7 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
   AGENTS.md and review-signoff-outside-gtd.feature, which covers the same
   class of bug for `reviewFile`/issue #128).
 
-  Scenario: a red check writes the relocated feedbackFile and routes to build.fix, not review.reviewing
+  Scenario: a red check writes the relocated feedbackFile and routes to build.fix, not build.review.reviewing
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """

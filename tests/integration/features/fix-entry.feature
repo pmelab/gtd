@@ -37,7 +37,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     And the git status is clean
     And the git log does not contain "gtd("
 
-  Scenario: a red suite drops into the shared build.fix loop and out through build.health.check to review.reviewing
+  Scenario: a red suite drops into the shared build.fix loop and out through build.health.check to build.review.reviewing
     When I run gtd with args "--entry fix-precheck"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
@@ -61,7 +61,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     # A now-green check hands off to the shared review + squash tail.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → review.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
 
   Scenario: a dirty working tree is captured into the entry commit, not refused
     Given a file "scratch.txt" with:

@@ -205,13 +205,13 @@ describe("renderStateTemplate — bundled `script` states render to valid bash",
   it("covers every bundled script state (guards against a state being dropped)", () => {
     expect(scriptStates.map(([name]) => name).sort()).toEqual([
       "build.health.check",
+      "build.review.deciding",
       "fix-precheck",
       "packages.item.closing",
       "packages.item.health.check",
       "packages.picking",
       "plan-gate.check",
       "review-gate.check",
-      "review.deciding",
       "spec-gate.check",
     ])
   })

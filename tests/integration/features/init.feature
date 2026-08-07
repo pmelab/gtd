@@ -30,7 +30,7 @@ Feature: gtd init — seed a minimal .gtdrc.json (default vars + formatting)
     And ".gtdrc.json" contains "npx prettier --write"
     # No workflow is written — the machine is built in.
     And ".gtdrc.json" does not contain "\"workflow\""
-    And ".gtdrc.json" does not contain "review.deciding"
+    And ".gtdrc.json" does not contain "build.review.deciding"
     # No prompt files are extracted — the prompts live in the built-in workflow.
     And "gtd-prompts/planning.md" does not exist
     # Left uncommitted — HEAD is still the project's own initial commit.

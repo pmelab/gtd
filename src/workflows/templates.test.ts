@@ -65,7 +65,7 @@ describe("the bundled unified workflow template", () => {
       "plan.planning",
     )
     expect((definition.states["spec-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
-      "product.author",
+      "design.product-author",
     )
   })
 
@@ -222,7 +222,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     }
   })
 
-  it("the identity table holds: product/technical/plan/build/packages.item/packages.item.spec/review are each exactly one of {planner, coder}, matching the tree", () => {
+  it("the identity table holds: design/plan/build/packages.item/packages.item.spec/build.review are each exactly one of {planner, coder}, matching the tree", () => {
     const { tree } = compileTemplate()
     // Instance path (e.g. "packages.item") -> the machine it instantiates.
     const machineAt: Record<string, string> = {}
@@ -240,13 +240,12 @@ describe("the bundled template's machine boundaries line up with conversational 
       throw new Error(`instance "${instancePath}": unrecognized model template "${model}"`)
     }
 
-    expect(identityOf("product")).toBe("planner")
-    expect(identityOf("technical")).toBe("planner")
+    expect(identityOf("design")).toBe("planner")
     expect(identityOf("plan")).toBe("planner")
     expect(identityOf("build")).toBe("coder")
     expect(identityOf("packages.item")).toBe("coder")
     expect(identityOf("packages.item.spec")).toBe("planner")
-    expect(identityOf("review")).toBe("planner")
+    expect(identityOf("build.review")).toBe("planner")
   })
 
   it("packages, build.health, packages.item.health, plan-gate, spec-gate, and review-gate have no model — they are identity-free gate/queue machines", () => {
@@ -270,10 +269,27 @@ describe("the bundled template's machine boundaries line up with conversational 
     }
   })
 
+  it("`build.review` is nested inside `build`'s own scope, so the review round-trip never breaks the builder's session", () => {
+    // The load-bearing point of this restructure: humanReview is instantiated
+    // as a descendant of simpleBuild (not a root sibling), so a full round of
+    // build -> health -> review -> feedback stays within one memoryScopeAt
+    // run. A future refactor that hoists the review tail back to the root
+    // would silently undo this — pin it here.
+    const { scopes } = compileTemplate()
+    expect(scopes["build.review.reviewing"]).toMatch(/^build\./)
+    for (const state of ["addressing", "building", "fix", "squashing"]) {
+      expect(scopes[`build.${state}`]).toBe("build")
+    }
+  })
+
   it("no machine contains BOTH a review-content prompt state AND an implementer-content prompt state — the planner/coder identities never overlap within one machine", () => {
     // Planner machines: every one of their OWN prompt states is a
     // plan-development/review action, never a write-code one.
-    expect(ownPromptStates("qaLoop")).toEqual(["author"])
+    expect(ownPromptStates("advancedPlan")).toEqual([
+      "decompose",
+      "product-author",
+      "technical-author",
+    ])
     expect(ownPromptStates("planLoop")).toEqual(["planning"])
     expect(ownPromptStates("humanReview")).toEqual(["collecting", "reviewing"])
     expect(ownPromptStates("specReview")).toEqual(["review"])
@@ -281,13 +297,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     // Coder machines: every one of their OWN prompt states is a
     // write/fix-code action, never a plan-development/review one.
     expect(ownPromptStates("packageItem")).toEqual(["building", "fix-spec", "fix-suite"])
-    expect(ownPromptStates("simpleBuild")).toEqual([
-      "addressing",
-      "building",
-      "decompose",
-      "fix",
-      "squashing",
-    ])
+    expect(ownPromptStates("simpleBuild")).toEqual(["addressing", "building", "fix", "squashing"])
 
     // Identity-free gate/queue machines own no prompt state at all.
     expect(ownPromptStates("entryGate")).toEqual([])

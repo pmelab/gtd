@@ -818,15 +818,17 @@ describe("inScope — dotted-prefix scope test", () => {
 describe("memoryScopeAt", () => {
   // The worked trace: qualified state name -> that state's OWN scope.
   // Rows 11/13 name the same state (`packages.item.spec.review`) and rows
-  // 2/4 name the same state (`product.author`) — the table maps each
-  // DISTINCT state name once, consistently.
+  // 2/4 name the same state (`design.product-author`) — the table maps each
+  // DISTINCT state name once, consistently. Rows 2-6 are all scope `design`
+  // (the advancedPlan machine's one design conversation spans product Q&A,
+  // technical Q&A, and decomposition — see src/workflows/unified.yaml).
   const rows: ReadonlyArray<readonly [state: string, scope: string]> = [
     ["spec-gate.check", "spec-gate"], // 1
-    ["product.author", "product"], // 2
-    ["product.answer", "product"], // 3
-    ["product.author", "product"], // 4
-    ["technical.author", "technical"], // 5
-    ["build.decompose", "build"], // 6
+    ["design.product-author", "design"], // 2
+    ["design.product-answer", "design"], // 3
+    ["design.product-author", "design"], // 4
+    ["design.technical-author", "design"], // 5
+    ["design.decompose", "design"], // 6
     ["packages.picking", "packages"], // 7
     ["packages.item.building", "packages.item"], // 8
     ["packages.item.health.check", "packages.item.health"], // 9
@@ -873,12 +875,15 @@ describe("memoryScopeAt", () => {
   })
 
   it("nothing in the trace ever inside the scope's subtree also falls back to entryIndex: -1", () => {
-    expect(memoryScopeAt(scopes, "technical.author", ["product.author", "product.answer"])).toEqual(
-      {
-        scope: "technical",
-        entryIndex: -1,
-      },
-    )
+    expect(
+      memoryScopeAt(scopes, "packages.item.building", [
+        "design.product-author",
+        "design.product-answer",
+      ]),
+    ).toEqual({
+      scope: "packages.item",
+      entryIndex: -1,
+    })
   })
 
   it("querying a state absent from `scopes` returns undefined entirely", () => {

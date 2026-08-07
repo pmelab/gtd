@@ -72,7 +72,7 @@ Feature: gtd abandon — end the process underway without completing it
     Then it succeeds
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → review.reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234

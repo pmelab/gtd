@@ -30,7 +30,7 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     Given a test project
     And the workflow
 
-  Scenario: happy path — a local branch entered for review via the space-separated "--entry" form, gated then resting at review.reviewing
+  Scenario: happy path — a local branch entered for review via the space-separated "--entry" form, gated then resting at build.review.reviewing
     Given I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
@@ -39,10 +39,10 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     When I run gtd with args "--entry review-gate.check --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): review-gate.check"
-    # The green-baseline gate: a clean tree (tests pass) advances to review.reviewing.
+    # The green-baseline gate: a clean tree (tests pass) advances to build.review.reviewing.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → review.reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt NAMES the fixed base rather than inlining its diff.

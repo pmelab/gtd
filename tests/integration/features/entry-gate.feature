@@ -63,7 +63,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 
-  Scenario: advanced flow — a green baseline proceeds from the gate into product.author
+  Scenario: advanced flow — a green baseline proceeds from the gate into design.product-author
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget with product requirements.
@@ -73,7 +73,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     And the last commit subject is "gtd(human): idle → spec-gate.check"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): spec-gate.check → product.author"
+    And the last commit subject is "gtd(check): spec-gate.check → design.product-author"
 
   Scenario: advanced flow — a red baseline halts at spec-blocked
     Given a file ".gtd/REQUIREMENTS.md" with:

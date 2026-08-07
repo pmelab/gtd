@@ -3,7 +3,8 @@
 # src/Config.ts runs this template directly, so a state command works with no
 # configuration at all. `gtd init` seeds only the settings a project tunes
 # (vars.testCommand + a modes: formatting suggestion), never the workflow
-# itself. See STATES.md §10 for the full walkthrough.
+# itself. See the README's "How it works" and "Driving the loop" sections for
+# the full walkthrough.
 #
 # Compiled through the exact same `compileWorkflowConfig` a user's `.gtdrc`
 # `workflow:` key goes through — no privileged code path
@@ -48,16 +49,24 @@
 #                               beside this machine, not inside it, since
 #                               fixing IS a coder action and this machine has
 #                               no identity of its own. Identity-free.
-#   * qaLoop (dedup ×2)       — the checkbox Q&A author/answer loop shared by the
-#                               product (`product.*`) and technical (`technical.*`)
-#                               phases of the advanced flow. ▸ planner.
+#   * advancedPlan (encap)    — the advanced flow's one design conversation:
+#                               product Q&A, technical Q&A, and decomposition
+#                               (`design.*`: product-author/-answer,
+#                               technical-author/-answer, decompose) all share
+#                               ONE machine identity, so the agent explores the
+#                               codebase once, not three times, and the human's
+#                               answer rationale survives into decomposition.
+#                               ▸ planner.
 #   * planLoop (encap)        — the simple flow's plan-iteration loop (`plan.*`).
 #                               ▸ planner.
-#   * humanReview (encap)     — the shared review tail (`review.*`: reviewing →
-#                               await-review → deciding → collecting). ▸
-#                               planner — the implementer's OWN follow-through
-#                               on feedback is a coder action, not a reviewer
-#                               one, so it lives in `build.addressing` instead.
+#   * humanReview (encap)     — the shared review tail, nested INSIDE
+#                               `simpleBuild` (`build.review.*`: reviewing →
+#                               await-review → deciding → collecting) — see
+#                               "Why humanReview is nested, not a root sibling"
+#                               below. ▸ planner — the implementer's OWN
+#                               follow-through on feedback is a coder action,
+#                               not a reviewer one, so it lives in
+#                               `build.addressing` instead.
 #   * specReview (encap)      — the advanced flow's per-package agentic review,
 #                               now a SINGLE state (`packages.item.spec.review`)
 #                               — a machine whose entire job is to be a
@@ -74,8 +83,24 @@
 #                               fix-spec, closing), plus its own `health` and
 #                               `spec` children. ▸ coder.
 #   * simpleBuild (encap)     — the simple flow's build identity (`build.*`:
-#                               building, decompose, squashing, addressing,
-#                               fix), plus its own `health` child. ▸ coder.
+#                               building, squashing, addressing, fix), plus its
+#                               own `health` child AND its own `review` child
+#                               (humanReview, above). ▸ coder.
+#
+# ── Why humanReview is nested, not a root sibling ───────────────────────────
+#
+# `humanReview` sits UNDER `simpleBuild` (`build.review`) rather than beside it
+# at the root, because a machine's memory scope is its dotted instance path
+# (see src/PatternMachine.ts's `memoryScopeAt`): entering a DESCENDANT scope
+# never breaks the parent's unbroken run, but entering a sibling does. The
+# review tail sits between the two coder turns that most need continuity —
+# `build.addressing` (follows through on review feedback) and `build.squashing`
+# (drafts the finale from the range this process built) — so hoisting it back
+# to a root sibling would force both of those turns to re-derive the feature
+# from scratch on every pass through the tail, instead of resuming the session
+# that built it. The reviewer itself is unaffected either way: `build.review.*`
+# is its own scope regardless of where it's nested, so it never resumes the
+# builder's session.
 #
 # ── Four entry points behind a green-baseline gate, one shared tail ─────────
 #
@@ -88,52 +113,54 @@
 # routing into that flow's OWN start gate:
 #
 #   * the configured requirementsFile (default .gtd/REQUIREMENTS.md) ->
-#     `spec-gate.check` -> the ADVANCED flow (product + technical Q&A, package
-#     decomposition, per-package parallel build + agentic spec-review).
+#     `spec-gate.check` -> the ADVANCED flow (one design conversation across
+#     product + technical Q&A and decomposition, per-package parallel build +
+#     agentic spec-review).
 #   * anything else (e.g. the configured todoFile, default .gtd/TODO.md) ->
 #     `plan-gate.check` -> the SIMPLE flow (one grilling Q&A loop, a monolithic
 #     build, no decomposition, no agentic review).
 #
 # A third entry, `gtd --entry review-gate.check`, jumps there directly and,
-# once green, to `review.reviewing` to review a foreign branch through the
-# same shared tail. A fourth, `gtd --entry fix-precheck`, jumps there: a red
-# suite drops straight into the shared `build.fix` loop and out through the
+# once green, to `build.review.reviewing` to review a foreign branch through
+# the same shared tail. A fourth, `gtd --entry fix-precheck`, jumps there: a
+# red suite drops straight into the shared `build.fix` loop and out through the
 # review + squash tail; a green suite is a no-op back to `idle`. Both states
 # declare `entry: true` — otherwise unreachable from `entries.default`.
 #
-# All three converge at `review.reviewing` -> `review.await-review`. Ticking a
-# REVIEW.md box means only "I reviewed this hunk"; a COMMENT (not an unticked
-# box) is what asks for changes. Every human step at `review.await-review`
-# goes to `review.deciding`, which inspects the step and routes:
+# All three converge at `build.review.reviewing` -> `build.review.await-review`.
+# Ticking a REVIEW.md box means only "I reviewed this hunk"; a COMMENT (not an
+# unticked box) is what asks for changes. Every human step at
+# `build.review.await-review` goes to `build.review.deciding`, which inspects
+# the step and routes:
 #   * no comment (every box ticked, no REVIEW.md note, no code edit) -> the diff
 #     is a bare REVIEW.md deletion -> build.squashing -> done (the ONLY path
 #     to the finale — the whole cycle collapses into one commit).
 #   * any comment — a note in REVIEW.md OR a hand-edit to code — ->
-#     review.deciding writes REVIEW_FEEDBACK.md -> review.collecting implements
-#     it (completing any code the human hand-edited, never reverting their
-#     lines) -> build.addressing (a coder action, not a reviewer one — see the
-#     header note above on why it lives in `build`, not `review`) -> back
-#     through `build.health.check` (the shared health pair, bound via the
-#     `$onFeedback`/`$onGreen` params) -> review.reviewing regenerates an
-#     INCREMENTAL REVIEW.md (review.deciding carries `reviewBase: true`, so
-#     each feedback round's review + checkout window covers only
-#     `last-review..HEAD`, i.e. the agent's follow-through, not the human's
-#     own edit) -> await-review, looping until sign-off.
+#     build.review.deciding writes REVIEW_FEEDBACK.md -> build.review.collecting
+#     implements it (completing any code the human hand-edited, never
+#     reverting their lines) -> build.addressing (a coder action, not a
+#     reviewer one — see "Why humanReview is nested" above) -> back through
+#     `build.health.check` (the shared health pair, bound via the
+#     `$onFeedback`/local `review` reference) -> build.review.reviewing
+#     regenerates an INCREMENTAL REVIEW.md (build.review.deciding carries
+#     `reviewBase: true`, so each feedback round's review + checkout window
+#     covers only `last-review..HEAD`, i.e. the agent's follow-through, not the
+#     human's own edit) -> await-review, looping until sign-off.
 # Two dead ends never commit: the sign-off gate (src/program.ts) REFUSES a step
 # that leaves a box unticked with no comment (finish reviewing first) and a
 # deleted REVIEW.md (restore it and tick the boxes).
 #
 # The shared health pair (`build.health.check`/`.escalate`, plus the caller's
 # own `build.fix`) serves the simple build and the feedback loop — its green
-# edge targets `review.reviewing`. The advanced per-package loop keeps its OWN
-# health pair (`packages.item.health.check`/`.escalate`, plus
+# edge targets `build.review.reviewing`. The advanced per-package loop keeps
+# its OWN health pair (`packages.item.health.check`/`.escalate`, plus
 # `packages.item.fix-suite`) because its green edge targets the per-package
 # `packages.item.spec.review` gate instead.
 #
 # Every `on` pattern's path below is written as the matching var's Eta
 # template (e.g. `"A <%= it.vars.feedbackFile %>"`), not a literal `.gtd/...`
 # path — repointing a var reroutes the machine along with every template that
-# reads/writes it (see docs/configuration.md).
+# reads/writes it (see the README's "Variables" section).
 
 vars:
   testCommand: npm test
@@ -338,51 +365,221 @@ machines:
             action: Retry check
             describe: $escalateDescribe
 
-  # ── DEDUP: the checkbox Q&A author/answer loop ─────────────────────────────
-  # The agent develops a plan file, surfacing `## Open Questions` as checkbox
-  # lists; the human answers (answerGate refuses an unanswered step) and either
-  # advances or sends it back. Instantiated for the product (`product.*`) and
-  # technical (`technical.*`) phases of the advanced flow. ▸ planner identity —
-  # `model:` declared once here, stamped onto `author` (its only prompt state).
-  qaLoop:
+  # ── ENCAPSULATION: the advanced flow's design conversation ─────────────────
+  # One planner identity across product Q&A -> technical Q&A -> decomposition:
+  # a single codebase exploration instead of three, and the human's answer
+  # rationale survives from product into technical and into decomposition (all
+  # five states share one memory scope, `design`). Replaces the former
+  # `qaLoop ×2` (which split one design conversation into two minds that each
+  # re-explored the codebase) plus `simpleBuild`'s own `decompose` (which
+  # landed on the coder tier only because it happened to live in the build
+  # machine — decomposition is judgement-heavy planning work, not building).
+  # ▸ planner identity — `model:` declared once here, stamped onto
+  # `product-author`, `technical-author`, and `decompose` (its own prompt
+  # states; the `*-answer` states are human turns and carry no prompt).
+  advancedPlan:
     model: <%= it.vars.plannerModel %>
-    params:
-      [
-        authorFile,
-        authorPrompt,
-        answerMessage,
-        onAdvance,
-        advanceDescribe,
-        editDescribe,
-        authorLabel,
-        answerLabel,
-      ]
-    entry: author
+    params: [onPackages]
+    entry: product-author
     states:
-      author:
+      product-author:
         actor: agent
-        label: $authorLabel
-        file: $authorFile
+        label: Refining the product plan
+        file: <%= it.vars.requirementsFile %>
         mode: qa
-        prompt: $authorPrompt
+        prompt: |
+          You are an autonomous coding agent. This workflow steers itself
+          through its own state files — treat them as its private scratchpad,
+          never as project code or documentation. The only state file this turn
+          touches is `<%= it.vars.requirementsFile %>`; develop it. Do not
+          create other files to hold notes or output.
+
+          `<%= it.vars.requirementsFile %>` holds the product requirements (or the
+          plan you already wrote plus the human's answers on a return lap). Read it,
+          explore the codebase, and develop it into a concrete, PRODUCT-level plan
+          in this one turn.
+
+          Scope: product and user-facing decisions only. Leave implementation
+          details (file/module structure, data models, tech-stack choices) for the
+          next phase (`<%= it.vars.architectureFile %>`).
+
+          For every open point you cannot settle yourself, add a question under a
+          `## Open Questions` heading near the top: one `### <question>` sub-heading
+          each, followed by a checkbox list of candidate answers — aim for TWO
+          concrete options plus a final free-text slot, ALL left UNTICKED:
+
+              ### <the question>
+
+              - [ ] <first option — a concrete answer, a few words of rationale>
+              - [ ] <second option>
+              - [ ] _your answer_
+
+          Never tick a box yourself — the human ticks exactly one per question. The
+          last `- [ ] _your answer_` line is the human's own-answer slot; write it
+          with the literal `_your answer_` placeholder and leave it for them.
+
+          On a RETURN lap the human has ticked one option per question (or replaced
+          `_your answer_` with their own text). For each answered question: fold the
+          chosen answer into the plan prose, then MOVE the question down into a
+          `## Answered Questions` section as `### <question>` followed by the
+          resolved answer in plain PROSE (drop the checkboxes). Never re-raise a
+          question the human deleted; if the human deleted the whole
+          `## Open Questions` section, treat the plan as accepted and surface no new
+          questions unless something is genuinely still blocking. Omit
+          `## Open Questions` entirely once there are none left.
+
+          Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your turn.
         on:
-          "* **": answer
-      answer:
+          "* **": product-answer
+
+      product-answer:
         actor: human
-        label: $answerLabel
-        file: $authorFile
+        label: Awaiting your answers
+        file: <%= it.vars.requirementsFile %>
         mode: qa
         answerGate: true
-        message: $answerMessage
+        message: |
+          `<%= it.vars.requirementsFile %>` holds the product plan under
+          development. Each question under `## Open Questions` offers a few options
+          plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
+          exactly one box (`- [x]`); for your own answer, replace `_your answer_`
+          with your text and tick that line. Stepping is refused while any question
+          is unanswered.
+
+          What each change does next (then run `gtd step human`):
+          <% it.edges.forEach(function (e) { if (e.describe) { %>
+          <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+          <% } }) %>
         on:
           "C":
-            to: $onAdvance
+            to: technical-author
             action: Accept answers
-            describe: $advanceDescribe
+            describe: >-
+              with no open questions left (the agent surfaced none, or you deleted
+              the section and it finalized the plan), change nothing to move on to
+              technical Q&A (**design.technical-author**).
           "* **":
-            to: author
+            to: product-author
             action: Revise answers
-            describe: $editDescribe
+            describe: >-
+              tick exactly one option per open question (replace `_your answer_` for
+              your own) to send the plan back for the agent to fold your answers in
+              (**design.product-author**). Delete a question to skip it, or delete the whole
+              `## Open Questions` section to accept the plan as-is.
+
+      technical-author:
+        actor: agent
+        label: Refining the technical plan
+        file: <%= it.vars.architectureFile %>
+        mode: qa
+        prompt: |
+          You are an autonomous coding agent. This workflow steers itself
+          through its own state files — treat them as its private scratchpad,
+          never as project code or documentation. The only state files this
+          turn touches are `<%= it.vars.architectureFile %>` (write it) and
+          `<%= it.vars.requirementsFile %>` (delete it once its content is
+          folded in). Do not create other files to hold notes or output.
+
+          If you developed those requirements earlier in this conversation, work
+          from what you already settled; otherwise read
+          `<%= it.vars.requirementsFile %>` (the converged product plan) yourself.
+          Develop `<%= it.vars.architectureFile %>` from it in this one turn:
+          file/module structure, data models, library/tech-stack choices,
+          error-handling strategy — the *how*, building on the *what* already
+          settled. Do not re-open product-level decisions; treat them as settled.
+
+          For every open point you cannot settle yourself, add a question under a
+          `## Open Questions` heading exactly as the grilling phase does: one
+          `### <question>` each, followed by a checkbox list — TWO concrete options
+          plus a final free-text slot, ALL left UNTICKED:
+
+              ### <the question>
+
+              - [ ] <first option>
+              - [ ] <second option>
+              - [ ] _your answer_
+
+          Never tick a box yourself. On a RETURN lap the human has ticked one option
+          per question (or replaced `_your answer_` with their own text): fold each
+          chosen answer into the plan prose, then MOVE the question into a
+          `## Answered Questions` section as `### <question>` + the resolved answer
+          in plain PROSE (drop the checkboxes). Never re-raise a deleted question;
+          treat a deleted `## Open Questions` section as acceptance. Omit
+          `## Open Questions` once there are none left.
+
+          Once `<%= it.vars.architectureFile %>` is written, delete
+          `<%= it.vars.requirementsFile %>` — its content has been folded in and it
+          must not linger. Leave everything uncommitted and finish your turn.
+        on:
+          "* **": technical-answer
+
+      technical-answer:
+        actor: human
+        label: Awaiting your answers
+        file: <%= it.vars.architectureFile %>
+        mode: qa
+        answerGate: true
+        message: |
+          `<%= it.vars.architectureFile %>` holds the technical plan under
+          development. Each question under `## Open Questions` offers a few options
+          plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
+          exactly one box (`- [x]`); for your own answer, replace `_your answer_`
+          with your text and tick that line. Stepping is refused while any question
+          is unanswered.
+
+          What each change does next (then run `gtd step human`):
+          <% it.edges.forEach(function (e) { if (e.describe) { %>
+          <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+          <% } }) %>
+        on:
+          "C":
+            to: decompose
+            action: Accept answers
+            describe: >-
+              with no open questions left (the agent surfaced none, or you deleted
+              the section and it finalized the plan), change nothing to move on to
+              decomposing the work into packages (**design.decompose**).
+          "* **":
+            to: technical-author
+            action: Revise answers
+            describe: >-
+              tick exactly one option per open question (replace `_your answer_` for
+              your own) to send the plan back for the agent to fold your answers in
+              (**design.technical-author**). Delete a question to skip it, or delete the whole
+              `## Open Questions` section to accept the plan as-is.
+
+      decompose:
+        actor: agent
+        label: Decomposing into packages
+        prompt: |
+          You are an autonomous coding agent. This workflow steers itself through
+          its own state files — treat them as its private scratchpad, never as
+          project code or documentation. The only state files this turn touches
+          are the package files it writes under `<%= it.vars.packagesDir %>/` and
+          `<%= it.vars.architectureFile %>`, which it deletes. Do not create other
+          files to hold notes or output.
+
+          If you wrote `<%= it.vars.architectureFile %>` earlier in this
+          conversation, work from what you already settled; otherwise read it
+          (the converged technical plan) yourself. Decompose it into an ordered
+          set of WORK PACKAGES, one file each under
+          `<%= it.vars.packagesDir %>/` (e.g. `<%= it.vars.packagesDir %>/01-name.md`,
+          `<%= it.vars.packagesDir %>/02-name.md`, ...). Order the packages so the
+          test suite can pass again after each one lands.
+
+          Each package file describes a set of INDEPENDENT tasks that can be
+          implemented concurrently without ordering constraints between them — a
+          single build turn will fan them out to parallel subagents. Give each task
+          a clear description, acceptance criteria as `- [ ]` checkboxes, and the
+          relevant paths. Also state the package's overall requirement so it can be
+          reviewed against its spec. Do NOT put ordering-dependent tasks in the same
+          package — split them across ordered packages instead.
+
+          No package file may reference any other `.gtd/` file. Once the package
+          files are written, delete `<%= it.vars.architectureFile %>`. Leave
+          everything uncommitted and finish your turn.
+        on:
+          "* <%= it.vars.packagesDir %>/**": $onPackages
 
   # ── ENCAPSULATION: the simple flow's plan-iteration loop ───────────────────
   # ▸ planner identity — `model:` declared once here, stamped onto `planning`
@@ -417,7 +614,9 @@ machines:
           editing it directly, not by answering questions.
 
           On a return lap, `<%= it.vars.todoFile %>` carries the human's edits and
-          inline comments on your previous plan. Fold every edit and comment into a
+          inline comments on your previous plan. If you wrote that plan earlier in
+          this conversation, work from what you already know plus these edits;
+          otherwise read the file fresh. Fold every edit and comment into a
           revised, self-contained plan and remove the addressed comments — the plan
           is always the current, clean proposal, never a diff.
 
@@ -461,7 +660,6 @@ machines:
   # lives in `build.addressing` (`$onFeedback`), not inside this machine.
   humanReview:
     model: <%= it.vars.plannerModel %>
-    params: [onSignoff, onFeedback]
     entry: reviewing
     states:
       reviewing:
@@ -623,8 +821,9 @@ machines:
 
           The raw review material is: <%~ it.read(it.vars.reviewRawFile) %>
 
-          It names a commit — read that commit's diff yourself before classifying
-          anything.
+          It names a commit. If you wrote today's review earlier in this
+          conversation, work from what you already reviewed; otherwise read that
+          commit's diff yourself before classifying anything.
 
           Classify every piece of it into `<%= it.vars.reviewFeedbackFile %>` as a
           flat, numbered instruction list. Each item is `N. ./path/to/file.ts#line —
@@ -682,7 +881,8 @@ machines:
         # unresolved concern is deferred to the shared human review at the tail,
         # which sees the whole diff anyway). NOTE the cap is PROCESS-scoped, so it
         # pools across packages — the same documented limitation the shared
-        # `build.fix` cap has (see STATES.md / docs/configuration.md).
+        # `build.fix` cap has (see the README's "Why" section, "Bounded, not
+        # runaway").
         retry:
           max: 3
           otherwise: $onApproved
@@ -891,14 +1091,17 @@ machines:
 
   # ── ENCAPSULATION: the simple flow's build identity ────────────────────────
   # ▸ coder identity — `model:` declared once here, stamped onto `building`,
-  # `decompose`, `squashing`, `addressing`, and `fix` (its own prompt states).
-  # `addressing` is the implementer's OWN follow-through on review feedback (a
-  # coder action) — reached via `$onFeedback`, bound by the root at
-  # `review.collecting`'s reference site, not nested inside the (planner-only)
-  # `humanReview` machine.
+  # `squashing`, `addressing`, and `fix` (its own prompt states). Decomposition
+  # (`design.decompose`) belongs to the planner tier now, not here — see
+  # `advancedPlan` below. `addressing` is the implementer's OWN follow-through
+  # on review feedback (a coder action) — reached via `$onFeedback`, bound at
+  # its own `review:` reference below, not nested inside the (planner-only)
+  # `humanReview` machine. `humanReview` is nested HERE (not at the root) so
+  # the review tail's run stays inside the builder's own scope — see the
+  # header comment.
   simpleBuild:
     model: <%= it.vars.coderModel %>
-    params: [onPackages, onDone, onGreen]
+    params: [onDone]
     entry: building
     states:
       building:
@@ -923,37 +1126,6 @@ machines:
         on:
           "* **": health.check
 
-      decompose:
-        actor: agent
-        label: Decomposing into packages
-        prompt: |
-          You are an autonomous coding agent. This workflow steers itself through
-          its own state files — treat them as its private scratchpad, never as
-          project code or documentation. The only state files this turn touches
-          are the package files it writes under `<%= it.vars.packagesDir %>/` and
-          `<%= it.vars.architectureFile %>`, which it deletes. Do not create other
-          files to hold notes or output.
-
-          Read `<%= it.vars.architectureFile %>` (the converged technical plan) and
-          decompose it into an ordered set of WORK PACKAGES, one file each under
-          `<%= it.vars.packagesDir %>/` (e.g. `<%= it.vars.packagesDir %>/01-name.md`,
-          `<%= it.vars.packagesDir %>/02-name.md`, ...). Order the packages so the
-          test suite can pass again after each one lands.
-
-          Each package file describes a set of INDEPENDENT tasks that can be
-          implemented concurrently without ordering constraints between them — a
-          single build turn will fan them out to parallel subagents. Give each task
-          a clear description, acceptance criteria as `- [ ]` checkboxes, and the
-          relevant paths. Also state the package's overall requirement so it can be
-          reviewed against its spec. Do NOT put ordering-dependent tasks in the same
-          package — split them across ordered packages instead.
-
-          No package file may reference any other `.gtd/` file. Once the package
-          files are written, delete `<%= it.vars.architectureFile %>`. Leave
-          everything uncommitted and finish your turn.
-        on:
-          "* <%= it.vars.packagesDir %>/**": $onPackages
-
       squashing:
         actor: agent
         label: Squashing
@@ -968,9 +1140,11 @@ machines:
           Leave `<%= it.vars.commitMsgFile %>` uncommitted and finish your turn —
           entering this file squashes everything this process retains into one
           commit using its content as the message. This prompt carries no diff —
-          read the range yourself; it runs from `<%= it.retainedBase %>` to the
-          working tree, and is exactly what that commit will contain, the changes
-          THIS process made (its trace/retry boundary onward). For a normal build
+          if you built that range yourself earlier in this conversation, work from
+          what you already know; otherwise read the range yourself. It runs from
+          `<%= it.retainedBase %>` to the working tree, and is exactly what that
+          commit will contain, the changes THIS process made (its trace/retry
+          boundary onward). For a normal build
           cycle that is the whole feature; for a `gtd --entry review-gate.check`
           process it is only the fixes made during the review — NOT the changeset
           that was under review.
@@ -1041,18 +1215,28 @@ machines:
         on:
           "* **": health.check
 
-      # Shared health pair: build.health.check/.escalate -> review.reviewing
+      # Shared health pair: build.health.check/.escalate -> build.review.reviewing
       # (green) or build.fix (red).
       health:
         machine: healthGate
         with:
-          onGreen: $onGreen
+          onGreen: review
           onRed: fix
           escalateDescribe: >-
             edit the code and/or `.gtd/FEEDBACK.md` yourself
             (**build.health.check**).
           checkLabel: Running checks
           escalateLabel: Escalating to a human
+
+      # The shared review tail, nested HERE (not at the root) so its run stays
+      # inside the builder's own scope across the feedback round-trip — see
+      # the header comment. Sign-off -> squashing; feedback -> addressing (the
+      # implementer's own coder-identity follow-through, not a reviewer action).
+      review:
+        machine: humanReview
+        with:
+          onSignoff: squashing
+          onFeedback: addressing
 
   # The root machine — the whole "advanced/simple" flow tree described in
   # this file's header comment. WIRING ONLY: no identity of its own, just the
@@ -1152,7 +1336,7 @@ machines:
       spec-gate:
         machine: entryGate
         with:
-          onGreen: product
+          onGreen: design
           reviewBase: ""
           blockedMessage: |
             The test baseline is red — gtd will not start new work on a broken suite.
@@ -1170,11 +1354,11 @@ machines:
           checkLabel: Checking the baseline
           blockedLabel: Baseline is red
 
-      # ── Green-baseline gate: `gtd --entry review-gate.check` entry -> review.reviewing. ─
+      # ── Green-baseline gate: `gtd --entry review-gate.check` entry -> build.review.reviewing. ─
       review-gate:
         machine: entryGate
         with:
-          onGreen: review
+          onGreen: build.review
           reviewBase: <%= it.vars.reviewBase %>
           blockedMessage: |
             The test baseline is red — gtd will not start a review on a broken suite.
@@ -1190,143 +1374,12 @@ machines:
           checkLabel: Checking the baseline
           blockedLabel: Baseline is red
 
-      # ── Advanced flow: product Q&A loop (product.author/.answer -> technical.author). ─
-      product:
-        machine: qaLoop
+      # ── Advanced flow: the design conversation (design.product-author/.product-answer ─
+      # -> design.technical-author/.technical-answer -> design.decompose -> packages). ──
+      design:
+        machine: advancedPlan
         with:
-          authorFile: <%= it.vars.requirementsFile %>
-          onAdvance: technical
-          authorPrompt: |
-            You are an autonomous coding agent. This workflow steers itself
-            through its own state files — treat them as its private scratchpad,
-            never as project code or documentation. The only state file this turn
-            touches is `<%= it.vars.requirementsFile %>`; develop it. Do not
-            create other files to hold notes or output.
-
-            `<%= it.vars.requirementsFile %>` holds the product requirements (or the
-            plan you already wrote plus the human's answers on a return lap). Read it,
-            explore the codebase, and develop it into a concrete, PRODUCT-level plan
-            in this one turn.
-
-            Scope: product and user-facing decisions only. Leave implementation
-            details (file/module structure, data models, tech-stack choices) for the
-            next phase (`<%= it.vars.architectureFile %>`).
-
-            For every open point you cannot settle yourself, add a question under a
-            `## Open Questions` heading near the top: one `### <question>` sub-heading
-            each, followed by a checkbox list of candidate answers — aim for TWO
-            concrete options plus a final free-text slot, ALL left UNTICKED:
-
-                ### <the question>
-
-                - [ ] <first option — a concrete answer, a few words of rationale>
-                - [ ] <second option>
-                - [ ] _your answer_
-
-            Never tick a box yourself — the human ticks exactly one per question. The
-            last `- [ ] _your answer_` line is the human's own-answer slot; write it
-            with the literal `_your answer_` placeholder and leave it for them.
-
-            On a RETURN lap the human has ticked one option per question (or replaced
-            `_your answer_` with their own text). For each answered question: fold the
-            chosen answer into the plan prose, then MOVE the question down into a
-            `## Answered Questions` section as `### <question>` followed by the
-            resolved answer in plain PROSE (drop the checkboxes). Never re-raise a
-            question the human deleted; if the human deleted the whole
-            `## Open Questions` section, treat the plan as accepted and surface no new
-            questions unless something is genuinely still blocking. Omit
-            `## Open Questions` entirely once there are none left.
-
-            Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your turn.
-          answerMessage: |
-            `<%= it.vars.requirementsFile %>` holds the product plan under
-            development. Each question under `## Open Questions` offers a few options
-            plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
-            exactly one box (`- [x]`); for your own answer, replace `_your answer_`
-            with your text and tick that line. Stepping is refused while any question
-            is unanswered.
-
-            What each change does next (then run `gtd step human`):
-            <% it.edges.forEach(function (e) { if (e.describe) { %>
-            <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-            <% } }) %>
-          advanceDescribe: >-
-            with no open questions left (the agent surfaced none, or you deleted
-            the section and it finalized the plan), change nothing to move on to
-            technical Q&A (**technical.author**).
-          editDescribe: >-
-            tick exactly one option per open question (replace `_your answer_` for
-            your own) to send the plan back for the agent to fold your answers in
-            (**product.author**). Delete a question to skip it, or delete the whole
-            `## Open Questions` section to accept the plan as-is.
-          authorLabel: Refining the product plan
-          answerLabel: Awaiting your answers
-
-      # ── Advanced flow: technical Q&A loop (technical.author/.answer -> build.decompose). ─
-      technical:
-        machine: qaLoop
-        with:
-          authorFile: <%= it.vars.architectureFile %>
-          onAdvance: build.decompose
-          authorPrompt: |
-            You are an autonomous coding agent. This workflow steers itself
-            through its own state files — treat them as its private scratchpad,
-            never as project code or documentation. The only state files this
-            turn touches are `<%= it.vars.architectureFile %>` (write it) and
-            `<%= it.vars.requirementsFile %>` (delete it once its content is
-            folded in). Do not create other files to hold notes or output.
-
-            Read `<%= it.vars.requirementsFile %>` (the converged product plan) and
-            develop `<%= it.vars.architectureFile %>` from it in this one turn:
-            file/module structure, data models, library/tech-stack choices,
-            error-handling strategy — the *how*, building on the *what* already
-            settled. Do not re-open product-level decisions; treat them as settled.
-
-            For every open point you cannot settle yourself, add a question under a
-            `## Open Questions` heading exactly as the grilling phase does: one
-            `### <question>` each, followed by a checkbox list — TWO concrete options
-            plus a final free-text slot, ALL left UNTICKED:
-
-                ### <the question>
-
-                - [ ] <first option>
-                - [ ] <second option>
-                - [ ] _your answer_
-
-            Never tick a box yourself. On a RETURN lap the human has ticked one option
-            per question (or replaced `_your answer_` with their own text): fold each
-            chosen answer into the plan prose, then MOVE the question into a
-            `## Answered Questions` section as `### <question>` + the resolved answer
-            in plain PROSE (drop the checkboxes). Never re-raise a deleted question;
-            treat a deleted `## Open Questions` section as acceptance. Omit
-            `## Open Questions` once there are none left.
-
-            Once `<%= it.vars.architectureFile %>` is written, delete
-            `<%= it.vars.requirementsFile %>` — its content has been folded in and it
-            must not linger. Leave everything uncommitted and finish your turn.
-          answerMessage: |
-            `<%= it.vars.architectureFile %>` holds the technical plan under
-            development. Each question under `## Open Questions` offers a few options
-            plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
-            exactly one box (`- [x]`); for your own answer, replace `_your answer_`
-            with your text and tick that line. Stepping is refused while any question
-            is unanswered.
-
-            What each change does next (then run `gtd step human`):
-            <% it.edges.forEach(function (e) { if (e.describe) { %>
-            <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-            <% } }) %>
-          advanceDescribe: >-
-            with no open questions left (the agent surfaced none, or you deleted
-            the section and it finalized the plan), change nothing to move on to
-            decomposing the work into packages (**build.decompose**).
-          editDescribe: >-
-            tick exactly one option per open question (replace `_your answer_` for
-            your own) to send the plan back for the agent to fold your answers in
-            (**technical.author**). Delete a question to skip it, or delete the whole
-            `## Open Questions` section to accept the plan as-is.
-          authorLabel: Refining the technical plan
-          answerLabel: Awaiting your answers
+          onPackages: packages
 
       # ── Simple flow plan-iteration loop (plan.planning/.await-plan -> build.building). ──
       plan:
@@ -1334,23 +1387,15 @@ machines:
         with:
           onAccept: build.building
 
-      # ── Shared review tail (review.* -> ... -> build.squashing). ─────────────
-      review:
-        machine: humanReview
-        with:
-          onSignoff: build.squashing
-          onFeedback: build.addressing
-
-      # ── Advanced per-package build queue (packages.* -> review). ───────────────
+      # ── Advanced per-package build queue (packages.* -> build.review). ────────
       packages:
         machine: packageLoop
         with:
-          onDrained: review
+          onDrained: build.review
 
-      # ── Simple flow's build identity (build.* -> review). ──────────────────────
+      # ── Simple flow's build identity (build.* -> build.review -> done). ───────
       build:
         machine: simpleBuild
         with:
           onPackages: packages
           onDone: done
-          onGreen: review
