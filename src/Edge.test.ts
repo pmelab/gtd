@@ -4,10 +4,10 @@ import type { GitOperations } from "./Git.js"
 import {
   computeProcessRun,
   executeDecision,
+  memoryKeyFor,
   pendingChanges,
   renderFile,
   renderLabel,
-  renderMemory,
   renderModel,
   renderOnEdges,
   resolveVars,
@@ -19,8 +19,12 @@ import {
   UNATTRIBUTED_MODEL,
   withCostTrailer,
   withRenderedOn,
-  withReviewBaseTrailer,
   parseReviewBaseTrailer,
+  withEntryTrailers,
+  parseEntryVarTrailers,
+  type ProcessRun,
+  type ResolvedRest,
+  type TraceEntry,
 } from "./Edge.js"
 import { withHistoryTrailer, parseHistoryTrailer } from "./RetainedHistory.js"
 import type { TemplateContext } from "./PatternTemplates.js"
@@ -66,14 +70,15 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
 const run = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
 
 /**
- * A minimal definition for `computeProcessRun`'s tests: only `idle`'s
- * `initial: true` matters to the boundary walk (`initialStateOf` never looks
- * up any OTHER state named in test history, e.g. "grilling"/"building" below
- * — the walk only compares parsed state names against the initial state's
- * NAME as a string).
+ * A minimal definition for `computeProcessRun`'s tests: only `idle` being
+ * `entries.default` matters to the boundary walk (`initialStateOf` never
+ * looks up any OTHER state named in test history, e.g. "grilling"/"building"
+ * below — the walk only compares parsed state names against the initial
+ * state's NAME as a string).
  */
 const def: WorkflowDefinition = {
-  states: { idle: { actor: "human", message: "m", initial: true } },
+  states: { idle: { actor: "human", message: "m" } },
+  entries: { default: "idle", manual: [] },
 }
 
 describe("computeProcessRun", () => {
@@ -86,6 +91,7 @@ describe("computeProcessRun", () => {
       diffBase: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
       trace: [],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -104,8 +110,12 @@ describe("computeProcessRun", () => {
       startHash: "h1",
       startParentHash: "h0",
       diffBase: "h0",
-      trace: ["grilling", "building"],
+      trace: [
+        { state: "grilling", hash: "h1" },
+        { state: "building", hash: "h2" },
+      ],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -119,7 +129,7 @@ describe("computeProcessRun", () => {
     })
     const result = await run(computeProcessRun(git, def))
     expect(result.startParentHash).toBe("4b825dc642cb6eb9a060e54bf8d69288fbee4904")
-    expect(result.trace).toEqual(["grilling"])
+    expect(result.trace).toEqual([{ state: "grilling", hash: "h0" }])
   })
 
   it("no workflow commit at HEAD (a fresh non-workflow boundary) is an empty run whose start is HEAD itself", async () => {
@@ -135,6 +145,7 @@ describe("computeProcessRun", () => {
       diffBase: "h0",
       trace: [],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -155,8 +166,12 @@ describe("computeProcessRun", () => {
       startHash: "h3",
       startParentHash: "h2",
       diffBase: "h2",
-      trace: ["grilling", "building"],
+      trace: [
+        { state: "grilling", hash: "h3" },
+        { state: "building", hash: "h4" },
+      ],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -177,6 +192,7 @@ describe("computeProcessRun", () => {
       diffBase: "h2",
       trace: [],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -195,8 +211,8 @@ describe("computeProcessRun", () => {
     })
     const result = await run(computeProcessRun(git, def))
     expect(result.startParentHash).toBe("h4")
-    expect(result.trace).toEqual(["grilling"])
-    expect(result.trace.filter((state) => state === "fixing")).toHaveLength(0)
+    expect(result.trace).toEqual([{ state: "grilling", hash: "h5" }])
+    expect(result.trace.filter((entry) => entry.state === "fixing")).toHaveLength(0)
   })
 
   it("collects the process's turn-commit `Gtd-Cost:` entries (with models), ignoring the boundary's", async () => {
@@ -233,7 +249,11 @@ describe("computeProcessRun", () => {
       commitHistory: () => Effect.succeed(history),
     })
     const result = await run(computeProcessRun(git, def))
-    expect(result.trace).toEqual(["grilling", "building", "checking"])
+    expect(result.trace).toEqual([
+      { state: "grilling", hash: "h1" },
+      { state: "building", hash: "h2" },
+      { state: "checking", hash: "h3" },
+    ])
     expect(result.costEntries).toEqual([
       { cost: 120, model: "opus" },
       { cost: 300, model: "haiku" },
@@ -258,7 +278,7 @@ describe("computeProcessRun", () => {
       commitHistory: () => Effect.succeed(history),
     })
     const result = await run(computeProcessRun(git, def))
-    expect(result.trace).toEqual(["reviewing"])
+    expect(result.trace).toEqual([{ state: "reviewing", hash: "h1" }])
     expect(result.startParentHash).toBe("h0")
     expect(result.diffBase).toBe("deadbeef")
   })
@@ -285,6 +305,58 @@ describe("computeProcessRun", () => {
     expect(result.diffBase).toBe("h0")
   })
 
+  it("collects `Gtd-Var:` entries off the process's OLDEST commit into `entryVars`", async () => {
+    const history = [
+      { hash: "h0", message: "feat: add calculator", removedErrors: false, touched: [] },
+      {
+        hash: "h1",
+        message: "gtd(human): reviewing\n\nGtd-Var: base=refs/heads/main\nGtd-Var: reviewer=alice",
+        removedErrors: false,
+        touched: [],
+      },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.entryVars).toEqual({ base: "refs/heads/main", reviewer: "alice" })
+  })
+
+  it("a `Gtd-Var:` trailer on a LATER turn (not the process's oldest commit) never shows up in `entryVars`", async () => {
+    const history = [
+      { hash: "h0", message: "feat: add calculator", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(human): reviewing", removedErrors: false, touched: [] },
+      // A later turn happens to carry a trailer that LOOKS like the entry-var
+      // one — never mistaken for the process's own entry commit.
+      {
+        hash: "h2",
+        message: "gtd(human): await-review\n\nGtd-Var: sneaky=not-the-real-entry",
+        removedErrors: false,
+        touched: [],
+      },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.entryVars).toEqual({})
+  })
+
+  it("with no `Gtd-Var:` trailer, `entryVars` defaults to `{}`", async () => {
+    const history = [
+      { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(human): grilling", removedErrors: false, touched: [] },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.entryVars).toEqual({})
+  })
+
   it("with no `Gtd-Review-Base:` trailer, `diffBase` defaults to `startParentHash` (the ordinary case)", async () => {
     const history = [
       { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
@@ -296,6 +368,98 @@ describe("computeProcessRun", () => {
     })
     const result = await run(computeProcessRun(git, def))
     expect(result.diffBase).toBe(result.startParentHash)
+  })
+
+  it("keeps each trace entry's commit hash alongside its state name", async () => {
+    const history = [
+      { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(human): grilling", removedErrors: false, touched: [] },
+      { hash: "h2", message: "gtd(agent): building", removedErrors: false, touched: [] },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.trace).toEqual([
+      { state: "grilling", hash: "h1" },
+      { state: "building", hash: "h2" },
+    ])
+  })
+})
+
+const promptRest = (state: string, workflowDef: WorkflowDefinition): ResolvedRest => ({
+  def: workflowDef,
+  state,
+  stateDef: { actor: "agent", prompt: "think" },
+  actor: "agent",
+})
+
+const runWith = (startParentHash: string, trace: readonly TraceEntry[]): ProcessRun => ({
+  startHash: trace[0]?.hash ?? startParentHash,
+  startParentHash,
+  diffBase: startParentHash,
+  trace,
+  costEntries: [],
+  entryVars: {},
+})
+
+describe("memoryKeyFor", () => {
+  const scopes: Readonly<Record<string, string>> = {
+    "job.think": "job",
+    "job.done": "job",
+    "other.state": "other",
+  }
+
+  it("returns undefined for a non-prompt rest, regardless of scopes/run", async () => {
+    const rest: ResolvedRest = {
+      def,
+      state: "job.think",
+      stateDef: { actor: "check", script: "npm test" },
+      actor: "check",
+    }
+    const run = runWith("start-parent", [])
+    expect(memoryKeyFor(scopes, rest, run)).toBeUndefined()
+  })
+
+  it("anchors to `startParentHash` at trace position 0 (the entry sits at the very start of the trace)", () => {
+    const rest = promptRest("job.think", def)
+    // The trace already contains ONE prior entry into this same scope, at
+    // index 0 — `entryIndex` resolves to 0, not -1, but the token is still
+    // `startParentHash` (no earlier trace entry exists to anchor to).
+    const run = runWith("start-parent", [{ state: "job.think", hash: "h1" }])
+    expect(memoryKeyFor(scopes, rest, run)).toBe(`job#${"start-parent".slice(0, 7)}`)
+  })
+
+  it("anchors to `startParentHash` for an empty trace too — position 0 and the empty trace coincide by construction", () => {
+    const rest = promptRest("job.think", def)
+    const run = runWith("start-parent", [])
+    expect(memoryKeyFor(scopes, rest, run)).toBe(`job#${"start-parent".slice(0, 7)}`)
+  })
+
+  it("anchors to the commit immediately BEFORE a later unbroken scope entry began", () => {
+    const rest = promptRest("job.done", def)
+    // The current unbroken run into the `job` scope started at trace index 1
+    // (`job.think`, right after the unrelated `other.state` turn) —
+    // `entryIndex` resolves to 1, so the token is `trace[0].hash`, the commit
+    // the run started FROM, not the run's own first commit.
+    const run = runWith("start-parent", [
+      { state: "other.state", hash: "h0" },
+      { state: "job.think", hash: "h1" },
+    ])
+    expect(memoryKeyFor(scopes, rest, run)).toBe(`job#${"h0".slice(0, 7)}`)
+  })
+
+  it("formats the key as `${scope}#${first 7 chars of the token hash}`", () => {
+    const rest = promptRest("job.think", def)
+    const run = runWith("abcdefabcdefabcdef", [])
+    expect(memoryKeyFor(scopes, rest, run)).toBe("job#abcdefa")
+  })
+
+  it("returns undefined when `memoryScopeAt` itself can't resolve a scope (the rest's state is absent from `scopes`)", () => {
+    const rest = promptRest("no-such-state", def)
+    const run = runWith("start-parent", [])
+    expect(memoryKeyFor(scopes, rest, run)).toBeUndefined()
   })
 })
 
@@ -327,6 +491,7 @@ describe("retainsNothing", () => {
     diffBase: "p",
     trace: [],
     costEntries: [],
+    entryVars: {},
   }
 
   it("true on a clean tree with no range changes since the trace/retry boundary", async () => {
@@ -378,8 +543,9 @@ describe("executeDecision", () => {
           startHash: "s",
           startParentHash: "p",
           diffBase: "p",
-          trace: ["grilling"],
+          trace: [{ state: "grilling", hash: "h" }],
           costEntries: [],
+          entryVars: {},
         },
         {
           kind: "commit",
@@ -405,8 +571,9 @@ describe("executeDecision", () => {
           startHash: "s",
           startParentHash: "p",
           diffBase: "p",
-          trace: ["grilling"],
+          trace: [{ state: "grilling", hash: "h" }],
           costEntries: [],
+          entryVars: {},
         },
         {
           kind: "commit",
@@ -458,8 +625,9 @@ describe("executeDecision", () => {
           startHash: "s",
           startParentHash: "parent-hash",
           diffBase: "parent-hash",
-          trace: ["squashing"],
+          trace: [{ state: "squashing", hash: "h" }],
           costEntries: [],
+          entryVars: {},
         },
         { kind: "squash", state: "done", template: "feat: <%= it.state %>" },
         context({ state: "done" }),
@@ -485,6 +653,7 @@ describe("executeDecision", () => {
           diffBase: "parent-hash",
           trace: [],
           costEntries: [],
+          entryVars: {},
         },
         { kind: "squash", state: "done", template: '<%~ it.read("missing.md") %>' },
         context(),
@@ -502,7 +671,14 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "p", diffBase: "p", trace: [], costEntries: [] },
+        {
+          startHash: "s",
+          startParentHash: "p",
+          diffBase: "p",
+          trace: [],
+          costEntries: [],
+          entryVars: {},
+        },
         { kind: "noop", state: "idle" },
         context(),
       ),
@@ -562,14 +738,6 @@ describe("parseCostTrailers", () => {
   })
 })
 
-describe("withReviewBaseTrailer", () => {
-  it("appends a `Gtd-Review-Base:` trailer after a blank line, leaving the subject as the first line", () => {
-    const message = withReviewBaseTrailer("gtd(human): reviewing", "abc123")
-    expect(message).toBe("gtd(human): reviewing\n\nGtd-Review-Base: abc123")
-    expect(message.split("\n")[0]).toBe("gtd(human): reviewing")
-  })
-})
-
 describe("parseReviewBaseTrailer", () => {
   it("reads the hash back off a message carrying the trailer", () => {
     expect(parseReviewBaseTrailer("gtd(human): reviewing\n\nGtd-Review-Base: abc123")).toBe(
@@ -580,6 +748,58 @@ describe("parseReviewBaseTrailer", () => {
   it("is undefined when the message carries no such trailer", () => {
     expect(parseReviewBaseTrailer("gtd(human): reviewing")).toBeUndefined()
     expect(parseReviewBaseTrailer("chore: init\n\nGtd-Cost: 10")).toBeUndefined()
+  })
+})
+
+describe("withEntryTrailers / parseEntryVarTrailers", () => {
+  it("neither base nor vars leaves the subject unchanged, no trailing blank line", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", { vars: {} })
+    expect(message).toBe("gtd(human): reviewing")
+  })
+
+  it("base only appends a `Gtd-Review-Base:` trailer after a blank line, leaving the subject as the first line", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", { base: "abc123", vars: {} })
+    expect(message).toBe("gtd(human): reviewing\n\nGtd-Review-Base: abc123")
+    expect(message.split("\n")[0]).toBe("gtd(human): reviewing")
+    expect(parseReviewBaseTrailer(message)).toBe("abc123")
+  })
+
+  it("vars only appends one `Gtd-Var:` line per entry, in `Object.entries` order", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", {
+      vars: { reviewer: "alice", base: "refs/heads/main" },
+    })
+    expect(message).toBe(
+      "gtd(human): reviewing\n\nGtd-Var: reviewer=alice\nGtd-Var: base=refs/heads/main",
+    )
+    expect(parseEntryVarTrailers(message)).toEqual({
+      reviewer: "alice",
+      base: "refs/heads/main",
+    })
+  })
+
+  it("base + vars together: the review-base line comes first, then the var lines", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", {
+      base: "deadbeef",
+      vars: { reviewer: "alice" },
+    })
+    expect(message).toBe(
+      "gtd(human): reviewing\n\nGtd-Review-Base: deadbeef\nGtd-Var: reviewer=alice",
+    )
+    expect(parseReviewBaseTrailer(message)).toBe("deadbeef")
+    expect(parseEntryVarTrailers(message)).toEqual({ reviewer: "alice" })
+  })
+
+  it("a var value containing `=` round-trips (split on the FIRST `=` only)", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", {
+      vars: { base: "refs/heads/a=b" },
+    })
+    expect(message).toBe("gtd(human): reviewing\n\nGtd-Var: base=refs/heads/a=b")
+    expect(parseEntryVarTrailers(message)).toEqual({ base: "refs/heads/a=b" })
+  })
+
+  it("parseEntryVarTrailers returns {} when the message carries no such lines", () => {
+    expect(parseEntryVarTrailers("gtd(human): reviewing")).toEqual({})
+    expect(parseEntryVarTrailers("chore: init\n\nGtd-Cost: 10")).toEqual({})
   })
 })
 
@@ -624,9 +844,9 @@ describe("totalCostOf / costByModel", () => {
   })
 })
 
-describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)", () => {
+describe("resolveVars — the four-layer `it.vars` merge (workflow < rc < entryVars < env)", () => {
   it("with only a workflow default, that default wins", () => {
-    expect(resolveVars({ testCommand: "npm test" }, {}, {})).toEqual({
+    expect(resolveVars({ testCommand: "npm test" }, {}, {}, {})).toEqual({
       testCommand: "npm test",
     })
   })
@@ -637,6 +857,7 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
         { testCommand: "npm test", reviewer: "alice" },
         { testCommand: "npm run check" },
         {},
+        {},
       ),
     ).toEqual({ testCommand: "npm run check", reviewer: "alice" })
   })
@@ -646,18 +867,19 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
       resolveVars(
         { testCommand: "npm test" },
         { testCommand: "npm run check" },
+        {},
         { GTD_TESTCOMMAND: "echo env-wins" },
       ),
     ).toEqual({ testCommand: "echo env-wins" })
   })
 
   it("ignores a `GTD_*` env var whose uppercased name matches no declared var", () => {
-    expect(resolveVars({}, {}, { GTD_BRANDNEW: "hello" })).toEqual({})
+    expect(resolveVars({}, {}, {}, { GTD_BRANDNEW: "hello" })).toEqual({})
   })
 
   it("matches only the fully-uppercased name — `GTD_TestCommand` (not all-caps) does not override", () => {
     expect(
-      resolveVars({ testCommand: "npm test" }, {}, { GTD_TestCommand: "not-uppercase" }),
+      resolveVars({ testCommand: "npm test" }, {}, {}, { GTD_TestCommand: "not-uppercase" }),
     ).toEqual({ testCommand: "npm test" })
   })
 
@@ -666,9 +888,38 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
       resolveVars(
         { kept: "default", unset: "default" },
         {},
+        {},
         { PATH: "/usr/bin", GTD_KEPT: "yes", GTD_LOOP_LOG: "/tmp/log", GTD_UNSET: undefined },
       ),
     ).toEqual({ kept: "yes", unset: "default" })
+  })
+
+  it("entryVars overrides both the workflow default and the rc value for the same name", () => {
+    expect(
+      resolveVars(
+        { testCommand: "npm test", reviewer: "alice" },
+        { testCommand: "npm run check" },
+        { testCommand: "npm run entry-check" },
+        {},
+      ),
+    ).toEqual({ testCommand: "npm run entry-check", reviewer: "alice" })
+  })
+
+  it("entryVars introduces a name declared by neither workflow nor rc (a plain unconditional spread)", () => {
+    expect(resolveVars({}, {}, { base: "refs/heads/main" }, {})).toEqual({
+      base: "refs/heads/main",
+    })
+  })
+
+  it("env still beats entryVars — the topmost layer wins", () => {
+    expect(
+      resolveVars(
+        { testCommand: "npm test" },
+        {},
+        { testCommand: "npm run entry-check" },
+        { GTD_TESTCOMMAND: "echo env-wins" },
+      ),
+    ).toEqual({ testCommand: "echo env-wins" })
   })
 })
 
@@ -778,9 +1029,10 @@ describe("renderOnEdges — `on` pattern keys rendered against `it.vars`", () =>
 describe("withRenderedOn — patches only the resting state's `on` for `step`", () => {
   const def: WorkflowDefinition = {
     states: {
-      idle: { actor: "human", message: "m", initial: true, on: [["A <%= it.vars.x %>", "idle"]] },
+      idle: { actor: "human", message: "m", on: [["A <%= it.vars.x %>", "idle"]] },
       other: { actor: "human", message: "m", on: [["A <%= it.vars.y %>", "other"]] },
     },
+    entries: { default: "idle", manual: [] },
   }
 
   it("replaces the named state's `on` with the given rendered edges", () => {
@@ -827,44 +1079,6 @@ describe("renderModel", () => {
 
   it("a model render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
     const outcome = await run1(renderModel(stateDef("<%= it.vars.nope.deeper %>"), context())).then(
-      () => "resolved" as const,
-      (e: Error) => e,
-    )
-    expect(outcome).not.toBe("resolved")
-    expect(outcome).toBeInstanceOf(Error)
-  })
-})
-
-describe("renderMemory", () => {
-  const stateDef = (memory?: string): StateDef =>
-    memory !== undefined ? { actor: "agent", prompt: "x", memory } : { actor: "agent", prompt: "x" }
-
-  const run1 = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
-
-  it("a state with no `memory:` renders to `undefined`", async () => {
-    const result = await run1(renderMemory(stateDef(), context()))
-    expect(result).toBeUndefined()
-  })
-
-  it("a plain label with no Eta tags passes through unchanged", async () => {
-    const result = await run1(renderMemory(stateDef("plan"), context()))
-    expect(result).toBe("plan")
-  })
-
-  it("a templated `memory:` resolves against the same `it.vars` the content sees", async () => {
-    const result = await run1(
-      renderMemory(
-        stateDef("<%= it.vars.planScope %>"),
-        context({ vars: { planScope: "grilling" } }),
-      ),
-    )
-    expect(result).toBe("grilling")
-  })
-
-  it("a memory render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
-    const outcome = await run1(
-      renderMemory(stateDef("<%= it.vars.nope.deeper %>"), context()),
-    ).then(
       () => "resolved" as const,
       (e: Error) => e,
     )

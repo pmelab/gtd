@@ -38,12 +38,16 @@ afterEach(() => {
 const minimalWorkflowYaml = (idleMessage: string) =>
   [
     `workflow:`,
-    `  states:`,
-    `    idle:`,
-    `      actor: human`,
-    `      initial: true`,
-    `      message: "${idleMessage}"`,
-    `      on: {}`,
+    `  entry:`,
+    `    default: root`,
+    `  machines:`,
+    `    root:`,
+    `      entry: idle`,
+    `      states:`,
+    `        idle:`,
+    `          actor: human`,
+    `          message: "${idleMessage}"`,
+    `          on: {}`,
     ``,
   ].join("\n")
 
@@ -57,6 +61,21 @@ describe("ConfigService", () => {
     expect(cfg.workflow).toEqual(definition)
     expect(cfg.workflowVars).toEqual(vars)
     expect(cfg.rcVars).toEqual({})
+  })
+
+  it("with no config anywhere: `stateScopes` comes from the built-in default's compiled scopes", async () => {
+    const cfg = await getConfig()
+
+    expect(cfg.stateScopes).toEqual(compileTemplate().scopes)
+    expect(Object.keys(cfg.stateScopes).sort()).toEqual(Object.keys(cfg.workflow.states).sort())
+  })
+
+  it("a custom `workflow:`'s `stateScopes` comes from its own compiled scopes", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), minimalWorkflowYaml("custom idle"))
+
+    const cfg = await getConfig()
+
+    expect(cfg.stateScopes).toEqual({ idle: "" })
   })
 
   it("a config with a top-level `vars:` but no `workflow:` uses the built-in default", async () => {
@@ -111,8 +130,14 @@ describe("ConfigService", () => {
       join(projectDir, "gtd.config.json"),
       JSON.stringify({
         workflow: {
-          states: {
-            idle: { actor: "human", initial: true, message: "json idle", on: {} },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "idle",
+              states: {
+                idle: { actor: "human", message: "json idle", on: {} },
+              },
+            },
           },
         },
       }),
@@ -128,8 +153,13 @@ describe("ConfigService", () => {
       join(projectDir, ".gtdrc.yaml"),
       [
         `workflow:`,
-        `  states:`,
-        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle: { actor: human, message: "x", on: {} }`,
         `vars:`,
         `  greeting: hi`,
         `  attempts: 3`,
@@ -151,8 +181,13 @@ describe("ConfigService", () => {
       join(projectDir, ".gtdrc.yaml"),
       [
         `workflow:`,
-        `  states:`,
-        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle: { actor: human, message: "x", on: {} }`,
         `vars:`,
         `  greeting: ancestor`,
         `  onlyAncestor: yes`,
@@ -178,14 +213,18 @@ describe("ConfigService", () => {
         `    adr:`,
         `      format: "never-used"`,
         `      validate: "adr-lint <%= it.file %>"`,
-        `  states:`,
-        `    idle:`,
-        `      actor: human`,
-        `      initial: true`,
-        `      message: "hi"`,
-        `      file: docs/adr.md`,
-        `      mode: adr`,
-        `      on: {}`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle:`,
+        `          actor: human`,
+        `          message: "hi"`,
+        `          file: docs/adr.md`,
+        `          mode: adr`,
+        `          on: {}`,
         ``,
       ].join("\n"),
     )
@@ -205,14 +244,18 @@ describe("ConfigService", () => {
         `  adr:`,
         `    validate: "adr-lint <%= it.file %>"`,
         `workflow:`,
-        `  states:`,
-        `    idle:`,
-        `      actor: human`,
-        `      initial: true`,
-        `      message: "hi"`,
-        `      file: docs/adr.md`,
-        `      mode: adr`,
-        `      on: {}`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle:`,
+        `          actor: human`,
+        `          message: "hi"`,
+        `          file: docs/adr.md`,
+        `          mode: adr`,
+        `          on: {}`,
         ``,
       ].join("\n"),
     )
@@ -232,8 +275,13 @@ describe("ConfigService", () => {
         `  adr:`,
         `    lint: "adr-lint"`,
         `workflow:`,
-        `  states:`,
-        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle: { actor: human, message: "x", on: {} }`,
         ``,
       ].join("\n"),
     )
@@ -270,9 +318,18 @@ describe("ConfigService", () => {
   it("surfaces the workflow compiler's own error on an invalid `workflow:` key", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`workflow:`, `  states:`, `    idle:`, `      message: "no actor, no initial"`, ``].join(
-        "\n",
-      ),
+      [
+        `workflow:`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle:`,
+        `          message: "no actor"`,
+        ``,
+      ].join("\n"),
     )
 
     const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
@@ -289,7 +346,13 @@ describe("ConfigService", () => {
       JSON.stringify({
         $schema: "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json",
         workflow: {
-          states: { idle: { actor: "human", initial: true, message: "x", on: {} } },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "idle",
+              states: { idle: { actor: "human", message: "x", on: {} } },
+            },
+          },
         },
       }),
     )
@@ -316,19 +379,31 @@ describe("ConfigService", () => {
 const idleMessageRefYaml = (ref: string) =>
   [
     `workflow:`,
-    `  states:`,
-    `    idle:`,
-    `      actor: human`,
-    `      initial: true`,
-    `      message: "${ref}"`,
-    `      on: {}`,
+    `  entry:`,
+    `    default: root`,
+    `  machines:`,
+    `    root:`,
+    `      entry: idle`,
+    `      states:`,
+    `        idle:`,
+    `          actor: human`,
+    `          message: "${ref}"`,
+    `          on: {}`,
     ``,
   ].join("\n")
 
-// A partial workflow that overlays only `idle.model` — merged over an ancestor
+// A partial workflow that overlays only `idle.label` — merged over an ancestor
 // that supplies the rest of the state (so the ancestor's `message` survives).
-const idleModelOverlayYaml = (model: string) =>
-  [`workflow:`, `  states:`, `    idle:`, `      model: "${model}"`, ``].join("\n")
+const idleLabelOverlayYaml = (label: string) =>
+  [
+    `workflow:`,
+    `  machines:`,
+    `    root:`,
+    `      states:`,
+    `        idle:`,
+    `          label: "${label}"`,
+    ``,
+  ].join("\n")
 
 describe("ConfigService — content file refs resolve against the declaring config file", () => {
   it("resolves a `./`-relative ref from a .gtdrc stored in an ANCESTOR dir against the ancestor, not the child cwd gtd runs from", async () => {
@@ -351,14 +426,14 @@ describe("ConfigService — content file refs resolve against the declaring conf
     mkdirSync(join(projectDir, "prompts"), { recursive: true })
     writeFileSync(join(projectDir, "prompts", "idle.md"), "ancestor idle")
     writeFileSync(join(projectDir, ".gtdrc.yaml"), idleMessageRefYaml("./prompts/idle.md"))
-    writeFileSync(join(child, ".gtdrc.yaml"), idleModelOverlayYaml("opus-x"))
+    writeFileSync(join(child, ".gtdrc.yaml"), idleLabelOverlayYaml("Idle"))
 
     const cfg = await getConfig(child)
 
     // `message` came from the ancestor and inlined against the ancestor dir; the
-    // child only overlaid `model`.
+    // child only overlaid `label`.
     expect(cfg.workflow.states["idle"]?.message).toBe("ancestor idle")
-    expect(cfg.workflow.states["idle"]?.model).toBe("opus-x")
+    expect(cfg.workflow.states["idle"]?.label).toBe("Idle")
   })
 
   it("resolves a child's overriding ref against the CHILD dir (each level uses its own file), child wins", async () => {

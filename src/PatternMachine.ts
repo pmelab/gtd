@@ -10,8 +10,11 @@
  * states), exactly one content kind (`script` | `prompt` | `message` |
  * `commit`, all opaque strings — template rendering is NOT this module's
  * job), an ordered `on` map of change-patterns to next states (absent on
- * commit states), optionally `initial: true` (exactly one state must carry
- * it), and an optional `retry` cap. A definition may also declare `modes:` —
+ * commit states), and an optional `retry` cap. A `WorkflowDefinition`
+ * separately declares `entries` — the state names a process may START at
+ * (`default`, plus `manual` — every state declaring `entry: true`, enterable
+ * via `gtd step <actor> --entry <state>`). A definition
+ * may also declare `modes:` —
  * named pairs of format/validate shell commands a state's `mode:` can point
  * at (see `ModeDef`); they are inert data here too, rendered and executed
  * only at the edge (`src/SteeringMode.ts`).
@@ -92,7 +95,6 @@ export interface StateDef {
   readonly message?: string
   readonly commit?: string
   readonly on?: readonly OnEdge[]
-  readonly initial?: true
   readonly retry?: RetryDef
   /**
    * An OPAQUE harness hint — gtd never interprets this string, it only
@@ -101,42 +103,27 @@ export interface StateDef {
    * provides (e.g. `"smart"`, `"fast"`, or a concrete model id). Unset means
    * "use the harness's default". Plays no role in engine decisions — `step`
    * and `resolveState` never read it. Forbidden on a commit state (never at
-   * rest, emits nothing — see `validateDefinition`).
+   * rest, emits nothing — see `validateDefinition`). No longer authored
+   * directly on a state: the compiler (`src/PatternConfig.ts`, over
+   * `src/Machines.ts`'s flattening pass) STAMPS this field from the state's
+   * owning machine's own `model:` declaration, onto every one of that
+   * machine's emitted states whose content kind is `prompt` — a state itself
+   * never declares `model:` directly anymore.
    */
   readonly model?: string
-  /**
-   * An OPAQUE memory-scope label — gtd never interprets this string, it only
-   * passes it through verbatim (`gtd next --json`/`gtd status --json`) so a
-   * memory-aware driving loop can decide when an agent turn continues from the
-   * previous turn's memory and when it starts fresh. The contract is a
-   * comparison, not a command: two agent turns emitting the SAME `memory`
-   * value belong to the same memory scope (the driver retains memory across
-   * them), and a change in value — or the first agent turn — is where the
-   * driver starts fresh. This makes a loop that keeps re-entering one state
-   * (e.g. a planning or fix loop) retain memory across its laps, while a phase
-   * boundary that moves to a differently-labelled state clears it. Unset means
-   * "use the harness's default". Rendered as an Eta template through the same
-   * `it.vars`-carrying context as `model`/content (a plain string with no Eta
-   * tags passes through unchanged). Plays no role in engine decisions — `step`
-   * and `resolveState` never read it. Forbidden on a commit state (never at
-   * rest, emits nothing — see `validateDefinition`), same rule family as
-   * `model`.
-   */
-  readonly memory?: string
   /**
    * An OPAQUE, human-readable display NAME for the state — gtd never
    * interprets this string, it only passes it through verbatim (`gtd next
    * --json`/`gtd status --json`) so a driving loop or viewer can show
-   * something nicer than the raw state name. Unlike `memory`, there is no
-   * comparison semantics here — it is just a label. Unset means "show the
-   * raw state name" — that fallback lives in the CONSUMER (a driver/viewer),
-   * not in gtd itself, which simply omits the field. Rendered as an Eta
-   * template through the same `it.vars`-carrying context as
-   * `model`/`memory`/content (a plain string with no Eta tags passes through
-   * unchanged). Plays no role in engine decisions — `step` and
-   * `resolveState` never read it. Forbidden on a commit state (never at
-   * rest, emits nothing — see `validateDefinition`), same rule family as
-   * `model`/`memory`.
+   * something nicer than the raw state name. There is no comparison
+   * semantics here — it is just a label. Unset means "show the raw state
+   * name" — that fallback lives in the CONSUMER (a driver/viewer), not in
+   * gtd itself, which simply omits the field. Rendered as an Eta template
+   * through the same `it.vars`-carrying context as `model`/content (a plain
+   * string with no Eta tags passes through unchanged). Plays no role in
+   * engine decisions — `step` and `resolveState` never read it. Forbidden on
+   * a commit state (never at rest, emits nothing — see `validateDefinition`),
+   * same rule family as `model`.
    */
   readonly label?: string
   /**
@@ -177,46 +164,25 @@ export interface StateDef {
    */
   readonly reviewWindow?: boolean
   /**
-   * Optional. Marks a state whose most-recent in-process turn commit is the
-   * BASE of the review window's diff (`base..HEAD`) — everything committed
+   * Optional. `true` marks a state whose most-recent in-process turn commit is
+   * the BASE of the review window's diff (`base..HEAD`) — everything committed
    * after entering this state surfaces as pending while the window is open.
    * When no in-process commit entered a `reviewBase` state, the window falls
    * back to the process start (see `src/ReviewWindow.ts`). Like `reviewWindow`
-   * the ENGINE never reads it — it is history-derived edge data. Forbidden on
-   * a commit state (see `validateDefinition`).
+   * the ENGINE never reads it — it is history-derived edge data.
+   *
+   * A STRING is a different shape entirely: an Eta template rendering a
+   * commitish. Entering that state fixes the WHOLE PROCESS's diff base to the
+   * rendered value (not a window anchor) — this is how a manual entry (e.g.
+   * `gtd step <actor> --entry review --base <commitish>`) pins what the rest
+   * of the process diffs against. Rendering the template happens at the edge,
+   * not here — this module only carries the raw string (see
+   * `entryBaseTemplateOf`) and, per `isReviewBaseState`, a string value is
+   * NEVER treated as the `true`/window-anchor form.
+   *
+   * Forbidden on a commit state (see `validateDefinition`).
    */
-  readonly reviewBase?: boolean
-  /**
-   * Optional. Marks the state `gtd review <commitish>` (`src/program.ts`)
-   * enters to start a brand NEW process reviewing `<commitish>..HEAD` (e.g. a
-   * colleague's PR branch) — reusing whatever `on`/`reviewWindow`/`reviewBase`
-   * machinery that state and its downstream states already declare, with zero
-   * duplicated logic. At most one state may declare it; forbidden on a commit
-   * state (never at rest — see `validateDefinition`) and on the initial state
-   * (a review entry is a DELIBERATE, distinct starting point from the
-   * workflow's ordinary "no active cycle" rest, so the two must stay
-   * distinguishable). This module's PURE functions never read it — the
-   * mechanism (writing the entry commit, resolving `<commitish>`, recording
-   * its hash as a `Gtd-Review-Base:` trailer) lives entirely at the edge
-   * (`src/Edge.ts`/`src/program.ts`); see `reviewEntryStateOf`.
-   */
-  readonly reviewEntry?: boolean
-  /**
-   * Optional. Marks the state `gtd fix` (`src/program.ts`) enters to start a
-   * brand NEW process that goes straight into repairing the current failing
-   * tests — a check state that runs the suite, routing a red run into the
-   * shared fix loop and a green run to a no-op terminal. At most one state may
-   * declare it; forbidden on a commit state (never at rest) and on the initial
-   * state (a fix entry is a DELIBERATE starting point, distinct from the
-   * ordinary "no active cycle" rest — `gtd fix` REQUIRES resting at the initial
-   * state before it acts, so the two must stay distinguishable), exactly the
-   * same rule family as `reviewEntry`. This module's PURE functions never read
-   * it — unlike `reviewEntry` it needs no diff-base trailer at all (the fix
-   * process reviews its own fixes from the ordinary process start), so the
-   * whole mechanism is just the entry commit `gtd fix` writes at the edge; see
-   * `fixEntryStateOf`.
-   */
-  readonly fixEntry?: boolean
+  readonly reviewBase?: true | string
   /**
    * Optional. When `true`, a step at this state is REFUSED if its only pending
    * change is deleting the state's own `file:` — a work-free turn that discards
@@ -321,9 +287,29 @@ const declaredModes = (def: WorkflowDefinition): readonly StateMode[] =>
 export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
   Array.from(new Set([...KNOWN_BUILT_IN_MODES, ...declaredModes(def)]))
 
-/** A workflow: named states, plus the optional steering-file `modes:` they may name. Exactly one state must declare `initial: true`. */
+/**
+ * The state names a process may START at. `default` is where an ordinary
+ * "no active cycle" rest resumes (see `initialStateOf`) — required, so there
+ * is always a value. `manual` is every OTHER state a process may start at:
+ * every state that declared `entry: true` in the source config, qualified and
+ * sorted by the compiler, empty when the workflow declares none. A manual
+ * entry is reached via `gtd step <actor> --entry <state>` (`src/program.ts`)
+ * — a DELIBERATE, distinct starting point from `default` (e.g. a review or a
+ * fix process that begins somewhere other than the ordinary rest).
+ * `validateDefinition`'s `validateEntries` guarantees `default` and every
+ * `manual` entry each name a defined, non-commit state, that no `manual`
+ * entry equals `default`, and that `manual` carries no duplicate.
+ */
+export interface WorkflowEntries {
+  readonly default: StateName
+  /** Every state that declared `entry: true`, qualified and sorted. Empty array when none declared. */
+  readonly manual: readonly StateName[]
+}
+
+/** A workflow: named states, the entry points a process may start at, plus the optional steering-file `modes:` they may name. */
 export interface WorkflowDefinition {
   readonly states: Readonly<Record<StateName, StateDef>>
+  readonly entries: WorkflowEntries
   /**
    * The steering-file modes available to this workflow's states — mode name ->
    * its format/validate commands (see `ModeDef`). Already the MERGE of the
@@ -356,9 +342,18 @@ export const contentOf = (state: StateDef): string | undefined =>
 export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewWindow === true
 
-/** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). */
+/** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). The string/template form of `reviewBase` is NOT a window anchor — this stays narrowed to `=== true` on purpose, never truthy. */
 export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewBase === true
+
+/** The named state's `reviewBase` when it is a STRING (an Eta template rendering a commitish that fixes the whole process's diff base — see `StateDef.reviewBase`) — `undefined` when `reviewBase` is `true`, absent, or `state` doesn't exist. Pure accessor only: rendering the template is an edge concern. */
+export const entryBaseTemplateOf = (
+  def: WorkflowDefinition,
+  state: StateName,
+): string | undefined => {
+  const reviewBase = def.states[state]?.reviewBase
+  return typeof reviewBase === "string" ? reviewBase : undefined
+}
 
 /** True when a step at `state` must be refused if its only change is deleting the state's `file:` (see `StateDef.requireProgress`). Safe for an unknown state name (returns `false`). */
 export const isRequireProgressState = (def: WorkflowDefinition, state: StateName): boolean =>
@@ -368,21 +363,18 @@ export const isRequireProgressState = (def: WorkflowDefinition, state: StateName
 export const isAnswerGateState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.answerGate === true
 
-/** The workflow's declared review-entry state name (see `StateDef.reviewEntry`) — `gtd review <commitish>` (`src/program.ts`) enters this state to start a new review process. `undefined` when no state declares one; `validateDefinition` guarantees at most one does, so the first (only) match wins. */
-export const reviewEntryStateOf = (def: WorkflowDefinition): StateName | undefined => {
-  for (const [name, state] of Object.entries(def.states)) {
-    if (state.reviewEntry === true) return name
-  }
-  return undefined
-}
-
-/** The workflow's declared fix-entry state name (see `StateDef.fixEntry`) — `gtd fix` (`src/program.ts`) enters this state to start a new fix process. `undefined` when no state declares one; `validateDefinition` guarantees at most one does, so the first (only) match wins. */
-export const fixEntryStateOf = (def: WorkflowDefinition): StateName | undefined => {
-  for (const [name, state] of Object.entries(def.states)) {
-    if (state.fixEntry === true) return name
-  }
-  return undefined
-}
+/**
+ * Every declared state that is NOT a commit state, sorted (plain string
+ * sort). This is intentionally ALL non-commit states, not just ones that
+ * declared `entry: true` — `entry: true` is a reachability/visualizer
+ * concern (it seeds `entries.manual`), while this drives the CLI's
+ * `--entry <state>` guard and its error message (naming every legal choice),
+ * a broader set on purpose.
+ */
+export const enterableStates = (def: WorkflowDefinition): readonly StateName[] =>
+  Object.keys(def.states)
+    .filter((name) => !isCommitState(def.states[name]!))
+    .sort()
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
@@ -395,8 +387,9 @@ const TRANSITION_SEP = " → "
  * state being ENTERED and `<from>` the state the authored changes were made
  * in, so the subject reads as what this commit DID, not just where the machine
  * is headed. `from` is optional: when it is omitted or equals `to` (a
- * self-loop, or a manual entry like `gtd review` that has no meaningful
- * source), the subject collapses to the bare `gtd(<actor>): <to>` form.
+ * self-loop, or a manual entry like `gtd step <actor> --entry <state>` that
+ * has no meaningful source), the subject collapses to the bare
+ * `gtd(<actor>): <to>` form.
  * `resolveState` reads back only `<to>` — the ` → ` prefix is human context.
  */
 export const stateSubject = (actor: Actor, to: StateName, from?: StateName): string =>
@@ -437,19 +430,8 @@ export const parseStateSubject = (subject: string): ParsedStateSubject | undefin
 
 // ── Resolve ──────────────────────────────────────────────────────────────────
 
-/**
- * The workflow's declared initial state (exactly one `initial: true` state
- * is assumed — `validateDefinition` enforces this at config-load time).
- * Throws if none is declared: a caller invoking `resolveState`/`step`
- * against an unvalidated, malformed definition is a programmer error, not a
- * value this module tries to guess through.
- */
-export const initialStateOf = (def: WorkflowDefinition): StateName => {
-  for (const [name, state] of Object.entries(def.states)) {
-    if (state.initial === true) return name
-  }
-  throw new Error("workflow definition has no initial state")
-}
+/** The workflow's declared initial state (`entries.default` — required, so there is always a value). */
+export const initialStateOf = (def: WorkflowDefinition): StateName => def.entries.default
 
 /**
  * Every actor declared by ANY state in the workflow — the closed-world
@@ -721,6 +703,59 @@ const applyRetry = (
 }
 
 /**
+ * A plain string-prefix test: is `state` inside `scope`'s subtree? Sound
+ * because `src/Machines.ts` already refuses any local name containing a
+ * `.` (a compile-time error), so a qualified name's dotted path segments are
+ * unambiguous — no tree walk or parent map needed. `scope === ""` is the
+ * root scope and matches every state. Otherwise it's an exact match, or a
+ * TRUE dotted descendant (`state.startsWith(scope + ".")`) — a same-prefix
+ * SIBLING is deliberately not a match: `inScope("packages.itemx.building",
+ * "packages.item")` is `false`, because `"packages.itemx"` merely starts
+ * with the characters `"packages.item"` without the `.` separator that
+ * would make it an actual descendant.
+ */
+export const inScope = (state: string, scope: string): boolean =>
+  scope === "" || state === scope || state.startsWith(`${scope}.`)
+
+/**
+ * Resolve the memory scope for `state`, given the process `trace` so far.
+ * This is a pure primitive a later package's memory-key computation is
+ * built on — it never touches git or the filesystem.
+ *
+ * `undefined` means `state` itself isn't in `scopes` — memory is an
+ * optimization, never a correctness input, so this ambiguous case resolves
+ * toward "fresh" by refusing to resolve at all. Otherwise the result always
+ * carries `state`'s own scope `M = scopes[state]`, plus an `entryIndex`:
+ * the trace position where the CURRENT unbroken run of "in `M`'s subtree"
+ * rows began, so a state's own conversation can dip into child scopes
+ * (`packages.item.health`, `packages.item.spec`, ...) and back without
+ * losing its place — only a trace row whose scope is a sibling or ancestor
+ * of `M` (not inside `M`'s subtree) breaks the run. `entryIndex: -1` covers
+ * both an empty `trace` and a `trace` with nothing ever inside `M`'s
+ * subtree — both are "fresh", just for different reasons. A trace row
+ * naming a state absent from `scopes` is skipped rather than thrown on —
+ * treated as not-in-scope for both membership and run-continuity.
+ */
+export const memoryScopeAt = (
+  scopes: Readonly<Record<StateName, string>>,
+  state: StateName,
+  trace: readonly StateName[],
+): { readonly scope: string; readonly entryIndex: number } | undefined => {
+  const scope = scopes[state]
+  if (scope === undefined) return undefined
+
+  let entryIndex = -1
+  for (let k = 0; k < trace.length; k++) {
+    const rowScope = scopes[trace[k]!]
+    if (rowScope === undefined || !inScope(rowScope, scope)) continue
+    const prevScope = k === 0 ? undefined : scopes[trace[k - 1]!]
+    const prevInScope = prevScope !== undefined && inScope(prevScope, scope)
+    if (k === 0 || !prevInScope) entryIndex = k
+  }
+  return { scope, entryIndex }
+}
+
+/**
  * Decide what invoking `invoker` at `state` does — a pure decision, not an
  * effect. Refusals: `invoker` isn't `state`'s declared actor (out-of-turn),
  * or the tree is dirty and no `on` pattern matches (no-match, naming the
@@ -807,20 +842,39 @@ export const step = (
 
 const CONTENT_KEYS = ["script", "prompt", "message", "commit"] as const
 
-/** Exactly one `initial: true` state, and it must not be a commit state. */
-const validateInitial = (def: WorkflowDefinition, names: readonly string[]): string[] => {
-  const initialNames = names.filter((name) => def.states[name]!.initial === true)
-  if (initialNames.length !== 1) {
-    return [
-      `workflow must declare exactly one initial state (found ${initialNames.length}${
-        initialNames.length > 0 ? `: ${initialNames.join(", ")}` : ""
-      })`,
-    ]
+/**
+ * `entries.default` names a defined, non-commit state. Every entry in
+ * `entries.manual`, when present, must likewise name a defined, non-commit
+ * state distinct from `entries.default` — a manual entry is a DELIBERATE,
+ * distinct starting point from the workflow's ordinary "no active cycle"
+ * rest (a manual entry requires resting at the default entry before it acts
+ * — see `src/program.ts`), so the two must stay distinguishable — and
+ * `entries.manual` must carry no duplicate state name within itself.
+ */
+const validateEntries = (def: WorkflowDefinition, names: readonly string[]): string[] => {
+  const errors: string[] = []
+  const checkEntry = (key: "default" | "manual", state: StateName) => {
+    if (!names.includes(state)) {
+      errors.push(`entries.${key} "${state}" is not a defined state`)
+      return
+    }
+    if (isCommitState(def.states[state]!)) {
+      errors.push(`entries.${key} "${state}" must not be a commit state`)
+    }
+    if (key !== "default" && state === def.entries.default) {
+      errors.push(`entries.${key} "${state}" must not be the same state as entries.default`)
+    }
   }
-  const only = initialNames[0]!
-  return isCommitState(def.states[only]!)
-    ? [`initial state "${only}" must not be a commit state`]
-    : []
+  checkEntry("default", def.entries.default)
+  const seen = new Set<StateName>()
+  for (const state of def.entries.manual) {
+    checkEntry("manual", state)
+    if (seen.has(state)) {
+      errors.push(`entries.manual declares "${state}" more than once`)
+    }
+    seen.add(state)
+  }
+  return errors
 }
 
 /** Exactly one of script/prompt/message/commit. */
@@ -858,19 +912,7 @@ const validateModel = (name: string, state: StateDef): string[] => {
   return errors
 }
 
-/** `memory`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model` (`validateModel`): a commit state is never at rest, so no agent turn there could carry or continue a memory scope. */
-const validateMemory = (name: string, state: StateDef): string[] => {
-  const errors: string[] = []
-  if (state.memory !== undefined && state.memory === "") {
-    errors.push(`state "${name}": "memory" must be a non-empty string`)
-  }
-  if (isCommitState(state) && state.memory !== undefined) {
-    errors.push(`state "${name}": a commit state cannot declare "memory"`)
-  }
-  return errors
-}
-
-/** `label`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model`/`memory` (`validateModel`/`validateMemory`): a commit state is never at rest and emits nothing for a driver/viewer to display a label for. */
+/** `label`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model` (`validateModel`): a commit state is never at rest and emits nothing for a driver/viewer to display a label for. */
 const validateLabel = (name: string, state: StateDef): string[] => {
   const errors: string[] = []
   if (state.label !== undefined && state.label === "") {
@@ -949,10 +991,10 @@ const validateMode = (def: WorkflowDefinition, name: string, state: StateDef): s
 }
 
 /**
- * `reviewWindow`/`reviewBase`, when present, are booleans (the compiler
- * enforces the type) — forbidden on a commit state, same rule family as
- * `model`/`file`/`mode`: a commit state is never at rest, so no window ever
- * opens or anchors there.
+ * `reviewWindow`/`reviewBase`, when present, are a boolean and a
+ * boolean-or-string respectively (the compiler enforces the type) —
+ * forbidden on a commit state, same rule family as `model`/`file`/`mode`: a
+ * commit state is never at rest, so no window ever opens or anchors there.
  */
 const validateReviewWindow = (name: string, state: StateDef): string[] => {
   if (!isCommitState(state)) return []
@@ -967,45 +1009,18 @@ const validateReviewWindow = (name: string, state: StateDef): string[] => {
 }
 
 /**
- * `reviewEntry`, when present, is forbidden on a commit state (never at
- * rest — same rule family as `reviewWindow`/`reviewBase`) and on the initial
- * state: a review entry is a deliberate, distinct starting point from the
- * workflow's ordinary "no active cycle" rest (`gtd review` itself REQUIRES
- * resting at the initial state before it will act — see `src/program.ts` —
- * so the two must stay distinguishable rather than collapsing into one).
- * The at-most-one-state rule is checked separately, over the whole
- * definition (see `validateReviewEntryUniqueness`), since it isn't a
- * per-state finding.
+ * When `reviewBase` is a STRING (the template form — see `StateDef.reviewBase`),
+ * its source must be non-blank: a literal `reviewBase: ""` (or whitespace-only)
+ * is an authoring error, distinct from the runtime concern of the RENDERED
+ * result coming out blank (that refusal lives at the edge, at CLI time — not
+ * checked here). Deliberately does NOT check that the template mentions a
+ * declared var: a base may legitimately be a literal commitish like `main`.
  */
-const validateReviewEntry = (name: string, state: StateDef): string[] => {
-  if (state.reviewEntry === undefined) return []
-  const errors: string[] = []
-  if (isCommitState(state)) {
-    errors.push(`state "${name}": a commit state cannot declare "reviewEntry"`)
-  }
-  if (state.initial === true) {
-    errors.push(`state "${name}": the initial state cannot declare "reviewEntry"`)
-  }
-  return errors
-}
-
-/**
- * `fixEntry`, when present, is forbidden on a commit state and on the initial
- * state — the same rule family as `reviewEntry` (see `validateReviewEntry`):
- * `gtd fix` REQUIRES resting at the initial state before it acts, so its entry
- * target must be a distinct state. The at-most-one-state rule is checked
- * separately over the whole definition (see `validateFixEntryUniqueness`).
- */
-const validateFixEntry = (name: string, state: StateDef): string[] => {
-  if (state.fixEntry === undefined) return []
-  const errors: string[] = []
-  if (isCommitState(state)) {
-    errors.push(`state "${name}": a commit state cannot declare "fixEntry"`)
-  }
-  if (state.initial === true) {
-    errors.push(`state "${name}": the initial state cannot declare "fixEntry"`)
-  }
-  return errors
+const validateReviewBaseTemplate = (name: string, state: StateDef): string[] => {
+  if (typeof state.reviewBase !== "string") return []
+  return state.reviewBase.trim() === ""
+    ? [`state "${name}": "reviewBase" template must not be blank`]
+    : []
 }
 
 /**
@@ -1046,32 +1061,6 @@ const validateAnswerGate = (name: string, state: StateDef): string[] => {
   return errors
 }
 
-/** At most one state may declare `reviewEntry: true` — `gtd review <commitish>` (`src/program.ts`) needs a single, unambiguous state name to enter (see `reviewEntryStateOf`). */
-const validateReviewEntryUniqueness = (
-  def: WorkflowDefinition,
-  names: readonly string[],
-): string[] => {
-  const entryNames = names.filter((name) => def.states[name]!.reviewEntry === true)
-  return entryNames.length > 1
-    ? [
-        `at most one state may declare "reviewEntry" (found ${entryNames.length}: ${entryNames.join(", ")})`,
-      ]
-    : []
-}
-
-/** At most one state may declare `fixEntry: true` — `gtd fix` (`src/program.ts`) needs a single, unambiguous state name to enter (see `fixEntryStateOf`). */
-const validateFixEntryUniqueness = (
-  def: WorkflowDefinition,
-  names: readonly string[],
-): string[] => {
-  const entryNames = names.filter((name) => def.states[name]!.fixEntry === true)
-  return entryNames.length > 1
-    ? [
-        `at most one state may declare "fixEntry" (found ${entryNames.length}: ${entryNames.join(", ")})`,
-      ]
-    : []
-}
-
 /** Every `on` row parses, and its target names a defined state. */
 const validateOnEdges = (name: string, state: StateDef, names: readonly string[]): string[] => {
   const errors: string[] = []
@@ -1105,27 +1094,25 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
  * Every state is reachable from an ENTRY ROOT by walking `on` targets and
  * `retry.otherwise` redirects (a redirect ENTERS its `otherwise` state exactly
  * like an `on` match enters its target — see `applyRetry` — so both are real
- * edges). The roots are the initial state PLUS the CLI-command entry states
- * (`reviewEntry`/`fixEntry`): a command enters those directly, so a state
- * reachable only from one of them is legitimately reachable, not dead config
- * (without seeding them, e.g. a `fixEntry` check whose only inbound path is
- * `gtd fix` would be wrongly flagged). Plain BFS; targets naming undefined
- * states are skipped here (they are `validateOnEdges`/`validateRetry` findings
- * of their own). Only called when `validateInitial` found no problem: with zero
- * or several `initial` states there is no well-defined start to walk from, and
- * reporting every state as unreachable would bury the real finding.
+ * edges). The roots are `def.entries` — `default` PLUS every state named in
+ * `entries.manual`: a manual entry is entered directly (`gtd step <actor>
+ * --entry <state>`), so a state reachable only from one of them is
+ * legitimately reachable, not dead config (without seeding them, e.g. a
+ * manual entry whose only inbound path is `--entry` would be wrongly
+ * flagged). Plain BFS; targets naming undefined states are skipped here (they
+ * are `validateOnEdges`/`validateRetry` findings of their own). Only called
+ * when `validateEntries` found no problem: with an invalid `entries` there is
+ * no well-defined start to walk from, and reporting every state as
+ * unreachable would bury the real finding.
  *
  * An unreachable state is an ERROR, not a warning: a workflow is bound to a
- * project and edited as a project-wide change, so "kept on purpose for manual
- * entry via a hand-authored subject" is not a supported authoring pattern —
- * an unreachable state is a typo'd rename or a leftover, and silently-dead
+ * project and edited as a project-wide change, so "kept on purpose for entry
+ * via a hand-authored subject" is not a supported authoring pattern — an
+ * unreachable state is a typo'd rename or a leftover, and silently-dead
  * config is exactly what load-time validation exists to catch.
  */
 const validateReachability = (def: WorkflowDefinition, names: readonly string[]): string[] => {
-  const initial = names.find((name) => def.states[name]!.initial === true)!
-  const roots = [initial, reviewEntryStateOf(def), fixEntryStateOf(def)].filter(
-    (name): name is StateName => name !== undefined,
-  )
+  const roots = [def.entries.default, ...def.entries.manual]
   const visited = new Set<StateName>(roots)
   const queue: StateName[] = [...roots]
   while (queue.length > 0) {
@@ -1160,13 +1147,11 @@ const validateState = (
     ...validateOnEdges(name, state, names),
     ...validateRetry(name, state, names),
     ...validateModel(name, state),
-    ...validateMemory(name, state),
     ...validateLabel(name, state),
     ...validateFile(name, state),
     ...validateMode(def, name, state),
     ...validateReviewWindow(name, state),
-    ...validateReviewEntry(name, state),
-    ...validateFixEntry(name, state),
+    ...validateReviewBaseTemplate(name, state),
     ...validateRequireProgress(name, state),
     ...validateAnswerGate(name, state),
   ]
@@ -1175,43 +1160,38 @@ const validateState = (
 /**
  * Validate a `WorkflowDefinition`, returning human-readable error strings
  * (empty = valid). Pure — Phase 2 calls this at config-load time. Checks:
- * at least one state; exactly one `initial: true` state (and it must not be
- * a commit state — a workflow can't start already finished, a small
- * addition beyond the plan's literal list, called out here since it's easy
- * to drop if a later phase disagrees); every state declares exactly one
- * content kind; commit states carry no `actor` and no `on`; non-commit
- * states carry an `actor`; every `on` pattern parses and every `on` target
- * and `retry.otherwise` names a defined state; `retry.max` is a
+ * at least one state; `entries.default` names a defined, non-commit state,
+ * and every entry in `entries.manual`, when present, names a defined,
+ * non-commit state distinct from `entries.default` with no duplicate within
+ * `entries.manual` itself (see `validateEntries`); every state declares
+ * exactly one content kind; commit states carry no `actor` and no `on`;
+ * non-commit states carry an `actor`; every `on` pattern parses and every
+ * `on` target and `retry.otherwise` names a defined state; `retry.max` is a
  * non-negative integer; `model`, when present, is a non-empty string and is
- * never declared on a commit state; `memory`, when present, is a non-empty
+ * never declared on a commit state; `label`, when present, is a non-empty
  * string and is never declared on a commit state (same rule family as
- * `model`); `label`, when present, is a non-empty string and is never
- * declared on a commit state (same rule family as `model`); `file`, when
- * present, is a non-empty
- * string and is never declared on a commit state; `mode`, when present, names
- * a mode the definition knows (a built-in or a `modes:` entry — see
- * `knownModes`), requires a sibling `file`, and is never declared on a commit
- * state; every `modes:` entry declares at least one non-blank
- * `format`/`validate` command; `reviewWindow`/`reviewBase`, when
- * present, are never declared on a commit state; `reviewEntry`/`fixEntry`, when
- * present, are never declared on a commit state or the initial state, and at
- * most one state across the whole workflow may declare each; every state is
- * reachable from an entry root (the initial state plus any `reviewEntry`/
- * `fixEntry` state) by walking `on` targets and `retry.otherwise` redirects
- * (checked only when the initial-state rule itself passed — see
- * `validateReachability`).
+ * `model`); `file`, when
+ * present, is a non-empty string and is never declared on a commit state;
+ * `mode`, when present, names a mode the definition knows (a built-in or a
+ * `modes:` entry — see `knownModes`), requires a sibling `file`, and is
+ * never declared on a commit state; every `modes:` entry declares at least
+ * one non-blank `format`/`validate` command; `reviewWindow`/`reviewBase`,
+ * when present, are never declared on a commit state, and a string-form
+ * `reviewBase` template must not be blank (see `validateReviewBaseTemplate`);
+ * every state is reachable from an entry root (`def.entries` — `default`
+ * plus every `entries.manual` state) by walking `on` targets and
+ * `retry.otherwise` redirects (checked only when `validateEntries` itself
+ * found no problem — see `validateReachability`).
  */
 export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
   const names = Object.keys(def.states)
   if (names.length === 0) return ["workflow must declare at least one state"]
 
-  const initialErrors = validateInitial(def, names)
+  const entriesErrors = validateEntries(def, names)
   return [
-    ...initialErrors,
+    ...entriesErrors,
     ...validateModes(def),
     ...names.flatMap((name) => validateState(def, name, names)),
-    ...validateReviewEntryUniqueness(def, names),
-    ...validateFixEntryUniqueness(def, names),
-    ...(initialErrors.length === 0 ? validateReachability(def, names) : []),
+    ...(entriesErrors.length === 0 ? validateReachability(def, names) : []),
   ]
 }

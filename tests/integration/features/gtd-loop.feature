@@ -19,28 +19,32 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": working
-              "M .gtd/FEEDBACK.md": working
-              "C": done
-          done:
-            commit: "chore: calculator done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": working
+                  "M .gtd/FEEDBACK.md": working
+                  "C": done
+              done:
+                commit: "chore: calculator done"
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -72,35 +76,39 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b), and also leave a leaked.md scratch file behind."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              rm -f leaked.md
-              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": working
-              "M .gtd/FEEDBACK.md": working
-              "* **": reviewing
-              "C": reviewing
-          reviewing:
-            actor: human
-            message: "sign off to finish"
-            on:
-              "* **": done
-          done:
-            commit: "chore: calculator done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b), and also leave a leaked.md scratch file behind."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  rm -f leaked.md
+                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": working
+                  "M .gtd/FEEDBACK.md": working
+                  "* **": reviewing
+                  "C": reviewing
+              reviewing:
+                actor: human
+                message: "sign off to finish"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: calculator done"
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -141,28 +149,32 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": working
-              "M .gtd/FEEDBACK.md": working
-              "C": done
-          done:
-            commit: "chore: calculator done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": working
+                  "M .gtd/FEEDBACK.md": working
+                  "C": done
+              done:
+                commit: "chore: calculator done"
       """
     And a file "NOTE.md" with:
       """
@@ -193,18 +205,22 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": watching
-          watching:
-            actor: check
-            script: "true"
-            on:
-              "A .gtd/FEEDBACK.md": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": watching
+              watching:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": idle
       """
     And a commit "gtd(check): watching" that adds "NOTE.md" with:
       """
@@ -215,53 +231,73 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stdout contains "[done] settled — nothing left to do"
 
   Scenario: Carries the memory scope across a loop and clears it at a phase boundary
-    # Two agent phases: `working` (scope "work") then a fixing loop (scope
-    # "fix") that re-enters twice. The stub echoes the memory env vars gtd-loop
-    # exports, so we can see it start fresh at each new scope (RESUME=0) and
-    # resume the same session the second time the SAME scope repeats (RESUME=1)
-    # — the retain-within-a-loop / clear-at-a-boundary contract. The check's
+    # Memory scope is now COMPUTED from machine-instance membership (see
+    # src/PatternMachine.ts's memoryScopeAt / src/Edge.ts's memoryKeyFor), not
+    # an authored `memory:` label — so the fix/check retry loop must be its
+    # OWN machine instance (`fixLoop`, referenced as `fix`) for its `checking`
+    # and `fixing` states to share one scope across repeated visits: a state's
+    # scope is `scopes[name]` (its owning instance path), and `working` (a
+    # direct root state) sits in a DIFFERENT scope ("" — the root) than
+    # `fix.checking`/`fix.fixing` (scope "fix"). The stub echoes the memory env
+    # vars gtd-loop exports, so we can see it start fresh at each new scope
+    # (RESUME=0) and resume the same session the second time the SAME scope
+    # repeats (RESUME=1) — the retain-within-a-loop / clear-at-a-boundary
+    # contract; the check turn in between doesn't break continuity because
+    # `checking` is now a state OF the `fix` instance itself, not an unrelated
+    # sibling. The computed key is `<scope>#<hash7>`, so assertions match the
+    # shape via a hex-suffix pattern rather than a fixed literal. The check's
     # attempt counter lives in .git (never the work tree, so gtd's pending diff
     # only ever sees .gtd/FEEDBACK.md), forcing exactly two fix laps.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            memory: work
-            prompt: "Create src/fix.ts for the initial build."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              set +e
-              mkdir -p .gtd
-              c=".git/testcount"
-              n=$(cat "$c" 2>/dev/null || echo 0)
-              n=$((n + 1))
-              echo "$n" > "$c"
-              if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": fixing
-              "M .gtd/FEEDBACK.md": fixing
-              "D .gtd/FEEDBACK.md": done
-              "C": done
-          fixing:
-            actor: agent
-            memory: fix
-            prompt: "Fix the failing check."
-            on:
-              "* **": checking
-          done:
-            commit: "chore: fixed"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Create src/fix.ts for the initial build."
+                on:
+                  "* **": fix.checking
+              fix:
+                machine: fixLoop
+                with:
+                  onGreen: done
+              done:
+                commit: "chore: fixed"
+          fixLoop:
+            params: [onGreen]
+            entry: checking
+            states:
+              checking:
+                actor: check
+                script: |
+                  set +e
+                  mkdir -p .gtd
+                  c=".git/testcount"
+                  n=$(cat "$c" 2>/dev/null || echo 0)
+                  n=$((n + 1))
+                  echo "$n" > "$c"
+                  if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": fixing
+                  "M .gtd/FEEDBACK.md": fixing
+                  "D .gtd/FEEDBACK.md": "$onGreen"
+                  "C": "$onGreen"
+              fixing:
+                actor: agent
+                prompt: "Fix the failing check."
+                on:
+                  "* **": checking
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -286,13 +322,14 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       """
     When I run bare gtd
     Then it succeeds
-    And the log file contains "AGENT MEMORY=work RESUME=0"
-    And the log file contains "AGENT MEMORY=fix RESUME=0"
-    And the log file contains "AGENT MEMORY=fix RESUME=1"
+    And the log file matches "AGENT MEMORY=root#[0-9a-f]{7} RESUME=0"
+    And the log file matches "AGENT MEMORY=fix#[0-9a-f]{7} RESUME=0"
+    And the log file matches "AGENT MEMORY=fix#[0-9a-f]{7} RESUME=1"
     And stdout contains "[you]  idle"
 
   Scenario: Recovers when the remembered session has vanished instead of stalling the loop
-    # Same "fix" scope re-entering twice as the scenario above, except the stub
+    # Same "fix" scope (now the `fixLoop` machine instance referenced as
+    # `fix` — see the scenario above) re-entering twice, except the stub
     # simulates the remembered session having vanished: on the SECOND "fixing"
     # entry (GTD_LOOP_MEMORY_RESUME=1, the doomed resume) it prints claude's
     # exact missing-session message and exits 1 instead of doing real work.
@@ -303,42 +340,52 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            memory: work
-            prompt: "Create src/fix.ts for the initial build."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              set +e
-              mkdir -p .gtd
-              c=".git/testcount"
-              n=$(cat "$c" 2>/dev/null || echo 0)
-              n=$((n + 1))
-              echo "$n" > "$c"
-              if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": fixing
-              "M .gtd/FEEDBACK.md": fixing
-              "D .gtd/FEEDBACK.md": done
-              "C": done
-          fixing:
-            actor: agent
-            memory: fix
-            prompt: "Fix the failing check."
-            on:
-              "* **": checking
-          done:
-            commit: "chore: fixed"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Create src/fix.ts for the initial build."
+                on:
+                  "* **": fix.checking
+              fix:
+                machine: fixLoop
+                with:
+                  onGreen: done
+              done:
+                commit: "chore: fixed"
+          fixLoop:
+            params: [onGreen]
+            entry: checking
+            states:
+              checking:
+                actor: check
+                script: |
+                  set +e
+                  mkdir -p .gtd
+                  c=".git/testcount"
+                  n=$(cat "$c" 2>/dev/null || echo 0)
+                  n=$((n + 1))
+                  echo "$n" > "$c"
+                  if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": fixing
+                  "M .gtd/FEEDBACK.md": fixing
+                  "D .gtd/FEEDBACK.md": "$onGreen"
+                  "C": "$onGreen"
+              fixing:
+                actor: agent
+                prompt: "Fix the failing check."
+                on:
+                  "* **": checking
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -367,9 +414,104 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       """
     When I run bare gtd
     Then it succeeds
-    And the log file contains "AGENT MEMORY=fix RESUME=1"
-    And the log file contains "AGENT MEMORY=fix RESUME=0" 2 times
+    And the log file matches "AGENT MEMORY=fix#[0-9a-f]{7} RESUME=1"
+    And the log file matches "AGENT MEMORY=fix#[0-9a-f]{7} RESUME=0" 2 times
     And stderr contains "is gone — continuing in a fresh session"
+    And stdout contains "[you]  idle"
+
+  Scenario: A scope's session survives an interleaved turn in a nested, different scope — the per-scope table, not "the last label"
+    # `bin/gtd`'s memory marker is now a TABLE, one row per scope (package 07),
+    # precisely because a scope's key can legitimately REAPPEAR after the loop
+    # ran a turn in a different scope in between. `build.building` (scope
+    # "build") routes into a NESTED child machine's own agent turn,
+    # `build.review.reviewing` (scope "build.review" — a true dotted
+    # DESCENDANT of "build", so PatternMachine.memoryScopeAt computes the SAME
+    # "build#<hash>" key for `build.building2` as it did for `build.building`
+    # — see src/PatternMachine.ts's inScope), before returning to
+    # `build.building2`, still scope "build". Under the OLD single-last-value
+    # marker, the review turn's OWN (different) key would have overwritten it,
+    # so the return to "build" would have wrongly started fresh
+    # (RESUME=0) instead of resuming — this scenario pins the fix: it must be
+    # RESUME=1, and getting there proves the "build" row survived the
+    # review turn's own write untouched.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": build.building
+              build:
+                machine: buildLoop
+                with:
+                  onGreen: done
+              done:
+                commit: "chore: done"
+          buildLoop:
+            params: [onGreen]
+            entry: building
+            states:
+              building:
+                actor: agent
+                prompt: "first build turn"
+                on:
+                  "* **": review.reviewing
+              review:
+                machine: reviewChild
+                with:
+                  onDone: building2
+              building2:
+                actor: agent
+                prompt: "second build turn, revisits the build scope"
+                on:
+                  "* **": "$onGreen"
+          reviewChild:
+            params: [onDone]
+            entry: reviewing
+            states:
+              reviewing:
+                actor: agent
+                prompt: "review turn, a nested child scope"
+                on:
+                  "* **": "$onDone"
+      """
+    And a commit "gtd(human): build.building" that adds "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      echo "AGENT MEMORY=${GTD_LOOP_MEMORY} RESUME=${GTD_LOOP_MEMORY_RESUME}"
+      mkdir -p src
+      case "$GTD_LOOP_PROMPT" in
+        *"first build turn"*)
+          echo 'export const x = 1' > src/thing.ts
+          ;;
+        *"review turn"*)
+          echo "// reviewed" >> src/thing.ts
+          ;;
+        *"second build turn"*)
+          echo "// finished" >> src/thing.ts
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run bare gtd
+    Then it succeeds
+    And the log file matches "AGENT MEMORY=build#[0-9a-f]{7} RESUME=0"
+    And the log file matches "AGENT MEMORY=build\.review#[0-9a-f]{7} RESUME=0"
+    And the log file matches "AGENT MEMORY=build#[0-9a-f]{7} RESUME=1"
     And stdout contains "[you]  idle"
 
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
@@ -383,22 +525,26 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": planning
-          planning:
-            actor: agent
-            file: .gtd/PLAN.md
-            mode: qa
-            prompt: "Write .gtd/PLAN.md with the plan."
-            on:
-              "* **": done
-          done:
-            commit: "chore: planned"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": planning
+              planning:
+                actor: agent
+                file: .gtd/PLAN.md
+                mode: qa
+                prompt: "Write .gtd/PLAN.md with the plan."
+                on:
+                  "* **": done
+              done:
+                commit: "chore: planned"
       """
     And a commit "gtd(agent): planning" that adds "NOTE.md" with:
       """
@@ -440,22 +586,26 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": planning
-          planning:
-            actor: agent
-            file: .gtd/PLAN.md
-            mode: qa
-            prompt: "Write .gtd/PLAN.md with the plan."
-            on:
-              "* **": done
-          done:
-            commit: "chore: planned"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": planning
+              planning:
+                actor: agent
+                file: .gtd/PLAN.md
+                mode: qa
+                prompt: "Write .gtd/PLAN.md with the plan."
+                on:
+                  "* **": done
+              done:
+                commit: "chore: planned"
       """
     And a commit "gtd(agent): planning" that adds "NOTE.md" with:
       """
@@ -498,34 +648,38 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              mkdir -p .gtd
-              c=".git/testcount"
-              n=$(cat "$c" 2>/dev/null || echo 0)
-              n=$((n + 1))
-              echo "$n" > "$c"
-              if [ "$n" -lt 2 ]; then echo "retry" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": checking
-              "M .gtd/FEEDBACK.md": checking
-              "D .gtd/FEEDBACK.md": done
-              "C": done
-          done:
-            commit: "chore: calculator done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  mkdir -p .gtd
+                  c=".git/testcount"
+                  n=$(cat "$c" 2>/dev/null || echo 0)
+                  n=$((n + 1))
+                  echo "$n" > "$c"
+                  if [ "$n" -lt 2 ]; then echo "retry" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": checking
+                  "M .gtd/FEEDBACK.md": checking
+                  "D .gtd/FEEDBACK.md": done
+                  "C": done
+              done:
+                commit: "chore: calculator done"
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -560,23 +714,27 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write four files."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "true"
-            on:
-              "A .gtd/FEEDBACK.md": working
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write four files."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": working
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -604,23 +762,27 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write three files."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "true"
-            on:
-              "A .gtd/FEEDBACK.md": working
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write three files."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": working
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -646,20 +808,24 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": watching
-          watching:
-            actor: check
-            script: |
-              echo "CHECK: verifying the tree"
-              true
-            on:
-              "A .gtd/FEEDBACK.md": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": watching
+              watching:
+                actor: check
+                script: |
+                  echo "CHECK: verifying the tree"
+                  true
+                on:
+                  "A .gtd/FEEDBACK.md": idle
       """
     And a commit "gtd(check): watching" that adds "NOTE.md" with:
       """
@@ -675,20 +841,24 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          checking:
-            actor: check
-            initial: true
-            script: |
-              echo "CHECK BOOM" >&2
-              mkdir -p .gtd
-              echo x > .gtd/FEEDBACK.md
-              exit 1
-            on:
-              "A .gtd/FEEDBACK.md": reviewing
-          reviewing:
-            actor: human
-            message: "sign off"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: checking
+            states:
+              checking:
+                actor: check
+                script: |
+                  echo "CHECK BOOM" >&2
+                  mkdir -p .gtd
+                  echo x > .gtd/FEEDBACK.md
+                  exit 1
+                on:
+                  "A .gtd/FEEDBACK.md": reviewing
+              reviewing:
+                actor: human
+                message: "sign off"
       """
     When I run bare gtd
     Then it succeeds
@@ -701,28 +871,32 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": working
-              "M .gtd/FEEDBACK.md": working
-              "C": done
-          done:
-            commit: "chore: calculator done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": working
+                  "M .gtd/FEEDBACK.md": working
+                  "C": done
+              done:
+                commit: "chore: calculator done"
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -756,23 +930,27 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "true"
-            on:
-              "A .gtd/FEEDBACK.md": working
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": working
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -792,23 +970,27 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "true"
-            on:
-              "A .gtd/FEEDBACK.md": working
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": working
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -830,23 +1012,27 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "true"
-            on:
-              "A .gtd/FEEDBACK.md": working
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": working
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -869,20 +1055,24 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          watching:
-            actor: check
-            initial: true
-            script: "true"
-            on:
-              "C": working
-          working:
-            actor: agent
-            prompt: "<%~ it.vars.missing.deep %>"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: watching
+            states:
+              watching:
+                actor: check
+                script: "true"
+                on:
+                  "C": working
+              working:
+                actor: agent
+                prompt: "<%~ it.vars.missing.deep %>"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(check): watching" that adds "NOTE.md" with:
       """
@@ -900,22 +1090,26 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": planning
-          planning:
-            actor: agent
-            file: .gtd/PLAN.md
-            mode: qa
-            prompt: "Write .gtd/PLAN.md with the plan."
-            on:
-              "* **": done
-          done:
-            commit: "chore: planned"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": planning
+              planning:
+                actor: agent
+                file: .gtd/PLAN.md
+                mode: qa
+                prompt: "Write .gtd/PLAN.md with the plan."
+                on:
+                  "* **": done
+              done:
+                commit: "chore: planned"
       """
     And a commit "gtd(agent): planning" that adds "NOTE.md" with:
       """
@@ -947,28 +1141,32 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": working
-              "M .gtd/FEEDBACK.md": working
-              "C": done
-          done:
-            commit: "chore: calculator done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": working
+                  "M .gtd/FEEDBACK.md": working
+                  "C": done
+              done:
+                commit: "chore: calculator done"
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -1023,43 +1221,47 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: check
-            initial: true
-            script: "true"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Write src/app.ts."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "true"
-            on:
-              "C": reviewing
-          reviewing:
-            actor: agent
-            file: .gtd/REVIEW.md
-            prompt: "Write .gtd/REVIEW.md listing the changes to review."
-            on:
-              "* **": await-review
-          await-review:
-            actor: human
-            file: .gtd/REVIEW.md
-            message: "sign off by deleting .gtd/REVIEW.md"
-            reviewWindow: true
-            on:
-              "D .gtd/REVIEW.md": deciding
-          deciding:
-            actor: check
-            script: "true"
-            on:
-              "C": done
-          done:
-            commit: "chore: reviewed"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: check
+                script: "true"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Write src/app.ts."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "C": reviewing
+              reviewing:
+                actor: agent
+                file: .gtd/REVIEW.md
+                prompt: "Write .gtd/REVIEW.md listing the changes to review."
+                on:
+                  "* **": await-review
+              await-review:
+                actor: human
+                file: .gtd/REVIEW.md
+                message: "sign off by deleting .gtd/REVIEW.md"
+                reviewWindow: true
+                on:
+                  "D .gtd/REVIEW.md": deciding
+              deciding:
+                actor: check
+                script: "true"
+                on:
+                  "C": done
+              done:
+                commit: "chore: reviewed"
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -1110,34 +1312,38 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              mkdir -p .gtd
-              c=".git/testcount"
-              n=$(cat "$c" 2>/dev/null || echo 0)
-              n=$((n + 1))
-              echo "$n" > "$c"
-              if [ "$n" -lt 2 ]; then echo "retry" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": checking
-              "M .gtd/FEEDBACK.md": checking
-              "D .gtd/FEEDBACK.md": done
-              "C": done
-          done:
-            commit: "chore: calculator done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  mkdir -p .gtd
+                  c=".git/testcount"
+                  n=$(cat "$c" 2>/dev/null || echo 0)
+                  n=$((n + 1))
+                  echo "$n" > "$c"
+                  if [ "$n" -lt 2 ]; then echo "retry" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": checking
+                  "M .gtd/FEEDBACK.md": checking
+                  "D .gtd/FEEDBACK.md": done
+                  "C": done
+              done:
+                commit: "chore: calculator done"
       """
     And a commit "gtd(agent): working → checking" that adds "NOTE.md" with:
       """
@@ -1153,28 +1359,32 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: |
-              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-            on:
-              "A .gtd/FEEDBACK.md": working
-              "M .gtd/FEEDBACK.md": working
-              "C": done
-          done:
-            commit: "chore: calculator done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": working
+                  "M .gtd/FEEDBACK.md": working
+                  "C": done
+              done:
+                commit: "chore: calculator done"
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -1204,8 +1414,9 @@ Feature: gtd loop — the packaged reference loop driver (v3)
 
   Scenario: A still-red suite whose output repeats identically across checks never false-greens into review
     # Drives the REAL bundled unified template (not a custom .gtdrc) through
-    # `gtd fix`: a suite that always fails with byte-identical output must
-    # never be mistaken for green just because a re-run produces no diff.
+    # `gtd --entry fix-precheck`: a suite that always fails with
+    # byte-identical output must never be mistaken for green just because a
+    # re-run produces no diff.
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
@@ -1221,7 +1432,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
           ;;
       esac
       """
-    When I run "fix" via gtd
+    When I run "--entry fix-precheck" via gtd
     Then it succeeds
     When I run bare gtd
     Then it succeeds
@@ -1236,7 +1447,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the workflow
     And GTD_TESTCOMMAND is set to "true"
     And I record the commit count
-    When I run "fix" via gtd
+    When I run "--entry fix-precheck" via gtd
     Then it succeeds
     When I run bare gtd
     Then it succeeds

@@ -10,10 +10,12 @@ import {
   inlineWorkflowFileRefs,
   mergeModes,
 } from "./PatternConfig.js"
-import { type ModeDef, type WorkflowDefinition } from "./PatternMachine.js"
+import { type ModeDef, type StateName, type WorkflowDefinition } from "./PatternMachine.js"
+import type { MachineNode } from "./Machines.js"
 import {
+  defaultMachineTree,
+  defaultStateScopes,
   defaultWorkflowDefinition,
-  defaultWorkflowRaw,
   defaultWorkflowVars,
 } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
@@ -28,14 +30,22 @@ export interface ConfigOperations {
   /** The top-level `.gtdrc` `vars:` key (layer 2), already cwd→home deep-merged like any other config key. `{}` when absent. */
   readonly rcVars: Record<string, string>
   /**
-   * The active workflow's RAW value — the `.gtdrc` `workflow:` key BEFORE
-   * `compileWorkflowConfig` expands/compiles it (so it still carries any
-   * `submachines:`/`use:`), or the built-in default's raw (`defaultWorkflowRaw`)
-   * when no `workflow:` is configured. Tooling that needs the sub-machine
-   * grouping the compiled `workflow` flattens away (e.g. `gtd visualize`) reads
-   * it via `collectGroups`; the engine never does.
+   * The active workflow's machine-instance tree — the compilation OUTPUT
+   * `flattenMachines` (`src/Machines.ts`) built while compiling the `.gtdrc`
+   * `workflow:` key, or the built-in default's tree (`defaultMachineTree`)
+   * when no `workflow:` is configured. Tooling that needs the machine grouping
+   * the compiled `workflow` flattens away (e.g. `gtd visualize`) reads it; the
+   * pure engine never does.
    */
-  readonly rawWorkflow: unknown
+  readonly machineTree: MachineNode
+  /**
+   * The active workflow's memory-scope map — qualified state name -> the
+   * machine-instance path that owns it, the compilation OUTPUT
+   * `flattenMachines` (`src/Machines.ts`) built while compiling the `.gtdrc`
+   * `workflow:` key (`CompiledWorkflowConfig.scopes`), or the built-in
+   * default's map (`defaultStateScopes`) when no `workflow:` is configured.
+   */
+  readonly stateScopes: Record<StateName, string>
 }
 
 /**
@@ -275,16 +285,17 @@ const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations =>
         modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
       workflowVars: defaultWorkflowVars,
       rcVars,
-      rawWorkflow: defaultWorkflowRaw,
+      machineTree: defaultMachineTree,
+      stateScopes: defaultStateScopes,
     }
   }
-  const { definition, vars: workflowVars } = compileWorkflowConfig(
-    decoded.workflow,
-    root,
-    rcModes,
-    false,
-  )
-  return { workflow: definition, workflowVars, rcVars, rawWorkflow: decoded.workflow }
+  const {
+    definition,
+    vars: workflowVars,
+    tree,
+    scopes,
+  } = compileWorkflowConfig(decoded.workflow, root, rcModes, false)
+  return { workflow: definition, workflowVars, rcVars, machineTree: tree, stateScopes: scopes }
 }
 
 const formatSchemaError = (e: ParseError): string => {

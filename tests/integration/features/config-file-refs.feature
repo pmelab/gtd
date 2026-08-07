@@ -12,20 +12,24 @@ Feature: A "./"-relative content value is a file reference, inlined at load time
     And a file ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: ./prompt.md
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: ./prompt.md
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a file "prompt.md" with:
       """
@@ -47,15 +51,19 @@ Feature: A "./"-relative content value is a file reference, inlined at load time
     And a file ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: ./missing-message.md
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: ./missing-message.md
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And ".gtdrc" is staged
     When I commit with message "chore: add config"

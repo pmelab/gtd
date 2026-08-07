@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
   both refusal shapes) has its own dedicated feature files — see
   refusals.feature, default-workflow.feature, retry.feature, squash.feature.
 
-  Scenario: the simple workflow's happy path advances idle -> plan-precheck -> planning -> await-plan -> building -> checking
+  Scenario: the simple workflow's happy path advances idle -> plan-gate.check -> plan.planning -> plan.await-plan -> build.building -> build.health.check
     Given a test project
     And the workflow
     And a file ".gtd/TODO.md" with:
@@ -20,28 +20,28 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-precheck"
-    # The green-baseline gate: a clean tree (tests pass) advances to planning.
+    And the last commit subject is "gtd(human): idle → plan-gate.check"
+    # The green-baseline gate: a clean tree (tests pass) advances to plan.planning.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): plan-precheck → planning"
+    And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Developed into a concrete plan.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): planning → await-plan"
+    And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-plan → building"
+    And the last commit subject is "gtd(human): plan.await-plan → build.building"
     Given a file "src/thing.ts" with:
       """
       export const thing = 1
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → checking"
+    And the last commit subject is "gtd(agent): build.building → build.health.check"
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project
@@ -58,21 +58,25 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "develop the note, then write COMMIT_MSG.md with the final message"
-            on:
-              "A COMMIT_MSG.md": done
-              "M COMMIT_MSG.md": done
-          done:
-            commit: '<%~ it.read("COMMIT_MSG.md") %>'
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "develop the note, then write COMMIT_MSG.md with the final message"
+                on:
+                  "A COMMIT_MSG.md": done
+                  "M COMMIT_MSG.md": done
+              done:
+                commit: '<%~ it.read("COMMIT_MSG.md") %>'
       """
     And I record the commit count
     And a file "NOTE.md" with:

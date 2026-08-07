@@ -21,28 +21,32 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
         qa:
           format: "npx prettier --write <%= it.file %>"
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": grilling
-          grilling:
-            actor: agent
-            file: .gtd/TODO.md
-            mode: qa
-            prompt: "plan"
-            on:
-              "* **": grilling-answer
-          grilling-answer:
-            actor: human
-            file: .gtd/TODO.md
-            mode: qa
-            message: "answer"
-            on:
-              "C": idle
-              "* **": grilling
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": grilling
+              grilling:
+                actor: agent
+                file: .gtd/TODO.md
+                mode: qa
+                prompt: "plan"
+                on:
+                  "* **": grilling-answer
+              grilling-answer:
+                actor: human
+                file: .gtd/TODO.md
+                mode: qa
+                message: "answer"
+                on:
+                  "C": idle
+                  "* **": grilling
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -62,28 +66,32 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
         qa:
           format: "npx prettier --write <%= it.file %>"
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": grilling
-          grilling:
-            actor: agent
-            file: .gtd/TODO.md
-            mode: qa
-            prompt: "plan"
-            on:
-              "* **": grilling-answer
-          grilling-answer:
-            actor: human
-            file: .gtd/TODO.md
-            mode: qa
-            message: "answer"
-            on:
-              "C": idle
-              "* **": grilling
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": grilling
+              grilling:
+                actor: agent
+                file: .gtd/TODO.md
+                mode: qa
+                prompt: "plan"
+                on:
+                  "* **": grilling-answer
+              grilling-answer:
+                actor: human
+                file: .gtd/TODO.md
+                mode: qa
+                message: "answer"
+                on:
+                  "C": idle
+                  "* **": grilling
       """
     And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
       """
@@ -140,9 +148,9 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     When I commit with message "review: test formatting"
     Then ".gtd/REVIEW.md" has no lines longer than 80 characters
 
-  Scenario: prettier plugged into the bundled default's plan mode via a top-level modes: key formats the agent-authored plan at planning
+  Scenario: prettier plugged into the bundled default's plan mode via a top-level modes: key formats the agent-authored plan at plan.planning
     # No `workflow:` re-declaration: the bundled default already gives
-    # `planning`/`await-plan` `mode: prose` (see unified.yaml); a top-level
+    # `plan.planning`/`plan.await-plan` `mode: prose` (see unified.yaml); a top-level
     # `modes:` key alone is enough to plug a formatter into it.
     Given a test project
     And prettier is available in the test project
@@ -152,16 +160,16 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
         prose:
           format: "npx prettier --write <%= it.file %>"
       """
-    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
       """
       This is a deliberately long single prose line for the plan file that clearly exceeds the eighty character print width.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): planning → await-plan"
+    And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
     And ".gtd/TODO.md" has no lines longer than 80 characters
 
-  Scenario: prettier plugged into the bundled default's plan mode formats the human-edited plan at await-plan
+  Scenario: prettier plugged into the bundled default's plan mode formats the human-edited plan at plan.await-plan
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
@@ -170,7 +178,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
         prose:
           format: "npx prettier --write <%= it.file %>"
       """
-    And a commit "gtd(agent): await-plan" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(agent): plan.await-plan" that adds ".gtd/TODO.md" with:
       """
       A plan.
       """
@@ -180,7 +188,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-plan → planning"
+    And the last commit subject is "gtd(human): plan.await-plan → plan.planning"
     And ".gtd/TODO.md" has no lines longer than 80 characters
 
   Scenario: gtd validate formats the plan file and reports it valid — prose has no validator to fail
@@ -192,7 +200,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
         prose:
           format: "npx prettier --write <%= it.file %>"
       """
-    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
       """
       This is a deliberately long single prose line for the plan file that clearly exceeds the eighty character print width.
       """

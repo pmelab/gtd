@@ -37,20 +37,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 status=1
               }
               exit $status
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start a decision record"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "Write the ADR."
-            file: docs/adr.md
-            mode: adr
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
       """
       # The validate command above prints one finding per missing section and
       # then exits non-zero only when it printed something.
@@ -76,20 +80,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
         modes:
           adr:
             validate: "grep -q '^## Decision' <%= it.file %>"
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start a decision record"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "Write the ADR."
-            file: docs/adr.md
-            mode: adr
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
       """
@@ -112,20 +120,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
           adr:
             format: "sed 's/^status: draft$/status: accepted/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
             validate: "grep -q '^status: accepted$' <%= it.file %>"
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start a decision record"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "Write the ADR."
-            file: docs/adr.md
-            mode: adr
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
       """
       # The format command promotes "status: draft" to "status: accepted"; the
       # validate command demands the promoted form. Validation therefore passes
@@ -153,20 +165,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 echo "<%= it.file %>: an ADR needs a '## Decision' section"
                 exit 1
               }
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start a decision record"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "Write the ADR."
-            file: docs/adr.md
-            mode: adr
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
       """
@@ -194,20 +210,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
         modes:
           adr:
             validate: "grep -q '^## Decision' <%= it.file %>"
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start a decision record"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "Write the ADR."
-            file: docs/adr.md
-            mode: adr
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
       """
@@ -236,20 +256,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
               echo "adr-fmt: cannot parse <%= it.file %>" >&2
               exit 3
             validate: "true"
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start a decision record"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "Write the ADR."
-            file: docs/adr.md
-            mode: adr
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
       """
@@ -277,20 +301,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 echo "<%= it.file %>: my house rule — every plan lists its open questions"
                 exit 1
               }
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": grilling
-          grilling:
-            actor: agent
-            prompt: "Draft the plan."
-            file: .gtd/TODO.md
-            mode: qa
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": grilling
+              grilling:
+                actor: agent
+                prompt: "Draft the plan."
+                file: .gtd/TODO.md
+                mode: qa
+                on:
+                  "* **": idle
       """
       # gtd's own open-questions parser accepts this file (no "## Open
       # Questions" section at all is trivially valid to it) — the workflow's
@@ -312,20 +340,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
         modes:
           qa:
             format: "sed -i.bak 's/[[:space:]]*$//' <%= it.file %> && rm -f <%= it.file %>.bak"
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": grilling
-          grilling:
-            actor: agent
-            prompt: "Draft the plan."
-            file: .gtd/TODO.md
-            mode: qa
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": grilling
+              grilling:
+                actor: agent
+                prompt: "Draft the plan."
+                file: .gtd/TODO.md
+                mode: qa
+                on:
+                  "* **": idle
       """
       # The mode declares a formatter and no validator, so gtd's open-questions
       # parser still runs — and still rejects an `### ` question heading with
@@ -356,20 +388,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
         qa:
           format: "sed 's/  */ /g' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": grilling
-          grilling:
-            actor: agent
-            file: .gtd/TODO.md
-            mode: qa
-            prompt: "plan"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": grilling
+              grilling:
+                actor: agent
+                file: .gtd/TODO.md
+                mode: qa
+                prompt: "plan"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -391,20 +427,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
         modes:
           adr:
             validate: "grep -q '^status: accepted$' <%= it.file %>"
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start a decision record"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "Write the ADR."
-            file: docs/adr.md
-            mode: adr
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
       """
       # The workflow declares `adr`'s validator; the project's own top-level
       # `modes:` adds the formatter. Validation passes only because both halves
@@ -425,20 +465,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
         modes:
           adr:
             format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>" # no validate: — that half is a no-op
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start a decision record"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "Write the ADR."
-            file: docs/adr.md
-            mode: adr
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
       """

@@ -1281,10 +1281,8 @@
       const FLAGS = {
         initial:
           "The one initial state — an unrecognized HEAD (any non-gtd history) resolves here.",
-        reviewEntry:
-          "This state is a dedicated CLI entry point (e.g. `gtd review <ref>`) that starts a brand-new process.",
-        fixEntry:
-          "This state is the `gtd fix` entry point — a red suite drops into the fixing loop, a green suite is a no-op.",
+        entry:
+          "This state is a manual entry point (`entry: true`) — a brand-new process may start here via `gtd step <actor> --entry <state>` (or the subcommand-less `gtd --entry <state>`), in addition to the workflow's ordinary `initial` state.",
         reviewWindow:
           "While resting here, gtd opens the review checkout window: HEAD is rewound to the review base so the whole diff surfaces as ordinary uncommitted changes.",
         reviewBase:
@@ -1409,6 +1407,18 @@
       })()
       const groupBoxId = (i) => "g" + i
       const groupIndexOf = (name) => (MODEL.groups || []).findIndex((g) => g.name === name)
+      // `g.states` is that instance's DIRECT states only (`MODEL.groups` is a
+      // flat, depth-first projection of the machine tree) — a diagram scoped to
+      // `g` (the main flow collapsing `g`, or `g`'s own sub-machine panel) needs
+      // its whole subtree: direct states unioned with every descendant's.
+      const allStatesOf = (g) => {
+        const prefix = g.name + "."
+        const states = [...(g.states || [])]
+        ;(MODEL.groups || []).forEach((other) => {
+          if (other.name.startsWith(prefix)) states.push(...(other.states || []))
+        })
+        return states
+      }
       const shapeFor = (kind, label) => {
         const l = `"${label.replace(/"/g, "&quot;")}"`
         switch (kind) {
@@ -1476,10 +1486,20 @@
         const inSet = new Set(states.map((s) => s.name))
         const lines = ["flowchart TD"]
 
+        // Collapse a state to the outermost instance strictly below `scope`
+        // (the child of `scope` that is an ancestor of the state), not the
+        // state's own innermost group — walk from `scope` toward the state one
+        // path segment at a time and stop at the first instance boundary. A
+        // state whose group IS `scope` (a direct member) stays a real node.
         const unitOf = (name) => {
           const s = byName[name]
-          if (s && s.group && s.group !== scope) return { kind: "box", group: s.group }
-          return { kind: "node", name }
+          const group = s ? s.group : undefined
+          if (group === scope) return { kind: "node", name }
+          const scopePrefix = scope ? scope + "." : ""
+          const rest = name.startsWith(scopePrefix) ? name.slice(scopePrefix.length) : name
+          const firstSeg = rest.split(".")[0]
+          const boundary = scope ? scope + "." + firstSeg : firstSeg
+          return { kind: "box", group: boundary }
         }
         const unitId = (name) => {
           const u = unitOf(name)
@@ -1490,10 +1510,13 @@
         const emittedBoxes = new Set()
         const emittedGhosts = new Set()
         const nodeLine = (s) => `  ${idFor(s.name)}${shapeFor(s.kind, s.name)}:::${actorOf(s)}`
-        const boxLine = (g, i) =>
-          `  ${groupBoxId(i)}["${esc(g.name)}<br/><span class='sm-hint'>▸ ${g.states.length} state${
-            g.states.length === 1 ? "" : "s"
-          }</span>"]:::submachine`
+        const boxLine = (g, i) => {
+          const n = allStatesOf(g).length
+          const modelSuffix = g.model ? ` · model: ${esc(g.model)}` : ""
+          return `  ${groupBoxId(i)}["${esc(g.name)}<br/><span class='sm-hint'>▸ ${n} state${
+            n === 1 ? "" : "s"
+          }${modelSuffix}</span>"]:::submachine`
+        }
         const ghostLine = (s) => `  e${idFor(s.name)}${shapeFor(s.kind, s.name)}:::external`
 
         states.forEach((s) => {
@@ -1919,13 +1942,18 @@
           card.className = "dia-card sm-card"
           card.id = "sm-" + i
           card.style.marginBottom = "16px"
+          card.style.marginLeft = (g.depth || 0) * 24 + "px"
           if (CURRENT && CURRENT.group === g.name) card.open = true
           card.innerHTML =
-            `<summary class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.submachine)}</b></span></summary>` +
+            `<summary class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.machine)}</b>${
+              g.model ? ` · model: ${esc(g.model)}` : ""
+            }</span></summary>` +
             `<div class="dia-scroll" id="smDia${i}"><div class="dia-msg">Rendering diagram…</div></div>`
           el.appendChild(card)
 
-          const members = (g.states || []).map((n) => byName[n]).filter(Boolean)
+          const members = allStatesOf(g)
+            .map((n) => byName[n])
+            .filter(Boolean)
           registerDiagram(
             card.querySelector(`#smDia${i}`),
             () => buildFlowSrc(members, { scope: g.name }),
@@ -2081,16 +2109,7 @@
         if (!actorFilter.has(actorOf(s))) return false
         if (kindFilter !== "all" && s.kind !== kindFilter) return false
         if (!q) return true
-        const hay = [
-          s.name,
-          s.actor,
-          s.kind,
-          s.file,
-          s.mode,
-          s.model,
-          s.memory,
-          (s.flags || []).join(" "),
-        ]
+        const hay = [s.name, s.actor, s.kind, s.file, s.mode, s.model, (s.flags || []).join(" ")]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
@@ -2120,7 +2139,7 @@
         ;(MODEL.groups || []).forEach((g) => {
           sections.push({
             label: g.name,
-            flow: g.submachine,
+            flow: g.machine,
             items: STATES.filter((s) => s.group === g.name),
           })
         })
@@ -2164,7 +2183,6 @@
         kv.push(["actor", pill(a)])
         kv.push(["kind", `<span class="kind">${esc(s.kind)}</span>`])
         kv.push(["model", s.model ? esc(s.model) : '<span class="none">—</span>'])
-        kv.push(["memory", s.memory ? esc(s.memory) : '<span class="none">—</span>'])
         kv.push(["file", s.file ? esc(s.file) : '<span class="none">—</span>'])
         kv.push(["mode", s.mode ? esc(s.mode) : '<span class="none">—</span>'])
         if (s.retry)

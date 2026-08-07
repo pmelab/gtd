@@ -13,32 +13,36 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": drafting
-          drafting:
-            actor: agent
-            prompt: "draft"
-            on:
-              "* **": revising
-          revising:
-            actor: human
-            message: "revise or accept"
-            on:
-              "C": working
-              "* **": drafting
-          working:
-            actor: agent
-            prompt: "write COMMIT_MSG.md"
-            on:
-              "A COMMIT_MSG.md": done
-              "M COMMIT_MSG.md": done
-          done:
-            commit: '<%~ it.read("COMMIT_MSG.md") %>'
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "draft"
+                on:
+                  "* **": revising
+              revising:
+                actor: human
+                message: "revise or accept"
+                on:
+                  "C": working
+                  "* **": drafting
+              working:
+                actor: agent
+                prompt: "write COMMIT_MSG.md"
+                on:
+                  "A COMMIT_MSG.md": done
+                  "M COMMIT_MSG.md": done
+              done:
+                commit: '<%~ it.read("COMMIT_MSG.md") %>'
       """
     And I record the commit count
     And a file "DRAFT.md" with:
@@ -82,21 +86,25 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "write COMMIT_MSG.md"
-            on:
-              "A COMMIT_MSG.md": done
-              "M COMMIT_MSG.md": done
-          done:
-            commit: '<%~ it.read("COMMIT_MSG.md") %>'
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "write COMMIT_MSG.md"
+                on:
+                  "A COMMIT_MSG.md": done
+                  "M COMMIT_MSG.md": done
+              done:
+                commit: '<%~ it.read("COMMIT_MSG.md") %>'
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -120,21 +128,25 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "write COMMIT_MSG.md"
-            on:
-              "A COMMIT_MSG.md": done
-              "M COMMIT_MSG.md": done
-          done:
-            commit: '<%~ it.read("COMMIT_MSG.md") %>'
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "write COMMIT_MSG.md"
+                on:
+                  "A COMMIT_MSG.md": done
+                  "M COMMIT_MSG.md": done
+              done:
+                commit: '<%~ it.read("COMMIT_MSG.md") %>'
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -162,21 +174,25 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "write COMMIT_MSG.md"
-            on:
-              "A COMMIT_MSG.md": done
-              "M COMMIT_MSG.md": done
-          done:
-            commit: '<%~ it.read("MISSING.md") %>'
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "write COMMIT_MSG.md"
+                on:
+                  "A COMMIT_MSG.md": done
+                  "M COMMIT_MSG.md": done
+              done:
+                commit: '<%~ it.read("MISSING.md") %>'
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """

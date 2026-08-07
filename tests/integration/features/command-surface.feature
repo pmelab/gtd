@@ -1,11 +1,12 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v3 exposes `init`, `step <actor>`, `review <commitish>`, `fix`, `abandon`,
-  `next`, `status`, `validate`, `lsp`, `visualize`, `version`, and `help` as its
-  subcommands. Bare `gtd` (no subcommand) is a usage error. `--help`/`help` and
-  `--version`/`version` short-circuit before any repo-state work and exit 0
-  everywhere, including outside a workflow state.
+  gtd v3 exposes `init`, `step <actor>` (with `--entry <state>`), `abandon`,
+  `restore`, `next`, `status`, `validate`, `lsp`, `visualize`, `version`, and
+  `help` as its subcommands. Bare `gtd` (no subcommand) is a usage error unless
+  `--entry <state>` is given. `--help`/`help` and `--version`/`version`
+  short-circuit before any repo-state work and exit 0 everywhere, including
+  outside a workflow state.
 
   Scenario: Bare gtd fails with usage help and authors nothing
     Given a test project
@@ -25,17 +26,34 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with args "run"
     Then it fails
 
+  Scenario: the removed `gtd review <commitish>` points at the --entry replacement
+    Given a test project
+    When I run gtd with args "review HEAD"
+    Then it fails
+    And stderr contains "gtd review <commitish>"
+    And stderr contains "gone"
+    And stderr contains "--entry"
+
+  Scenario: the removed `gtd fix` points at the --entry replacement
+    Given a test project
+    When I run gtd with args "fix"
+    Then it fails
+    And stderr contains "gtd fix"
+    And stderr contains "gone"
+    And stderr contains "--entry"
+
   Scenario: --help prints the command list
     Given a test project
     When I run gtd with "--help"
     Then it succeeds
     And stdout contains "init "
     And stdout contains "step <actor>"
-    And stdout contains "review <commitish>"
-    And stdout contains "fix"
+    And stdout contains "--entry <state>"
+    And stdout contains "--var"
     And stdout contains "abandon"
     And stdout contains "next"
     And stdout contains "visualize"
+    And stdout does not contain "review <commitish>"
 
   Scenario: --version prints the version and exits 0
     Given a test project

@@ -33,7 +33,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       """
       export const untouched = () => true
       """
-    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -79,7 +79,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     When I run gtd status
     Then it succeeds
     # `gtd status` closed the window, resolved the true rest, then re-armed it:
-    And stdout contains "State: await-review"
+    And stdout contains "State: build.review.await-review"
     And the git ref "refs/worktree/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"
 
@@ -93,7 +93,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the git ref "refs/worktree/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"
 
-  Scenario: Ticking every box with no comment signs off — the window closes and routes to review-deciding
+  Scenario: Ticking every box with no comment signs off — the window closes and routes to build.review.deciding
     Given I run gtd next
     And ".gtd/REVIEW.md" is modified to:
       """
@@ -108,10 +108,10 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     Then it succeeds
     # Every box ticked, no note, no code edit — a clean sign-off hands to the
     # deterministic check, which collapses the cycle from there.
-    And the last commit subject is "gtd(human): await-review → review-deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
     And the git ref "refs/worktree/gtd/review-head" does not exist
 
-  Scenario: Reviewer code edits are feedback — the window closes and routes to review-deciding
+  Scenario: Reviewer code edits are feedback — the window closes and routes to build.review.deciding
     Given I run gtd next
     And "src/calc.ts" is modified to:
       """
@@ -122,7 +122,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     Then it succeeds
     # A code edit is a comment: it routes to the deterministic review check,
     # which turns it into a build + re-review round.
-    And the last commit subject is "gtd(human): await-review → review-deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
     And the git ref "refs/worktree/gtd/review-head" does not exist
 
   Scenario: Read-only commands re-arm the window on their way out

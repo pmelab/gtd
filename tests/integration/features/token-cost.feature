@@ -16,23 +16,27 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": reviewing
-          reviewing:
-            actor: agent
-            prompt: "review it"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                prompt: "review it"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -52,18 +56,22 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -83,28 +91,32 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": reviewing
-          reviewing:
-            actor: agent
-            prompt: "review it"
-            on:
-              "* **": polishing
-          polishing:
-            actor: agent
-            prompt: "polish it"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                prompt: "review it"
+                on:
+                  "* **": polishing
+              polishing:
+                actor: agent
+                prompt: "polish it"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -134,18 +146,22 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -161,29 +177,33 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": finishing
-          finishing:
-            actor: agent
-            prompt: "write DONE.md"
-            on:
-              "A DONE.md": done
-              "M DONE.md": done
-          done:
-            commit: |
-              feat: ship it
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": finishing
+              finishing:
+                actor: agent
+                prompt: "write DONE.md"
+                on:
+                  "A DONE.md": done
+                  "M DONE.md": done
+              done:
+                commit: |
+                  feat: ship it
 
-              Total token cost: <%= it.processCost %>
+                  Total token cost: <%= it.processCost %>
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -230,23 +250,27 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": reviewing
-          reviewing:
-            actor: agent
-            prompt: "review it"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                prompt: "review it"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -266,18 +290,22 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -297,28 +325,32 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": reviewing
-          reviewing:
-            actor: agent
-            prompt: "review it"
-            on:
-              "* **": polishing
-          polishing:
-            actor: agent
-            prompt: "polish it"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                prompt: "review it"
+                on:
+                  "* **": polishing
+              polishing:
+                actor: agent
+                prompt: "polish it"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -347,32 +379,36 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build it"
-            on:
-              "* **": finishing
-          finishing:
-            actor: agent
-            prompt: "write DONE.md"
-            on:
-              "A DONE.md": done
-              "M DONE.md": done
-          done:
-            commit: |
-              feat: ship it
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build it"
+                on:
+                  "* **": finishing
+              finishing:
+                actor: agent
+                prompt: "write DONE.md"
+                on:
+                  "A DONE.md": done
+                  "M DONE.md": done
+              done:
+                commit: |
+                  feat: ship it
 
-              Total token cost: <%= it.processCost %>
-              <% it.processCostByModel.forEach(function(m){ %>
-              - <%= m.model %>: <%= m.cost %>
-              <% }) %>
+                  Total token cost: <%= it.processCost %>
+                  <% it.processCostByModel.forEach(function(m){ %>
+                  - <%= m.model %>: <%= m.cost %>
+                  <% }) %>
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """

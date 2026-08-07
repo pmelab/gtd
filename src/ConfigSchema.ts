@@ -103,7 +103,7 @@ const stateJsonSchema = {
     on: {
       type: "object",
       description:
-        'Ordered map of change pattern -> target state. Patterns: "C" (clean tree) or "<A|M|D|*> <glob>" over the pending diff; first declared match wins. Every target must name a defined state, and every non-initial state must be reachable through these edges (or a retry.otherwise). A value is either the target state name (string) or a { to, describe } object whose describe is a human-readable sentence templates can surface as it.edges (e.g. in a human gate\'s message).',
+        'Ordered map of change pattern -> target state. Patterns: "C" (clean tree) or "<A|M|D|*> <glob>" over the pending diff; first declared match wins. Every target must name a defined state, and every non-initial state must be reachable through these edges (or a retry.otherwise). A value is either the target state name (string) or a { to, describe, action } object whose describe/action are human-readable strings templates can surface as it.edges (e.g. in a human gate\'s message).',
       additionalProperties: {
         oneOf: [
           { type: "string", description: "The target state name." },
@@ -118,15 +118,15 @@ const stateJsonSchema = {
                 description:
                   "Human-readable sentence describing where this change routes; surfaced verbatim (never Eta-rendered) to templates as it.edges[].describe.",
               },
+              action: {
+                type: "string",
+                description:
+                  'Imperative label for this edge (e.g. "Accept plan"); surfaced verbatim (never Eta-rendered) to templates/tooling as it.edges[].action.',
+              },
             },
           },
         ],
       },
-    },
-    initial: {
-      type: "boolean",
-      description:
-        "Exactly one state in the workflow must declare initial: true (and it must not be a commit state).",
     },
     retry: {
       type: "object",
@@ -146,15 +146,10 @@ const stateJsonSchema = {
         },
       },
     },
-    model: {
+    label: {
       type: "string",
       description:
-        'Opaque harness hint passed through `gtd next --json`/`gtd status --json` (e.g. "smart"). Never interpreted by gtd. Forbidden on a commit state.',
-    },
-    memory: {
-      type: "string",
-      description:
-        'Opaque memory-scope label passed through `gtd next --json`/`gtd status --json` (e.g. "plan"). A memory-aware driver retains an agent\'s memory across consecutive agent turns sharing this label and starts fresh when it changes. Never interpreted by gtd. Forbidden on a commit state.',
+        'Opaque display name passed through `gtd next --json`/`gtd status --json` so a driver/viewer can show something nicer than the raw state name (e.g. "Running checks"). Never interpreted by gtd. Forbidden on a commit state.',
     },
     file: {
       type: "string",
@@ -172,19 +167,9 @@ const stateJsonSchema = {
         "When true, gtd opens a review checkout window while the machine rests here — HEAD/index are rewound to the review base so the whole base..HEAD diff surfaces as uncommitted changes in the editor. Forbidden on a commit state.",
     },
     reviewBase: {
-      type: "boolean",
+      oneOf: [{ const: true }, { type: "string" }],
       description:
-        "Marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. Forbidden on a commit state.",
-    },
-    reviewEntry: {
-      type: "boolean",
-      description:
-        "Marks the (at most one) state `gtd review <commitish>` enters to start a brand new process reviewing <commitish>..HEAD. Forbidden on a commit state and on the initial state.",
-    },
-    fixEntry: {
-      type: "boolean",
-      description:
-        "Marks the (at most one) state `gtd fix` enters to start a brand new process that goes straight into repairing the current failing tests. Forbidden on a commit state and on the initial state.",
+        "true marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. A string is a different shape: an Eta template rendering a commitish that becomes the WHOLE PROCESS's fixed diff base when this state is entered manually via `gtd --entry <state> --base <commitish>` (see the `entry` property below). Forbidden on a commit state.",
     },
     requireProgress: {
       type: "boolean",
@@ -196,63 +181,78 @@ const stateJsonSchema = {
       description:
         "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`. Forbidden on a commit state.",
     },
+    entry: {
+      const: true,
+      description:
+        "Marks this state as an extra manual entry point (WorkflowEntries.manual), enterable via `gtd --entry <state>`. Not to be confused with the top-level `entry:` key naming the root machine (entry.default) — same name, different level, by design.",
+    },
   },
 } as const
 
-/** One reusable sub-machine definition — mirrors `Submachines.ts`. */
-const submachineJsonSchema = {
+/** A reference local: instantiates a declared machine as a child, optionally binding its `params:` — mirrors `Machines.ts`'s `isRef`. */
+const machineRefJsonSchema = {
   type: "object",
   description:
-    "A reusable, parameterized cluster of states, expanded at load time by each `use:` invocation into concrete states (see src/Submachines.ts). Purely a source-authoring convenience — the engine only ever sees the expanded states.",
+    "A reference: instantiates the named machine as a child, at this local's path (see src/Machines.ts). Expanded at load time into concrete, qualified states — the engine only ever sees the flattened result.",
   additionalProperties: false,
-  required: ["states"],
+  required: ["machine"],
+  properties: {
+    machine: { type: "string", description: "Name of a declared entry in `machines:`." },
+    with: {
+      type: "object",
+      description:
+        "Bindings for the referenced machine's `params:`. A bound value naming another of the CALLER's own bindings (a whole-value `$name`) passes it down verbatim, scope intact.",
+    },
+  },
+} as const
+
+/** One machine definition — mirrors `Machines.ts`'s `RawMachine`. */
+const machineJsonSchema = {
+  type: "object",
+  description:
+    "A named, reusable machine: an entry local plus a set of states, each either an ordinary state or a reference instantiating another machine as a child (see src/Machines.ts).",
+  additionalProperties: false,
+  required: ["entry", "states"],
   properties: {
     params: {
       type: "array",
       items: { type: "string" },
       description:
-        "Parameter names. A `$name` token used as a whole field value or `on`/`retry.otherwise` target is replaced by the invocation's `with:` binding.",
+        "Advisory only — documents which $params a caller may bind via a reference's `with:`. A `$name` token used as a whole field value or `on`/`retry.otherwise` target is resolved against the binding.",
+    },
+    entry: {
+      type: "string",
+      description:
+        "This machine's own default local (a local state name, or a reference key), resolved recursively.",
+    },
+    model: {
+      type: "string",
+      description:
+        'Opaque harness hint stamped onto every one of this machine\'s own `prompt` states (e.g. "smart"), passed through `gtd next --json`/`gtd status --json`. The ONLY place a model may be declared — a state carrying its own `model:` is a config error. Never interpreted by gtd. A machine declaring this with no `prompt` state is a config error.',
     },
     states: {
       type: "object",
       description:
-        "The sub-machine's local states. `on`/`retry.otherwise` targets naming another local are rewritten via `as:`; a `$name` value is bound from `with:`.",
+        "This machine's local states, each either an ordinary state or a `{ machine, with }` reference.",
       minProperties: 1,
-      additionalProperties: stateJsonSchema,
+      additionalProperties: {
+        oneOf: [stateJsonSchema, machineRefJsonSchema],
+      },
     },
   },
 } as const
 
-/** One sub-machine invocation — mirrors `Submachines.ts`. */
-const useJsonSchema = {
-  type: "array",
+/** The top-level `entry:` value — which machine is the root instance. */
+const entryJsonSchema = {
+  type: "object",
   description:
-    "Sub-machine invocations. Each clones a `submachines:` entry into concrete states: `as:` renames its locals (identity when omitted), `with:` binds its `$param`s, `set:` adds extra per-instance state fields.",
-  items: {
-    type: "object",
-    additionalProperties: false,
-    required: ["submachine"],
-    properties: {
-      submachine: { type: "string", description: "Name of a declared sub-machine." },
-      name: {
-        type: "string",
-        description:
-          "Optional label for this instance (inert to expansion; used by tooling like `gtd visualize` to name the group). Defaults to the sub-machine name.",
-      },
-      as: {
-        type: "object",
-        description: "Rename map: local state name -> concrete state name (identity when omitted).",
-        additionalProperties: { type: "string" },
-      },
-      with: {
-        type: "object",
-        description: "Bindings for the sub-machine's `$param`s.",
-      },
-      set: {
-        type: "object",
-        description: "Extra fields merged onto a renamed local state, keyed by local name.",
-        additionalProperties: { type: "object" },
-      },
+    "The workflow's root machine, resolved through the same resolver an `on`/`retry.otherwise` target uses (see src/Machines.ts) — accepts either a bare state path or an instance/reference-key path. Extra manual entry points are declared per-state instead, via a state's own `entry: true` (see `stateJsonSchema`'s `entry` property) — not here.",
+  additionalProperties: false,
+  required: ["default"],
+  properties: {
+    default: {
+      type: "string",
+      description: "Which declared `machines:` entry is the ROOT instance.",
     },
   },
 } as const
@@ -261,24 +261,18 @@ const useJsonSchema = {
 const workflowJsonSchema = {
   type: "object",
   description:
-    "The whole machine definition: named states (plus the workflow's own vars: defaults and modes: steering-file modes). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory (a modes: command never is — it is a shell command).",
+    "The whole machine definition: a tree of named machines rooted at entry.default (plus the workflow's own vars: defaults and modes: steering-file modes). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory (a modes: command never is — it is a shell command).",
   additionalProperties: false,
-  required: ["states"],
+  required: ["entry", "machines"],
   properties: {
     vars: varsJsonSchema,
     modes: modesJsonSchema,
-    submachines: {
+    entry: entryJsonSchema,
+    machines: {
       type: "object",
-      description:
-        "Optional reusable sub-machines, invoked by `use:` and expanded into concrete states at load time (see src/Submachines.ts).",
-      additionalProperties: submachineJsonSchema,
-    },
-    use: useJsonSchema,
-    states: {
-      type: "object",
-      description: "The workflow's named states. At least one; exactly one with initial: true.",
+      description: "Named, reusable machines — at least the one entry.default names.",
       minProperties: 1,
-      additionalProperties: stateJsonSchema,
+      additionalProperties: machineJsonSchema,
     },
   },
 } as const

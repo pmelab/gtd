@@ -12,10 +12,10 @@ import {
   buildTemplateContext,
   computeProcessRun,
   executeDecision,
+  memoryKeyFor,
   pendingChanges,
   renderFile,
   renderLabel,
-  renderMemory,
   renderModel,
   renderOnEdges,
   renderRest,
@@ -25,7 +25,7 @@ import {
   toTemplateEdges,
   UNATTRIBUTED_MODEL,
   withRenderedOn,
-  withReviewBaseTrailer,
+  withEntryTrailers,
   type ExecutableDecision,
   type ModelCost,
   type ProcessRun,
@@ -59,7 +59,8 @@ import {
   unknownModeMessage,
 } from "./SteeringMode.js"
 import {
-  fixEntryStateOf,
+  enterableStates,
+  entryBaseTemplateOf,
   initialStateOf,
   isAnswerGateState,
   isRequireProgressState,
@@ -67,7 +68,6 @@ import {
   matchesPattern,
   parsePattern,
   parseStateSubject,
-  reviewEntryStateOf,
   stateSubject,
   step,
   type OnEdge,
@@ -75,7 +75,7 @@ import {
   type StepRefusal,
 } from "./PatternMachine.js"
 import { parseOpenQuestions } from "./OpenQuestions.js"
-import type { TemplateContext } from "./PatternTemplates.js"
+import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
 
 const _require = createRequire(import.meta.url)
 const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
@@ -102,16 +102,16 @@ Commands:
                    (or squash) the one resulting transition. Pass
                    --cost=<n> (optionally --model=<name>) to record the
                    just-finished invocation's token cost and model on the
-                   turn commit (summed into it.processCost/processCostByModel)
-  review <commitish>
-                   Start a NEW review process at the workflow's declared
-                   review-entry state (reviewEntry: true), reviewing
-                   <commitish>..HEAD — e.g. a colleague's PR branch. Requires
-                   a clean tree resting at the workflow's initial state
-  fix              Start a NEW process at the workflow's declared fix-entry
-                   state (fixEntry: true) that goes straight into repairing the
-                   current failing tests. Requires a clean tree resting at the
-                   workflow's initial state
+                   turn commit (summed into it.processCost/processCostByModel).
+                   Pass --entry <state> to start a brand NEW process at
+                   <state> instead — any declared, non-commit state (e.g.
+                   review-gate.check or fix-precheck on the bundled unified
+                   template) — with repeatable --var <name>=<value> supplying
+                   that new process's fixed it.vars overrides
+  (no command) --entry <state>
+                   Short form of 'step human --entry <state>' — starts a new
+                   process authenticated as human, e.g.
+                   'gtd --entry review-gate.check'
   abandon          End the process currently underway without completing it:
                    close any open review checkout window, then rewind HEAD to
                    the commit the process started from, keeping everything it
@@ -143,6 +143,15 @@ Options:
   --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
+  --entry <state>  (gtd step, or with no command at all) start a brand new
+                   process at <state> — any declared, non-commit state —
+                   instead of stepping the one currently resting. Not
+                   combinable with --cost/--model (an entry is not a metered
+                   agent turn)
+  --var <name>=<value>
+                   (with --entry; repeatable) supply a fixed it.vars
+                   override for the new process; the name must already be
+                   declared by the workflow's own vars: or the .gtdrc vars:
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 `
@@ -181,9 +190,72 @@ type ProgramRequirements =
   | WorktreeReader
   | EnvVars
 
-/** Non-flag positional arguments past the subcommand name (argv[3..]). */
-const commandArgs = (argv: readonly string[]): string[] =>
-  argv.slice(3).filter((a) => a.length > 0 && !a.startsWith("--"))
+/**
+ * Every value `flag` carries in `argv`, in BOTH `--flag=value` and `--flag
+ * value` (space-separated) forms, plus every argv INDEX consumed producing
+ * them — the flag token itself, and (for the space-separated form) the next
+ * token too. A trailing bare occurrence (`flag` as the very last argv token,
+ * with no following value) still consumes its own index but contributes an
+ * EMPTY STRING to `values` — indistinguishable from an explicit `flag=`, and
+ * deliberately so: both are "no value given" and a caller that cares (see
+ * `parseEntryFlags`) rejects an empty value with its own message. Repeatable
+ * flags (`--var`) collect one entry per occurrence, in argv order. Shared by
+ * the positional-extraction fix below (`commandArgs`, and the top-level
+ * `positional` lookup in `makeProgram`) and by `parseEntryFlags`'s own
+ * `--entry`/`--var` parsing, so both agree on exactly which indices a flag's
+ * value occupies.
+ */
+export const takeFlagValues = (
+  argv: readonly string[],
+  flag: string,
+): { readonly values: string[]; readonly consumed: Set<number> } => {
+  const values: string[] = []
+  const consumed = new Set<number>()
+  const eqPrefix = `${flag}=`
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!
+    if (arg === flag) {
+      consumed.add(i)
+      if (i + 1 < argv.length) {
+        values.push(argv[i + 1]!)
+        consumed.add(i + 1)
+      } else {
+        values.push("")
+      }
+    } else if (arg.startsWith(eqPrefix)) {
+      consumed.add(i)
+      values.push(arg.slice(eqPrefix.length))
+    }
+  }
+  return { values, consumed }
+}
+
+const ENTRY_FLAG = "--entry"
+const VAR_FLAG = "--var"
+
+/**
+ * The absolute argv indices `takeFlagValues` reports as consumed for
+ * `--entry`/`--var`, merged — the set both `commandArgs` and the top-level
+ * `positional` lookup in `makeProgram` must SKIP so a flag's value (e.g.
+ * `--entry review-gate.check`, which carries no `--` prefix of its own) is
+ * never mistaken for a stray extra positional argument.
+ */
+const flagConsumedIndices = (argv: readonly string[]): Set<number> => {
+  const consumed = new Set<number>()
+  for (const i of takeFlagValues(argv, ENTRY_FLAG).consumed) consumed.add(i)
+  for (const i of takeFlagValues(argv, VAR_FLAG).consumed) consumed.add(i)
+  return consumed
+}
+
+/** Non-flag positional arguments past the subcommand name (argv[3..]), skipping any index `flagConsumedIndices` reports as an `--entry`/`--var` value (which carries no `--` prefix of its own and would otherwise read as a stray extra positional — see `takeFlagValues`). */
+const commandArgs = (argv: readonly string[]): string[] => {
+  const consumed = flagConsumedIndices(argv)
+  return argv
+    .map((a, i) => ({ a, i }))
+    .slice(3)
+    .filter(({ a, i }) => a.length > 0 && !a.startsWith("--") && !consumed.has(i))
+    .map(({ a }) => a)
+}
 
 const COST_FLAG = "--cost="
 
@@ -262,6 +334,85 @@ const parseStepFlags = (
       )
     }
     return { cost, model }
+  })
+
+/**
+ * Parse the `--entry <state>`/`--entry=<state>` flag and the repeatable
+ * `--var <name>=<value>`/`--var=<name>=<value>` flag together (see
+ * `takeFlagValues`) — mirrors `parseStepFlags`'s shape/Effect style. `--entry`
+ * names the state a brand-new process should START at (see
+ * `runEntryCommand`), reached via `gtd step <actor> --entry <state>` or the
+ * subcommand-less short form `gtd --entry <state>` — so, like `--cost`/
+ * `--model`, it is rejected outright on any OTHER command rather than
+ * silently ignored. `--var` supplies that new process's fixed `it.vars`
+ * overrides, and only means anything alongside `--entry`.
+ *
+ * - At most one `--entry` occurrence — a second is a usage error (not
+ *   last-wins).
+ * - A bare `--entry` with no following value is a usage error (mirrors
+ *   `parseCostFlag`'s bare-`--cost` handling).
+ * - Each `--var` value must be `<name>=<value>` with a non-empty name and a
+ *   single-line value (mirrors `parseModelFlag`'s multiline-rejection idiom);
+ *   a duplicate `--var` NAME is a usage error (no silent last-wins).
+ * - `--var` present with no `--entry` is a usage error.
+ *
+ * Deliberately does NOT reject `--cost`/`--model` alongside `--entry` — that
+ * combination check lives where `--cost`/`--model` are already validated
+ * (see `makeProgram`).
+ */
+export const parseEntryFlags = (
+  argv: readonly string[],
+  positional: string | undefined,
+): Effect.Effect<
+  { readonly entry: string | undefined; readonly vars: Record<string, string> },
+  Error
+> =>
+  // fallow-ignore-next-line complexity
+  Effect.gen(function* () {
+    const entryValues = takeFlagValues(argv, ENTRY_FLAG).values
+    if (entryValues.length > 1) {
+      return yield* Effect.fail(new Error("gtd: --entry may be given at most once"))
+    }
+    const entryRaw = entryValues[0]
+    if (entryRaw === "") {
+      return yield* Effect.fail(
+        new Error("gtd: --entry requires a value — use --entry=<state> or --entry <state>"),
+      )
+    }
+    const entry = entryRaw
+    if (entry !== undefined && positional !== "step" && positional !== undefined) {
+      return yield* Effect.fail(
+        new Error(
+          "gtd: --entry is only valid for `gtd step` or the bare `gtd --entry <state>` form",
+        ),
+      )
+    }
+
+    const vars: Record<string, string> = {}
+    const seenNames = new Set<string>()
+    for (const raw of takeFlagValues(argv, VAR_FLAG).values) {
+      const eq = raw.indexOf("=")
+      if (eq <= 0) {
+        return yield* Effect.fail(
+          new Error(`gtd: --var must be <name>=<value> with a non-empty name — got "${raw}"`),
+        )
+      }
+      const name = raw.slice(0, eq)
+      const value = raw.slice(eq + 1)
+      if (/[\r\n]/.test(value)) {
+        return yield* Effect.fail(new Error(`gtd: --var ${name} must be a single-line value`))
+      }
+      if (seenNames.has(name)) {
+        return yield* Effect.fail(new Error(`gtd: --var ${name} specified more than once`))
+      }
+      seenNames.add(name)
+      vars[name] = value
+    }
+    if (entry === undefined && Object.keys(vars).length > 0) {
+      return yield* Effect.fail(new Error("gtd: --var requires --entry"))
+    }
+
+    return { entry, vars }
   })
 
 /** Rejects extra positional arguments for a subcommand that takes none (`status`, `run`). */
@@ -369,7 +520,11 @@ const renderOnEdgesOrFail = (
  * path renders a DIFFERENT state, so it builds its own context inline
  * instead of sharing this helper). `renderedOn` is the resting state's `on`
  * edges already rendered against `it.vars` (`renderOnEdges`) — `next`/`status`
- * reuse it instead of re-rendering the same patterns themselves.
+ * reuse it instead of re-rendering the same patterns themselves. `memory` is
+ * the COMPUTED memory key (`memoryKeyFor`, package 05/06) for this rest —
+ * `undefined` for a non-`prompt` rest or when no scope resolves — computed
+ * once here (against the loaded config's `stateScopes`) rather than by each
+ * caller separately.
  */
 const resolveRestContext = (
   git: GitOperations,
@@ -379,6 +534,7 @@ const resolveRestContext = (
     readonly run: ProcessRun
     readonly context: TemplateContext
     readonly renderedOn: readonly OnEdge[]
+    readonly memory: string | undefined
   },
   Error,
   GitService | ConfigService | WorktreeReader | EnvVars
@@ -389,7 +545,7 @@ const resolveRestContext = (
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
-    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
     const renderedOn = yield* renderOnEdgesOrFail(rest.stateDef.on, vars)
     const reviewBase = yield* reviewBaseHash(git, rest.def, run)
     const context = yield* buildTemplateContext(
@@ -404,7 +560,8 @@ const resolveRestContext = (
       undefined,
       reviewBase,
     )
-    return { rest, run, context, renderedOn }
+    const memory = memoryKeyFor(config.stateScopes, rest, run)
+    return { rest, run, context, renderedOn, memory }
   })
 
 /** The user-facing message for a `step` refusal — out-of-turn names the awaited actor, no-match names every declared pattern. */
@@ -445,11 +602,17 @@ const stepAsActor = (
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
     const changes = yield* pendingChanges(git)
-    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
     const renderedOn = yield* renderOnEdgesOrFail(rest.stateDef.on, vars)
     const decision = step(withRenderedOn(rest.def, rest.state, renderedOn), rest.state, invoker, {
       changes,
-      processTrace: run.trace,
+      // `StepPayload.processTrace` stays `readonly StateName[]` — the pure
+      // engine's retry-entry counting (`applyRetry`) only ever compares state
+      // NAMES, never commit hashes, so widening it to carry `TraceEntry`s
+      // (added to `ProcessRun.trace` for `memoryKeyFor`, package 05/06) would
+      // just churn every `step` test that builds a payload for data the
+      // engine never reads.
+      processTrace: run.trace.map((entry) => entry.state),
     })
 
     if (decision.kind === "refusal") {
@@ -504,9 +667,10 @@ const stepAsActor = (
         (yield* retainsNothing(git, run, changes))
       ) {
         // A process that returns to its initial state having kept nothing (a
-        // green `gtd fix`: an empty entry commit + a green check that changed
-        // nothing) leaves no useful history — mixed-reset past its commits
-        // like `gtd abandon` rather than committing a `→ idle` turn, so a
+        // green `gtd --entry fix-precheck`: an empty entry commit + a green
+        // check that changed nothing) leaves no useful history — mixed-reset
+        // past its commits like `gtd abandon` rather than committing a
+        // `→ idle` turn, so a
         // no-op probe never dirties the log. Pure engine is oblivious; this is
         // an edge concern like the review window and the steering gate.
         const tip = yield* git.resolveRef("HEAD")
@@ -553,13 +717,22 @@ const reportStepResult = (
   }
 }
 
-/** `gtd step <actor> [--cost=<n>] [--model=<name>]`: authenticate as `<actor>` and perform the one resulting transition, recording `--cost`/`--model` as a `Gtd-Cost:` trailer. */
+/**
+ * `gtd step <actor> [--cost=<n>] [--model=<name>]`: authenticate as `<actor>`
+ * and perform the one resulting transition, recording `--cost`/`--model` as a
+ * `Gtd-Cost:` trailer. When `--entry <state>` is present, the actor argument
+ * is still required (it names who authors the entry commit) but the ordinary
+ * pattern-matched step never runs — dispatches to `runEntryCommand` instead
+ * (see `makeProgram`'s parsing of `--entry`/`--var`, and its sibling
+ * subcommand-less short form).
+ */
 const runStepCommand = (
   argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
   cost: number | undefined,
   model: string | undefined,
+  entryFlags: { readonly entry: string | undefined; readonly vars: Record<string, string> },
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
     const args = commandArgs(argv)
@@ -571,152 +744,149 @@ const runStepCommand = (
         new Error(`gtd step: too many arguments — expected one actor, got: ${args.join(", ")}`),
       )
     }
-    const result = yield* stepAsActor(args[0]!, cost, model)
+    const actor = args[0]!
+    if (entryFlags.entry !== undefined) {
+      return yield* runEntryCommand(
+        actor,
+        entryFlags.entry,
+        entryFlags.vars,
+        json,
+        write,
+        `gtd step ${actor} --entry ${entryFlags.entry}`,
+      )
+    }
+    const result = yield* stepAsActor(actor, cost, model)
     reportStepResult(result, json, write)
   })
 
 /**
- * `gtd review <commitish>`: start a brand NEW review process at the active
- * workflow's declared `reviewEntry: true` state (see
- * `PatternMachine.reviewEntryStateOf`), reviewing `<commitish>..HEAD` — e.g. a
- * colleague's PR branch pushed on top of a shared base, with no gtd process of
- * its own. Writes an ordinary EMPTY turn commit
- * (`gtd(human): <review-entry-state>`) carrying the resolved `<commitish>`'s
- * full hash as a `Gtd-Review-Base:` trailer (`withReviewBaseTrailer`) —
- * `computeProcessRun` reads that trailer back off this same commit (its
- * process's own oldest) to override the new process's diff base, so the
- * ENTIRE existing review flow (reviewing → await-review → feedback laps, the
- * `await-review` review checkout window) operates over `<commitish>..HEAD`
- * with zero duplicated logic — see `src/Edge.ts`/`src/ReviewWindow.ts`.
+ * `gtd step <actor> --entry <state> [--var <name>=<value> ...]` (or its
+ * subcommand-less short form `gtd --entry <state> ...`, `actor` defaulting to
+ * `human` there — see `makeProgram`): start a brand NEW process at `<state>`
+ * — any declared, non-commit state (see `PatternMachine.enterableStates`) —
+ * replacing the two former named commands `gtd review <commitish>`/`gtd fix`
+ * with one generic mechanism. Writes an ordinary turn commit
+ * (`gtd(<actor>): <state>`) carrying zero or more `Gtd-Var: <name>=<value>`
+ * trailers (`withEntryTrailers`) for each `--var` override, plus — when
+ * `<state>` declares a string `reviewBase:` — a `Gtd-Review-Base:` trailer
+ * pinning the new process's diff base (rendered from that template against
+ * the merged `it.vars`, resolved to a commit, and checked sane). Unlike the
+ * old commands (which required a clean tree and used `commitAsIs`), this
+ * commits via `commitAllWithPrefix` — capturing whatever the working tree
+ * carries at the moment of entry, exactly like an ordinary `gtd step`
+ * capture, rather than demanding a clean tree first.
  *
- * Any failure below is a plain refusal: nothing is written.
+ * Any failure below is a plain refusal: nothing is written. Checked in order:
  *
- * a. The machine must currently rest at the workflow's INITIAL state — a
+ * 1. The machine must currently rest at the workflow's INITIAL state — a
  *    plain non-gtd branch (the normal case) resolves there via the
- *    inert-subject rule (see `resolveState`); a process already underway refuses.
- * b. The working tree must be clean.
- * c. The active workflow must declare a `reviewEntry: true` state.
- * d. `<commitish>` must resolve to a commit, be an ancestor of HEAD, and
- *    differ from HEAD (nothing to review otherwise).
+ *    inert-subject rule (see `resolveState`); a process already underway
+ *    refuses.
+ * 2. `<state>` must be one of `enterableStates(rest.def)` — every declared,
+ *    non-commit state, NOT narrowed to whatever declared `entry: true` (that
+ *    narrower set only seeds the workflow's own `entries.manual` reachability
+ *    roots — this command lets an operator enter any of them).
+ * 3. Every `--var` name must already be declared by the workflow's own
+ *    `vars:` or the top-level `.gtdrc` `vars:` — an undeclared name is a
+ *    usage error, not a silently-ignored override.
+ * 4. When `<state>` declares a string `reviewBase:`, that template must
+ *    render to a NON-BLANK commitish that resolves to a commit, is an
+ *    ancestor of HEAD, and differs from HEAD.
  */
-const runReviewCommand = (
-  argv: readonly string[],
+const runEntryCommand = (
+  actor: string,
+  entryState: string,
+  varOverrides: Record<string, string>,
   json: boolean,
   write: (chunk: string) => void,
+  commandLabel: string,
 ): Effect.Effect<void, Error, ProgramRequirements> =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
-    const args = commandArgs(argv)
-    if (args.length === 0) {
-      return yield* Effect.fail(new Error("gtd review: missing <commitish> argument"))
-    }
-    if (args.length > 1) {
-      return yield* Effect.fail(
-        new Error(
-          `gtd review: too many arguments — expected one <commitish>, got: ${args.join(", ")}`,
-        ),
-      )
-    }
-    const commitish = args[0]!
-
     const git = yield* GitService
+    const config = yield* (yield* ConfigService).load
+    const envVars = yield* EnvVars
     const rest = yield* resolveRest()
     if (rest.state !== initialStateOf(rest.def)) {
       return yield* Effect.fail(
         new Error(
-          `gtd review: a process is already underway (resting at "${rest.state}") — finish it, or run \`gtd abandon\`, before starting a review`,
+          `${commandLabel}: a process is already underway (resting at "${rest.state}") — finish it, or run \`gtd abandon\`, before entering`,
         ),
       )
     }
 
-    const changes = yield* pendingChanges(git)
-    if (changes.length > 0) {
-      return yield* Effect.fail(
-        new Error("gtd review: the working tree must be clean before starting a review"),
-      )
-    }
-
-    const entryState = reviewEntryStateOf(rest.def)
-    if (entryState === undefined) {
-      return yield* Effect.fail(
-        new Error("gtd review: the active workflow declares no review entry state"),
-      )
-    }
-
-    const resolvedBase = yield* git
-      .resolveRef(commitish)
-      .pipe(
-        Effect.mapError(() => new Error(`gtd review: "${commitish}" does not resolve to a commit`)),
-      )
-    const headHash = yield* git.resolveRef("HEAD")
-    if (resolvedBase === headHash) {
-      return yield* Effect.fail(new Error(`gtd review: "${commitish}" is HEAD — nothing to review`))
-    }
-    const isBaseAncestor = yield* git.isAncestor(resolvedBase, "HEAD")
-    if (!isBaseAncestor) {
-      return yield* Effect.fail(new Error(`gtd review: "${commitish}" is not an ancestor of HEAD`))
-    }
-
-    const subject = stateSubject("human", entryState)
-    yield* git.commitAsIs(withReviewBaseTrailer(subject, resolvedBase))
-    if (json) {
-      write(JSON.stringify({ state: entryState, subject }) + "\n")
-    } else {
-      write(`committed: ${subject}\n`)
-    }
-  })
-
-/**
- * `gtd fix`: start a brand NEW process at the active workflow's declared
- * `fixEntry: true` state (see `PatternMachine.fixEntryStateOf`), which goes
- * straight into repairing the current failing tests. Mirrors `runReviewCommand`
- * but simpler — it takes no argument and writes NO `Gtd-Review-Base:` trailer:
- * the fix process reviews its own fixes from the ordinary process start, so a
- * plain empty turn commit (`gtd(human): <fix-entry-state>`) is all it needs.
- * `computeProcessRun` then treats that commit as the process's first turn like
- * any other, and the shared health/review/squash tail runs unmodified.
- *
- * Any failure below is a plain refusal: nothing is written.
- *
- * a. The machine must currently rest at the workflow's INITIAL state — a
- *    dedicated `gtd fix` entry is distinct from the "no active cycle" rest, and
- *    a process already underway refuses (finish or abandon it first).
- * b. The working tree must be clean — the fixes belong to their own process.
- * c. The active workflow must declare a `fixEntry: true` state.
- */
-const runFixCommand = (
-  argv: readonly string[],
-  json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<void, Error, ProgramRequirements> =>
-  Effect.gen(function* () {
-    yield* rejectExtraArgs("fix", argv)
-
-    const git = yield* GitService
-    const rest = yield* resolveRest()
-    if (rest.state !== initialStateOf(rest.def)) {
+    const enterable = enterableStates(rest.def)
+    if (!enterable.includes(entryState)) {
       return yield* Effect.fail(
         new Error(
-          `gtd fix: a process is already underway (resting at "${rest.state}") — finish it, or run \`gtd abandon\`, before starting a fix`,
+          `${commandLabel}: "${entryState}" is not an enterable state — enterable states:\n${enterable
+            .map((s) => `  ${s}`)
+            .join("\n")}`,
         ),
       )
     }
 
-    const changes = yield* pendingChanges(git)
-    if (changes.length > 0) {
+    const declaredNames = Object.keys({ ...config.workflowVars, ...config.rcVars })
+    const undeclared = Object.keys(varOverrides).filter((name) => !declaredNames.includes(name))
+    if (undeclared.length > 0) {
       return yield* Effect.fail(
-        new Error("gtd fix: the working tree must be clean before starting a fix"),
+        new Error(
+          `${commandLabel}: --var name(s) not declared by this workflow: ${undeclared.join(
+            ", ",
+          )} — declared: ${declaredNames.length > 0 ? declaredNames.join(", ") : "(none)"}`,
+        ),
       )
     }
 
-    const entryState = fixEntryStateOf(rest.def)
-    if (entryState === undefined) {
-      return yield* Effect.fail(
-        new Error("gtd fix: the active workflow declares no fix entry state"),
-      )
+    const vars = resolveVars(config.workflowVars, config.rcVars, varOverrides, envVars.all)
+
+    let base: string | undefined
+    const baseTemplate = entryBaseTemplateOf(rest.def, entryState)
+    if (baseTemplate !== undefined) {
+      const rendered = yield* Effect.try({
+        try: () => renderStateTemplate(baseTemplate, varsOnlyContext(vars, entryState)),
+        catch: (e) => new Error(`${commandLabel}: ${e instanceof Error ? e.message : String(e)}`),
+      })
+      if (rendered.trim() === "") {
+        const refs = Array.from(
+          new Set(Array.from(baseTemplate.matchAll(/it\.vars\.(\w+)/g)).map((m) => m[1]!)),
+        )
+        return yield* Effect.fail(
+          new Error(
+            `${commandLabel}: "${entryState}"'s reviewBase template rendered blank — template: ${JSON.stringify(
+              baseTemplate,
+            )}; it.vars references: ${
+              refs.length > 0 ? refs.map((r) => `it.vars.${r}`).join(", ") : "(none found)"
+            }`,
+          ),
+        )
+      }
+      const resolvedBase = yield* git
+        .resolveRef(rendered)
+        .pipe(
+          Effect.mapError(
+            () => new Error(`${commandLabel}: "${rendered}" does not resolve to a commit`),
+          ),
+        )
+      const isBaseAncestor = yield* git.isAncestor(resolvedBase, "HEAD")
+      if (!isBaseAncestor) {
+        return yield* Effect.fail(
+          new Error(`${commandLabel}: "${rendered}" is not an ancestor of HEAD`),
+        )
+      }
+      const headHash = yield* git.resolveRef("HEAD")
+      if (resolvedBase === headHash) {
+        return yield* Effect.fail(
+          new Error(`${commandLabel}: "${rendered}" is HEAD — nothing to review`),
+        )
+      }
+      base = resolvedBase
     }
 
-    const subject = stateSubject("human", entryState)
-    yield* git.commitAsIs(subject)
+    const subject = stateSubject(actor, entryState)
+    yield* git.commitAllWithPrefix(
+      withEntryTrailers(subject, { ...(base !== undefined ? { base } : {}), vars: varOverrides }),
+    )
     if (json) {
       write(JSON.stringify({ state: entryState, subject }) + "\n")
     } else {
@@ -731,8 +901,10 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 /**
  * `gtd abandon`: end the process currently underway WITHOUT completing it,
  * returning the machine to the workflow's initial state — the recovery path out
- * of a process nobody is going to finish (the refusals of `gtd review`/`gtd fix`
- * name it: "finish or abandon it before starting a review").
+ * of a process nobody is going to finish (`runEntryCommand`'s "already
+ * underway" refusal names it: "finish it, or run `gtd abandon`, before entering"
+ * — and so does `resolveRest`'s refusal when HEAD names a state a workflow
+ * change has since removed).
  *
  * NOTHING is discarded. The shared bracket in `makeProgram` has already closed
  * any open review checkout window (so HEAD is the real head), and abandon then
@@ -742,6 +914,15 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  * carried — the code, the `.gtd/` steering files — stays in the working tree as
  * uncommitted changes for the human to keep, re-commit, or discard with
  * ordinary git.
+ *
+ * Deliberately reads the current state off `computeProcessRun`'s OWN trace
+ * (its last entry, oldest→newest) rather than `resolveRest` — `resolveRest`
+ * refuses when HEAD names a state the CURRENT workflow no longer declares
+ * (the escape hatch THIS command is), so routing through it here would make
+ * the one command that must still work in that exact situation refuse right
+ * alongside everything else. `computeProcessRun`'s boundary walk only ever
+ * compares state NAMES (never a declaration lookup), so it resolves a
+ * renamed-away trace exactly as well as an ordinary one.
  *
  * Idempotent: resting at the initial state (a plain non-gtd branch, or a
  * just-squashed cycle) is a no-op SUCCESS, not a refusal — a recovery command
@@ -758,9 +939,11 @@ const runAbandonCommand = (
     yield* rejectExtraArgs("abandon", argv)
 
     const git = yield* GitService
-    const rest = yield* resolveRest()
-    const initial = initialStateOf(rest.def)
-    if (rest.state === initial) {
+    const config = yield* (yield* ConfigService).load
+    const def = config.workflow
+    const initial = initialStateOf(def)
+    const run = yield* computeProcessRun(git, def)
+    if (run.trace.length === 0) {
       if (json) {
         write(JSON.stringify({ state: initial, abandoned: false }) + "\n")
       } else {
@@ -768,12 +951,12 @@ const runAbandonCommand = (
       }
       return
     }
+    const restState = run.trace[run.trace.length - 1]!.state
 
-    const run = yield* computeProcessRun(git, rest.def)
     if (run.startParentHash === EMPTY_TREE) {
       return yield* Effect.fail(
         new Error(
-          `gtd abandon: the process underway (resting at "${rest.state}") starts at the ` +
+          `gtd abandon: the process underway (resting at "${restState}") starts at the ` +
             "repository's first commit — there is no earlier commit to rewind to",
         ),
       )
@@ -789,13 +972,13 @@ const runAbandonCommand = (
         JSON.stringify({
           state: initial,
           abandoned: true,
-          from: rest.state,
+          from: restState,
           head: run.startParentHash,
         }) + "\n",
       )
     } else {
       write(
-        `abandoned the process resting at "${rest.state}" — HEAD is back at ` +
+        `abandoned the process resting at "${restState}" — HEAD is back at ` +
           `${run.startParentHash.slice(0, 7)} ("${subject}"), resting at "${initial}".\n` +
           `Everything the process produced is kept as uncommitted changes (\`git status\`); ` +
           `discard them with \`git checkout -- . && git clean -fd .gtd\` for a clean tree.\n`,
@@ -921,8 +1104,8 @@ const runNextCommand = (
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const { rest, context } = yield* resolveRestContext(git)
-    const rendered = yield* renderRest(rest, context)
+    const { rest, context, memory } = yield* resolveRestContext(git)
+    const rendered = yield* renderRest(rest, context, memory)
     write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
   })
 
@@ -1473,10 +1656,9 @@ const runStatusCommand = (
   Effect.gen(function* () {
     yield* rejectExtraArgs("status", argv)
     const git: GitOperations = yield* GitService
-    const { rest, context, renderedOn } = yield* resolveRestContext(git)
+    const { rest, context, renderedOn, memory } = yield* resolveRestContext(git)
     const changes = yield* pendingChanges(git)
     const model = yield* renderModel(rest.stateDef, context)
-    const memory = yield* renderMemory(rest.stateDef, context)
     const label = yield* renderLabel(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     const statusChanges = computeStatusChanges(renderedOn, changes)
@@ -1583,8 +1765,9 @@ const computeCurrentState = (
     const envVars = yield* EnvVars
     const reviewHead = yield* git.readRefOption(REVIEW_HEAD_REF)
     const currentRest = yield* resolveRest(Option.getOrUndefined(reviewHead))
+    const run = yield* computeProcessRun(git, currentRest.def)
     const changes = yield* pendingChanges(git)
-    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
     const renderedOn = yield* renderOnEdgesOrFail(currentRest.stateDef.on, vars)
     const group = model.states.find((s) => s.name === currentRest.state)?.group
     return buildCurrentStateModel(currentRest, changes, renderedOn, group)
@@ -1614,10 +1797,15 @@ const runVisualizeCommand = (
     if ("error" in opts) return yield* Effect.fail(new Error(opts.error))
 
     const config = yield* (yield* ConfigService).load
-    const model = buildVizModel(config.workflow, config.rawWorkflow, {
-      ...config.workflowVars,
-      ...config.rcVars,
-    })
+    const model = buildVizModel(
+      config.workflow,
+      config.machineTree,
+      {
+        ...config.workflowVars,
+        ...config.rcVars,
+      },
+      config.stateScopes,
+    )
 
     if (json) {
       write(JSON.stringify(model, null, 2) + "\n")
@@ -1643,17 +1831,29 @@ const runVisualizeCommand = (
     yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => server.close())))
   })
 
-const KNOWN_SUBCOMMANDS = [
-  "step",
-  "review",
-  "fix",
-  "abandon",
-  "restore",
-  "next",
-  "status",
-  "validate",
-] as const
+const KNOWN_SUBCOMMANDS = ["step", "abandon", "restore", "next", "status", "validate"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
+
+/**
+ * The two named commands the generic `--entry` mechanism replaced (see
+ * `runEntryCommand`) — no fallback, so `gtd review`/`gtd fix` must fail with a
+ * message pointing at the replacement rather than the generic "unknown
+ * command" (see `requireKnownSubcommand`). Illustrated with the bundled
+ * unified template's own entry-flagged state names (`review-gate.check`/
+ * `fix-precheck`) since gtd itself has no opinion on any workflow's state
+ * names — a custom workflow names its own.
+ */
+const REMOVED_SUBCOMMANDS: Record<string, string> = {
+  review:
+    "gtd: `gtd review <commitish>` is gone — this workflow's own state names " +
+    "aren't known to gtd; run `gtd step <actor> --entry <review-state> " +
+    "--var <name>=<value> ...` instead (e.g. " +
+    "`gtd step human --entry review-gate.check` for the bundled unified template)",
+  fix:
+    "gtd: `gtd fix` is gone — this workflow's own state names aren't known to " +
+    "gtd; run `gtd step <actor> --entry <fix-state>` instead (e.g. " +
+    "`gtd step human --entry fix-precheck` for the bundled unified template)",
+}
 
 /**
  * `--version`/`-v`/`version` or `--help`/`-h`/`help`: short-circuits before any
@@ -1690,6 +1890,10 @@ const requireKnownSubcommand = (
   if (sub === undefined) {
     if (!json) write(HELP_TEXT)
     return Effect.fail(new Error("gtd: missing command — see usage above (`gtd --help`)"))
+  }
+  const removedMessage = REMOVED_SUBCOMMANDS[sub]
+  if (removedMessage !== undefined) {
+    return Effect.fail(new Error(removedMessage))
   }
   if (!(KNOWN_SUBCOMMANDS as readonly string[]).includes(sub)) {
     return Effect.fail(new Error(`unknown command '${sub}'`))
@@ -1757,7 +1961,7 @@ const assertInitLocation = (
     return true
   })
 
-/** Dispatches to the named `run*Command` handler for every known subcommand. */
+/** Dispatches to the named `run*Command` handler for every known subcommand. `entryFlags` is only consulted by `step` (see `runStepCommand`) — every other subcommand ignores it, since `--entry`/`--var` are meaningless anywhere else (`parseEntryFlags` already rejects that combination before dispatch is reached). */
 const dispatchKnownSubcommand = (
   sub: KnownSubcommand,
   argv: readonly string[],
@@ -1765,14 +1969,11 @@ const dispatchKnownSubcommand = (
   write: (chunk: string) => void,
   cost: number | undefined,
   model: string | undefined,
+  entryFlags: { readonly entry: string | undefined; readonly vars: Record<string, string> },
 ): Effect.Effect<void, Error, ProgramRequirements> => {
   switch (sub) {
     case "step":
-      return runStepCommand(argv, json, write, cost, model)
-    case "review":
-      return runReviewCommand(argv, json, write)
-    case "fix":
-      return runFixCommand(argv, json, write)
+      return runStepCommand(argv, json, write, cost, model, entryFlags)
     case "abandon":
       return runAbandonCommand(argv, json, write)
     case "restore":
@@ -1785,6 +1986,46 @@ const dispatchKnownSubcommand = (
       return runValidateCommand(argv, json, write)
   }
 }
+
+/**
+ * Runs `command` inside the bracket every state-touching subcommand shares:
+ * the repo-root guard, then close-any-open-review-window before the command
+ * sees HEAD, then re-arm it afterward whether `command` succeeded or refused
+ * (see `closeReviewWindow`/`openReviewWindow`). Shared by the normal
+ * known-subcommand dispatch and the subcommand-less `gtd --entry <state>`
+ * short form in `makeProgram`, so both open/close the window identically.
+ */
+const runInReviewWindowBracket = (
+  git: GitOperations,
+  fs: FileSystem.FileSystem,
+  command: Effect.Effect<void, Error, ProgramRequirements>,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* assertRunningFromRepoRoot(git, fs)
+    // Restore the real HEAD before anything reads or mutates workflow state:
+    // while a review checkout window is open (see src/ReviewWindow.ts), HEAD is
+    // rewound to the review base, so the pure machine would otherwise resolve
+    // against the wrong commit. Keyed on the ref alone — a no-op when no window
+    // is open.
+    //
+    // Second, independent reason this must come BEFORE the subcommand runs:
+    // the computed memory key (`memoryKeyFor`, package 05/06) is derived from
+    // `ProcessRun.trace`, which is walked back from HEAD — while the window is
+    // open, HEAD is rewound and the trace truncated, which would silently
+    // resolve the wrong `entryIndex` (and so the wrong commit-anchored token)
+    // rather than failing loudly.
+    yield* closeReviewWindow
+
+    // Re-arm the window after the subcommand — on success AND on refusal/error,
+    // and after read-only commands too (every command opts into window
+    // management), so the editor's diff view stays consistent no matter which
+    // command the loop last ran. The subcommand's own error takes priority; a
+    // re-arm failure only surfaces when the subcommand itself succeeded.
+    const outcome = yield* Effect.either(command)
+    const rearm = yield* Effect.either(openReviewWindow)
+    if (Either.isLeft(outcome)) return yield* Effect.fail(outcome.left)
+    if (Either.isLeft(rearm)) return yield* Effect.fail(rearm.left)
+  })
 
 /**
  * Options for the exported `makeProgram` factory.
@@ -1806,13 +2047,17 @@ export interface RunOptions {
  * this with no arguments; the test world supplies an in-memory layer set and
  * captures stdout via the `write` callback.
  *
- * v3 command surface: `step <actor>` / `review <commitish>` / `fix` / `next` /
- * `status` / `validate` (see `src/Edge.ts`),
- * plus `lsp` and `init` — both dispatched before the config-reading
- * path since neither needs to touch the config. Bare `gtd` or an
- * unknown subcommand is a usage error. Shared setup (argv parsing, the
- * repo-root guard) lives here; each subcommand's own logic is a named
- * `run*Command` function above.
+ * v3 command surface: `step <actor>` / `next` / `status` / `validate` (see
+ * `src/Edge.ts`), plus `lsp` and `init` — both dispatched before the
+ * config-reading path since neither needs to touch the config. `step
+ * <actor> --entry <state>` (and its subcommand-less short form `gtd --entry
+ * <state>`, actor defaulting to `human`) starts a brand-new process at any
+ * declared, non-commit state — the generic mechanism that replaced the old
+ * named `review`/`fix` commands (see `runEntryCommand`; `gtd review`/`gtd
+ * fix` now fail with a message pointing at the replacement, `REMOVED_SUBCOMMANDS`).
+ * Bare `gtd` with no `--entry` present, or an unknown subcommand, is a usage
+ * error. Shared setup (argv parsing, the repo-root guard) lives here; each
+ * subcommand's own logic is a named `run*Command` function above.
  */
 export function makeProgram(
   opts: RunOptions = {},
@@ -1820,8 +2065,17 @@ export function makeProgram(
   const argv = opts.argv ?? process.argv
   const write = opts.write ?? ((chunk: string) => process.stdout.write(chunk))
   const json = argv.includes("--json")
-  const positional = argv.slice(2).find((a) => !a.startsWith("--"))
+  // Skip any index `--entry`/`--var` consumed as a VALUE (e.g. `--entry
+  // review-gate.check`'s `review-gate.check`, which carries no `--` prefix of
+  // its own) — otherwise it reads as a stray extra positional (see
+  // `takeFlagValues`/`flagConsumedIndices`).
+  const consumedFlagIndices = flagConsumedIndices(argv)
+  const positional = argv
+    .map((a, i) => ({ a, i }))
+    .slice(2)
+    .find(({ a, i }) => !a.startsWith("--") && !consumedFlagIndices.has(i))?.a
 
+  // fallow-ignore-next-line complexity
   return Effect.gen(function* () {
     if (runVersionOrHelp(argv, write)) return
 
@@ -1833,21 +2087,25 @@ export function makeProgram(
     }
 
     // Reject unknown `--` options up front: a typo like `--jsn` must not
-    // silently degrade to plain-text mode. `--json` and `--cost=<n>` are the
-    // only long options; `--version`/`--help` (and their short forms)
-    // short-circuited above. A bare `--cost` (no `=`) is left for
-    // `parseCostFlag` to reject with a value-specific message.
-    const unknownOption = argv
-      .slice(2)
-      .find(
-        (a) =>
-          a.startsWith("--") &&
-          a !== "--json" &&
-          a !== "--cost" &&
-          a !== "--model" &&
-          !a.startsWith(COST_FLAG) &&
-          !a.startsWith(MODEL_FLAG),
-      )
+    // silently degrade to plain-text mode. `--json`, `--cost=<n>`, `--entry`,
+    // and `--var` are the only long options; `--version`/`--help` (and their
+    // short forms) short-circuited above. A bare `--cost`/`--entry` (no `=`,
+    // no space-separated value) is left for `parseCostFlag`/`parseEntryFlags`
+    // to reject with a value-specific message.
+    const unknownOption = argv.slice(2).find(
+      // fallow-ignore-next-line complexity
+      (a) =>
+        a.startsWith("--") &&
+        a !== "--json" &&
+        a !== "--cost" &&
+        a !== "--model" &&
+        a !== ENTRY_FLAG &&
+        a !== VAR_FLAG &&
+        !a.startsWith(COST_FLAG) &&
+        !a.startsWith(MODEL_FLAG) &&
+        !a.startsWith(`${ENTRY_FLAG}=`) &&
+        !a.startsWith(`${VAR_FLAG}=`),
+    )
     if (unknownOption !== undefined) {
       return yield* Effect.fail(
         new Error(`gtd: unknown option '${unknownOption}' — see \`gtd --help\``),
@@ -1857,6 +2115,16 @@ export function makeProgram(
     // `--cost`/`--model` record the just-finished invocation's token cost and
     // model as a `Gtd-Cost:` trailer on the turn commit (see `parseStepFlags`).
     const { cost, model } = yield* parseStepFlags(argv, positional)
+    // `--entry`/`--var` start a brand-new process at a declared state instead
+    // of stepping the resting one (see `parseEntryFlags`/`runEntryCommand`).
+    const entryFlags = yield* parseEntryFlags(argv, positional)
+    if (entryFlags.entry !== undefined && (cost !== undefined || model !== undefined)) {
+      return yield* Effect.fail(
+        new Error(
+          "gtd: --cost/--model cannot be combined with --entry — an entry is not a metered agent turn",
+        ),
+      )
+    }
 
     if (positional === "lsp") {
       return yield* runLspCommand(argv, json)
@@ -1866,29 +2134,34 @@ export function makeProgram(
       return yield* runInitCommand(argv, json, write)
     }
 
+    if (positional === undefined && entryFlags.entry !== undefined) {
+      // The subcommand-less short form: `gtd --entry <state> [--var ...]`,
+      // equivalent to `gtd step human --entry <state> ...`.
+      const git = yield* GitService
+      const fs = yield* FileSystem.FileSystem
+      return yield* runInReviewWindowBracket(
+        git,
+        fs,
+        runEntryCommand(
+          "human",
+          entryFlags.entry,
+          entryFlags.vars,
+          json,
+          write,
+          `gtd --entry ${entryFlags.entry}`,
+        ),
+      )
+    }
+
     const sub = yield* requireKnownSubcommand(positional, json, write)
 
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
-    yield* assertRunningFromRepoRoot(git, fs)
-    // Restore the real HEAD before anything reads or mutates workflow state:
-    // while a review checkout window is open (see src/ReviewWindow.ts), HEAD is
-    // rewound to the review base, so the pure machine would otherwise resolve
-    // against the wrong commit. Keyed on the ref alone — a no-op when no window
-    // is open.
-    yield* closeReviewWindow
-
-    // Re-arm the window after the subcommand — on success AND on refusal/error,
-    // and after read-only commands too (every command opts into window
-    // management), so the editor's diff view stays consistent no matter which
-    // command the loop last ran. The subcommand's own error takes priority; a
-    // re-arm failure only surfaces when the subcommand itself succeeded.
-    const outcome = yield* Effect.either(
-      dispatchKnownSubcommand(sub, argv, json, write, cost, model),
+    yield* runInReviewWindowBracket(
+      git,
+      fs,
+      dispatchKnownSubcommand(sub, argv, json, write, cost, model, entryFlags),
     )
-    const rearm = yield* Effect.either(openReviewWindow)
-    if (Either.isLeft(outcome)) return yield* Effect.fail(outcome.left)
-    if (Either.isLeft(rearm)) return yield* Effect.fail(rearm.left)
   }).pipe(
     json
       ? Effect.catchAll((error) =>

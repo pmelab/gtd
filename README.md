@@ -95,8 +95,8 @@ reads intent first, glob second.
 The unified workflow has **entry points behind a green-baseline gate, into one
 shared tail**. Every entry first runs your test suite and only starts once it's
 green — you never build (or review) on top of a red baseline; a red run halts
-and tells you to repair it first (that's what `gtd fix` is for). The two
-steering-file entries are chosen by which file you create:
+and tells you to repair it first (that's what `gtd --entry fix-precheck` is
+for). The two steering-file entries are chosen by which file you create:
 
 - Create **`.gtd/TODO.md`** with a short sketch to start the **simple** flow: an
   agent develops your sketch into a concrete plan — deciding open points itself
@@ -105,14 +105,17 @@ steering-file entries are chosen by which file you create:
   runs your tests (looping on failures) — the check run also mechanically sweeps
   `.gtd/TODO.md` and other spent steering files, so a plan that's left in place
   by mistake never leaks into the review diff or the final squash.
-- Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: two-phase
-  product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`) —
-  each open question offers a couple of candidate answers plus a
-  `- [ ] _your answer_` slot, and you tick exactly one per question (the gate
-  won't let a phase advance while any question is unanswered) — then
-  decomposition into work **packages** (each a set of independent tasks a single
-  build turn fans out to parallel subagents), a per-package test loop, and a
-  per-package **agentic review** that verifies the package against its spec.
+- Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: one design
+  conversation across product then technical Q&A (`.gtd/REQUIREMENTS.md` →
+  `.gtd/ARCHITECTURE.md`) and decomposition — each open question offers a couple
+  of candidate answers plus a `- [ ] _your answer_` slot, and you tick exactly
+  one per question (the gate won't let a phase advance while any question is
+  unanswered) — then decomposition into work **packages** (each a set of
+  independent tasks a single build turn fans out to parallel subagents), a
+  per-package test loop, and a per-package **agentic review** that verifies the
+  package against its spec. All three phases share one machine identity, so the
+  agent never re-explores the codebase from scratch between them, and the
+  human's answers carry forward into decomposition.
 
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
 checkbox review of the diff — the prompt never inlines the diff itself; it names
@@ -130,19 +133,38 @@ turns your comments into an explicit instruction list, then a build turn
 implements it (a re-review then covers only the follow-through, and a hand-edit
 is treated as your own fix the agent completes without reverting your lines; a
 comment can't be silently dropped — a build turn that addresses nothing is
-refused). Ticking every box with no comment is the sign-off, which collapses the
-whole cycle into one commit (a **squash finale** whose message an agent drafts).
-Stepping with a box still unticked and no comment is refused (finish reviewing
-first), as is deleting `.gtd/REVIEW.md`.
+refused). For the simple flow, the build turn that follows through on feedback
+and the turn that drafts the final squash message both resume the same session
+that built the feature in the first place, since the review tail is nested
+inside that build identity rather than sitting beside it. Ticking every box with
+no comment is the sign-off, which collapses the whole cycle into one commit (a
+**squash finale** whose message an agent drafts). Stepping with a box still
+unticked and no comment is refused (finish reviewing first), as is deleting
+`.gtd/REVIEW.md`.
 
-The same review tail also has a direct entry point — `gtd review <commitish>`
-starts a brand new process reviewing `<commitish>..HEAD` with no cycle of its
-own, e.g. a colleague's PR branch. Its squash keeps and describes only the fixes
-made _during_ the review (not the reviewed changeset); a clean sign-off with no
-fixes becomes an empty `chore: human review` commit. A fourth entry, `gtd fix`,
-starts from a clean `idle` and goes straight into repairing a red baseline —
-repair, review, and squash into one commit. If the suite is already green there
-is nothing to fix, and the log is left untouched — no commit is left behind.
+The same review tail also has a direct entry point —
+`gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
+process reviewing `<commitish>..HEAD` with no cycle of its own, e.g. a
+colleague's PR branch (`review-gate.check`'s `reviewBase:` is a template bound
+to the `reviewBase` var, so supplying it via `--var` fixes the whole process's
+diff base to that commitish). Its squash keeps and describes only the fixes made
+_during_ the review (not the reviewed changeset); a clean sign-off with no fixes
+becomes an empty `chore: human review` commit. A fourth entry,
+`gtd --entry fix-precheck`, starts from a clean `idle` and goes straight into
+repairing a red baseline — repair, review, and squash into one commit. If the
+suite is already green there is nothing to fix, and the log is left untouched —
+no commit is left behind.
+
+`--entry` itself isn't limited to states flagged `entry: true` — it accepts
+**any** declared, non-commit state of the active workflow (see
+[`gtd step`](#commands)/`gtd --entry` below). `entry: true` only marks a state
+as an _extra_ reachability root (and drives a badge in `gtd visualize`) for a
+state that would otherwise be unreachable from the ordinary `idle` rest —
+`review-gate.check` and `fix-precheck` need it for exactly that reason, while
+`plan-gate.check`/`spec-gate.check` carry it too (the bundled template dedups
+the three `entryGate` instances into one shared machine, so flagging the shared
+state flags all three) even though `idle` already reaches them the ordinary way.
+`entry: true` is not a precondition for `--entry` to target a state.
 
 Every agent state routes its model through two `vars` tiers — `plannerModel`
 (heavier planning and review) and `coderModel` (the coding turns) — so you can
@@ -183,16 +205,16 @@ Commands:
                    (or squash) the one resulting transition. Pass
                    --cost=<n> (optionally --model=<name>) to record the
                    just-finished invocation's token cost and model on the
-                   turn commit (summed into it.processCost/processCostByModel)
-  review <commitish>
-                   Start a NEW review process at the workflow's declared
-                   review-entry state (reviewEntry: true), reviewing
-                   <commitish>..HEAD — e.g. a colleague's PR branch. Requires
-                   a clean tree resting at the workflow's initial state
-  fix              Start a NEW process at the workflow's declared fix-entry
-                   state (fixEntry: true) that goes straight into repairing the
-                   current failing tests. Requires a clean tree resting at the
-                   workflow's initial state
+                   turn commit (summed into it.processCost/processCostByModel).
+                   Pass --entry <state> to start a brand NEW process at
+                   <state> instead — any declared, non-commit state (e.g.
+                   review-gate.check or fix-precheck on the bundled unified
+                   template) — with repeatable --var <name>=<value> supplying
+                   that new process's fixed it.vars overrides
+  (no command) --entry <state>
+                   Short form of 'step human --entry <state>' — starts a new
+                   process authenticated as human, e.g.
+                   'gtd --entry review-gate.check'
   abandon          End the process currently underway without completing it:
                    close any open review checkout window, then rewind HEAD to
                    the commit the process started from, keeping everything it
@@ -224,6 +246,15 @@ Options:
   --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
+  --entry <state>  (gtd step, or with no command at all) start a brand new
+                   process at <state> — any declared, non-commit state —
+                   instead of stepping the one currently resting. Not
+                   combinable with --cost/--model (an entry is not a metered
+                   agent turn)
+  --var <name>=<value>
+                   (with --entry; repeatable) supply a fixed it.vars
+                   override for the new process; the name must already be
+                   declared by the workflow's own vars: or the .gtdrc vars:
   --once           (bare gtd or gtd loop only) run exactly one loop beat (one
                    human-gate capture, one script check+step, or one agent
                    prompt+step), then exit
@@ -241,13 +272,18 @@ touching the repository. Every other (recognized) command must be run from the
 history relative to cwd, so it refuses with a clear error if invoked from a
 subdirectory.
 
-`--json`, `--cost=<n>`, and `--model=<name>` (the latter two only for
-`gtd step`) are the only long options the compiled bundle recognizes. Any other
-`--` option (including a typo like `--jsn`) is rejected with a usage error
-rather than silently ignored, so a mistyped flag can never degrade a JSON caller
-to plain-text mode. A bare `--cost`/`--model` with no value, a non-numeric or
-negative `--cost`, an empty `--model`, `--model` without `--cost`, or either
-flag on any command other than `gtd step` are all usage errors.
+`--json`, `--cost=<n>`, `--model=<name>` (the latter two only for `gtd step`),
+`--entry <state>` (`gtd step` or no command at all), and `--var <name>=<value>`
+(with `--entry`, repeatable) are the only long options the compiled bundle
+recognizes. `--entry`/`--var` accept both the `--flag=value` and the
+space-separated `--flag value` form. Any other `--` option (including a typo
+like `--jsn`) is rejected with a usage error rather than silently ignored, so a
+mistyped flag can never degrade a JSON caller to plain-text mode. `--var` with
+no `--entry`, a duplicate `--var` name, or `--cost`/`--model` combined with
+`--entry` are all usage errors too. A bare `--cost`/`--model` with no value, a
+non-numeric or negative `--cost`, an empty `--model`, `--model` without
+`--cost`, or either flag on any command other than `gtd step` are all usage
+errors.
 
 `--once` is a separate, bash-level flag handled entirely by the `bin/gtd` driver
 itself, stripped before anything reaches the bundle.
@@ -313,12 +349,45 @@ name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
 per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
 can use it the same way.
 
-A state can also declare an optional `memory:` scope label: consecutive agent
-turns sharing the same label continue one agent session (remembered in the git
-dir, so it survives restarts across the same worktree), while a changed or
-absent label starts a fresh one. If the remembered session no longer exists
-(retention expired, `~/.claude/projects` wiped, a machine change), the driver
-degrades to a fresh session with a warning instead of stopping the loop.
+Memory is **entry-scoped to a machine**, not a state-authored label: each
+machine instance (a node in the `machines:` tree, e.g. `build`, `build.health`,
+`packages.item`, `packages.item.health`) owns its own conversational scope, and
+a `prompt`-content state's `memory` key — surfaced in `gtd next --json`/
+`gtd status --json`'s `memory` field, and as a `Memory: <key>` line in plain
+`gtd status` — is computed, never authored, as `<scope>#<hash7>`: `<scope>` is
+that machine instance's dotted path (the root instance is shown as `root`), and
+`<hash7>` anchors to the commit the CURRENT unbroken entry into that scope
+started FROM. Entering a **descendant** scope (e.g. dipping from `build` into
+`build.health`) does not break the parent's unbroken run — a full agent turn in
+a nested child machine, then back to the parent, still resumes the SAME parent
+conversation; entering a **sibling or unrelated** scope does start a fresh one.
+The bundled template's `build.review` (the human review tail) is a worked
+example: it is nested INSIDE `build` (the builder's own machine) precisely
+because that descendant relationship is what lets `build.addressing` and
+`build.squashing` resume the session that built the feature across a full review
+round-trip, instead of a root-level sibling breaking that run on every pass
+through the tail. Two instances of the same reusable machine (e.g.
+`build.health` and `packages.item.health`, both instantiating `healthGate`) get
+different scopes and so never share a key, even though they're the "same shaped"
+machine. One consequence is a structural guarantee: **a reviewer's turn never
+resumes an implementer's session, and vice versa** — a reviewer machine and the
+implementer machine it reviews are always different instances with different
+scopes.
+
+The loop driver (`bin/gtd`) tracks this as a per-scope **session table** — one
+`<key> <session_id>` row per scope — persisted at `$gitdir/gtd-loop-memory` (the
+git dir, never the working tree, so `gtd status` and the pending diff never see
+it), not a single "last" value: this is what lets a scope's session survive an
+excursion into a child machine's own agent turn (the child writes its own row;
+the parent's row is untouched). On each agent-prompt turn, the driver looks the
+current key up by exact string match against the table (a hit resumes that row's
+session, a miss starts fresh) and, on write, replaces only the ONE row whose
+scope matches the current key's scope — every other scope's row is left as-is.
+This is exported to the agent adapter as `$GTD_LOOP_MEMORY` (the key),
+`$GTD_LOOP_SESSION_ID`, and `$GTD_LOOP_MEMORY_RESUME` (`"1"` when resuming). If
+the remembered session no longer exists (retention expired, `~/.claude/projects`
+wiped, a machine change), the driver degrades to a fresh session with a warning
+instead of stopping the loop.
 
 ### Terminal-multiplexer status: a herdr wrapper
 
@@ -460,38 +529,70 @@ workflow:
     <name>:
       format: <shell command> # at least one of format/validate
       validate: <shell command>
-  states:
+  entry:
+    default: <machine name> # which machine is the ROOT instance
+  machines:
     <name>:
-      actor: <string> # forbidden on a commit state, required otherwise
-      script: <string> # exactly one of script/prompt/message/commit
-      prompt: <string>
-      message: <string>
-      commit: <string>
-      on: # a mapping, DECLARATION ORDER PRESERVED
-        "<pattern>": <targetState> # short form
-        "<pattern>": {
-            to: <targetState>,
-            describe: <sentence>,
-            action: <label>,
-          } # description/action
-      initial: true # exactly one state across the whole workflow
-      retry:
-        max: <number>
-        otherwise: <targetState>
-      model: <string> # optional, opaque harness hint — forbidden on a commit state
-      memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
-      file: <string> # optional, an Eta template naming the state's steering file
-      mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
+      model: <string> # optional, opaque harness hint — stamped onto every one of THIS machine's own `prompt` states; declared ONCE per machine, never per state
+      params: [<param>, ...] # optional, advisory — documents which $params a caller may bind
+      entry: <local or ref key> # this machine's own default local, resolved recursively
+      states:
+        <local>:
+          actor: <string> # forbidden on a commit state, required otherwise
+          script: <string> # exactly one of script/prompt/message/commit
+          prompt: <string>
+          message: <string>
+          commit: <string>
+          on: # a mapping, DECLARATION ORDER PRESERVED
+            "<pattern>": <targetState> # short form
+            "<pattern>": {
+                to: <targetState>,
+                describe: <sentence>,
+                action: <label>,
+              } # description/action
+          retry:
+            max: <number>
+            otherwise: <targetState>
+          file: <string> # optional, an Eta template naming the state's steering file
+          mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
+          reviewWindow: true # optional — open the review checkout window at rest here
+          reviewBase: true # optional — anchor the review window's diff base to this state's most-recent commit
+          # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
+          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared, non-commit state is a valid target)
+        <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```
+
+There is no `memory:` key anywhere in this shape — a state's memory scope is
+never authored, only computed from its position in the machine tree (see
+[Driving the loop](#driving-the-loop) above for the key format and the driver's
+per-scope session table).
+
+The top-level `entry:` key (naming the root machine, `entry.default`) and a
+state's own `entry: true` flag are the same word at two different levels, by
+design: one selects the workflow's root machine, the other opts one state in as
+an extra manual entry point.
+
+A workflow is authored as a TREE of reusable, parameterized machines — a
+gate/loop written once and instantiated several times with different `with:`
+bindings (dedup), or a complex cluster grouped under one name for source
+comprehension (encapsulation). Every reference is expanded at load time into
+concrete, qualified states (`<local>.<childLocal>`, however deep) before the
+engine ever sees the definition — see `src/Machines.ts` for the mechanism.
+MACHINE BOUNDARIES ARE THE UNIT OF CONVERSATIONAL IDENTITY: a machine that holds
+an identity (a planner or a coder persona) declares its own `model:` once, at
+the machine level, instead of repeating it per state — and, per the memory rule
+above, two references to the SAME machine (a dedup instantiation) are always two
+independent instances with two independent memory scopes, never one shared
+conversation across both call sites.
 
 Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
 
 - **`it.startCommit`** — the process's diff base (the commit the current cycle
-  started from, or a `gtd review <commitish>` entry's resolved base).
+  started from, or the base a `--var reviewBase=<commitish>` entry resolved to).
 - **`it.reviewBase`** — the previous review round's boundary, falling back to
   `it.startCommit` on a first review.
 - **`it.retainedBase`** — the process's trace/retry boundary, what a squash
-  actually keeps (never moved by a `gtd review` entry).
+  actually keeps (never moved by a review entry's fixed base).
 - **`it.currentCommit`** / **`it.previousCommit`** — HEAD's hash and its parent,
   at render time.
 
@@ -504,26 +605,103 @@ Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
 is the agent-facing contract for producing a valid `workflow:` — the state
 model, pattern grammar, load-time rules, and how to verify a change compiles.
 
+> **Upgrading from a pre-8.2 `workflow:`?** The old flat `states:` shape (with a
+> per-state `initial: true`/`reviewEntry: true`/`fixEntry: true` flag) is no
+> longer accepted — finish or `gtd abandon` any in-flight cycle before
+> upgrading, since the old and new shapes aren't compatible mid-cycle. Wrap your
+> states under a single
+> `machines: { <name>: { entry: <initial state>, states: {...} } }` and declare
+> `entry: { default: <name> }` at the top level (moving any
+> `reviewEntry`/`fixEntry` state to a plain per-state `entry: true` flag,
+> entered via `gtd --entry <state>` — see the next note).
+
+> **Upgrading a `workflow:` that still declares `entry.review`/`entry.fix`?**
+> Those two keys, and the `gtd review <commitish>`/`gtd fix` commands that used
+> them, are gone. Replace `entry.review: <target>`/`entry.fix: <target>` with a
+> plain `entry: true` flag on that same state, and enter it with
+> `gtd step <actor> --entry <state>` (or the actor-less short form
+> `gtd --entry <state>`) instead of the removed commands.
+> `gtd review <commitish>` required a clean tree and a `<commitish>` argument;
+> the replacement instead captures whatever is pending in the working tree (just
+> like an ordinary `gtd step`) and takes the commitish as a
+> `--var reviewBase=<commitish>` override consumed by that state's own
+> template-form `reviewBase:` (see the `workflow:` shape above and
+> [`gtd --entry`](#commands)). `gtd fix` likewise becomes
+> `gtd --entry <the state that was entry.fix>` (e.g. the bundled template's
+> `gtd --entry fix-precheck`).
+
+> **Upgrading a `workflow:` that still declares a per-state `model:` or
+> `memory:`?** `model:` moved from a state key to a MACHINE key: declare it once
+> on the `machines.<name>:` entry instead of on every one of that machine's
+> states — it is stamped onto every one of that machine's own `prompt` states
+> automatically (see the `workflow:` shape above). A state that still declares
+> its own `model:` is a load error naming the machine to move it to, never a
+> silently ignored key. `memory:` is gone outright, with **no** replacement key
+> — a workflow author simply removes it; a state's memory scope is now computed
+> from its position in the machine tree instead of authored (see
+> [Driving the loop](#driving-the-loop)). The bundled template was also
+> restructured so machine boundaries line up with this new identity model,
+> renaming twenty-two states:
+>
+> - `building` → `build.building`
+> - `decompose` → `build.decompose` → `design.decompose`
+> - `squashing` → `build.squashing`
+> - `review.building` → `build.addressing`
+> - `packages.building` → `packages.item.building`
+> - `packages.closing` → `packages.item.closing`
+> - `packages.health.check` → `packages.item.health.check`
+> - `packages.health.fix` → `packages.item.fix-suite`
+> - `packages.health.escalate` → `packages.item.health.escalate`
+> - `packages.spec.review` → `packages.item.spec.review`
+> - `packages.spec.fix` → `packages.item.fix-spec`
+> - `build.check` → `build.health.check`
+> - `build.escalate` → `build.health.escalate`
+> - `review.reviewing` → `build.review.reviewing`
+> - `review.await-review` → `build.review.await-review`
+> - `review.deciding` → `build.review.deciding`
+> - `review.collecting` → `build.review.collecting`
+> - `product.author` → `design.product-author`
+> - `product.answer` → `design.product-answer`
+> - `technical.author` → `design.technical-author`
+> - `technical.answer` → `design.technical-answer`
+>
+> (`decompose`'s two hops both land in this same release, so a process upgrading
+> from before either restructure only ever sees one hop: `decompose` →
+> `design.decompose`.) Because of these renames, an in-flight process left
+> resting at one of the old qualified state names can no longer be resumed after
+> upgrading — those names no longer exist in the definition, and gtd refuses
+> loudly rather than silently treating the rest as idle. Run `gtd abandon` to
+> discard it and start over (or finish the process on the pre-upgrade workflow
+> version first).
+
 ### Variables
 
-Every template — `script`/`prompt`/`message`/`commit`, and
-`model`/`memory`/`file` — sees `it.vars`: a flat `Record<string, string>`
-assembled from three layers, **later wins**:
+Every template — `script`/`prompt`/`message`/`commit`, a machine's own `model:`,
+and a state's `file:` — sees `it.vars`: a flat `Record<string, string>`
+assembled from four layers, **later wins**:
 
-1. **The workflow's own `vars:` key** (sibling to `states:`) — the workflow
-   author's declared defaults. The unified template declares
-   `vars: { testCommand: "npm test" }`, read by `checking`'s script as
+1. **The workflow's own `vars:` key** (sibling to `entry:`/`machines:`) — the
+   workflow author's declared defaults. The unified template declares
+   `vars: { testCommand: "npm test" }`, read by `build.health.check`'s script as
    `<%~ it.vars.testCommand %>`.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
-3. **`GTD_<UPPERCASE-name>` environment variables** — highest precedence,
+3. **The current process's entry `--var` overrides**, if it was started via
+   `gtd step <actor> --entry <state>`/`gtd --entry <state>` — repeatable
+   `--var <name>=<value>` flags fixed at the moment of entry and recorded as
+   `Gtd-Var: <name>=<value>` trailers on the process's oldest commit, re-parsed
+   on every turn for as long as that process is underway. Each `--var` name must
+   already be declared by layer 1 or 2; an undeclared name is a usage error, not
+   a silent no-op.
+4. **`GTD_<UPPERCASE-name>` environment variables** — highest precedence,
    checked at every invocation, case-insensitively against each name already
-   declared by layer 1 or 2: `GTD_TESTCOMMAND` overrides `testCommand`. The
-   environment can only OVERRIDE a name a config layer already declared — a
+   declared by layers 1–3: `GTD_TESTCOMMAND` overrides `testCommand`. The
+   environment can only OVERRIDE a name an earlier layer already declared — a
    `GTD_*` var matching no declared name is silently ignored.
 
 Values in layers 1–2 must be YAML scalars (string/number/boolean), coerced to
-strings at load time; an object or array value is a load error.
+strings at load time; an object or array value is a load error. A `--var` value
+(layer 3) is always a single-line string as given on the command line.
 
 ```yaml
 # .gtdrc — overriding the unified template's testCommand
@@ -566,9 +744,9 @@ Those findings include the **semantic graph checks**: every `on` target and
 
 Many of these problems never reach gtd at all if your editor validates against
 the [published schema](#schema), which fully types the `workflow:` key. The
-rules JSON Schema cannot express — exactly one content kind, exactly one
-`initial: true`, targets naming defined states, reachability — remain the
-compiler's job at load time.
+rules JSON Schema cannot express — exactly one content kind, `entry.default`
+resolving to a real state, targets naming defined states, reachability — remain
+the compiler's job at load time.
 
 ## Repository requirements
 

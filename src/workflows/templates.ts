@@ -1,7 +1,7 @@
 import { parse as parseYaml } from "yaml"
 import { compileWorkflowConfig, type CompiledWorkflowConfig } from "../PatternConfig.js"
 import type { WorkflowDefinition } from "../PatternMachine.js"
-import { expandSubmachines } from "../Submachines.js"
+import type { MachineNode } from "../Machines.js"
 import unifiedYaml from "./unified.yaml"
 
 /**
@@ -80,13 +80,22 @@ const DEFAULT_WORKFLOW: CompiledWorkflowConfig = compileWorkflowConfig(
 export const defaultWorkflowDefinition: WorkflowDefinition = DEFAULT_WORKFLOW.definition
 
 /**
- * The built-in default's RAW workflow value — `unified.yaml` parsed but NOT
- * expanded, so it still carries `submachines:`/`use:`. `src/Config.ts` exposes
- * it as `ConfigOperations.rawWorkflow` for the built-in default; tooling that
- * needs the sub-machine grouping the compiled definition flattens away (e.g.
- * `gtd visualize`'s `collectGroups`) reads it. Parsed once at module load.
+ * The built-in default's machine-instance tree — the same `MachineNode` tree
+ * `flattenMachines` (`src/Machines.ts`) built while compiling `DEFAULT_WORKFLOW`
+ * above, exposed for tooling that needs the machine grouping the compiled
+ * `WorkflowDefinition` flattens away (e.g. `gtd visualize`). `src/Config.ts`
+ * exposes it as `ConfigOperations.machineTree` for the built-in default.
  */
-export const defaultWorkflowRaw: unknown = parseYaml(UNIFIED_WORKFLOW)
+export const defaultMachineTree: MachineNode = DEFAULT_WORKFLOW.tree
+
+/**
+ * The built-in default's memory-scope map — qualified state name -> the
+ * machine-instance path that owns it, the same `scopes` map
+ * `flattenMachines` (`src/Machines.ts`) built while compiling
+ * `DEFAULT_WORKFLOW` above. `src/Config.ts` exposes it as
+ * `ConfigOperations.stateScopes` for the built-in default.
+ */
+export const defaultStateScopes: Record<string, string> = DEFAULT_WORKFLOW.scopes
 
 /** The built-in default workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars`). */
 export const defaultWorkflowVars: Record<string, string> = DEFAULT_WORKFLOW.vars
@@ -102,11 +111,7 @@ export const defaultWorkflowVars: Record<string, string> = DEFAULT_WORKFLOW.vars
  * Prettier).
  */
 export const renderInitConfig = (): string => {
-  // Expand any `submachines:`/`use:` the template is authored with, so the
-  // scaffolded config is the FLAT concrete-state form — identical to a
-  // hand-written workflow (see src/Submachines.ts). A template with no
-  // sub-machines passes through unchanged.
-  const workflow = expandSubmachines(parseYaml(UNIFIED_WORKFLOW), [])
+  const workflow = parseYaml(UNIFIED_WORKFLOW)
   return JSON.stringify({ $schema: SCHEMA_URL, workflow }, null, 2) + "\n"
 }
 

@@ -369,11 +369,63 @@ new_session_id() {
   uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo ""
 }
 
+# scope_of <key> — the scope part of a "<scope>#<hash>" memory key: everything
+# before the first "#". Used to decide which existing table row a fresh entry
+# into a scope displaces (see write_scope_session).
+scope_of() {
+  printf '%s' "${1%%#*}"
+}
+
+# lookup_scope_session <key> — print the session id remembered for EXACTLY
+# this key (a row whose first field string-equals it), or fail with no output
+# if no row matches (a lookup miss -> the caller starts fresh). $memory_marker
+# absent counts as no rows at all.
+lookup_scope_session() {
+  local key="$1" row_key row_sid
+  [[ -f "$memory_marker" ]] || return 1
+  while read -r row_key row_sid; do
+    if [[ "$row_key" == "$key" ]]; then
+      printf '%s' "$row_sid"
+      return 0
+    fi
+  done <"$memory_marker"
+  return 1
+}
+
+# write_scope_session <key> <session_id> — replace the ONE row for this key's
+# SCOPE (scope_of) with a fresh row for <key>, leaving every OTHER scope's row
+# in the table untouched. A scope has at most one live conversation at any
+# moment, so an existing row for this scope is dead the instant a new entry
+# into it begins — this is the entire pruning story, no process concept
+# needed (see the module's own memory-scope doc comment below). The table is
+# rewritten via a sibling temp file + rename, so a crash mid-write never
+# leaves a half-written table.
+write_scope_session() {
+  local key="$1" session_id="$2" scope tmp row_key row_sid
+  scope="$(scope_of "$key")"
+  tmp="$(mktemp "${memory_marker}.XXXXXX")"
+  if [[ -f "$memory_marker" ]]; then
+    while read -r row_key row_sid; do
+      [[ "$(scope_of "$row_key")" == "$scope" ]] && continue
+      printf '%s %s\n' "$row_key" "$row_sid" >>"$tmp"
+    done <"$memory_marker"
+  fi
+  printf '%s %s\n' "$key" "$session_id" >>"$tmp"
+  mv "$tmp" "$memory_marker"
+}
+
 prev_state=""
 prev_content=""
 prev_head=""
-# Where the last "prompt" turn's `memory` scope + session id are remembered
-# across iterations and across restarts. In the git dir, never the work tree.
+# Where each scope's remembered agent session is persisted across iterations
+# and across restarts, as a TABLE — one "<key> <session_id>" row per scope
+# (keys contain no whitespace, so plain field-splitting is safe) — never a
+# single last-label value: with machine-scoped memory, a scope's key can
+# legitimately reappear AFTER the loop has run turns in a completely
+# different (or nested) scope — e.g. build.fix -> into a nested health-gate
+# child's own agent turn -> back to build.fix, still the same builder
+# conversation. "The last label" can't represent that; a table where each
+# scope owns exactly one row can. In the git dir, never the work tree.
 memory_marker="$(worktree_git_dir 2>/dev/null || echo .git)/gtd-loop-memory"
 
 # Truncated once here (not every iteration), so the file always reflects the
@@ -418,15 +470,17 @@ invoke_agent() {
 
 # run_agent_turn <prompt> <resume> — invoke_agent, with one recovery: a
 # resumed turn (do_resume == 1) that fails AND whose output carries the
-# missing-session signature (session_gone_since) means the marker's session no
-# longer exists on disk. Rather than failing the turn (and every turn after
-# it, since the dead id would just be resumed again), mint a fresh session,
-# rewrite $memory_marker with it — the self-healing part, so a later launch
-# doesn't repeat this — and retry the SAME prompt once with resume off. $resume
-# and $session_id are the enclosing iteration's globals; recovery rewrites them
-# too, so a later validate-gate re-prompt in the same turn resumes the newly
-# pinned session. Blind to the failure mode when session_gone_since can't tell
-# (no log configured): a genuine agent failure then correctly propagates.
+# missing-session signature (session_gone_since) means the CURRENT scope's
+# remembered session no longer exists on disk. Rather than failing the turn
+# (and every turn after it, since the dead id would just be resumed again),
+# mint a fresh session and rewrite ONLY this scope's row in $memory_marker
+# (write_scope_session — every other scope's row survives untouched) — the
+# self-healing part, so a later launch doesn't repeat this — and retry the
+# SAME prompt once with resume off. $resume and $session_id are the enclosing
+# iteration's globals; recovery rewrites them too, so a later validate-gate
+# re-prompt in the same turn resumes the newly pinned session. Blind to the
+# failure mode when session_gone_since can't tell (no log configured): a
+# genuine agent failure then correctly propagates.
 run_agent_turn() {
   local prompt="$1" do_resume="$2" offset status=0
   offset="$(log_offset)"
@@ -436,7 +490,7 @@ run_agent_turn() {
     emit_warn "the remembered agent session for '$memory' is gone — continuing in a fresh session (this turn starts without its previous context)"
     session_id="$(new_session_id)"
     resume=0
-    printf '%s\n%s\n' "$memory" "$session_id" >"$memory_marker"
+    write_scope_session "$memory" "$session_id"
     invoke_agent "$prompt" 0
     return $?
   fi
@@ -574,29 +628,26 @@ $next_out"
   prev_content="$content"
   prev_head="$cur_head"
 
-  # Agent-memory scope: compare this turn's `memory` label against the last
-  # prompt turn's (persisted in $memory_marker). Same non-empty label AND a
-  # known prior session -> resume that session; otherwise start fresh with a
-  # new session id. An unset label carries no constraint (harness default) and
-  # clears the marker so a later labelled turn can't accidentally match it.
-  prev_memory=""
-  prev_session=""
-  if [[ -f "$memory_marker" ]]; then
-    prev_memory="$(sed -n 1p "$memory_marker")"
-    prev_session="$(sed -n 2p "$memory_marker")"
-  fi
+  # Agent-memory scope: look this turn's `memory` key up in the per-scope
+  # table (lookup_scope_session — exact string equality against a row's full
+  # key, "<scope>#<hash>", not just its scope part). A hit -> resume that
+  # session; a miss -> start fresh with a new session id, then write ONLY this
+  # key's scope's row (write_scope_session), leaving every other scope's row
+  # untouched — a scope can legitimately go quiet and reappear later (see the
+  # $memory_marker declaration's own comment) without losing its place. An
+  # absent/empty key carries no constraint (harness default) and leaves the
+  # table completely untouched — it may hold live sessions for OTHER scopes
+  # this turn knows nothing about, so it's neither read nor written here.
   resume=0
   session_id=""
   if [[ -n "$memory" ]]; then
-    if [[ "$memory" == "$prev_memory" && -n "$prev_session" ]]; then
+    if found_session_id="$(lookup_scope_session "$memory")"; then
       resume=1
-      session_id="$prev_session"
+      session_id="$found_session_id"
     else
       session_id="$(new_session_id)"
     fi
-    printf '%s\n%s\n' "$memory" "$session_id" >"$memory_marker"
-  else
-    rm -f "$memory_marker"
+    write_scope_session "$memory" "$session_id"
   fi
 
   # Run the agent turn (see run_agent_turn's own comment for the adapter

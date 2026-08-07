@@ -22,7 +22,7 @@ const HISTORY_TRAILER_RE = /^Gtd-History:[ \t]*(\S+)[ \t]*$/m
 /**
  * Append a `Gtd-History: <hash>` trailer (after a blank line) to a commit
  * `subject` — records the pre-squash tip commit hash so a later `gtd restore`
- * command can read it back. Mirrors `Edge.ts`'s `withReviewBaseTrailer`
+ * command can read it back. Mirrors `Edge.ts`'s `withEntryTrailers`
  * placement: the subject (first line) is untouched.
  */
 export const withHistoryTrailer = (subject: string, hash: string): string =>

@@ -10,9 +10,11 @@ import {
   type PendingChange,
   type RetryDef,
   type StateDef,
+  type StateName,
   type WorkflowDefinition,
+  type WorkflowEntries,
 } from "./PatternMachine.js"
-import { collectGroups } from "./Submachines.js"
+import type { MachineNode } from "./Machines.js"
 import type { ResolvedRest } from "./Edge.js"
 import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
 import visualizeHtml from "./visualize.html"
@@ -68,42 +70,49 @@ export interface VizState {
   readonly content?: string
   readonly initial?: boolean
   readonly model?: string
-  readonly memory?: string
   readonly file?: string
   readonly mode?: string
   readonly retry?: { readonly max: number; readonly otherwise: string }
-  /** Boolean state flags that are set: reviewWindow/reviewBase/reviewEntry/fixEntry/requireProgress/answerGate. */
+  /** Boolean state flags that are set: reviewWindow/reviewBase/entry/requireProgress/answerGate. */
   readonly flags: readonly string[]
   readonly on: readonly VizEdge[]
   /** Every edge (and retry redirect) that targets this state — computed, for the "routes in from" view. */
   readonly incoming: ReadonlyArray<{ readonly from: string; readonly pattern: string }>
-  /** The name of the innermost sub-machine group this state belongs to, if any. */
+  /** This state's qualified name minus its last segment — the instance it directly belongs to, if any. */
   readonly group?: string
+}
+
+/** One machine instance, flattened from the tree for the viewer — see `flattenTree`. */
+export interface VizGroup {
+  /** The instance path — e.g. `packages.health`. */
+  readonly name: string
+  /** The machine this instance instantiates. */
+  readonly machine: string
+  /** This instance's DIRECT states only (its descendants get their own entries). */
+  readonly states: readonly string[]
+  /** The enclosing instance path — absent for a top-level reference. */
+  readonly parent?: string
+  /** `0` for a top-level reference, incrementing with nesting depth. */
+  readonly depth: number
+  /** This instance's machine's own `model:` (stamped onto every one of its `prompt`-content states — see `Machines.ts`'s `resolveInstanceModel`), read off any one of them. Absent when the machine declares no `model:` or owns no `prompt` state. */
+  readonly model?: string
 }
 
 /** The whole workflow, described for the viewer — the `/workflow.json` payload. */
 export interface VizModel {
   readonly states: readonly VizState[]
   readonly initial: string
-  readonly groups: ReadonlyArray<{
-    readonly name: string
-    readonly submachine: string
-    readonly states: readonly string[]
-  }>
+  readonly groups: readonly VizGroup[]
   readonly vars: Record<string, string>
 }
 
-const FLAG_KEYS = [
-  "reviewWindow",
-  "reviewBase",
-  "reviewEntry",
-  "fixEntry",
-  "requireProgress",
-  "answerGate",
-] as const
+const FLAG_KEYS = ["reviewWindow", "reviewBase", "requireProgress", "answerGate"] as const
 
 // The boolean state flags that are set. `initial` is NOT included here — it is
-// carried as its own `VizState.initial` field.
+// carried as its own `VizState.initial` field. `entry` is also excluded — it is
+// not a per-state `StateDef` flag but derived from whether the state's name
+// appears in `WorkflowDefinition.entries.manual`, the same way `initial` is
+// derived from `entries.default` (see `toVizState`'s `entries` parameter).
 const flagsOf = (def: StateDef): string[] => FLAG_KEYS.filter((k) => def[k] === true)
 
 const edgeToViz = ([pattern, to, describe, action]: OnEdge): VizEdge =>
@@ -115,26 +124,26 @@ const stripUndefined = (o: Record<string, unknown>): Record<string, unknown> => 
   return o
 }
 
-/** Describe one compiled state for the viewer (optional fields omitted when unset). `onEdges` is that state's `on`, ALREADY RENDERED against `it.vars` (see `buildVizModel`) — never `def.on` directly, which would show the unrendered literal. */
+/** Describe one compiled state for the viewer (optional fields omitted when unset). `onEdges` is that state's `on`, ALREADY RENDERED against `it.vars` (see `buildVizModel`) — never `def.on` directly, which would show the unrendered literal. `entries` is the workflow's `entries` — `name`'s match against `.default`/`.manual` drives `initial`/the `entry` flag. */
 const toVizState = (
   name: string,
   def: StateDef,
   onEdges: readonly OnEdge[],
   group: string | undefined,
   incoming: ReadonlyArray<{ from: string; pattern: string }>,
+  entries: WorkflowEntries,
 ): VizState =>
   stripUndefined({
     name,
     actor: def.actor,
     kind: contentKindOf(def) ?? "unknown",
     content: contentOf(def),
-    initial: def.initial === true ? true : undefined,
+    initial: entries.default === name ? true : undefined,
     model: def.model,
-    memory: def.memory,
     file: def.file,
     mode: def.mode,
     retry: def.retry,
-    flags: flagsOf(def),
+    flags: [...flagsOf(def), ...(entries.manual.includes(name) ? ["entry"] : [])],
     on: onEdges.map(edgeToViz),
     incoming,
     group,
@@ -167,30 +176,81 @@ const renderedOnByState = (
     ]),
   )
 
+/** A state's owning instance path, straight from `scopes` (`CompiledWorkflowConfig.scopes`/`ConfigOperations.stateScopes`) — a direct lookup, NOT a string chop off the qualified name (a state's group is not always "everything before the last dot"). `""` (the root instance's own path) means root-owned, reported as `undefined` here — same convention `VizState.group` has always had for a root-owned state. */
+const groupOf = (name: string, scopes: Record<StateName, string>): string | undefined => {
+  const scope = scopes[name]
+  return scope === "" || scope === undefined ? undefined : scope
+}
+
 /**
- * Build the viewer's JSON description from the active COMPILED workflow plus its
- * RAW value (the pre-expansion `submachines:`/`use:` form — `rawWorkflow` from
- * `ConfigService`), which is the only place the sub-machine grouping survives
- * (`compileWorkflowConfig` flattens it away). `vars` is shown for reference, AND
- * used to render every state's `on` pattern (see `renderedOnByState`) so the
- * diagram shows real paths rather than a repointed var's stale literal.
+ * Flatten a `MachineNode` tree (`CompiledWorkflowConfig.tree`, from
+ * `src/Machines.ts`'s `flattenMachines`) into `VizModel.groups` — a flat,
+ * depth-first array of every instance STRICTLY BELOW the root (the root
+ * machine itself is the canvas, never a box). Kept flat (rather than a
+ * recursive payload) so every index-based front-end helper
+ * (`groupBoxId`/`groupIndexOf`/`scrollToSubmachine`/etc — `src/visualize.html`)
+ * keeps working unchanged.
+ */
+const flattenTree = (
+  node: MachineNode,
+  parent: string | undefined,
+  depth: number,
+  out: VizGroup[],
+): void => {
+  for (const child of node.children) {
+    out.push({
+      name: child.key,
+      machine: child.machine,
+      states: [...child.states],
+      ...(parent !== undefined ? { parent } : {}),
+      depth,
+    })
+    flattenTree(child, child.key, depth + 1, out)
+  }
+}
+
+/**
+ * The `model` of one group — a machine instance's own `model:`, read off any
+ * ONE of that group's own prompt-content states (by construction every prompt
+ * state one machine instance owns carries the identical `def.model` — see
+ * `Machines.ts`'s `resolveInstanceModel`/`emitTree`). `undefined` when the
+ * group owns no prompt state (e.g. a queue/gate machine of only
+ * script/message/commit states) or its machine declares no `model:` — never
+ * guessed.
+ */
+const modelOfGroup = (
+  groupName: string,
+  workflow: WorkflowDefinition,
+  scopes: Record<StateName, string>,
+): string | undefined => {
+  for (const [name, def] of Object.entries(workflow.states)) {
+    if (scopes[name] === groupName && contentKindOf(def) === "prompt") return def.model
+  }
+  return undefined
+}
+
+/**
+ * Build the viewer's JSON description from the active COMPILED workflow plus
+ * the machine tree its flattening produced (`CompiledWorkflowConfig.tree`)
+ * and the memory-scope map its flattening produced alongside it
+ * (`CompiledWorkflowConfig.scopes`/`ConfigOperations.stateScopes`) — qualified
+ * state name -> the machine-instance path that owns it. `vars` is shown for
+ * reference, AND used to render every state's `on` pattern (see
+ * `renderedOnByState`) so the diagram shows real paths rather than a
+ * repointed var's stale literal.
  */
 export const buildVizModel = (
   workflow: WorkflowDefinition,
-  rawWorkflow: unknown,
+  tree: MachineNode,
   vars: Record<string, string>,
+  scopes: Record<StateName, string>,
 ): VizModel => {
-  const groups = collectGroups(rawWorkflow)
-  // Map each state to its INNERMOST group (the smallest one containing it), so a
-  // state inside a nested sub-machine is attributed to the tighter cluster.
-  const sizeOf = new Map(groups.map((g) => [g.name, g.states.length]))
-  const groupOf = new Map<string, string>()
-  for (const g of groups) {
-    for (const s of g.states) {
-      const cur = groupOf.get(s)
-      if (cur === undefined || sizeOf.get(g.name)! < sizeOf.get(cur)!) groupOf.set(s, g.name)
-    }
-  }
+  const flatGroups: VizGroup[] = []
+  flattenTree(tree, undefined, 0, flatGroups)
+  const groups = flatGroups.map((group) => {
+    const model = modelOfGroup(group.name, workflow, scopes)
+    return model !== undefined ? { ...group, model } : group
+  })
 
   const renderedOn = renderedOnByState(workflow, vars)
 
@@ -206,13 +266,20 @@ export const buildVizModel = (
   }
 
   const states = Object.entries(workflow.states).map(([name, def]) =>
-    toVizState(name, def, renderedOn.get(name) ?? [], groupOf.get(name), incoming.get(name) ?? []),
+    toVizState(
+      name,
+      def,
+      renderedOn.get(name) ?? [],
+      groupOf(name, scopes),
+      incoming.get(name) ?? [],
+      workflow.entries,
+    ),
   )
 
   return {
     states,
     initial: initialStateOf(workflow),
-    groups: groups.map((g) => ({ name: g.name, submachine: g.submachine, states: [...g.states] })),
+    groups,
     vars,
   }
 }

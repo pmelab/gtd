@@ -192,6 +192,32 @@ Then(
   },
 )
 
+// Regex variants of the two assertions above — needed for the computed
+// `<scope>#<hash7>` memory key (src/Edge.ts's `memoryKeyFor`), whose hash
+// suffix is a real (@live) commit hash and so isn't a fixed literal.
+Then("the log file matches {string}", (world: GtdWorld, pattern: string) => {
+  const path = join(world.repoDir, loopLogPath(world))
+  const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
+  assert.ok(
+    new RegExp(pattern).test(content),
+    `Expected the log file ("${loopLogPath(world)}") to match /${pattern}/. Got:\n${content}`,
+  )
+})
+
+Then(
+  "the log file matches {string} {int} times",
+  (world: GtdWorld, pattern: string, count: number) => {
+    const path = join(world.repoDir, loopLogPath(world))
+    const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
+    const matches = content.match(new RegExp(pattern, "g")) ?? []
+    assert.strictEqual(
+      matches.length,
+      count,
+      `Expected the log file ("${loopLogPath(world)}") to match /${pattern}/ exactly ${count} times, found ${matches.length}. Got:\n${content}`,
+    )
+  },
+)
+
 // The plain-ASCII rendering proof: no ANSI escape sequence (ESC "[") anywhere.
 // Built from a char code rather than a regex literal to avoid embedding a
 // literal control character in source.

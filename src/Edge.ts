@@ -4,6 +4,7 @@ import { ConfigService } from "./Config.js"
 import {
   contentKindOf,
   initialStateOf,
+  memoryScopeAt,
   parseStateSubject,
   resolveState,
   type ChangeStatus,
@@ -108,11 +109,11 @@ export const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
 
 // ── Review-base trailer ──────────────────────────────────────────────────────
 //
-// `gtd review <commitish>` (`src/program.ts`) starts a brand NEW review
-// process by writing an ordinary empty turn commit into the workflow's
-// declared review-entry state (`StateDef.reviewEntry` — see
-// `PatternMachine.reviewEntryStateOf`), carrying the resolved `<commitish>`'s
-// full hash as a `Gtd-Review-Base:` trailer. `computeProcessRun` reads that
+// `gtd step <actor> --entry <state>` (`runEntryCommand` in `src/program.ts`)
+// starts a brand NEW review process by writing an ordinary empty turn commit
+// into a state whose template-form `reviewBase:` renders to a commitish,
+// carrying that commitish's full hash as a `Gtd-Review-Base:` trailer.
+// `computeProcessRun` reads that
 // trailer back off the process's own first (oldest) commit to override the
 // run's DIFF base (`ProcessRun.diffBase`) — everything downstream keyed to
 // the diff base (`it.startCommit`, the review checkout window's default
@@ -132,23 +133,60 @@ const REVIEW_BASE_TRAILER_PREFIX = "Gtd-Review-Base: "
 const REVIEW_BASE_TRAILER_RE = /^Gtd-Review-Base:[ \t]*(\S+)[ \t]*$/m
 
 /**
- * Append a `Gtd-Review-Base: <base>` trailer (after a blank line) to a commit
- * `subject` — the entry commit `gtd review <commitish>` writes to start a new
- * review process. Mirrors `withCostTrailer`'s placement: the subject (first
- * line) is untouched, so `parseStateSubject`/`resolveState` read it back
- * exactly like any other turn commit.
- */
-export const withReviewBaseTrailer = (subject: string, base: string): string =>
-  `${subject}\n\n${REVIEW_BASE_TRAILER_PREFIX}${base}`
-
-/**
- * The `Gtd-Review-Base: <hash>` trailer recorded on a `gtd review <commitish>`
- * entry commit (see `withReviewBaseTrailer`), or `undefined` when `message`
- * carries none. Read back by `computeProcessRun` — ONLY off the process's
- * first (oldest) commit — to override the run's diff base.
+ * The `Gtd-Review-Base: <hash>` trailer recorded on a `gtd step <actor>
+ * --entry <state>` entry commit (see `withEntryTrailers`), or `undefined`
+ * when `message` carries none. Read back by `computeProcessRun` — ONLY off
+ * the process's first (oldest) commit — to override the run's diff base.
  */
 export const parseReviewBaseTrailer = (message: string): string | undefined =>
   REVIEW_BASE_TRAILER_RE.exec(message)?.[1]
+
+// ── Entry-var trailers ───────────────────────────────────────────────────────
+//
+// An entry commit (e.g. `gtd review <commitish>`) can carry, alongside its
+// optional `Gtd-Review-Base:` trailer, zero or more `Gtd-Var: <name>=<value>`
+// trailers — arbitrary `it.vars` overrides fixed at the moment the process
+// started, read back by `computeProcessRun` (again, ONLY off the process's
+// oldest commit — never a later turn's) into `ProcessRun.entryVars`, and
+// folded into `resolveVars`'s merge below the environment layer.
+
+const ENTRY_VAR_TRAILER_PREFIX = "Gtd-Var: "
+// One `Gtd-Var: <name>=<value>` trailer line — the value is everything after
+// the FIRST `=`, so a value containing `=` itself round-trips. Matched
+// anywhere in a commit message body (multiline), like `COST_TRAILER_RE`.
+const ENTRY_VAR_TRAILER_RE = /^Gtd-Var:[ \t]*([^=\s]+)=(.*)$/gm
+
+/**
+ * Compose, after a blank line, a `Gtd-Review-Base: <base>` line (when
+ * `opts.base !== undefined`, readable back by `parseReviewBaseTrailer`),
+ * followed by one `Gtd-Var: <name>=<value>` line per `opts.vars` entry (in
+ * `Object.entries` order) — the single place that formats either trailer, for
+ * every caller including `gtd review <commitish>`'s entry commit. Mirrors
+ * `withCostTrailer`'s "nothing to add → unchanged" shape: with no base and an
+ * empty `opts.vars`, `subject` is returned untouched.
+ */
+export const withEntryTrailers = (
+  subject: string,
+  opts: { base?: string; vars: Record<string, string> },
+): string => {
+  const lines: string[] = []
+  if (opts.base !== undefined) lines.push(`${REVIEW_BASE_TRAILER_PREFIX}${opts.base}`)
+  for (const [name, value] of Object.entries(opts.vars))
+    lines.push(`${ENTRY_VAR_TRAILER_PREFIX}${name}=${value}`)
+  return lines.length === 0 ? subject : `${subject}\n\n${lines.join("\n")}`
+}
+
+/**
+ * Every `Gtd-Var: <name>=<value>` trailer found in `message` (each value
+ * split on the FIRST `=` only, so a value containing `=` round-trips), or
+ * `{}` when `message` carries none. Read back by `computeProcessRun` — ONLY
+ * off the process's first (oldest) commit — into `ProcessRun.entryVars`.
+ */
+export const parseEntryVarTrailers = (message: string): Record<string, string> => {
+  const vars: Record<string, string> = {}
+  for (const match of message.matchAll(ENTRY_VAR_TRAILER_RE)) vars[match[1]!] = match[2]!
+  return vars
+}
 
 /** The total token cost across the given entries (`0` when none). */
 export const totalCostOf = (entries: readonly CostEntry[]): number =>
@@ -184,6 +222,23 @@ export interface ResolvedRest {
  * visualize`'s best-effort current-state read, which prefers the review
  * checkout window's saved head over a HEAD that may be mid-window-rewind (see
  * `src/ReviewWindow.ts`'s `REVIEW_HEAD_REF`).
+ *
+ * A HEAD subject that DOES parse as a `gtd(actor): state` commit, but whose
+ * named state the CURRENT workflow definition doesn't declare AT ALL, is
+ * refused loudly here rather than silently falling through `resolveState`'s
+ * own initial-state fallback: an in-flight process left resting at a state a
+ * workflow upgrade then renamed/removed out from under it would otherwise
+ * look like a perfectly fresh, idle repo — the same courtesy the earlier
+ * `entry.review`/`entry.fix` removal got, pointing at the command that
+ * actually resolves it rather than a generic failure. Distinct from
+ * `memoryScopeAt`'s graceful "unmapped state reads as fresh entry" behavior
+ * (`src/PatternMachine.ts`, package 04), which handles a state that IS
+ * declared but merely missing from `scopes` (a compiler bug, not a rename) —
+ * this is about a state that no longer exists in the definition at all. Every
+ * OTHER case `resolveState` already folds into "rest at the initial state"
+ * (an unparseable subject, an actor mismatch, a commit-state target) is left
+ * exactly as it was — those are legitimately "no active process" readings,
+ * not a renamed-out-from-under-us one.
  */
 export const resolveRest = (
   atRef?: string,
@@ -194,6 +249,17 @@ export const resolveRest = (
     const def = config.workflow
     const hasCommits = yield* git.hasCommits()
     const headSubject = hasCommits ? yield* git.lastCommitSubject(atRef) : ""
+    const parsedHead = parseStateSubject(headSubject)
+    if (parsedHead !== undefined && def.states[parsedHead.state] === undefined) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd: HEAD rests at "${parsedHead.state}", which the active workflow no longer declares ` +
+            `— this looks like a process left in-flight from before a workflow change. Run \`gtd ` +
+            `abandon\` to discard it and start over (or check out the workflow version it started ` +
+            `under).`,
+        ),
+      )
+    }
     const state = resolveState(def, headSubject)
     const stateDef = def.states[state]!
     // `resolveState` never rests at a commit state (it excludes them
@@ -223,6 +289,12 @@ export const pendingChanges = (
 
 // ── The current process run ──────────────────────────────────────────────────
 
+/** One process-trace entry: a state entered, plus the hash of the commit that entered it — the pair `memoryKeyFor` needs to anchor a memory key to the commit immediately BEFORE an unbroken scope entry began. */
+export interface TraceEntry {
+  readonly state: StateName
+  readonly hash: string
+}
+
 /** The contiguous run of `gtd(actor): state` commits ending at HEAD. */
 export interface ProcessRun {
   /** The run's first commit's hash, or HEAD's own hash when the run is empty (no turn has landed yet this process). */
@@ -234,16 +306,32 @@ export interface ProcessRun {
    * default base compares against: normally identical to `startParentHash`,
    * but overridden to a `Gtd-Review-Base: <hash>` trailer's hash when the
    * process's FIRST (oldest) commit carries one (see
-   * `withReviewBaseTrailer`/`parseReviewBaseTrailer` — written by
+   * `withEntryTrailers`/`parseReviewBaseTrailer` — written by
    * `gtd review <commitish>`, `src/program.ts`). The trace/retry boundary
    * itself is untouched by this; only which commit a template/window compares
    * against moves.
    */
   readonly diffBase: string
-  /** State names entered so far this process, oldest→newest (empty when no turn has landed yet). */
-  readonly trace: readonly StateName[]
+  /** States entered so far this process, oldest→newest, each paired with the hash of the commit that entered it (empty when no turn has landed yet). */
+  readonly trace: readonly TraceEntry[]
   /** Every `Gtd-Cost:` entry recorded on the process's turn commits — summed into `it.processCost` and grouped into `it.processCostByModel` (empty when none were recorded). */
   readonly costEntries: readonly CostEntry[]
+  /** The `Gtd-Var:` trailers recorded on the process's FIRST (oldest) commit — an entry commit's fixed `it.vars` overrides, folded into `resolveVars`'s merge (empty when the process's oldest commit carries none, or the process is empty). */
+  readonly entryVars: Record<string, string>
+}
+
+/**
+ * The `Gtd-Review-Base:`/`Gtd-Var:` overrides carried by the process's OLDEST
+ * commit (its entry commit, when `gtd review <commitish>` or a future generic
+ * entry started this process) — a later turn's message is never mistaken for
+ * it. `{reviewBase: undefined, vars: {}}` when the process has no commits yet.
+ */
+const parseEntryCommitOverrides = (
+  processCommits: ReadonlyArray<{ readonly message: string }>,
+): { readonly reviewBase: string | undefined; readonly vars: Record<string, string> } => {
+  if (processCommits.length === 0) return { reviewBase: undefined, vars: {} }
+  const message = processCommits[0]!.message
+  return { reviewBase: parseReviewBaseTrailer(message), vars: parseEntryVarTrailers(message) }
 }
 
 /**
@@ -278,6 +366,7 @@ export const computeProcessRun = (
         diffBase: EMPTY_TREE,
         trace: [],
         costEntries: [],
+        entryVars: {},
       }
 
     const initialState = initialStateOf(def)
@@ -290,45 +379,98 @@ export const computeProcessRun = (
     }
     const startIdx = i + 1
     const processCommits = history.slice(startIdx)
-    const trace = processCommits.map((h) => parseStateSubject(subjectOf(h.message))!.state)
+    const trace: TraceEntry[] = processCommits.map((h) => ({
+      state: parseStateSubject(subjectOf(h.message))!.state,
+      hash: h.hash,
+    }))
     const costEntries = parseCostTrailers(processCommits.map((h) => h.message))
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
     const startHash =
       startIdx < history.length ? history[startIdx]!.hash : history[history.length - 1]!.hash
-    // Only the process's OLDEST commit (its entry commit, when `gtd review`
-    // started this process) is ever consulted for the override — a later
-    // turn's message is never mistaken for it.
-    const reviewBaseOverride =
-      processCommits.length > 0 ? parseReviewBaseTrailer(processCommits[0]!.message) : undefined
+    const { reviewBase: reviewBaseOverride, vars: entryVars } =
+      parseEntryCommitOverrides(processCommits)
     const diffBase = reviewBaseOverride ?? startParentHash
-    return { startHash, startParentHash, diffBase, trace, costEntries }
+    return { startHash, startParentHash, diffBase, trace, costEntries, entryVars }
   })
+
+// The display name for the root machine instance's own memory scope
+// (`scopes[state] === ""`, per `src/Machines.ts`'s `InstancePath` convention)
+// — `memoryScopeAt` (package 04) never names the root itself, so a driver
+// keying memory off a root-owned prompt state needs SOME label rather than a
+// bare `#<hash>` key.
+const ROOT_MEMORY_SCOPE_NAME = "root"
+
+/**
+ * Compute the commit-anchored memory key for the currently-rested state, or
+ * `undefined` when none applies — the pure `memoryScopeAt` (package 04)
+ * result turned into an actual key string a memory-aware driver can group
+ * consecutive agent turns by (see `TraceEntry`/`ProcessRun.trace`).
+ *
+ * Only a `prompt`-content rest carries a memory key — mirrors the rule that
+ * only a prompt state carries `model` (kept here, not inside `memoryScopeAt`,
+ * so that stays a clean, reusable primitive with no content-kind opinion).
+ * `undefined` also propagates when `memoryScopeAt` itself can't resolve a
+ * scope (`rest.state` absent from `scopes` — see its own doc comment).
+ *
+ * The key is `${scope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`, where
+ * `token` anchors to the commit the CURRENT unbroken scope entry started
+ * FROM, not the entry's own commit: `run.startParentHash` at `entryIndex <=
+ * 0` (an empty trace, or the entry sitting at trace position 0 — no earlier
+ * commit exists yet), else `run.trace[entryIndex - 1].hash`. Anchoring to the
+ * entry's own commit would give a workflow whose initial state is a prompt
+ * state two different tokens across its first two turns (nothing committed
+ * yet before the very first turn) — anchoring to the commit the entry
+ * started FROM makes the empty-trace and position-0 cases coincide by
+ * construction.
+ */
+export const memoryKeyFor = (
+  scopes: Readonly<Record<StateName, string>>,
+  rest: ResolvedRest,
+  run: ProcessRun,
+): string | undefined => {
+  if (contentKindOf(rest.stateDef) !== "prompt") return undefined
+  const resolved = memoryScopeAt(
+    scopes,
+    rest.state,
+    run.trace.map((entry) => entry.state),
+  )
+  if (resolved === undefined) return undefined
+  const { scope, entryIndex } = resolved
+  const token = entryIndex <= 0 ? run.startParentHash : run.trace[entryIndex - 1]!.hash
+  return `${scope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`
+}
 
 // ── Variables (`it.vars`) ────────────────────────────────────────────────────
 
 const PREFIX = "GTD_"
 
 /**
- * Assemble the merged `it.vars` map every template sees, from three layers
+ * Assemble the merged `it.vars` map every template sees, from four layers
  * (later wins): the active workflow's own declared `vars:` defaults
  * (`ConfigOperations.workflowVars`), the top-level `.gtdrc` `vars:` key
- * (`ConfigOperations.rcVars`), and — for each name declared by either of
- * those two layers — a `GTD_<UPPERCASE-name>` environment variable, if
- * defined. Unlike the first two layers, the environment can only OVERRIDE a
- * name some config layer already declared; it can never introduce a new one
- * (an uppercased env key can't round-trip back to an arbitrary camelCase
- * name), so a `GTD_*` var matching no declared name is silently ignored. A
- * `value === undefined` entry (a name declared-but-unset in the environment)
- * is skipped, never coerced to the string `"undefined"`. Pure: `env` is
- * whatever the caller's `EnvVars` service handed it, never `process.env`
- * read directly here.
+ * (`ConfigOperations.rcVars`), the current process's entry commit's
+ * `Gtd-Var:` trailers (`ProcessRun.entryVars` — fixed overrides recorded at
+ * the moment a process like `gtd review <commitish>` started it), and — for
+ * each name declared by any of those three layers — a `GTD_<UPPERCASE-name>`
+ * environment variable, if defined. Unlike the first three layers, the
+ * environment can only OVERRIDE a name some earlier layer already declared;
+ * it can never introduce a new one (an uppercased env key can't round-trip
+ * back to an arbitrary camelCase name), so a `GTD_*` var matching no declared
+ * name is silently ignored. A `value === undefined` entry (a name
+ * declared-but-unset in the environment) is skipped, never coerced to the
+ * string `"undefined"`. `entryVars`, by contrast, needs no such filtering —
+ * it's a plain unconditional spread, so a name from an old commit that
+ * matches neither the workflow nor the rc layer still lands in the merged
+ * map (pure and total; never throws). Pure: `env` is whatever the caller's
+ * `EnvVars` service handed it, never `process.env` read directly here.
  */
 export const resolveVars = (
   workflowVars: Record<string, string>,
   rcVars: Record<string, string>,
+  entryVars: Record<string, string>,
   env: Readonly<Record<string, string | undefined>>,
 ): Record<string, string> => {
-  const merged = { ...workflowVars, ...rcVars }
+  const merged = { ...workflowVars, ...rcVars, ...entryVars }
   for (const name of Object.keys(merged)) {
     const value = env[PREFIX + name.toUpperCase()]
     if (value !== undefined) merged[name] = value
@@ -475,7 +617,7 @@ export interface RenderedRest {
   readonly content: string
   /** The resolved rest's `model` hint, verbatim — omitted (not `undefined`-valued) when the state declares none, so `--json` callers can `key in obj`/`??`-check its absence. */
   readonly model?: string
-  /** The resolved rest's `memory` scope label, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
+  /** The resolved rest's COMPUTED memory key (`src/Edge.ts`'s `memoryKeyFor`, package 05/06) — a commit-anchored `<scope>#<hash7>` string, omitted (not `undefined`-valued) for a non-`prompt` rest or when no scope resolves, same discipline as `model`. No longer sourced from the state's own (still-accepted, but now unread) `memory:` declaration. */
   readonly memory?: string
   /** The resolved rest's `label`, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
   readonly label?: string
@@ -504,24 +646,6 @@ export const renderModel = (
   Effect.try({
     try: () =>
       stateDef.model !== undefined ? renderStateTemplate(stateDef.model, context) : undefined,
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
-/**
- * Render a state's declared `memory:` scope label (if any) through the SAME
- * template context as its content/`model` — see `renderModel`'s doc comment;
- * a plain label (e.g. `"plan"`) passes through unchanged, while
- * `memory: "<%= it.vars.planScope %>"` resolves against the merged `it.vars`.
- * The render-failure semantics are identical (propagates as a thrown/rejected
- * error, same call site as `gtd next`/`gtd status`).
- */
-export const renderMemory = (
-  stateDef: StateDef,
-  context: TemplateContext,
-): Effect.Effect<string | undefined, Error> =>
-  Effect.try({
-    try: () =>
-      stateDef.memory !== undefined ? renderStateTemplate(stateDef.memory, context) : undefined,
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
@@ -570,10 +694,19 @@ const omitUndefined = <T extends Record<string, unknown>>(
     [K in keyof T]?: Exclude<T[K], undefined>
   }
 
-/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`memory:`/`label:`/`file:` hints, if declared (see `renderModel`/`renderMemory`/`renderLabel`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
+/**
+ * Render the resolved rest's declared content (script/prompt/message — never
+ * `commit`, since `resolveRest` never rests at a commit state) plus its
+ * `model:`/`label:`/`file:` hints, if declared (see
+ * `renderModel`/`renderLabel`/`renderFile`), and the COMPUTED memory key the
+ * caller passes in (`memory`, from `memoryKeyFor` — package 05/06; this
+ * module no longer derives it from `rest.stateDef.memory` itself). `mode:` is
+ * a closed literal, never Eta-rendered — passed through verbatim.
+ */
 export const renderRest = (
   rest: ResolvedRest,
   context: TemplateContext,
+  memory: string | undefined,
 ): Effect.Effect<RenderedRest, Error> =>
   Effect.gen(function* () {
     const kind = contentKindOf(rest.stateDef)
@@ -590,7 +723,7 @@ export const renderRest = (
     })
     const hints = {
       model: yield* renderModel(rest.stateDef, context),
-      memory: yield* renderMemory(rest.stateDef, context),
+      memory,
       label: yield* renderLabel(rest.stateDef, context),
       file: yield* renderFile(rest.stateDef, context),
       mode: rest.stateDef.mode,

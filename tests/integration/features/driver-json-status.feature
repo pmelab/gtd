@@ -14,18 +14,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "echo hi"
-            on:
-              "C": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "echo hi"
+                on:
+                  "C": idle
       """
     And a commit "gtd(human): checking" that adds "NOTE.md" with:
       """
@@ -43,18 +47,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -72,26 +80,30 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "A DONE.md": done
-              "M .gtd/FEEDBACK.md": fixing
-          fixing:
-            actor: agent
-            prompt: "..."
-            on:
-              "* **": working
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "A DONE.md": done
+                  "M .gtd/FEEDBACK.md": fixing
+              fixing:
+                actor: agent
+                prompt: "..."
+                on:
+                  "* **": working
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -117,22 +129,26 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "A DONE.md":
-                to: done
-                action: "Finish up"
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "A DONE.md":
+                    to: done
+                    action: "Finish up"
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -154,20 +170,24 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "A DONE.md": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "A DONE.md": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -184,24 +204,28 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout contains "\"next\":null"
 
-  Scenario: gtd next --json carries the state's declared model hint, and gtd status shows it too
+  Scenario: gtd next --json carries the owning machine's model hint, and gtd status shows it too
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
+        entry:
+          default: root
+        machines:
+          root:
             model: smart
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -219,23 +243,27 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout contains "\"model\":\"smart\""
 
-  Scenario: gtd next --json and gtd status --json omit "model" entirely when the state declares none
+  Scenario: gtd next --json and gtd status --json omit "model" entirely when the owning machine declares none
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -252,24 +280,27 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout does not contain "\"model\""
 
-  Scenario: gtd next --json carries the state's declared memory scope, and gtd status shows it too
+  Scenario: gtd next --json computes a commit-anchored memory key from the resting prompt state's scope, and gtd status shows it too
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            memory: plan
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -278,40 +309,40 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
-    And stdout contains "\"memory\":\"plan\""
+    And stdout matches "\"memory\":\"root#[0-9a-f]{7}\""
     When I run gtd status
     Then it succeeds
     And stdout contains "State: working"
-    And stdout contains "Memory: plan"
+    And stdout matches "Memory: root#[0-9a-f]{7}"
     When I run gtd status with "--json"
     Then it succeeds
-    And stdout contains "\"memory\":\"plan\""
+    And stdout matches "\"memory\":\"root#[0-9a-f]{7}\""
 
-  Scenario: gtd next --json and gtd status --json omit "memory" entirely when the state declares none
+  Scenario: gtd next --json and gtd status --json omit "memory" entirely for a non-prompt state — the computed key only ever applies to a prompt turn
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
-      """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
-      """
-      a note
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"state\":\"idle\""
     And stdout does not contain "\"memory\""
     When I run gtd status
     Then it succeeds
@@ -325,19 +356,23 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            label: "Doing the work"
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                label: "Doing the work"
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -360,18 +395,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -393,20 +432,24 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "A DONE.md": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "A DONE.md": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -431,20 +474,24 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            file: ".gtd/PLAN.md"
-            mode: qa
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/PLAN.md"
+                mode: qa
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -470,18 +517,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -505,31 +556,35 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          gate:
-            actor: human
-            initial: true
-            message: |
-              Decide what to do next.
+        entry:
+          default: root
+        machines:
+          root:
+            entry: gate
+            states:
+              gate:
+                actor: human
+                message: |
+                  Decide what to do next.
 
-              What each change does next (then run `gtd step human`):
-              <% it.edges.forEach(function (e) { if (e.describe) { %>
-              <%~ "- " + e.describe + "\n" %>
-              <% } }) %>
-            on:
-              "C":
-                to: accept
-                describe: "Change nothing to accept the current state and proceed."
-              "* **":
-                to: revise
-                describe: "Change any source file to leave feedback and start another round."
-          accept:
-            commit: "chore: accept"
-          revise:
-            actor: agent
-            prompt: "revise"
-            on:
-              "* **": gate
+                  What each change does next (then run `gtd step human`):
+                  <% it.edges.forEach(function (e) { if (e.describe) { %>
+                  <%~ "- " + e.describe + "\n" %>
+                  <% } }) %>
+                on:
+                  "C":
+                    to: accept
+                    describe: "Change nothing to accept the current state and proceed."
+                  "* **":
+                    to: revise
+                    describe: "Change any source file to leave feedback and start another round."
+              accept:
+                commit: "chore: accept"
+              revise:
+                actor: agent
+                prompt: "revise"
+                on:
+                  "* **": gate
       """
     When I run gtd next
     Then it succeeds
@@ -548,18 +603,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """

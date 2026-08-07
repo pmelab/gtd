@@ -13,34 +13,38 @@ Feature: Retry redirection — a state's entry cap redirects at write time
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "npm test"
-            on:
-              "A FEEDBACK.md": fixing
-              "C": done
-          fixing:
-            actor: agent
-            retry:
-              max: 1
-              otherwise: escalate
-            prompt: "fix it"
-            on:
-              "* **": checking
-          escalate:
-            actor: human
-            message: "stuck"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "npm test"
+                on:
+                  "A FEEDBACK.md": fixing
+                  "C": done
+              fixing:
+                actor: agent
+                retry:
+                  max: 1
+                  otherwise: escalate
+                prompt: "fix it"
+                on:
+                  "* **": checking
+              escalate:
+                actor: human
+                message: "stuck"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a file "NOTE.md" with:
       """
@@ -73,34 +77,38 @@ Feature: Retry redirection — a state's entry cap redirects at write time
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "npm test"
-            on:
-              "A FEEDBACK.md": fixing
-              "C": done
-          fixing:
-            actor: agent
-            retry:
-              max: 0
-              otherwise: escalate
-            prompt: "fix it"
-            on:
-              "* **": checking
-          escalate:
-            actor: human
-            message: "stuck"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "npm test"
+                on:
+                  "A FEEDBACK.md": fixing
+                  "C": done
+              fixing:
+                actor: agent
+                retry:
+                  max: 0
+                  otherwise: escalate
+                prompt: "fix it"
+                on:
+                  "* **": checking
+              escalate:
+                actor: human
+                message: "stuck"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a file "NOTE.md" with:
       """

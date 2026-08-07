@@ -1,7 +1,7 @@
 @inmem
 Feature: gtd abandon — end the process underway without completing it
 
-  `gtd review`/`gtd fix` refuse while a process is underway ("finish it, or run
+  `gtd --entry <state>` refuses while a process is underway ("finish it, or run
   `gtd abandon`"), and a workflow only leaves a process through its own squash
   finale. `gtd abandon` is the way out of one nobody is going to finish: it
   closes any open review checkout window (the shared bracket every state
@@ -24,13 +24,13 @@ Feature: gtd abandon — end the process underway without completing it
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-precheck"
+    And the last commit subject is "gtd(human): idle → plan-gate.check"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): plan-precheck → planning"
+    And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
     When I run gtd with args "abandon"
     Then it succeeds
-    And stdout contains "abandoned the process resting at \"planning\""
+    And stdout contains "abandoned the process resting at \"plan.planning\""
     # HEAD is back at the process boundary: the config commit before the cycle.
     And the last commit subject is "chore: init gtd workflow"
     # The plan the cycle committed is kept, now as a pending change.
@@ -68,11 +68,11 @@ Feature: gtd abandon — end the process underway without completing it
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd with args "review base"
+    When I run gtd with args "--entry review-gate.check --var reviewBase=base"
     Then it succeeds
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-precheck → reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -107,7 +107,7 @@ Feature: gtd abandon — end the process underway without completing it
     When I run gtd with args "abandon --json"
     Then it succeeds
     And stdout contains "\"abandoned\":true"
-    And stdout contains "\"from\":\"plan-precheck\""
+    And stdout contains "\"from\":\"plan-gate.check\""
     And stdout contains "\"state\":\"idle\""
 
   Scenario: --json reports the no-op too, without an error envelope

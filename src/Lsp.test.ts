@@ -393,7 +393,10 @@ describe("basenameFallbackMode", () => {
 })
 
 describe("buildFileModeMap", () => {
-  const def = (states: WorkflowDefinition["states"]): WorkflowDefinition => ({ states })
+  const def = (states: WorkflowDefinition["states"]): WorkflowDefinition => ({
+    states,
+    entries: { default: Object.keys(states)[0]!, manual: [] },
+  })
 
   it("renders each state's `file:` (vars-layer context) into an absolute path keyed to its `mode`", () => {
     const { map, warnings } = buildFileModeMap(
@@ -403,7 +406,6 @@ describe("buildFileModeMap", () => {
           prompt: "x",
           file: "<%= it.vars.todoFile %>",
           mode: "qa",
-          initial: true,
         },
         reviewing: {
           actor: "agent",
@@ -454,7 +456,7 @@ describe("buildFileModeMap", () => {
 
   it("ignores a state declaring neither `file:` nor `mode:`", () => {
     const { map, warnings } = buildFileModeMap(
-      def({ idle: { actor: "human", message: "x", initial: true } }),
+      def({ idle: { actor: "human", message: "x" } }),
       {},
       "/repo",
     )

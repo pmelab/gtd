@@ -17,34 +17,38 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write task files under .gtd/tasks/, then run `gtd step human`"
-            on:
-              "* **": picking
-          picking:
-            actor: check
-            script: |
-              #!/usr/bin/env bash
-              next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
-              if [ -n "$next" ]; then
-                printf '%s' "$next" > .gtd/NEXT.md
-              else
-                rm -f .gtd/NEXT.md
-              fi
-            on:
-              "D .gtd/NEXT.md": done
-              "* .gtd/NEXT.md": building
-              "C": done
-          building:
-            actor: agent
-            prompt: "Implement the task named in .gtd/NEXT.md, then delete that task file."
-            on:
-              "* **": picking
-          done:
-            commit: "chore: tasks complete"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write task files under .gtd/tasks/, then run `gtd step human`"
+                on:
+                  "* **": picking
+              picking:
+                actor: check
+                script: |
+                  #!/usr/bin/env bash
+                  next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
+                  if [ -n "$next" ]; then
+                    printf '%s' "$next" > .gtd/NEXT.md
+                  else
+                    rm -f .gtd/NEXT.md
+                  fi
+                on:
+                  "D .gtd/NEXT.md": done
+                  "* .gtd/NEXT.md": building
+                  "C": done
+              building:
+                actor: agent
+                prompt: "Implement the task named in .gtd/NEXT.md, then delete that task file."
+                on:
+                  "* **": picking
+              done:
+                commit: "chore: tasks complete"
       """
     And a file ".gtd/tasks/01-a.md" with:
       """
@@ -101,34 +105,38 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write task files under .gtd/tasks/, then run `gtd step human`"
-            on:
-              "* **": picking
-          picking:
-            actor: check
-            script: |
-              #!/usr/bin/env bash
-              next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
-              if [ -n "$next" ]; then
-                printf '%s' "$next" > .gtd/NEXT.md
-              else
-                rm -f .gtd/NEXT.md
-              fi
-            on:
-              "D .gtd/NEXT.md": done
-              "* .gtd/NEXT.md": building
-              "C": done
-          building:
-            actor: agent
-            prompt: "Implement the task named in .gtd/NEXT.md, then delete that task file."
-            on:
-              "* **": picking
-          done:
-            commit: "chore: tasks complete"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write task files under .gtd/tasks/, then run `gtd step human`"
+                on:
+                  "* **": picking
+              picking:
+                actor: check
+                script: |
+                  #!/usr/bin/env bash
+                  next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
+                  if [ -n "$next" ]; then
+                    printf '%s' "$next" > .gtd/NEXT.md
+                  else
+                    rm -f .gtd/NEXT.md
+                  fi
+                on:
+                  "D .gtd/NEXT.md": done
+                  "* .gtd/NEXT.md": building
+                  "C": done
+              building:
+                actor: agent
+                prompt: "Implement the task named in .gtd/NEXT.md, then delete that task file."
+                on:
+                  "* **": picking
+              done:
+                commit: "chore: tasks complete"
       """
     And a file "NOTE.md" with:
       """
