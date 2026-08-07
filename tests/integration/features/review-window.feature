@@ -11,7 +11,10 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
   linked worktrees sharing one `.git` each get their own window; every gtd
   invocation restores it BEFORE reading or mutating state, so the pure machine
   never sees the window and the reviewer's own edits are captured by the
-  resting state's own `on` patterns like any other pending change.
+  resting state's own `on` patterns like any other pending change. Files added
+  since the base surface as ORDINARY UNTRACKED files (see the scenario below);
+  the step decision is indifferent, since `changedPaths` unions
+  `git ls-files --others` in and reports them as `A` either way.
 
   The bundled unified workflow declares `reviewWindow: true` on
   `await-review`. Each scenario builds a cycle that rests there: the
@@ -52,6 +55,24 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the git status contains "src/other.ts"
     # …while `.gtd/` plumbing stays out of the untracked noise.
     And the git status does not contain "?? .gtd/"
+
+  Scenario: Files added since the base stay untracked — never intent-to-add index entries
+    When I run gtd next
+    Then it succeeds
+    # git's ordinary new-file state, deliberately: an editor's "discard changes"
+    # then DELETES the file — the reject-this-file gesture a reviewer means —
+    # instead of truncating an intent-to-add entry to zero bytes and leaving a
+    # survivor the next `gtd step human` would commit.
+    And the git status contains "?? src/calc.ts"
+    And the git status contains "?? src/other.ts"
+    And the git status does not contain "AM src/calc.ts"
+
+  @live
+  Scenario: Real git agrees — the new file is untracked and keeps its content
+    When I run gtd next
+    Then it succeeds
+    And the git status contains "?? src/calc.ts"
+    And "src/calc.ts" contains "export const add"
 
   Scenario: The machine never sees the window — status resolves the real state
     Given I run gtd next

@@ -25,6 +25,15 @@ description, and must be preserved:
   window). `src/program.ts` calls the edge; it never reaches into `GitService`
   directly. The review window and the steering-file gate are deliberately
   invisible to the pure engine — don't "simplify" them back into it.
+- **The review window issues no whole-tree index WRITE, and every git index
+  write tolerates `index.lock` contention.** gtd shares one worktree index with
+  the reviewer's editor SCM, `gtd lsp`, and git-aware prompts, which all write
+  the index to refresh their stat cache when the window's `git reset --mixed`
+  wakes them. So `openReviewWindow` leaves new files UNTRACKED (never
+  `git add --intent-to-add .` — that both lost the lock race and truncated
+  discarded files to zero bytes), and all index writers in `src/Git.ts` go
+  through `withIndexLockRetry`. Don't add a whole-tree index write to the window
+  or a raw `exec` that bypasses the retry.
 
 A workflow is DATA, not code: there is no engine-side wiring to trace when a
 workflow's shape changes.

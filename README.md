@@ -120,21 +120,27 @@ for). The two steering-file entries are chosen by which file you create:
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
 checkbox review of the diff — the prompt never inlines the diff itself; it names
 the commit the changes are based at and the agent runs `git diff` to read the
-range before writing the review. Tick a box as you review each hunk (ticking
-just records "I read this"), and leave a **comment** to request changes: a note
-on a line, an inline `// TODO`-style comment in the code, or a direct code edit.
-Any comment sends a build + re-review round — an agent first turns your comments
-into an explicit instruction list, then a build turn implements it (a re-review
-then covers only the follow-through, and a hand-edit is treated as your own fix
-the agent completes without reverting your lines; a comment can't be silently
-dropped — a build turn that addresses nothing is refused). For the simple flow,
-the build turn that follows through on feedback and the turn that drafts the
-final squash message both resume the same session that built the feature in the
-first place, since the review tail is nested inside that build identity rather
-than sitting beside it. Ticking every box with no comment is the sign-off, which
-collapses the whole cycle into one commit (a **squash finale** whose message an
-agent drafts). Stepping with a box still unticked and no comment is refused
-(finish reviewing first), as is deleting `.gtd/REVIEW.md`.
+range before writing the review. While the cycle rests at that gate, gtd opens a
+**review checkout window**: HEAD is rewound to the review base with the working
+tree untouched, so the whole reviewable change shows up as ordinary uncommitted
+changes in your editor's normal git integration (and files added during the
+cycle show up as ordinary untracked files, so discarding one deletes it). The
+window closes on the next gtd invocation. Tick a box as you review each hunk
+(ticking just records "I read this"), and leave a **comment** to request
+changes: a note on a line, an inline `// TODO`-style comment in the code, or a
+direct code edit. Any comment sends a build + re-review round — an agent first
+turns your comments into an explicit instruction list, then a build turn
+implements it (a re-review then covers only the follow-through, and a hand-edit
+is treated as your own fix the agent completes without reverting your lines; a
+comment can't be silently dropped — a build turn that addresses nothing is
+refused). For the simple flow, the build turn that follows through on feedback
+and the turn that drafts the final squash message both resume the same session
+that built the feature in the first place, since the review tail is nested
+inside that build identity rather than sitting beside it. Ticking every box with
+no comment is the sign-off, which collapses the whole cycle into one commit (a
+**squash finale** whose message an agent drafts). Stepping with a box still
+unticked and no comment is refused (finish reviewing first), as is deleting
+`.gtd/REVIEW.md`.
 
 The same review tail also has a direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new

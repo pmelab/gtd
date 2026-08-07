@@ -64,7 +64,6 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   mixedResetTo: notImplemented("mixedResetTo"),
   hardResetTo: notImplemented("hardResetTo"),
   restoreStagedFrom: notImplemented("restoreStagedFrom"),
-  addIntentToAdd: notImplemented("addIntentToAdd"),
   ...overrides,
 })
 

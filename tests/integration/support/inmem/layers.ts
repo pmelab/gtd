@@ -117,8 +117,6 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
 
   restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
     tryCatch(() => repo.restoreStagedFrom(source, paths)),
-
-  addIntentToAdd: () => tryCatch(() => repo.addIntentToAdd()),
 })
 
 // ---------------------------------------------------------------------------

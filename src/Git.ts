@@ -1,5 +1,5 @@
 import { Command, CommandExecutor } from "@effect/platform"
-import { Context, Effect, Layer, Option, Stream } from "effect"
+import { Context, Duration, Effect, Layer, Option, Schedule, Stream } from "effect"
 import { Cwd } from "./Cwd.js"
 
 export interface GitReaderOperations {
@@ -118,12 +118,6 @@ export interface GitWriterOperations {
     source: string,
     paths: ReadonlyArray<string>,
   ) => Effect.Effect<void, Error>
-  /**
-   * `git add --intent-to-add .` — register untracked files in the index with
-   * an empty placeholder so they render as additions (with content hunks) in
-   * `git diff` and editor SCM views, without staging their content.
-   */
-  readonly addIntentToAdd: () => Effect.Effect<void, Error>
 }
 
 export interface GitOperations extends GitReaderOperations, GitWriterOperations {}
@@ -156,42 +150,78 @@ const parseNameStatus = (out: string): Array<{ path: string; status: string }> =
 }
 
 /**
+ * True when `error` is git's `index.lock` contention failure — another process
+ * held the index lock when git tried to take it. gtd shares one worktree index
+ * with every git-aware tool the reviewer runs (editor SCM, `gtd lsp`,
+ * git-aware shell prompts): each refreshes its stat cache by WRITING the index
+ * whenever a `git reset --mixed` in the review window wakes it, so gtd's own
+ * index writes lose the `index.lock` race often on a large repo (where each
+ * write takes long enough for the windows to overlap). The lock failure is a
+ * pure "couldn't start" — git did nothing — so the losing command is safe to
+ * retry verbatim (see `withIndexLockRetry`).
+ */
+export const isIndexLockError = (error: Error): boolean =>
+  /index\.lock[\s\S]*File exists|Another git process seems to be running/i.test(error.message)
+
+/**
+ * Retry an index-writing git command through transient `index.lock` contention
+ * with jittered exponential backoff (~10ms → ~640ms, capped at 6 retries), and
+ * ONLY on that error — any other failure propagates on the first attempt. This
+ * is the general defense for the concurrent reality `isIndexLockError`
+ * describes; it covers every index writer (`git add -A`, `reset`, `restore`),
+ * not just the review window's own steps.
+ */
+export const withIndexLockRetry = <A, R>(
+  eff: Effect.Effect<A, Error, R>,
+): Effect.Effect<A, Error, R> =>
+  Effect.retry(eff, {
+    schedule: Schedule.intersect(
+      Schedule.recurs(6),
+      Schedule.exponential(Duration.millis(10), 2),
+    ).pipe(Schedule.jittered),
+    while: (error: Error) => isIndexLockError(error),
+  })
+
+/**
  * Run a command and return its stdout — FAILING on a non-zero exit code with
  * the command line and stderr in the error message. `Command.string` alone
  * only collects stdout and silently ignores exit codes, which used to make
  * gtd report success on rejected commits (hooks, gpg), resolve Idle outside a
  * repository, and lose files whose quoted paths broke a swallowed `git add`.
  * Callers that expect a probe to fail (missing refs, empty repos) handle it
- * with an explicit `catchAll`.
+ * with an explicit `catchAll`. `index.lock` contention is retried transparently
+ * (`withIndexLockRetry`) before any caller's `catchAll` sees it.
  */
 const run = (
   root: string,
   ...args: [string, ...Array<string>]
 ): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const executor = yield* CommandExecutor.CommandExecutor
-      const process = yield* executor.start(
-        Command.make(...args).pipe(
-          Command.workingDirectory(root),
-          Command.stdout("pipe"),
-          Command.stderr("pipe"),
-        ),
-      )
-      const collect = (stream: typeof process.stdout) =>
-        stream.pipe(Stream.decodeText(), Stream.mkString)
-      const [stdout, stderr, exitCode] = yield* Effect.all(
-        [collect(process.stdout), collect(process.stderr), process.exitCode],
-        { concurrency: "unbounded" },
-      )
-      if (exitCode !== 0) {
-        return yield* Effect.fail(
-          new Error(`${args.join(" ")} failed (exit ${exitCode}): ${stderr.trim()}`),
+  withIndexLockRetry(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const executor = yield* CommandExecutor.CommandExecutor
+        const process = yield* executor.start(
+          Command.make(...args).pipe(
+            Command.workingDirectory(root),
+            Command.stdout("pipe"),
+            Command.stderr("pipe"),
+          ),
         )
-      }
-      return stdout
-    }),
-  ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
+        const collect = (stream: typeof process.stdout) =>
+          stream.pipe(Stream.decodeText(), Stream.mkString)
+        const [stdout, stderr, exitCode] = yield* Effect.all(
+          [collect(process.stdout), collect(process.stderr), process.exitCode],
+          { concurrency: "unbounded" },
+        )
+        if (exitCode !== 0) {
+          return yield* Effect.fail(
+            new Error(`${args.join(" ")} failed (exit ${exitCode}): ${stderr.trim()}`),
+          )
+        }
+        return stdout
+      }),
+    ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e))))),
+  )
 
 const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): GitOperations => {
   const exec = (...args: [string, ...Array<string>]) =>
@@ -359,8 +389,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
             // makes `git restore` complain — the pin is best-effort plumbing.
             Effect.catchAll(() => Effect.void),
           ),
-
-    addIntentToAdd: () => exec("git", "add", "--intent-to-add", ".").pipe(Effect.asVoid),
   }
 }
 

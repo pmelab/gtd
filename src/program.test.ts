@@ -63,8 +63,6 @@ const failingGitLayer = Layer.succeed(GitService, {
   hardResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   restoreStagedFrom: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
-  addIntentToAdd: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
 })
 
 // Minimal stub ConfigService — satisfies the type but never loaded for flags.

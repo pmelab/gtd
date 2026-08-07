@@ -419,17 +419,6 @@ export class InMemRepo {
       else this.index.delete(key)
     }
   }
-
-  /**
-   * `git add --intent-to-add .` — register every untracked worktree file in
-   * the index with an empty placeholder, so it renders as an addition (with a
-   * content hunk) rather than an untracked `??` entry.
-   */
-  addIntentToAdd(): void {
-    for (const path of this.worktree.keys()) {
-      if (!this.index.has(path)) this.index.set(path, "")
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
