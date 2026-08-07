@@ -7,7 +7,7 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
   end to end: a couple of simple-flow hops on the built-in default workflow, the
   `gtd next --json` contract, and a custom `.gtdrc` `workflow:`
   squashing through a `commit:` state. Comprehensive coverage (every
-  simple-workflow state, retry/escalation, the full check/fix/review cycle,
+  simple-workflow state, retry/escalation, the full check/fix/review tail,
   both refusal shapes) has its own dedicated feature files — see
   refusals.feature, default-workflow.feature, retry.feature, squash.feature.
 
@@ -51,9 +51,9 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
     And stdout contains "\"state\":\"idle\""
     And stdout contains "\"actor\":\"human\""
     And stdout contains "\"kind\":\"message\""
-    And stdout contains "No active gtd cycle."
+    And stdout contains "No active gtd process."
 
-  Scenario: a custom workflow squashes the whole cycle into one commit via a commit: state
+  Scenario: a custom workflow squashes the whole process into one commit via a commit: state
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -66,7 +66,7 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -95,6 +95,6 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
     And the last commit subject is "feat: remember the milk"
     And "NOTE.md" exists
     And "COMMIT_MSG.md" does not exist
-    # squashed onto the pre-cycle commit + the one squash commit — the
+    # squashed onto the pre-process commit + the one squash commit — the
     # intermediate "gtd(human): working" turn is gone, collapsed away.
     And the commit count increased by 1

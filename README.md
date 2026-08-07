@@ -6,10 +6,10 @@
 **Chat is a terrible source of truth. Git isn't.**
 
 **gtd** is a git-aware CLI that derives the entire agentic workflow — capture,
-plan, build, test, review — from your repository state, and prints the next
-prompt for whatever agent you point at it. Every step is a commit. Tests are run
-by the tool and branched on by exit code, so the agent never grades its own
-homework.
+plan, build, check, review — from your repository state, and prints the next
+prompt for whatever agent you point at it. Every turn is a commit. The test
+command is printed for your driver to run, and the branch is decided by what the
+run leaves in the tree — so the agent never grades its own homework.
 
 No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 
@@ -120,31 +120,31 @@ for). The two steering-file entries are chosen by which file you create:
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
 checkbox review of the diff — the prompt never inlines the diff itself; it names
 the commit the changes are based at and the agent runs `git diff` to read the
-range before writing the review. While the cycle rests at that gate, gtd opens a
-**review checkout window**: HEAD is rewound to the review base with the working
-tree untouched, so the whole reviewable change shows up as ordinary uncommitted
-changes in your editor's normal git integration (and files added during the
-cycle show up as ordinary untracked files, so discarding one deletes it). The
-window closes on the next gtd invocation. Tick a box as you review each hunk
-(ticking just records "I read this"), and leave a **comment** to request
-changes: a note on a line, an inline `// TODO`-style comment in the code, or a
-direct code edit. Any comment sends a build + re-review round — an agent first
-turns your comments into an explicit instruction list, then a build turn
-implements it (a re-review then covers only the follow-through, and a hand-edit
-is treated as your own fix the agent completes without reverting your lines; a
-comment can't be silently dropped — a build turn that addresses nothing is
-refused). For the simple flow, the build turn that follows through on feedback
-and the turn that drafts the final squash message both resume the same session
-that built the feature in the first place, since the review tail is nested
-inside that build identity rather than sitting beside it. Ticking every box with
-no comment is the sign-off, which collapses the whole cycle into one commit (a
-**squash finale** whose message an agent drafts). Stepping with a box still
-unticked and no comment is refused (finish reviewing first), as is deleting
-`.gtd/REVIEW.md`.
+range before writing the review. While the process rests at that gate, gtd opens
+a **review checkout window**: HEAD is rewound to the review base with the
+working tree untouched, so the whole reviewable change shows up as ordinary
+uncommitted changes in your editor's normal git integration (and files added
+during the process show up as ordinary untracked files, so discarding one
+deletes it). The window closes on the next gtd invocation. Tick a box as you
+review each hunk (ticking just records "I read this"), and leave a **comment**
+to request changes: a note on a line, an inline `// TODO`-style comment in the
+code, or a direct code edit. Any comment sends a build + re-review round — an
+agent first turns your comments into an explicit instruction list, then a build
+turn implements it (a re-review then covers only the follow-through, and a
+hand-edit is treated as your own fix the agent completes without reverting your
+lines; a comment can't be silently dropped — a build turn that addresses nothing
+is refused). For the simple flow, the build turn that follows through on
+feedback and the turn that drafts the final squash message both resume the same
+session that built the feature in the first place, since the review tail is
+nested inside that build identity rather than sitting beside it. Ticking every
+box with no comment is the sign-off, which collapses the whole process into one
+commit (a **squash finale** whose message an agent drafts). Stepping with a box
+still unticked and no comment is refused (finish reviewing first), as is
+deleting `.gtd/REVIEW.md`.
 
 The same review tail also has a direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
-process reviewing `<commitish>..HEAD` with no cycle of its own, e.g. a
+process reviewing `<commitish>..HEAD` with no build of its own, e.g. a
 colleague's PR branch (`review-gate.check`'s `reviewBase:` is a template bound
 to the `reviewBase` var, so supplying it via `--var` fixes the whole process's
 diff base to that commitish). Its squash keeps and describes only the fixes made
@@ -453,7 +453,7 @@ A few things to know before relying on it:
   owns a `herdr:claude` session until the process exits; while it does, the
   wrapper's reports are silently ignored and the sidebar stops tracking `gtd`.
 - **`blocked` covers the resting `idle` state too** — gtd's own `idle` is a
-  human gate (it waits for you to write a steering file), so a finished cycle
+  human gate (it waits for you to write a steering file), so a finished process
   reads as "your turn", which is what it is.
 - The status **persists after the wrapper exits** — that's the point: the
   sidebar keeps showing which worktree is waiting on you. Hand the pane back to
@@ -587,7 +587,7 @@ conversation across both call sites.
 
 Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
 
-- **`it.startCommit`** — the process's diff base (the commit the current cycle
+- **`it.startCommit`** — the process's diff base (the commit the current process
   started from, or the base a `--var reviewBase=<commitish>` entry resolved to).
 - **`it.reviewBase`** — the previous review round's boundary, falling back to
   `it.startCommit` on a first review.
@@ -607,9 +607,9 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 
 > **Upgrading from a pre-8.2 `workflow:`?** The old flat `states:` shape (with a
 > per-state `initial: true`/`reviewEntry: true`/`fixEntry: true` flag) is no
-> longer accepted — finish or `gtd abandon` any in-flight cycle before
-> upgrading, since the old and new shapes aren't compatible mid-cycle. Wrap your
-> states under a single
+> longer accepted — finish or `gtd abandon` any in-flight process before
+> upgrading, since the old and new shapes aren't compatible mid-process. Wrap
+> your states under a single
 > `machines: { <name>: { entry: <initial state>, states: {...} } }` and declare
 > `entry: { default: <name> }` at the top level (moving any
 > `reviewEntry`/`fixEntry` state to a plain per-state `entry: true` flag,

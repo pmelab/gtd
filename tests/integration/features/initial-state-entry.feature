@@ -71,7 +71,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": done
               done:

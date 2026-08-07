@@ -105,7 +105,7 @@ Feature: gtd visualize — an interactive diagram of the active workflow
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **":
                     to: reviewing

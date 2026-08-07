@@ -513,7 +513,7 @@ reported_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
 # We peek with the pure, mutation-free `gtd next --json` and step ONLY when it
 # reports a human rest (`kind == "message"`): at an agent/check rest
 # `gtd step human` would refuse out-of-turn (non-zero, aborting under `set -e`),
-# and a mid-cycle restart must simply resume driving, not fail. A clean gate is
+# and a mid-process restart must simply resume driving, not fail. A clean gate is
 # a harmless no-op; a genuine refusal there (a malformed steering file, or an
 # edit no `on` pattern accepts) is surfaced and stops the loop rather than being
 # driven past. --once treats a captured commit here as the run's one beat and

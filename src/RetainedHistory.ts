@@ -3,7 +3,7 @@ import type { GitOperations } from "./Git.js"
 
 /**
  * Retention of a squashed (or abandoned) process's turn-by-turn history.
- * Squashing collapses a whole cycle's turn commits into one; this module
+ * Squashing collapses a whole process's turn commits into one; this module
  * records the pre-squash tip so `gtd restore` can bring those turns back.
  */
 

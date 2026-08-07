@@ -27,7 +27,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -71,7 +71,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the git log contains "chore: calculator done"
     And "src/calc.ts" exists
 
-  Scenario: A check script's own cleanup mechanic (a sole swept deletion) advances the cycle instead of stalling
+  Scenario: A check script's own cleanup mechanic (a sole swept deletion) advances the process instead of stalling
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -84,7 +84,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -157,7 +157,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -213,7 +213,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": watching
               watching:
@@ -260,7 +260,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -348,7 +348,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -446,7 +446,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": build.building
               build:
@@ -533,7 +533,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": planning
               planning:
@@ -594,7 +594,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": planning
               planning:
@@ -656,7 +656,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -722,7 +722,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -770,7 +770,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -816,7 +816,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": watching
               watching:
@@ -879,7 +879,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -938,7 +938,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -978,7 +978,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -1020,7 +1020,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -1098,7 +1098,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": planning
               planning:
@@ -1149,7 +1149,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -1307,7 +1307,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
   # needed to reach `done`), so a script-beat scenario can prove --once stops
   # after the FIRST run without ever reaching `done`.
 
-  Scenario: --once stops after exactly one script check+step, without settling the whole cycle
+  Scenario: --once stops after exactly one script check+step, without settling the whole process
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -1320,7 +1320,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -1367,7 +1367,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:

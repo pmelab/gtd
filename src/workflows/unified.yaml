@@ -134,7 +134,7 @@
 # the step and routes:
 #   * no comment (every box ticked, no REVIEW.md note, no code edit) -> the diff
 #     is a bare REVIEW.md deletion -> build.squashing -> done (the ONLY path
-#     to the finale — the whole cycle collapses into one commit).
+#     to the finale — the whole process collapses into one commit).
 #   * any comment — a note in REVIEW.md OR a hand-edit to code — ->
 #     build.review.deciding writes REVIEW_FEEDBACK.md -> build.review.collecting
 #     implements it (completing any code the human hand-edited, never
@@ -707,7 +707,7 @@ machines:
         label: Awaiting your review
         file: <%= it.vars.reviewFile %>
         mode: review
-        # While the cycle rests here, gtd opens a "review checkout window": raw HEAD
+        # While the process rests here, gtd opens a "review checkout window": raw HEAD
         # is rewound to the review base (the most-recent `deciding` commit — so a
         # feedback round shows only `last-review..HEAD` — or the process start on
         # the first review) with the working tree untouched, surfacing the diff
@@ -722,7 +722,7 @@ machines:
         # REVIEW.md.
         reviewWindow: true
         message: |
-          `<%= it.vars.reviewFile %>` holds the review record for the cycle — one
+          `<%= it.vars.reviewFile %>` holds the review record for the process — one
           `- [ ]` checkbox per reviewable item, grouped into chunks. Tick a box
           (`- [x]`) as you review each hunk; ticking only records that you've read
           it, it is not sign-off.
@@ -730,7 +730,7 @@ machines:
           When you've been through the whole diff, run `gtd step human`:
 
           - **Sign off** — tick EVERY box and leave no comment — no note in
-            `<%= it.vars.reviewFile %>`, no code edit — to collapse the cycle into
+            `<%= it.vars.reviewFile %>`, no code edit — to collapse the process into
             one commit (**build.squashing**).
           - **Request changes** — leave a comment: a note on a
             `<%= it.vars.reviewFile %>` line, or a direct code edit — to send it to a
@@ -751,7 +751,7 @@ machines:
         # Anchors the INCREMENTAL review base: its most-recent in-process commit is
         # the point the previous review round ended, so the next `reviewing` turn
         # (and the review checkout window) covers only the changes since then. On
-        # the first review there is no such commit, so the base is the cycle start.
+        # the first review there is no such commit, so the base is the process start.
         reviewBase: true
         script: |
           #!/usr/bin/env bash
@@ -876,7 +876,7 @@ machines:
       review:
         actor: agent
         label: Reviewing the package
-        # Bounded per cycle: once entered `max` times, a transition into it is
+        # Bounded per process: once entered `max` times, a transition into it is
         # redirected to `$onApproved` (force-close the package and move on — the
         # unresolved concern is deferred to the shared human review at the tail,
         # which sees the whole diff anyway). NOTE the cap is PROCESS-scoped, so it
@@ -1131,7 +1131,7 @@ machines:
         label: Squashing
         file: <%= it.vars.commitMsgFile %>
         prompt: |
-          You are an autonomous coding agent. The cycle is approved and done. This
+          You are an autonomous coding agent. The process is approved and done. This
           workflow steers itself through its own state files — treat them as its
           private scratchpad, never as project code or documentation. The only
           state file this turn touches is `<%= it.vars.commitMsgFile %>`; write
@@ -1145,7 +1145,7 @@ machines:
           `<%= it.retainedBase %>` to the working tree, and is exactly what that
           commit will contain, the changes THIS process made (its trace/retry
           boundary onward). For a normal build
-          cycle that is the whole feature; for a `gtd --entry review-gate.check`
+          process that is the whole feature; for a `gtd --entry review-gate.check`
           process it is only the fixes made during the review — NOT the changeset
           that was under review.
 
@@ -1252,7 +1252,7 @@ machines:
         # each change does next" list, built from `it.edges` (the resting state's
         # own `on` edges — each edge's `describe:` is the single source of truth).
         message: |
-          No active gtd cycle.
+          No active gtd process.
 
           To start one, create a steering file describing what you want built:
 

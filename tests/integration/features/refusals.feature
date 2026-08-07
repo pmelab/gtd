@@ -31,7 +31,7 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:

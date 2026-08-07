@@ -13,6 +13,11 @@
 
 ## Architecture
 
+`CONTEXT.md` is the glossary — the domain language this repo uses (process,
+turn, step, capture, rest, gate vs guard, pattern vs edge). Read it before
+naming anything, and keep it a glossary: architecture lives here and in module
+doc comments, never there.
+
 Read the code for the architecture — every module carries a doc comment
 describing its own job. The two boundaries that are decisions rather than
 description, and must be preserved:

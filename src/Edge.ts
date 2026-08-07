@@ -338,7 +338,7 @@ const parseEntryCommitOverrides = (
  * Walk first-parent history backward from HEAD while each commit's subject
  * parses as `gtd(actor): state` (a v3 workflow commit) AND that state isn't
  * the workflow's initial state; the walk stops — EXCLUDING that boundary
- * commit itself, which belongs to the finished cycle — at whichever comes
+ * commit itself, which belongs to the finished process — at whichever comes
  * first:
  *
  * - a non-matching commit (a foreign boundary: legacy/pre-v3 history, the
@@ -346,8 +346,8 @@ const parseEntryCommitOverrides = (
  * - a workflow commit that ENTERS the initial state (e.g. the bundled
  *   default's `gtd(human): idle`) — with no `commit:`/squash state in the
  *   default workflow anymore, this is the process boundary between one
- *   approved cycle and the next: without it, consecutive cycles' commits
- *   would fuse into one process and `retry` counts would pool across cycles.
+ *   approved process and the next: without it, consecutive processes' commits
+ *   would fuse into one process and `retry` counts would pool across processes.
  *
  * HEAD itself being such an initial-entering commit yields an EMPTY run
  * (`trace: []`, `startHash`/`startParentHash` both HEAD's own hash) — the

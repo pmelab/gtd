@@ -22,7 +22,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": checking
               checking:
@@ -55,7 +55,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -218,7 +218,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -256,7 +256,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -293,7 +293,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -331,7 +331,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -364,7 +364,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -403,7 +403,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -482,7 +482,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:
@@ -525,7 +525,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **": working
               working:

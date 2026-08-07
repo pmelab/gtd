@@ -17,7 +17,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
   `git ls-files --others` in and reports them as `A` either way.
 
   The bundled unified workflow declares `reviewWindow: true` on
-  `await-review`. Each scenario builds a cycle that rests there: the
+  `await-review`. Each scenario builds a process that rests there: the
   `chore: init gtd workflow` config commit is the process boundary (the diff
   base), two `building` commits carry the reviewable code, and a final
   `await-review` commit carries the committed review doc.
@@ -48,7 +48,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     Then it succeeds
     And the git ref "refs/worktree/gtd/review-head" exists
     And the git ref "refs/worktree/gtd/review-base" exists
-    # HEAD rests at the review base: the cycle's process boundary.
+    # HEAD rests at the review base: the process boundary.
     And the last commit subject is "chore: init gtd workflow"
     # The whole package diff is visible as uncommitted changes…
     And the git status contains "src/calc.ts"
@@ -107,7 +107,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     When I run gtd step human
     Then it succeeds
     # Every box ticked, no note, no code edit — a clean sign-off hands to the
-    # deterministic check, which collapses the cycle from there.
+    # deterministic check, which collapses the process from there.
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
     And the git ref "refs/worktree/gtd/review-head" does not exist
 

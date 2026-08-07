@@ -82,7 +82,7 @@ const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").tr
  * when the workflow declares no such state (the caller then falls back to the
  * process start). Walks the current process run's commits (oldest→newest, via
  * `commitHistory(startParentHash)`), so it never reaches across the process
- * boundary into a previous cycle.
+ * boundary into a previous process.
  */
 export const reviewBaseHash = (
   git: GitOperations,

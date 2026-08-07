@@ -20,7 +20,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       """
       export const db = {}
       """
-    And I mark the current commit as "cycle-start"
+    And I mark the current commit as "process-start"
     And a file ".gtd/NEXT.md" with:
       """
       Package: add a db module.
@@ -30,7 +30,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     And an empty commit "gtd(check): packages.item.health.check → packages.item.spec.review"
     When I run gtd next
     Then it succeeds
-    And stdout contains the hash of "cycle-start"
+    And stdout contains the hash of "process-start"
     And stdout does not contain "diff --git"
     And stdout does not contain "## Diff under review"
 

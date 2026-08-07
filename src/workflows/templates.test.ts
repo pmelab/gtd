@@ -24,7 +24,7 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("declares exactly one review checkout window and one review entry", () => {
-    // The cycle runs to a human review gate, so it must declare exactly one
+    // The process runs to a human review gate, so it must declare exactly one
     // `reviewWindow: true` state (the gate that opens the editor's checkout
     // window) and exactly one manual entry named `review-gate.check` (the
     // `gtd --entry review-gate.check` entry point) — see src/ReviewWindow.ts.

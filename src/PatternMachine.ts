@@ -289,7 +289,7 @@ export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
 
 /**
  * The state names a process may START at. `default` is where an ordinary
- * "no active cycle" rest resumes (see `initialStateOf`) — required, so there
+ * "no active process" rest resumes (see `initialStateOf`) — required, so there
  * is always a value. `manual` is every OTHER state a process may start at:
  * every state that declared `entry: true` in the source config, qualified and
  * sorted by the compiler, empty when the workflow declares none. A manual
@@ -846,7 +846,7 @@ const CONTENT_KEYS = ["script", "prompt", "message", "commit"] as const
  * `entries.default` names a defined, non-commit state. Every entry in
  * `entries.manual`, when present, must likewise name a defined, non-commit
  * state distinct from `entries.default` — a manual entry is a DELIBERATE,
- * distinct starting point from the workflow's ordinary "no active cycle"
+ * distinct starting point from the workflow's ordinary "no active process"
  * rest (a manual entry requires resting at the default entry before it acts
  * — see `src/program.ts`), so the two must stay distinguishable — and
  * `entries.manual` must carry no duplicate state name within itself.

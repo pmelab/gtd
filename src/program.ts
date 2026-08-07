@@ -925,7 +925,7 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  * renamed-away trace exactly as well as an ordinary one.
  *
  * Idempotent: resting at the initial state (a plain non-gtd branch, or a
- * just-squashed cycle) is a no-op SUCCESS, not a refusal — a recovery command
+ * just-squashed process) is a no-op SUCCESS, not a refusal — a recovery command
  * that fails when there is nothing to recover is a worse tool. The one refusal
  * is a process whose first commit is the repository's own root commit: there is
  * no earlier commit to rewind to.

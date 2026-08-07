@@ -17,7 +17,7 @@ Feature: gtd abandon — end the process underway without completing it
     Given a test project
     And the workflow
 
-  Scenario: abandons a cycle mid-flight — HEAD back at the process boundary, the work kept as pending changes
+  Scenario: abandons a process mid-flight — HEAD back at the process boundary, the work kept as pending changes
     Given a file ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -31,9 +31,9 @@ Feature: gtd abandon — end the process underway without completing it
     When I run gtd with args "abandon"
     Then it succeeds
     And stdout contains "abandoned the process resting at \"plan.planning\""
-    # HEAD is back at the process boundary: the config commit before the cycle.
+    # HEAD is back at the process boundary: the config commit before the process.
     And the last commit subject is "chore: init gtd workflow"
-    # The plan the cycle committed is kept, now as a pending change.
+    # The plan the process committed is kept, now as a pending change.
     And the git status contains ".gtd/TODO.md"
     And ".gtd/TODO.md" contains "Build a thing."
     When I run gtd status

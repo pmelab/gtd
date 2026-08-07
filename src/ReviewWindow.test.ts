@@ -126,7 +126,7 @@ afterEach(() => {
 })
 
 describe("openReviewWindow / closeReviewWindow — base = process start", () => {
-  it("rewinds HEAD to the cycle boundary, surfaces the diff, and restores on close", async () => {
+  it("rewinds HEAD to the process boundary, surfaces the diff, and restores on close", async () => {
     commit("gtd(agent): building", { "src/calc.ts": "export const add = 1\n" })
     commit("gtd(human): gate", { "src/other.ts": "export const x = 1\n" })
     const realHead = gitExec("rev-parse", "HEAD")
@@ -137,7 +137,7 @@ describe("openReviewWindow / closeReviewWindow — base = process start", () => 
     expect(headSubject()).toBe("chore: initial commit")
     expect(refExists(REVIEW_HEAD_REF)).toBe(true)
     expect(refExists(REVIEW_BASE_REF)).toBe(true)
-    // The whole cycle diff is now uncommitted.
+    // The whole process diff is now uncommitted.
     expect(status()).toContain("src/calc.ts")
     expect(status()).toContain("src/other.ts")
 
