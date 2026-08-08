@@ -1,7 +1,7 @@
-import { createRequire } from "node:module"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either, Option, Runtime } from "effect"
+import type { Command, Needs } from "./Cli.js"
 import { configPresentAt, ConfigService } from "./Config.js"
 import { renderInitScaffold } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
@@ -48,113 +48,7 @@ import {
 } from "./PatternMachine.js"
 import { type TemplateEdge } from "./PatternTemplates.js"
 
-const _require = createRequire(import.meta.url)
-const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
-
-const HELP_TEXT = `Usage: gtd [command] [options]
-
-Commands:
-  (no command), loop
-                   Launch the loop driver (bin/gtd), which repeatedly drives
-                   an agent through gtd next/gtd step calls until the
-                   workflow rests at a human gate (a non-autonomous state)
-                   or settles. A bare gtd invocation and gtd loop both
-                   launch it identically
-  init             Scaffold a minimal .gtdrc.json for this repo, seeding the
-                   default variables you are most likely to change (the test
-                   command) and a Prettier formatting suggestion. gtd runs its
-                   built-in workflow by default, so no workflow is written —
-                   add a workflow: key only to customize the machine itself.
-                   Takes no argument. Run once per repo; refuses if a gtd
-                   config already exists. Leaves the file uncommitted for you
-                   to review and commit
-  step <actor>     Authenticate as <actor>, match the resolved rest's
-                   declared patterns against the pending changes, and commit
-                   (or squash) the one resulting transition. Pass
-                   --cost=<n> (optionally --model=<name>) to record the
-                   just-finished invocation's token cost and model on the
-                   turn commit (summed into it.processCost/processCostByModel).
-                   Pass --entry <state> to start a brand NEW process at
-                   <state> instead — any declared, non-commit state (e.g.
-                   review-gate.check or fix-precheck on the bundled unified
-                   template) — with repeatable --var <name>=<value> supplying
-                   that new process's fixed it.vars overrides
-  (no command) --entry <state>
-                   Short form of 'step human --entry <state>' — starts a new
-                   process authenticated as human, e.g.
-                   'gtd --entry review-gate.check'
-  abandon          End the process currently underway without completing it:
-                   close any open review checkout window, then rewind HEAD to
-                   the commit the process started from, keeping everything it
-                   produced as uncommitted changes. A no-op when no process is
-                   underway
-  restore          Hard-reset HEAD back to the pre-squash tip retained by the
-                   last squash/abandon (refs/worktree/gtd/history), undoing a
-                   squash or bringing back an abandoned process's turns.
-                   Refuses on a dirty working tree, when there is no retained
-                   history, or when HEAD has advanced past the squash with
-                   commits that would be lost
-  next             Print the resolved rest's rendered script/prompt/message
-                   (no mutation)
-  status           Print the resolved rest's state/actor and which declared
-                   pattern (if any) each pending change matches (no mutation)
-  validate         Format and validate the steering file the resolved rest
-                   declares, with its mode's commands (its file:/mode:);
-                   exits non-zero with the findings when it is invalid
-  lsp              Start the LSP server for .gtd/ steering files (stdio)
-  visualize        Serve an interactive diagram of the active workflow on a
-                   local web server (--port <n>, --no-open; --json prints the
-                   model and exits)
-  version          Print version and exit
-  help             Print this help and exit
-
-Options:
-  --json           Output structured JSON instead of plain text
-  --port=<n>       (gtd visualize only) port to serve on (default: a free port)
-  --no-open        (gtd visualize only) do not open the browser
-  --cost=<n>       (gtd step only) record the invocation's token cost
-  --model=<name>   (gtd step only, with --cost) tag that cost's model
-  --entry <state>  (gtd step, or with no command at all) start a brand new
-                   process at <state> — any declared, non-commit state —
-                   instead of stepping the one currently resting. Not
-                   combinable with --cost/--model (an entry is not a metered
-                   agent turn)
-  --var <name>=<value>
-                   (with --entry; repeatable) supply a fixed it.vars
-                   override for the new process; the name must already be
-                   declared by the workflow's own vars: or the .gtdrc vars:
-  --version, -v    Print version and exit
-  --help, -h       Print this help and exit
-`
-
-/**
- * Marks an error as already reported inside the `--json` error envelope, so
- * the composition root (main.ts) doesn't emit a second envelope for it.
- * Errors that fail BEFORE `makeProgram` runs — e.g. a config-validation
- * failure at layer construction — carry no mark, and main.ts writes the
- * envelope for them instead.
- */
-const ENVELOPED = Symbol.for("gtd/enveloped")
-const markEnveloped = (error: Error): Error => Object.assign(error, { [ENVELOPED]: true as const })
-export const isEnveloped = (error: unknown): boolean =>
-  typeof error === "object" &&
-  error !== null &&
-  (error as Record<symbol, unknown>)[ENVELOPED] === true
-
-/**
- * The stderr line for a CLI error (see `main.ts`): a `gtd: ` prefix UNLESS the
- * message already carries one. Most gtd errors are authored with a
- * `gtd:`/`gtd <cmd>:` prefix of their own (e.g. `gtd init: …`,
- * `gtd: unknown option …`), so a blind prepend produced a doubled
- * `gtd: gtd: …`.
- */
-export const cliErrorLine = (error: unknown): string => {
-  const message = error instanceof Error ? error.message : String(error)
-  return /^gtd[: ]/.test(message) ? message : `gtd: ${message}`
-}
-
-/** Every port `makeProgram` needs — `src/testing/Layers.ts`'s `testLayers` must satisfy exactly this, so a new port lands as a `tsc` error in one place instead of silently under-providing the test double. */
-export type ProgramRequirements =
+export type CommandRequirements =
   | GitService
   | FileSystem.FileSystem
   | ConfigService
@@ -162,259 +56,16 @@ export type ProgramRequirements =
   | RepoFiles
   | CommandRunner
   | EnvVars
-  | CommandRunner
 
 /**
- * Every value `flag` carries in `argv`, in BOTH `--flag=value` and `--flag
- * value` (space-separated) forms, plus every argv INDEX consumed producing
- * them — the flag token itself, and (for the space-separated form) the next
- * token too. A trailing bare occurrence (`flag` as the very last argv token,
- * with no following value) still consumes its own index but contributes an
- * EMPTY STRING to `values` — indistinguishable from an explicit `flag=`, and
- * deliberately so: both are "no value given" and a caller that cares (see
- * `parseEntryFlags`) rejects an empty value with its own message. Repeatable
- * flags (`--var`) collect one entry per occurrence, in argv order. Shared by
- * the positional-extraction fix below (`commandArgs`, and the top-level
- * `positional` lookup in `makeProgram`) and by `parseEntryFlags`'s own
- * `--entry`/`--var` parsing, so both agree on exactly which indices a flag's
- * value occupies.
+ * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio. Its
+ * `needs: "none"` (see `Cli.ts`'s `needsOf`) means it skips the repo-root
+ * guard and the review-window bracket entirely — the server needs no git/
+ * config/workflow dependency at all (it's keyed on file name, not workflow
+ * state; see `src/Lsp.ts`'s module doc). `--json` and extra arguments are
+ * already rejected by `Cli.ts` before a `Command` value ever reaches here.
  */
-export const takeFlagValues = (
-  argv: readonly string[],
-  flag: string,
-): { readonly values: string[]; readonly consumed: Set<number> } => {
-  const values: string[] = []
-  const consumed = new Set<number>()
-  const eqPrefix = `${flag}=`
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!
-    if (arg === flag) {
-      consumed.add(i)
-      if (i + 1 < argv.length) {
-        values.push(argv[i + 1]!)
-        consumed.add(i + 1)
-      } else {
-        values.push("")
-      }
-    } else if (arg.startsWith(eqPrefix)) {
-      consumed.add(i)
-      values.push(arg.slice(eqPrefix.length))
-    }
-  }
-  return { values, consumed }
-}
-
-const ENTRY_FLAG = "--entry"
-const VAR_FLAG = "--var"
-
-/**
- * The absolute argv indices `takeFlagValues` reports as consumed for
- * `--entry`/`--var`, merged — the set both `commandArgs` and the top-level
- * `positional` lookup in `makeProgram` must SKIP so a flag's value (e.g.
- * `--entry review-gate.check`, which carries no `--` prefix of its own) is
- * never mistaken for a stray extra positional argument.
- */
-const flagConsumedIndices = (argv: readonly string[]): Set<number> => {
-  const consumed = new Set<number>()
-  for (const i of takeFlagValues(argv, ENTRY_FLAG).consumed) consumed.add(i)
-  for (const i of takeFlagValues(argv, VAR_FLAG).consumed) consumed.add(i)
-  return consumed
-}
-
-/** Non-flag positional arguments past the subcommand name (argv[3..]), skipping any index `flagConsumedIndices` reports as an `--entry`/`--var` value (which carries no `--` prefix of its own and would otherwise read as a stray extra positional — see `takeFlagValues`). */
-const commandArgs = (argv: readonly string[]): string[] => {
-  const consumed = flagConsumedIndices(argv)
-  return argv
-    .map((a, i) => ({ a, i }))
-    .slice(3)
-    .filter(({ a, i }) => a.length > 0 && !a.startsWith("--") && !consumed.has(i))
-    .map(({ a }) => a)
-}
-
-const COST_FLAG = "--cost="
-
-/**
- * Parse the optional `--cost=<n>` flag (only `gtd step` accepts it — see
- * `makeProgram`). `<n>` is the token cost of the invocation that produced the
- * pending changes, recorded as a `Gtd-Cost:` trailer on the turn commit. Must
- * be a non-negative finite number; a bare `--cost` (no `=`) or a non-numeric/
- * negative value is a usage error. Returns `undefined` when the flag is absent.
- */
-const parseCostFlag = (argv: readonly string[]): Effect.Effect<number | undefined, Error> => {
-  if (argv.slice(2).includes("--cost")) {
-    return Effect.fail(new Error("gtd: --cost requires a value — use --cost=<number>"))
-  }
-  const flag = argv.slice(2).find((a) => a.startsWith(COST_FLAG))
-  if (flag === undefined) return Effect.succeed(undefined)
-  const raw = flag.slice(COST_FLAG.length)
-  const n = Number(raw)
-  if (raw.trim() === "" || !Number.isFinite(n) || n < 0) {
-    return Effect.fail(new Error(`gtd: --cost must be a non-negative number — got "${raw}"`))
-  }
-  return Effect.succeed(n)
-}
-
-const MODEL_FLAG = "--model="
-
-/**
- * Parse the optional `--model=<name>` flag (only `gtd step`, and only
- * alongside `--cost` — see `makeProgram`). `<name>` tags the recorded cost
- * with the model the invocation ran on, appended to the `Gtd-Cost:` trailer
- * and grouped in `it.processCostByModel`. Must be non-empty and single-line
- * (it rides on one trailer line); a bare `--model` (no `=`) or an empty/
- * multiline value is a usage error. Returns `undefined` when the flag is absent.
- */
-const parseModelFlag = (argv: readonly string[]): Effect.Effect<string | undefined, Error> => {
-  if (argv.slice(2).includes("--model")) {
-    return Effect.fail(new Error("gtd: --model requires a value — use --model=<name>"))
-  }
-  const flag = argv.slice(2).find((a) => a.startsWith(MODEL_FLAG))
-  if (flag === undefined) return Effect.succeed(undefined)
-  const raw = flag.slice(MODEL_FLAG.length)
-  if (raw.trim() === "" || /[\r\n]/.test(raw)) {
-    return Effect.fail(new Error("gtd: --model must be a non-empty, single-line value"))
-  }
-  return Effect.succeed(raw)
-}
-
-/**
- * Parse and validate the `--cost`/`--model` step flags together. Both are
- * orthogonal to `--json` but only meaningful to `gtd step` — rejected on any
- * other command rather than silently ignored (same discipline as `--json` on
- * `next`) — and `--model` requires `--cost` (a model tag with no token count
- * records nothing to sum).
- */
-const parseStepFlags = (
-  argv: readonly string[],
-  positional: string | undefined,
-): Effect.Effect<
-  { readonly cost: number | undefined; readonly model: string | undefined },
-  Error
-> =>
-  Effect.gen(function* () {
-    const cost = yield* parseCostFlag(argv)
-    const model = yield* parseModelFlag(argv)
-    if (cost !== undefined && positional !== "step") {
-      return yield* Effect.fail(new Error("gtd: --cost is only valid for `gtd step`"))
-    }
-    if (model !== undefined && positional !== "step") {
-      return yield* Effect.fail(new Error("gtd: --model is only valid for `gtd step`"))
-    }
-    if (model !== undefined && cost === undefined) {
-      return yield* Effect.fail(
-        new Error(
-          "gtd: --model requires --cost — it tags the recorded cost with the model that ran",
-        ),
-      )
-    }
-    return { cost, model }
-  })
-
-/**
- * Parse the `--entry <state>`/`--entry=<state>` flag and the repeatable
- * `--var <name>=<value>`/`--var=<name>=<value>` flag together (see
- * `takeFlagValues`) — mirrors `parseStepFlags`'s shape/Effect style. `--entry`
- * names the state a brand-new process should START at (see
- * `runEntryCommand`), reached via `gtd step <actor> --entry <state>` or the
- * subcommand-less short form `gtd --entry <state>` — so, like `--cost`/
- * `--model`, it is rejected outright on any OTHER command rather than
- * silently ignored. `--var` supplies that new process's fixed `it.vars`
- * overrides, and only means anything alongside `--entry`.
- *
- * - At most one `--entry` occurrence — a second is a usage error (not
- *   last-wins).
- * - A bare `--entry` with no following value is a usage error (mirrors
- *   `parseCostFlag`'s bare-`--cost` handling).
- * - Each `--var` value must be `<name>=<value>` with a non-empty name and a
- *   single-line value (mirrors `parseModelFlag`'s multiline-rejection idiom);
- *   a duplicate `--var` NAME is a usage error (no silent last-wins).
- * - `--var` present with no `--entry` is a usage error.
- *
- * Deliberately does NOT reject `--cost`/`--model` alongside `--entry` — that
- * combination check lives where `--cost`/`--model` are already validated
- * (see `makeProgram`).
- */
-export const parseEntryFlags = (
-  argv: readonly string[],
-  positional: string | undefined,
-): Effect.Effect<
-  { readonly entry: string | undefined; readonly vars: Record<string, string> },
-  Error
-> =>
-  // fallow-ignore-next-line complexity
-  Effect.gen(function* () {
-    const entryValues = takeFlagValues(argv, ENTRY_FLAG).values
-    if (entryValues.length > 1) {
-      return yield* Effect.fail(new Error("gtd: --entry may be given at most once"))
-    }
-    const entryRaw = entryValues[0]
-    if (entryRaw === "") {
-      return yield* Effect.fail(
-        new Error("gtd: --entry requires a value — use --entry=<state> or --entry <state>"),
-      )
-    }
-    const entry = entryRaw
-    if (entry !== undefined && positional !== "step" && positional !== undefined) {
-      return yield* Effect.fail(
-        new Error(
-          "gtd: --entry is only valid for `gtd step` or the bare `gtd --entry <state>` form",
-        ),
-      )
-    }
-
-    const vars: Record<string, string> = {}
-    const seenNames = new Set<string>()
-    for (const raw of takeFlagValues(argv, VAR_FLAG).values) {
-      const eq = raw.indexOf("=")
-      if (eq <= 0) {
-        return yield* Effect.fail(
-          new Error(`gtd: --var must be <name>=<value> with a non-empty name — got "${raw}"`),
-        )
-      }
-      const name = raw.slice(0, eq)
-      const value = raw.slice(eq + 1)
-      if (/[\r\n]/.test(value)) {
-        return yield* Effect.fail(new Error(`gtd: --var ${name} must be a single-line value`))
-      }
-      if (seenNames.has(name)) {
-        return yield* Effect.fail(new Error(`gtd: --var ${name} specified more than once`))
-      }
-      seenNames.add(name)
-      vars[name] = value
-    }
-    if (entry === undefined && Object.keys(vars).length > 0) {
-      return yield* Effect.fail(new Error("gtd: --var requires --entry"))
-    }
-
-    return { entry, vars }
-  })
-
-/** Rejects extra positional arguments for a subcommand that takes none (`status`, `run`). */
-const rejectExtraArgs = (command: string, argv: readonly string[]): Effect.Effect<void, Error> => {
-  const args = commandArgs(argv)
-  if (args.length > 0) {
-    return Effect.fail(
-      new Error(`gtd ${command}: too many arguments — expected none, got: ${args.join(", ")}`),
-    )
-  }
-  return Effect.void
-}
-
-/**
- * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio.
- * Rejects `--json` (not a state command) and extra positional arguments
- * (takes none). Dispatched BEFORE the known-subcommand guard and the repo-root
- * guard — since the server needs no git/config/workflow dependency at all
- * (it's keyed on file name, not workflow state; see `src/Lsp.ts`'s module doc).
- */
-const runLspCommand = (argv: readonly string[], json: boolean): Effect.Effect<void, Error> =>
-  Effect.gen(function* () {
-    if (json) {
-      return yield* Effect.fail(new Error("gtd lsp does not accept --json"))
-    }
-    yield* rejectExtraArgs("lsp", argv)
-    yield* startLspServer()
-  })
+const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
 
 /**
  * `gtd init`: scaffold a MINIMAL `.gtdrc.json` seeding the default variables a
@@ -423,26 +74,22 @@ const runLspCommand = (argv: readonly string[], json: boolean): Effect.Effect<vo
  * `workflow:` key: gtd ships the unified workflow as its built-in default and
  * runs it whenever none is configured (see `src/Config.ts`), so there is
  * nothing to scaffold there — a project customizes the machine itself only by
- * adding a `workflow:` key. Takes NO argument. Dispatched like `lsp` — BEFORE
- * the closeReviewWindow/dispatch/openReviewWindow block — because it needs no
- * `ConfigService` and no review window. It still runs the repo-root guard (it
- * writes `.gtdrc.json` at the root) and refuses to clobber an existing config.
- * The file is left UNCOMMITTED, so the message warns to commit it before the
- * first `gtd step` (an uncommitted config counts as a pending change the
- * initial state's `* **` edge would otherwise capture).
+ * adding a `workflow:` key. Its arity (none) is enforced by `Cli.ts` before a
+ * `Command` value ever reaches here. Its standalone `needs: "fs"` (see
+ * `Cli.ts`'s `needsOf`) means `runCommand` skips the shared repo-root guard/
+ * review-window bracket — it runs its own, more permissive location check
+ * instead (`assertInitLocation`, which also allows a directory outside any
+ * repository) since it writes `.gtdrc.json` at the root and refuses to
+ * clobber an existing config. The file is left UNCOMMITTED, so the message
+ * warns to commit it before the first `gtd step` (an uncommitted config
+ * counts as a pending change the initial state's `* **` edge would otherwise
+ * capture).
  */
 const runInitCommand = (
-  argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | Cwd> =>
   Effect.gen(function* () {
-    const args = commandArgs(argv)
-    if (args.length > 0) {
-      return yield* Effect.fail(
-        new Error(`gtd init: too many arguments — init takes no argument, got: ${args.join(", ")}`),
-      )
-    }
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     const inRepo = yield* assertInitLocation(git, fs)
@@ -497,7 +144,7 @@ const stepAsActor = (
     readonly model: string | null
   },
   Error,
-  ProgramRequirements
+  CommandRequirements
 > =>
   Effect.gen(function* () {
     const rest = yield* currentRest
@@ -567,41 +214,20 @@ const reportStepResult = (
 /**
  * `gtd step <actor> [--cost=<n>] [--model=<name>]`: authenticate as `<actor>`
  * and perform the one resulting transition, recording `--cost`/`--model` as a
- * `Gtd-Cost:` trailer. When `--entry <state>` is present, the actor argument
- * is still required (it names who authors the entry commit) but the ordinary
- * pattern-matched step never runs — dispatches to `runEntryCommand` instead
- * (see `makeProgram`'s parsing of `--entry`/`--var`, and its sibling
- * subcommand-less short form).
+ * `Gtd-Cost:` trailer. `--entry <state>` no longer nests inside this handler —
+ * `Cli.ts`'s `--entry` selector resolves that combination to its own
+ * `"entry"` command kind (see `runEntryCommand`) before `runCommand` ever
+ * dispatches here, so a `step` `Command` is always the ordinary pattern-
+ * matched step.
  */
 const runStepCommand = (
-  argv: readonly string[],
-  json: boolean,
-  write: (chunk: string) => void,
+  actor: string,
   cost: number | undefined,
   model: string | undefined,
-  entryFlags: { readonly entry: string | undefined; readonly vars: Record<string, string> },
-): Effect.Effect<void, Error, ProgramRequirements> =>
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const args = commandArgs(argv)
-    if (args.length === 0) {
-      return yield* Effect.fail(new Error("gtd step: missing actor argument"))
-    }
-    if (args.length > 1) {
-      return yield* Effect.fail(
-        new Error(`gtd step: too many arguments — expected one actor, got: ${args.join(", ")}`),
-      )
-    }
-    const actor = args[0]!
-    if (entryFlags.entry !== undefined) {
-      return yield* runEntryCommand(
-        actor,
-        entryFlags.entry,
-        entryFlags.vars,
-        json,
-        write,
-        `gtd step ${actor} --entry ${entryFlags.entry}`,
-      )
-    }
     const result = yield* stepAsActor(actor, cost, model)
     reportStepResult(result, json, write)
   })
@@ -609,11 +235,36 @@ const runStepCommand = (
 /**
  * `gtd step <actor> --entry <state> [--var <name>=<value> ...]` (or its
  * subcommand-less short form `gtd --entry <state> ...`, `actor` defaulting to
- * `human` there — see `makeProgram`): start a brand NEW process at `<state>`
- * — any declared, non-commit state — via `Edge.ts`'s `planEntry`, which owns
- * every refusal (already-underway, not-enterable, undeclared `--var`, a bad
- * `reviewBase:` template) and the entry commit's trailers. This command is
- * just: resolve the current rest, plan the entry, perform it, report it.
+ * `human` there — see `Cli.ts`'s `--entry` selector): start a brand NEW process at `<state>`
+ * — any declared, non-commit state (see `PatternMachine.enterableStates`) —
+ * replacing the two former named commands `gtd review <commitish>`/`gtd fix`
+ * with one generic mechanism. Writes an ordinary turn commit
+ * (`gtd(<actor>): <state>`) carrying zero or more `Gtd-Var: <name>=<value>`
+ * trailers (`withEntryTrailers`) for each `--var` override, plus — when
+ * `<state>` declares a string `reviewBase:` — a `Gtd-Review-Base:` trailer
+ * pinning the new process's diff base (rendered from that template against
+ * the merged `it.vars`, resolved to a commit, and checked sane). Unlike the
+ * old commands (which required a clean tree and used `commitAsIs`), this
+ * commits via `commitAllWithPrefix` — capturing whatever the working tree
+ * carries at the moment of entry, exactly like an ordinary `gtd step`
+ * capture, rather than demanding a clean tree first.
+ *
+ * Any failure below is a plain refusal: nothing is written. Checked in order:
+ *
+ * 1. The machine must currently rest at the workflow's INITIAL state — a
+ *    plain non-gtd branch (the normal case) resolves there via the
+ *    inert-subject rule (see `resolveState`); a process already underway
+ *    refuses.
+ * 2. `<state>` must be one of `enterableStates(rest.def)` — every declared,
+ *    non-commit state, NOT narrowed to whatever declared `entry: true` (that
+ *    narrower set only seeds the workflow's own `entries.manual` reachability
+ *    roots — this command lets an operator enter any of them).
+ * 3. Every `--var` name must already be declared by the workflow's own
+ *    `vars:` or the top-level `.gtdrc` `vars:` — an undeclared name is a
+ *    usage error, not a silently-ignored override.
+ * 4. When `<state>` declares a string `reviewBase:`, that template must
+ *    render to a NON-BLANK commitish that resolves to a commit, is an
+ *    ancestor of HEAD, and differs from HEAD.
  */
 const runEntryCommand = (
   actor: string,
@@ -622,7 +273,8 @@ const runEntryCommand = (
   json: boolean,
   write: (chunk: string) => void,
   commandLabel: string,
-): Effect.Effect<void, Error, ProgramRequirements> =>
+): Effect.Effect<void, Error, CommandRequirements> =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const rest = yield* currentRest
     const plan = yield* planEntry(rest, actor, {
@@ -653,7 +305,7 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  * — and so does `resolveRest`'s refusal when HEAD names a state a workflow
  * change has since removed).
  *
- * NOTHING is discarded. The shared bracket in `makeProgram` has already closed
+ * NOTHING is discarded. The shared bracket in `runCommand` has already closed
  * any open review checkout window (so HEAD is the real head), and abandon then
  * `git reset --mixed`es HEAD to the commit the process started from
  * (`computeProcessRun`'s `startParentHash` — the same boundary a squash resets
@@ -678,13 +330,10 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  * no earlier commit to rewind to.
  */
 const runAbandonCommand = (
-  argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, ProgramRequirements> =>
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    yield* rejectExtraArgs("abandon", argv)
-
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const def = config.workflow
@@ -746,13 +395,10 @@ const runAbandonCommand = (
  * lost by resetting.
  */
 const runRestoreCommand = (
-  argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, ProgramRequirements> =>
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    yield* rejectExtraArgs("restore", argv)
-
     const git = yield* GitService
 
     // Reading `rest.changes` off `currentRest` (rather than `pendingChanges`
@@ -852,7 +498,7 @@ const nextPlainOutput = (rendered: RenderedRest): string => {
 const runNextCommand = (
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, ProgramRequirements> =>
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rendered = yield* renderRest(yield* currentRest)
     write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
@@ -871,12 +517,10 @@ const runNextCommand = (
  * instead (or, for `format:`, in addition).
  */
 const runValidateCommand = (
-  argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, ProgramRequirements> =>
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    yield* rejectExtraArgs("validate", argv)
     const rest = yield* currentRest
     const { file, present, errors } = yield* checkSteeringFile(rest, rest.context, rest.hints.file)
     if (!present) {
@@ -1074,12 +718,10 @@ const writeStatusPlain = (
 
 /** `gtd status`: pure dry-run reporter — the resolved state/actor, and which declared pattern (if any) each pending change matches. */
 const runStatusCommand = (
-  argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, ProgramRequirements> =>
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    yield* rejectExtraArgs("status", argv)
     const rest = yield* currentRest
     const statusChanges = computeStatusChanges(rest.on, rest.changes)
     const next = computeNextMatch(rest.on, rest.changes)
@@ -1113,59 +755,6 @@ const runStatusCommand = (
     }
   })
 
-interface VisualizeOptions {
-  readonly port: number
-  readonly open: boolean
-}
-
-/** Parse a `--port` value: an integer 0–65535, or `undefined` if invalid/absent. */
-const parsePort = (value: string | undefined): number | undefined => {
-  const n = Number(value)
-  return value !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535 ? n : undefined
-}
-
-/** Resolve a `--port`/`--port=<n>` argument to its raw value + the index consumed, or `null` if `arg` is not a port option. */
-const portArgValue = (
-  arg: string,
-  rest: readonly string[],
-  i: number,
-): { value: string | undefined; nextIndex: number } | null => {
-  if (arg === "--port") return { value: rest[i + 1], nextIndex: i + 1 }
-  if (arg.startsWith("--port=")) return { value: arg.slice("--port=".length), nextIndex: i }
-  return null
-}
-
-/**
- * Parse `gtd visualize`'s own options from the argv tail (the subcommand token
- * already dropped): `--port <n>`/`--port=<n>`, `--no-open`, and a passthrough
- * `--json`. Returns the options, or an `{ error }` message for an invalid port,
- * an unknown `--` option, or an unexpected positional.
- */
-const parseVisualizeOptions = (rest: readonly string[]): VisualizeOptions | { error: string } => {
-  let port = 0
-  let open = true
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i]!
-    const portArg = portArgValue(arg, rest, i)
-    if (portArg !== null) {
-      const parsed = parsePort(portArg.value)
-      if (parsed === undefined)
-        return {
-          error: `gtd visualize: --port must be an integer 0–65535 (got '${portArg.value ?? ""}')`,
-        }
-      port = parsed
-      i = portArg.nextIndex
-      continue
-    }
-    if (arg === "--json") continue
-    if (arg === "--no-open") open = false
-    else if (arg.startsWith("--"))
-      return { error: `gtd: unknown option '${arg}' — see \`gtd --help\`` }
-    else return { error: `gtd visualize: unexpected argument '${arg}'` }
-  }
-  return { port, open }
-}
-
 /**
  * Best-effort resolution of the currently-rested state for the viewer's
  * `/state.json` route: prefers the review checkout window's saved head
@@ -1189,27 +778,22 @@ const computeCurrentState = (
 
 /**
  * `gtd visualize`: serve an interactive diagram of the ACTIVE workflow on a
- * local HTTP server (see `src/Visualize.ts`). Dispatched early (like `lsp`/
- * `init`) — it reads the config but never touches git, HEAD, or the review
- * window ITSELF (though its `/state.json` route best-effort reads git state
- * per request, see `computeCurrentState`) — and parses its OWN options
- * (`--port`, `--no-open`), since the global unknown-option check does not
- * know them. `--json` prints the model and exits without starting a server
- * (the testable path; live state is a server-only concern, so `--json`'s
- * shape is unchanged).
+ * local HTTP server (see `src/Visualize.ts`). Its standalone `needs:
+ * "config"` (see `Cli.ts`'s `needsOf`) means it skips the repo-root guard and
+ * review-window bracket — it reads the config but never touches git, HEAD, or
+ * the review window ITSELF (though its `/state.json` route best-effort reads
+ * git state per request, see `computeCurrentState`). `--port`/`--no-open` are
+ * already parsed by `Cli.ts`. `--json` prints the model and exits without
+ * starting a server (the testable path; live state is a server-only concern,
+ * so `--json`'s shape is unchanged).
  */
 const runVisualizeCommand = (
-  argv: readonly string[],
+  port: number,
+  open: boolean,
   json: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, RestRequirements> =>
   Effect.gen(function* () {
-    const tokens = argv.slice(2)
-    const subIdx = tokens.indexOf("visualize")
-    const rest = subIdx >= 0 ? [...tokens.slice(0, subIdx), ...tokens.slice(subIdx + 1)] : tokens
-    const opts = parseVisualizeOptions(rest)
-    if ("error" in opts) return yield* Effect.fail(new Error(opts.error))
-
     const config = yield* (yield* ConfigService).load
     const model = buildVizModel(
       config.workflow,
@@ -1237,87 +821,17 @@ const runVisualizeCommand = (
       })
 
     const { server, url } = yield* Effect.tryPromise({
-      try: () => startVizServer(model, opts.port, "127.0.0.1", resolveCurrent),
+      try: () => startVizServer(model, port, "127.0.0.1", resolveCurrent),
       catch: (e) =>
         new Error(
           `gtd visualize: could not start server: ${e instanceof Error ? e.message : String(e)}`,
         ),
     })
     write(`gtd visualize running at ${url} — Ctrl-C to stop\n`)
-    if (opts.open) openInBrowser(url)
+    if (open) openInBrowser(url)
     // Block until the process is interrupted (Ctrl-C); always close the server.
     yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => server.close())))
   })
-
-const KNOWN_SUBCOMMANDS = ["step", "abandon", "restore", "next", "status", "validate"] as const
-type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
-
-/**
- * The two named commands the generic `--entry` mechanism replaced (see
- * `runEntryCommand`) — no fallback, so `gtd review`/`gtd fix` must fail with a
- * message pointing at the replacement rather than the generic "unknown
- * command" (see `requireKnownSubcommand`). Illustrated with the bundled
- * unified template's own entry-flagged state names (`review-gate.check`/
- * `fix-precheck`) since gtd itself has no opinion on any workflow's state
- * names — a custom workflow names its own.
- */
-const REMOVED_SUBCOMMANDS: Record<string, string> = {
-  review:
-    "gtd: `gtd review <commitish>` is gone — this workflow's own state names " +
-    "aren't known to gtd; run `gtd step <actor> --entry <review-state> " +
-    "--var <name>=<value> ...` instead (e.g. " +
-    "`gtd step human --entry review-gate.check` for the bundled unified template)",
-  fix:
-    "gtd: `gtd fix` is gone — this workflow's own state names aren't known to " +
-    "gtd; run `gtd step <actor> --entry <fix-state>` instead (e.g. " +
-    "`gtd step human --entry fix-precheck` for the bundled unified template)",
-}
-
-/**
- * `--version`/`-v`/`version` or `--help`/`-h`/`help`: short-circuits before any
- * git or state work, so it works outside a repo too. The bare `version`/`help`
- * subcommands are equivalent to their flag forms. Exported so main.ts can run
- * the same check synchronously BEFORE the Effect runtime builds any layer —
- * layer construction must never observe a version/help invocation.
- */
-export const runVersionOrHelp = (
-  argv: readonly string[],
-  write: (chunk: string) => void,
-): boolean => {
-  const positional = argv.slice(2).find((a) => !a.startsWith("--"))
-  if (argv.includes("--version") || argv.includes("-v") || positional === "version") {
-    write(GTD_VERSION + "\n")
-    return true
-  }
-  if (argv.includes("--help") || argv.includes("-h") || positional === "help") {
-    write(HELP_TEXT)
-    return true
-  }
-  return false
-}
-
-/**
- * Rejects a bare `gtd` invocation or an unrecognized subcommand. Returns the
- * subcommand narrowed to `KnownSubcommand` once past this guard.
- */
-const requireKnownSubcommand = (
-  sub: string | undefined,
-  json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<KnownSubcommand, Error> => {
-  if (sub === undefined) {
-    if (!json) write(HELP_TEXT)
-    return Effect.fail(new Error("gtd: missing command — see usage above (`gtd --help`)"))
-  }
-  const removedMessage = REMOVED_SUBCOMMANDS[sub]
-  if (removedMessage !== undefined) {
-    return Effect.fail(new Error(removedMessage))
-  }
-  if (!(KNOWN_SUBCOMMANDS as readonly string[]).includes(sub)) {
-    return Effect.fail(new Error(`unknown command '${sub}'`))
-  }
-  return Effect.succeed(sub as KnownSubcommand)
-}
 
 /**
  * Everything gtd derives — the workflow definition, pending changes, process
@@ -1379,45 +893,72 @@ const assertInitLocation = (
     return true
   })
 
-/** Dispatches to the named `run*Command` handler for every known subcommand. `entryFlags` is only consulted by `step` (see `runStepCommand`) — every other subcommand ignores it, since `--entry`/`--var` are meaningless anywhere else (`parseEntryFlags` already rejects that combination before dispatch is reached). */
-const dispatchKnownSubcommand = (
-  sub: KnownSubcommand,
-  argv: readonly string[],
+/**
+ * What a command kind needs before it may run — re-exported from `Cli.ts` (see
+ * its `Needs` type doc comment). Defined HERE, not in `Cli.ts`: this
+ * dispatcher (`runCommand`, below) is `needsOf`'s only runtime caller, and
+ * `Cli.ts` already has a real (value) dependency on this module for
+ * `runCommand` itself — a value import running the other way would make the
+ * two modules circular.
+ */
+export const needsOf = (kind: Command["kind"]): Needs => {
+  switch (kind) {
+    case "lsp":
+      return "none"
+    case "init":
+      return "fs"
+    case "visualize":
+      return "config"
+    default:
+      return "state"
+  }
+}
+
+/** The three kinds that never touch the repo-root guard / review-window bracket — pinned so a new standalone kind can't be added silently. */
+export const standaloneKinds = (): readonly Command["kind"][] => ["lsp", "init", "visualize"]
+
+/** Dispatches to the named `run*Command` handler for every `Command.kind` — the counterpart of `Cli.ts`'s `parseArgv`, which has already validated every field a handler receives. */
+// fallow-ignore-next-line complexity
+const dispatchCommand = (
+  command: Command,
   json: boolean,
   write: (chunk: string) => void,
-  cost: number | undefined,
-  model: string | undefined,
-  entryFlags: { readonly entry: string | undefined; readonly vars: Record<string, string> },
-): Effect.Effect<void, Error, ProgramRequirements> => {
-  switch (sub) {
+): Effect.Effect<void, Error, CommandRequirements> => {
+  switch (command.kind) {
+    case "lsp":
+      return runLspCommand()
+    case "init":
+      return runInitCommand(json, write)
+    case "visualize":
+      return runVisualizeCommand(command.port, command.open, json, write)
     case "step":
-      return runStepCommand(argv, json, write, cost, model, entryFlags)
+      return runStepCommand(command.actor, command.cost, command.model, json, write)
+    case "entry":
+      return runEntryCommand(command.actor, command.state, command.vars, json, write, command.label)
     case "abandon":
-      return runAbandonCommand(argv, json, write)
+      return runAbandonCommand(json, write)
     case "restore":
-      return runRestoreCommand(argv, json, write)
+      return runRestoreCommand(json, write)
     case "next":
       return runNextCommand(json, write)
     case "status":
-      return runStatusCommand(argv, json, write)
+      return runStatusCommand(json, write)
     case "validate":
-      return runValidateCommand(argv, json, write)
+      return runValidateCommand(json, write)
   }
 }
 
 /**
- * Runs `command` inside the bracket every state-touching subcommand shares:
- * the repo-root guard, then close-any-open-review-window before the command
- * sees HEAD, then re-arm it afterward whether `command` succeeded or refused
- * (see `closeReviewWindow`/`openReviewWindow`). Shared by the normal
- * known-subcommand dispatch and the subcommand-less `gtd --entry <state>`
- * short form in `makeProgram`, so both open/close the window identically.
+ * Runs `command` inside the bracket every state-touching command shares: the
+ * repo-root guard, then close-any-open-review-window before the command sees
+ * HEAD, then re-arm it afterward whether `command` succeeded or refused (see
+ * `closeReviewWindow`/`openReviewWindow`).
  */
 const runInReviewWindowBracket = (
   git: GitOperations,
   fs: FileSystem.FileSystem,
-  command: Effect.Effect<void, Error, ProgramRequirements>,
-): Effect.Effect<void, Error, ProgramRequirements> =>
+  command: Effect.Effect<void, Error, CommandRequirements>,
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     yield* assertRunningFromRepoRoot(git, fs)
     // Restore the real HEAD before anything reads or mutates workflow state:
@@ -1446,147 +987,23 @@ const runInReviewWindowBracket = (
   })
 
 /**
- * Options for the exported `makeProgram` factory.
- * Defaults to `process.argv` and `process.stdout.write` so production wiring is
- * unchanged.
+ * The one entry point `Cli.ts`'s `runCli` calls for a resolved `Command`:
+ * dispatches to the matching `run*Command` handler (see `dispatchCommand`),
+ * wrapped in the repo-root guard + review-window bracket exactly when
+ * `needsOf(command.kind) === "state"` — `lsp`/`init`/`visualize` (the
+ * `standaloneKinds`) run bare. `Cli.ts` has already validated every field on
+ * `command` (arity, flag scope, decoding), so nothing here re-parses argv.
  */
-export interface RunOptions {
-  /** argv array (e.g. `["node", "gtd.js", "step", "agent"]`). Defaults to `process.argv`. */
-  argv?: string[]
-  /** Sink for stdout output. Defaults to `process.stdout.write.bind(process.stdout)`. */
-  write?: (chunk: string) => void
-}
-
-/**
- * Factory that returns the gtd driver Effect with the given I/O options.
- *
- * The returned Effect requires `GitService | FileSystem.FileSystem |
- * ConfigService | Cwd | RepoFiles | CommandRunner | EnvVars`. Production code calls
- * this with no arguments; the test world supplies an in-memory layer set and
- * captures stdout via the `write` callback.
- *
- * v3 command surface: `step <actor>` / `next` / `status` / `validate` (see
- * `src/Edge.ts`), plus `lsp` and `init` — both dispatched before the
- * config-reading path since neither needs to touch the config. `step
- * <actor> --entry <state>` (and its subcommand-less short form `gtd --entry
- * <state>`, actor defaulting to `human`) starts a brand-new process at any
- * declared, non-commit state — the generic mechanism that replaced the old
- * named `review`/`fix` commands (see `runEntryCommand`; `gtd review`/`gtd
- * fix` now fail with a message pointing at the replacement, `REMOVED_SUBCOMMANDS`).
- * Bare `gtd` with no `--entry` present, or an unknown subcommand, is a usage
- * error. Shared setup (argv parsing, the repo-root guard) lives here; each
- * subcommand's own logic is a named `run*Command` function above.
- */
-export function makeProgram(
-  opts: RunOptions = {},
-): Effect.Effect<void, Error, ProgramRequirements> {
-  const argv = opts.argv ?? process.argv
-  const write = opts.write ?? ((chunk: string) => process.stdout.write(chunk))
-  const json = argv.includes("--json")
-  // Skip any index `--entry`/`--var` consumed as a VALUE (e.g. `--entry
-  // review-gate.check`'s `review-gate.check`, which carries no `--` prefix of
-  // its own) — otherwise it reads as a stray extra positional (see
-  // `takeFlagValues`/`flagConsumedIndices`).
-  const consumedFlagIndices = flagConsumedIndices(argv)
-  const positional = argv
-    .map((a, i) => ({ a, i }))
-    .slice(2)
-    .find(({ a, i }) => !a.startsWith("--") && !consumedFlagIndices.has(i))?.a
-
-  // fallow-ignore-next-line complexity
+export const runCommand = (
+  command: Command,
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, CommandRequirements> => {
+  const dispatch = dispatchCommand(command, json, write)
+  if (needsOf(command.kind) !== "state") return dispatch
   return Effect.gen(function* () {
-    if (runVersionOrHelp(argv, write)) return
-
-    // `visualize` is dispatched BEFORE the global option check (like lsp/init):
-    // it reads config but touches no git/HEAD/review-window, and it owns
-    // `--port`/`--no-open`, which the global check does not know.
-    if (positional === "visualize") {
-      return yield* runVisualizeCommand(argv, json, write)
-    }
-
-    // Reject unknown `--` options up front: a typo like `--jsn` must not
-    // silently degrade to plain-text mode. `--json`, `--cost=<n>`, `--entry`,
-    // and `--var` are the only long options; `--version`/`--help` (and their
-    // short forms) short-circuited above. A bare `--cost`/`--entry` (no `=`,
-    // no space-separated value) is left for `parseCostFlag`/`parseEntryFlags`
-    // to reject with a value-specific message.
-    const unknownOption = argv.slice(2).find(
-      // fallow-ignore-next-line complexity
-      (a) =>
-        a.startsWith("--") &&
-        a !== "--json" &&
-        a !== "--cost" &&
-        a !== "--model" &&
-        a !== ENTRY_FLAG &&
-        a !== VAR_FLAG &&
-        !a.startsWith(COST_FLAG) &&
-        !a.startsWith(MODEL_FLAG) &&
-        !a.startsWith(`${ENTRY_FLAG}=`) &&
-        !a.startsWith(`${VAR_FLAG}=`),
-    )
-    if (unknownOption !== undefined) {
-      return yield* Effect.fail(
-        new Error(`gtd: unknown option '${unknownOption}' — see \`gtd --help\``),
-      )
-    }
-
-    // `--cost`/`--model` record the just-finished invocation's token cost and
-    // model as a `Gtd-Cost:` trailer on the turn commit (see `parseStepFlags`).
-    const { cost, model } = yield* parseStepFlags(argv, positional)
-    // `--entry`/`--var` start a brand-new process at a declared state instead
-    // of stepping the resting one (see `parseEntryFlags`/`runEntryCommand`).
-    const entryFlags = yield* parseEntryFlags(argv, positional)
-    if (entryFlags.entry !== undefined && (cost !== undefined || model !== undefined)) {
-      return yield* Effect.fail(
-        new Error(
-          "gtd: --cost/--model cannot be combined with --entry — an entry is not a metered agent turn",
-        ),
-      )
-    }
-
-    if (positional === "lsp") {
-      return yield* runLspCommand(argv, json)
-    }
-
-    if (positional === "init") {
-      return yield* runInitCommand(argv, json, write)
-    }
-
-    if (positional === undefined && entryFlags.entry !== undefined) {
-      // The subcommand-less short form: `gtd --entry <state> [--var ...]`,
-      // equivalent to `gtd step human --entry <state> ...`.
-      const git = yield* GitService
-      const fs = yield* FileSystem.FileSystem
-      return yield* runInReviewWindowBracket(
-        git,
-        fs,
-        runEntryCommand(
-          "human",
-          entryFlags.entry,
-          entryFlags.vars,
-          json,
-          write,
-          `gtd --entry ${entryFlags.entry}`,
-        ),
-      )
-    }
-
-    const sub = yield* requireKnownSubcommand(positional, json, write)
-
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
-    yield* runInReviewWindowBracket(
-      git,
-      fs,
-      dispatchKnownSubcommand(sub, argv, json, write, cost, model, entryFlags),
-    )
-  }).pipe(
-    json
-      ? Effect.catchAll((error) =>
-          Effect.sync(() =>
-            write(JSON.stringify({ state: "error", prompt: error.message }) + "\n"),
-          ).pipe(Effect.zipRight(Effect.fail(markEnveloped(error)))),
-        )
-      : (x) => x,
-  )
+    yield* runInReviewWindowBracket(git, fs, dispatch)
+  })
 }

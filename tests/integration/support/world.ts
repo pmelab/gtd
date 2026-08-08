@@ -1,15 +1,16 @@
 import { QuickPickleWorld, setWorldConstructor } from "quickpickle"
 import type { TestContext } from "vitest"
 import type { InfoConstructor, QuickPickleWorldInterface } from "quickpickle"
-import { Effect, Exit, Cause } from "effect"
+import { Effect } from "effect"
 import { execSync, execFile as execFileCb } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFile = promisify(execFileCb)
 import { existsSync, readFileSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
-import { makeProgram } from "../../../src/program.js"
-import { testLayers, type ScriptedCommand } from "../../../src/testing/Layers.js"
+import { runCli } from "../../../src/Cli.js"
+import { makeCapturingCliIo } from "../../../src/testing/cliIo.js"
+import { type ScriptedCommand } from "../../../src/testing/Layers.js"
 import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
@@ -101,30 +102,16 @@ export class GtdWorld extends QuickPickleWorld {
     }
   }
 
-  /** In-process implementation — runs the exported program Effect with in-memory layers. */
+  /** In-process implementation — runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
   async runGtdInMem(...args: string[]): Promise<void> {
     const repo = this.repo!
-    let stdout = ""
-    const write = (chunk: string) => {
-      stdout += chunk
-    }
+    const { io, result } = makeCapturingCliIo(repo, this.envVars, this.scriptedCommands)
 
     // Compose argv: ["node", "gtd.js", ...args]
     const argv = ["node", "gtd.js", ...args]
 
-    const program = makeProgram({ argv, write }).pipe(
-      Effect.provide(testLayers(repo, { env: this.envVars, commands: this.scriptedCommands })),
-    )
-
-    const exit = await Effect.runPromiseExit(program)
-    if (Exit.isSuccess(exit)) {
-      this.lastResult = { exitCode: 0, stdout, stderr: "" }
-    } else {
-      // Extract the underlying error message from the Cause
-      const squashed = Cause.squash(exit.cause)
-      const message = squashed instanceof Error ? squashed.message : String(squashed)
-      this.lastResult = { exitCode: 1, stdout, stderr: `gtd: ${message}\n` }
-    }
+    await Effect.runPromise(runCli(argv, io))
+    this.lastResult = result()
   }
 
   // ── Observation helpers — branch on tier ──────────────────────────────────

@@ -104,3 +104,27 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with args "lsp --json"
     Then it fails
     And stderr contains "gtd lsp does not accept --json"
+
+  Scenario: gtd --entry version refuses as an unknown entry state and prints no version
+    # The regression this RFC exists to fix: a flag-unaware positional
+    # extractor used to read "version" as `--entry`'s VALUE and the whole
+    # invocation as a bare `gtd --version`-equivalent, printing the version.
+    # The table-driven tokenizer now hands "version" to `--entry` as an
+    # ordinary (unknown) state name instead.
+    Given a test project
+    When I run gtd with args "--entry version"
+    Then it fails
+    And stderr contains "is not an enterable state"
+
+  Scenario: a usage error under --json writes the envelope on stdout and a single gtd: line on stderr
+    Given a test project
+    When I run gtd with args "bogus-subcommand --json"
+    Then it fails
+    And stdout contains "\"state\":\"error\""
+    And stderr matches "^gtd: [^\n]*\n$"
+
+  Scenario: gtd step human --entry --json fails with --entry requires a value
+    Given a test project
+    When I run gtd with args "step human --entry --json"
+    Then it fails
+    And stderr contains "--entry requires a value"

@@ -2,7 +2,7 @@
  * The in-memory tier's Effect layers, backed by one `InMemRepo`. No real
  * filesystem or git is used. `testLayers` is the ONE layer-set builder every
  * `@inmem` scenario and `src/**\/*.test.ts` unit test provides — see
- * `ProgramRequirements` (`src/program.ts`) for what it must cover.
+ * `CommandRequirements` (`src/program.ts`) for what it must cover.
  *
  * Subprocess work goes through `CommandRunner` (#157), which `testLayers`
  * provides as a SCRIPTED runner: an `@inmem` scenario declares each command's
@@ -30,7 +30,7 @@ import { Cwd } from "../Cwd.js"
 import { EnvVars } from "../EnvVars.js"
 import { RepoFiles } from "../RepoFiles.js"
 import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
-import type { ProgramRequirements } from "../program.js"
+import type { CommandRequirements } from "../program.js"
 
 // ---------------------------------------------------------------------------
 // 1. In-memory FileSystem layer
@@ -282,11 +282,11 @@ export interface TestWorldOptions {
 export const gitTestLayer = (repo: InMemRepo): Layer.Layer<GitService> =>
   Layer.succeed(GitService, withIndexLockRetries(fakeGitOperations(repo)))
 
-/** Every layer `makeProgram` needs — `ProgramRequirements`'s return type here IS the guarantee: a new port added there fails this function's typecheck instead of silently under-providing. */
+/** Every layer `makeProgram` needs — `CommandRequirements`'s return type here IS the guarantee: a new port added there fails this function's typecheck instead of silently under-providing. */
 export function testLayers(
   repo: InMemRepo,
   opts: TestWorldOptions = {},
-): Layer.Layer<ProgramRequirements> {
+): Layer.Layer<CommandRequirements> {
   const root = opts.root ?? "/repo"
   const fsLayer = Layer.succeed(FileSystem.FileSystem, makeInMemoryFileSystem(repo, root))
   const configLayer = makeInMemoryConfigService(repo, root)
