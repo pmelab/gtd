@@ -76,6 +76,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "docs/adr.md: missing a '## Decision' section"
     And stderr does not contain "missing a '## Status' section"
 
+  @inmem
   Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero (scripted)
     # The @inmem twin of the scenario above: real bash is unreachable against an
     # in-memory worktree, so the validate command is a scripted double keyed by
@@ -159,6 +160,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And stdout contains "docs/adr.md: valid"
 
+  @inmem
   Scenario: gtd validate exits 0 when the custom mode's validate command is happy (scripted)
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -245,6 +247,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stdout contains "docs/adr.md: valid"
     And the git status contains "docs/adr.md"
 
+  @inmem
   Scenario: the mode's format command rewrites the file in place before validation (scripted)
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -345,6 +348,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "an ADR needs a '## Decision' section"
     And the last commit subject is "gtd(human): drafting"
 
+  @inmem
   Scenario: the gtd step capture gate refuses a turn whose custom-mode steering file is invalid (scripted)
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -483,6 +487,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "adr-fmt: cannot parse docs/adr.md"
     And the last commit subject is "gtd(human): drafting"
 
+  @inmem
   Scenario: a failing format command is a hard error — the file is never judged, nothing is committed (scripted)
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -738,6 +743,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stdout contains "docs/adr.md: valid"
     And "docs/adr.md" contains "status: DRAFT"
 
+  @inmem
   Scenario: the answer-completeness gate still fires on a qa-mode state even when its validate: command is overridden
     # The semantic upgrade: the gate asks steeringCapabilities for the FORMAT
     # (qa's identity, from the name), not for "is this mode's validator gtd's
@@ -773,6 +779,9 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 answerGate: true
                 on:
                   "* **": drafting
+      """
+    And the shell command "true" exits 0 with:
+      """
       """
     And a commit "gtd(agent): answering" that adds ".gtd/TODO.md" with:
       """
