@@ -553,11 +553,14 @@ workflow:
           retry:
             max: <number>
             otherwise: <targetState>
+          label: <string> # optional, opaque display name passed through `gtd next --json`/`gtd status --json`
           file: <string> # optional, an Eta template naming the state's steering file
           mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
           reviewWindow: true # optional — open the review checkout window at rest here
           reviewBase: true # optional — anchor the review window's diff base to this state's most-recent commit
           # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
+          requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
+          answerGate: true # optional, requires "file" — refuse a turn until every open question in the (qa-mode) `file:` is answered
           entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared, non-commit state is a valid target)
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```

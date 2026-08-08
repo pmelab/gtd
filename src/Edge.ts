@@ -16,6 +16,7 @@ import {
   type StepDecision,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
+import { STATE_FIELD_ENTRIES, type FieldValue, type StateFieldsTable } from "./StateFields.js"
 import {
   renderStateTemplate,
   varsOnlyContext,
@@ -610,78 +611,72 @@ export const retainsNothing = (
 
 // ── Rendering the resolved rest's content ────────────────────────────────────
 
-export interface RenderedRest {
+/**
+ * Every field `renderRest` carries onto the rendered result (`rest:
+ * "rendered"` or `"verbatim"` in `STATE_FIELDS`) — a derived mapped type, so
+ * a new field declaring either `rest` kind shows up here (and in
+ * `renderRest`'s loop below) with no separate edit.
+ */
+type RestFieldName = {
+  [K in keyof StateFieldsTable]: StateFieldsTable[K] extends { rest: "rendered" | "verbatim" }
+    ? K
+    : never
+}[keyof StateFieldsTable]
+
+type RestFields = {
+  readonly [K in RestFieldName]?: FieldValue[StateFieldsTable[K]["kind"]]
+}
+
+export interface RenderedRest extends RestFields {
   readonly state: StateName
   readonly actor: string
   readonly kind: ContentKind
   readonly content: string
-  /** The resolved rest's `model` hint, verbatim — omitted (not `undefined`-valued) when the state declares none, so `--json` callers can `key in obj`/`??`-check its absence. */
-  readonly model?: string
-  /** The resolved rest's COMPUTED memory key (`src/Edge.ts`'s `memoryKeyFor`, package 05/06) — a commit-anchored `<scope>#<hash7>` string, omitted (not `undefined`-valued) for a non-`prompt` rest or when no scope resolves, same discipline as `model`. No longer sourced from the state's own (still-accepted, but now unread) `memory:` declaration. */
+  /** The resolved rest's COMPUTED memory key (`src/Edge.ts`'s `memoryKeyFor`, package 05/06) — a commit-anchored `<scope>#<hash7>` string, omitted (not `undefined`-valued) for a non-`prompt` rest or when no scope resolves. No longer sourced from the state's own (still-accepted, but now unread) `memory:` declaration. */
   readonly memory?: string
-  /** The resolved rest's `label`, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
-  readonly label?: string
-  /** The resolved rest's `file:` steering file, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
-  readonly file?: string
-  /** The resolved rest's `mode:` hint, verbatim (a closed literal — never Eta-rendered) — omitted when the state declares none. */
-  readonly mode?: StateDef["mode"]
   /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges` (see `toTemplateEdges`). Always present (an empty array at a commit state); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
   readonly edges: readonly TemplateEdge[]
 }
 
 /**
- * Render a state's declared `model:` hint (if any) through the SAME template
- * context as its content — a plain string with no Eta tags (e.g. `"smart"`)
- * passes through unchanged, but `model: "<%= it.vars.reviewModel %>"` now
- * resolves against the merged `it.vars`. A render failure behaves exactly
- * like a content render failure at the same call site (`gtd next`/`gtd
- * status` error out, nothing committed) — see `renderRest`, and
- * `program.ts`'s status command, which calls this directly (it never renders
- * a state's content, only its `model`).
+ * Render one state field (`model`/`label`/`file`/…) through the SAME
+ * template context as its content — a plain string with no Eta tags (e.g.
+ * `"smart"`) passes through unchanged, but `"<%= it.vars.reviewModel %>"`
+ * now resolves against the merged `it.vars`. `undefined` (the field absent,
+ * or not a string) passes through as `undefined`. A render failure behaves
+ * exactly like a content render failure at the same call site (`gtd next`/
+ * `gtd status` error out, nothing committed) — see `renderRest`.
  */
+const renderStateField = (
+  stateDef: StateDef,
+  key: string,
+  context: TemplateContext,
+): Effect.Effect<string | undefined, Error> =>
+  Effect.try({
+    try: () => {
+      const value = (stateDef as unknown as Record<string, unknown>)[key]
+      return typeof value === "string" ? renderStateTemplate(value, context) : undefined
+    },
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/** `renderStateField(stateDef, "model", context)` — see that function's doc comment. `program.ts`'s status command calls this directly (it never renders a state's content, only its `model`). */
 export const renderModel = (
   stateDef: StateDef,
   context: TemplateContext,
-): Effect.Effect<string | undefined, Error> =>
-  Effect.try({
-    try: () =>
-      stateDef.model !== undefined ? renderStateTemplate(stateDef.model, context) : undefined,
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
+): Effect.Effect<string | undefined, Error> => renderStateField(stateDef, "model", context)
 
-/**
- * Render a state's declared `label:` (if any) through the SAME template
- * context as its content/`model` — see `renderModel`'s doc comment; a plain
- * label (e.g. `"planning"`) passes through unchanged, while
- * `label: "<%= it.vars.labelName %>"` resolves against the merged `it.vars`.
- * The render-failure semantics are identical (propagates as a thrown/rejected
- * error, same call site as `gtd next`/`gtd status`).
- */
+/** `renderStateField(stateDef, "label", context)` — see that function's doc comment. */
 export const renderLabel = (
   stateDef: StateDef,
   context: TemplateContext,
-): Effect.Effect<string | undefined, Error> =>
-  Effect.try({
-    try: () =>
-      stateDef.label !== undefined ? renderStateTemplate(stateDef.label, context) : undefined,
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
+): Effect.Effect<string | undefined, Error> => renderStateField(stateDef, "label", context)
 
-/**
- * Render a state's declared `file:` steering-file template (if any) through
- * the SAME template context as its content/`model` — see `renderModel`'s doc
- * comment; the render-failure semantics are identical (propagates as a
- * thrown/rejected error, same call site as `gtd next`/`gtd status`).
- */
+/** `renderStateField(stateDef, "file", context)` — see that function's doc comment. */
 export const renderFile = (
   stateDef: StateDef,
   context: TemplateContext,
-): Effect.Effect<string | undefined, Error> =>
-  Effect.try({
-    try: () =>
-      stateDef.file !== undefined ? renderStateTemplate(stateDef.file, context) : undefined,
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
+): Effect.Effect<string | undefined, Error> => renderStateField(stateDef, "file", context)
 
 // Drops undefined-valued entries so optional hint fields are OMITTED (not
 // `undefined`-valued) on the rendered result — see `RenderedRest`'s doc
@@ -696,12 +691,13 @@ const omitUndefined = <T extends Record<string, unknown>>(
 
 /**
  * Render the resolved rest's declared content (script/prompt/message — never
- * `commit`, since `resolveRest` never rests at a commit state) plus its
- * `model:`/`label:`/`file:` hints, if declared (see
- * `renderModel`/`renderLabel`/`renderFile`), and the COMPUTED memory key the
- * caller passes in (`memory`, from `memoryKeyFor` — package 05/06; this
- * module no longer derives it from `rest.stateDef.memory` itself). `mode:` is
- * a closed literal, never Eta-rendered — passed through verbatim.
+ * `commit`, since `resolveRest` never rests at a commit state) plus every
+ * `STATE_FIELDS` field carrying a `rest` kind — `"rendered"` fields
+ * (`model`/`label`/`file`) go through `renderStateField`, `"verbatim"`
+ * fields (`mode`, a closed literal never Eta-rendered) pass through as-is —
+ * and the COMPUTED memory key the caller passes in (`memory`, from
+ * `memoryKeyFor` — package 05/06; this module no longer derives it from
+ * `rest.stateDef.memory` itself).
  */
 export const renderRest = (
   rest: ResolvedRest,
@@ -721,13 +717,16 @@ export const renderRest = (
       try: () => renderStateTemplate(template, context),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
-    const hints = {
-      model: yield* renderModel(rest.stateDef, context),
-      memory,
-      label: yield* renderLabel(rest.stateDef, context),
-      file: yield* renderFile(rest.stateDef, context),
-      mode: rest.stateDef.mode,
+
+    const hints: Record<string, unknown> = { memory }
+    for (const [key, spec] of STATE_FIELD_ENTRIES) {
+      if (spec.rest === "rendered") {
+        hints[key] = yield* renderStateField(rest.stateDef, key, context)
+      } else if (spec.rest === "verbatim") {
+        hints[key] = (rest.stateDef as unknown as Record<string, unknown>)[key]
+      }
     }
+
     return {
       state: rest.state,
       actor: rest.actor,
