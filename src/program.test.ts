@@ -7,20 +7,10 @@
  * a real repo, as today.
  */
 
-import { NodeContext } from "@effect/platform-node"
 import { Effect, Exit, Layer } from "effect"
 import { describe, expect, it } from "vitest"
-import { ConfigService } from "./Config.js"
-import { Cwd } from "./Cwd.js"
-import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
-import { WorktreeReader } from "./WorktreeReader.js"
-import {
-  compileTemplate,
-  defaultMachineTree,
-  defaultStateScopes,
-  renderInitConfig,
-} from "./workflows/templates.js"
+import { renderInitConfig } from "./workflows/templates.js"
 import {
   classifyAnswerCompleteness,
   classifyFeedbackProgress,
@@ -32,64 +22,22 @@ import {
   takeFlagValues,
 } from "./program.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
-import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
-import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
+import { InMemRepo } from "./testing/InMemRepo.js"
+import { testLayers } from "./testing/Layers.js"
+import { strictGitOperations } from "./testing/GitDoubles.js"
 
-// GitService whose every method fails — proves the flag handler never calls git.
-const failingGitLayer = Layer.succeed(GitService, {
-  hasCommits: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  lastCommitSubject: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  lastCommitMessage: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  resolveRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  readFileAtRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  readRefOption: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  isAncestor: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  topLevel: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  commitHistory: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  changedPathsSince: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  changedPaths: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  commitAllWithPrefix: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  softResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  commitAsIs: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  discardPending: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  updateRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  deleteRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  mixedResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  hardResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  restoreStagedFrom: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-})
-
-// Minimal stub ConfigService — satisfies the type but never loaded for flags.
-const stubConfigLayer = Layer.succeed(ConfigService, {
-  load: Effect.succeed({
-    workflow: compileTemplate().definition,
-    workflowVars: {},
-    rcVars: {},
-    machineTree: defaultMachineTree,
-    stateScopes: defaultStateScopes,
-  }),
-})
-
-// Minimal stub WorktreeReader — never called for flags.
-const stubWorktreeReaderLayer = Layer.succeed(WorktreeReader, {
-  read: () => {
-    throw new Error("WorktreeReader must not be called for --version/--help")
-  },
-})
-
-const testLayers = failingGitLayer.pipe(
-  Layer.provideMerge(NodeContext.layer),
-  Layer.provideMerge(stubConfigLayer),
-  Layer.provideMerge(stubWorktreeReaderLayer),
-  Layer.provideMerge(Cwd.layer("")),
-  Layer.provideMerge(EnvVars.layer({})),
-)
+// `testLayers(repo)` (Config/FileSystem/Cwd/WorktreeReader/EnvVars, all
+// harmless stand-ins) with its GitService overridden by a strict double that
+// fails on every method — proves the flag handler never touches git. Piping
+// the strict layer FIRST and merging `testLayers(repo)` IN makes the strict
+// GitService win the duplicate-tag merge (`Layer.provideMerge`'s piped value
+// loses to the argument it's merged with — verified empirically, not just
+// read off the source, since the naming inside its implementation is the
+// reverse of what the call-site order suggests).
+const flagOnlyLayers = Layer.succeed(
+  GitService,
+  strictGitOperations({}, () => "GitService must not be called for --version/--help"),
+).pipe(Layer.provideMerge(testLayers(new InMemRepo())))
 
 async function runFlag(
   ...flags: string[]
@@ -99,7 +47,7 @@ async function runFlag(
     output += chunk
   }
   const argv = ["node", "gtd.js", ...flags]
-  const program = makeProgram({ argv, write }).pipe(Effect.provide(testLayers))
+  const program = makeProgram({ argv, write }).pipe(Effect.provide(flagOnlyLayers))
   const exit = await Effect.runPromiseExit(program)
   return { output, exit }
 }
@@ -472,7 +420,7 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
   // workflow's OWN `entries.manual` reachability roots — see
   // `PatternMachine.enterableStates`'s doc comment). Needs a real (in-memory)
   // repo, like the old review/fix guard tests it replaces — mirrors the
-  // InMemRepo + inMemoryLayers precedent in src/Git.test.ts.
+  // InMemRepo + testLayers precedent in src/Git.test.ts.
 
   const CUSTOM_WORKFLOW = [
     "workflow:",
@@ -520,7 +468,7 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
     }
     const argv = ["node", "gtd.js", ...args]
     const exit = await Effect.runPromiseExit(
-      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+      makeProgram({ argv, write }).pipe(Effect.provide(testLayers(repo))),
     )
     return { output, exit }
   }
@@ -641,7 +589,7 @@ describe("gtd step <actor> --entry <state> — the bundled unified template", ()
     }
     const argv = ["node", "gtd.js", ...args]
     const exit = await Effect.runPromiseExit(
-      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+      makeProgram({ argv, write }).pipe(Effect.provide(testLayers(repo))),
     )
     return { output, exit }
   }
@@ -688,7 +636,7 @@ describe("gtd next --json / gtd status — label emission", () => {
   // `model:`/`memory:` (see src/Edge.ts's renderLabel) — pinned end-to-end in
   // tests/integration/features/driver-json-status.feature for `model:`; these
   // mirror that coverage for `label:` at the unit level using the same
-  // InMemRepo + inMemoryLayers precedent as the `gtd review`/`gtd fix` blocks
+  // InMemRepo + testLayers precedent as the `gtd review`/`gtd fix` blocks
   // above.
 
   const workflowWithLabel = [
@@ -755,7 +703,7 @@ describe("gtd next --json / gtd status — label emission", () => {
     }
     const argv = ["node", "gtd.js", ...args]
     const exit = await Effect.runPromiseExit(
-      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+      makeProgram({ argv, write }).pipe(Effect.provide(testLayers(repo))),
     )
     return { output, exit }
   }
@@ -808,7 +756,7 @@ describe("gtd next --json / gtd status — memory key emission", () => {
   // (package 10 removed it outright) — pinned end-to-end for a realistic
   // nested-scope, repeated-entry trace in
   // tests/integration/features/gtd-loop.feature; these mirror that coverage
-  // at the unit level using the same InMemRepo + inMemoryLayers precedent as
+  // at the unit level using the same InMemRepo + testLayers precedent as
   // the label-emission block above. This workflow is a single flat "root"
   // machine (no sub-machine references), so every one of its states' scope
   // is `""` — the root — displayed as `memoryKeyFor`'s `"root"` fallback name.
@@ -876,7 +824,7 @@ describe("gtd next --json / gtd status — memory key emission", () => {
     }
     const argv = ["node", "gtd.js", ...args]
     const exit = await Effect.runPromiseExit(
-      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+      makeProgram({ argv, write }).pipe(Effect.provide(testLayers(repo))),
     )
     return { output, exit }
   }
@@ -972,7 +920,7 @@ describe("gtd next — refuses when HEAD names a state the current workflow no l
     }
     const argv = ["node", "gtd.js", ...args]
     const exit = await Effect.runPromiseExit(
-      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+      makeProgram({ argv, write }).pipe(Effect.provide(testLayers(repo))),
     )
     return { output, exit }
   }
@@ -1053,7 +1001,7 @@ describe("gtd step — StepPayload.processTrace still receives plain state names
     }
     const exit = await Effect.runPromiseExit(
       makeProgram({ argv: ["node", "gtd.js", "step", "agent"], write }).pipe(
-        Effect.provide(inMemoryLayers(repo)),
+        Effect.provide(testLayers(repo)),
       ),
     )
     expect(Exit.isSuccess(exit)).toBe(true)
@@ -1156,7 +1104,7 @@ describe("gtd status — Next: preview", () => {
     }
     const argv = ["node", "gtd.js", ...args]
     const exit = await Effect.runPromiseExit(
-      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+      makeProgram({ argv, write }).pipe(Effect.provide(testLayers(repo))),
     )
     return { output, exit }
   }

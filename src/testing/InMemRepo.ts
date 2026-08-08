@@ -1,10 +1,13 @@
 /**
- * In-memory git snapshot store for integration test fixtures.
- * Pure TypeScript, no Effect, no real filesystem/git.
- * NOT wired into any layer.
+ * In-memory git snapshot store backing the fake `GitOperations`/`FileSystem`/
+ * `ConfigService` layers (`GitDoubles.ts`/`Layers.ts`). Pure TypeScript, no
+ * Effect, no real filesystem/git. Test-only — see `TEST_DOUBLE_SENTINEL`.
  */
 
 import { createHash } from "node:crypto"
+
+/** Embedded in every value this fake reaches (see also `strictGitOperations`'s default message) so `scripts/assert-no-test-doubles.mjs` can catch a leak into the shipped bundle by string search. */
+export const TEST_DOUBLE_SENTINEL = "gtd:test-double:never-ship"
 
 interface Commit {
   hash: string // 40-hex
@@ -25,7 +28,14 @@ function makeHash(message: string, parent: string | null, tree: Map<string, stri
   return sha1(`${message}\n${parent ?? "null"}\n${treeStr}`)
 }
 
+/** True when `key` is exactly `p` or nested under `p/` — one path's directory-prefix match. */
+const isUnder = (key: string, p: string): boolean =>
+  key === p || key.startsWith(p.endsWith("/") ? p : `${p}/`)
+
 export class InMemRepo {
+  // fallow-ignore-next-line unused-class-member -- data-only marker read by no code path; embeds the sentinel in every instance so a leaked object still carries it (see module comment)
+  readonly testDouble = TEST_DOUBLE_SENTINEL
+
   private commits: Map<string, Commit> = new Map()
   private branches: Map<string, string> = new Map() // branch name → hash
   private refs: Map<string, string> = new Map() // fully qualified ref (refs/gtd/…) → hash
@@ -33,6 +43,7 @@ export class InMemRepo {
   private currentBranch: string = "main"
   private worktree: Map<string, string> = new Map()
   private index: Map<string, string> = new Map()
+  private pendingFaults: Array<() => Error> = []
 
   // ---------------------------------------------------------------------------
   // Internal helpers
@@ -229,9 +240,70 @@ export class InMemRepo {
     return result.sort((a, b) => a.path.localeCompare(b.path))
   }
 
+  /** The worktree content of `path`, or `undefined` when absent. A LIVE read — never a snapshot. */
+  readFile(path: string): string | undefined {
+    return this.worktree.get(path)
+  }
+
+  /** True when `path` is exactly a worktree file, or a directory prefix of one (any worktree key starts with `path/`). */
+  hasPath(path: string): boolean {
+    if (this.worktree.has(path)) return true
+    const prefix = path.endsWith("/") ? path : `${path}/`
+    for (const key of this.worktree.keys()) {
+      if (key.startsWith(prefix)) return true
+    }
+    return false
+  }
+
+  /** Every worktree path under `prefix`, sorted. `prefix === ""` returns the whole worktree. */
+  pathsUnder(prefix: string): ReadonlyArray<string> {
+    if (prefix === "") return [...this.worktree.keys()].sort()
+    const dirPrefix = prefix.endsWith("/") ? prefix : `${prefix}/`
+    return [...this.worktree.keys()]
+      .filter((key) => key === prefix || key.startsWith(dirPrefix))
+      .sort()
+  }
+
+  /** The immediate child names (files or subdirectories) of `dir` in the worktree, sorted. */
+  childNames(dir: string): ReadonlyArray<string> {
+    const prefix = dir.endsWith("/") ? dir : `${dir}/`
+    const names = new Set<string>()
+    for (const key of this.worktree.keys()) {
+      if (!key.startsWith(prefix)) continue
+      const rest = key.slice(prefix.length)
+      const slash = rest.indexOf("/")
+      const name = slash === -1 ? rest : rest.slice(0, slash)
+      if (name.length > 0) names.add(name)
+    }
+    return [...names].sort()
+  }
+
   // ---------------------------------------------------------------------------
   // Write methods
   // ---------------------------------------------------------------------------
+
+  /** `git add -A` — the index becomes exactly the current worktree. */
+  stageAll(): void {
+    this.index = new Map(this.worktree)
+  }
+
+  /**
+   * Arrange for the NEXT `count` write operations dispatched through
+   * `fakeGitOperations`'s writer wrapper to fail with `make()` (a fresh error
+   * per failure) — the fault queue `failNextOperations`/`takeInjectedFault`
+   * pair simulates an `index.lock` contention window. Only writers consume the
+   * queue: readers never take git's index lock, so injecting a lock fault into
+   * one would be a lie.
+   */
+  failNextOperations(count: number, make: () => Error): void {
+    for (let i = 0; i < count; i++) this.pendingFaults.push(make)
+  }
+
+  /** Pop and return the next queued fault, or `undefined` when the queue is empty. Consumed by `fakeGitOperations`'s writer wrapper. */
+  takeInjectedFault(): Error | undefined {
+    const make = this.pendingFaults.shift()
+    return make?.()
+  }
 
   /** Commit whatever is currently staged (the index) verbatim, with no implicit staging first — mirrors `git commit --allow-empty -m <message>` after a soft reset. */
   commitAsIs(message: string): void {
@@ -290,7 +362,7 @@ export class InMemRepo {
    * a DIFFERENT point in history — e.g. to build two diverging tips off one
    * shared base, so one of them is provably NOT an ancestor of the other,
    * `gtd review <commitish>`'s ancestor guard) and as this repo's backing for
-   * the production `GitOperations.hardResetTo` (wired in `layers.ts`).
+   * the production `GitOperations.hardResetTo` (wired in `GitDoubles.ts`).
    */
   hardResetTo(ref: string): void {
     const hash = this.resolveRef(ref)
@@ -330,15 +402,6 @@ export class InMemRepo {
     }
 
     this.worktree = newWorktree
-  }
-
-  /** Returns true if any worktree entry equals or starts with `path/`. */
-  worktreeHasPath(path: string): boolean {
-    const prefix = path.endsWith("/") ? path : `${path}/`
-    for (const key of this.worktree.keys()) {
-      if (key === path || key.startsWith(prefix)) return true
-    }
-    return false
   }
 
   writeFile(path: string, content: string): void {
@@ -396,11 +459,6 @@ export class InMemRepo {
     return false
   }
 
-  /** True when `key` is exactly `p` or nested under `p/` — one path's directory-prefix match. */
-  private static isUnder(key: string, p: string): boolean {
-    return key === p || key.startsWith(p.endsWith("/") ? p : `${p}/`)
-  }
-
   /**
    * `git restore --staged --source=<source> -- <paths…>` — set the index
    * entries under each path to their state at `source` (setting or removing),
@@ -414,7 +472,7 @@ export class InMemRepo {
       : new Map<string, string>()
     const candidates = new Set([...this.index.keys(), ...tree.keys()])
     for (const key of candidates) {
-      if (!paths.some((p) => InMemRepo.isUnder(key, p))) continue
+      if (!paths.some((p) => isUnder(key, p))) continue
       if (tree.has(key)) this.index.set(key, tree.get(key)!)
       else this.index.delete(key)
     }
@@ -425,6 +483,12 @@ export class InMemRepo {
 // Utility: diff two trees
 // ---------------------------------------------------------------------------
 
+/**
+ * Unlike production's `parseNameStatus` (`src/Git.ts`), this never reports a
+ * rename/copy (`R`/`C`) — every change is a plain add/delete/modify. A path
+ * that git would show as a rename therefore surfaces here as a delete-of-old
+ * plus an add-of-new, never as a rename, in either tier's contract tests.
+ */
 function diffTrees(
   treeA: Map<string, string>,
   treeB: Map<string, string>,

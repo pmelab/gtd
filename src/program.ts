@@ -182,7 +182,8 @@ export const cliErrorLine = (error: unknown): string => {
   return /^gtd[: ]/.test(message) ? message : `gtd: ${message}`
 }
 
-type ProgramRequirements =
+/** Every port `makeProgram` needs — `src/testing/Layers.ts`'s `testLayers` must satisfy exactly this, so a new port lands as a `tsc` error in one place instead of silently under-providing the test double. */
+export type ProgramRequirements =
   | GitService
   | FileSystem.FileSystem
   | ConfigService

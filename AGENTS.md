@@ -36,9 +36,24 @@ description, and must be preserved:
   the index to refresh their stat cache when the window's `git reset --mixed`
   wakes them. So `openReviewWindow` leaves new files UNTRACKED (never
   `git add --intent-to-add .` — that both lost the lock race and truncated
-  discarded files to zero bytes), and all index writers in `src/Git.ts` go
-  through `withIndexLockRetry`. Don't add a whole-tree index write to the window
-  or a raw `exec` that bypasses the retry.
+  discarded files to zero bytes). The `index.lock` retry is a property of the
+  `GitOperations` PORT (`src/Git.ts`'s `withIndexLockRetries`), applied ONCE
+  above the whole service — both `GitService.Live` and the in-memory layer
+  (`src/testing/Layers.ts`'s `gitTestLayer`) build their service through it, so
+  a raw `exec` added inside a writer can no longer bypass it. Never construct a
+  `GitOperations` and hand it straight to `Layer.succeed` — go through
+  `withIndexLockRetries`.
+
+### Testing
+
+`src/testing/` is the in-memory git/config/filesystem test seam
+(`InMemRepo`/`GitDoubles`/`Layers`/`GitTiers`) — it never ships (a lint rule and
+a build-time bundle-content assertion both guard the boundary) and is imported
+only from `src/**/*.test.ts` and `tests/**`. The fake is trustworthy only
+because `src/testing/GitTiers.ts`'s `runGitServiceContract` runs the same
+20-operation `GitOperations` contract against BOTH the fake and a real git repo
+— treat the contract, not the fake's internals, as the source of truth when the
+fake and production ever disagree.
 
 A workflow is DATA, not code: there is no engine-side wiring to trace when a
 workflow's shape changes.

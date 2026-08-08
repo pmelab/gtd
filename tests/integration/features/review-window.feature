@@ -1,4 +1,3 @@
-@inmem
 Feature: Review checkout window — the pending review diff surfaces in the editor
 
   A state may declare `reviewWindow: true` (see STATES.md §11). While the
@@ -43,6 +42,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       - [ ] ./src/calc.ts#1 — new add function
       """
 
+  @inmem
   Scenario: Resting at the gate opens the window — HEAD at the base, the diff dirty
     When I run gtd next
     Then it succeeds
@@ -56,6 +56,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     # …while `.gtd/` plumbing stays out of the untracked noise.
     And the git status does not contain "?? .gtd/"
 
+  @inmem
   Scenario: Files added since the base stay untracked — never intent-to-add index entries
     When I run gtd next
     Then it succeeds
@@ -74,6 +75,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the git status contains "?? src/calc.ts"
     And "src/calc.ts" contains "export const add"
 
+  @inmem
   Scenario: The machine never sees the window — status resolves the real state
     Given I run gtd next
     When I run gtd status
@@ -83,6 +85,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the git ref "refs/worktree/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"
 
+  @inmem
   Scenario: Deleting the review doc is refused — the window stays open, nothing commits
     Given I run gtd next
     And the file ".gtd/REVIEW.md" is deleted
@@ -93,6 +96,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the git ref "refs/worktree/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"
 
+  @inmem
   Scenario: Ticking every box with no comment signs off — the window closes and routes to build.review.deciding
     Given I run gtd next
     And ".gtd/REVIEW.md" is modified to:
@@ -111,6 +115,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
     And the git ref "refs/worktree/gtd/review-head" does not exist
 
+  @inmem
   Scenario: Reviewer code edits are feedback — the window closes and routes to build.review.deciding
     Given I run gtd next
     And "src/calc.ts" is modified to:
@@ -125,6 +130,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
     And the git ref "refs/worktree/gtd/review-head" does not exist
 
+  @inmem
   Scenario: Read-only commands re-arm the window on their way out
     Given I run gtd next
     When I run gtd status

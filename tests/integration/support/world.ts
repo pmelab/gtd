@@ -1,6 +1,6 @@
 import { QuickPickleWorld, setWorldConstructor } from "quickpickle"
 import type { TestContext } from "vitest"
-import type { InfoConstructor } from "quickpickle"
+import type { InfoConstructor, QuickPickleWorldInterface } from "quickpickle"
 import { Effect, Exit, Cause } from "effect"
 import { execSync, execFile as execFileCb } from "node:child_process"
 import { promisify } from "node:util"
@@ -9,8 +9,8 @@ const execFile = promisify(execFileCb)
 import { existsSync, readFileSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { makeProgram } from "../../../src/program.js"
-import { inMemoryLayers } from "./inmem/layers.js"
-import { InMemRepo } from "./inmem/Repo.js"
+import { testLayers } from "../../../src/testing/Layers.js"
+import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
@@ -18,6 +18,12 @@ const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 export type Tier = "live" | "inmem"
 
 export class GtdWorld extends QuickPickleWorld {
+  // Under `moduleResolution: nodenext`, a bare subclass of `QuickPickleWorld`
+  // loses its base class's members from TS's view entirely (a resolution
+  // quirk with this package's dual CJS/ESM `exports` map) — re-declaring the
+  // one field `hooks.ts`'s `Before` callback reads restores it.
+  declare info: QuickPickleWorldInterface["info"]
+
   constructor(context: TestContext, info: InfoConstructor) {
     super(context, info)
   }
@@ -104,7 +110,7 @@ export class GtdWorld extends QuickPickleWorld {
     const argv = ["node", "gtd.js", ...args]
 
     const program = makeProgram({ argv, write }).pipe(
-      Effect.provide(inMemoryLayers(repo, this.envVars)),
+      Effect.provide(testLayers(repo, { env: this.envVars })),
     )
 
     const exit = await Effect.runPromiseExit(program)
@@ -120,27 +126,14 @@ export class GtdWorld extends QuickPickleWorld {
 
   // ── Observation helpers — branch on tier ──────────────────────────────────
 
-  // fallow-ignore-next-line complexity
   repoFileExists(path: string): boolean {
-    if (this.repo !== undefined) {
-      const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
-      if (worktree.has(path)) return true
-      // Check for directory prefix
-      const prefix = path.endsWith("/") ? path : `${path}/`
-      for (const key of worktree.keys()) {
-        if (key.startsWith(prefix)) return true
-      }
-      return false
-    }
+    if (this.repo !== undefined) return this.repo.hasPath(path)
     return existsSync(join(this.repoDir, path))
   }
 
   /** The working-tree contents of `path` (empty string when absent). Mirrors `repoFileExists`'s tier split. */
   readRepoFile(path: string): string {
-    if (this.repo !== undefined) {
-      const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
-      return worktree.get(path) ?? ""
-    }
+    if (this.repo !== undefined) return this.repo.readFile(path) ?? ""
     return existsSync(join(this.repoDir, path))
       ? readFileSync(join(this.repoDir, path), "utf8")
       : ""

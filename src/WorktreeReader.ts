@@ -12,7 +12,7 @@ import { Cwd } from "./Cwd.js"
  * not guaranteed `Effect.runSync`-safe, while the in-memory test FileSystem
  * layer's reads happen to be. A dedicated sync-only tag sidesteps that
  * mismatch entirely and lets the in-memory test layer substitute its own
- * worktree map directly (see tests/integration/support/inmem/layers.ts).
+ * worktree map directly (see src/testing/Layers.ts).
  */
 export class WorktreeReader extends Context.Tag("WorktreeReader")<
   WorktreeReader,

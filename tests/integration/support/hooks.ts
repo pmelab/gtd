@@ -1,7 +1,7 @@
 import { Before, After } from "quickpickle"
 import { rmSync } from "node:fs"
 import type { GtdWorld } from "./world.js"
-import { InMemRepo } from "./inmem/Repo.js"
+import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 
 // Scrub every inherited GIT_* and GTD_LOOP_* var from the test process's
 // environment, once, at support-load time — so the suite runs identically
@@ -24,23 +24,38 @@ import { InMemRepo } from "./inmem/Repo.js"
 //
 // Mutating process.env here keeps every child spawn and `{ ...process.env }`
 // spread (world.ts, gtd-loop.steps.ts, project-setup.ts) hermetic from one
-// place. The vitest runner itself needs none of these vars.
+// place. The vitest runner itself needs none of these vars. This runs once
+// per WORKER (module load, not per-test), so it stays safe under the
+// `e2e-inmem` project's `fileParallelism: true` — but it IS a mutation of
+// global process state, so any future step definition adding its own
+// `process.env` write here would break that parallelism silently. Don't.
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("GIT_") || key.startsWith("GTD_LOOP_")) delete process.env[key]
 }
 
 /**
- * Detect tier from scenario tags.
- * `@live` → live spawnSync path.
- * Everything else (untagged or `@inmem`) → in-process path with in-memory layers.
+ * Detect tier from scenario tags. Exactly one of `@live`/`@inmem` is required
+ * on every scenario (directly or inherited from its feature) — the tier tag
+ * is a required, single-valued property, not a default, since the `e2e-inmem`
+ * / `e2e-live` vitest projects (`vitest.config.ts`) route scenarios by tag via
+ * `skipTags`; an untagged or double-tagged scenario would silently stop
+ * running in EITHER project instead of failing loudly here.
  */
 Before(async (world: GtdWorld) => {
   const tags = world.info.tags
-  if (tags.includes("@live")) {
+  const live = tags.includes("@live")
+  const inmem = tags.includes("@inmem")
+  if (live === inmem) {
+    throw new Error(
+      `scenario "${world.info.scenario}" must carry exactly one of @live/@inmem (found: ${
+        live ? "both" : "neither"
+      })`,
+    )
+  }
+  if (live) {
     world.tier = "live"
     world.repo = undefined
   } else {
-    // Default (untagged) and @inmem both use in-process mock tier
     world.tier = "inmem"
     world.repo = new InMemRepo()
   }
