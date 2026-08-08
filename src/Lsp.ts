@@ -91,13 +91,7 @@ import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
-import {
-  buildTemplateContext,
-  computeProcessRun,
-  renderFile,
-  resolveRest,
-  resolveVars,
-} from "./Edge.js"
+import { currentRest } from "./Edge.js"
 import type { StateMode, WorkflowDefinition } from "./PatternMachine.js"
 import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
 
@@ -518,6 +512,25 @@ const gitLayerForRoot = (root: string) =>
 const worktreeLayerForRoot = (root: string) =>
   WorktreeReader.Live.pipe(Layer.provide(Cwd.layer(root)))
 
+// The `GTD_<UPPERCASE-name>` env-override half of `Edge.ts`'s (private)
+// `resolveVars` — this call site has no resolved process (it builds a STATIC
+// path→mode map, not a specific rest's `it.vars`), so there is no `entryVars`
+// layer to merge in; the two-layer workflow/rc merge below plus this override
+// is the whole of what a map-building context needs.
+const GTD_ENV_PREFIX = "GTD_"
+const mergeStaticVars = (
+  workflowVars: Record<string, string>,
+  rcVars: Record<string, string>,
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> => {
+  const merged = { ...workflowVars, ...rcVars }
+  for (const name of Object.keys(merged)) {
+    const value = env[GTD_ENV_PREFIX + name.toUpperCase()]
+    if (value !== undefined) merged[name] = value
+  }
+  return merged
+}
+
 /**
  * Load the active workflow's `file:`/`mode:` map for `root` (see
  * `buildFileModeMap`) — config (re)loaded fresh, no cache. Any failure (a bad
@@ -536,7 +549,7 @@ const loadModeMap = async (
         Effect.provide(configLayerForRoot(root)),
       ),
     )
-    const vars = resolveVars(config.workflowVars, config.rcVars, {}, process.env)
+    const vars = mergeStaticVars(config.workflowVars, config.rcVars, process.env)
     const { map, warnings } = buildFileModeMap(config.workflow, vars, root)
     for (const warning of warnings) onWarn(warning)
     return map
@@ -573,34 +586,16 @@ const tryGitTopLevel = async (dir: string): Promise<string | undefined> => {
 
 /**
  * Resolve the CURRENT state/actor and its `file:` (rendered), exactly like
- * the CLI (`resolveRest`/`computeProcessRun`/`buildTemplateContext` — the
- * same `src/Edge.ts` helpers `gtd status`/`gtd next` call), scoped to `root`.
- * `file` is `undefined` when the resolved state declares none — see
- * `steeringFileOutcome` for what that means to the command.
+ * the CLI (`currentRest` — the same `src/Edge.ts` entry point `gtd status`/
+ * `gtd next` use), scoped to `root`. `file` is `undefined` when the resolved
+ * state declares none — see `steeringFileOutcome` for what that means to the
+ * command.
  */
 const resolveSteeringFile = (
   root: string,
 ): Effect.Effect<{ readonly state: string; readonly file: string | undefined }, Error> =>
-  Effect.gen(function* () {
-    const git = yield* GitService
-    const config = yield* (yield* ConfigService).load
-    const worktree = yield* WorktreeReader
-    const envVars = yield* EnvVars
-    const rest = yield* resolveRest()
-    const run = yield* computeProcessRun(git, rest.def)
-    const vars = resolveVars(config.workflowVars, config.rcVars, {}, envVars.all)
-    const context = yield* buildTemplateContext(
-      git,
-      worktree.read,
-      rest.state,
-      rest.actor,
-      run,
-      vars,
-      rest.stateDef.on,
-    )
-    const file = yield* renderFile(rest.stateDef, context)
-    return { state: rest.state, file }
-  }).pipe(
+  currentRest.pipe(
+    Effect.map((rest) => ({ state: rest.state, file: rest.hints.file })),
     Effect.provide(
       Layer.mergeAll(
         gitLayerForRoot(root),

@@ -5,13 +5,12 @@ import { Effect } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GitService } from "./Git.js"
 import { Cwd } from "./Cwd.js"
-import { computeProcessRun } from "./Edge.js"
+import { currentRun, reviewBaseFor } from "./Edge.js"
 import {
   closeReviewWindow,
   LEGACY_REVIEW_BASE_REF,
   LEGACY_REVIEW_HEAD_REF,
   openReviewWindow,
-  reviewBaseHash,
   REVIEW_BASE_REF,
   REVIEW_HEAD_REF,
 } from "./ReviewWindow.js"
@@ -108,9 +107,8 @@ for (const makeTier of gitTiers) {
 
         const base = await t.provide(
           Effect.gen(function* () {
-            const git = yield* GitService
-            const run = yield* computeProcessRun(git, def)
-            return yield* reviewBaseHash(git, def, run)
+            const run = yield* currentRun
+            return reviewBaseFor(def, run)
           }),
           def,
         )

@@ -822,7 +822,11 @@ The decision core is pure and IO-free: the pattern machine's shape (states,
 patterns, retry) is a plain-data `WorkflowDefinition` (`src/PatternMachine.ts`),
 and the same module's `resolveState`/`step` are the pure resolver/interpreter
 over it — so the whole engine is trivially unit-testable in isolation. All
-git/filesystem/template IO is confined to the edge (`src/Edge.ts`).
+git/filesystem/template IO is confined to the edge (`src/Edge.ts`), whose
+`currentRest` resolves everything derivable from where the process rests right
+now into a single snapshot, and whose `planStep`/`planEntry` pair separates
+deciding a transition from performing it — so a command's own capture gates run
+between the two.
 
 `src/testing/` holds the in-memory git/config/filesystem test double every
 `@inmem` scenario and unit test runs against instead of a real repo — it never
