@@ -1598,6 +1598,75 @@ describe("validateDefinition", () => {
     })
     expect(errors).toEqual(['state "a": "on" target "ghost" is not a defined state'])
   })
+
+  it("fires every per-field rule from src/StateFields.ts's table in one definition (regression guard for the field-table refactor, issue #158)", () => {
+    // One fixture violating every per-field rule at once: a commit state
+    // carrying every field forbidden on a commit state; a non-commit state
+    // with empty `model`/`label`/`file` and an unknown `mode`; a state whose
+    // `mode`/`requireProgress`/`answerGate` all lack the `file` they
+    // require; a blank-template `reviewBase`. Guards against a future edit
+    // to `STATE_FIELDS` silently dropping a field's `nonEmpty`/`commit`/
+    // `requires` rule.
+    const errors = validateDefinition({
+      entries: { default: "start", manual: [] },
+      states: {
+        start: { actor: "human", message: "go", on: [["* *", "badFields"]] },
+        badFields: {
+          actor: "human",
+          message: "x",
+          model: "",
+          label: "",
+          file: "",
+          mode: "bogus",
+          on: [["* *", "missingFile"]],
+        },
+        missingFile: {
+          actor: "human",
+          message: "y",
+          mode: "qa",
+          requireProgress: true,
+          answerGate: true,
+          on: [["* *", "blankBase"]],
+        },
+        blankBase: {
+          actor: "human",
+          message: "z",
+          reviewBase: "   ",
+          on: [["* *", "badCommit"]],
+        },
+        badCommit: {
+          commit: "chore: x",
+          model: "m",
+          label: "l",
+          file: "f",
+          mode: "qa",
+          reviewWindow: true,
+          reviewBase: true,
+          requireProgress: true,
+          answerGate: true,
+        },
+      },
+    })
+
+    expect(errors).toContain('state "badFields": "model" must be a non-empty string')
+    expect(errors).toContain('state "badFields": "label" must be a non-empty string')
+    expect(errors).toContain('state "badFields": "file" must be a non-empty string')
+    expect(errors).toContain(
+      'state "badFields": "mode" must name a built-in mode (qa, review, prose) or one declared in "modes" (none declared) (got "bogus")',
+    )
+    expect(errors).toContain('state "missingFile": "mode" requires "file"')
+    expect(errors).toContain('state "missingFile": "requireProgress" requires "file"')
+    expect(errors).toContain('state "missingFile": "answerGate" requires "file"')
+    expect(errors).toContain('state "blankBase": "reviewBase" template must not be blank')
+    expect(errors).toContain('state "badCommit": a commit state cannot declare "model"')
+    expect(errors).toContain('state "badCommit": a commit state cannot declare "label"')
+    expect(errors).toContain('state "badCommit": a commit state cannot declare "file"')
+    expect(errors).toContain('state "badCommit": a commit state cannot declare "mode"')
+    expect(errors).toContain('state "badCommit": a commit state cannot declare "reviewWindow"')
+    expect(errors).toContain('state "badCommit": a commit state cannot declare "reviewBase"')
+    expect(errors).toContain('state "badCommit": a commit state cannot declare "requireProgress"')
+    expect(errors).toContain('state "badCommit": a commit state cannot declare "answerGate"')
+  })
 })
 
 // ── δ-purity property: decision depends only on (state def, invoker, payload) ─

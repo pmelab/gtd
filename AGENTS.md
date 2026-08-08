@@ -24,7 +24,10 @@ description, and must be preserved:
 
 - **`src/PatternMachine.ts` is pure.** Definition types, the pattern grammar,
   HEAD resolution, and the step decision. No git, no filesystem, no Effect —
-  every export is a plain function of its arguments. Keep it that way.
+  every export is a plain function of its arguments. Keep it that way. Pure
+  means no IO — no git, no filesystem, no Effect; its one import is
+  `src/StateFields.ts`, the state-field table, itself a zero-import leaf of
+  const data and total functions.
 - **Everything IO-shaped lives at the edge.** `src/Edge.ts` (git/templates),
   `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
   window). `src/program.ts` calls the edge; it never reaches into `GitService`
@@ -80,10 +83,18 @@ state's model and memory scope" — alongside, not instead of, the per-state
 checks above.
 
 A genuinely new engine capability (a new content kind, a new `on` pattern
-grammar, a new state property) is a different, much rarer kind of change — that
-touches `src/PatternMachine.ts` (types + `validateDefinition`),
-`src/PatternConfig.ts` (the compiler), and `src/PatternTemplates.ts` or
-`src/Edge.ts` as needed, plus all of the above.
+grammar) is a different, much rarer kind of change — that touches
+`src/PatternMachine.ts` (types + `validateDefinition`), `src/PatternConfig.ts`
+(the compiler), and `src/PatternTemplates.ts` or `src/Edge.ts` as needed, plus
+all of the above.
+
+A new STATE PROPERTY is not one of these anymore: it's one entry in
+`src/StateFields.ts`'s `STATE_FIELDS` table plus its behaviour (a bespoke
+checker or compiler only if the field's rule doesn't fit the table's generic
+`nonEmpty`/`commit`/`requires` shape) — declaration, compilation, validation,
+the editor JSON schema, and the visualizer's presentation all derive from that
+one table and need no separate edit. Read `STATE_FIELDS` for what a state may
+declare and how each field behaves, rather than any one derivation site.
 
 A new steering-file FORMAT is neither: `mode:` names a pluggable mode, so a
 workflow declares its own `modes:` entry (a `format:`/`validate:` shell command

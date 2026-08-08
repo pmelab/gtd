@@ -6,10 +6,10 @@ import {
   type OnEdge,
   type RetryDef,
   type StateDef,
-  type StateMode,
   type StateName,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
+import { CONTENT_FIELDS, STATE_FIELDS, STATE_FIELD_ENTRIES, type FieldKind } from "./StateFields.js"
 import { flattenMachines, type InstancePath, type MachineNode } from "./Machines.js"
 
 /**
@@ -237,24 +237,8 @@ export const mergeModes = (
   return merged
 }
 
-const CONTENT_KEYS = ["script", "prompt", "message", "commit"] as const
-type ContentKey = (typeof CONTENT_KEYS)[number]
-
-const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
-  "actor",
-  ...CONTENT_KEYS,
-  "on",
-  "retry",
-  "model",
-  "label",
-  "file",
-  "mode",
-  "reviewWindow",
-  "reviewBase",
-  "requireProgress",
-  "answerGate",
-  "entry",
-])
+/** Every state property a flattened state may carry — `STATE_FIELDS`'s own key set, in table order. */
+const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set(Object.keys(STATE_FIELDS))
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
 const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set(["params", "entry", "states", "model"])
@@ -358,10 +342,14 @@ const validateMachineRefs = (
  * machine's own `model` onto each of its `prompt` states, and a `model` key is
  * exactly what a well-formed emitted state carries.
  */
-const LEGACY_AUTHORED_STATE_KEY_HINTS: Readonly<Record<string, (machineName: string) => string>> = {
-  model: (machineName) =>
-    `"model" is no longer a state key — declare it once on the machine that owns this state ("machines.${machineName}.model")`,
-}
+const LEGACY_AUTHORED_STATE_KEY_HINTS: Readonly<Record<string, (machineName: string) => string>> =
+  Object.fromEntries(
+    STATE_FIELD_ENTRIES.filter(([, spec]) => spec.authored === "machine").map(([key]) => [
+      key,
+      (machineName: string) =>
+        `"${key}" is no longer a state key — declare it once on the machine that owns this state ("machines.${machineName}.${key}")`,
+    ]),
+  )
 
 /** Flag any `LEGACY_AUTHORED_STATE_KEY_HINTS` key declared on one machine's own (non-reference) states. */
 const validateMachineStateKeys = (
@@ -535,7 +523,7 @@ const inlineStateFileRefs = (
 ): Record<string, unknown> => {
   if (typeof def["machine"] === "string") return def
   const next: Record<string, unknown> = { ...def }
-  for (const key of CONTENT_KEYS) {
+  for (const key of CONTENT_FIELDS) {
     const value = def[key]
     if (typeof value !== "string" || !isFileReference(value)) continue
     const resolved = resolveContent(
@@ -691,111 +679,25 @@ const compileRetry = (raw: unknown, name: string, errors: string[]): RetryDef | 
 }
 
 /**
- * Exactly one of script/prompt/message/commit, each a string, file-refs
- * auto-inlined. `inlineFileRefs` is `false` only when the caller
- * (`src/Config.ts`'s `loadMerged`) has ALREADY inlined every reference per
- * declaring file — the content is then taken verbatim, so a `script:` whose
- * inlined text happens to begin with `./` is never mistaken for a second file
- * reference and re-resolved.
+ * One text field (`actor`/`model`/`label`/`file`/`mode`): a plain string, or
+ * undefined (either absent or invalid — the type mismatch is its own error).
+ * Vocabulary/shape rules (non-empty, forbidden on a commit state, requires a
+ * sibling field, naming a known mode) are `STATE_FIELDS`'/
+ * `validateDefinition`'s concern, not this compiler's.
  */
-const compileContent = (
+const compileText = (
   raw: Record<string, unknown>,
-  name: string,
-  configDir: string,
-  errors: string[],
-  inlineFileRefs: boolean,
-): Partial<Record<ContentKey, string>> => {
-  const content: Partial<Record<ContentKey, string>> = {}
-  for (const key of CONTENT_KEYS) {
-    const rawValue = raw[key]
-    if (rawValue === undefined) continue
-    if (typeof rawValue !== "string") {
-      errors.push(`state "${name}": "${key}" must be a string`)
-      continue
-    }
-    if (!inlineFileRefs) {
-      content[key] = rawValue
-      continue
-    }
-    const resolved = resolveContent(rawValue, configDir, `state "${name}" (${key})`, errors)
-    if (resolved !== undefined) content[key] = resolved
-  }
-  // The "exactly one content kind" rule is NOT re-checked here — it's owned
-  // solely by the engine's `validateDefinition` (`validateContentKind`),
-  // which runs over the fully assembled definition alongside every other
-  // shape error (see `compileWorkflowConfig`'s aggregation). Duplicating the
-  // count check here used to hide every other finding behind it.
-  return content
-}
-
-/** The `actor` field: a plain string, or undefined (either absent or invalid — the type mismatch is its own error). */
-const compileActor = (
-  raw: Record<string, unknown>,
+  key: string,
   name: string,
   errors: string[],
 ): string | undefined => {
-  if (raw.actor === undefined) return undefined
-  if (typeof raw.actor !== "string") {
-    errors.push(`state "${name}": "actor" must be a string`)
+  const value = raw[key]
+  if (value === undefined) return undefined
+  if (typeof value !== "string") {
+    errors.push(`state "${name}": "${key}" must be a string`)
     return undefined
   }
-  return raw.actor
-}
-
-/** The `model` field as it reaches a FLATTENED state — never authored there (`validateMachineStateKeys` rejects that), only stamped on by the owning machine (`src/Machines.ts`'s `emitTree`). An opaque string, or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.model`. */
-const compileModel = (
-  raw: Record<string, unknown>,
-  name: string,
-  errors: string[],
-): string | undefined => {
-  if (raw.model === undefined) return undefined
-  if (typeof raw.model !== "string") {
-    errors.push(`state "${name}": "model" must be a string`)
-    return undefined
-  }
-  return raw.model
-}
-
-/** The `label` field: an opaque display name, or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.label`. */
-const compileLabel = (
-  raw: Record<string, unknown>,
-  name: string,
-  errors: string[],
-): string | undefined => {
-  if (raw.label === undefined) return undefined
-  if (typeof raw.label !== "string") {
-    errors.push(`state "${name}": "label" must be a string`)
-    return undefined
-  }
-  return raw.label
-}
-
-/** The `file` field: an Eta template string naming the state's steering file, or undefined (either absent or invalid — the type mismatch is its own error). Vocabulary/shape rules (non-empty, forbidden on a commit state) are `validateDefinition`'s concern, not this compiler's — see `PatternMachine.StateDef.file`. */
-const compileFile = (
-  raw: Record<string, unknown>,
-  name: string,
-  errors: string[],
-): string | undefined => {
-  if (raw.file === undefined) return undefined
-  if (typeof raw.file !== "string") {
-    errors.push(`state "${name}": "file" must be a string`)
-    return undefined
-  }
-  return raw.file
-}
-
-/** The `mode` field: a plain string, or undefined (either absent or invalid — the type mismatch is its own error). Whether it names one of the closed `qa`/`review` vocabulary is `validateDefinition`'s concern, not this compiler's — see `PatternMachine.StateDef.mode`. */
-const compileMode = (
-  raw: Record<string, unknown>,
-  name: string,
-  errors: string[],
-): StateMode | undefined => {
-  if (raw.mode === undefined) return undefined
-  if (typeof raw.mode !== "string") {
-    errors.push(`state "${name}": "mode" must be a string`)
-    return undefined
-  }
-  return raw.mode as StateMode
+  return value
 }
 
 /**
@@ -843,78 +745,95 @@ const compileBooleanOrTemplateFlag = (
   return undefined
 }
 
-/** One state's compiled parts, assembled into a `StateDef` (only present fields carried over — `exactOptionalPropertyTypes`). `entry` is NOT here — it never lands on a `StateDef`; `compileState` validates it separately (`compileBooleanFlag`, result discarded) and `compileWorkflowConfig` reads the RAW `entry: true` flag directly off each qualified state to build `WorkflowDefinition.entries.manual`. */
-interface StateParts {
-  readonly actor: string | undefined
-  readonly content: Partial<Record<ContentKey, string>>
-  readonly on: readonly OnEdge[] | undefined
-  readonly retry: RetryDef | undefined
-  readonly model: string | undefined
-  readonly label: string | undefined
-  readonly file: string | undefined
-  readonly mode: StateMode | undefined
-  readonly reviewWindow: true | undefined
-  readonly reviewBase: true | string | undefined
-  readonly requireProgress: true | undefined
-  readonly answerGate: true | undefined
-}
-
-const assembleContentFields = (
-  content: Partial<Record<ContentKey, string>>,
-): Partial<StateDef> => ({
-  ...(content.script !== undefined ? { script: content.script } : {}),
-  ...(content.prompt !== undefined ? { prompt: content.prompt } : {}),
-  ...(content.message !== undefined ? { message: content.message } : {}),
-  ...(content.commit !== undefined ? { commit: content.commit } : {}),
-})
-
 /**
- * Spreads only the DEFINED entries of `fields` — the shared "omit rather
- * than write `undefined`" pattern every scalar `StateDef` field needs
- * (`exactOptionalPropertyTypes`). Generalized into one helper (rather than a
- * repeated `...(x !== undefined ? { x } : {})` per field) so adding a new
- * optional state property never grows `assembleStateDef` itself — see this
- * module's own header comment on why that function was already split once
- * for fallow's complexity gate.
+ * One content field (`script`/`prompt`/`message`/`commit`): a string,
+ * file-refs auto-inlined. `ctx.inlineFileRefs` is `false` only when the
+ * caller (`src/Config.ts`'s `loadMerged`) has ALREADY inlined every
+ * reference per declaring file — the content is then taken verbatim, so a
+ * `script:` whose inlined text happens to begin with `./` is never mistaken
+ * for a second file reference and re-resolved. The "exactly one content
+ * kind" rule is NOT checked here — it's owned solely by the engine's
+ * `validateDefinition` (`validateContentKind`), which runs over the fully
+ * assembled definition alongside every other shape error (see
+ * `compileWorkflowConfig`'s aggregation).
  */
-type DefinedFields<T> = { [K in keyof T]?: NonNullable<T[K]> }
-
-const definedEntries = <T extends Record<string, unknown>>(fields: T): DefinedFields<T> => {
-  const out: DefinedFields<T> = {}
-  for (const key of Object.keys(fields) as (keyof T)[]) {
-    const value = fields[key]
-    if (value !== undefined) out[key] = value as DefinedFields<T>[typeof key]
+const compileContentRef = (
+  raw: Record<string, unknown>,
+  key: string,
+  name: string,
+  ctx: CompileCtx,
+): string | undefined => {
+  const value = raw[key]
+  if (value === undefined) return undefined
+  if (typeof value !== "string") {
+    ctx.errors.push(`state "${name}": "${key}" must be a string`)
+    return undefined
   }
-  return out
+  if (!ctx.inlineFileRefs) return value
+  return resolveContent(value, ctx.configDir, `state "${name}" (${key})`, ctx.errors)
 }
 
-const assembleStateDef = (parts: StateParts): StateDef => ({
-  ...definedEntries({
-    actor: parts.actor,
-    on: parts.on,
-    retry: parts.retry,
-    model: parts.model,
-    label: parts.label,
-    file: parts.file,
-    mode: parts.mode,
-    reviewWindow: parts.reviewWindow,
-    reviewBase: parts.reviewBase,
-    requireProgress: parts.requireProgress,
-    answerGate: parts.answerGate,
-  }),
-  ...assembleContentFields(parts.content),
-})
+/** Per-state compile context threaded through `COMPILE` — bundles what a field compiler needs beyond the raw state object and its own key. */
+interface CompileCtx {
+  readonly errors: string[]
+  readonly configDir: string
+  readonly inlineFileRefs: boolean
+}
+
+type FieldCompiler = (
+  raw: Record<string, unknown>,
+  key: string,
+  name: string,
+  ctx: CompileCtx,
+) => unknown
 
 /**
- * One state's full shape: actor, content, `on`, `retry`. Operates on a
- * QUALIFIED state entry from `FlattenedWorkflow.states` (`src/Machines.ts`) —
- * `$param`s already substituted, every `on`/`retry.otherwise` target already
- * an absolute qualified name — so this is exactly the flat compilation the
+ * One compiler per `FieldKind` — the exhaustiveness guard for the field
+ * table: a new `FieldKind` fails to compile here (and in `ConfigSchema.ts`'s
+ * `JSON_TYPE`) until it's given a compiler.
+ */
+const COMPILE: Record<FieldKind, FieldCompiler> = {
+  actor: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
+  text: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
+  mode: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
+  content: compileContentRef,
+  flag: (raw, key, name, ctx) => compileBooleanFlag(raw, key, name, ctx.errors),
+  flagOrTemplate: (raw, key, name, ctx) => compileBooleanOrTemplateFlag(raw, key, name, ctx.errors),
+  edges: (raw, key, name, ctx) => compileOn(raw[key], name, ctx.errors),
+  retry: (raw, key, name, ctx) => compileRetry(raw[key], name, ctx.errors),
+}
+
+/**
+ * Assemble the compiled field values into a `StateDef`: every field whose
+ * `surface` is `"def"`, spread only when defined — the shared "omit rather
+ * than write `undefined`" pattern `exactOptionalPropertyTypes` needs.
+ * `entry` (`surface: "authoring-only"`) is structurally excluded here —
+ * `COMPILE` still validates its shape like any other field (see
+ * `compileState`), but it never lands on the compiled `StateDef`;
+ * `compileWorkflowConfig` reads the RAW `entry: true` flag directly off
+ * each qualified state to build `WorkflowEntries.manual` instead.
+ */
+const assembleStateDef = (compiled: Record<string, unknown>): StateDef => {
+  const def: Record<string, unknown> = {}
+  for (const [key, spec] of STATE_FIELD_ENTRIES) {
+    if (spec.surface !== "def") continue
+    const value = compiled[key]
+    if (value !== undefined) def[key] = value
+  }
+  return def as StateDef
+}
+
+/**
+ * One state's full shape: every `STATE_FIELDS` entry, compiled through
+ * `COMPILE`'s per-kind dispatch. Operates on a QUALIFIED state entry from
+ * `FlattenedWorkflow.states` (`src/Machines.ts`) — `$param`s already
+ * substituted, every `on`/`retry.otherwise` target already an absolute
+ * qualified name — so this is exactly the flat compilation the
  * pre-`entry:`/`machines:` compiler already did. The old named entry-point
  * flags (`initial`/`reviewEntry`/`fixEntry`) are gone from this shape
  * entirely: the flattener resolves `entry.default` directly into
  * `WorkflowDefinition.entries.default`, and a state's own `entry: true` flag
- * (validated here, collected by the caller) seeds `entries.manual` instead —
+ * (compiled here, collected by the caller) seeds `entries.manual` instead —
  * neither ever lands on the compiled `StateDef`.
  */
 const compileState = (
@@ -936,29 +855,13 @@ const compileState = (
     )
   }
 
-  const def = assembleStateDef({
-    actor: compileActor(raw, name, errors),
-    content: compileContent(raw, name, configDir, errors, inlineFileRefs),
-    on: compileOn(raw.on, name, errors),
-    retry: compileRetry(raw.retry, name, errors),
-    model: compileModel(raw, name, errors),
-    label: compileLabel(raw, name, errors),
-    file: compileFile(raw, name, errors),
-    mode: compileMode(raw, name, errors),
-    reviewWindow: compileBooleanFlag(raw, "reviewWindow", name, errors),
-    reviewBase: compileBooleanOrTemplateFlag(raw, "reviewBase", name, errors),
-    requireProgress: compileBooleanFlag(raw, "requireProgress", name, errors),
-    answerGate: compileBooleanFlag(raw, "answerGate", name, errors),
-  })
+  const ctx: CompileCtx = { errors, configDir, inlineFileRefs }
+  const compiled: Record<string, unknown> = {}
+  for (const [key, spec] of STATE_FIELD_ENTRIES) {
+    compiled[key] = COMPILE[spec.kind](raw, key, name, ctx)
+  }
 
-  // `entry: true` is authoring-only — a per-state reachability-root flag the
-  // caller (`compileWorkflowConfig`) reads directly off the RAW state object
-  // to build `entries.manual`. Validated here (so a non-boolean value is
-  // still a compile-time finding) but its result is discarded: `entry` must
-  // never land on the compiled `StateDef`.
-  compileBooleanFlag(raw, "entry", name, errors)
-
-  return def
+  return assembleStateDef(compiled)
 }
 
 /**
