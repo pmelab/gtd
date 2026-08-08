@@ -146,9 +146,9 @@
 #     `reviewBase: true`, so each feedback round's review + checkout window
 #     covers only `last-review..HEAD`, i.e. the agent's follow-through, not the
 #     human's own edit) -> await-review, looping until sign-off.
-# Two dead ends never commit: the sign-off gate (src/program.ts) REFUSES a step
-# that leaves a box unticked with no comment (finish reviewing first) and a
-# deleted REVIEW.md (restore it and tick the boxes).
+# Two dead ends never commit: the review-signoff guard (src/StepGuards.ts)
+# REFUSES a step that leaves a box unticked with no comment (finish reviewing
+# first) and a deleted REVIEW.md (restore it and tick the boxes).
 #
 # The shared health pair (`build.health.check`/`.escalate`, plus the caller's
 # own `build.fix`) serves the simple build and the feedback loop — its green
@@ -716,10 +716,9 @@ machines:
         # Every human step here routes to `deciding`, which decides sign-off vs.
         # feedback from the step's CONTENT (a comment, not a tick). Ticking a box
         # only records "I reviewed this hunk". Two dead ends can't be told apart by a
-        # file-pattern edge, so the sign-off gate (`enforceReviewSignoffGate` in
-        # src/program.ts) catches them BEFORE the step commits and refuses: an
-        # unfinished review (a box still `- [ ]` with no comment) and a deleted
-        # REVIEW.md.
+        # file-pattern edge, so the review-signoff guard (`src/StepGuards.ts`)
+        # catches them BEFORE the step commits and refuses: an unfinished
+        # review (a box still `- [ ]` with no comment) and a deleted REVIEW.md.
         reviewWindow: true
         message: |
           `<%= it.vars.reviewFile %>` holds the review record for the process — one
@@ -1169,8 +1168,8 @@ machines:
         label: Addressing your feedback
         file: <%= it.vars.reviewFeedbackFile %>
         # Refuse a work-free turn: a step whose only pending change is deleting the
-        # instructions file (the original "captured then discarded" bug). The edge
-        # gate (`enforceFeedbackProgressGate` in src/program.ts) reads this flag and
+        # instructions file (the original "captured then discarded" bug). The
+        # feedback-progress guard (`src/StepGuards.ts`) reads this flag and
         # exempts a `NOTHING ACTIONABLE` sentinel (a non-actionable review round,
         # which legitimately makes no code change). The pure engine carries it inert.
         requireProgress: true

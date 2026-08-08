@@ -90,7 +90,7 @@ import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
-import { WorktreeReader } from "./WorktreeReader.js"
+import { RepoFiles, templateRead } from "./RepoFiles.js"
 import {
   buildTemplateContext,
   computeProcessRun,
@@ -515,8 +515,8 @@ const configLayerForRoot = (root: string) => ConfigService.Live.pipe(Layer.provi
 const gitLayerForRoot = (root: string) =>
   GitService.Live.pipe(Layer.provide(Layer.merge(Cwd.layer(root), NodeContext.layer)))
 
-const worktreeLayerForRoot = (root: string) =>
-  WorktreeReader.Live.pipe(Layer.provide(Cwd.layer(root)))
+const repoFilesLayerForRoot = (root: string) =>
+  RepoFiles.Live.pipe(Layer.provide(Layer.merge(Cwd.layer(root), gitLayerForRoot(root))))
 
 /**
  * Load the active workflow's `file:`/`mode:` map for `root` (see
@@ -584,14 +584,14 @@ const resolveSteeringFile = (
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const worktree = yield* WorktreeReader
+    const files = yield* RepoFiles
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
     const vars = resolveVars(config.workflowVars, config.rcVars, {}, envVars.all)
     const context = yield* buildTemplateContext(
       git,
-      worktree.read,
+      templateRead(files),
       rest.state,
       rest.actor,
       run,
@@ -605,7 +605,7 @@ const resolveSteeringFile = (
       Layer.mergeAll(
         gitLayerForRoot(root),
         configLayerForRoot(root),
-        worktreeLayerForRoot(root),
+        repoFilesLayerForRoot(root),
         EnvVars.Live,
       ),
     ),

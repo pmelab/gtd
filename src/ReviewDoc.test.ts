@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseReviewDoc } from "./ReviewDoc.js"
+import { parseReviewDoc, untickedFiles } from "./ReviewDoc.js"
 
 describe("parseReviewDoc", () => {
   it("parses a well-formed review with one chunk", () => {
@@ -148,5 +148,46 @@ describe("parseReviewDoc", () => {
       "Missing '<!-- base: <hash> -->' comment",
       "REVIEW.md has no '##' chunks",
     ])
+  })
+})
+
+describe("untickedFiles", () => {
+  it("returns every unchecked file pointer across every chunk", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "- [x] ./src/calc.ts#5",
+      "",
+      "## Wire it up",
+      "",
+      "- [ ] ./src/index.ts#10",
+      "",
+    ].join("\n")
+    const files = untickedFiles(parseReviewDoc(content))
+    expect(files.map((f) => f.path + "#" + f.line)).toEqual([
+      "./src/calc.ts#1",
+      "./src/index.ts#10",
+    ])
+  })
+
+  it("returns nothing when every file pointer is ticked", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [x] ./src/calc.ts#1",
+      "",
+    ].join("\n")
+    expect(untickedFiles(parseReviewDoc(content))).toEqual([])
+  })
+
+  it("returns nothing for a document with no chunks at all", () => {
+    expect(untickedFiles(parseReviewDoc("Just some text\n"))).toEqual([])
   })
 })

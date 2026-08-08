@@ -27,9 +27,12 @@ description, and must be preserved:
   every export is a plain function of its arguments. Keep it that way.
 - **Everything IO-shaped lives at the edge.** `src/Edge.ts` (git/templates),
   `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
-  window). `src/program.ts` calls the edge; it never reaches into `GitService`
-  directly. The review window and the steering-file gate are deliberately
-  invisible to the pure engine — don't "simplify" them back into it.
+  window), `src/StepGuards.ts` (the step-capture guard registry),
+  `src/RepoFiles.ts` (the working-tree/committed content port),
+  `src/CommandRunner.ts` (the subprocess port). `src/program.ts` calls the edge;
+  it never reaches into `GitService` directly. The review window and the
+  steering-file guard are deliberately invisible to the pure engine — don't
+  "simplify" them back into it.
 - **The review window issues no whole-tree index WRITE, and every git index
   write tolerates `index.lock` contention.** gtd shares one worktree index with
   the reviewer's editor SCM, `gtd lsp`, and git-aware prompts, which all write
@@ -146,10 +149,13 @@ scenarios actually run them.
   distinguish "nothing happened" (clean, no `C` row) from "something happened
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`
   map
-- **Steering-file gate (edge, not engine):** capturing a commit out of a state
-  that declares `file:`+`mode:` first formats that file in place and validates
-  it per its `mode:` (`enforceSteeringGate` in `src/program.ts` over
-  `src/SteeringMode.ts`), and REFUSES the step when it is invalid, so a
-  malformed steering file is never committed (an agent's draft or a human's gate
-  edit alike). It is a no-op when the file is absent (a deletion) or the state
-  declares no `file:`/`mode:`, and a squash skips it
+- **Step-capture guards (edge, not engine):** `enforceStepGuards` in
+  `src/StepGuards.ts` runs a registry of guards before a normal commit lands —
+  the steering-file guard first formats a state's `file:`+`mode:` file in place
+  and validates it per its `mode:` (over `src/SteeringMode.ts`), then the
+  review-signoff, feedback-progress, and answer-completeness guards each check
+  their own state-flavor condition. Any guard REFUSES the step when its
+  condition fires, so e.g. a malformed steering file is never committed (an
+  agent's draft or a human's gate edit alike). Each guard is a no-op when it
+  doesn't apply to the resting state (see `StepGuard.appliesTo`), and the whole
+  registry is skipped for a squash/no-op decision

@@ -158,6 +158,15 @@ const parseChangesets = (
 }
 
 /**
+ * Every file pointer in every chunk that is not ticked — the structured
+ * narrowing the review sign-off guard (`src/StepGuards.ts`) counts instead of
+ * a raw `- [ ]` regex over the whole document: a bare `- []`, an indented
+ * note, or a non-`./` path outside a chunk's file pointers no longer counts.
+ */
+export const untickedFiles = (doc: ReviewDoc): readonly ReviewFile[] =>
+  doc.changesets.flatMap((changeset) => changeset.files.filter((file) => !file.checked))
+
+/**
  * Parses the review structure out of `content` (the raw text of
  * `.gtd/REVIEW.md`). Total and side-effect-free: always returns a result,
  * never throws. `errors` is non-empty exactly when the document violates the

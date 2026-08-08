@@ -817,7 +817,10 @@ The decision core is pure and IO-free: the pattern machine's shape (states,
 patterns, retry) is a plain-data `WorkflowDefinition` (`src/PatternMachine.ts`),
 and the same module's `resolveState`/`step` are the pure resolver/interpreter
 over it — so the whole engine is trivially unit-testable in isolation. All
-git/filesystem/template IO is confined to the edge (`src/Edge.ts`).
+git/filesystem/template IO is confined to the edge (`src/Edge.ts`), behind two
+content ports (`src/RepoFiles.ts` for working-tree/committed reads,
+`src/CommandRunner.ts` for the one place gtd spawns a subprocess itself), with
+the `gtd step` capture guards (`src/StepGuards.ts`) built on top of them.
 
 Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
 or breaking changes) to `main` and semantic-release computes the next version,

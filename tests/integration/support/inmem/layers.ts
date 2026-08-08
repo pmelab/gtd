@@ -29,7 +29,8 @@ import {
 import { InMemRepo } from "./Repo.js"
 import { Cwd } from "../../../../src/Cwd.js"
 import { EnvVars } from "../../../../src/EnvVars.js"
-import { WorktreeReader } from "../../../../src/WorktreeReader.js"
+import { RepoFiles } from "../../../../src/RepoFiles.js"
+import { CommandRunner, type CommandOutcome } from "../../../../src/CommandRunner.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -400,22 +401,59 @@ const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> 
 }
 
 // ---------------------------------------------------------------------------
-// 5. In-memory WorktreeReader layer
+// 5. In-memory RepoFiles layer
 // ---------------------------------------------------------------------------
 
-/** `PatternTemplates.TemplateContext.read` for the in-memory tier: a synchronous lookup straight into the repo's worktree map (never real `fs`). */
-const makeInMemoryWorktreeReader = (repo: InMemRepo): Layer.Layer<WorktreeReader> => {
+/** `RepoFiles` for the in-memory tier: a synchronous lookup straight into the repo's worktree map (never real `fs`), and `committed` via the repo's own `fileAtRef`. */
+const makeInMemoryRepoFiles = (repo: InMemRepo): Layer.Layer<RepoFiles> => {
   const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
-  return Layer.succeed(WorktreeReader, {
-    read: (path: string) => {
-      const content = worktree.get(path)
-      if (content === undefined) {
-        throw new Error(`ENOENT: no such file or directory, open '${path}'`)
-      }
-      return content
+  return Layer.succeed(RepoFiles, {
+    working: (path: string) => worktree.get(path),
+    committed: (path: string, ref = "HEAD") => {
+      const content = repo.fileAtRef(ref, path)
+      return Effect.succeed(content ?? undefined)
     },
   })
 }
+
+// ---------------------------------------------------------------------------
+// 6. Scripted CommandRunner layer (for @inmem steering-mode scenarios)
+// ---------------------------------------------------------------------------
+
+/** One scripted `bash` command's canned behavior, keyed by the RENDERED command string a scenario's `Given` step declares. */
+export type ScriptedCommand =
+  | { readonly kind: "exit"; readonly status: number; readonly output: string }
+  | { readonly kind: "rewrite"; readonly file: string; readonly content: string }
+
+/**
+ * `CommandRunner` for the in-memory tier: real subprocess execution is
+ * unreachable against an in-memory worktree, so every command a scenario
+ * needs must be declared with a `Given the shell command "<cmd>" ...` step
+ * (see `tests/integration/support/steps/steering.steps.ts`) — keyed by the
+ * command string AFTER Eta rendering, exactly as `bash` would receive it. An
+ * unscripted command fails LOUDLY (never silently succeeds), so a scenario
+ * that forgets to declare one fails with a clear message rather than passing
+ * by accident.
+ */
+const makeScriptedCommandRunner = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+): Layer.Layer<CommandRunner> =>
+  Layer.succeed(CommandRunner, {
+    bash: (command: string): Effect.Effect<CommandOutcome, Error> => {
+      const scripted = commands.get(command)
+      if (scripted === undefined) {
+        return Effect.fail(
+          new Error(`unscripted command "${command}" — declare it with a Given step`),
+        )
+      }
+      if (scripted.kind === "rewrite") {
+        repo.writeFile(scripted.file, scripted.content)
+        return Effect.succeed({ status: 0, output: "" })
+      }
+      return Effect.succeed({ status: scripted.status, output: scripted.output })
+    },
+  })
 
 // ---------------------------------------------------------------------------
 // Assembly
@@ -424,8 +462,9 @@ const makeInMemoryWorktreeReader = (repo: InMemRepo): Layer.Layer<WorktreeReader
 export function inMemoryLayers(
   repo: InMemRepo,
   env: Readonly<Record<string, string | undefined>> = {},
+  scriptedCommands: ReadonlyMap<string, ScriptedCommand> = new Map(),
 ): Layer.Layer<
-  GitService | FileSystem.FileSystem | ConfigService | Cwd | WorktreeReader | EnvVars
+  GitService | FileSystem.FileSystem | ConfigService | Cwd | RepoFiles | CommandRunner | EnvVars
 > {
   // Reader + Writer share the same repo instance
   const readerOps = makeGitReaderOps(repo)
@@ -443,7 +482,8 @@ export function inMemoryLayers(
     fsLayer,
     configLayer,
     Cwd.layer("/repo"),
-    makeInMemoryWorktreeReader(repo),
+    makeInMemoryRepoFiles(repo),
+    makeScriptedCommandRunner(repo, scriptedCommands),
     EnvVars.layer(env),
   )
 }

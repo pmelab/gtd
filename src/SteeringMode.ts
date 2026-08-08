@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { spawnSync } from "node:child_process"
+import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
 import { parseOpenQuestions } from "./OpenQuestions.js"
 import { parseReviewDoc } from "./ReviewDoc.js"
 import {
@@ -106,37 +106,6 @@ export const unknownModeMessage = (
 ): string =>
   `state "${state}": mode "${mode}" is not defined by the active workflow (known modes: ${knownModes(def).join(", ")})`
 
-/** One command run's outcome: its exit status (a signal death reported as `null`) and its combined output (stdout then stderr). */
-interface CommandOutcome {
-  readonly status: number | null
-  readonly output: string
-}
-
-/**
- * Run one rendered mode command through `bash -c` in `cwd`, capturing output
- * instead of inheriting the terminal (unlike a workflow script, which the driver
- * runs with inherited stdio because its output IS the point): here the output is
- * data — a validate command's findings
- * are reported to the agent that must fix them. A spawn failure (no `bash`, an
- * unreadable cwd) fails the Effect; a non-zero EXIT is a value, since that is
- * the mode's way of saying "invalid".
- */
-const runCommand = (command: string, cwd: string): Effect.Effect<CommandOutcome, Error> =>
-  Effect.try({
-    try: () => {
-      const result = spawnSync("bash", ["-c", command], {
-        cwd,
-        encoding: "utf8",
-      })
-      if (result.error !== undefined) throw result.error
-      return {
-        status: result.status,
-        output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
-      }
-    },
-    catch: (e) => new Error(`command "${command}" could not be run: ${errorText(e)}`),
-  })
-
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 /** How a non-zero exit reads in a message: a status number, or a signal death. */
@@ -177,13 +146,13 @@ export const formatSteeringFile = (
   resolved: ResolvedMode,
   file: string,
   context: TemplateContext,
-  cwd: string,
-): Effect.Effect<void, Error> =>
+): Effect.Effect<void, Error, CommandRunner> =>
   Effect.gen(function* () {
     const command = resolved.format
     if (command === undefined) return
     const rendered = yield* renderCommand(resolved.mode, "format", command, file, context)
-    const outcome = yield* runCommand(rendered, cwd)
+    const runner = yield* CommandRunner
+    const outcome = yield* runner.bash(rendered)
     if (outcome.status !== 0) {
       return yield* Effect.fail(
         new Error(
@@ -197,26 +166,22 @@ export const formatSteeringFile = (
 
 /**
  * Validate `file` per its mode, returning the findings (empty = valid). A
- * built-in validator runs its pure parser over `readContent()` (the file's
- * contents AFTER `formatSteeringFile`); a declared `validate:` command runs
- * instead and reads nothing itself — the command owns how it inspects the file.
- * A mode with neither reports no findings.
+ * built-in validator runs its pure parser over `content` (the caller's already
+ * read this — see `src/StepGuards.ts`, which samples the file's bytes AFTER
+ * `formatSteeringFile` has run); a declared `validate:` command runs instead
+ * and reads nothing itself — the command owns how it inspects the file. A mode
+ * with neither reports no findings.
  */
 export const validateSteeringFile = (
   resolved: ResolvedMode,
   file: string,
-  readContent: () => string,
+  content: string,
   context: TemplateContext,
-  cwd: string,
-): Effect.Effect<readonly string[], Error> =>
+): Effect.Effect<readonly string[], Error, CommandRunner> =>
   Effect.gen(function* () {
     const validator = resolved.validate
     if (validator === undefined) return []
     if (validator.kind === "builtin") {
-      const content = yield* Effect.try({
-        try: readContent,
-        catch: (e) => new Error(`mode "${resolved.mode}": cannot read ${file} — ${errorText(e)}`),
-      })
       return validator.mode === "qa"
         ? parseOpenQuestions(content).errors
         : parseReviewDoc(content).errors
@@ -228,24 +193,29 @@ export const validateSteeringFile = (
       file,
       context,
     )
-    const outcome = yield* runCommand(rendered, cwd)
+    const runner = yield* CommandRunner
+    const outcome = yield* runner.bash(rendered)
     return outcome.status === 0 ? [] : findingsFrom(resolved.mode, outcome)
   })
 
 /**
- * The whole evaluation for one steering file: format it in place, then validate
- * the result. This ORDER is the contract `gtd validate` and the `gtd step`
- * capture gate share (see `src/program.ts`), so a file is never judged in a
- * shape the formatter would have fixed.
+ * Runs `formatSteeringFile` then `validateSteeringFile` in sequence — the
+ * ORDER `gtd validate` and the `gtd step` capture gate share (see
+ * `src/StepGuards.ts`). `content` is validated VERBATIM, exactly as given: a
+ * caller that cares about judging POST-format bytes (every production caller
+ * does) must sample `content` after this function's format half has run
+ * rather than pass a pre-format snapshot — `src/StepGuards.ts` does this
+ * itself via its guard `prepare`/`check` split, so this composed helper is
+ * kept for symmetry and for `SteeringMode.test.ts`'s real-bash coverage, not
+ * called from production code.
  */
 export const formatAndValidateSteeringFile = (
   resolved: ResolvedMode,
   file: string,
-  readContent: () => string,
+  content: string,
   context: TemplateContext,
-  cwd: string,
-): Effect.Effect<readonly string[], Error> =>
+): Effect.Effect<readonly string[], Error, CommandRunner> =>
   Effect.gen(function* () {
-    yield* formatSteeringFile(resolved, file, context, cwd)
-    return yield* validateSteeringFile(resolved, file, readContent, context, cwd)
+    yield* formatSteeringFile(resolved, file, context)
+    return yield* validateSteeringFile(resolved, file, content, context)
   })

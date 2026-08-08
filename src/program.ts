@@ -6,7 +6,8 @@ import { configPresentAt, ConfigService } from "./Config.js"
 import { renderInitScaffold } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
-import { WorktreeReader } from "./WorktreeReader.js"
+import { RepoFiles, templateRead } from "./RepoFiles.js"
+import { CommandRunner } from "./CommandRunner.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
   buildTemplateContext,
@@ -53,18 +54,11 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
-import {
-  formatAndValidateSteeringFile,
-  resolveSteeringMode,
-  unknownModeMessage,
-} from "./SteeringMode.js"
+import { enforceStepGuards, checkSteeringFile } from "./StepGuards.js"
 import {
   enterableStates,
   entryBaseTemplateOf,
   initialStateOf,
-  isAnswerGateState,
-  isRequireProgressState,
-  isReviewWindowState,
   matchesPattern,
   parsePattern,
   parseStateSubject,
@@ -74,7 +68,6 @@ import {
   type PendingChange,
   type StepRefusal,
 } from "./PatternMachine.js"
-import { parseOpenQuestions } from "./OpenQuestions.js"
 import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
 
 const _require = createRequire(import.meta.url)
@@ -187,7 +180,8 @@ type ProgramRequirements =
   | FileSystem.FileSystem
   | ConfigService
   | Cwd
-  | WorktreeReader
+  | RepoFiles
+  | CommandRunner
   | EnvVars
 
 /**
@@ -537,11 +531,11 @@ const resolveRestContext = (
     readonly memory: string | undefined
   },
   Error,
-  GitService | ConfigService | WorktreeReader | EnvVars
+  GitService | ConfigService | RepoFiles | EnvVars
 > =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
-    const worktree = yield* WorktreeReader
+    const files = yield* RepoFiles
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
@@ -550,7 +544,7 @@ const resolveRestContext = (
     const reviewBase = yield* reviewBaseHash(git, rest.def, run)
     const context = yield* buildTemplateContext(
       git,
-      worktree.read,
+      templateRead(files),
       rest.state,
       rest.actor,
       run,
@@ -597,7 +591,7 @@ const stepAsActor = (
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const worktree = yield* WorktreeReader
+    const files = yield* RepoFiles
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
@@ -632,7 +626,7 @@ const stepAsActor = (
     const reviewBase = yield* reviewBaseHash(git, rest.def, run)
     const context = yield* buildTemplateContext(
       git,
-      worktree.read,
+      templateRead(files),
       renderedState,
       invoker,
       run,
@@ -642,23 +636,11 @@ const stepAsActor = (
       model,
       reviewBase,
     )
-    // Steering-file gate: before capturing a normal turn, format the rest
-    // state's steering file in place and validate it — so whoever just acted
-    // (a producing agent OR a human editing at a gate) hands the next rest a
-    // tidy, well-formed file. Invalid content refuses the step (see the helper,
-    // which no-ops for a squash and when there is nothing to validate).
-    yield* enforceSteeringGate(worktree.read, invoker, rest, context, decision.kind)
-    // Review sign-off gate (edge): refuse a deleted review doc or an unfinished
-    // review with no comment before either can commit (see the helper).
-    yield* enforceReviewSignoffGate(worktree.read, invoker, rest, context, changes, decision.kind)
-    // Feedback-progress gate (edge): at a `requireProgress` state, refuse a
-    // work-free turn that just deletes the instructions file (the "captured
-    // then silently discarded" bug), exempting a NOTHING ACTIONABLE sentinel.
-    yield* enforceFeedbackProgressGate(invoker, rest, context, changes, decision.kind)
-    // Answer-completeness gate (edge): at an `answerGate` qa state, refuse a
-    // human step while any open question is not answered (exactly one tick each)
-    // — the advanced flow's product-answer/technical-answer gates.
-    yield* enforceAnswerCompletenessGate(worktree.read, invoker, rest, context, decision.kind)
+    // Step-capture guards (edge, not engine — see src/StepGuards.ts): the
+    // steering-file, review-signoff, feedback-progress, and
+    // answer-completeness guards, in that order, each refusing the step
+    // before it can commit.
+    yield* enforceStepGuards({ rest, context, changes, invoker, kind: decision.kind })
     if (decision.kind === "commit") {
       const target = parseStateSubject(decision.subject)?.state
       if (
@@ -1109,323 +1091,6 @@ const runNextCommand = (
     write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
   })
 
-/** Format the resolved state's steering file (in place) then validate it. */
-interface SteeringCheck {
-  /** The rendered `file:` path, or `undefined` when the state declares no `file:`/`mode:`. */
-  readonly file: string | undefined
-  /** True when a steering file was actually present and got formatted + validated (false when the state declares none, or the file is absent — a deletion). */
-  readonly present: boolean
-  /** The parser findings (empty when `present` is false). */
-  readonly errors: readonly string[]
-}
-
-/**
- * Format the resolved rest's steering file in place, then validate its
- * formatted contents. When the state declares both `file:` and `mode:` and
- * that file exists in the working tree, the mode's format-then-validate pair
- * runs over it — each half resolved independently from the `modes:` map and
- * gtd's built-in `qa`/`review` validators beneath it (see
- * `src/SteeringMode.ts`). `present` is false — and nothing is
- * formatted or validated — when the state declares no steering file, or the
- * file is absent (e.g. `building` deleted `.gtd/TODO.md`, or a human deleted
- * `.gtd/REVIEW.md` to approve), so those flows pass cleanly. Shared by
- * `gtd validate` and the `gtd step` capture gate, so both format and check the
- * SAME way — an agent's fresh draft and a human's edit are treated alike.
- */
-const formatAndCheckSteeringFile = (
-  worktreeRead: (path: string) => string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-): Effect.Effect<SteeringCheck, Error, FileSystem.FileSystem | Cwd> =>
-  Effect.gen(function* () {
-    const file = yield* renderFile(rest.stateDef, context)
-    const mode = rest.stateDef.mode
-    if (file === undefined || mode === undefined) return { file, present: false, errors: [] }
-    const fs = yield* FileSystem.FileSystem
-    if (!(yield* fs.exists(file))) return { file, present: false, errors: [] }
-    const resolved = resolveSteeringMode(rest.def, mode)
-    if (resolved === undefined) {
-      // `validateDefinition` rejects an unresolvable `mode:` at load time, so
-      // this is a defensive branch, not a reachable config path.
-      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
-    }
-    const { root } = yield* Cwd
-    const errors = yield* formatAndValidateSteeringFile(
-      resolved,
-      file,
-      () => worktreeRead(file),
-      context,
-      root,
-    )
-    return { file, present: true, errors }
-  })
-
-/**
- * The `gtd step` capture gate: format + validate the rest state's steering file
- * (see `formatAndCheckSteeringFile`) and FAIL with the findings when it is
- * invalid, so a malformed steering file — an agent's draft or a human's edit —
- * is never committed. A no-op when there is nothing to validate.
- */
-const enforceSteeringGate = (
-  worktreeRead: (path: string) => string,
-  invoker: string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-  kind: ExecutableDecision["kind"],
-): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd> =>
-  Effect.gen(function* () {
-    // Only a normal commit captures the rest state's steering file; a squash
-    // discards it, and a no-op writes nothing.
-    if (kind !== "commit") return
-    const gate = yield* formatAndCheckSteeringFile(worktreeRead, rest, context)
-    if (gate.errors.length > 0) {
-      return yield* Effect.fail(
-        new Error(
-          `gtd step ${invoker}: ${gate.file} is not valid at "${rest.state}" — fix these before stepping:\n${gate.errors
-            .map((e) => `  - ${e}`)
-            .join("\n")}`,
-        ),
-      )
-    }
-  })
-
-/** The `mode:` name of gtd's built-in REVIEW.md checkbox validator — the only mode the sign-off gate below understands. */
-const REVIEW_MODE = "review"
-
-/** Normalize every markdown checkbox to a single placeholder so a pure `[ ]`→`[x]` tick is invisible to a text comparison; any surviving difference is a human note. */
-const normalizeCheckboxes = (content: string): string => content.replace(/\[[ xX]\]/g, "[_]")
-
-/** The verdict of the pure `classifyReviewSignoff` — `allow` lets the step commit, `refuse` fails it with `reason`. */
-export type ReviewSignoffVerdict =
-  | { readonly kind: "allow" }
-  | { readonly kind: "refuse"; readonly reason: string }
-
-/**
- * The PURE core of the review sign-off gate (see `enforceReviewSignoffGate`).
- * Given the agent's `original` review doc, the reviewer's `current` copy,
- * whether a non-`.gtd/` file changed this step (`hasCodeChange`), and whether
- * the doc was deleted (`reviewDocDeleted`), decide whether the step may commit.
- * A comment — a code edit, or a note (the doc differs beyond a `[ ]`→`[x]` tick)
- * — is always allowed (it becomes a feedback round). Two dead ends refuse: a
- * deleted doc, and an all-tick-flip step that still leaves a box unticked with
- * no comment (an unfinished review). Kept separate from the Effect so it is
- * directly unit-tested (see program.test.ts).
- */
-export const classifyReviewSignoff = (input: {
-  readonly file: string
-  readonly stateName: string
-  readonly invoker: string
-  readonly reviewDocDeleted: boolean
-  readonly hasCodeChange: boolean
-  readonly original: string
-  readonly current: string
-}): ReviewSignoffVerdict => {
-  if (input.reviewDocDeleted) {
-    return {
-      kind: "refuse",
-      reason: `gtd step ${input.invoker}: ${input.file} was deleted at "${input.stateName}" — restore it and tick the boxes to sign off, or leave a note (or edit code) to request changes.`,
-    }
-  }
-  // A comment — a code edit, or a note (doc differs beyond a checkbox flip) — is
-  // a feedback round; let it commit.
-  if (input.hasCodeChange) return { kind: "allow" }
-  if (normalizeCheckboxes(input.original) !== normalizeCheckboxes(input.current)) {
-    return { kind: "allow" }
-  }
-  // Only checkbox flips, no comment: a sign-off needs EVERY box ticked.
-  const unticked = input.current.match(/^[ \t]*-[ \t]*\[[ \t]*\]/gm)?.length ?? 0
-  if (unticked > 0) {
-    return {
-      kind: "refuse",
-      reason: `gtd step ${input.invoker}: ${unticked} review item(s) still unticked and no comment at "${input.stateName}" — finish reviewing (tick every box), or leave a note (or edit code) to request a change.`,
-    }
-  }
-  return { kind: "allow" }
-}
-
-/**
- * The review sign-off gate (edge, not engine — like the review window it lives
- * at `src/program.ts`, and the pure `PatternMachine.step` never sees it). At a
- * review gate (a `reviewWindow: true` state with `mode: review`, i.e. the
- * unified template's `await-review`), the ROUTING is uniform — every human step
- * goes to `review-deciding`, which decides sign-off vs. feedback from the step's
- * content. But two content-shaped dead ends a file-pattern edge can't
- * distinguish must never commit, so this gate gathers the step's shape and hands
- * it to the pure `classifyReviewSignoff` BEFORE `executeDecision`, failing on a
- * `refuse` verdict. A no-op when the state is not a review gate, or the decision
- * is a squash/no-op.
- */
-const enforceReviewSignoffGate = (
-  worktreeRead: (path: string) => string,
-  invoker: string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-  changes: readonly PendingChange[],
-  kind: ExecutableDecision["kind"],
-): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
-  Effect.gen(function* () {
-    if (kind !== "commit") return
-    if (!isReviewWindowState(rest.def, rest.state) || rest.stateDef.mode !== REVIEW_MODE) return
-    const file = yield* renderFile(rest.stateDef, context)
-    if (file === undefined) return
-
-    const git = yield* GitService
-    const original = yield* git
-      .readFileAtRef("HEAD", file)
-      .pipe(Effect.catchAll(() => Effect.succeed("")))
-    const current = yield* Effect.try(() => worktreeRead(file)).pipe(
-      Effect.catchAll(() => Effect.succeed("")),
-    )
-    const verdict = classifyReviewSignoff({
-      file,
-      stateName: rest.state,
-      invoker,
-      reviewDocDeleted: changes.some((c) => c.path === file && c.status === "D"),
-      hasCodeChange: changes.some((c) => !c.path.startsWith(".gtd/")),
-      original,
-      current,
-    })
-    if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
-  })
-
-/** The one-line marker `feedback-collecting` writes when a review round left nothing actionable — the ONLY content that lets a `requireProgress` state's instructions file be deleted without a code change (see `classifyFeedbackProgress`). */
-const NOTHING_ACTIONABLE_SENTINEL = "NOTHING ACTIONABLE"
-
-/**
- * The PURE core of the feedback-progress gate (see `enforceFeedbackProgressGate`).
- * At a `requireProgress` state the `file` is an instruction list the agent must
- * ADDRESS, then delete. Refuse a turn that deletes the file while touching no
- * code (`hasCodeChange` false) — the "review feedback captured then silently
- * discarded" bug. Two escapes ALLOW the step: the file isn't being deleted (the
- * agent left work, or the list, in place), or there IS a code change alongside
- * (real work was done). The one delete-with-no-code exception is a
- * `NOTHING ACTIONABLE` sentinel (`deletedContent`): a legitimately
- * non-actionable round makes no code change by design. Kept separate from the
- * Effect so it is directly unit-tested (see program.test.ts).
- */
-export const classifyFeedbackProgress = (input: {
-  readonly file: string
-  readonly stateName: string
-  readonly invoker: string
-  readonly changes: readonly PendingChange[]
-  readonly deletedContent: string
-}): ReviewSignoffVerdict => {
-  const fileDeleted = input.changes.some((c) => c.path === input.file && c.status === "D")
-  if (!fileDeleted) return { kind: "allow" }
-  const hasCodeChange = input.changes.some((c) => !c.path.startsWith(".gtd/"))
-  if (hasCodeChange) return { kind: "allow" }
-  if (input.deletedContent.trim().startsWith(NOTHING_ACTIONABLE_SENTINEL)) return { kind: "allow" }
-  return {
-    kind: "refuse",
-    reason: `gtd step ${input.invoker}: ${input.file} was deleted at "${input.stateName}" without addressing its instructions — implement the changes it lists (then delete it), don't just remove the file.`,
-  }
-}
-
-/**
- * The feedback-progress gate (edge, like the sign-off gate above). At a
- * `requireProgress: true` state (the unified template's `feedback-building`), a
- * turn that just deletes the instructions file without doing the work it lists
- * is refused BEFORE it can commit — the pure `classifyFeedbackProgress` decides.
- * A no-op when the state is not a `requireProgress` state or the decision is a
- * squash/no-op. The committed (pre-deletion) file content — read once here —
- * feeds the sentinel exemption.
- */
-const enforceFeedbackProgressGate = (
-  invoker: string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-  changes: readonly PendingChange[],
-  kind: ExecutableDecision["kind"],
-): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
-  Effect.gen(function* () {
-    if (kind !== "commit") return
-    if (!isRequireProgressState(rest.def, rest.state)) return
-    const file = yield* renderFile(rest.stateDef, context)
-    if (file === undefined) return
-    const git = yield* GitService
-    const deletedContent = yield* git
-      .readFileAtRef("HEAD", file)
-      .pipe(Effect.catchAll(() => Effect.succeed("")))
-    const verdict = classifyFeedbackProgress({
-      file,
-      stateName: rest.state,
-      invoker,
-      changes,
-      deletedContent,
-    })
-    if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
-  })
-
-/** The `mode:` name of gtd's built-in open-questions checkbox format — the only mode the answer-completeness gate below acts on. */
-const QA_MODE = "qa"
-
-/** The verdict of the pure `classifyAnswerCompleteness` — `allow` lets the step commit, `refuse` fails it with `reason`. */
-export type AnswerCompletenessVerdict =
-  | { readonly kind: "allow" }
-  | { readonly kind: "refuse"; readonly reason: string }
-
-/**
- * The PURE core of the answer-completeness gate (see
- * `enforceAnswerCompletenessGate`). Parses the working-tree `content` of a
- * `qa`-mode file and refuses when any OPEN question is not answered — EXACTLY
- * ONE checkbox ticked, and (for a ticked free-text slot) non-empty text (see
- * `OpenQuestions.answered`). An open question with NO checkbox options is also
- * unanswered — a decision can't have been made on it. Zero remaining open
- * questions (the section was deleted, or the agent surfaced none) allows the
- * step: that is BOTH the tick-then-loop path and the clean advance / accept-all
- * escape. Kept separate from the Effect so it is directly unit-tested (see
- * program.test.ts).
- */
-export const classifyAnswerCompleteness = (input: {
-  readonly file: string
-  readonly stateName: string
-  readonly invoker: string
-  readonly content: string
-}): AnswerCompletenessVerdict => {
-  const open = parseOpenQuestions(input.content).questions.filter((q) => q.status === "open")
-  const unanswered = open.filter((q) => !q.answered)
-  if (unanswered.length === 0) return { kind: "allow" }
-  const list = unanswered.map((q) => `  - ${q.question}`).join("\n")
-  return {
-    kind: "refuse",
-    reason: `gtd step ${input.invoker}: ${unanswered.length} open question(s) in ${input.file} not answered at "${input.stateName}" — tick exactly one option per question (or delete a question you don't want to answer, or delete the whole "## Open Questions" section to accept the plan as-is):\n${list}`,
-  }
-}
-
-/**
- * The answer-completeness gate (edge, like the sign-off gate above). At an
- * `answerGate: true` state with `mode: qa` (the unified template's
- * `product-answer`/`technical-answer`), a human step is refused unless
- * every open question in the file is answered — the pure
- * `classifyAnswerCompleteness` decides over the WORKING-TREE contents. A no-op
- * when the state is not an answer gate (so the agent's own authoring step, which
- * writes all-unticked options, is never gated), the mode isn't `qa`, or the
- * decision is a squash/no-op.
- */
-const enforceAnswerCompletenessGate = (
-  worktreeRead: (path: string) => string,
-  invoker: string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-  kind: ExecutableDecision["kind"],
-): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
-  Effect.gen(function* () {
-    if (kind !== "commit") return
-    if (!isAnswerGateState(rest.def, rest.state) || rest.stateDef.mode !== QA_MODE) return
-    const file = yield* renderFile(rest.stateDef, context)
-    if (file === undefined) return
-    const current = yield* Effect.try(() => worktreeRead(file)).pipe(
-      Effect.catchAll(() => Effect.succeed("")),
-    )
-    const verdict = classifyAnswerCompleteness({
-      file,
-      stateName: rest.state,
-      invoker,
-      content: current,
-    })
-    if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
-  })
-
 /**
  * `gtd validate [--json]`: format (in place) then validate the steering file
  * the resolved rest declares (`file:` rendered, `mode:` selecting how), over
@@ -1446,13 +1111,8 @@ const runValidateCommand = (
   Effect.gen(function* () {
     yield* rejectExtraArgs("validate", argv)
     const git = yield* GitService
-    const worktree = yield* WorktreeReader
     const { rest, context } = yield* resolveRestContext(git)
-    const { file, present, errors } = yield* formatAndCheckSteeringFile(
-      worktree.read,
-      rest,
-      context,
-    )
+    const { file, present, errors } = yield* checkSteeringFile(rest, context)
     if (!present) {
       if (json) write(JSON.stringify({ state: rest.state, valid: true, errors: [] }) + "\n")
       else write(`nothing to validate at "${rest.state}"\n`)
@@ -2043,7 +1703,7 @@ export interface RunOptions {
  * Factory that returns the gtd driver Effect with the given I/O options.
  *
  * The returned Effect requires `GitService | FileSystem.FileSystem |
- * ConfigService | Cwd | WorktreeReader | EnvVars`. Production code calls
+ * ConfigService | Cwd | RepoFiles | CommandRunner | EnvVars`. Production code calls
  * this with no arguments; the test world supplies an in-memory layer set and
  * captures stdout via the `write` callback.
  *

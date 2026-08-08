@@ -187,12 +187,12 @@ export interface StateDef {
    * Optional. When `true`, a step at this state is REFUSED if its only pending
    * change is deleting the state's own `file:` — a work-free turn that discards
    * its input without addressing it (the "review feedback captured then
-   * silently deleted" bug). Like the review window and sign-off gate, the PURE
-   * engine never reads it: the check lives at the edge
-   * (`enforceFeedbackProgressGate` in `src/program.ts`), which also exempts a
-   * `NOTHING ACTIONABLE` sentinel file (a legitimately non-actionable feedback
-   * round that makes no code change). Requires a `file:`; forbidden on a commit
-   * state (never at rest — see `validateDefinition`).
+   * silently deleted" bug). Like the review window and sign-off guard, the PURE
+   * engine never reads it: the check lives at the edge — the feedback-progress
+   * guard in `src/StepGuards.ts`, which also exempts a `NOTHING ACTIONABLE`
+   * sentinel file (a legitimately non-actionable feedback round that makes no
+   * code change). Requires a `file:`; forbidden on a commit state (never at
+   * rest — see `validateDefinition`).
    */
   readonly requireProgress?: boolean
 
@@ -202,10 +202,10 @@ export interface StateDef {
    * per question (and, when the ticked one is the trailing free-text slot, its
    * text is non-empty). This is what makes the advanced flow's answer gates
    * (`product-answer`/`technical-answer`) require a decision on every
-   * question before looping back or advancing. Like the review sign-off gate,
-   * the PURE engine never reads it: the check lives at the edge
-   * (`enforceAnswerCompletenessGate` in `src/program.ts`, over
-   * `src/OpenQuestions.ts`), and only acts when the state also declares
+   * question before looping back or advancing. Like the review sign-off guard,
+   * the PURE engine never reads it: the check lives at the edge — the
+   * answer-completeness guard in `src/StepGuards.ts`, over
+   * `src/OpenQuestions.ts` — and only acts when the state also declares
    * `mode: qa`. Requires a `file:`; forbidden on a commit state (never at
    * rest — see `validateDefinition`).
    */
