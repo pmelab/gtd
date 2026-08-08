@@ -232,6 +232,8 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.modes).toEqual({
+      qa: {},
+      review: {},
       adr: { format: "adr-fmt <%= it.file %>", validate: "adr-lint <%= it.file %>" },
     })
   })

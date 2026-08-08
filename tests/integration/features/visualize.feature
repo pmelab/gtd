@@ -59,7 +59,7 @@ Feature: gtd visualize — an interactive diagram of the active workflow
     Given a test project
     When I run gtd with args "visualize bogus"
     Then it fails
-    And stderr contains "unexpected argument"
+    And stderr contains "too many arguments"
 
   Scenario: an invalid --port is rejected
     Given a test project
@@ -105,7 +105,7 @@ Feature: gtd visualize — an interactive diagram of the active workflow
             states:
               idle:
                 actor: human
-                message: "write NOTE.md to start a cycle"
+                message: "write NOTE.md to start a process"
                 on:
                   "* **":
                     to: reviewing

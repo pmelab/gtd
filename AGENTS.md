@@ -13,27 +13,65 @@
 
 ## Architecture
 
+`CONTEXT.md` is the glossary — the domain language this repo uses (process,
+turn, step, capture, rest, gate vs guard, pattern vs edge). Read it before
+naming anything, and keep it a glossary: architecture lives here and in module
+doc comments, never there.
+
 Read the code for the architecture — every module carries a doc comment
 describing its own job. The two boundaries that are decisions rather than
 description, and must be preserved:
 
 - **`src/PatternMachine.ts` is pure.** Definition types, the pattern grammar,
   HEAD resolution, and the step decision. No git, no filesystem, no Effect —
-  every export is a plain function of its arguments. Keep it that way.
+  every export is a plain function of its arguments. Keep it that way. Pure
+  means no IO — no git, no filesystem, no Effect; its one import is
+  `src/StateFields.ts`, the state-field table, itself a zero-import leaf of
+  const data and total functions.
 - **Everything IO-shaped lives at the edge.** `src/Edge.ts` (git/templates),
   `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
-  window). `src/program.ts` calls the edge; it never reaches into `GitService`
-  directly. The review window and the steering-file gate are deliberately
+  <<<<<<< HEAD window). A command resolves ONE `Rest` (`Edge.ts`'s
+  `currentRest`/`restAt`) and hands it to `planStep`/`planEntry` —
+  `src/program.ts` never reaches into `GitService` directly except two narrow
+  exceptions: the `abandon`/`restore` hard/mixed resets (recovery commands that
+  must work even when a `Rest` would refuse — see `runAbandonCommand`'s own doc
+  comment), and the review sign-off/ feedback-progress gates' own
+  `readFileAtRef` reads (they need the COMMITTED, pre-turn copy of a file, which
+  a `Rest` snapshot — taken before the turn lands — doesn't carry). The review
+  window and the steering-file gate are deliberately invisible to the pure
+  engine — don't "simplify" them back into it. ======= window),
+  `src/StepGuards.ts` (the step-capture guard registry), `src/RepoFiles.ts` (the
+  working-tree/committed content port), `src/CommandRunner.ts` (the subprocess
+  port). `src/program.ts` calls the edge; it never reaches into `GitService`
+  directly. The review window and the steering-file guard are deliberately
   invisible to the pure engine — don't "simplify" them back into it.
+
+> > > > > > > extract-step-guards
+
 - **The review window issues no whole-tree index WRITE, and every git index
   write tolerates `index.lock` contention.** gtd shares one worktree index with
   the reviewer's editor SCM, `gtd lsp`, and git-aware prompts, which all write
   the index to refresh their stat cache when the window's `git reset --mixed`
   wakes them. So `openReviewWindow` leaves new files UNTRACKED (never
   `git add --intent-to-add .` — that both lost the lock race and truncated
-  discarded files to zero bytes), and all index writers in `src/Git.ts` go
-  through `withIndexLockRetry`. Don't add a whole-tree index write to the window
-  or a raw `exec` that bypasses the retry.
+  discarded files to zero bytes). The `index.lock` retry is a property of the
+  `GitOperations` PORT (`src/Git.ts`'s `withIndexLockRetries`), applied ONCE
+  above the whole service — both `GitService.Live` and the in-memory layer
+  (`src/testing/Layers.ts`'s `gitTestLayer`) build their service through it, so
+  a raw `exec` added inside a writer can no longer bypass it. Never construct a
+  `GitOperations` and hand it straight to `Layer.succeed` — go through
+  `withIndexLockRetries`.
+
+### Testing
+
+`src/testing/` is the in-memory git/config/filesystem test seam
+(`InMemRepo`/`GitDoubles`/`Layers`/`GitTiers`) — it never ships (a lint rule and
+a build-time bundle-content assertion both guard the boundary) and is imported
+only from `src/**/*.test.ts` and `tests/**`. The fake is trustworthy only
+because `src/testing/GitTiers.ts`'s `runGitServiceContract` runs the same
+20-operation `GitOperations` contract against BOTH the fake and a real git repo
+— treat the contract, not the fake's internals, as the source of truth when the
+fake and production ever disagree.
 
 A workflow is DATA, not code: there is no engine-side wiring to trace when a
 workflow's shape changes.
@@ -50,8 +88,11 @@ each machine's `model`, each state's `actor`, exactly one content kind, `on`
 edges, `retry`, `file`/`mode`, `reviewWindow`/`reviewBase`). It compiles through
 the same `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through
 (which flattens `entry:`/`machines:` via `src/Machines.ts`'s `flattenMachines`
-before any per-state compilation), so it never needs its own logic. After
-editing, update:
+before any per-state compilation), so it never needs its own logic. A state's
+`mode:` must name an entry the workflow's own top-level `modes:` map declares
+(an empty `{}` entry is enough) — the compiler seeds `qa`/`review` for you, but
+any OTHER name (including `prose`) needs its own `modes:` entry, or
+`validateDefinition` rejects the state at load time. After editing, update:
 
 - **`src/workflows/templates.test.ts`** — the invariants the compiled template
   must keep (one `entry.default`, one review window, one review/fix entry, the
@@ -75,19 +116,31 @@ state's model and memory scope" — alongside, not instead of, the per-state
 checks above.
 
 A genuinely new engine capability (a new content kind, a new `on` pattern
-grammar, a new state property) is a different, much rarer kind of change — that
-touches `src/PatternMachine.ts` (types + `validateDefinition`),
-`src/PatternConfig.ts` (the compiler), and `src/PatternTemplates.ts` or
-`src/Edge.ts` as needed, plus all of the above.
+grammar) is a different, much rarer kind of change — that touches
+`src/PatternMachine.ts` (types + `validateDefinition`), `src/PatternConfig.ts`
+(the compiler), and `src/PatternTemplates.ts` or `src/Edge.ts` as needed, plus
+all of the above.
+
+A new STATE PROPERTY is not one of these anymore: it's one entry in
+`src/StateFields.ts`'s `STATE_FIELDS` table plus its behaviour (a bespoke
+checker or compiler only if the field's rule doesn't fit the table's generic
+`nonEmpty`/`commit`/`requires` shape) — declaration, compilation, validation,
+the editor JSON schema, and the visualizer's presentation all derive from that
+one table and need no separate edit. Read `STATE_FIELDS` for what a state may
+declare and how each field behaves, rather than any one derivation site.
 
 A new steering-file FORMAT is neither: `mode:` names a pluggable mode, so a
 workflow declares its own `modes:` entry (a `format:`/`validate:` shell command
-pair) — no gtd change at all. Only the two built-in VALIDATORS (`qa`/`review`)
-live in code, because `gtd lsp` needs their parsers in process; a third built-in
-name, `prose`, is recognized with no code of its own — a format-only mode (no
-validator) the simple flow's plan file uses. gtd ships no formatter at all
-(there is no `gtd format` subcommand and no bundled prettier — a project plugs
-its own into a mode's `format:`).
+pair, or `{}`) — no gtd change at all. Only the two built-in VALIDATORS
+(`qa`/`review`, `src/SteeringFormats.ts`'s registry) live in code, because
+`gtd lsp` needs their parsers in process; `src/PatternConfig.ts`'s compiler
+seeds both of their names as empty `modes:` entries into every compiled
+definition, so a workflow gets their validation without declaring them itself.
+An empty `modes:` entry (`{}`) is the FORMAT-ONLY tier any workflow can use for
+a name with no gtd-side schema — the bundled template declares
+`modes: { prose: {} }` itself, for the simple flow's free-form plan file. gtd
+ships no formatter at all (there is no `gtd format` subcommand and no bundled
+prettier — a project plugs its own into a mode's `format:`).
 
 ### Variables
 
@@ -112,11 +165,25 @@ scenarios actually run them.
 
 ## CLI design
 
-- Keep CLI flags orthogonal: each flag controls exactly one concern and no flag
-  implies another, so users can combine them freely
-- Never let an unknown `--` option pass silently — reject it with a usage error
-  (`--json` is the only long option); a mistyped `--jsn` silently degrading to
-  plain-text output is a bug class, not a convenience
+`src/Cli.ts` owns the whole shell — one flag table, one command table, one
+parser, one envelope. The table is the source of truth, not prose:
+
+- A flag exists in the table (`name`, `arity`, `repeatable`, `scope`, `decode`,
+  `scopeError`, `help`) or it does not exist — there is no flag recognized by
+  some code path but absent from the table, and no unknown `--` option ever
+  passes silently (a mistyped `--jsn` is a usage error, never a silent
+  plain-text degrade)
+- `renderHelp()` is a derived view of the flag/command tables, not
+  hand-maintained prose — a flag or command's help text lives in its own row
+  (`help`/`details`), and the README's `## Commands` block is pinned equal to
+  `renderHelp()`'s output
+- Adding an escape hatch (a new flag, a new command, a new scope exception) is a
+  table edit, not a new `if` — `Cli.test.ts`'s property test forces every
+  unrecognized `--` token to a usage error, so a flag added anywhere other than
+  the table is invisible to the parser by construction
+- `--version`/`--help` must stay unrepresentable as a `Command` — they resolve
+  to an `output` plan, so no layer is ever built to answer them and no
+  `run*Command` handler can accidentally gate on their presence
 - gtd renders plain line output only — there is no spinner/renderer and no
   agent-event stream in the CLI. Do not re-add `--verbose`/`--debug` (or any
   output-mode flag) without wiring it to a real, tested concern; the flags must
@@ -141,10 +208,13 @@ scenarios actually run them.
   distinguish "nothing happened" (clean, no `C` row) from "something happened
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`
   map
-- **Steering-file gate (edge, not engine):** capturing a commit out of a state
-  that declares `file:`+`mode:` first formats that file in place and validates
-  it per its `mode:` (`enforceSteeringGate` in `src/program.ts` over
-  `src/SteeringMode.ts`), and REFUSES the step when it is invalid, so a
-  malformed steering file is never committed (an agent's draft or a human's gate
-  edit alike). It is a no-op when the file is absent (a deletion) or the state
-  declares no `file:`/`mode:`, and a squash skips it
+- **Step-capture guards (edge, not engine):** `enforceStepGuards` in
+  `src/StepGuards.ts` runs a registry of guards before a normal commit lands —
+  the steering-file guard first formats a state's `file:`+`mode:` file in place
+  and validates it per its `mode:` (over `src/SteeringMode.ts`), then the
+  review-signoff, feedback-progress, and answer-completeness guards each check
+  their own state-flavor condition. Any guard REFUSES the step when its
+  condition fires, so e.g. a malformed steering file is never committed (an
+  agent's draft or a human's gate edit alike). Each guard is a no-op when it
+  doesn't apply to the resting state (see `StepGuard.appliesTo`), and the whole
+  registry is skipped for a squash/no-op decision

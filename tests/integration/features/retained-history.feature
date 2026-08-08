@@ -1,7 +1,7 @@
 @inmem
 Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the retained tip
 
-  A squash collapses a whole cycle's turn commits into one, and `gtd abandon`
+  A squash collapses a whole process's turn commits into one, and `gtd abandon`
   rewinds a process still underway — both retain the pre-collapse tip on
   `refs/worktree/gtd/history` (see `src/RetainedHistory.ts`) before they act.
   `gtd restore` is the way back: it hard-resets HEAD to that retained tip and
@@ -304,7 +304,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
     And the last commit subject is "feat: cycle one"
     And the git ref "refs/worktree/gtd/history" exists
 
-    # Second cycle, on top of the first squash — its own retainHistory call
+    # Second process, on top of the first squash — its own retainHistory call
     # rolls the SAME ref forward to its own pre-squash tip.
     Given a file ".gtd/TODO.md" with:
       """

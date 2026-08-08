@@ -1278,20 +1278,9 @@
       const actorOf = (s) => s.actor || (s.kind === "commit" ? "commit" : "unknown")
       const meta = (a) => ACTOR[a] || ACTOR.unknown
 
-      const FLAGS = {
-        initial:
-          "The one initial state — an unrecognized HEAD (any non-gtd history) resolves here.",
-        entry:
-          "This state is a manual entry point (`entry: true`) — a brand-new process may start here via `gtd step <actor> --entry <state>` (or the subcommand-less `gtd --entry <state>`), in addition to the workflow's ordinary `initial` state.",
-        reviewWindow:
-          "While resting here, gtd opens the review checkout window: HEAD is rewound to the review base so the whole diff surfaces as ordinary uncommitted changes.",
-        reviewBase:
-          "Anchors the incremental review diff base — its most-recent in-process commit is where the next reviewing turn and checkout window start.",
-        answerGate:
-          "Edge gate: a step is refused while any open question in the steering file is not answered with exactly one tick.",
-        requireProgress:
-          "Edge gate: refuses a work-free turn that only deletes the instructions file (unless it held a NOTHING ACTIONABLE sentinel).",
-      }
+      // Flag/field tooltip text now comes from the server's MODEL.fieldDocs
+      // (built from src/StateFields.ts's STATE_FIELDS table — see
+      // Visualize.ts's FIELD_DOCS) rather than a hand-maintained copy here.
 
       // ── state ──────────────────────────────────────────────────────────────
       let MODEL = null
@@ -2201,7 +2190,7 @@
           ? `<div class="field"><div class="k">flags & gates</div><div class="flag-list">${flags
               .map(
                 (f) =>
-                  `<div class="flag-item"><span class="fn">${esc(f)}</span><span class="fd">${esc(FLAGS[f] || "")}</span></div>`,
+                  `<div class="flag-item"><span class="fn">${esc(f)}</span><span class="fd">${esc((MODEL.fieldDocs && MODEL.fieldDocs[f]) || "")}</span></div>`,
               )
               .join("")}</div></div>`
           : ""

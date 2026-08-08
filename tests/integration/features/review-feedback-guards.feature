@@ -15,9 +15,10 @@ Feature: Review feedback — capture, classification, and the no-op guards
   - `build.review.collecting` declares no edge for "raw consumed, nothing written",
     so a silent no-op (delete REVIEW_RAW.md, write no instructions) matches no
     pattern and is REFUSED by the pure engine.
-  - `build.addressing` declares `requireProgress: true`, so the edge gate
-    (`enforceFeedbackProgressGate`) REFUSES a turn whose only change is deleting
-    the instructions file — unless it held a `NOTHING ACTIONABLE` sentinel.
+  - `build.addressing` declares `requireProgress: true`, so the
+    feedback-progress guard (`src/StepGuards.ts`) REFUSES a turn whose only
+    change is deleting the instructions file — unless it held a
+    `NOTHING ACTIONABLE` sentinel.
 
   Each check-actor turn (`build.review.deciding`) is simulated by writing its verdict
   files and running `gtd step check`; @inmem never executes the scripts.
@@ -38,6 +39,43 @@ Feature: Review feedback — capture, classification, and the no-op guards
       ## calc
       - [ ] ./src/calc.ts#1 — new add function
       """
+
+  Scenario: a note-like unchecked line outside a file pointer no longer blocks sign-off
+    # The committed REVIEW.md already carries a non-`./`-prefixed "- [ ]" note,
+    # untouched by the human's edit below. Only the real file pointer is
+    # ticked, with no other comment — this used to be refused (the old raw
+    # regex counted the note's box too); now `untickedFiles` counts only
+    # recognized `./`-prefixed hunk pointers inside `##` chunks, so it signs
+    # off cleanly.
+    Given a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      Follow-up ideas, not part of this review:
+      - [ ] consider renaming the module later
+
+      - [ ] ./src/calc.ts#1 — new add function
+      """
+    Given ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      Follow-up ideas, not part of this review:
+      - [ ] consider renaming the module later
+
+      - [x] ./src/calc.ts#1 — new add function
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
   Scenario: a note flows through capture and classification into a build
     # await-review: the human leaves a note (a change beyond a tick) → feedback

@@ -83,7 +83,7 @@ states:
     initial: true # EXACTLY ONE state across the workflow carries this
     retry: { max: <int>, otherwise: <targetState> } # optional cap (see "Retry")
     file: <string> # optional steering file this state is about (Eta-rendered)
-    mode: <modeName> # optional, REQUIRES file: — qa | review | a modes: entry
+    mode: <modeName> # optional, REQUIRES file: — must be declared in modes: (qa/review are seeded automatically)
     reviewWindow: true # optional — open the review checkout window at rest here
     reviewBase: true # optional — anchor the review diff base to this state
     # reviewBase: <Eta template> # OR a template — see "Retry, review, and the squash finale"
@@ -244,7 +244,7 @@ well-formed files. It is a no-op when the file is absent.
   (typically a human `escalate` gate). Bounds fix loops so agents can't burn
   tokens forever. `otherwise` must name a defined state.
 - **`reviewWindow: true`** — while resting here, gtd rewinds HEAD/index to the
-  review base (working tree untouched) so the whole cycle diff shows up as
+  review base (working tree untouched) so the whole process diff shows up as
   uncommitted changes in the editor. `reviewBase: true` anchors that base to
   this state's own most-recent in-process commit; absent one, it defaults to the
   process start.
@@ -279,7 +279,7 @@ well-formed files. It is a no-op when the file is absent.
   unreachable from the initial state by ordinary `on` routing (a state `idle`
   already reaches needs no flag to be a valid `--entry` target).
 - **Squash finale** — a `commit:` state ends the process by squashing the whole
-  cycle into one commit using its rendered template as the message (see
+  process into one commit using its rendered template as the message (see
   `unified.yaml`'s `squashing` → `done`, reached on a full review sign-off). A
   workflow can omit it and leave the per-step commits in history instead.
 
@@ -319,8 +319,8 @@ before declaring a workflow done:
   rename or leftover), not a warning — there is no "manual-entry-only" state.
 
 Also keep the **hygiene invariant** the bundled templates hold: an approved
-cycle leaves `.gtd/` empty (each steering file is cleaned up by the state that
-consumes it). A workflow that accumulates cruft in `.gtd/` across cycles is
+process leaves `.gtd/` empty (each steering file is cleaned up by the state that
+consumes it). A workflow that accumulates cruft in `.gtd/` across processes is
 almost certainly a bug.
 
 ## Verify (after every change)

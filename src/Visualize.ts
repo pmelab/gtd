@@ -14,6 +14,7 @@ import {
   type WorkflowDefinition,
   type WorkflowEntries,
 } from "./PatternMachine.js"
+import { STATE_FIELDS, STATE_FIELD_ENTRIES, type StateFieldsTable } from "./StateFields.js"
 import type { MachineNode } from "./Machines.js"
 import type { ResolvedRest } from "./Edge.js"
 import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
@@ -59,20 +60,27 @@ export interface VizEdge {
   readonly action?: string
 }
 
+/**
+ * Every `StateDef` field the visualizer presents as a key/value field (as
+ * opposed to a boolean flag chip — see `FLAG_KEYS` below): a derived mapped
+ * type over `STATE_FIELDS`' own `viz === "field"` entries, so a new field
+ * declaring `viz: "field"` shows up here — and in `toVizState`/`FIELD_DOCS`
+ * below — with no separate edit.
+ */
+type VizFieldName = {
+  [K in keyof StateFieldsTable]: StateFieldsTable[K] extends { viz: "field" } ? K : never
+}[keyof StateFieldsTable]
+
+type VizFields = { readonly [K in VizFieldName]?: StateDef[K] }
+
 /** One state, described for the viewer. */
-export interface VizState {
+export interface VizState extends VizFields {
   readonly name: string
-  /** The state's actor, or omitted for a commit state. */
-  readonly actor?: string
   /** `script` | `prompt` | `message` | `commit` | `unknown` (a malformed state). */
   readonly kind: string
   /** The state's raw template source (script/prompt/message), verbatim — omitted for a commit state. */
   readonly content?: string
   readonly initial?: boolean
-  readonly model?: string
-  readonly file?: string
-  readonly mode?: string
-  readonly retry?: { readonly max: number; readonly otherwise: string }
   /** Boolean state flags that are set: reviewWindow/reviewBase/entry/requireProgress/answerGate. */
   readonly flags: readonly string[]
   readonly on: readonly VizEdge[]
@@ -104,16 +112,32 @@ export interface VizModel {
   readonly initial: string
   readonly groups: readonly VizGroup[]
   readonly vars: Record<string, string>
+  readonly fieldDocs: Record<string, string>
 }
 
-const FLAG_KEYS = ["reviewWindow", "reviewBase", "requireProgress", "answerGate"] as const
+/** Every state property name marked `viz: "field"` in `STATE_FIELDS` — the key/value fields `toVizState` copies onto `VizState`. */
+const VIZ_FIELD_NAMES: readonly string[] = STATE_FIELD_ENTRIES.filter(
+  ([, spec]) => spec.viz === "field",
+).map(([key]) => key)
 
-// The boolean state flags that are set. `initial` is NOT included here — it is
-// carried as its own `VizState.initial` field. `entry` is also excluded — it is
-// not a per-state `StateDef` flag but derived from whether the state's name
-// appears in `WorkflowDefinition.entries.manual`, the same way `initial` is
-// derived from `entries.default` (see `toVizState`'s `entries` parameter).
-const flagsOf = (def: StateDef): string[] => FLAG_KEYS.filter((k) => def[k] === true)
+/** Every state property name marked `viz: "flag"` in `STATE_FIELDS` — the boolean flags that are set. `initial` is NOT among them — it is carried as its own `VizState.initial` field. `entry` is also excluded — it is not a per-state `StateDef` flag but derived from whether the state's name appears in `WorkflowDefinition.entries.manual`, the same way `initial` is derived from `entries.default` (see `toVizState`'s `entries` parameter). */
+const FLAG_KEYS: readonly string[] = STATE_FIELD_ENTRIES.filter(
+  ([, spec]) => spec.viz === "flag",
+).map(([key]) => key)
+
+const fieldOf = (def: StateDef, key: string): unknown => (def as Record<string, unknown>)[key]
+
+const flagsOf = (def: StateDef): string[] => FLAG_KEYS.filter((k) => fieldOf(def, k) === true)
+
+/** Every `viz: "field"` value that's actually set on `def`, keyed by field name — `toVizState`'s replacement for five individual `actor`/`model`/`file`/`mode`/`retry` spreads. */
+const vizFieldsOf = (def: StateDef): Record<string, unknown> => {
+  const out: Record<string, unknown> = {}
+  for (const key of VIZ_FIELD_NAMES) {
+    const value = fieldOf(def, key)
+    if (value !== undefined) out[key] = value
+  }
+  return out
+}
 
 const edgeToViz = ([pattern, to, describe, action]: OnEdge): VizEdge =>
   stripUndefined({ pattern, to, describe, action }) as unknown as VizEdge
@@ -135,14 +159,10 @@ const toVizState = (
 ): VizState =>
   stripUndefined({
     name,
-    actor: def.actor,
+    ...vizFieldsOf(def),
     kind: contentKindOf(def) ?? "unknown",
     content: contentOf(def),
     initial: entries.default === name ? true : undefined,
-    model: def.model,
-    file: def.file,
-    mode: def.mode,
-    retry: def.retry,
     flags: [...flagsOf(def), ...(entries.manual.includes(name) ? ["entry"] : [])],
     on: onEdges.map(edgeToViz),
     incoming,
@@ -230,6 +250,26 @@ const modelOfGroup = (
 }
 
 /**
+ * Tooltip/description text for every field the visualizer can show, keyed by
+ * field name: every `STATE_FIELDS` entry that declares a `viz` (both the
+ * `"field"` key/value fields and the `"flag"` chips), plus two entries with
+ * no `viz`-marked `StateFields` counterpart — `entry` (derived from
+ * `entries.manual`, not a `StateDef` field, so it needs its own explicit
+ * inclusion here) and `initial` (a derived pseudo-flag with no `StateFields`
+ * entry at all; kept as the viewer's own hand-written sentence).
+ */
+const FIELD_DOCS: Record<string, string> = {
+  ...Object.fromEntries(
+    STATE_FIELD_ENTRIES.filter(([, spec]) => spec.viz !== undefined).map(([key, spec]) => [
+      key,
+      spec.doc,
+    ]),
+  ),
+  entry: STATE_FIELDS.entry.doc,
+  initial: "The one initial state — an unrecognized HEAD (any non-gtd history) resolves here.",
+}
+
+/**
  * Build the viewer's JSON description from the active COMPILED workflow plus
  * the machine tree its flattening produced (`CompiledWorkflowConfig.tree`)
  * and the memory-scope map its flattening produced alongside it
@@ -281,6 +321,7 @@ export const buildVizModel = (
     initial: initialStateOf(workflow),
     groups,
     vars,
+    fieldDocs: FIELD_DOCS,
   }
 }
 

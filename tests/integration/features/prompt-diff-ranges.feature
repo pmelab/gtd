@@ -1,4 +1,3 @@
-@inmem
 Feature: Prompts carry diff RANGES, never diff CONTENT
 
   A gtd prompt never inlines a rendered diff. Instead it names the commit its
@@ -15,12 +14,13 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     Given a test project
     And the workflow
 
+  @inmem
   Scenario: packages.item.spec.review (advanced flow) prints the process base hash, never a rendered diff
     Given a commit "feat: add architecture" that adds "src/db.ts" with:
       """
       export const db = {}
       """
-    And I mark the current commit as "cycle-start"
+    And I mark the current commit as "process-start"
     And a file ".gtd/NEXT.md" with:
       """
       Package: add a db module.
@@ -30,7 +30,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     And an empty commit "gtd(check): packages.item.health.check → packages.item.spec.review"
     When I run gtd next
     Then it succeeds
-    And stdout contains the hash of "cycle-start"
+    And stdout contains the hash of "process-start"
     And stdout does not contain "diff --git"
     And stdout does not contain "## Diff under review"
 

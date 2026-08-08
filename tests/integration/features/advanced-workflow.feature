@@ -93,7 +93,7 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
     And the last commit subject is "gtd(agent): building → picking"
 
     # picking: the queue is now empty — deleting NEXT.md matches "D .gtd/NEXT.md"
-    # (declared before the wildcard row) and closes the cycle out via "done"
+    # (declared before the wildcard row) and closes the process out via "done"
     Given the file ".gtd/NEXT.md" is deleted
     When I run gtd step check
     Then it succeeds

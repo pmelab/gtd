@@ -1,4 +1,3 @@
-@live
 Feature: Pluggable steering-file modes — a mode is a format command plus a validate command
 
   A state's `mode:` names a steering-file MODE (see STATES.md §12 and
@@ -16,9 +15,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   project plugs one in.
 
   Both halves run wherever the gate runs: `gtd validate`, and the `gtd step`
-  capture gate that refuses to commit an invalid steering file. Real subprocess
-  execution, so this feature runs `@live`.
+  capture gate that refuses to commit an invalid steering file. The bulk of
+  this feature runs `@live` (real subprocess execution over real bash); five
+  scenarios are ALSO covered `@inmem` (tagged "(scripted)") over a scripted
+  `CommandRunner` double, since real bash is unreachable against an in-memory
+  worktree — added, not converted, so a spawn-mechanism difference still has
+  something to fail against.
 
+  @live
   Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -72,6 +76,51 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "docs/adr.md: missing a '## Decision' section"
     And stderr does not contain "missing a '## Status' section"
 
+  @inmem
+  Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero (scripted)
+    # The @inmem twin of the scenario above: real bash is unreachable against an
+    # in-memory worktree, so the validate command is a scripted double keyed by
+    # its rendered command string (see tests/integration/support/steps/steering.steps.ts).
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            validate: "adr-validate <%= it.file %>"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
+      """
+    And the shell command "adr-validate docs/adr.md" exits 1 with:
+      """
+      docs/adr.md: missing a '## Decision' section
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+      """
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains "docs/adr.md is not valid"
+    And stderr contains "docs/adr.md: missing a '## Decision' section"
+
+  @live
   Scenario: gtd validate exits 0 when the custom mode's validate command is happy
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -111,6 +160,51 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And stdout contains "docs/adr.md: valid"
 
+  @inmem
+  Scenario: gtd validate exits 0 when the custom mode's validate command is happy (scripted)
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            validate: "adr-validate <%= it.file %>"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
+      """
+    And the shell command "adr-validate docs/adr.md" exits 0 with:
+      """
+      ok
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+
+      ## Decision
+
+      Adopt it.
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains "docs/adr.md: valid"
+
+  @live
   Scenario: the mode's format command rewrites the file in place before validation
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -153,6 +247,58 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stdout contains "docs/adr.md: valid"
     And the git status contains "docs/adr.md"
 
+  @inmem
+  Scenario: the mode's format command rewrites the file in place before validation (scripted)
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            format: "adr-format <%= it.file %>"
+            validate: "adr-validate <%= it.file %>"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
+      """
+    And the shell command "adr-format docs/adr.md" rewrites "docs/adr.md" to:
+      """
+      # ADR 1: use gtd
+
+      status: accepted
+      """
+    And the shell command "adr-validate docs/adr.md" exits 0 with:
+      """
+      ok
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+
+      status: draft
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains "docs/adr.md: valid"
+    And "docs/adr.md" contains "status: accepted"
+    And the git status contains "docs/adr.md"
+
+  @live
   Scenario: the gtd step capture gate refuses a turn whose custom-mode steering file is invalid
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -202,6 +348,57 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "an ADR needs a '## Decision' section"
     And the last commit subject is "gtd(human): drafting"
 
+  @inmem
+  Scenario: the gtd step capture gate refuses a turn whose custom-mode steering file is invalid (scripted)
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            validate: "adr-validate <%= it.file %>"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
+      """
+    And the shell command "adr-validate docs/adr.md" exits 1 with:
+      """
+      docs/adr.md: an ADR needs a '## Decision' section
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+      """
+    And a file "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+
+      ## Stauts
+
+      Accepted.
+      """
+    When I run gtd step agent
+    Then it fails
+    And stderr contains "docs/adr.md is not valid at \"drafting\""
+    And stderr contains "an ADR needs a '## Decision' section"
+    And the last commit subject is "gtd(human): drafting"
+
+  @live
   Scenario: a valid custom-mode steering file passes the gate and the turn is captured
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -245,6 +442,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting → idle"
 
+  @live
   Scenario: a failing format command is a hard error — the file is never judged, nothing is committed
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -289,6 +487,54 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "adr-fmt: cannot parse docs/adr.md"
     And the last commit subject is "gtd(human): drafting"
 
+  @inmem
+  Scenario: a failing format command is a hard error — the file is never judged, nothing is committed (scripted)
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            format: "adr-format-broken <%= it.file %>"
+            validate: "adr-validate-never-runs <%= it.file %>"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
+      """
+    And the shell command "adr-format-broken docs/adr.md" exits 3 with:
+      """
+      adr-fmt: cannot parse docs/adr.md
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+      """
+    And a file "docs/adr.md" with:
+      """
+      # ADR 1: use gtd (edited)
+      """
+    When I run gtd step agent
+    Then it fails
+    And stderr contains "format command exited with status 3"
+    And stderr contains "adr-fmt: cannot parse docs/adr.md"
+    And the last commit subject is "gtd(human): drafting"
+
+  @live
   Scenario: a modes: entry named after a built-in overrides only the half it declares
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -332,6 +578,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "my house rule"
 
+  @live
   Scenario: declaring only a format: for a built-in mode KEEPS gtd's own validation
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -376,6 +623,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "has no question text"
 
+  @live
   Scenario: a top-level modes: key plugs a formatter into a workflow without re-declaring its modes
     # The top-level `modes:` layer sits BESIDE `workflow:` — the workflow's
     # `grilling` state declares `file: .gtd/TODO.md` + `mode: qa` but no `modes:`
@@ -416,6 +664,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stdout contains ".gtd/TODO.md: valid"
     And ".gtd/TODO.md" contains "Build a thing. Plan: add src/thing.ts."
 
+  @live
   Scenario: a top-level modes: entry layers over the workflow's own, half by half
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -457,6 +706,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And stdout contains "docs/adr.md: valid"
 
+  @live
   Scenario: a custom mode declaring only format: formats the file and has nothing to validate
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -492,3 +742,71 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And stdout contains "docs/adr.md: valid"
     And "docs/adr.md" contains "status: DRAFT"
+
+  @inmem
+  Scenario: the answer-completeness gate still fires on a qa-mode state even when its validate: command is overridden
+    # The semantic upgrade: the gate asks steeringCapabilities for the FORMAT
+    # (qa's identity, from the name), not for "is this mode's validator gtd's
+    # own parser" — so a workflow that plugs a shell command into qa's
+    # validate: still gets the open-questions answer gate. The command below
+    # always exits 0 (a house rule gtd itself has nothing to say about), yet
+    # the step is still refused because a question in the file is unanswered.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          qa:
+            validate: "true"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: drafting
+            states:
+              drafting:
+                actor: agent
+                prompt: "Draft the plan."
+                file: .gtd/TODO.md
+                mode: qa
+                on:
+                  "* **": answering
+              answering:
+                actor: human
+                message: "Answer the open questions."
+                file: .gtd/TODO.md
+                mode: qa
+                answerGate: true
+                on:
+                  "* **": drafting
+      """
+    And the shell command "true" exits 0 with:
+      """
+      """
+    And a commit "gtd(agent): answering" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing.
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
+      """
+    And a file ".gtd/TODO.md" with:
+      """
+      Build a thing. (still deciding)
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
+      """
+    When I run gtd step human
+    Then it fails
+    And stderr contains "1 open question(s)"
+    And stderr contains "not answered at \"answering\""
+    And the last commit subject is "gtd(agent): answering"

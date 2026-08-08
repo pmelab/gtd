@@ -125,6 +125,54 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/PLAN.md"
 
+  Scenario: gtd.openSteeringFile renders file: with the process's own entry vars, matching what gtd status reports (issue #156)
+    # Before src/Edge.ts's currentRest, the LSP's own resolveSteeringFile hand-
+    # rolled a byte-for-byte copy of the CLI's resolution chain that had
+    # drifted three ways: it never applied `--var` overrides, never rendered
+    # `on`, and never computed a review base. This pins the fix — a state
+    # entered with `--var planFile=OTHER.md` renders `file:` against THAT
+    # override, the same file `gtd status` would report.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        vars:
+          planFile: PLAN.md
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/<%= it.vars.planFile %>"
+                mode: qa
+                prompt: "develop the plan"
+                on:
+                  "* **": idle
+              review-check:
+                entry: true
+                actor: human
+                file: ".gtd/<%= it.vars.planFile %>"
+                mode: qa
+                message: "reviewing"
+                on:
+                  "* **": idle
+      """
+    And I run gtd with args "step human --entry review-check --var planFile=OTHER.md"
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client sends a workspace/executeCommand request for "gtd.openSteeringFile"
+    Then the LSP response has no error
+    And the LSP client received a window/showDocument request for ".gtd/OTHER.md"
+
   Scenario: initialize advertises definition support and a definition on a hunk line jumps into the file
     Given a test project
     And an LSP server started in the test project
@@ -186,3 +234,53 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     Then the LSP response has no error
     And the LSP response result contains a code action titled "gtd: pick this option"
+
+  Scenario: a modes: qa validate: override suppresses built-in diagnostics for a live notice, while the outline stays live
+    # The registry's `qa` format identity (outline/actions) survives a declared
+    # `validate:` command that displaces its built-in parser (see
+    # src/SteeringMode.ts's resolveSteeringMode / steeringCapabilities) — the
+    # editor still gets a live outline, but diagnostics become the ONE
+    # Information notice pointing at `gtd validate`, never the built-in
+    # findings.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          qa:
+            validate: "exit 1"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/PLAN.md"
+                mode: qa
+                prompt: "develop the plan"
+                on:
+                  "* **": idle
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
+    And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/PLAN.md" with exactly one Information diagnostic containing "exit 1"

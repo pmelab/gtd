@@ -53,6 +53,8 @@
  * wants to read/validate a `qa`-mode steering file.
  */
 
+import type { SteeringEdit, SteeringFormat, SteeringOutlineNode } from "./SteeringFormat.js"
+
 export type OpenQuestionStatus = "open" | "answered"
 
 /**
@@ -301,4 +303,125 @@ export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
 
   questions.sort((a, b) => a.headingLine - b.headingLine)
   return { questions, errors }
+}
+
+/** Every OPEN question that is not answered (see `OpenQuestion.answered`), over a freshly-parsed document — the answer-completeness guard (`src/StepGuards.ts`) refuses a step while this is non-empty. */
+export const unansweredQuestions = (content: string): readonly OpenQuestion[] =>
+  parseOpenQuestions(content).questions.filter((q) => q.status === "open" && !q.answered)
+
+/** Flips the `[ ]`/`[x]` box of the checkbox on line `line`, preserving the rest of the line exactly. `undefined` when the line has no LIST-MARKER checkbox (`CHECKBOX_RE`) — unlike a bare `/\[([ xX])\]/` scan, a `[x]` inside ordinary prose with no `- `/`* ` marker is not a checkbox. */
+export const toggleCheckbox = (content: string, line: number): SteeringEdit | undefined => {
+  const raw = content.split(/\r?\n/)[line]
+  if (raw === undefined) return undefined
+  const match = CHECKBOX_RE.exec(raw)
+  if (!match) return undefined
+  const character = raw.indexOf("[") + 1
+  return {
+    range: { start: { line, character }, end: { line, character: character + 1 } },
+    newText: match[1] === " " ? "x" : " ",
+  }
+}
+
+const lineRange = (lines: readonly string[], line: number) => ({
+  start: { line, character: 0 },
+  end: { line, character: (lines[line] ?? "").length },
+})
+
+const spanRange = (lines: readonly string[], startLine: number, endLine: number) => ({
+  start: { line: startLine, character: 0 },
+  end: { line: endLine, character: (lines[endLine] ?? "").length },
+})
+
+/**
+ * The outline marker for one question. Answered-section questions are
+ * `[answered]`. An OPEN question is `[answered]` once exactly one option is
+ * ticked (see `OpenQuestion.answered`) and `[unanswered]` otherwise — so the
+ * `[unanswered]` entries are exactly the questions still blocking the
+ * answer-completeness gate, navigable straight from the outline.
+ */
+const statusMarker = (question: OpenQuestion): string => {
+  if (question.status === "answered") return "[answered]"
+  return question.answered ? "[answered]" : "[unanswered]"
+}
+
+/** The outline tree for a `qa`-mode file's open/answered questions, each option a `leaf: true` child of its open question. */
+const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
+  const { questions } = parseOpenQuestions(content)
+  const lines = content.split(/\r?\n/)
+  return questions.map((question, i) => {
+    const start = question.headingLine
+    const end = Math.max(start, (questions[i + 1]?.headingLine ?? lines.length) - 1)
+    const children: SteeringOutlineNode[] = question.options.map((option) => ({
+      name: `${option.checked ? "[x]" : "[ ]"} ${option.text || "your answer"}`,
+      range: spanRange(lines, option.sourceLine, option.endLine),
+      selectionRange: lineRange(lines, option.sourceLine),
+      leaf: true,
+    }))
+    return {
+      name: `${statusMarker(question)} ${question.question}`,
+      detail: question.text,
+      range: spanRange(lines, start, end),
+      selectionRange: lineRange(lines, start),
+      ...(children.length > 0 ? { children } : {}),
+    }
+  })
+}
+
+/** The edits that make `option` the sole ticked option in `question` (radio semantics): check it, and uncheck any already-ticked sibling — so the question ends with exactly one tick (what the completeness gate wants). */
+const pickOptionEdits = (
+  content: string,
+  question: OpenQuestion,
+  option: QuestionOption,
+): SteeringEdit[] => {
+  const edits: SteeringEdit[] = []
+  for (const sibling of question.options) {
+    if (sibling.sourceLine !== option.sourceLine && !sibling.checked) continue
+    const edit = toggleCheckbox(content, sibling.sourceLine)
+    if (edit) edits.push(edit)
+  }
+  return edits
+}
+
+/** The single action for the option line the cursor sits on: uncheck it if ticked, else pick it (radio). `undefined` when there is no edit to make. */
+const optionAction = (
+  content: string,
+  question: OpenQuestion,
+  option: QuestionOption,
+): { readonly title: string; readonly edits: readonly SteeringEdit[] } | undefined => {
+  const edits = option.checked
+    ? [toggleCheckbox(content, option.sourceLine)].filter((e): e is SteeringEdit => e !== undefined)
+    : pickOptionEdits(content, question, option)
+  if (edits.length === 0) return undefined
+  return { title: option.checked ? "gtd: uncheck this option" : "gtd: pick this option", edits }
+}
+
+/**
+ * Actions for a `qa`-mode file: anywhere on an open question's option's list
+ * item — its `- [ ]` line or any of its wrapped continuation lines (see
+ * `QuestionOption.endLine`) — "pick this option" (radio semantics — check it
+ * and uncheck every sibling in the same question, so exactly one stays
+ * ticked) or "uncheck this option" when it is already the chosen one. No
+ * action off an option's span, or on an answered-section (prose) question.
+ */
+const questionActions: SteeringFormat["actions"] = (content, range) => {
+  const { questions } = parseOpenQuestions(content)
+  const cursorLine = range.start.line
+  const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
+  for (const question of questions) {
+    if (question.status !== "open") continue
+    const option = question.options.find(
+      (o) => cursorLine >= o.sourceLine && cursorLine <= o.endLine,
+    )
+    if (!option) continue
+    const action = optionAction(content, question, option)
+    if (action) actions.push(action)
+  }
+  return actions
+}
+
+/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, and code actions, no `pointerAt` (an open question's options have nothing to jump to). */
+export const QA_FORMAT: SteeringFormat = {
+  validate: (content) => parseOpenQuestions(content).errors,
+  outline: questionsOutline,
+  actions: questionActions,
 }

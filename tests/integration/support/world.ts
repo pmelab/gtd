@@ -1,16 +1,17 @@
 import { QuickPickleWorld, setWorldConstructor } from "quickpickle"
 import type { TestContext } from "vitest"
-import type { InfoConstructor } from "quickpickle"
-import { Effect, Exit, Cause } from "effect"
+import type { InfoConstructor, QuickPickleWorldInterface } from "quickpickle"
+import { Effect } from "effect"
 import { execSync, execFile as execFileCb } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFile = promisify(execFileCb)
 import { existsSync, readFileSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
-import { makeProgram } from "../../../src/program.js"
-import { inMemoryLayers } from "./inmem/layers.js"
-import { InMemRepo } from "./inmem/Repo.js"
+import { runCli } from "../../../src/Cli.js"
+import { makeCapturingCliIo } from "../../../src/testing/cliIo.js"
+import { type ScriptedCommand } from "../../../src/testing/Layers.js"
+import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
@@ -18,6 +19,12 @@ const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 export type Tier = "live" | "inmem"
 
 export class GtdWorld extends QuickPickleWorld {
+  // Under `moduleResolution: nodenext`, a bare subclass of `QuickPickleWorld`
+  // loses its base class's members from TS's view entirely (a resolution
+  // quirk with this package's dual CJS/ESM `exports` map) — re-declaring the
+  // one field `hooks.ts`'s `Before` callback reads restores it.
+  declare info: QuickPickleWorldInterface["info"]
+
   constructor(context: TestContext, info: InfoConstructor) {
     super(context, info)
   }
@@ -53,6 +60,9 @@ export class GtdWorld extends QuickPickleWorld {
 
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_<UPPERCASE-name>` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}
+
+  /** Canned `bash` command behaviors for the in-memory tier's `CommandRunner` — real subprocess execution is unreachable against an in-memory worktree. Keyed by the rendered command string; set by `Given the shell command "..." ...` (@inmem steering-mode scenarios only). */
+  scriptedCommands: Map<string, ScriptedCommand> = new Map()
 
   /** Dispatch: routes to the live or in-process implementation based on this.tier. */
   async runGtd(...args: string[]): Promise<void> {
@@ -92,55 +102,28 @@ export class GtdWorld extends QuickPickleWorld {
     }
   }
 
-  /** In-process implementation — runs the exported program Effect with in-memory layers. */
+  /** In-process implementation — runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
   async runGtdInMem(...args: string[]): Promise<void> {
     const repo = this.repo!
-    let stdout = ""
-    const write = (chunk: string) => {
-      stdout += chunk
-    }
+    const { io, result } = makeCapturingCliIo(repo, this.envVars, this.scriptedCommands)
 
     // Compose argv: ["node", "gtd.js", ...args]
     const argv = ["node", "gtd.js", ...args]
 
-    const program = makeProgram({ argv, write }).pipe(
-      Effect.provide(inMemoryLayers(repo, this.envVars)),
-    )
-
-    const exit = await Effect.runPromiseExit(program)
-    if (Exit.isSuccess(exit)) {
-      this.lastResult = { exitCode: 0, stdout, stderr: "" }
-    } else {
-      // Extract the underlying error message from the Cause
-      const squashed = Cause.squash(exit.cause)
-      const message = squashed instanceof Error ? squashed.message : String(squashed)
-      this.lastResult = { exitCode: 1, stdout, stderr: `gtd: ${message}\n` }
-    }
+    await Effect.runPromise(runCli(argv, io))
+    this.lastResult = result()
   }
 
   // ── Observation helpers — branch on tier ──────────────────────────────────
 
-  // fallow-ignore-next-line complexity
   repoFileExists(path: string): boolean {
-    if (this.repo !== undefined) {
-      const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
-      if (worktree.has(path)) return true
-      // Check for directory prefix
-      const prefix = path.endsWith("/") ? path : `${path}/`
-      for (const key of worktree.keys()) {
-        if (key.startsWith(prefix)) return true
-      }
-      return false
-    }
+    if (this.repo !== undefined) return this.repo.hasPath(path)
     return existsSync(join(this.repoDir, path))
   }
 
   /** The working-tree contents of `path` (empty string when absent). Mirrors `repoFileExists`'s tier split. */
   readRepoFile(path: string): string {
-    if (this.repo !== undefined) {
-      const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
-      return worktree.get(path) ?? ""
-    }
+    if (this.repo !== undefined) return this.repo.readFile(path) ?? ""
     return existsSync(join(this.repoDir, path))
       ? readFileSync(join(this.repoDir, path), "utf8")
       : ""

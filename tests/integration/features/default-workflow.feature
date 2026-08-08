@@ -1,5 +1,5 @@
 @inmem
-Feature: The bundled unified workflow — simple-flow full-cycle journeys
+Feature: The bundled unified workflow — simple-flow full-process journeys
 
   Comprehensive coverage of the SIMPLE entry of `src/workflows/unified.yaml`
   (started by creating `.gtd/TODO.md`) through the SHARED tail: the
@@ -21,7 +21,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   files directly and running `gtd step check` — @inmem never executes the
   scripts themselves.
 
-  Scenario: the full simple cycle — plan, build, check/fix, review with a feedback lap, then full sign-off into the squash finale
+  Scenario: the full simple process — plan, build, check/fix, review with a feedback lap, then full sign-off into the squash finale
     Given a test project
     And the workflow
     And a file ".gtd/TODO.md" with:
@@ -62,7 +62,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(agent): build.building → build.health.check"
 
-    # build.health.check (red): a failing run leaves FEEDBACK.md, sends the cycle to build.fix
+    # build.health.check (red): a failing run leaves FEEDBACK.md, sends the process to build.fix
     Given a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -197,7 +197,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
 
     # build.squashing: the agent writes the one-commit message; entering `done`
-    # collapses the whole cycle into a single commit and leaves .gtd empty
+    # collapses the whole process into a single commit and leaves .gtd empty
     Given a file ".gtd/COMMIT_MSG.md" with:
       """
       feat: add thing with a doc comment
@@ -216,7 +216,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   Scenario: a feedback round's reviewing base is anchored at the last review round (incremental it.reviewBase)
     # reviewBase: true on build.review.deciding anchors it.reviewBase: a re-review's
     # range starts only from the previous review round's boundary, not the
-    # whole cycle. fileA landed before that boundary; fileB after it.
+    # whole process. fileA landed before that boundary; fileB after it.
     Given a test project
     And the workflow
     And a commit "gtd(agent): build.review.reviewing" that adds "fileA.ts" with:
@@ -344,7 +344,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     When I run gtd step human
     Then it fails
     And stderr contains "was deleted"
-    # Nothing committed — the refusal re-arms the review window, so the cycle
+    # Nothing committed — the refusal re-arms the review window, so the process
     # stays at the gate for the reviewer to restore + tick.
     And the git ref "refs/worktree/gtd/review-head" exists
 
@@ -416,7 +416,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
-  Scenario: an approved cycle's squash commit is a process boundary — a fresh cycle's fixing retry budget doesn't pool with a previous cycle's
+  Scenario: an approved process's squash commit is a process boundary — a fresh process's fixing retry budget doesn't pool with a previous process's
     Given a test project
     And the workflow
     # cycle 1: already spent its whole fixing retry budget (3 entries) before
@@ -451,7 +451,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       export const cycle1 = 1
       """
     # cycle 2 starts fresh after the squash boundary. If retry counts pooled
-    # across it, this cycle's very FIRST entry into "fixing" would already see 3
+    # across it, this process's very FIRST entry into "fixing" would already see 3
     # prior visits and redirect straight to "escalate".
     And a file ".gtd/TODO.md" with:
       """

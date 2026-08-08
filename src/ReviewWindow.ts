@@ -1,15 +1,8 @@
 import { Effect, Option } from "effect"
-import { GitService } from "./Git.js"
+import { GitService, type GitOperations } from "./Git.js"
 import { ConfigService } from "./Config.js"
-import {
-  isReviewBaseState,
-  isReviewWindowState,
-  parseStateSubject,
-  resolveState,
-  type WorkflowDefinition,
-} from "./PatternMachine.js"
-import { computeProcessRun, type ProcessRun } from "./Edge.js"
-import type { GitOperations } from "./Git.js"
+import { isReviewWindowState, resolveState } from "./PatternMachine.js"
+import { currentRun, reviewBaseFor } from "./Edge.js"
 
 /**
  * The review checkout window (v3 re-introduction).
@@ -73,31 +66,6 @@ export const LEGACY_REVIEW_BASE_REF = "refs/gtd/review-base"
 // process covers the whole history with no earlier commit. There is no real
 // commit to rewind to, so the window simply does not open in that case.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
-const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").trim()
-
-/**
- * The diff base while the window is open: the hash of the most-recent
- * in-process turn commit that ENTERED a `reviewBase` state, or `undefined`
- * when the workflow declares no such state (the caller then falls back to the
- * process start). Walks the current process run's commits (oldest→newest, via
- * `commitHistory(startParentHash)`), so it never reaches across the process
- * boundary into a previous cycle.
- */
-export const reviewBaseHash = (
-  git: GitOperations,
-  def: WorkflowDefinition,
-  run: ProcessRun,
-): Effect.Effect<string | undefined, Error> =>
-  Effect.gen(function* () {
-    const history = yield* git.commitHistory(run.startParentHash)
-    let base: string | undefined
-    for (const commit of history) {
-      const parsed = parseStateSubject(subjectOf(commit.message))
-      if (parsed !== undefined && isReviewBaseState(def, parsed.state)) base = commit.hash
-    }
-    return base
-  })
 
 /** The ref pair an open window is recorded under, plus whether it is the legacy shared pair. */
 interface WindowRefs {
@@ -231,9 +199,8 @@ export const openReviewWindow: Effect.Effect<
   const state = resolveState(def, headSubject)
   if (!isReviewWindowState(def, state)) return { opened: false }
 
-  const run = yield* computeProcessRun(git, def)
-  const explicitBase = yield* reviewBaseHash(git, def, run)
-  const base = explicitBase ?? run.diffBase
+  const run = yield* currentRun
+  const base = reviewBaseFor(def, run)
   const headHash = yield* git.resolveRef("HEAD")
   // No real base commit to rewind to (whole-history process), or an empty
   // process with nothing committed yet — nothing to surface, so stay closed.

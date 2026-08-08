@@ -30,18 +30,20 @@
     "prepare": "husky",
     "dev": "node dev/run.mjs",
     "build": "tsdown",
-    "postbuild": "jiti scripts/generate-schema.ts",
+    "postbuild": "jiti scripts/generate-schema.ts && node scripts/assert-no-test-doubles.mjs",
     "watch": "tsdown --watch",
     "test": "npm run format:check && npm run typecheck && npm run lint && npm run test:unit && npm run test:e2e && fallow --summary --quiet",
     "test:unit": "vitest run --project unit",
     "test:watch": "vitest",
-    "pretest:e2e": "tsdown --logLevel silent",
-    "test:e2e": "vitest run --project e2e",
+    "test:e2e": "npm run test:e2e:inmem && npm run test:e2e:live",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint .",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
-    "test:mutation": "stryker run"
+    "test:mutation": "stryker run",
+    "test:e2e:inmem": "vitest run --project e2e-inmem",
+    "pretest:e2e:live": "tsdown --logLevel silent",
+    "test:e2e:live": "vitest run --project e2e-live"
   },
   "lint-staged": {
     "*": "oxfmt --no-error-on-unmatched-pattern --write"

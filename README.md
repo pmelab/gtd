@@ -6,10 +6,10 @@
 **Chat is a terrible source of truth. Git isn't.**
 
 **gtd** is a git-aware CLI that derives the entire agentic workflow — capture,
-plan, build, test, review — from your repository state, and prints the next
-prompt for whatever agent you point at it. Every step is a commit. Tests are run
-by the tool and branched on by exit code, so the agent never grades its own
-homework.
+plan, build, check, review — from your repository state, and prints the next
+prompt for whatever agent you point at it. Every turn is a commit. The test
+command is printed for your driver to run, and the branch is decided by what the
+run leaves in the tree — so the agent never grades its own homework.
 
 No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 
@@ -120,31 +120,31 @@ for). The two steering-file entries are chosen by which file you create:
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
 checkbox review of the diff — the prompt never inlines the diff itself; it names
 the commit the changes are based at and the agent runs `git diff` to read the
-range before writing the review. While the cycle rests at that gate, gtd opens a
-**review checkout window**: HEAD is rewound to the review base with the working
-tree untouched, so the whole reviewable change shows up as ordinary uncommitted
-changes in your editor's normal git integration (and files added during the
-cycle show up as ordinary untracked files, so discarding one deletes it). The
-window closes on the next gtd invocation. Tick a box as you review each hunk
-(ticking just records "I read this"), and leave a **comment** to request
-changes: a note on a line, an inline `// TODO`-style comment in the code, or a
-direct code edit. Any comment sends a build + re-review round — an agent first
-turns your comments into an explicit instruction list, then a build turn
-implements it (a re-review then covers only the follow-through, and a hand-edit
-is treated as your own fix the agent completes without reverting your lines; a
-comment can't be silently dropped — a build turn that addresses nothing is
-refused). For the simple flow, the build turn that follows through on feedback
-and the turn that drafts the final squash message both resume the same session
-that built the feature in the first place, since the review tail is nested
-inside that build identity rather than sitting beside it. Ticking every box with
-no comment is the sign-off, which collapses the whole cycle into one commit (a
-**squash finale** whose message an agent drafts). Stepping with a box still
-unticked and no comment is refused (finish reviewing first), as is deleting
-`.gtd/REVIEW.md`.
+range before writing the review. While the process rests at that gate, gtd opens
+a **review checkout window**: HEAD is rewound to the review base with the
+working tree untouched, so the whole reviewable change shows up as ordinary
+uncommitted changes in your editor's normal git integration (and files added
+during the process show up as ordinary untracked files, so discarding one
+deletes it). The window closes on the next gtd invocation. Tick a box as you
+review each hunk (ticking just records "I read this"), and leave a **comment**
+to request changes: a note on a line, an inline `// TODO`-style comment in the
+code, or a direct code edit. Any comment sends a build + re-review round — an
+agent first turns your comments into an explicit instruction list, then a build
+turn implements it (a re-review then covers only the follow-through, and a
+hand-edit is treated as your own fix the agent completes without reverting your
+lines; a comment can't be silently dropped — a build turn that addresses nothing
+is refused). For the simple flow, the build turn that follows through on
+feedback and the turn that drafts the final squash message both resume the same
+session that built the feature in the first place, since the review tail is
+nested inside that build identity rather than sitting beside it. Ticking every
+box with no comment is the sign-off, which collapses the whole process into one
+commit (a **squash finale** whose message an agent drafts). Stepping with a box
+still unticked and no comment is refused (finish reviewing first), as is
+deleting `.gtd/REVIEW.md`.
 
 The same review tail also has a direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
-process reviewing `<commitish>..HEAD` with no cycle of its own, e.g. a
+process reviewing `<commitish>..HEAD` with no build of its own, e.g. a
 colleague's PR branch (`review-gate.check`'s `reviewBase:` is a template bound
 to the `reviewBase` var, so supplying it via `--var` fixes the whole process's
 diff base to that commitish). Its squash keeps and describes only the fixes made
@@ -207,14 +207,12 @@ Commands:
                    just-finished invocation's token cost and model on the
                    turn commit (summed into it.processCost/processCostByModel).
                    Pass --entry <state> to start a brand NEW process at
-                   <state> instead — any declared, non-commit state (e.g.
-                   review-gate.check or fix-precheck on the bundled unified
-                   template) — with repeatable --var <name>=<value> supplying
-                   that new process's fixed it.vars overrides
+                   <state> instead — any declared, non-commit state — with
+                   repeatable --var <name>=<value> supplying that new
+                   process's fixed it.vars overrides
   (no command) --entry <state>
                    Short form of 'step human --entry <state>' — starts a new
-                   process authenticated as human, e.g.
-                   'gtd --entry review-gate.check'
+                   process authenticated as human, e.g. 'gtd --entry <state>'
   abandon          End the process currently underway without completing it:
                    close any open review checkout window, then rewind HEAD to
                    the commit the process started from, keeping everything it
@@ -226,8 +224,7 @@ Commands:
                    Refuses on a dirty working tree, when there is no retained
                    history, or when HEAD has advanced past the squash with
                    commits that would be lost
-  next             Print the resolved rest's rendered script/prompt/message
-                   (no mutation)
+  next             Print the resolved rest's rendered script/prompt/message (no mutation)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Format and validate the steering file the resolved rest
@@ -255,9 +252,6 @@ Options:
                    (with --entry; repeatable) supply a fixed it.vars
                    override for the new process; the name must already be
                    declared by the workflow's own vars: or the .gtdrc vars:
-  --once           (bare gtd or gtd loop only) run exactly one loop beat (one
-                   human-gate capture, one script check+step, or one agent
-                   prompt+step), then exit
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -312,9 +306,16 @@ envelope on **stdout**, and still exits 1:
 { "state": "error", "prompt": "<message>" }
 ```
 
+This covers every failure mode, not just a command's own refusal: a **usage
+error** (an unknown flag, a missing argument, `gtd --entry version`'s "not an
+enterable state") and a **defect** (a layer throwing outside the ordinary error
+channel) both get the same envelope — there is no failure path that reaches
+`--json` without one.
+
 A human-readable `gtd: <message>` line is still written to **stderr** regardless
 of `--json` — the envelope adds a structured stdout channel, it does not replace
-the plain-text one.
+the plain-text one. Stderr always carries exactly one `gtd: ` prefix: a message
+already authored with its own `gtd:`/`gtd <cmd>:` prefix is never doubled.
 
 ## Driving the loop
 
@@ -453,7 +454,7 @@ A few things to know before relying on it:
   owns a `herdr:claude` session until the process exits; while it does, the
   wrapper's reports are silently ignored and the sidebar stops tracking `gtd`.
 - **`blocked` covers the resting `idle` state too** — gtd's own `idle` is a
-  human gate (it waits for you to write a steering file), so a finished cycle
+  human gate (it waits for you to write a steering file), so a finished process
   reads as "your turn", which is what it is.
 - The status **persists after the wrapper exits** — that's the point: the
   sidebar keeps showing which worktree is waiting on you. Hand the pane back to
@@ -527,7 +528,7 @@ workflow:
     anyKey: anyScalarValue
   modes: # optional — steering-file modes a state's `mode:` may name
     <name>:
-      format: <shell command> # at least one of format/validate
+      format: <shell command> # both optional — {} is the format-only tier
       validate: <shell command>
   entry:
     default: <machine name> # which machine is the ROOT instance
@@ -553,11 +554,14 @@ workflow:
           retry:
             max: <number>
             otherwise: <targetState>
+          label: <string> # optional, opaque display name passed through `gtd next --json`/`gtd status --json`
           file: <string> # optional, an Eta template naming the state's steering file
-          mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
+          mode: <modeName> # optional, requires "file" — must be declared in `modes:` (qa/review are seeded for you; everything else, including prose, you declare)
           reviewWindow: true # optional — open the review checkout window at rest here
           reviewBase: true # optional — anchor the review window's diff base to this state's most-recent commit
           # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
+          requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
+          answerGate: true # optional, requires "file" — refuse a turn until every open question in the (qa-mode) `file:` is answered
           entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared, non-commit state is a valid target)
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```
@@ -587,7 +591,7 @@ conversation across both call sites.
 
 Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
 
-- **`it.startCommit`** — the process's diff base (the commit the current cycle
+- **`it.startCommit`** — the process's diff base (the commit the current process
   started from, or the base a `--var reviewBase=<commitish>` entry resolved to).
 - **`it.reviewBase`** — the previous review round's boundary, falling back to
   `it.startCommit` on a first review.
@@ -607,9 +611,9 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 
 > **Upgrading from a pre-8.2 `workflow:`?** The old flat `states:` shape (with a
 > per-state `initial: true`/`reviewEntry: true`/`fixEntry: true` flag) is no
-> longer accepted — finish or `gtd abandon` any in-flight cycle before
-> upgrading, since the old and new shapes aren't compatible mid-cycle. Wrap your
-> states under a single
+> longer accepted — finish or `gtd abandon` any in-flight process before
+> upgrading, since the old and new shapes aren't compatible mid-process. Wrap
+> your states under a single
 > `machines: { <name>: { entry: <initial state>, states: {...} } }` and declare
 > `entry: { default: <name> }` at the top level (moving any
 > `reviewEntry`/`fixEntry` state to a plain per-state `entry: true` flag,
@@ -785,13 +789,18 @@ own `- [ ]` line — diagnostics for both (live as you edit), and a
 
 It is config-driven via each state's `file:`/`mode:`, and falls back to basename
 dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and `review` are
-gtd's built-in steering-file MODES with a VALIDATOR gtd itself implements; a
-mode's `format:` and `validate:` are shell commands a workflow (or a project's
-`.gtdrc`) declares for itself, so you bring your own formatter and your own
-checkers. A third built-in, `prose` — format-only, no validator, used by the
-simple flow's plan file — has no live editor support: `gtd lsp` publishes no
-symbols or diagnostics for it, though `gtd validate` and the `gtd step` gate
-still format and validate it like any other mode.
+gtd's built-in steering-file FORMATS, each with its own outline/actions/
+go-to-definition and a VALIDATOR gtd itself implements; a mode's `format:` and
+`validate:` are shell commands a workflow (or a project's `.gtdrc`) declares for
+itself, so you bring your own formatter and your own checkers. Overriding one of
+`qa`/`review`'s `validate:` with a shell command does NOT lose its outline/
+actions — those come from the FORMAT (the name), independent of who validates —
+but `gtd lsp` never runs a shell command per keystroke, so live diagnostics
+become one `Information` notice pointing at `gtd validate` instead of the
+built-in findings. Any OTHER mode name — `prose` (used by the simple flow's plan
+file), or a project's own declared name — has no built-in format, so it gets no
+live editor support at all: `gtd validate` and the `gtd step` gate still format
+and validate it like any other mode.
 
 ## Development
 
@@ -800,8 +809,10 @@ npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
 npm run build        # tsdown → dist/gtd.bundle.mjs
 npm test             # format:check, typecheck, lint, unit + e2e tests, fallow
-npm run test:unit    # vitest unit tests (the pure resolver) — --project unit
-npm run test:e2e     # gherkin e2e via vitest + quickpickle — --project e2e
+npm run test:unit       # vitest unit tests (the pure resolver) — --project unit
+npm run test:e2e        # gherkin e2e, both tiers — test:e2e:inmem + test:e2e:live
+npm run test:e2e:inmem  # @inmem scenarios, in-process, no build — --project e2e-inmem
+npm run test:e2e:live   # @live scenarios against the built bundle — --project e2e-live
 npm run test:mutation # StrykerJS mutation testing (manual only, ~10 min)
 npm run typecheck
 npm run lint
@@ -817,7 +828,20 @@ The decision core is pure and IO-free: the pattern machine's shape (states,
 patterns, retry) is a plain-data `WorkflowDefinition` (`src/PatternMachine.ts`),
 and the same module's `resolveState`/`step` are the pure resolver/interpreter
 over it — so the whole engine is trivially unit-testable in isolation. All
-git/filesystem/template IO is confined to the edge (`src/Edge.ts`).
+git/filesystem/template IO is confined to the edge (`src/Edge.ts`), whose
+`currentRest` resolves everything derivable from where the process rests right
+now into a single snapshot, and whose `planStep`/`planEntry` pair separates
+deciding a transition from performing it — so a command's own capture guards run
+between the two. The edge reaches the outside world through two content ports
+(`src/RepoFiles.ts` for working-tree and committed reads, `src/CommandRunner.ts`
+for the one place gtd spawns a subprocess itself), with the `gtd step` capture
+guards (`src/StepGuards.ts`) built on top of them.
+
+`src/testing/` holds the in-memory git/config/filesystem test double every
+`@inmem` scenario and unit test runs against instead of a real repo — it never
+ships (a lint rule and a build-time check both enforce that) and is trustworthy
+only because the same `GitOperations` contract suite runs against a real git
+repo too.
 
 Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
 or breaking changes) to `main` and semantic-release computes the next version,

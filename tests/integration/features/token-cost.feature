@@ -9,7 +9,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
   the whole-process total via `it.processCost` and the per-model breakdown via
   `it.processCostByModel` — the complete cost of the feature, itemized by model,
   since tokens alone don't tell you the price. `gtd status` shows the running
-  total (and per-model breakdown) mid-cycle.
+  total (and per-model breakdown) mid-process.
 
   Scenario: gtd step --cost records a Gtd-Cost trailer on the turn commit, subject untouched
     Given a test project

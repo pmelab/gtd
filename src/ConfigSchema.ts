@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { STATE_FIELD_ENTRIES, type FieldKind } from "./StateFields.js"
 
 /**
  * v3's `.gtdrc` config shape: three blessed top-level keys — `workflow:` (the
@@ -22,10 +23,16 @@ import { Schema } from "effect"
  * kind per state, exactly one `initial: true` across the workflow, `on`/
  * `retry.otherwise` targets naming defined states, reachability) — the
  * compiler stays the source of truth; the annotation is the editor's first
- * net, never a second validator to keep behaviorally in sync. When the
- * compiler's accepted shape changes (a new state key, a new content kind),
- * update the annotation here alongside `src/PatternConfig.ts`'s
- * `KNOWN_STATE_KEYS`.
+ * net, never a second validator to keep behaviorally in sync.
+ *
+ * `stateJsonSchema`'s `properties` is DERIVED from `src/StateFields.ts`'s
+ * `STATE_FIELD_ENTRIES` (every field whose `authored` is `"state"`, in table
+ * order) rather than hand-listed — this is the fix for the bug that motivated
+ * `STATE_FIELDS` existing at all: `answerGate` shipped ten commits without
+ * ever being added here (this module had no test), silently rejecting valid
+ * configs. A new state property is now automatically part of this schema the
+ * moment it's added to the table; `ConfigSchema.test.ts` asserts the derived
+ * property set stays exactly the `authored: "state"` keys.
  *
  * Kept in its own module, separate from `./Config.js`, so `scripts/generate-
  * schema.ts` (run via `jiti`, a plain TS-via-Babel loader with no bundler-
@@ -70,123 +77,37 @@ const modesJsonSchema = {
   },
 } as const
 
-/** One state's shape — mirrors `PatternConfig.ts`'s `KNOWN_STATE_KEYS` and per-field compilers. */
+/**
+ * Every `FieldKind` -> its plain JSON Schema type shape. The escape hatch
+ * (`FieldSpec.jsonSchema`) covers the two structurally-nested kinds (`edges`,
+ * `retry`) — their entries here are unreachable filler, kept only so this
+ * stays a total `Record<FieldKind, object>`: the exhaustiveness guard that
+ * makes a new `FieldKind` fail to compile here (and in `PatternConfig.ts`'s
+ * `COMPILE`) until it's given a shape.
+ */
+const JSON_TYPE: Record<FieldKind, object> = {
+  actor: { type: "string" },
+  text: { type: "string" },
+  mode: { type: "string" },
+  content: { type: "string" },
+  flag: { type: "boolean" },
+  flagOrTemplate: { oneOf: [{ const: true }, { type: "string" }] },
+  edges: { type: "object" },
+  retry: { type: "object" },
+}
+
+/** One state's shape — `properties` is derived from `STATE_FIELD_ENTRIES` (every `authored: "state"` field, in table order); see `ConfigSchema.test.ts`. */
 const stateJsonSchema = {
   type: "object",
   description:
     "One workflow state. Declare exactly one content kind (script/prompt/message/commit). A commit state is final: no actor, no on.",
   additionalProperties: false,
-  properties: {
-    actor: {
-      type: "string",
-      description:
-        "Who acts at this state. Required on every non-commit state; forbidden on a commit state.",
-    },
-    script: {
-      type: "string",
-      description:
-        "Content kind: a shell script (Eta template). The loop driver executes it verbatim via bash, then steps this state's actor.",
-    },
-    prompt: {
-      type: "string",
-      description: "Content kind: an agent prompt (Eta template), emitted by `gtd next`.",
-    },
-    message: {
-      type: "string",
-      description: "Content kind: a human-facing message (Eta template), emitted by `gtd next`.",
-    },
-    commit: {
-      type: "string",
-      description:
-        "Content kind: entering this state ends the process by squashing it into one commit with this message (Eta template). Final — no actor, no on.",
-    },
-    on: {
-      type: "object",
-      description:
-        'Ordered map of change pattern -> target state. Patterns: "C" (clean tree) or "<A|M|D|*> <glob>" over the pending diff; first declared match wins. Every target must name a defined state, and every non-initial state must be reachable through these edges (or a retry.otherwise). A value is either the target state name (string) or a { to, describe, action } object whose describe/action are human-readable strings templates can surface as it.edges (e.g. in a human gate\'s message).',
-      additionalProperties: {
-        oneOf: [
-          { type: "string", description: "The target state name." },
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["to"],
-            properties: {
-              to: { type: "string", description: "The target state name." },
-              describe: {
-                type: "string",
-                description:
-                  "Human-readable sentence describing where this change routes; surfaced verbatim (never Eta-rendered) to templates as it.edges[].describe.",
-              },
-              action: {
-                type: "string",
-                description:
-                  'Imperative label for this edge (e.g. "Accept plan"); surfaced verbatim (never Eta-rendered) to templates/tooling as it.edges[].action.',
-              },
-            },
-          },
-        ],
-      },
-    },
-    retry: {
-      type: "object",
-      description:
-        "Redirect transitions INTO this state once it has been entered `max` times in the current process.",
-      additionalProperties: false,
-      required: ["max", "otherwise"],
-      properties: {
-        max: {
-          type: "integer",
-          minimum: 0,
-          description: "Entries allowed this process before redirecting.",
-        },
-        otherwise: {
-          type: "string",
-          description: "Defined state to redirect to once over the cap.",
-        },
-      },
-    },
-    label: {
-      type: "string",
-      description:
-        'Opaque display name passed through `gtd next --json`/`gtd status --json` so a driver/viewer can show something nicer than the raw state name (e.g. "Running checks"). Never interpreted by gtd. Forbidden on a commit state.',
-    },
-    file: {
-      type: "string",
-      description:
-        "The state's steering file: an Eta template naming the file a human/editor should look at while the machine rests here. Forbidden on a commit state.",
-    },
-    mode: {
-      type: "string",
-      description:
-        "The steering file's format: the name of a built-in mode (qa/review, validated in-process by gtd) or of a `modes:` entry. gtd formats and validates the file with that mode before capturing a turn out of this state, and the LSP dispatches live diagnostics on the built-in names. Requires a sibling `file:`. Forbidden on a commit state.",
-    },
-    reviewWindow: {
-      type: "boolean",
-      description:
-        "When true, gtd opens a review checkout window while the machine rests here — HEAD/index are rewound to the review base so the whole base..HEAD diff surfaces as uncommitted changes in the editor. Forbidden on a commit state.",
-    },
-    reviewBase: {
-      oneOf: [{ const: true }, { type: "string" }],
-      description:
-        "true marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. A string is a different shape: an Eta template rendering a commitish that becomes the WHOLE PROCESS's fixed diff base when this state is entered manually via `gtd --entry <state> --base <commitish>` (see the `entry` property below). Forbidden on a commit state.",
-    },
-    requireProgress: {
-      type: "boolean",
-      description:
-        "When true, a step at this state is refused if its only pending change is deleting the state's own `file:` — a work-free turn that discards its input without addressing it. A `NOTHING ACTIONABLE` sentinel file is exempt (a legitimately non-actionable round makes no code change). Requires a `file:`. Forbidden on a commit state.",
-    },
-    answerGate: {
-      type: "boolean",
-      description:
-        "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`. Forbidden on a commit state.",
-    },
-    entry: {
-      const: true,
-      description:
-        "Marks this state as an extra manual entry point (WorkflowEntries.manual), enterable via `gtd --entry <state>`. Not to be confused with the top-level `entry:` key naming the root machine (entry.default) — same name, different level, by design.",
-    },
-  },
+  properties: Object.fromEntries(
+    STATE_FIELD_ENTRIES.filter(([, spec]) => spec.authored === "state").map(([key, spec]) => [
+      key,
+      spec.jsonSchema ?? { ...JSON_TYPE[spec.kind], description: spec.doc },
+    ]),
+  ),
 } as const
 
 /** A reference local: instantiates a declared machine as a child, optionally binding its `params:` — mirrors `Machines.ts`'s `isRef`. */

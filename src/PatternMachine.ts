@@ -25,200 +25,52 @@
  * of its arguments. Rendering templates, executing scripts, walking git
  * history for the process trace, and performing the actual commit/squash
  * are all EDGE concerns for a later phase.
+ *
+ * Its one import is `./StateFields.js` — the state-field vocabulary
+ * (`Actor`, `StateName`, `ContentKind`, `StateMode`, `OnEdge`, `RetryDef`,
+ * `StateDef`, `isCommitState`) and the `STATE_FIELDS` table every state
+ * property's declaration, compilation, validation, editor schema, and
+ * visualizer presentation derive from, itself a zero-import leaf of `const`
+ * data and total functions. Read that table for what a state may declare —
+ * this module no longer enumerates the field vocabulary itself, only
+ * re-exports it.
  */
 
 // ── Definition types ─────────────────────────────────────────────────────────
+//
+// The field vocabulary (`Actor`, `StateName`, `ContentKind`, `StateMode`,
+// `OnEdge`, `RetryDef`, `StateDef`, `isCommitState`) lives in
+// `src/StateFields.ts` — a zero-import leaf of `const` data (`STATE_FIELDS`)
+// plus total functions that every compilation/validation/schema/visualizer
+// site derives from, so a new state property is one table entry plus its
+// behaviour rather than an eight-site edit. Re-exported here (erased at
+// build time by `verbatimModuleSyntax`) so every existing
+// `from "./PatternMachine.js"` import keeps working unchanged.
 
-/** Who acts at a state — a plain string, no closed vocabulary of "kinds". */
-export type Actor = string
+import {
+  CONTENT_FIELDS,
+  STATE_FIELD_ENTRIES,
+  isCommitState,
+  validateFieldRules,
+  type Actor,
+  type ContentKind,
+  type OnEdge,
+  type RetryDef,
+  type StateDef,
+  type StateMode,
+  type StateName,
+} from "./StateFields.js"
 
-/** A state name — a plain string, defined by whatever keys `WorkflowDefinition.states` declares. */
-export type StateName = string
-
-/** The four content kinds a state can carry — exactly one per state. */
-export type ContentKind = "script" | "prompt" | "message" | "commit"
-
-/** `{ max, otherwise }` — redirect a transition once its target has been entered `max` times this process. */
-export interface RetryDef {
-  readonly max: number
-  readonly otherwise: StateName
+export {
+  isCommitState,
+  type Actor,
+  type ContentKind,
+  type OnEdge,
+  type RetryDef,
+  type StateDef,
+  type StateMode,
+  type StateName,
 }
-
-/**
- * One `on` row: a raw pattern string paired with its target state, plus an
- * OPTIONAL human-readable `describe` — a plain sentence a `message:` template
- * can surface at a rest to tell a human which change routes where (see
- * `PatternTemplates.TemplateContext.edges`). Kept as an ordered TUPLE (not an
- * object key) so declaration order survives regardless of how a definition is
- * built — object key order is an incidental JS guarantee that a config
- * compiler (YAML, merged definitions) could easily break by rebuilding an
- * object; a tuple array cannot silently reorder or dedupe two rows that happen
- * to share a pattern string.
- *
- * `describe` is INERT to the engine — `step`/`resolveState`/`matchesPattern`
- * never read it, and it is NEVER Eta-rendered. The pattern
- * key itself is different: THIS module (the pure engine) only ever sees a
- * plain string here too, but the edge (`src/Edge.ts`'s `renderOnEdges`)
- * renders it as an Eta template against `it.vars` BEFORE handing it to
- * `step`/`matchesPattern` — so a workflow author writes
- * `"A <%= it.vars.feedbackFile %>"` and the engine still only ever matches a
- * literal string. `describe` exists only to be emitted verbatim so the
- * driving loop / a `message:` template can present it to a human.
- *
- * `action` is a fourth, OPTIONAL slot with the exact same discipline as
- * `describe`: an imperative label (e.g. `"Accept plan"`) that is INERT to the
- * engine — never read by `step`/`resolveState`/`matchesPattern`, and NEVER
- * Eta-rendered. It exists only to be emitted verbatim to a consumer (a CLI
- * message, `gtd status --json`, a visualization) — none of which are wired up
- * yet; this type is pure plumbing. Because this is a positional tuple and not
- * an object, an edge that wants an `action` but no `describe` must still pass
- * an explicit placeholder in slot 3 (e.g. `undefined`) to reach slot 4.
- */
-export type OnEdge = readonly [
-  pattern: string,
-  target: StateName,
-  describe?: string | undefined,
-  action?: string,
-]
-
-/**
- * One state's declaration. Exactly one of `script`/`prompt`/`message`/
- * `commit` should be set (enforced by `validateDefinition`, not by the
- * type — a config compiler assembles these from loosely-typed YAML). A
- * `commit` state is FINAL: it carries no `actor` and no `on` (entering it
- * ends the process; see `StepDecision`'s `"squash"` kind).
- */
-export interface StateDef {
-  readonly actor?: Actor
-  readonly script?: string
-  readonly prompt?: string
-  readonly message?: string
-  readonly commit?: string
-  readonly on?: readonly OnEdge[]
-  readonly retry?: RetryDef
-  /**
-   * An OPAQUE harness hint — gtd never interprets this string, it only
-   * passes it through verbatim (`gtd next --json`/`gtd status --json`) so
-   * the driving loop can map it onto whatever models its agent harness
-   * provides (e.g. `"smart"`, `"fast"`, or a concrete model id). Unset means
-   * "use the harness's default". Plays no role in engine decisions — `step`
-   * and `resolveState` never read it. Forbidden on a commit state (never at
-   * rest, emits nothing — see `validateDefinition`). No longer authored
-   * directly on a state: the compiler (`src/PatternConfig.ts`, over
-   * `src/Machines.ts`'s flattening pass) STAMPS this field from the state's
-   * owning machine's own `model:` declaration, onto every one of that
-   * machine's emitted states whose content kind is `prompt` — a state itself
-   * never declares `model:` directly anymore.
-   */
-  readonly model?: string
-  /**
-   * An OPAQUE, human-readable display NAME for the state — gtd never
-   * interprets this string, it only passes it through verbatim (`gtd next
-   * --json`/`gtd status --json`) so a driving loop or viewer can show
-   * something nicer than the raw state name. There is no comparison
-   * semantics here — it is just a label. Unset means "show the raw state
-   * name" — that fallback lives in the CONSUMER (a driver/viewer), not in
-   * gtd itself, which simply omits the field. Rendered as an Eta template
-   * through the same `it.vars`-carrying context as `model`/content (a plain
-   * string with no Eta tags passes through unchanged). Plays no role in
-   * engine decisions — `step` and `resolveState` never read it. Forbidden on
-   * a commit state (never at rest, emits nothing — see `validateDefinition`),
-   * same rule family as `model`.
-   */
-  readonly label?: string
-  /**
-   * Optional — THE steering file this state is about: the file a human/
-   * editor should look at while the machine rests here. An Eta template
-   * (rendered through the same `it.vars`-carrying context as content and
-   * `model`) that must render non-empty. Forbidden on a commit state (never
-   * at rest — see `validateDefinition`). Multiple states may share one
-   * `file:` (and, in the bundled default, do). The engine never reads a
-   * path out of this string itself — only the LSP (`src/Lsp.ts`) interprets
-   * it, to map rendered paths to `mode`.
-   */
-  readonly file?: string
-  /**
-   * Optional, requires `file:`. The associated file's FORMAT — the NAME of a
-   * mode, either one of the two built-ins (`qa` | `review`, see
-   * `BUILT_IN_MODES`) or one the workflow declares in `modes:` (see
-   * `ModeDef`). Like `model`, this is opaque, emitted data: the ENGINE never
-   * branches on it, `step` and `resolveState` never read it — the edge
-   * (`src/SteeringMode.ts`) resolves it to a format/validate pair, and the LSP
-   * dispatches its live diagnostics on the built-in names. The only rule
-   * `validateDefinition` enforces is that the name RESOLVES (a typo must not
-   * silently disable the gate). Forbidden on a commit state (see
-   * `validateDefinition`).
-   */
-  readonly mode?: StateMode
-  /**
-   * Optional. When `true`, gtd opens a "review checkout window" while a
-   * process RESTS at this state: HEAD and the index are temporarily rewound to
-   * the review base (see `reviewBase`) with the working tree untouched, so the
-   * whole `base..HEAD` diff surfaces as ordinary uncommitted changes in any
-   * editor's standard git integration. The window is closed (HEAD/index
-   * restored) the moment the process rests anywhere else. This module's PURE
-   * functions never read it — `resolveState`/`step` are oblivious; the window
-   * is opened/closed entirely at the edge (`src/ReviewWindow.ts`), keyed on
-   * this flag of the resolved rest. Forbidden on a commit state (never at
-   * rest — see `validateDefinition`).
-   */
-  readonly reviewWindow?: boolean
-  /**
-   * Optional. `true` marks a state whose most-recent in-process turn commit is
-   * the BASE of the review window's diff (`base..HEAD`) — everything committed
-   * after entering this state surfaces as pending while the window is open.
-   * When no in-process commit entered a `reviewBase` state, the window falls
-   * back to the process start (see `src/ReviewWindow.ts`). Like `reviewWindow`
-   * the ENGINE never reads it — it is history-derived edge data.
-   *
-   * A STRING is a different shape entirely: an Eta template rendering a
-   * commitish. Entering that state fixes the WHOLE PROCESS's diff base to the
-   * rendered value (not a window anchor) — this is how a manual entry (e.g.
-   * `gtd step <actor> --entry review --base <commitish>`) pins what the rest
-   * of the process diffs against. Rendering the template happens at the edge,
-   * not here — this module only carries the raw string (see
-   * `entryBaseTemplateOf`) and, per `isReviewBaseState`, a string value is
-   * NEVER treated as the `true`/window-anchor form.
-   *
-   * Forbidden on a commit state (see `validateDefinition`).
-   */
-  readonly reviewBase?: true | string
-  /**
-   * Optional. When `true`, a step at this state is REFUSED if its only pending
-   * change is deleting the state's own `file:` — a work-free turn that discards
-   * its input without addressing it (the "review feedback captured then
-   * silently deleted" bug). Like the review window and sign-off gate, the PURE
-   * engine never reads it: the check lives at the edge
-   * (`enforceFeedbackProgressGate` in `src/program.ts`), which also exempts a
-   * `NOTHING ACTIONABLE` sentinel file (a legitimately non-actionable feedback
-   * round that makes no code change). Requires a `file:`; forbidden on a commit
-   * state (never at rest — see `validateDefinition`).
-   */
-  readonly requireProgress?: boolean
-
-  /**
-   * Optional. When `true`, a step at this state is REFUSED unless every OPEN
-   * question in its `qa`-mode `file:` is answered — EXACTLY ONE checkbox ticked
-   * per question (and, when the ticked one is the trailing free-text slot, its
-   * text is non-empty). This is what makes the advanced flow's answer gates
-   * (`product-answer`/`technical-answer`) require a decision on every
-   * question before looping back or advancing. Like the review sign-off gate,
-   * the PURE engine never reads it: the check lives at the edge
-   * (`enforceAnswerCompletenessGate` in `src/program.ts`, over
-   * `src/OpenQuestions.ts`), and only acts when the state also declares
-   * `mode: qa`. Requires a `file:`; forbidden on a commit state (never at
-   * rest — see `validateDefinition`).
-   */
-  readonly answerGate?: boolean
-}
-
-/**
- * The NAME of a steering-file mode — see `StateDef.mode`. NOT a closed
- * vocabulary: the valid set derives from the active definition
- * (`BUILT_IN_MODES` plus whatever `modes:` declares — see `knownModes`),
- * exactly the way `declaredActors` derives the commit grammar's actor set.
- */
-export type StateMode = string
 
 /**
  * One steering-file mode: the two SHELL COMMANDS that format and validate a
@@ -243,53 +95,13 @@ export interface ModeDef {
   readonly validate?: string
 }
 
-/**
- * The two mode names gtd VALIDATES itself, in process: `qa`
- * (`src/OpenQuestions.ts`) and `review` (`src/ReviewDoc.ts`) — the pure parsers
- * the LSP also publishes as live diagnostics, which is why they stay in process
- * rather than becoming shell-outs. Available in every workflow without being
- * declared, and they bring VALIDATION ONLY: a built-in mode formats nothing
- * until some `modes:` layer gives it a `format:` command. A `modes:` entry
- * naming one of these overrides only the half it declares.
- */
-export type BuiltInMode = "qa" | "review"
-
-const BUILT_IN_MODES: readonly BuiltInMode[] = ["qa", "review"]
-
-/**
- * Built-in mode names that ship NO validator at all — just a recognized name a
- * state's `mode:` may use without a `modes:` declaration, so it resolves to
- * "format if a `modes:` layer gives it one, validate nothing" (see
- * `src/SteeringMode.ts`'s `resolveSteeringMode`). `prose` is the one entry: a
- * curated free-form document with no gtd-side schema (the simple flow's plan
- * file), distinct from the schema'd `qa`/`review` built-ins.
- */
-const FORMAT_ONLY_BUILT_IN_MODES = ["prose"] as const
-
-/** Every built-in mode name — the validator tier (`BUILT_IN_MODES`) plus the format-only tier (`FORMAT_ONLY_BUILT_IN_MODES`) — used where a `mode:` just needs to be a KNOWN name, not necessarily one with a validator. */
-const KNOWN_BUILT_IN_MODES: readonly StateMode[] = [
-  ...BUILT_IN_MODES,
-  ...FORMAT_ONLY_BUILT_IN_MODES,
-]
-
-/** True when `mode` names one of gtd's own in-process implementations (see `BUILT_IN_MODES`) — the edge's dispatch, and a type guard so it can pick the parser. */
-export const isBuiltInMode = (mode: StateMode): mode is BuiltInMode =>
-  (BUILT_IN_MODES as readonly StateMode[]).includes(mode)
-
-/** True when `mode` names any built-in — validator tier or format-only tier (see `KNOWN_BUILT_IN_MODES`) — without implying a validator exists. */
-export const isKnownBuiltInMode = (mode: StateMode): boolean => KNOWN_BUILT_IN_MODES.includes(mode)
-
-/** The mode names the definition declares in `modes:` (empty when it declares none). */
-const declaredModes = (def: WorkflowDefinition): readonly StateMode[] =>
-  Object.keys(def.modes ?? {})
-
-/** Every mode name a state's `mode:` may legally name under `def`: the built-ins (validator and format-only tiers) plus the declared ones (a declared name shadowing a built-in appears once). */
+/** Every mode name `def` declares in `modes:` (empty when it declares none) — the whole vocabulary a state's `mode:` may name, per this module (see `StateMode`'s doc comment for where the registry names come from). */
 export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
-  Array.from(new Set([...KNOWN_BUILT_IN_MODES, ...declaredModes(def)]))
+  Object.keys(def.modes ?? {})
 
 /**
  * The state names a process may START at. `default` is where an ordinary
- * "no active cycle" rest resumes (see `initialStateOf`) — required, so there
+ * "no active process" rest resumes (see `initialStateOf`) — required, so there
  * is always a value. `manual` is every OTHER state a process may start at:
  * every state that declared `entry: true` in the source config, qualified and
  * sorted by the compiler, empty when the workflow declares none. A manual
@@ -312,12 +124,18 @@ export interface WorkflowDefinition {
   readonly entries: WorkflowEntries
   /**
    * The steering-file modes available to this workflow's states — mode name ->
-   * its format/validate commands (see `ModeDef`). Already the MERGE of the
-   * workflow's own `modes:` and the top-level `.gtdrc` `modes:` layer over it
-   * (`PatternConfig.mergeModes`, per half), so the engine sees one flat map.
-   * Layered over `BUILT_IN_MODES` rather than replacing them: a `qa` entry
-   * declaring only `format:` keeps gtd's built-in `qa` validation. Absent (or
-   * empty) means "the built-in validators only, no formatting".
+   * its format/validate commands (see `ModeDef`). Already the MERGE of
+   * `src/SteeringFormats.ts`'s built-in registry (seeded as empty entries),
+   * the workflow's own `modes:`, and the top-level `.gtdrc` `modes:` layer
+   * over that (`PatternConfig.compileWorkflowConfig`/`mergeModes`, per half),
+   * so the engine sees one flat map with no privileged names of its own — a
+   * `qa` entry declaring only `format:` keeps that format's built-in `qa`
+   * validation (resolved at the edge, see `src/SteeringMode.ts`) because the
+   * registry seed is still present underneath, not because this module knows
+   * the name `qa`. Absent (or empty) is possible only for a hand-built
+   * `WorkflowDefinition` that skipped the compiler (e.g. a test fixture) —
+   * every COMPILED definition always carries at least the registry's seeded
+   * entries.
    */
   readonly modes?: Readonly<Record<StateMode, ModeDef>>
 }
@@ -330,9 +148,6 @@ export const contentKindOf = (state: StateDef): ContentKind | undefined => {
   if (state.commit !== undefined) return "commit"
   return undefined
 }
-
-/** True when a state is a commit (final, squash) state. */
-export const isCommitState = (state: StateDef): boolean => state.commit !== undefined
 
 /** The raw template source a state's own content kind carries — `script`/`prompt`/`message`, or `undefined` for a commit state (never at rest, no template a viewer could show). */
 export const contentOf = (state: StateDef): string | undefined =>
@@ -840,13 +655,11 @@ export const step = (
 // deliberately flat/composable rather than one large function, to stay under
 // fallow's complexity gate as much as for readability.
 
-const CONTENT_KEYS = ["script", "prompt", "message", "commit"] as const
-
 /**
  * `entries.default` names a defined, non-commit state. Every entry in
  * `entries.manual`, when present, must likewise name a defined, non-commit
  * state distinct from `entries.default` — a manual entry is a DELIBERATE,
- * distinct starting point from the workflow's ordinary "no active cycle"
+ * distinct starting point from the workflow's ordinary "no active process"
  * rest (a manual entry requires resting at the default entry before it acts
  * — see `src/program.ts`), so the two must stay distinguishable — and
  * `entries.manual` must carry no duplicate state name within itself.
@@ -879,7 +692,9 @@ const validateEntries = (def: WorkflowDefinition, names: readonly string[]): str
 
 /** Exactly one of script/prompt/message/commit. */
 const validateContentKind = (name: string, state: StateDef): string[] => {
-  const kindCount = CONTENT_KEYS.filter((key) => state[key] !== undefined).length
+  const kindCount = CONTENT_FIELDS.filter(
+    (key) => (state as unknown as Record<string, unknown>)[key] !== undefined,
+  ).length
   return kindCount === 1
     ? []
     : [
@@ -900,34 +715,13 @@ const validateActorShape = (name: string, state: StateDef): string[] => {
   return errors
 }
 
-/** `model`, when present, must be a non-empty string; forbidden on a commit state — same rule family as the actor/`on` prohibitions: a commit state is never at rest and emits nothing for a harness to map a model onto. */
-const validateModel = (name: string, state: StateDef): string[] => {
-  const errors: string[] = []
-  if (state.model !== undefined && state.model === "") {
-    errors.push(`state "${name}": "model" must be a non-empty string`)
-  }
-  if (isCommitState(state) && state.model !== undefined) {
-    errors.push(`state "${name}": a commit state cannot declare "model"`)
-  }
-  return errors
-}
-
-/** `label`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model` (`validateModel`): a commit state is never at rest and emits nothing for a driver/viewer to display a label for. */
-const validateLabel = (name: string, state: StateDef): string[] => {
-  const errors: string[] = []
-  if (state.label !== undefined && state.label === "") {
-    errors.push(`state "${name}": "label" must be a non-empty string`)
-  }
-  if (isCommitState(state) && state.label !== undefined) {
-    errors.push(`state "${name}": a commit state cannot declare "label"`)
-  }
-  return errors
-}
-
 /**
- * The `modes:` map itself: every declared mode must carry at least one of
- * `format`/`validate`, and neither may be blank (a whitespace-only shell
- * command would run and "succeed", silently disabling the gate). The compiler
+ * The `modes:` map itself: a declared mode's `format`/`validate`, when
+ * present, may not be blank (a whitespace-only shell command would run and
+ * "succeed", silently disabling the gate). An empty entry (`{}`) is legal — the
+ * FORMAT-ONLY tier any workflow can use for a name with no gtd-side schema
+ * (`src/workflows/unified.yaml`'s `modes: { prose: {} }`, or a project's own
+ * `modes: { adr: {} }` before it plugs in any command at all). The compiler
  * (`src/PatternConfig.ts`) enforces the TYPES; these are the semantic rules,
  * collected alongside every other finding.
  */
@@ -941,71 +735,29 @@ const validateModes = (def: WorkflowDefinition): string[] => {
         errors.push(`mode "${mode}": "${key}" must be a non-empty shell command`)
       }
     }
-    if (commands.format === undefined && commands.validate === undefined) {
-      errors.push(`mode "${mode}": must declare at least one of "format"/"validate"`)
-    }
   }
   return errors
 }
 
 /**
- * `file`, when present, must be a non-empty string; forbidden on a commit
- * state — same rule family as `model` (`validateModel`): a commit state is
- * never at rest, so it has no file for a human/editor to look at.
+ * `mode`, when present, must NAME a mode this definition knows — i.e. a key of
+ * `def.modes`, which the compiler seeds with `src/SteeringFormats.ts`'s
+ * built-in registry names before layering `modes:` over them, so this module
+ * blesses no name of its own. Load-time on purpose: a typo'd mode would
+ * otherwise silently disable both the capture guard and the LSP's diagnostics
+ * for that file. The "forbidden on a commit state" and "requires a sibling
+ * `file:`" halves are `STATE_FIELDS.mode`'s generic `commit`/`requires` rules
+ * (see `validateFieldRules`) — this bespoke checker only owns the name
+ * resolution a generic rule can't express.
  */
-const validateFile = (name: string, state: StateDef): string[] => {
-  const errors: string[] = []
-  if (state.file !== undefined && state.file === "") {
-    errors.push(`state "${name}": "file" must be a non-empty string`)
-  }
-  if (isCommitState(state) && state.file !== undefined) {
-    errors.push(`state "${name}": a commit state cannot declare "file"`)
-  }
-  return errors
-}
-
-/**
- * `mode`, when present, must NAME a mode this definition knows — a built-in or
- * a `modes:` entry (`knownModes`) — and requires a sibling `file:`; forbidden
- * on a commit state — same rule family as `model`/`file`. The name check is
- * load-time on purpose: a typo'd mode would otherwise silently disable both the
- * capture gate and the LSP's diagnostics for that file.
- */
-const validateMode = (def: WorkflowDefinition, name: string, state: StateDef): string[] => {
-  if (state.mode === undefined) return []
-  const errors: string[] = []
-  if (!knownModes(def).includes(state.mode)) {
-    errors.push(
-      `state "${name}": "mode" must name a built-in mode (${KNOWN_BUILT_IN_MODES.join(", ")}) or one declared in "modes" (${
-        declaredModes(def).length > 0 ? declaredModes(def).join(", ") : "none declared"
-      }) (got "${state.mode}")`,
-    )
-  }
-  if (state.file === undefined) {
-    errors.push(`state "${name}": "mode" requires "file"`)
-  }
-  if (isCommitState(state)) {
-    errors.push(`state "${name}": a commit state cannot declare "mode"`)
-  }
-  return errors
-}
-
-/**
- * `reviewWindow`/`reviewBase`, when present, are a boolean and a
- * boolean-or-string respectively (the compiler enforces the type) —
- * forbidden on a commit state, same rule family as `model`/`file`/`mode`: a
- * commit state is never at rest, so no window ever opens or anchors there.
- */
-const validateReviewWindow = (name: string, state: StateDef): string[] => {
-  if (!isCommitState(state)) return []
-  const errors: string[] = []
-  if (state.reviewWindow !== undefined) {
-    errors.push(`state "${name}": a commit state cannot declare "reviewWindow"`)
-  }
-  if (state.reviewBase !== undefined) {
-    errors.push(`state "${name}": a commit state cannot declare "reviewBase"`)
-  }
-  return errors
+const validateKnownMode = (def: WorkflowDefinition, name: string, state: StateDef): string[] => {
+  const known = knownModes(def)
+  if (state.mode === undefined || known.includes(state.mode)) return []
+  return [
+    `state "${name}": "mode" must name a mode this workflow knows (${
+      known.length > 0 ? known.join(", ") : "none declared"
+    }) (got "${state.mode}")`,
+  ]
 }
 
 /**
@@ -1021,44 +773,6 @@ const validateReviewBaseTemplate = (name: string, state: StateDef): string[] => 
   return state.reviewBase.trim() === ""
     ? [`state "${name}": "reviewBase" template must not be blank`]
     : []
-}
-
-/**
- * `requireProgress`, when present, is forbidden on a commit state (never at
- * rest — same rule family as `reviewWindow`/`reviewBase`) and REQUIRES a
- * `file:`: the edge gate refuses a turn whose sole change is deleting that
- * file, so a state with no `file:` to name has nothing to guard.
- */
-const validateRequireProgress = (name: string, state: StateDef): string[] => {
-  if (state.requireProgress === undefined) return []
-  const errors: string[] = []
-  if (isCommitState(state)) {
-    errors.push(`state "${name}": a commit state cannot declare "requireProgress"`)
-  }
-  if (state.file === undefined) {
-    errors.push(`state "${name}": "requireProgress" requires "file"`)
-  }
-  return errors
-}
-
-/**
- * `answerGate`, when present, is forbidden on a commit state (never at rest —
- * same rule family as `reviewWindow`/`requireProgress`) and REQUIRES a `file:`:
- * the edge gate reads that file's open questions to check every one is answered,
- * so a state with no `file:` to name has nothing to gate. The gate only ACTS
- * when the state also declares `mode: qa` (the built-in checkbox format), but
- * that pairing is an edge concern, not enforced here.
- */
-const validateAnswerGate = (name: string, state: StateDef): string[] => {
-  if (state.answerGate === undefined) return []
-  const errors: string[] = []
-  if (isCommitState(state)) {
-    errors.push(`state "${name}": a commit state cannot declare "answerGate"`)
-  }
-  if (state.file === undefined) {
-    errors.push(`state "${name}": "answerGate" requires "file"`)
-  }
-  return errors
 }
 
 /** Every `on` row parses, and its target names a defined state. */
@@ -1134,7 +848,35 @@ const validateReachability = (def: WorkflowDefinition, names: readonly string[])
     )
 }
 
-/** All per-state rule checkers, run over one state. */
+/**
+ * The per-field checks that a generic `validateFieldRules` walk can't
+ * express, keyed by the field they own — a LOOKUP, not an enumeration: it
+ * does not grow when a new field is added to `STATE_FIELDS`, only when a new
+ * field needs a bespoke rule (a pattern parsing, a name resolving against
+ * dynamic vocabulary, a template being non-blank). Every survivor here is
+ * called BEFORE that same field's generic rules in `validateState`'s table
+ * walk, matching each field's own historical check order.
+ */
+const BESPOKE: Readonly<
+  Record<
+    string,
+    (def: WorkflowDefinition, name: string, state: StateDef, names: readonly string[]) => string[]
+  >
+> = {
+  on: (_def, name, state, names) => validateOnEdges(name, state, names),
+  retry: (_def, name, state, names) => validateRetry(name, state, names),
+  mode: (def, name, state) => validateKnownMode(def, name, state),
+  reviewBase: (_def, name, state) => validateReviewBaseTemplate(name, state),
+}
+
+/**
+ * All per-state rule checkers, run over one state: the two group-rule
+ * checkers that don't fit the field table (`validateContentKind`,
+ * `validateActorShape` — both span multiple fields at once), then every
+ * `STATE_FIELDS` entry in table order, each running its bespoke check (if
+ * any, from `BESPOKE`) before its generic `nonEmpty`/`commit`/`requires`
+ * rules (`validateFieldRules`).
+ */
 const validateState = (
   def: WorkflowDefinition,
   name: string,
@@ -1144,16 +886,10 @@ const validateState = (
   return [
     ...validateContentKind(name, state),
     ...validateActorShape(name, state),
-    ...validateOnEdges(name, state, names),
-    ...validateRetry(name, state, names),
-    ...validateModel(name, state),
-    ...validateLabel(name, state),
-    ...validateFile(name, state),
-    ...validateMode(def, name, state),
-    ...validateReviewWindow(name, state),
-    ...validateReviewBaseTemplate(name, state),
-    ...validateRequireProgress(name, state),
-    ...validateAnswerGate(name, state),
+    ...STATE_FIELD_ENTRIES.flatMap(([key, spec]) => [
+      ...(BESPOKE[key]?.(def, name, state, names) ?? []),
+      ...validateFieldRules(name, state, key, spec),
+    ]),
   ]
 }
 
@@ -1165,23 +901,22 @@ const validateState = (
  * non-commit state distinct from `entries.default` with no duplicate within
  * `entries.manual` itself (see `validateEntries`); every state declares
  * exactly one content kind; commit states carry no `actor` and no `on`;
- * non-commit states carry an `actor`; every `on` pattern parses and every
- * `on` target and `retry.otherwise` names a defined state; `retry.max` is a
- * non-negative integer; `model`, when present, is a non-empty string and is
- * never declared on a commit state; `label`, when present, is a non-empty
- * string and is never declared on a commit state (same rule family as
- * `model`); `file`, when
- * present, is a non-empty string and is never declared on a commit state;
- * `mode`, when present, names a mode the definition knows (a built-in or a
- * `modes:` entry — see `knownModes`), requires a sibling `file`, and is
- * never declared on a commit state; every `modes:` entry declares at least
- * one non-blank `format`/`validate` command; `reviewWindow`/`reviewBase`,
- * when present, are never declared on a commit state, and a string-form
- * `reviewBase` template must not be blank (see `validateReviewBaseTemplate`);
- * every state is reachable from an entry root (`def.entries` — `default`
- * plus every `entries.manual` state) by walking `on` targets and
- * `retry.otherwise` redirects (checked only when `validateEntries` itself
- * found no problem — see `validateReachability`).
+ * non-commit states carry an `actor`; every `modes:` entry declares at least
+ * one non-blank `format`/`validate` command; every state is reachable from an
+ * entry root (`def.entries` — `default` plus every `entries.manual` state) by
+ * walking `on` targets and `retry.otherwise` redirects (checked only when
+ * `validateEntries` itself found no problem — see `validateReachability`).
+ *
+ * Every OTHER per-field rule (`on`/`retry` targets resolving, `retry.max`
+ * being a non-negative integer, a text field's non-empty/commit-forbidden
+ * shape, `mode` naming a known vocabulary and requiring a sibling `file`,
+ * `reviewWindow`/`reviewBase`/`requireProgress`/`answerGate` each being
+ * forbidden on a commit state and (where declared) requiring a `file`, a
+ * string-form `reviewBase` template not being blank) is declared ONCE, in
+ * `src/StateFields.ts`'s `STATE_FIELDS` table — see that module for the
+ * authoritative per-field contract; `validateState` walks it via
+ * `validateFieldRules` plus the small `BESPOKE` set of checks a generic rule
+ * can't express.
  */
 export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
   const names = Object.keys(def.states)

@@ -2,14 +2,19 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, type Layer } from "effect"
 import {
   formatAndValidateSteeringFile,
   formatSteeringFile,
+  resolveBuiltInMode,
   resolveSteeringMode,
+  steeringCapabilities,
   unknownModeMessage,
   validateSteeringFile,
 } from "./SteeringMode.js"
+import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
+import { QA_FORMAT } from "./OpenQuestions.js"
+import { REVIEW_FORMAT } from "./ReviewDoc.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
 
@@ -40,25 +45,64 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
   edges: [],
 })
 
-/** Run an Effect that needs a real filesystem, returning its Exit so a failure can be asserted on. */
-const runExit = <A, E>(eff: Effect.Effect<A, E, never>) => Effect.runPromiseExit(eff)
-
 const commandsDef = (modes: NonNullable<WorkflowDefinition["modes"]>): WorkflowDefinition => ({
   modes,
   states: {},
   entries: { default: "x", manual: [] },
 })
 
+/** One recorded call into a scripted `CommandRunner`. */
+interface RecordedCall {
+  readonly command: string
+}
+
+/**
+ * A test double `CommandRunner` that records every call and always resolves
+ * with `outcome` — no subprocess, no real bash. `src/SteeringMode.test.ts`'s
+ * table-driven tests use this instead of shelling out (real-bash edge cases —
+ * huge output, a genuine spawn failure — live in `src/CommandRunner.test.ts`
+ * against the real `Live` layer instead).
+ */
+const scriptedRunner = (
+  outcome: CommandOutcome,
+): { readonly layer: Layer.Layer<CommandRunner>; readonly calls: RecordedCall[] } => {
+  const calls: RecordedCall[] = []
+  const layer = CommandRunner.layer((command: string) => {
+    calls.push({ command })
+    return Effect.succeed(outcome)
+  })
+  return { layer, calls }
+}
+
+/** A `CommandRunner` that fails the test if it is ever invoked — proves a code path never runs a command. */
+const neverRunner: Layer.Layer<CommandRunner> = CommandRunner.layer(() =>
+  Effect.fail(new Error("no command should have run")),
+)
+
+/** Runs an Effect needing a `CommandRunner` against a scripted/never layer. */
+const runWith = <A>(
+  eff: Effect.Effect<A, Error, CommandRunner>,
+  layer: Layer.Layer<CommandRunner>,
+) => Effect.runPromise(eff.pipe(Effect.provide(layer)))
+
+/** Same as `runWith`, but returns the `Exit` so a failure can be asserted on. */
+const runExitWith = <A>(
+  eff: Effect.Effect<A, Error, CommandRunner>,
+  layer: Layer.Layer<CommandRunner>,
+) => Effect.runPromiseExit(eff.pipe(Effect.provide(layer)))
+
 describe("resolveSteeringMode", () => {
-  it("resolves the two built-in names to their in-process validator, and to no formatter", () => {
+  it("resolves the two built-in names to their in-process validator, their format, and to no formatter", () => {
     const def: WorkflowDefinition = { states: {}, entries: { default: "x", manual: [] } }
     expect(resolveSteeringMode(def, "qa")).toEqual({
       mode: "qa",
-      validate: { kind: "builtin", mode: "qa" },
+      builtIn: QA_FORMAT,
+      validate: { kind: "builtin", format: QA_FORMAT },
     })
     expect(resolveSteeringMode(def, "review")).toEqual({
       mode: "review",
-      validate: { kind: "builtin", mode: "review" },
+      builtIn: REVIEW_FORMAT,
+      validate: { kind: "builtin", format: REVIEW_FORMAT },
     })
   })
 
@@ -74,15 +118,17 @@ describe("resolveSteeringMode", () => {
     const def = commandsDef({ qa: { format: "npx prettier --write <%= it.file %>" } })
     expect(resolveSteeringMode(def, "qa")).toEqual({
       mode: "qa",
-      format: "npx prettier --write <%= it.file %>",
-      validate: { kind: "builtin", mode: "qa" },
+      builtIn: QA_FORMAT,
+      formatCommand: "npx prettier --write <%= it.file %>",
+      validate: { kind: "builtin", format: QA_FORMAT },
     })
   })
 
-  it("lets a declared `validate:` override a built-in's parser", () => {
+  it("lets a declared `validate:` override a built-in's parser, WITHOUT losing the format identity", () => {
     const def = commandsDef({ qa: { validate: "my-qa-linter <%= it.file %>" } })
     expect(resolveSteeringMode(def, "qa")).toEqual({
       mode: "qa",
+      builtIn: QA_FORMAT,
       validate: { kind: "command", command: "my-qa-linter <%= it.file %>" },
     })
   })
@@ -91,7 +137,7 @@ describe("resolveSteeringMode", () => {
     const def = commandsDef({ adr: { format: "fmt <%= it.file %>" } })
     expect(resolveSteeringMode(def, "adr")).toEqual({
       mode: "adr",
-      format: "fmt <%= it.file %>",
+      formatCommand: "fmt <%= it.file %>",
     })
   })
 
@@ -99,100 +145,134 @@ describe("resolveSteeringMode", () => {
     const def = commandsDef({ adr: { validate: "adr-lint" } })
     expect(resolveSteeringMode(def, "nope")).toBeUndefined()
     expect(unknownModeMessage(def, "drafting", "nope")).toBe(
-      'state "drafting": mode "nope" is not defined by the active workflow (known modes: qa, review, prose, adr)',
+      'state "drafting": mode "nope" is not defined by the active workflow (known modes: adr)',
     )
   })
 
-  it("resolves `prose` with no declared mode to a validator-less, formatter-less mode", () => {
+  it("resolves nothing for `prose` with no declared entry — it is not in the built-in registry", () => {
     const def: WorkflowDefinition = { states: {}, entries: { default: "x", manual: [] } }
-    expect(resolveSteeringMode(def, "prose")).toEqual({ mode: "prose" })
+    expect(resolveSteeringMode(def, "prose")).toBeUndefined()
   })
 
-  it("adds a formatter to `prose` without adding any validation", () => {
+  it("resolves a declared `prose` entry with only a `format:` to a formatter-only, validator-less mode", () => {
     const def = commandsDef({ prose: { format: "npx prettier --write <%= it.file %>" } })
     expect(resolveSteeringMode(def, "prose")).toEqual({
       mode: "prose",
-      format: "npx prettier --write <%= it.file %>",
+      formatCommand: "npx prettier --write <%= it.file %>",
     })
   })
 })
 
+describe("resolveBuiltInMode", () => {
+  it("resolves the two built-in names against the registry alone, with no definition", () => {
+    expect(resolveBuiltInMode("qa")).toEqual({
+      mode: "qa",
+      builtIn: QA_FORMAT,
+      validate: { kind: "builtin", format: QA_FORMAT },
+    })
+    expect(resolveBuiltInMode("review")).toEqual({
+      mode: "review",
+      builtIn: REVIEW_FORMAT,
+      validate: { kind: "builtin", format: REVIEW_FORMAT },
+    })
+  })
+
+  it("resolves nothing for a name the registry doesn't know", () => {
+    expect(resolveBuiltInMode("prose")).toBeUndefined()
+    expect(resolveBuiltInMode("adr")).toBeUndefined()
+  })
+})
+
+describe("steeringCapabilities", () => {
+  it("carries the built-in format and a live validate function for an unoverridden built-in mode", () => {
+    const caps = steeringCapabilities(resolveBuiltInMode("qa"))
+    expect(caps.format).toBe(QA_FORMAT)
+    expect(caps.liveValidate).toBe(QA_FORMAT.validate)
+    expect(caps.externalValidate).toBeUndefined()
+  })
+
+  it("keeps the format but drops liveValidate, carrying externalValidate instead, when `validate:` is overridden", () => {
+    const def = commandsDef({ qa: { validate: "my-qa-linter <%= it.file %>" } })
+    const caps = steeringCapabilities(resolveSteeringMode(def, "qa"))
+    expect(caps.format).toBe(QA_FORMAT)
+    expect(caps.liveValidate).toBeUndefined()
+    expect(caps.externalValidate).toBe(true)
+  })
+
+  it("carries no format and no validate capability for a declared format-only mode", () => {
+    const def = commandsDef({ adr: { format: "fmt <%= it.file %>" } })
+    const caps = steeringCapabilities(resolveSteeringMode(def, "adr"))
+    expect(caps).toEqual({})
+  })
+
+  it("is empty for an unresolved mode", () => {
+    expect(steeringCapabilities(undefined)).toEqual({})
+  })
+})
+
 describe("validateSteeringFile — built-in modes", () => {
-  it("`qa` reports the open-questions parser's findings", async () => {
+  it("`qa` reports the open-questions parser's findings, without ever running a command", async () => {
     const content = "Plan.\n\n## Open Questions\n\n###\n\nno question text.\n"
-    const errors = await Effect.runPromise(
+    const errors = await runWith(
       validateSteeringFile(
-        { mode: "qa", validate: { kind: "builtin", mode: "qa" } },
+        { mode: "qa", validate: { kind: "builtin", format: QA_FORMAT } },
         ".gtd/TODO.md",
-        () => content,
+        content,
         context(),
-        tmpDir,
       ),
+      neverRunner,
     )
     expect(errors.join("\n")).toContain("has no question text")
   })
 
   it("`review` reports the review-doc parser's findings", async () => {
-    const errors = await Effect.runPromise(
+    const errors = await runWith(
       validateSteeringFile(
-        { mode: "review", validate: { kind: "builtin", mode: "review" } },
+        { mode: "review", validate: { kind: "builtin", format: REVIEW_FORMAT } },
         ".gtd/REVIEW.md",
-        () => "## Chunk\n",
+        "## Chunk\n",
         context(),
-        tmpDir,
       ),
+      neverRunner,
     )
     expect(errors.join("\n")).toContain("# Review: <hash>")
   })
 
   it("reports no findings for a valid file", async () => {
-    const errors = await Effect.runPromise(
+    const errors = await runWith(
       validateSteeringFile(
-        { mode: "qa", validate: { kind: "builtin", mode: "qa" } },
+        { mode: "qa", validate: { kind: "builtin", format: QA_FORMAT } },
         ".gtd/TODO.md",
-        () => "Just a plan, no questions.\n",
+        "Just a plan, no questions.\n",
         context(),
-        tmpDir,
       ),
+      neverRunner,
     )
     expect(errors).toEqual([])
-  })
-
-  it("fails when the file cannot be read", async () => {
-    const exit = await runExit(
-      validateSteeringFile(
-        { mode: "qa", validate: { kind: "builtin", mode: "qa" } },
-        ".gtd/TODO.md",
-        () => {
-          throw new Error("ENOENT")
-        },
-        context(),
-        tmpDir,
-      ),
-    )
-    expect(Exit.isFailure(exit)).toBe(true)
   })
 })
 
 describe("validateSteeringFile — a workflow-declared command", () => {
   it("treats exit 0 as valid and never reads the file itself", async () => {
-    writeFileSync(join(tmpDir, "present.md"), "x\n")
-    const errors = await Effect.runPromise(
+    const { layer } = scriptedRunner({ status: 0, output: "" })
+    const errors = await runWith(
       validateSteeringFile(
         { mode: "adr", validate: { kind: "command", command: "test -f <%= it.file %>" } },
         "present.md",
-        () => {
-          throw new Error("the command owns reading the file, gtd must not")
-        },
+        "",
         context(),
-        tmpDir,
       ),
+      layer,
     )
     expect(errors).toEqual([])
   })
 
-  it("turns a non-zero exit's output into one finding per line", async () => {
-    const errors = await Effect.runPromise(
+  it("turns a non-zero exit's output into one finding per line, having rendered `it.file` into the command", async () => {
+    const { layer, calls } = scriptedRunner({
+      status: 3,
+      output: "docs/adr.md: missing Status section\non stderr\n",
+    })
+    const errors = await runWith(
       validateSteeringFile(
         {
           mode: "adr",
@@ -202,29 +282,34 @@ describe("validateSteeringFile — a workflow-declared command", () => {
           },
         },
         "docs/adr.md",
-        () => "",
+        "",
         context(),
-        tmpDir,
       ),
+      layer,
     )
     expect(errors).toEqual(["docs/adr.md: missing Status section", "on stderr"])
+    expect(calls).toEqual([
+      { command: 'echo "docs/adr.md: missing Status section"; echo "on stderr" >&2; exit 3' },
+    ])
   })
 
   it("synthesizes a finding when a failing command says nothing", async () => {
-    const errors = await Effect.runPromise(
+    const { layer } = scriptedRunner({ status: 2, output: "" })
+    const errors = await runWith(
       validateSteeringFile(
         { mode: "adr", validate: { kind: "command", command: "exit 2" } },
         "docs/adr.md",
-        () => "",
+        "",
         context(),
-        tmpDir,
       ),
+      layer,
     )
     expect(errors).toEqual(['mode "adr": validate command exited with status 2 and no output'])
   })
 
-  it("renders the command as an Eta template over `it.file` and `it.vars`", async () => {
-    const errors = await Effect.runPromise(
+  it("renders the command as an Eta template over `it.file` and `it.vars` before running it", async () => {
+    const { layer, calls } = scriptedRunner({ status: 1, output: "adr-lint saw docs/adr.md\n" })
+    const errors = await runWith(
       validateSteeringFile(
         {
           mode: "adr",
@@ -234,36 +319,34 @@ describe("validateSteeringFile — a workflow-declared command", () => {
           },
         },
         "docs/adr.md",
-        () => "",
+        "",
         context({ linter: "adr-lint" }),
-        tmpDir,
       ),
+      layer,
     )
+    expect(calls[0]?.command).toBe('echo "adr-lint saw docs/adr.md"; exit 1')
     expect(errors).toEqual(["adr-lint saw docs/adr.md"])
   })
 
   it("fails (rather than running anything) when the command template is malformed", async () => {
-    const exit = await runExit(
+    const { layer, calls } = scriptedRunner({ status: 0, output: "" })
+    const exit = await runExitWith(
       validateSteeringFile(
         { mode: "adr", validate: { kind: "command", command: "check <%= it.file" } },
         "docs/adr.md",
-        () => "",
+        "",
         context(),
-        tmpDir,
       ),
+      layer,
     )
     expect(Exit.isFailure(exit)).toBe(true)
+    expect(calls).toEqual([])
   })
 
-  it("reports no findings for a mode that declares only a `format:` command", async () => {
-    const errors = await Effect.runPromise(
-      validateSteeringFile(
-        { mode: "adr", format: "true" },
-        "docs/adr.md",
-        () => "",
-        context(),
-        tmpDir,
-      ),
+  it("reports no findings for a mode that declares only a `format:` command, without running anything", async () => {
+    const errors = await runWith(
+      validateSteeringFile({ mode: "adr", formatCommand: "true" }, "docs/adr.md", "", context()),
+      neverRunner,
     )
     expect(errors).toEqual([])
   })
@@ -275,56 +358,60 @@ describe("formatSteeringFile", () => {
     const long =
       "This is a deliberately long single prose line that clearly exceeds the eighty character print width, and stays exactly as written.\n"
     writeFileSync(file, long)
-    await Effect.runPromise(
+    await runWith(
       formatSteeringFile(
-        { mode: "qa", validate: { kind: "builtin", mode: "qa" } },
+        { mode: "qa", validate: { kind: "builtin", format: QA_FORMAT } },
         file,
         context(),
-        tmpDir,
       ),
+      neverRunner,
     )
     expect(readFileSync(file, "utf8")).toBe(long)
   })
 
-  it("a formatter plugged into a built-in mode DOES run", async () => {
+  it("a formatter plugged into a built-in mode DOES run, rendered against `it.file`", async () => {
     const file = join(tmpDir, "TODO.md")
-    writeFileSync(file, "plan\n")
-    await Effect.runPromise(
+    const { layer, calls } = scriptedRunner({ status: 0, output: "" })
+    await runWith(
       formatSteeringFile(
         {
           mode: "qa",
-          format: "printf '# Plan\\n' > <%= it.file %>",
-          validate: { kind: "builtin", mode: "qa" },
+          formatCommand: "printf '# Plan\\n' > <%= it.file %>",
+          validate: { kind: "builtin", format: QA_FORMAT },
         },
         file,
         context(),
-        tmpDir,
       ),
+      layer,
     )
-    expect(readFileSync(file, "utf8")).toBe("# Plan\n")
+    expect(calls).toEqual([{ command: `printf '# Plan\\n' > ${file}` }])
   })
 
-  it("a declared mode's `format:` command rewrites the file, relative to the given cwd", async () => {
-    writeFileSync(join(tmpDir, "adr.md"), "status: draft\n")
-    await Effect.runPromise(
+  it("a declared mode's `format:` command is rendered and handed to the runner verbatim", async () => {
+    const { layer, calls } = scriptedRunner({ status: 0, output: "" })
+    await runWith(
       formatSteeringFile(
-        { mode: "adr", format: "tr a-z A-Z < <%= it.file %> > tmp && mv tmp <%= it.file %>" },
+        {
+          mode: "adr",
+          formatCommand: "tr a-z A-Z < <%= it.file %> > tmp && mv tmp <%= it.file %>",
+        },
         "adr.md",
         context(),
-        tmpDir,
       ),
+      layer,
     )
-    expect(readFileSync(join(tmpDir, "adr.md"), "utf8")).toBe("STATUS: DRAFT\n")
+    expect(calls).toEqual([{ command: "tr a-z A-Z < adr.md > tmp && mv tmp adr.md" }])
   })
 
   it("fails hard when the `format:` command exits non-zero, reporting its output", async () => {
-    const exit = await runExit(
+    const { layer } = scriptedRunner({ status: 4, output: "formatter blew up\n" })
+    const exit = await runExitWith(
       formatSteeringFile(
-        { mode: "adr", format: 'echo "formatter blew up" >&2; exit 4' },
+        { mode: "adr", formatCommand: 'echo "formatter blew up" >&2; exit 4' },
         "adr.md",
         context(),
-        tmpDir,
       ),
+      layer,
     )
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
@@ -334,58 +421,59 @@ describe("formatSteeringFile", () => {
   })
 
   it("formats nothing for a mode that declares only a `validate:` command", async () => {
-    writeFileSync(join(tmpDir, "adr.md"), "unchanged\n")
-    await Effect.runPromise(
+    await runWith(
       formatSteeringFile(
         { mode: "adr", validate: { kind: "command", command: "true" } },
         "adr.md",
         context(),
-        tmpDir,
       ),
+      neverRunner,
     )
-    expect(readFileSync(join(tmpDir, "adr.md"), "utf8")).toBe("unchanged\n")
   })
 })
 
 describe("formatAndValidateSteeringFile", () => {
-  it("formats BEFORE validating, so the validator judges the formatted file", async () => {
-    writeFileSync(join(tmpDir, "adr.md"), "draft\n")
-    const errors = await Effect.runPromise(
+  it("formats BEFORE validating, so the validate command runs only after format succeeds", async () => {
+    const { layer, calls } = scriptedRunner({ status: 0, output: "" })
+    const errors = await runWith(
       formatAndValidateSteeringFile(
         {
           mode: "adr",
-          format: "echo formatted > <%= it.file %>",
+          formatCommand: "echo formatted > <%= it.file %>",
           validate: {
             kind: "command",
             command: 'grep -q formatted <%= it.file %> || { echo "not formatted"; exit 1; }',
           },
         },
         "adr.md",
-        () => "",
+        "",
         context(),
-        tmpDir,
       ),
+      layer,
     )
     expect(errors).toEqual([])
-    expect(readFileSync(join(tmpDir, "adr.md"), "utf8")).toBe("formatted\n")
+    expect(calls.map((c) => c.command)).toEqual([
+      "echo formatted > adr.md",
+      'grep -q formatted adr.md || { echo "not formatted"; exit 1; }',
+    ])
   })
 
   it("never runs `validate:` when `format:` failed", async () => {
-    const marker = join(tmpDir, "validated")
-    const exit = await runExit(
+    const { layer, calls } = scriptedRunner({ status: 1, output: "" })
+    const exit = await runExitWith(
       formatAndValidateSteeringFile(
         {
           mode: "adr",
-          format: "exit 1",
-          validate: { kind: "command", command: `touch ${marker}` },
+          formatCommand: "exit 1",
+          validate: { kind: "command", command: "touch validated" },
         },
         "adr.md",
-        () => "",
+        "",
         context(),
-        tmpDir,
       ),
+      layer,
     )
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(() => readFileSync(marker, "utf8")).toThrow()
+    expect(calls).toHaveLength(1)
   })
 })

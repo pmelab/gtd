@@ -52,7 +52,7 @@ export interface TemplateContext {
   /**
    * The base of the previous review round's boundary: the most-recent
    * in-process commit that entered a `reviewBase: true` state, when one
-   * exists, else `startCommit` (the first review of a cycle). A template
+   * exists, else `startCommit` (the first review of a process). A template
    * names this hash in prose so the agent can `git diff` the range itself
    * (base → working tree) — it never sees rendered diff content. Assembled
    * by `src/Edge.ts`.
@@ -61,7 +61,7 @@ export interface TemplateContext {
   /**
    * The base a squash would KEEP from: the current process's trace/retry
    * boundary (`ProcessRun.startParentHash`), which a `Gtd-Review-Base:`
-   * trailer NEVER overrides. Equal to `startCommit` for a normal cycle; for a
+   * trailer NEVER overrides. Equal to `startCommit` for a normal process; for a
    * `gtd review` process it narrows to just the review's own feedback
    * commits — what the squash commit actually retains — instead of the whole
    * reviewed changeset. A squash `commit:` template names this hash in prose

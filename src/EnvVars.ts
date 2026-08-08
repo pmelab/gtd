@@ -2,7 +2,7 @@ import { Context, Layer } from "effect"
 
 /**
  * The process environment, injected as a Context tag — mirrors `Cwd`/
- * `WorktreeReader`: the one impure value (`process.env`) a caller needs is
+ * `RepoFiles`: the one impure value (`process.env`) a caller needs is
  * handed in via `all`, never read directly, so `src/Edge.ts`'s `resolveVars`
  * (the three-layer `it.vars` merge — workflow default < `.gtdrc` `vars:` <
  * `GTD_`-prefixed uppercase-name env, highest precedence) stays a pure function of its
