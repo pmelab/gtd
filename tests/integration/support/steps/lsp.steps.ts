@@ -114,6 +114,31 @@ function notify(client: LspClient, method: string, params: unknown): void {
   client.proc.stdin.write(frame({ jsonrpc: "2.0", method, params }))
 }
 
+/** Waits for a server-initiated notification/request matching `method` + `predicate` to show up in `serverRequests` — `publishDiagnostics` is fired asynchronously off `didOpen`, with no response to await, so a check for it must poll rather than assume it has already arrived. */
+function waitForServerRequest(
+  client: LspClient,
+  method: string,
+  predicate: (message: JsonRpcResponse) => boolean,
+  timeoutMs = 5_000,
+): Promise<JsonRpcResponse> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const deadline = Date.now() + timeoutMs
+    const check = (): void => {
+      const found = client.serverRequests.find((m) => m.method === method && predicate(m))
+      if (found) {
+        resolvePromise(found)
+        return
+      }
+      if (Date.now() > deadline) {
+        rejectPromise(new Error(`Timed out waiting for a "${method}" server request`))
+        return
+      }
+      setTimeout(check, 25)
+    }
+    check()
+  })
+}
+
 Given("an LSP server started in the test project", (world: GtdWorld) => {
   const proc = spawn(process.execPath, [GTD_BIN, "lsp"], {
     cwd: world.repoDir,
@@ -284,6 +309,32 @@ Then(
     assert.ok(
       actions.some((a) => a.title === title),
       `Expected a code action titled "${title}". Got: ${JSON.stringify(actions.map((a) => a.title))}`,
+    )
+  },
+)
+
+Then(
+  "the LSP client received a textDocument\\/publishDiagnostics notification for {string} with exactly one Information diagnostic containing {string}",
+  async (world: GtdWorld, path: string, substring: string) => {
+    const client = clients.get(world)!
+    const expectedUri = pathToFileURL(join(world.repoDir, path)).toString()
+    const notification = await waitForServerRequest(
+      client,
+      "textDocument/publishDiagnostics",
+      (m) => (m.params as { uri?: string } | undefined)?.uri === expectedUri,
+    )
+    const diagnostics = (
+      notification.params as { diagnostics: ReadonlyArray<{ message: string; severity: number }> }
+    ).diagnostics
+    assert.strictEqual(
+      diagnostics.length,
+      1,
+      `Expected exactly one diagnostic for "${path}". Got: ${JSON.stringify(diagnostics)}`,
+    )
+    assert.strictEqual(diagnostics[0]!.severity, 3 /* DiagnosticSeverity.Information */)
+    assert.ok(
+      diagnostics[0]!.message.includes(substring),
+      `Expected the diagnostic message to contain "${substring}". Got: ${diagnostics[0]!.message}`,
     )
   },
 )

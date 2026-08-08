@@ -234,3 +234,53 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     Then the LSP response has no error
     And the LSP response result contains a code action titled "gtd: pick this option"
+
+  Scenario: a modes: qa validate: override suppresses built-in diagnostics for a live notice, while the outline stays live
+    # The registry's `qa` format identity (outline/actions) survives a declared
+    # `validate:` command that displaces its built-in parser (see
+    # src/SteeringMode.ts's resolveSteeringMode / steeringCapabilities) — the
+    # editor still gets a live outline, but diagnostics become the ONE
+    # Information notice pointing at `gtd validate`, never the built-in
+    # findings.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          qa:
+            validate: "exit 1"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/PLAN.md"
+                mode: qa
+                prompt: "develop the plan"
+                on:
+                  "* **": idle
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
+    And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/PLAN.md" with exactly one Information diagnostic containing "exit 1"

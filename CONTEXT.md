@@ -79,7 +79,17 @@ _Avoid_: state file, gate file, doc
 
 **Mode**: A named pair of shell commands over one steering file — `format:` to
 normalize it in place, `validate:` to report findings. Zero findings means
-valid.
+valid. Every mode a state's `mode:` names must be declared in the workflow's own
+`modes:` map (`qa`/`review` are seeded there automatically); an undeclared name
+is a load-time error, never a silent fallback.
+
+**Steering format**: What a steering file's CONTENT is — the shape a mode's NAME
+identifies (`qa`'s open-questions checkboxes, `review`'s hunk pointers),
+independent of who validates it. A format is what the LSP outlines/offers
+actions over; a mode is that format plus the specific `format:`/`validate:`
+commands ONE workflow plugs in for it. Overriding a built-in mode's `validate:`
+changes who validates, not what the file is — the format (and so the
+outline/actions) survives the override.
 
 **Squash**: Entering a `commit` state, collapsing a whole process's turn commits
 into one message. Ends the process.

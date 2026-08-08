@@ -95,49 +95,9 @@ export interface ModeDef {
   readonly validate?: string
 }
 
-/**
- * The two mode names gtd VALIDATES itself, in process: `qa`
- * (`src/OpenQuestions.ts`) and `review` (`src/ReviewDoc.ts`) — the pure parsers
- * the LSP also publishes as live diagnostics, which is why they stay in process
- * rather than becoming shell-outs. Available in every workflow without being
- * declared, and they bring VALIDATION ONLY: a built-in mode formats nothing
- * until some `modes:` layer gives it a `format:` command. A `modes:` entry
- * naming one of these overrides only the half it declares.
- */
-export type BuiltInMode = "qa" | "review"
-
-const BUILT_IN_MODES: readonly BuiltInMode[] = ["qa", "review"]
-
-/**
- * Built-in mode names that ship NO validator at all — just a recognized name a
- * state's `mode:` may use without a `modes:` declaration, so it resolves to
- * "format if a `modes:` layer gives it one, validate nothing" (see
- * `src/SteeringMode.ts`'s `resolveSteeringMode`). `prose` is the one entry: a
- * curated free-form document with no gtd-side schema (the simple flow's plan
- * file), distinct from the schema'd `qa`/`review` built-ins.
- */
-const FORMAT_ONLY_BUILT_IN_MODES = ["prose"] as const
-
-/** Every built-in mode name — the validator tier (`BUILT_IN_MODES`) plus the format-only tier (`FORMAT_ONLY_BUILT_IN_MODES`) — used where a `mode:` just needs to be a KNOWN name, not necessarily one with a validator. */
-const KNOWN_BUILT_IN_MODES: readonly StateMode[] = [
-  ...BUILT_IN_MODES,
-  ...FORMAT_ONLY_BUILT_IN_MODES,
-]
-
-/** True when `mode` names one of gtd's own in-process implementations (see `BUILT_IN_MODES`) — the edge's dispatch, and a type guard so it can pick the parser. */
-export const isBuiltInMode = (mode: StateMode): mode is BuiltInMode =>
-  (BUILT_IN_MODES as readonly StateMode[]).includes(mode)
-
-/** True when `mode` names any built-in — validator tier or format-only tier (see `KNOWN_BUILT_IN_MODES`) — without implying a validator exists. */
-export const isKnownBuiltInMode = (mode: StateMode): boolean => KNOWN_BUILT_IN_MODES.includes(mode)
-
-/** The mode names the definition declares in `modes:` (empty when it declares none). */
-const declaredModes = (def: WorkflowDefinition): readonly StateMode[] =>
-  Object.keys(def.modes ?? {})
-
-/** Every mode name a state's `mode:` may legally name under `def`: the built-ins (validator and format-only tiers) plus the declared ones (a declared name shadowing a built-in appears once). */
+/** Every mode name `def` declares in `modes:` (empty when it declares none) — the whole vocabulary a state's `mode:` may name, per this module (see `StateMode`'s doc comment for where the registry names come from). */
 export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
-  Array.from(new Set([...KNOWN_BUILT_IN_MODES, ...declaredModes(def)]))
+  Object.keys(def.modes ?? {})
 
 /**
  * The state names a process may START at. `default` is where an ordinary
@@ -164,12 +124,18 @@ export interface WorkflowDefinition {
   readonly entries: WorkflowEntries
   /**
    * The steering-file modes available to this workflow's states — mode name ->
-   * its format/validate commands (see `ModeDef`). Already the MERGE of the
-   * workflow's own `modes:` and the top-level `.gtdrc` `modes:` layer over it
-   * (`PatternConfig.mergeModes`, per half), so the engine sees one flat map.
-   * Layered over `BUILT_IN_MODES` rather than replacing them: a `qa` entry
-   * declaring only `format:` keeps gtd's built-in `qa` validation. Absent (or
-   * empty) means "the built-in validators only, no formatting".
+   * its format/validate commands (see `ModeDef`). Already the MERGE of
+   * `src/SteeringFormats.ts`'s built-in registry (seeded as empty entries),
+   * the workflow's own `modes:`, and the top-level `.gtdrc` `modes:` layer
+   * over that (`PatternConfig.compileWorkflowConfig`/`mergeModes`, per half),
+   * so the engine sees one flat map with no privileged names of its own — a
+   * `qa` entry declaring only `format:` keeps that format's built-in `qa`
+   * validation (resolved at the edge, see `src/SteeringMode.ts`) because the
+   * registry seed is still present underneath, not because this module knows
+   * the name `qa`. Absent (or empty) is possible only for a hand-built
+   * `WorkflowDefinition` that skipped the compiler (e.g. a test fixture) —
+   * every COMPILED definition always carries at least the registry's seeded
+   * entries.
    */
   readonly modes?: Readonly<Record<StateMode, ModeDef>>
 }
@@ -750,9 +716,12 @@ const validateActorShape = (name: string, state: StateDef): string[] => {
 }
 
 /**
- * The `modes:` map itself: every declared mode must carry at least one of
- * `format`/`validate`, and neither may be blank (a whitespace-only shell
- * command would run and "succeed", silently disabling the gate). The compiler
+ * The `modes:` map itself: a declared mode's `format`/`validate`, when
+ * present, may not be blank (a whitespace-only shell command would run and
+ * "succeed", silently disabling the gate). An empty entry (`{}`) is legal — the
+ * FORMAT-ONLY tier any workflow can use for a name with no gtd-side schema
+ * (`src/workflows/unified.yaml`'s `modes: { prose: {} }`, or a project's own
+ * `modes: { adr: {} }` before it plugs in any command at all). The compiler
  * (`src/PatternConfig.ts`) enforces the TYPES; these are the semantic rules,
  * collected alongside every other finding.
  */
@@ -766,27 +735,27 @@ const validateModes = (def: WorkflowDefinition): string[] => {
         errors.push(`mode "${mode}": "${key}" must be a non-empty shell command`)
       }
     }
-    if (commands.format === undefined && commands.validate === undefined) {
-      errors.push(`mode "${mode}": must declare at least one of "format"/"validate"`)
-    }
   }
   return errors
 }
 
 /**
- * `mode`, when present, must NAME a mode this definition knows — a built-in or
- * a `modes:` entry (`knownModes`). Load-time on purpose: a typo'd mode would
- * otherwise silently disable both the capture gate and the LSP's diagnostics
+ * `mode`, when present, must NAME a mode this definition knows — i.e. a key of
+ * `def.modes`, which the compiler seeds with `src/SteeringFormats.ts`'s
+ * built-in registry names before layering `modes:` over them, so this module
+ * blesses no name of its own. Load-time on purpose: a typo'd mode would
+ * otherwise silently disable both the capture guard and the LSP's diagnostics
  * for that file. The "forbidden on a commit state" and "requires a sibling
  * `file:`" halves are `STATE_FIELDS.mode`'s generic `commit`/`requires` rules
  * (see `validateFieldRules`) — this bespoke checker only owns the name
  * resolution a generic rule can't express.
  */
 const validateKnownMode = (def: WorkflowDefinition, name: string, state: StateDef): string[] => {
-  if (state.mode === undefined || knownModes(def).includes(state.mode)) return []
+  const known = knownModes(def)
+  if (state.mode === undefined || known.includes(state.mode)) return []
   return [
-    `state "${name}": "mode" must name a built-in mode (${KNOWN_BUILT_IN_MODES.join(", ")}) or one declared in "modes" (${
-      declaredModes(def).length > 0 ? declaredModes(def).join(", ") : "none declared"
+    `state "${name}": "mode" must name a mode this workflow knows (${
+      known.length > 0 ? known.join(", ") : "none declared"
     }) (got "${state.mode}")`,
   ]
 }

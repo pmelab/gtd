@@ -23,6 +23,13 @@ describe("the bundled unified workflow template", () => {
     expect(definition.states[definition.entries.default]).toBeDefined()
   })
 
+  it("declares its own `modes.prose` entry, plus the built-in registry's `qa`/`review` seeded as empty entries", () => {
+    const { definition } = compileTemplate()
+    expect(definition.modes?.["prose"]).toEqual({})
+    expect(definition.modes?.["qa"]).toEqual({})
+    expect(definition.modes?.["review"]).toEqual({})
+  })
+
   it("declares exactly one review checkout window and one review entry", () => {
     // The process runs to a human review gate, so it must declare exactly one
     // `reviewWindow: true` state (the gate that opens the editor's checkout

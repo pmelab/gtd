@@ -1,11 +1,11 @@
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
+import { CommandRunner } from "./CommandRunner.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { RepoFiles } from "./RepoFiles.js"
-import { CommandRunner } from "./CommandRunner.js"
 import { cliErrorLine, isEnveloped, makeProgram, runVersionOrHelp } from "./program.js"
 
 // Version/help must short-circuit before the Effect runtime exists: layer

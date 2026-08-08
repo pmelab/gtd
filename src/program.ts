@@ -162,6 +162,7 @@ export type ProgramRequirements =
   | RepoFiles
   | CommandRunner
   | EnvVars
+  | CommandRunner
 
 /**
  * Every value `flag` carries in `argv`, in BOTH `--flag=value` and `--flag

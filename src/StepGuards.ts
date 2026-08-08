@@ -13,8 +13,8 @@ import {
   isRequireProgressState,
   type PendingChange,
 } from "./PatternMachine.js"
-import { parseOpenQuestions, unansweredQuestions } from "./OpenQuestions.js"
-import { parseReviewDoc, untickedFiles } from "./ReviewDoc.js"
+import { unansweredQuestions } from "./OpenQuestions.js"
+import { untickedFiles } from "./ReviewDoc.js"
 import type { ExecutableDecision, ResolvedRest } from "./Edge.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
@@ -130,7 +130,7 @@ const reviewSignoffGuard: StepGuard = {
       const current = (yield* ctx.worktree) ?? ""
       if (normalizeCheckboxes(original) !== normalizeCheckboxes(current)) return undefined
       // Only checkbox flips, no comment: a sign-off needs EVERY file pointer ticked.
-      const unticked = untickedFiles(parseReviewDoc(current)).length
+      const unticked = untickedFiles(current).length
       if (unticked > 0) {
         return `${unticked} review item(s) still unticked and no comment at "${ctx.rest.state}" — finish reviewing (tick every box), or leave a note (or edit code) to request a change.`
       }
@@ -163,7 +163,7 @@ const answerCompletenessGuard: StepGuard = {
   check: (ctx) =>
     Effect.gen(function* () {
       const current = (yield* ctx.worktree) ?? ""
-      const unanswered = unansweredQuestions(parseOpenQuestions(current))
+      const unanswered = unansweredQuestions(current)
       if (unanswered.length === 0) return undefined
       const list = unanswered.map((q) => `  - ${q.question}`).join("\n")
       return `${unanswered.length} open question(s) in ${ctx.file} not answered at "${ctx.rest.state}" — tick exactly one option per question (or delete a question you don't want to answer, or delete the whole "## Open Questions" section to accept the plan as-is):\n${list}`

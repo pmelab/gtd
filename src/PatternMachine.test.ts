@@ -1165,6 +1165,7 @@ describe("validateDefinition", () => {
   it("accepts a state declaring `file` and a valid `mode`", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
+      modes: { qa: {} },
       states: {
         a: {
           actor: "h",
@@ -1178,9 +1179,10 @@ describe("validateDefinition", () => {
     expect(errors).toEqual([])
   })
 
-  it("accepts a state declaring `mode: prose` with no `modes:` declaration", () => {
+  it("accepts a state declaring `mode: prose` when `modes:` declares an empty (format-only) entry", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
+      modes: { prose: {} },
       states: {
         a: {
           actor: "h",
@@ -1194,9 +1196,22 @@ describe("validateDefinition", () => {
     expect(errors).toEqual([])
   })
 
+  it("rejects `mode: prose` with no `modes:` declaration at all — this pure module knows no built-in vocabulary", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", file: ".gtd/TODO.md", mode: "prose", on: [] },
+      },
+    })
+    expect(errors).toContain(
+      'state "a": "mode" must name a mode this workflow knows (none declared) (got "prose")',
+    )
+  })
+
   it("rejects `mode: prose` without a sibling `file`", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
+      modes: { prose: {} },
       states: {
         a: { actor: "h", message: "x", mode: "prose", on: [] },
       },
@@ -1225,9 +1240,10 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "b": a commit state cannot declare "file"')
   })
 
-  it("rejects a `mode` no built-in and no `modes:` entry defines, naming what is available", () => {
+  it("rejects a `mode` no `modes:` entry defines, naming what is available", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
+      modes: { qa: {} },
       states: {
         a: {
           actor: "h",
@@ -1239,7 +1255,7 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain(
-      'state "a": "mode" must name a built-in mode (qa, review, prose) or one declared in "modes" (none declared) (got "yolo")',
+      'state "a": "mode" must name a mode this workflow knows (qa) (got "yolo")',
     )
   })
 
@@ -1261,11 +1277,23 @@ describe("validateDefinition", () => {
       },
     })
     expect(rejected).toContain(
-      'state "a": "mode" must name a built-in mode (qa, review, prose) or one declared in "modes" (adr) (got "adrs")',
+      'state "a": "mode" must name a mode this workflow knows (adr) (got "adrs")',
     )
   })
 
-  it("lets a `modes:` entry shadow a built-in name without complaint", () => {
+  it("accepts an empty `modes:` entry ({}) — the format-only tier any workflow can declare, built-in or not", () => {
+    expect(
+      validateDefinition({
+        entries: { default: "a", manual: [] },
+        modes: { adr: {} },
+        states: {
+          a: { actor: "h", message: "x", file: "docs/adr.md", mode: "adr", on: [] },
+        },
+      }),
+    ).toEqual([])
+  })
+
+  it("still validates a declared mode's own format/validate commands, even when it shadows a built-in name", () => {
     expect(
       validateDefinition({
         entries: { default: "a", manual: [] },
@@ -1279,21 +1307,21 @@ describe("validateDefinition", () => {
     ).toEqual([])
   })
 
-  it("rejects a `modes:` entry that declares neither command, or a blank one", () => {
+  it("rejects a `modes:` entry that declares a blank command", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
-      modes: { empty: {}, blank: { validate: "   " } },
+      modes: { blank: { validate: "   " } },
       states: {
         a: { actor: "h", message: "x", on: [] },
       },
     })
-    expect(errors).toContain('mode "empty": must declare at least one of "format"/"validate"')
-    expect(errors).toContain('mode "blank": "validate" must be a non-empty shell command')
+    expect(errors).toEqual(['mode "blank": "validate" must be a non-empty shell command'])
   })
 
   it("rejects a `mode` with no sibling `file`", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
+      modes: { qa: {} },
       states: {
         a: { actor: "h", message: "x", mode: "qa", on: [] },
       },
@@ -1304,6 +1332,7 @@ describe("validateDefinition", () => {
   it("rejects a commit state that declares a `mode`", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
+      modes: { qa: {} },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", file: ".gtd/TODO.md", mode: "qa" },
@@ -1487,7 +1516,7 @@ describe("validateDefinition", () => {
     })
     expect(errors).toContain('state "a": "file" must be a non-empty string')
     expect(errors).toContain(
-      'state "a": "mode" must name a built-in mode (qa, review, prose) or one declared in "modes" (none declared) (got "yolo")',
+      'state "a": "mode" must name a mode this workflow knows (none declared) (got "yolo")',
     )
     expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
   })
@@ -1652,7 +1681,7 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "badFields": "label" must be a non-empty string')
     expect(errors).toContain('state "badFields": "file" must be a non-empty string')
     expect(errors).toContain(
-      'state "badFields": "mode" must name a built-in mode (qa, review, prose) or one declared in "modes" (none declared) (got "bogus")',
+      'state "badFields": "mode" must name a mode this workflow knows (none declared) (got "bogus")',
     )
     expect(errors).toContain('state "missingFile": "mode" requires "file"')
     expect(errors).toContain('state "missingFile": "requireProgress" requires "file"')

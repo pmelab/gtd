@@ -88,8 +88,11 @@ each machine's `model`, each state's `actor`, exactly one content kind, `on`
 edges, `retry`, `file`/`mode`, `reviewWindow`/`reviewBase`). It compiles through
 the same `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through
 (which flattens `entry:`/`machines:` via `src/Machines.ts`'s `flattenMachines`
-before any per-state compilation), so it never needs its own logic. After
-editing, update:
+before any per-state compilation), so it never needs its own logic. A state's
+`mode:` must name an entry the workflow's own top-level `modes:` map declares
+(an empty `{}` entry is enough) — the compiler seeds `qa`/`review` for you, but
+any OTHER name (including `prose`) needs its own `modes:` entry, or
+`validateDefinition` rejects the state at load time. After editing, update:
 
 - **`src/workflows/templates.test.ts`** — the invariants the compiled template
   must keep (one `entry.default`, one review window, one review/fix entry, the
@@ -128,12 +131,16 @@ declare and how each field behaves, rather than any one derivation site.
 
 A new steering-file FORMAT is neither: `mode:` names a pluggable mode, so a
 workflow declares its own `modes:` entry (a `format:`/`validate:` shell command
-pair) — no gtd change at all. Only the two built-in VALIDATORS (`qa`/`review`)
-live in code, because `gtd lsp` needs their parsers in process; a third built-in
-name, `prose`, is recognized with no code of its own — a format-only mode (no
-validator) the simple flow's plan file uses. gtd ships no formatter at all
-(there is no `gtd format` subcommand and no bundled prettier — a project plugs
-its own into a mode's `format:`).
+pair, or `{}`) — no gtd change at all. Only the two built-in VALIDATORS
+(`qa`/`review`, `src/SteeringFormats.ts`'s registry) live in code, because
+`gtd lsp` needs their parsers in process; `src/PatternConfig.ts`'s compiler
+seeds both of their names as empty `modes:` entries into every compiled
+definition, so a workflow gets their validation without declaring them itself.
+An empty `modes:` entry (`{}`) is the FORMAT-ONLY tier any workflow can use for
+a name with no gtd-side schema — the bundled template declares
+`modes: { prose: {} }` itself, for the simple flow's free-form plan file. gtd
+ships no formatter at all (there is no `gtd format` subcommand and no bundled
+prettier — a project plugs its own into a mode's `format:`).
 
 ### Variables
 

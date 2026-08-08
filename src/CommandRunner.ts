@@ -27,6 +27,11 @@ export class CommandRunner extends Context.Tag("CommandRunner")<
     readonly bash: (command: string) => Effect.Effect<CommandOutcome, Error>
   }
 >() {
+  /** A test layer over a canned `bash` implementation — no subprocess. Real-bash edge cases (huge output, a genuine spawn failure) belong against `Live` instead. */
+  static readonly layer = (
+    bash: (command: string) => Effect.Effect<CommandOutcome, Error>,
+  ): Layer.Layer<CommandRunner> => Layer.succeed(CommandRunner, { bash })
+
   static Live = Layer.effect(
     CommandRunner,
     Effect.gen(function* () {
