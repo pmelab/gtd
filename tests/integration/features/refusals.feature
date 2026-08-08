@@ -95,11 +95,11 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
     And the workflow
     When I run gtd with args "step human --entry review-gate.check --cost=5"
     Then it fails
-    And stderr contains "cannot be combined with --entry"
+    And stderr contains "is only valid for `gtd step` without --entry"
 
   Scenario: "--model" combined with "--entry" is a usage error
     Given a test project
     And the workflow
     When I run gtd with args "step human --entry review-gate.check --cost=5 --model=gpt"
     Then it fails
-    And stderr contains "cannot be combined with --entry"
+    And stderr contains "is only valid for `gtd step` without --entry"

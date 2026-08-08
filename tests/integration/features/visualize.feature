@@ -59,7 +59,7 @@ Feature: gtd visualize — an interactive diagram of the active workflow
     Given a test project
     When I run gtd with args "visualize bogus"
     Then it fails
-    And stderr contains "unexpected argument"
+    And stderr contains "too many arguments"
 
   Scenario: an invalid --port is rejected
     Given a test project

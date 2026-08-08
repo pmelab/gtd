@@ -207,14 +207,12 @@ Commands:
                    just-finished invocation's token cost and model on the
                    turn commit (summed into it.processCost/processCostByModel).
                    Pass --entry <state> to start a brand NEW process at
-                   <state> instead — any declared, non-commit state (e.g.
-                   review-gate.check or fix-precheck on the bundled unified
-                   template) — with repeatable --var <name>=<value> supplying
-                   that new process's fixed it.vars overrides
+                   <state> instead — any declared, non-commit state — with
+                   repeatable --var <name>=<value> supplying that new
+                   process's fixed it.vars overrides
   (no command) --entry <state>
                    Short form of 'step human --entry <state>' — starts a new
-                   process authenticated as human, e.g.
-                   'gtd --entry review-gate.check'
+                   process authenticated as human, e.g. 'gtd --entry <state>'
   abandon          End the process currently underway without completing it:
                    close any open review checkout window, then rewind HEAD to
                    the commit the process started from, keeping everything it
@@ -226,8 +224,7 @@ Commands:
                    Refuses on a dirty working tree, when there is no retained
                    history, or when HEAD has advanced past the squash with
                    commits that would be lost
-  next             Print the resolved rest's rendered script/prompt/message
-                   (no mutation)
+  next             Print the resolved rest's rendered script/prompt/message (no mutation)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Format and validate the steering file the resolved rest
@@ -255,9 +252,6 @@ Options:
                    (with --entry; repeatable) supply a fixed it.vars
                    override for the new process; the name must already be
                    declared by the workflow's own vars: or the .gtdrc vars:
-  --once           (bare gtd or gtd loop only) run exactly one loop beat (one
-                   human-gate capture, one script check+step, or one agent
-                   prompt+step), then exit
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -312,9 +306,16 @@ envelope on **stdout**, and still exits 1:
 { "state": "error", "prompt": "<message>" }
 ```
 
+This covers every failure mode, not just a command's own refusal: a **usage
+error** (an unknown flag, a missing argument, `gtd --entry version`'s "not an
+enterable state") and a **defect** (a layer throwing outside the ordinary error
+channel) both get the same envelope — there is no failure path that reaches
+`--json` without one.
+
 A human-readable `gtd: <message>` line is still written to **stderr** regardless
 of `--json` — the envelope adds a structured stdout channel, it does not replace
-the plain-text one.
+the plain-text one. Stderr always carries exactly one `gtd: ` prefix: a message
+already authored with its own `gtd:`/`gtd <cmd>:` prefix is never doubled.
 
 ## Driving the loop
 

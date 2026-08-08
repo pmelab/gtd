@@ -117,11 +117,25 @@ scenarios actually run them.
 
 ## CLI design
 
-- Keep CLI flags orthogonal: each flag controls exactly one concern and no flag
-  implies another, so users can combine them freely
-- Never let an unknown `--` option pass silently — reject it with a usage error
-  (`--json` is the only long option); a mistyped `--jsn` silently degrading to
-  plain-text output is a bug class, not a convenience
+`src/Cli.ts` owns the whole shell — one flag table, one command table, one
+parser, one envelope. The table is the source of truth, not prose:
+
+- A flag exists in the table (`name`, `arity`, `repeatable`, `scope`, `decode`,
+  `scopeError`, `help`) or it does not exist — there is no flag recognized by
+  some code path but absent from the table, and no unknown `--` option ever
+  passes silently (a mistyped `--jsn` is a usage error, never a silent
+  plain-text degrade)
+- `renderHelp()` is a derived view of the flag/command tables, not
+  hand-maintained prose — a flag or command's help text lives in its own row
+  (`help`/`details`), and the README's `## Commands` block is pinned equal to
+  `renderHelp()`'s output
+- Adding an escape hatch (a new flag, a new command, a new scope exception) is a
+  table edit, not a new `if` — `Cli.test.ts`'s property test forces every
+  unrecognized `--` token to a usage error, so a flag added anywhere other than
+  the table is invisible to the parser by construction
+- `--version`/`--help` must stay unrepresentable as a `Command` — they resolve
+  to an `output` plan, so no layer is ever built to answer them and no
+  `run*Command` handler can accidentally gate on their presence
 - gtd renders plain line output only — there is no spinner/renderer and no
   agent-event stream in the CLI. Do not re-add `--verbose`/`--debug` (or any
   output-mode flag) without wiring it to a real, tested concern; the flags must

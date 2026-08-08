@@ -41,7 +41,6 @@ Feature: gtd init — seed a minimal .gtdrc.json (default vars + formatting)
     When I run gtd with args "init simple"
     Then it fails
     And stderr contains "too many arguments"
-    And stderr contains "init takes no argument"
     And ".gtdrc.json" does not exist
 
   Scenario: gtd init refuses to overwrite an existing gtd config
