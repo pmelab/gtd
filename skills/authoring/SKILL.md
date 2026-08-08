@@ -83,7 +83,7 @@ states:
     initial: true # EXACTLY ONE state across the workflow carries this
     retry: { max: <int>, otherwise: <targetState> } # optional cap (see "Retry")
     file: <string> # optional steering file this state is about (Eta-rendered)
-    mode: <modeName> # optional, REQUIRES file: — qa | review | a modes: entry
+    mode: <modeName> # optional, REQUIRES file: — must be declared in modes: (qa/review are seeded automatically)
     reviewWindow: true # optional — open the review checkout window at rest here
     reviewBase: true # optional — anchor the review diff base to this state
     # reviewBase: <Eta template> # OR a template — see "Retry, review, and the squash finale"

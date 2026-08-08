@@ -35,6 +35,8 @@
  * wants to read/validate `.gtd/REVIEW.md`.
  */
 
+import type { SteeringEdit, SteeringFormat, SteeringOutlineNode } from "./SteeringFormat.js"
+
 export interface ReviewFile {
   readonly path: string
   readonly line?: number
@@ -62,7 +64,7 @@ export interface ReviewDoc {
 const HEADER_RE = /^#\s+Review:\s*(\S+)\s*$/
 const BASE_COMMENT_RE = /^<!--\s*base:\s*(\S+)\s*-->$/
 const CHUNK_HEADING_RE = /^##\s+(.+)$/
-export const FILE_POINTER_RE = /^-\s*\[([ xX])\]\s*(\.\/\S+?)(?:#(\d+))?(?:\s*[—-]+\s*(.*))?$/
+const FILE_POINTER_RE = /^-\s*\[([ xX])\]\s*(\.\/\S+?)(?:#(\d+))?(?:\s*[—-]+\s*(.*))?$/
 
 /** The `# Review: <hash>` header, required as the document's first non-blank line. */
 const parseHeader = (lines: readonly string[]): string | undefined => {
@@ -184,4 +186,152 @@ export const parseReviewDoc = (content: string): ReviewDoc => {
     changesets,
     errors,
   }
+}
+
+/** Every unticked file pointer across all chunks — the sign-off gate's own unticked count, over a freshly-parsed document. */
+export const untickedFiles = (content: string): readonly ReviewFile[] =>
+  parseReviewDoc(content)
+    .changesets.flatMap((chunk) => chunk.files)
+    .filter((file) => !file.checked)
+
+/** Flips the `[ ]`/`[x]` box of the hunk line at `line`, preserving path/note text exactly. */
+export const toggleFilePointer = (content: string, line: number): SteeringEdit | undefined => {
+  const raw = content.split(/\r?\n/)[line]
+  if (raw === undefined) return undefined
+  const leading = raw.length - raw.trimStart().length
+  const trimmed = raw.slice(leading)
+  const match = FILE_POINTER_RE.exec(trimmed)
+  if (!match) return undefined
+  const bracketContent = match[0].indexOf("[") + 1
+  const character = leading + bracketContent
+  return {
+    range: { start: { line, character }, end: { line, character: character + 1 } },
+    newText: match[1] === " " ? "x" : " ",
+  }
+}
+
+const lineRange = (lines: readonly string[], line: number) => ({
+  start: { line, character: 0 },
+  end: { line, character: (lines[line] ?? "").length },
+})
+
+const spanRange = (lines: readonly string[], startLine: number, endLine: number) => ({
+  start: { line: startLine, character: 0 },
+  end: { line: endLine, character: (lines[endLine] ?? "").length },
+})
+
+/** Document outline for `.gtd/REVIEW.md`: only the headlines of chunks (the user-facing "work packages") that still carry at least one unchecked hunk — the outline is the list of packages left to review, nothing else. No children — a chunk headline is the whole node. */
+const reviewOutline = (content: string): readonly SteeringOutlineNode[] => {
+  const { changesets } = parseReviewDoc(content)
+  const lines = content.split(/\r?\n/)
+  return changesets
+    .map((chunk, i) => {
+      const start = chunk.headingLine
+      const end = Math.max(start, (changesets[i + 1]?.headingLine ?? lines.length) - 1)
+      const checkedCount = chunk.files.filter((file) => file.checked).length
+      return {
+        name: `${chunk.title} (${checkedCount}/${chunk.files.length})`,
+        range: spanRange(lines, start, end),
+        selectionRange: lineRange(lines, start),
+        unchecked: checkedCount < chunk.files.length,
+      }
+    })
+    .filter((node) => node.unchecked)
+    .map(({ unchecked: _unchecked, ...node }) => node)
+}
+
+/**
+ * The target state a whole-chunk toggle drives every hunk to: `true` (check
+ * all) unless a strict majority are already checked, in which case `false`
+ * (uncheck all) — a chunk with no strict majority either way (including an
+ * even split) defaults to checking, so it's never a meaningless no-op on a
+ * chunk that's already uniform.
+ */
+const chunkToggleTarget = (checkedCount: number, total: number): boolean =>
+  checkedCount * 2 <= total
+
+/** Toggles every hunk in the chunk headed at `headingLine` to a single target state (`chunkToggleTarget`). Only hunks not already at the target state produce an edit. */
+const toggleChunkEdits = (content: string, headingLine: number): SteeringEdit[] => {
+  const { changesets } = parseReviewDoc(content)
+  const chunk = changesets.find((c) => c.headingLine === headingLine)
+  if (!chunk || chunk.files.length === 0) return []
+  const checkedCount = chunk.files.filter((file) => file.checked).length
+  const target = chunkToggleTarget(checkedCount, chunk.files.length)
+  const edits: SteeringEdit[] = []
+  for (const file of chunk.files) {
+    if (file.checked === target) continue
+    const edit = toggleFilePointer(content, file.sourceLine)
+    if (edit) edits.push(edit)
+  }
+  return edits
+}
+
+/** Actions for `.gtd/REVIEW.md`: "check/uncheck this hunk" when `range` sits on a hunk line, "check/uncheck all hunks" when `range` sits anywhere in a chunk (heading or body). */
+const reviewActions: SteeringFormat["actions"] = (content, range) => {
+  const { changesets } = parseReviewDoc(content)
+  const lines = content.split(/\r?\n/)
+  const cursorLine = range.start.line
+  const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
+
+  // fallow-ignore-next-line complexity
+  changesets.forEach((chunk, i) => {
+    const hunk = chunk.files.find((file) => file.sourceLine === cursorLine)
+    if (hunk) {
+      const edit = toggleFilePointer(content, hunk.sourceLine)
+      if (edit) {
+        actions.push({
+          title: hunk.checked ? "gtd: uncheck this hunk" : "gtd: check this hunk",
+          edits: [edit],
+        })
+      }
+    }
+
+    const chunkEnd = Math.max(
+      chunk.headingLine,
+      (changesets[i + 1]?.headingLine ?? lines.length) - 1,
+    )
+    if (chunk.files.length > 0 && cursorLine >= chunk.headingLine && cursorLine <= chunkEnd) {
+      const edits = toggleChunkEdits(content, chunk.headingLine)
+      if (edits.length > 0) {
+        const checkedCount = chunk.files.filter((file) => file.checked).length
+        const willCheck = chunkToggleTarget(checkedCount, chunk.files.length)
+        actions.push({
+          title: willCheck
+            ? `gtd: check all hunks in "${chunk.title}"`
+            : `gtd: uncheck all hunks in "${chunk.title}"`,
+          edits,
+        })
+      }
+    }
+  })
+
+  return actions
+}
+
+/**
+ * Go-to-definition pointer for a `.gtd/REVIEW.md` hunk line: the file the
+ * hunk pointer at `line` (0-based) points into. Returns `undefined` when
+ * `line` isn't a parsed hunk pointer (a heading, prose, or a malformed line
+ * has no `sourceLine`). The `#line` in a pointer is 1-based (git/human line
+ * numbers); this maps it to 0-based (`line - 1`) — a bare `./path` with no
+ * `#line` lands at line 0. Path RESOLUTION (against a repo root) is the LSP's
+ * concern, not this module's — the path returned here is the pointer's raw
+ * `./`-relative text.
+ */
+const reviewPointerAt = (
+  content: string,
+  line: number,
+): { path: string; line: number } | undefined => {
+  const { changesets } = parseReviewDoc(content)
+  const hunk = changesets.flatMap((chunk) => chunk.files).find((file) => file.sourceLine === line)
+  if (!hunk) return undefined
+  return { path: hunk.path, line: hunk.line !== undefined ? hunk.line - 1 : 0 }
+}
+
+/** The `review` steering format: gtd's own in-process review-checkbox format — validation, outline, code actions, and `pointerAt` (a hunk pointer's go-to-definition target). */
+export const REVIEW_FORMAT: SteeringFormat = {
+  validate: (content) => parseReviewDoc(content).errors,
+  outline: reviewOutline,
+  actions: reviewActions,
+  pointerAt: reviewPointerAt,
 }

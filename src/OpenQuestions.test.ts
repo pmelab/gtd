@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { FREE_TEXT_PLACEHOLDER, parseOpenQuestions } from "./OpenQuestions.js"
+import {
+  FREE_TEXT_PLACEHOLDER,
+  parseOpenQuestions,
+  unansweredQuestions,
+  toggleCheckbox,
+  QA_FORMAT,
+} from "./OpenQuestions.js"
 
 describe("parseOpenQuestions", () => {
   it("returns zero questions and zero errors when there is no questions section", () => {
@@ -309,5 +315,170 @@ describe("parseOpenQuestions", () => {
       const chosen = question.options.find((o) => o.checked)!
       expect(chosen).toMatchObject({ text: "use tRPC", sourceLine: 5, endLine: 6 })
     })
+  })
+})
+
+describe("unansweredQuestions", () => {
+  it("returns only OPEN questions that are not answered", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [x] GraphQL",
+      "",
+      "### Which database?",
+      "",
+      "- [ ] Postgres",
+      "- [ ] MySQL",
+      "",
+      "## Answered Questions",
+      "",
+      "### Already resolved?",
+      "",
+      "Yes.",
+      "",
+    ].join("\n")
+    const unanswered = unansweredQuestions(content)
+    expect(unanswered.map((q) => q.question)).toEqual(["Which database?"])
+  })
+
+  it("returns an empty array when every open question is answered", () => {
+    const content = ["## Open Questions", "", "### Which API?", "", "- [x] REST", ""].join("\n")
+    expect(unansweredQuestions(content)).toEqual([])
+  })
+})
+
+describe("toggleCheckbox", () => {
+  const doc = [
+    "## Open Questions",
+    "",
+    "### Which API?",
+    "",
+    "- [ ] REST",
+    "- [x] GraphQL",
+    "",
+  ].join("\n")
+
+  it("flips an unchecked box to checked", () => {
+    expect(toggleCheckbox(doc, 4)?.newText).toBe("x")
+  })
+
+  it("flips a checked box to unchecked", () => {
+    expect(toggleCheckbox(doc, 5)?.newText).toBe(" ")
+  })
+
+  it("returns undefined for a line with no list-marker checkbox", () => {
+    expect(toggleCheckbox(doc, 3)).toBeUndefined() // blank line
+  })
+
+  it("does not fire on a `[x]` bracket pair inside prose with no list marker (unlike the old bare-bracket regex)", () => {
+    expect(toggleCheckbox("some prose with a [x] bracket pair", 0)).toBeUndefined()
+  })
+})
+
+describe("QA_FORMAT", () => {
+  const questionsDoc = [
+    "# Plan",
+    "",
+    "## Open Questions",
+    "",
+    "### Which operations?",
+    "",
+    "add and subtract.",
+    "",
+    "## Answered Questions",
+    "",
+    "### What is the target platform?",
+    "",
+    "web only.",
+    "",
+  ].join("\n")
+
+  it("validate delegates to parseOpenQuestions's errors", () => {
+    const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
+    expect(QA_FORMAT.validate(malformed)).toEqual([
+      "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+    ])
+    expect(QA_FORMAT.validate(questionsDoc)).toEqual([])
+  })
+
+  it("outline marks a prose (option-less) open question as unanswered, and answered-section questions as answered", () => {
+    const nodes = QA_FORMAT.outline(questionsDoc)
+    expect(nodes.map((n) => n.name)).toEqual([
+      "[unanswered] Which operations?",
+      "[answered] What is the target platform?",
+    ])
+    expect(nodes[0]?.selectionRange.start.line).toBe(4)
+    expect(nodes[1]?.selectionRange.start.line).toBe(10)
+  })
+
+  it("outline marks an open question with exactly one ticked option as answered, and lists options as leaf children", () => {
+    const doc = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [x] GraphQL",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
+    const nodes = QA_FORMAT.outline(doc)
+    expect(nodes[0]?.name).toBe("[answered] Which API?")
+    expect(nodes[0]?.children?.map((c) => c.name)).toEqual([
+      "[ ] REST",
+      "[x] GraphQL",
+      "[ ] your answer",
+    ])
+    expect(nodes[0]?.children?.every((c) => c.leaf === true)).toBe(true)
+  })
+
+  it("outline returns no nodes when there is no Open Questions section", () => {
+    expect(QA_FORMAT.outline("# Plan\n\nJust prose.\n")).toEqual([])
+  })
+
+  it("actions offer 'pick this option' on an unticked option, checking it and unticking the ticked sibling", () => {
+    const doc = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [x] GraphQL",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
+    const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+    const actions = QA_FORMAT.actions(doc, at(4)) // the REST line
+    expect(actions).toHaveLength(1)
+    expect(actions[0]?.title).toBe("gtd: pick this option")
+    const edits = actions[0]?.edits ?? []
+    expect(edits.map((e) => e.range.start.line).sort()).toEqual([4, 5])
+    expect(edits.find((e) => e.range.start.line === 4)?.newText).toBe("x")
+    expect(edits.find((e) => e.range.start.line === 5)?.newText).toBe(" ")
+  })
+
+  it("actions offer 'uncheck this option' on the already-ticked option, and nothing off an option line", () => {
+    const doc = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [x] GraphQL",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
+    const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+    const actions = QA_FORMAT.actions(doc, at(5))
+    expect(actions[0]?.title).toBe("gtd: uncheck this option")
+    expect(actions[0]?.edits).toHaveLength(1)
+    expect(QA_FORMAT.actions(doc, at(2))).toEqual([]) // the ### heading
+  })
+
+  it("has no pointerAt", () => {
+    expect(QA_FORMAT.pointerAt).toBeUndefined()
   })
 })

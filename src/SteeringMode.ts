@@ -1,15 +1,8 @@
 import { Effect } from "effect"
-import { spawnSync } from "node:child_process"
-import { parseOpenQuestions } from "./OpenQuestions.js"
-import { parseReviewDoc } from "./ReviewDoc.js"
-import {
-  isBuiltInMode,
-  isKnownBuiltInMode,
-  knownModes,
-  type BuiltInMode,
-  type StateMode,
-  type WorkflowDefinition,
-} from "./PatternMachine.js"
+import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
+import { steeringFormatFor } from "./SteeringFormats.js"
+import type { SteeringFormat } from "./SteeringFormat.js"
+import { knownModes, type StateMode, type WorkflowDefinition } from "./PatternMachine.js"
 import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 
 /**
@@ -30,13 +23,13 @@ import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
  *   script of its own and plugs it into whichever mode it wants formatted. No
  *   command, no formatting.
  * - **validate** — a `modes:` entry's `validate:` command if declared;
- *   otherwise, for the two VALIDATOR built-in names (`PatternMachine.BuiltInMode`),
- *   gtd's own pure parser: `qa` → `src/OpenQuestions.ts`, `review` →
- *   `src/ReviewDoc.ts`. Those stay in process because `gtd lsp` publishes the
- *   same parsers as live diagnostics. A third built-in, `prose`
- *   (`PatternMachine.isKnownBuiltInMode`), is FORMAT-ONLY: it is a known mode
- *   name with no in-process parser, so it validates nothing unless a `modes:`
- *   entry declares its own `validate:` command.
+ *   otherwise, for a name the built-in registry knows (`src/SteeringFormats.ts`
+ *   — currently `qa`/`review`), that format's own pure parser (`SteeringFormat.
+ *   validate`). Those stay in process because `gtd lsp` publishes the same
+ *   parsers as live diagnostics/outline/actions. Any OTHER mode name — `prose`,
+ *   or any workflow-declared name — is FORMAT-ONLY unless a `modes:` entry
+ *   declares its own `validate:` command: it has no in-process parser, so it
+ *   validates nothing on its own.
  *
  * That per-half layering is what makes a built-in mode EXTENSIBLE rather than
  * all-or-nothing: `modes: { qa: { format: "npx prettier --write <%= it.file %>" } }`
@@ -53,48 +46,93 @@ import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
  * a subprocess (a workflow script is run by the driver, never by gtd).
  */
 
-/** How a resolved mode validates: a shell command, or gtd's own in-process parser. */
+/** How a resolved mode validates: a shell command, or a built-in format's own in-process parser. */
 export type ResolvedValidator =
   | { readonly kind: "command"; readonly command: string }
-  | { readonly kind: "builtin"; readonly mode: BuiltInMode }
+  | { readonly kind: "builtin"; readonly format: SteeringFormat }
 
 /** A state's `mode:` resolved against the active definition — each half from the first layer that provides it (see the module docstring). */
 export interface ResolvedMode {
   readonly mode: StateMode
+  /** The built-in `SteeringFormat` registered under this mode's NAME (`src/SteeringFormats.ts`), independent of who ends up validating — present even when a declared `validate:` command overrides the format's own parser (see `resolveSteeringMode`). Absent when the name is not in the built-in registry at all. */
+  readonly builtIn?: SteeringFormat
   /** The `format:` shell command, when some `modes:` layer declared one. Absent = this mode formats nothing. */
-  readonly format?: string
+  readonly formatCommand?: string
   /** How to validate, or absent when neither a command nor a built-in parser applies (a declared mode with only a `format:`). */
   readonly validate?: ResolvedValidator
 }
 
 /**
- * Resolve a `mode:` name, half by half: a declared `format:`/`validate:` wins,
- * and an undeclared `validate:` falls back to the built-in PARSER of the same
- * name — only `qa`/`review` have one (`isBuiltInMode`). `prose` is a known
- * built-in NAME with no parser (`isKnownBuiltInMode`), so it resolves without
- * a declaration to `{ mode: "prose" }` — no format, no validate — and gains
- * formatting only, never validation, from a `modes:` layer. `undefined` for a
- * name that is neither declared nor a known built-in — `validateDefinition`
- * rejects that at load time, so the edge only ever sees it as a defensive
- * case.
+ * Resolve a `mode:` name against ONLY `def.modes` plus the built-in registry
+ * (`src/SteeringFormats.ts`) — half by half: a declared `format:`/`validate:`
+ * wins, and an undeclared `validate:` falls back to the built-in format's own
+ * parser when the name is registered. `builtIn` is set from the registry
+ * ALONE, independent of which half of `validate` ends up winning — so
+ * `modes: { qa: { validate: "…" } }` still carries `builtIn: QA_FORMAT`
+ * (a declared validator overrides validation, not the format identity;
+ * `steeringCapabilities` is what reads `validate.kind` to decide whether the
+ * format's own parser is actually live). `undefined` for a name that is
+ * neither declared in `def.modes` nor in the built-in registry —
+ * `validateDefinition` rejects that at load time, so the edge only ever sees
+ * it as a defensive case.
  */
 export const resolveSteeringMode = (
   def: WorkflowDefinition,
   mode: StateMode,
 ): ResolvedMode | undefined => {
   const declared = def.modes?.[mode]
-  if (declared === undefined && !isKnownBuiltInMode(mode)) return undefined
-  const builtIn = isBuiltInMode(mode)
+  const builtIn = steeringFormatFor(mode)
+  if (declared === undefined && builtIn === undefined) return undefined
   const validate: ResolvedValidator | undefined =
     declared?.validate !== undefined
       ? { kind: "command", command: declared.validate }
-      : builtIn
-        ? { kind: "builtin", mode }
+      : builtIn !== undefined
+        ? { kind: "builtin", format: builtIn }
         : undefined
   return {
     mode,
-    ...(declared?.format !== undefined ? { format: declared.format } : {}),
+    ...(builtIn !== undefined ? { builtIn } : {}),
+    ...(declared?.format !== undefined ? { formatCommand: declared.format } : {}),
     ...(validate !== undefined ? { validate } : {}),
+  }
+}
+
+/**
+ * Resolve `mode` against the built-in registry ALONE, with no workflow
+ * definition in hand — the LSP's basename fallback (e.g. `REVIEW.md` when no
+ * config maps it), which has a path but no state to read `def.modes` from.
+ * `undefined` when `mode` names no built-in format.
+ */
+export const resolveBuiltInMode = (mode: StateMode): ResolvedMode | undefined => {
+  const builtIn = steeringFormatFor(mode)
+  if (builtIn === undefined) return undefined
+  return { mode, builtIn, validate: { kind: "builtin", format: builtIn } }
+}
+
+/**
+ * What a resolved mode can DO, read off `ResolvedMode` for a consumer (the LSP,
+ * the sign-off/answer gates) that only cares about capability, not resolution
+ * mechanics: `format` is the built-in format (outline/actions/pointer), present
+ * whenever `builtIn` is; `liveValidate` is that format's own `validate`
+ * function, present IFF `validate.kind === "builtin"` (a declared `validate:`
+ * command displaces it); `externalValidate` is `true` IFF `validate.kind ===
+ * "command"` — a shell-validated mode, which the LSP shows a notice for instead
+ * of live diagnostics.
+ */
+export interface SteeringCapabilities {
+  readonly format?: SteeringFormat
+  readonly liveValidate?: (content: string) => readonly string[]
+  readonly externalValidate?: boolean
+}
+
+export const steeringCapabilities = (resolved: ResolvedMode | undefined): SteeringCapabilities => {
+  if (resolved === undefined) return {}
+  return {
+    ...(resolved.builtIn !== undefined ? { format: resolved.builtIn } : {}),
+    ...(resolved.validate?.kind === "builtin"
+      ? { liveValidate: resolved.validate.format.validate }
+      : {}),
+    ...(resolved.validate?.kind === "command" ? { externalValidate: true } : {}),
   }
 }
 
@@ -106,35 +144,22 @@ export const unknownModeMessage = (
 ): string =>
   `state "${state}": mode "${mode}" is not defined by the active workflow (known modes: ${knownModes(def).join(", ")})`
 
-/** One command run's outcome: its exit status (a signal death reported as `null`) and its combined output (stdout then stderr). */
-interface CommandOutcome {
-  readonly status: number | null
-  readonly output: string
-}
-
 /**
- * Run one rendered mode command through `bash -c` in `cwd`, capturing output
- * instead of inheriting the terminal (unlike a workflow script, which the driver
- * runs with inherited stdio because its output IS the point): here the output is
- * data — a validate command's findings
- * are reported to the agent that must fix them. A spawn failure (no `bash`, an
- * unreadable cwd) fails the Effect; a non-zero EXIT is a value, since that is
- * the mode's way of saying "invalid".
+ * Run one rendered mode command via the injected `CommandRunner`, capturing
+ * output instead of inheriting the terminal (unlike a workflow script, which
+ * the driver runs with inherited stdio because its output IS the point):
+ * here the output is data — a validate command's findings are reported to
+ * the agent that must fix them. A spawn failure (no `bash`, an unreadable
+ * cwd) fails the Effect; a non-zero EXIT is a value, since that is the mode's
+ * way of saying "invalid".
  */
-const runCommand = (command: string, cwd: string): Effect.Effect<CommandOutcome, Error> =>
-  Effect.try({
-    try: () => {
-      const result = spawnSync("bash", ["-c", command], {
-        cwd,
-        encoding: "utf8",
-      })
-      if (result.error !== undefined) throw result.error
-      return {
-        status: result.status,
-        output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
-      }
-    },
-    catch: (e) => new Error(`command "${command}" could not be run: ${errorText(e)}`),
+const runCommand = (
+  command: string,
+  cwd: string,
+): Effect.Effect<CommandOutcome, Error, CommandRunner> =>
+  Effect.gen(function* () {
+    const runner = yield* CommandRunner
+    return yield* runner.run(command, cwd)
   })
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -178,9 +203,9 @@ export const formatSteeringFile = (
   file: string,
   context: TemplateContext,
   cwd: string,
-): Effect.Effect<void, Error> =>
+): Effect.Effect<void, Error, CommandRunner> =>
   Effect.gen(function* () {
-    const command = resolved.format
+    const command = resolved.formatCommand
     if (command === undefined) return
     const rendered = yield* renderCommand(resolved.mode, "format", command, file, context)
     const outcome = yield* runCommand(rendered, cwd)
@@ -208,7 +233,7 @@ export const validateSteeringFile = (
   readContent: () => string,
   context: TemplateContext,
   cwd: string,
-): Effect.Effect<readonly string[], Error> =>
+): Effect.Effect<readonly string[], Error, CommandRunner> =>
   Effect.gen(function* () {
     const validator = resolved.validate
     if (validator === undefined) return []
@@ -217,9 +242,7 @@ export const validateSteeringFile = (
         try: readContent,
         catch: (e) => new Error(`mode "${resolved.mode}": cannot read ${file} — ${errorText(e)}`),
       })
-      return validator.mode === "qa"
-        ? parseOpenQuestions(content).errors
-        : parseReviewDoc(content).errors
+      return validator.format.validate(content)
     }
     const rendered = yield* renderCommand(
       resolved.mode,
@@ -244,7 +267,7 @@ export const formatAndValidateSteeringFile = (
   readContent: () => string,
   context: TemplateContext,
   cwd: string,
-): Effect.Effect<readonly string[], Error> =>
+): Effect.Effect<readonly string[], Error, CommandRunner> =>
   Effect.gen(function* () {
     yield* formatSteeringFile(resolved, file, context, cwd)
     return yield* validateSteeringFile(resolved, file, readContent, context, cwd)

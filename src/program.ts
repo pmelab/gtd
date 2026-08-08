@@ -56,8 +56,10 @@ import {
 import {
   formatAndValidateSteeringFile,
   resolveSteeringMode,
+  steeringCapabilities,
   unknownModeMessage,
 } from "./SteeringMode.js"
+import { CommandRunner } from "./CommandRunner.js"
 import {
   enterableStates,
   entryBaseTemplateOf,
@@ -74,7 +76,8 @@ import {
   type PendingChange,
   type StepRefusal,
 } from "./PatternMachine.js"
-import { parseOpenQuestions } from "./OpenQuestions.js"
+import { QA_FORMAT, unansweredQuestions } from "./OpenQuestions.js"
+import { REVIEW_FORMAT, untickedFiles } from "./ReviewDoc.js"
 import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
 
 const _require = createRequire(import.meta.url)
@@ -189,6 +192,7 @@ type ProgramRequirements =
   | Cwd
   | WorktreeReader
   | EnvVars
+  | CommandRunner
 
 /**
  * Every value `flag` carries in `argv`, in BOTH `--flag=value` and `--flag
@@ -1136,7 +1140,7 @@ const formatAndCheckSteeringFile = (
   worktreeRead: (path: string) => string,
   rest: ResolvedRest,
   context: TemplateContext,
-): Effect.Effect<SteeringCheck, Error, FileSystem.FileSystem | Cwd> =>
+): Effect.Effect<SteeringCheck, Error, FileSystem.FileSystem | Cwd | CommandRunner> =>
   Effect.gen(function* () {
     const file = yield* renderFile(rest.stateDef, context)
     const mode = rest.stateDef.mode
@@ -1172,7 +1176,7 @@ const enforceSteeringGate = (
   rest: ResolvedRest,
   context: TemplateContext,
   kind: ExecutableDecision["kind"],
-): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd> =>
+): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | CommandRunner> =>
   Effect.gen(function* () {
     // Only a normal commit captures the rest state's steering file; a squash
     // discards it, and a no-op writes nothing.
@@ -1188,9 +1192,6 @@ const enforceSteeringGate = (
       )
     }
   })
-
-/** The `mode:` name of gtd's built-in REVIEW.md checkbox validator — the only mode the sign-off gate below understands. */
-const REVIEW_MODE = "review"
 
 /** Normalize every markdown checkbox to a single placeholder so a pure `[ ]`→`[x]` tick is invisible to a text comparison; any surviving difference is a human note. */
 const normalizeCheckboxes = (content: string): string => content.replace(/\[[ xX]\]/g, "[_]")
@@ -1233,7 +1234,7 @@ export const classifyReviewSignoff = (input: {
     return { kind: "allow" }
   }
   // Only checkbox flips, no comment: a sign-off needs EVERY box ticked.
-  const unticked = input.current.match(/^[ \t]*-[ \t]*\[[ \t]*\]/gm)?.length ?? 0
+  const unticked = untickedFiles(input.current).length
   if (unticked > 0) {
     return {
       kind: "refuse",
@@ -1265,7 +1266,9 @@ const enforceReviewSignoffGate = (
 ): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
   Effect.gen(function* () {
     if (kind !== "commit") return
-    if (!isReviewWindowState(rest.def, rest.state) || rest.stateDef.mode !== REVIEW_MODE) return
+    if (!isReviewWindowState(rest.def, rest.state)) return
+    const caps = steeringCapabilities(resolveSteeringMode(rest.def, rest.stateDef.mode ?? ""))
+    if (caps.format !== REVIEW_FORMAT) return
     const file = yield* renderFile(rest.stateDef, context)
     if (file === undefined) return
 
@@ -1356,9 +1359,6 @@ const enforceFeedbackProgressGate = (
     if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
   })
 
-/** The `mode:` name of gtd's built-in open-questions checkbox format — the only mode the answer-completeness gate below acts on. */
-const QA_MODE = "qa"
-
 /** The verdict of the pure `classifyAnswerCompleteness` — `allow` lets the step commit, `refuse` fails it with `reason`. */
 export type AnswerCompletenessVerdict =
   | { readonly kind: "allow" }
@@ -1382,8 +1382,7 @@ export const classifyAnswerCompleteness = (input: {
   readonly invoker: string
   readonly content: string
 }): AnswerCompletenessVerdict => {
-  const open = parseOpenQuestions(input.content).questions.filter((q) => q.status === "open")
-  const unanswered = open.filter((q) => !q.answered)
+  const unanswered = unansweredQuestions(input.content)
   if (unanswered.length === 0) return { kind: "allow" }
   const list = unanswered.map((q) => `  - ${q.question}`).join("\n")
   return {
@@ -1411,7 +1410,9 @@ const enforceAnswerCompletenessGate = (
 ): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
   Effect.gen(function* () {
     if (kind !== "commit") return
-    if (!isAnswerGateState(rest.def, rest.state) || rest.stateDef.mode !== QA_MODE) return
+    if (!isAnswerGateState(rest.def, rest.state)) return
+    const caps = steeringCapabilities(resolveSteeringMode(rest.def, rest.stateDef.mode ?? ""))
+    if (caps.format !== QA_FORMAT) return
     const file = yield* renderFile(rest.stateDef, context)
     if (file === undefined) return
     const current = yield* Effect.try(() => worktreeRead(file)).pipe(

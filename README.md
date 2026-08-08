@@ -527,7 +527,7 @@ workflow:
     anyKey: anyScalarValue
   modes: # optional — steering-file modes a state's `mode:` may name
     <name>:
-      format: <shell command> # at least one of format/validate
+      format: <shell command> # both optional — {} is the format-only tier
       validate: <shell command>
   entry:
     default: <machine name> # which machine is the ROOT instance
@@ -554,7 +554,7 @@ workflow:
             max: <number>
             otherwise: <targetState>
           file: <string> # optional, an Eta template naming the state's steering file
-          mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
+          mode: <modeName> # optional, requires "file" — must be declared in `modes:` (qa/review are seeded for you; everything else, including prose, you declare)
           reviewWindow: true # optional — open the review checkout window at rest here
           reviewBase: true # optional — anchor the review window's diff base to this state's most-recent commit
           # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
@@ -785,13 +785,18 @@ own `- [ ]` line — diagnostics for both (live as you edit), and a
 
 It is config-driven via each state's `file:`/`mode:`, and falls back to basename
 dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and `review` are
-gtd's built-in steering-file MODES with a VALIDATOR gtd itself implements; a
-mode's `format:` and `validate:` are shell commands a workflow (or a project's
-`.gtdrc`) declares for itself, so you bring your own formatter and your own
-checkers. A third built-in, `prose` — format-only, no validator, used by the
-simple flow's plan file — has no live editor support: `gtd lsp` publishes no
-symbols or diagnostics for it, though `gtd validate` and the `gtd step` gate
-still format and validate it like any other mode.
+gtd's built-in steering-file FORMATS, each with its own outline/actions/
+go-to-definition and a VALIDATOR gtd itself implements; a mode's `format:` and
+`validate:` are shell commands a workflow (or a project's `.gtdrc`) declares for
+itself, so you bring your own formatter and your own checkers. Overriding one of
+`qa`/`review`'s `validate:` with a shell command does NOT lose its outline/
+actions — those come from the FORMAT (the name), independent of who validates —
+but `gtd lsp` never runs a shell command per keystroke, so live diagnostics
+become one `Information` notice pointing at `gtd validate` instead of the
+built-in findings. Any OTHER mode name — `prose` (used by the simple flow's plan
+file), or a project's own declared name — has no built-in format, so it gets no
+live editor support at all: `gtd validate` and the `gtd step` gate still format
+and validate it like any other mode.
 
 ## Development
 

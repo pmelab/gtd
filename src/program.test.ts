@@ -10,6 +10,7 @@
 import { NodeContext } from "@effect/platform-node"
 import { Effect, Exit, Layer } from "effect"
 import { describe, expect, it } from "vitest"
+import { CommandRunner } from "./CommandRunner.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -83,12 +84,18 @@ const stubWorktreeReaderLayer = Layer.succeed(WorktreeReader, {
   },
 })
 
+// Never-called CommandRunner — proves the flag handler never runs a command.
+const failingCommandRunnerLayer = CommandRunner.layer(() =>
+  Effect.fail(new Error("CommandRunner must not be called for --version/--help")),
+)
+
 const testLayers = failingGitLayer.pipe(
   Layer.provideMerge(NodeContext.layer),
   Layer.provideMerge(stubConfigLayer),
   Layer.provideMerge(stubWorktreeReaderLayer),
   Layer.provideMerge(Cwd.layer("")),
   Layer.provideMerge(EnvVars.layer({})),
+  Layer.provideMerge(failingCommandRunnerLayer),
 )
 
 async function runFlag(
@@ -1302,6 +1309,20 @@ describe("classifyReviewSignoff", () => {
     })
     expect(v.kind).toBe("refuse")
     if (v.kind === "refuse") expect(v.reason).toContain("1 review item(s) still unticked")
+  })
+
+  it("does not block a sign-off on an unticked checkbox OUTSIDE any ## chunk (narrowed from the old bare-checkbox regex)", () => {
+    const original = "- [ ] a stray checkbox above any chunk\n\n## C\n- [ ] ./a.ts#1\n"
+    const current = "- [ ] a stray checkbox above any chunk\n\n## C\n- [x] ./a.ts#1\n"
+    const v = classifyReviewSignoff({ ...base, original, current })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("does not block a sign-off on an unticked non-pointer task line inside a chunk (narrowed from the old bare-checkbox regex)", () => {
+    const original = "## C\n- [ ] ./a.ts#1\n- [ ] remember to buy milk\n"
+    const current = "## C\n- [x] ./a.ts#1\n- [ ] remember to buy milk\n"
+    const v = classifyReviewSignoff({ ...base, original, current })
+    expect(v).toEqual({ kind: "allow" })
   })
 })
 

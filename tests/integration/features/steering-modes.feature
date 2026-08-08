@@ -492,3 +492,67 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And stdout contains "docs/adr.md: valid"
     And "docs/adr.md" contains "status: DRAFT"
+
+  Scenario: the answer-completeness gate still fires on a qa-mode state even when its validate: command is overridden
+    # The semantic upgrade: the gate asks steeringCapabilities for the FORMAT
+    # (qa's identity, from the name), not for "is this mode's validator gtd's
+    # own parser" — so a workflow that plugs a shell command into qa's
+    # validate: still gets the open-questions answer gate. The command below
+    # always exits 0 (a house rule gtd itself has nothing to say about), yet
+    # the step is still refused because a question in the file is unanswered.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          qa:
+            validate: "true"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: drafting
+            states:
+              drafting:
+                actor: agent
+                prompt: "Draft the plan."
+                file: .gtd/TODO.md
+                mode: qa
+                on:
+                  "* **": answering
+              answering:
+                actor: human
+                message: "Answer the open questions."
+                file: .gtd/TODO.md
+                mode: qa
+                answerGate: true
+                on:
+                  "* **": drafting
+      """
+    And a commit "gtd(agent): answering" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing.
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
+      """
+    And a file ".gtd/TODO.md" with:
+      """
+      Build a thing. (still deciding)
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
+      """
+    When I run gtd step human
+    Then it fails
+    And stderr contains "1 open question(s)"
+    And stderr contains "not answered at \"answering\""
+    And the last commit subject is "gtd(agent): answering"

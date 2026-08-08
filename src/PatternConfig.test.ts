@@ -147,16 +147,19 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       "/config-dir",
     )
     // A `./`-prefixed COMMAND is never inlined as a file reference the way a
-    // content string is — it is a shell command, kept verbatim.
+    // content string is — it is a shell command, kept verbatim. `qa`/`review`
+    // are seeded (empty) even though this workflow never mentions them.
     expect(definition.modes).toEqual({
+      qa: {},
+      review: {},
       adr: { format: "./scripts/fmt-adr.sh <%= it.file %>", validate: "adr-lint <%= it.file %>" },
       spec: { validate: "npx ajv -s spec.schema.json -d <%= it.file %>" },
     })
   })
 
-  it("carries no `modes` key at all when none is declared", () => {
+  it("seeds the built-in registry's names (qa/review) as empty entries even when no `modes:` is declared", () => {
     const { definition } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
-    expect(definition.modes).toBeUndefined()
+    expect(definition.modes).toEqual({ qa: {}, review: {} })
   })
 
   it("rejects a non-object `modes:` value", () => {
@@ -189,10 +192,12 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
     }
   })
 
-  it("surfaces a mode declaring no command via `validateDefinition`'s aggregated error", () => {
-    expect(() =>
-      compileWorkflowConfig({ ...draftCheckRevise, modes: { adr: {} } }, "/config-dir"),
-    ).toThrowError(/mode "adr": must declare at least one of "format"\/"validate"/)
+  it("accepts a `modes:` entry declaring neither command — the format-only tier any workflow can use", () => {
+    const { definition } = compileWorkflowConfig(
+      { ...draftCheckRevise, modes: { adr: {} } },
+      "/config-dir",
+    )
+    expect(definition.modes?.["adr"]).toEqual({})
   })
 
   it("layers the `rcModes` argument over the workflow's own `modes:`, per half", () => {
@@ -205,6 +210,8 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       { adr: { format: "project-fmt <%= it.file %>" }, spec: { validate: "spec-lint" } },
     )
     expect(definition.modes).toEqual({
+      qa: {},
+      review: {},
       adr: { format: "project-fmt <%= it.file %>", validate: "adr-lint <%= it.file %>" },
       spec: { validate: "spec-lint" },
     })
@@ -232,7 +239,11 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       "/config-dir",
       { adr: { validate: "adr-lint <%= it.file %>" } },
     )
-    expect(definition.modes).toEqual({ adr: { validate: "adr-lint <%= it.file %>" } })
+    expect(definition.modes).toEqual({
+      qa: {},
+      review: {},
+      adr: { validate: "adr-lint <%= it.file %>" },
+    })
   })
 
   it("accepts a state whose `mode:` names a declared mode", () => {
@@ -1294,7 +1305,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         },
         "/dir",
       ),
-    ).toThrowError(/"mode" must name a built-in mode \(qa, review, prose\).*\(got "yolo"\)/)
+    ).toThrowError(/"mode" must name a mode this workflow knows \(qa, review\).*\(got "yolo"\)/)
   })
 
   it("rejects a malformed `retry` block", () => {

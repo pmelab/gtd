@@ -30,6 +30,7 @@ import { InMemRepo } from "./Repo.js"
 import { Cwd } from "../../../../src/Cwd.js"
 import { EnvVars } from "../../../../src/EnvVars.js"
 import { WorktreeReader } from "../../../../src/WorktreeReader.js"
+import { CommandRunner, type CommandOutcome } from "../../../../src/CommandRunner.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -400,6 +401,48 @@ const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> 
 }
 
 // ---------------------------------------------------------------------------
+// 4b. Recording CommandRunner layer
+// ---------------------------------------------------------------------------
+
+/** One recorded call into a `RecordingCommandRunner`. */
+export interface RecordedCommand {
+  readonly command: string
+  readonly cwd: string
+}
+
+/**
+ * A `CommandRunner` test double: records every call it receives and answers
+ * with a scriptable outcome (default `{ status: 0, output: "" }`) — no real
+ * subprocess, matching the `@inmem` tier's "no real filesystem or git" rule.
+ * `@inmem` scenarios don't currently exercise a mode's `format:`/`validate:`
+ * command (those live in `@live` `steering-modes.feature`, run against the
+ * real `bin/gtd` binary), so this default is rarely hit — it exists so
+ * `inMemoryLayers` satisfies `CommandRunner`'s presence in `ProgramRequirements`
+ * without a real shell, and so a FUTURE `@inmem` scenario can script an
+ * outcome via `setOutcome`.
+ */
+export interface RecordingCommandRunner {
+  readonly layer: Layer.Layer<CommandRunner>
+  readonly calls: readonly RecordedCommand[]
+  readonly setOutcome: (outcome: CommandOutcome) => void
+}
+
+export const makeRecordingCommandRunner = (): RecordingCommandRunner => {
+  const calls: RecordedCommand[] = []
+  let outcome: CommandOutcome = { status: 0, output: "" }
+  return {
+    layer: CommandRunner.layer((command, cwd) => {
+      calls.push({ command, cwd })
+      return Effect.succeed(outcome)
+    }),
+    calls,
+    setOutcome: (next) => {
+      outcome = next
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 5. In-memory WorktreeReader layer
 // ---------------------------------------------------------------------------
 
@@ -425,7 +468,13 @@ export function inMemoryLayers(
   repo: InMemRepo,
   env: Readonly<Record<string, string | undefined>> = {},
 ): Layer.Layer<
-  GitService | FileSystem.FileSystem | ConfigService | Cwd | WorktreeReader | EnvVars
+  | GitService
+  | FileSystem.FileSystem
+  | ConfigService
+  | Cwd
+  | WorktreeReader
+  | EnvVars
+  | CommandRunner
 > {
   // Reader + Writer share the same repo instance
   const readerOps = makeGitReaderOps(repo)
@@ -445,6 +494,7 @@ export function inMemoryLayers(
     Cwd.layer("/repo"),
     makeInMemoryWorktreeReader(repo),
     EnvVars.layer(env),
+    makeRecordingCommandRunner().layer,
   )
 }
 

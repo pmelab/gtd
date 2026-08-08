@@ -11,6 +11,7 @@ import {
   type WorkflowDefinition,
 } from "./PatternMachine.js"
 import { flattenMachines, type InstancePath, type MachineNode } from "./Machines.js"
+import { builtInModeNames } from "./SteeringFormats.js"
 
 /**
  * The v3 `.gtdrc` `workflow:` config compiler. This
@@ -81,10 +82,13 @@ import { flattenMachines, type InstancePath, type MachineNode } from "./Machines
  * and/or `validate:` SHELL COMMAND. Like `vars:`, it has a second layer this
  * compiler does not read for itself: the top-level `.gtdrc` `modes:` key, which
  * `ConfigService` compiles through this module's `compileModesMap` and hands
- * back in as `rcModes`, merged per half by `mergeModes`. gtd's own `qa`/
- * `review` remain available under the whole thing as VALIDATORS
- * (`PatternMachine.BuiltInMode`) — resolution of the merged map against them is
- * the edge's job (`src/SteeringMode.ts`), not this compiler's.
+ * back in as `rcModes`, merged per half by `mergeModes`. Underneath BOTH layers
+ * this compiler seeds `src/SteeringFormats.ts`'s built-in registry names (`qa`/
+ * `review`) as empty entries, so every compiled definition's `modes` map always
+ * carries them and a workflow never has to declare them just to use gtd's own
+ * validators — resolution of the merged map against the registry (whether a
+ * declared `validate:` displaces a format's own parser) is the edge's job
+ * (`src/SteeringMode.ts`), not this compiler's.
  *
  * ## File references
  *
@@ -1037,7 +1041,10 @@ export const compileWorkflowConfig = (
   }
 
   const vars = compileVarsMap(raw.vars, errors)
-  const modes = mergeModes(compileModesMap(raw.modes, errors), rcModes)
+  const seeded = Object.fromEntries(builtInModeNames().map((name) => [name, {}]))
+  // `mergeModes` is `undefined` only when BOTH arguments are — `seeded` never
+  // is, so this merge (and the one layering `rcModes` over it) always resolves.
+  const modes = mergeModes(mergeModes(seeded, compileModesMap(raw.modes, errors)), rcModes)!
   validateMachinesShape(raw.machines, errors)
 
   const flattened = flattenMachines(raw, errors)
@@ -1069,8 +1076,7 @@ export const compileWorkflowConfig = (
   // in an unrelated state). De-duplicate identical messages (both passes can
   // independently notice the same problem).
   const entries = { default: flattened.entries.default, manual }
-  const definition: WorkflowDefinition =
-    modes !== undefined ? { states, entries, modes } : { states, entries }
+  const definition: WorkflowDefinition = { states, entries, modes }
 
   assertScopesCoverStates(Object.keys(states), flattened.scopes, errors)
 

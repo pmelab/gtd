@@ -134,11 +134,11 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     When I run gtd status
     Then it fails
     And stderr contains "workflow config:"
-    And stderr contains "\"mode\" must name a built-in mode (qa, review, prose)"
-    And stderr contains "declared in \"modes\" (adr)"
+    And stderr contains "\"mode\" must name a mode this workflow knows"
+    And stderr contains "qa, review, adr"
     And stderr contains "got \"adrs\""
 
-  Scenario: a "modes:" entry declaring neither format nor validate fails naming the mode
+  Scenario: a "modes:" entry declaring neither format nor validate is valid — the format-only tier
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -154,13 +154,38 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
               idle:
                 actor: human
                 message: "start"
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
+      """
+    When I run gtd status
+    Then it succeeds
+
+  Scenario: a "mode: prose" naming no "modes:" declaration fails — the engine blesses no built-in vocabulary of its own
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                file: NOTES.md
+                mode: prose
                 on:
                   "* **": idle
       """
     When I run gtd status
     Then it fails
     And stderr contains "workflow config:"
-    And stderr contains "mode \"adr\": must declare at least one of \"format\"/\"validate\""
+    And stderr contains "\"mode\" must name a mode this workflow knows (qa, review)"
+    And stderr contains "got \"prose\""
 
   Scenario: an unknown key inside a "modes:" entry fails naming both
     Given a test project

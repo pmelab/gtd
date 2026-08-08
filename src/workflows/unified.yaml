@@ -194,6 +194,16 @@ vars:
   # refuses (a review entry always requires an explicit base).
   reviewBase: ""
 
+# `prose` is a format-only steering-file mode this workflow blesses for itself:
+# a curated free-form document with no gtd-side schema (the simple flow's plan
+# file, .gtd/TODO.md — see the `plan.planning` state below). An empty entry is
+# the format-only tier any workflow can declare for a name with no built-in
+# parser; `qa`/`review` need no entry here — src/PatternConfig.ts's compiler
+# seeds those two from the built-in registry (src/SteeringFormats.ts)
+# automatically.
+modes:
+  prose: {}
+
 entry:
   default: unified
 

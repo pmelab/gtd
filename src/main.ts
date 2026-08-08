@@ -1,5 +1,6 @@
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
+import { CommandRunner } from "./CommandRunner.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -20,6 +21,7 @@ makeProgram().pipe(
   Effect.provide(WorktreeReader.Live),
   Effect.provide(EnvVars.Live),
   Effect.provide(Cwd.Live),
+  Effect.provide(CommandRunner.Live),
   Effect.provide(NodeContext.layer),
   Effect.catchAll((error) =>
     Effect.sync(() => {
