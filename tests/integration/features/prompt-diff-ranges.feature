@@ -1,4 +1,3 @@
-@inmem
 Feature: Prompts carry diff RANGES, never diff CONTENT
 
   A gtd prompt never inlines a rendered diff. Instead it names the commit its
@@ -15,6 +14,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     Given a test project
     And the workflow
 
+  @inmem
   Scenario: packages.item.spec.review (advanced flow) prints the process base hash, never a rendered diff
     Given a commit "feat: add architecture" that adds "src/db.ts" with:
       """

@@ -9,6 +9,8 @@ import {
   compileWorkflowConfig,
   inlineWorkflowFileRefs,
   mergeModes,
+  nodeFileRefReader,
+  type FileRefReader,
 } from "./PatternConfig.js"
 import { type ModeDef, type StateName, type WorkflowDefinition } from "./PatternMachine.js"
 import type { MachineNode } from "./Machines.js"
@@ -22,7 +24,7 @@ import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
 import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
 
-export interface ConfigOperations {
+interface ConfigOperations {
   /** The active workflow definition — the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`, or gtd's built-in bundled default when no `workflow:` key is configured (see `toOperations`). */
   readonly workflow: WorkflowDefinition
   /** The active workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars` — see `src/Edge.ts`'s `resolveVars`). `defaultWorkflowVars` for the built-in default. */
@@ -119,7 +121,7 @@ const jsonLoader = (filepath: string, content: string): unknown => {
   return result
 }
 
-const SEARCH_PLACES = [
+export const SEARCH_PLACES = [
   ".gtdrc",
   ".gtdrc.json",
   ".gtdrc.yaml",
@@ -146,22 +148,6 @@ const makeExplorer = () =>
   })
 
 /**
- * Load and deep-merge every config level from cwd up the directory chain.
- * Innermost (cwd) wins. Returns the merged plain object (undecoded).
- *
- * A `workflow:` value's `./`/`../` content file references are inlined PER
- * LEVEL against that level's OWN file directory (`dirname(result.filepath)`)
- * BEFORE merging — because the deep-merge collapses every level into one
- * anonymous object and erases which file each `states.x.prompt` came from.
- * Resolving up front is what lets a `.gtdrc` stored in a parent directory
- * reference `./gtd-prompts/x.md` and have it resolve against the parent, even
- * though gtd runs from a child repo (a different cwd). Any missing/unreadable
- * reference is collected and thrown as one aggregated `workflow config:` error,
- * exactly like the compiler's own resolution. The merged, already-inlined
- * `workflow:` is later compiled with `inlineFileRefs: false` (see
- * `toOperations`).
- */
-/**
  * Normalize one loaded config level: validate it is a plain object, then inline
  * its `workflow:` file references against its OWN file's directory (collecting
  * any missing/unreadable reference into `refErrors`). A level with no
@@ -171,6 +157,7 @@ const inlineLevel = (
   config: unknown,
   filepath: string,
   refErrors: string[],
+  fileRefs: FileRefReader = nodeFileRefReader,
 ): Record<string, unknown> => {
   if (!isPlainObject(config)) {
     throw new Error(
@@ -180,36 +167,61 @@ const inlineLevel = (
   if (config["workflow"] === undefined) return config
   return {
     ...config,
-    workflow: inlineWorkflowFileRefs(config["workflow"], dirname(filepath), refErrors),
+    workflow: inlineWorkflowFileRefs(config["workflow"], dirname(filepath), refErrors, fileRefs),
   }
 }
 
-/** Read every config level from cwd up the chain, outermost→innermost, each with its file references already inlined per declaring file. Throws on a malformed level or an aggregated set of bad references. */
-const readConfigLevels = async (root: string): Promise<Array<Record<string, unknown>>> => {
-  const chain = walkUp(root, homedir())
-  const explorer = makeExplorer()
-  const levels: Array<Record<string, unknown>> = []
-  const refErrors: string[] = []
-  // Outermost→innermost so merging in order makes innermost win.
-  for (let i = chain.length - 1; i >= 0; i--) {
-    const result = await explorer.search(chain[i])
-    if (!result || result.isEmpty) continue
-    levels.push(inlineLevel(result.config, result.filepath, refErrors))
-  }
-  if (refErrors.length > 0) {
-    throw new Error(`workflow config:\n${refErrors.map((e) => `  - ${e}`).join("\n")}`)
-  }
-  return levels
+/**
+ * One config level's file path (used to resolve `./`/`../` content file
+ * references) plus its raw, parsed-but-undecoded content.
+ */
+export interface ConfigLevel {
+  readonly filepath: string
+  readonly config: unknown
 }
 
-const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error> =>
-  Effect.tryPromise({
-    try: async () => {
-      const levels = await readConfigLevels(root)
-      return levels.reduce<Record<string, unknown>>((acc, level) => deepMerge(acc, level), {})
-    },
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
+/**
+ * The config-DISCOVERY seam: where a `.gtdrc` lives and what it contains,
+ * decoupled from the parsing/merging/compiling pipeline below (which is
+ * shared by every adapter). `levels` returns every level from the most
+ * specific up to the most general, OUTERMOST→INNERMOST — so a plain
+ * left-to-right `deepMerge` reduction makes the innermost (closest to `root`)
+ * win, matching cosmiconfig's own cwd→home precedence.
+ */
+export interface ConfigSource {
+  readonly levels: (root: string) => Effect.Effect<ReadonlyArray<ConfigLevel>, Error>
+}
+
+/** The production adapter: cosmiconfig's search, walked from `root` up through the user's home directory (`walkUp`). */
+const nodeConfigSource: ConfigSource = {
+  levels: (root: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const chain = walkUp(root, homedir())
+        const explorer = makeExplorer()
+        const levels: ConfigLevel[] = []
+        // Outermost→innermost so merging in order makes innermost win.
+        for (let i = chain.length - 1; i >= 0; i--) {
+          const result = await explorer.search(chain[i])
+          if (!result || result.isEmpty) continue
+          levels.push({ filepath: result.filepath, config: result.config })
+        }
+        return levels
+      },
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    }),
+}
+
+/**
+ * Parse one config level's raw text by its file extension: `.json` as JSON,
+ * everything else (including the extensionless `.gtdrc`) as YAML — a JSON
+ * superset — mirroring `makeExplorer`'s own loader dispatch. Exported so an
+ * alternative `ConfigSource` (e.g. `src/testing/`'s in-memory one) parses with
+ * the SAME parsers `nodeConfigSource` gets from cosmiconfig, rather than a
+ * bare `parse`.
+ */
+export const parseConfigLevel = (filepath: string, content: string): unknown =>
+  filepath.endsWith(".json") ? jsonLoader(filepath, content) : yamlLoader(filepath, content)
 
 /**
  * Detect whether a gtd config lives at THIS single directory — no `walkUp`, so
@@ -275,7 +287,11 @@ const compileRcVars = (raw: unknown): Record<string, string> => {
  * re-validation. Throws (via `compileWorkflowConfig`/`compileRcVars`) only on
  * an invalid CUSTOM workflow/vars; the built-in default never throws here.
  */
-const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations => {
+const toOperations = (
+  decoded: DecodedConfig,
+  root: string,
+  fileRefs: FileRefReader = nodeFileRefReader,
+): ConfigOperations => {
   const rcVars = compileRcVars(decoded.vars)
   const rcModes = compileRcModes(decoded.modes)
   if (decoded.workflow === undefined) {
@@ -294,7 +310,7 @@ const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations =>
     vars: workflowVars,
     tree,
     scopes,
-  } = compileWorkflowConfig(decoded.workflow, root, rcModes, false)
+  } = compileWorkflowConfig(decoded.workflow, root, rcModes, false, fileRefs)
   return { workflow: definition, workflowVars, rcVars, machineTree: tree, stateScopes: scopes }
 }
 
@@ -320,28 +336,58 @@ interface ConfigServiceOperations {
   readonly load: Effect.Effect<ConfigOperations, Error>
 }
 
+/**
+ * Build the whole config pipeline — discover levels via `source`, inline each
+ * level's `./`/`../` content file references against its OWN declaring file
+ * (via `fileRefs`), deep-merge outermost→innermost, strip the editor-only
+ * `$schema` key, decode against `ConfigSchema`, then compile — as a
+ * `ConfigService` layer. The ONE place this pipeline is assembled: both
+ * `ConfigService.Live` (`nodeConfigSource` + `nodeFileRefReader`) and
+ * `src/testing/`'s in-memory layer (a repo-backed source + reader) build
+ * their service through this, so an `@inmem` scenario exercises the SAME
+ * decode/compile path production does — including `ConfigSchema`'s
+ * `onExcessProperty: "error"`, which the in-memory tier used to skip
+ * entirely.
+ */
+export const configServiceLayer = (
+  source: ConfigSource,
+  root: string,
+  fileRefs: FileRefReader = nodeFileRefReader,
+): Layer.Layer<ConfigService> => {
+  const load: Effect.Effect<ConfigOperations, Error> = Effect.gen(function* () {
+    const levels = yield* source.levels(root)
+    const refErrors: string[] = []
+    const inlined = levels.map((level) =>
+      inlineLevel(level.config, level.filepath, refErrors, fileRefs),
+    )
+    if (refErrors.length > 0) {
+      return yield* Effect.fail(
+        new Error(`workflow config:\n${refErrors.map((e) => `  - ${e}`).join("\n")}`),
+      )
+    }
+    const merged = inlined.reduce<Record<string, unknown>>(
+      (acc, level) => deepMerge(acc, level),
+      {},
+    )
+    const { $schema: _schema, ...cleaned } = merged
+    const decoded = yield* Schema.decodeUnknown(ConfigSchema)(cleaned, {
+      onExcessProperty: "error",
+    })
+      .pipe(Effect.mapError(formatSchemaError))
+      .pipe(Effect.mapError((msg) => new Error(msg)))
+    return yield* Effect.try({
+      try: () => toOperations(decoded, root, fileRefs),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+  })
+  return Layer.succeed(ConfigService, { load })
+}
+
 export class ConfigService extends Context.Tag("ConfigService")<
   ConfigService,
   ConfigServiceOperations
 >() {
-  static Live = Layer.effect(
-    ConfigService,
-    Effect.gen(function* () {
-      const { root } = yield* Cwd
-      const load: Effect.Effect<ConfigOperations, Error> = Effect.gen(function* () {
-        const merged = yield* loadMerged(root)
-        const { $schema: _schema, ...cleaned } = merged
-        const decoded = yield* Schema.decodeUnknown(ConfigSchema)(cleaned, {
-          onExcessProperty: "error",
-        })
-          .pipe(Effect.mapError(formatSchemaError))
-          .pipe(Effect.mapError((msg) => new Error(msg)))
-        return yield* Effect.try({
-          try: () => toOperations(decoded, root),
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-        })
-      })
-      return { load }
-    }),
+  static Live = Layer.unwrapEffect(
+    Cwd.pipe(Effect.map(({ root }) => configServiceLayer(nodeConfigSource, root))),
   )
 }

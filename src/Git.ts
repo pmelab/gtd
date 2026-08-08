@@ -183,6 +183,25 @@ export const withIndexLockRetry = <A, R>(
   })
 
 /**
+ * Wrap every operation of a `GitOperations` implementation in
+ * `withIndexLockRetry`. The ONE place the retry is applied: both
+ * `GitService.Live` and the in-memory layer (`src/testing/Layers.ts`'s
+ * `gitTestLayer`) build their service through this, so a lock failure is
+ * retried identically on both tiers. Maps `Object.keys` — no hand-maintained
+ * method list, total by construction (a `GitOperations` object literal; never
+ * feed a `strictGitOperations` Proxy through this — `Object.keys` on the Proxy
+ * only sees the overrides, not the full port).
+ */
+export const withIndexLockRetries = (ops: GitOperations): GitOperations =>
+  Object.fromEntries(
+    Object.entries(ops).map(([name, fn]) => [
+      name,
+      (...args: never[]) =>
+        withIndexLockRetry((fn as (...a: never[]) => Effect.Effect<unknown, Error>)(...args)),
+    ]),
+  ) as unknown as GitOperations
+
+/**
  * Run a command and return its stdout — FAILING on a non-zero exit code with
  * the command line and stderr in the error message. `Command.string` alone
  * only collects stdout and silently ignores exit codes, which used to make
@@ -190,38 +209,37 @@ export const withIndexLockRetry = <A, R>(
  * repository, and lose files whose quoted paths broke a swallowed `git add`.
  * Callers that expect a probe to fail (missing refs, empty repos) handle it
  * with an explicit `catchAll`. `index.lock` contention is retried transparently
- * (`withIndexLockRetry`) before any caller's `catchAll` sees it.
+ * (`withIndexLockRetries`, applied once to the whole `GitOperations` port —
+ * see `GitService.Live` below) before any caller's `catchAll` sees it.
  */
 const run = (
   root: string,
   ...args: [string, ...Array<string>]
 ): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
-  withIndexLockRetry(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const executor = yield* CommandExecutor.CommandExecutor
-        const process = yield* executor.start(
-          Command.make(...args).pipe(
-            Command.workingDirectory(root),
-            Command.stdout("pipe"),
-            Command.stderr("pipe"),
-          ),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const executor = yield* CommandExecutor.CommandExecutor
+      const process = yield* executor.start(
+        Command.make(...args).pipe(
+          Command.workingDirectory(root),
+          Command.stdout("pipe"),
+          Command.stderr("pipe"),
+        ),
+      )
+      const collect = (stream: typeof process.stdout) =>
+        stream.pipe(Stream.decodeText(), Stream.mkString)
+      const [stdout, stderr, exitCode] = yield* Effect.all(
+        [collect(process.stdout), collect(process.stderr), process.exitCode],
+        { concurrency: "unbounded" },
+      )
+      if (exitCode !== 0) {
+        return yield* Effect.fail(
+          new Error(`${args.join(" ")} failed (exit ${exitCode}): ${stderr.trim()}`),
         )
-        const collect = (stream: typeof process.stdout) =>
-          stream.pipe(Stream.decodeText(), Stream.mkString)
-        const [stdout, stderr, exitCode] = yield* Effect.all(
-          [collect(process.stdout), collect(process.stderr), process.exitCode],
-          { concurrency: "unbounded" },
-        )
-        if (exitCode !== 0) {
-          return yield* Effect.fail(
-            new Error(`${args.join(" ")} failed (exit ${exitCode}): ${stderr.trim()}`),
-          )
-        }
-        return stdout
-      }),
-    ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e))))),
-  )
+      }
+      return stdout
+    }),
+  ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
 const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): GitOperations => {
   const exec = (...args: [string, ...Array<string>]) =>
@@ -249,8 +267,14 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 
     changedPaths: () =>
       Effect.gen(function* () {
+        // Only the empty-repo case (no HEAD) is tolerated here — an
+        // `index.lock` failure must propagate so the port-level retry
+        // (`withIndexLockRetries`) sees it, not this catch.
         const nameStatusOut = yield* exec("git", "diff", "--name-status", "HEAD").pipe(
-          Effect.catchAll(() => Effect.succeed("")),
+          Effect.catchIf(
+            (e) => !isIndexLockError(e),
+            () => Effect.succeed(""),
+          ),
         )
         const trackedPaths = parseNameStatus(nameStatusOut)
 
@@ -385,9 +409,14 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       paths.length === 0
         ? Effect.void
         : exec("git", "restore", "--staged", `--source=${source}`, "--", ...paths).pipe(
-            // Tolerant: a path that never existed at `source` (or in the index)
-            // makes `git restore` complain — the pin is best-effort plumbing.
-            Effect.catchAll(() => Effect.void),
+            // Tolerant of a path that never existed at `source` (or in the
+            // index) — the pin is best-effort plumbing. NOT tolerant of an
+            // `index.lock` failure, which must propagate to the port-level
+            // retry (`withIndexLockRetries`) instead of being swallowed here.
+            Effect.catchIf(
+              (e) => !isIndexLockError(e),
+              () => Effect.void,
+            ),
           ),
   }
 }
@@ -399,5 +428,5 @@ const makeLiveEffect = Effect.gen(function* () {
 })
 
 export class GitService extends Context.Tag("GitService")<GitService, GitOperations>() {
-  static Live = Layer.effect(GitService, makeLiveEffect)
+  static Live = Layer.effect(GitService, makeLiveEffect.pipe(Effect.map(withIndexLockRetries)))
 }

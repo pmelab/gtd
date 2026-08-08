@@ -457,6 +457,24 @@ const formatErrors = (errors: readonly string[]): string =>
 // ── Content resolution (file-ref auto-inlining) ─────────────────────────────
 
 /**
+ * The filesystem seam behind `./`/`../` content file references
+ * (`resolveContent`). `nodeFileRefReader` is the production adapter (real
+ * `fs`); every threading function below defaults to it so every existing call
+ * site compiles unchanged — `src/testing/` injects a repo-backed reader
+ * instead, so an in-memory `.gtdrc`'s file references resolve against the
+ * FAKE worktree rather than the real filesystem.
+ */
+export interface FileRefReader {
+  readonly exists: (path: string) => boolean
+  readonly read: (path: string) => string
+}
+
+export const nodeFileRefReader: FileRefReader = {
+  exists: (path) => existsSync(path),
+  read: (path) => readFileSync(path, "utf8"),
+}
+
+/**
  * Resolve one content string: inline text passes through verbatim; a file
  * reference (`./` or `../` prefix) is read relative to `configDir` and its
  * contents returned. A missing/unreadable file pushes a load error onto
@@ -468,15 +486,16 @@ const resolveContent = (
   configDir: string,
   where: string,
   errors: string[],
+  fileRefs: FileRefReader = nodeFileRefReader,
 ): string | undefined => {
   if (!isFileReference(value)) return value
   const filePath = resolvePath(configDir, value)
-  if (!existsSync(filePath)) {
+  if (!fileRefs.exists(filePath)) {
     errors.push(`${where}: file reference "${value}" does not exist (resolved to "${filePath}")`)
     return undefined
   }
   try {
-    return readFileSync(filePath, "utf8")
+    return fileRefs.read(filePath)
   } catch (e) {
     errors.push(
       `${where}: file reference "${value}" could not be read: ${
@@ -520,6 +539,7 @@ const inlineStateFileRefs = (
   local: string,
   configDir: string,
   errors: string[],
+  fileRefs: FileRefReader = nodeFileRefReader,
 ): Record<string, unknown> => {
   if (typeof def["machine"] === "string") return def
   const next: Record<string, unknown> = { ...def }
@@ -531,6 +551,7 @@ const inlineStateFileRefs = (
       configDir,
       `machine "${machineName}" state "${local}" (${key})`,
       errors,
+      fileRefs,
     )
     if (resolved !== undefined) next[key] = resolved
   }
@@ -543,6 +564,7 @@ const inlineMachineFileRefs = (
   machineName: string,
   configDir: string,
   errors: string[],
+  fileRefs: FileRefReader = nodeFileRefReader,
 ): unknown => {
   if (!isPlainObject(machineRaw)) return machineRaw
   const rawStates = machineRaw["states"]
@@ -550,7 +572,7 @@ const inlineMachineFileRefs = (
   const states: Record<string, unknown> = {}
   for (const [local, def] of Object.entries(rawStates)) {
     states[local] = isPlainObject(def)
-      ? inlineStateFileRefs(def, machineName, local, configDir, errors)
+      ? inlineStateFileRefs(def, machineName, local, configDir, errors, fileRefs)
       : def
   }
   return { ...machineRaw, states }
@@ -560,13 +582,20 @@ export const inlineWorkflowFileRefs = (
   rawWorkflow: unknown,
   configDir: string,
   errors: string[],
+  fileRefs: FileRefReader = nodeFileRefReader,
 ): unknown => {
   if (!isPlainObject(rawWorkflow)) return rawWorkflow
   const rawMachines = rawWorkflow["machines"]
   if (!isPlainObject(rawMachines)) return rawWorkflow
   const machines: Record<string, unknown> = {}
   for (const [machineName, machineRaw] of Object.entries(rawMachines)) {
-    machines[machineName] = inlineMachineFileRefs(machineRaw, machineName, configDir, errors)
+    machines[machineName] = inlineMachineFileRefs(
+      machineRaw,
+      machineName,
+      configDir,
+      errors,
+      fileRefs,
+    )
   }
   return { ...rawWorkflow, machines }
 }
@@ -770,7 +799,7 @@ const compileContentRef = (
     return undefined
   }
   if (!ctx.inlineFileRefs) return value
-  return resolveContent(value, ctx.configDir, `state "${name}" (${key})`, ctx.errors)
+  return resolveContent(value, ctx.configDir, `state "${name}" (${key})`, ctx.errors, ctx.fileRefs)
 }
 
 /** Per-state compile context threaded through `COMPILE` — bundles what a field compiler needs beyond the raw state object and its own key. */
@@ -778,6 +807,8 @@ interface CompileCtx {
   readonly errors: string[]
   readonly configDir: string
   readonly inlineFileRefs: boolean
+  /** How a `./file` content reference is read — injected so the compiler has no hard `node:fs` dependency (see `FileRefReader`). */
+  readonly fileRefs: FileRefReader
 }
 
 type FieldCompiler = (
@@ -842,6 +873,7 @@ const compileState = (
   configDir: string,
   errors: string[],
   inlineFileRefs: boolean,
+  fileRefs: FileRefReader = nodeFileRefReader,
 ): StateDef => {
   if (!isPlainObject(raw)) {
     errors.push(`state "${name}": must be an object, got ${describeType(raw)}`)
@@ -855,7 +887,7 @@ const compileState = (
     )
   }
 
-  const ctx: CompileCtx = { errors, configDir, inlineFileRefs }
+  const ctx: CompileCtx = { errors, configDir, inlineFileRefs, fileRefs }
   const compiled: Record<string, unknown> = {}
   for (const [key, spec] of STATE_FIELD_ENTRIES) {
     compiled[key] = COMPILE[spec.kind](raw, key, name, ctx)
@@ -924,6 +956,7 @@ export const compileWorkflowConfig = (
   configDir: string,
   rcModes?: Readonly<Record<string, ModeDef>>,
   inlineFileRefs: boolean = true,
+  fileRefs: FileRefReader = nodeFileRefReader,
 ): CompiledWorkflowConfig => {
   if (!isPlainObject(raw)) {
     throw new Error(`workflow config: must be an object, got ${describeType(raw)}`)
@@ -954,7 +987,7 @@ export const compileWorkflowConfig = (
   const states: Record<string, StateDef> = {}
   const manualSet = new Set<string>()
   for (const [name, s] of Object.entries(flattened.states)) {
-    states[name] = compileState(name, s, configDir, errors, inlineFileRefs)
+    states[name] = compileState(name, s, configDir, errors, inlineFileRefs, fileRefs)
     // A state's own `entry: true` (distinct from the top-level `entry:`
     // machine-tree key of the same name) is authoring-only — `compileState`
     // validates its shape but never carries it onto the `StateDef`. Collected

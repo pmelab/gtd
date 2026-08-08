@@ -5,13 +5,37 @@
     "correctness": "error"
   },
   "rules": {
-    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["**/testing/*", "./testing/*", "../testing/*"],
+            "message": "src/testing/** is test-only and must never reach src/main.ts's import graph"
+          }
+        ]
+      }
+    ]
   },
   "overrides": [
     {
       "files": ["**/*.test.ts"],
       "rules": {
-        "require-yield": "off"
+        "require-yield": "off",
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": ["src/testing/**"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": ["tests/**"],
+      "rules": {
+        "no-restricted-imports": "off"
       }
     }
   ],

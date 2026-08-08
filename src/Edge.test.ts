@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { describe, expect, it, vi } from "vitest"
-import type { GitOperations } from "./Git.js"
+import { strictGitOperations as stubGit } from "./testing/GitDoubles.js"
 import {
   computeProcessRun,
   executeDecision,
@@ -38,34 +38,6 @@ import type { StateDef, WorkflowDefinition } from "./PatternMachine.js"
  * commit-template render touches nothing" guarantee). Full behavioral
  * coverage against a real resolved rest lives in the e2e feature files.
  */
-
-const notImplemented = (name: string) => () =>
-  Effect.fail(new Error(`${name} should not have been called by this test`))
-
-/** A `GitOperations` stub with every method failing by default — tests override just what they exercise, so an unexpected call fails loudly instead of silently succeeding. */
-const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
-  readFileAtRef: notImplemented("readFileAtRef"),
-  lastCommitSubject: notImplemented("lastCommitSubject"),
-  lastCommitMessage: notImplemented("lastCommitMessage"),
-  hasCommits: notImplemented("hasCommits"),
-  resolveRef: notImplemented("resolveRef"),
-  readRefOption: notImplemented("readRefOption"),
-  isAncestor: notImplemented("isAncestor"),
-  topLevel: notImplemented("topLevel"),
-  commitHistory: notImplemented("commitHistory"),
-  changedPathsSince: notImplemented("changedPathsSince"),
-  changedPaths: notImplemented("changedPaths"),
-  commitAllWithPrefix: notImplemented("commitAllWithPrefix"),
-  softResetTo: notImplemented("softResetTo"),
-  commitAsIs: notImplemented("commitAsIs"),
-  discardPending: notImplemented("discardPending"),
-  updateRef: notImplemented("updateRef"),
-  deleteRef: notImplemented("deleteRef"),
-  mixedResetTo: notImplemented("mixedResetTo"),
-  hardResetTo: notImplemented("hardResetTo"),
-  restoreStagedFrom: notImplemented("restoreStagedFrom"),
-  ...overrides,
-})
 
 const run = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
 

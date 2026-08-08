@@ -1,0 +1,269 @@
+/**
+ * The in-memory tier's Effect layers, backed by one `InMemRepo`. No real
+ * filesystem or git is used. `testLayers` is the ONE layer-set builder every
+ * `@inmem` scenario and `src/**\/*.test.ts` unit test provides — see
+ * `ProgramRequirements` (`src/program.ts`) for what it must cover.
+ *
+ * Not yet covered: `SteeringMode.ts`'s `spawnSync` and `Visualize.ts`'s
+ * `spawn` go straight to a real subprocess, not through a port — a mode's
+ * `format:`/`validate:` in an `@inmem` scenario shells out to real bash with
+ * `cwd: "/repo"` (a path that doesn't exist). RFCs #157/#161 introduce the
+ * subprocess port (`CommandRunner`); `testLayers` will provide it once it
+ * exists.
+ */
+
+import { FileSystem } from "@effect/platform"
+import { SystemError, type PlatformError } from "@effect/platform/Error"
+import { Effect, Layer, Option } from "effect"
+import { GitService, withIndexLockRetries } from "../Git.js"
+import {
+  ConfigService,
+  SEARCH_PLACES,
+  configServiceLayer,
+  parseConfigLevel,
+  type ConfigLevel,
+  type ConfigSource,
+} from "../Config.js"
+import type { FileRefReader } from "../PatternConfig.js"
+import { fakeGitOperations } from "./GitDoubles.js"
+import { InMemRepo } from "./InMemRepo.js"
+import { Cwd } from "../Cwd.js"
+import { EnvVars } from "../EnvVars.js"
+import { WorktreeReader } from "../WorktreeReader.js"
+import type { ProgramRequirements } from "../program.js"
+
+// ---------------------------------------------------------------------------
+// 1. In-memory FileSystem layer
+// ---------------------------------------------------------------------------
+
+const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileSystem => {
+  const readFileString = (path: string): Effect.Effect<string, PlatformError> => {
+    const content = repo.readFile(path)
+    if (content === undefined) {
+      return Effect.fail(
+        new SystemError({
+          reason: "NotFound",
+          module: "FileSystem",
+          method: "readFileString",
+          pathOrDescriptor: path,
+          description: `ENOENT: no such file or directory, open '${path}'`,
+        }),
+      )
+    }
+    return Effect.succeed(content)
+  }
+
+  const exists = (path: string): Effect.Effect<boolean, PlatformError> =>
+    Effect.succeed(repo.hasPath(path))
+
+  const writeFileString = (path: string, data: string): Effect.Effect<void, PlatformError> => {
+    repo.writeFile(path, data)
+    return Effect.void
+  }
+
+  // fallow-ignore-next-line complexity
+  const remove = (
+    path: string,
+    options?: FileSystem.RemoveOptions,
+  ): Effect.Effect<void, PlatformError> => {
+    if (options?.recursive === true) {
+      for (const key of repo.pathsUnder(path)) repo.deleteFile(key)
+    } else {
+      if (!repo.hasPath(path)) {
+        if (options?.force === true) return Effect.void
+        return Effect.fail(
+          new SystemError({
+            reason: "NotFound",
+            module: "FileSystem",
+            method: "remove",
+            pathOrDescriptor: path,
+            description: `ENOENT: no such file or directory, unlink '${path}'`,
+          }),
+        )
+      }
+      repo.deleteFile(path)
+    }
+    return Effect.void
+  }
+
+  const makeDirectory = (
+    _path: string,
+    _options?: FileSystem.MakeDirectoryOptions,
+  ): Effect.Effect<void, PlatformError> =>
+    // Directories are implicit in the in-memory store
+    Effect.void
+
+  const realPath = (_path: string): Effect.Effect<string, PlatformError> =>
+    // Return the fixed in-memory root — the cwd guard in main.ts checks
+    // topLevel === realPath(cwd), and both resolve to `root` here.
+    Effect.succeed(root)
+
+  const readDirectory = (path: string): Effect.Effect<Array<string>, PlatformError> =>
+    Effect.succeed([...repo.childNames(path)])
+
+  const stat = (path: string): Effect.Effect<FileSystem.File.Info, PlatformError> => {
+    const content = repo.readFile(path)
+    if (content !== undefined) {
+      return Effect.succeed({
+        type: "File" as FileSystem.File.Type,
+        mtime: Option.none<Date>(),
+        atime: Option.none<Date>(),
+        birthtime: Option.none<Date>(),
+        dev: 0,
+        ino: Option.none<number>(),
+        mode: 0o100644,
+        nlink: Option.none<number>(),
+        uid: Option.none<number>(),
+        gid: Option.none<number>(),
+        rdev: Option.none<number>(),
+        size: FileSystem.Size(BigInt(content.length)),
+        blksize: Option.none<FileSystem.Size>(),
+        blocks: Option.none<number>(),
+      })
+    }
+    if (repo.hasPath(path)) {
+      return Effect.succeed({
+        type: "Directory" as FileSystem.File.Type,
+        mtime: Option.none<Date>(),
+        atime: Option.none<Date>(),
+        birthtime: Option.none<Date>(),
+        dev: 0,
+        ino: Option.none<number>(),
+        mode: 0o040755,
+        nlink: Option.none<number>(),
+        uid: Option.none<number>(),
+        gid: Option.none<number>(),
+        rdev: Option.none<number>(),
+        size: FileSystem.Size(0n),
+        blksize: Option.none<FileSystem.Size>(),
+        blocks: Option.none<number>(),
+      })
+    }
+    return Effect.fail(
+      new SystemError({
+        reason: "NotFound",
+        module: "FileSystem",
+        method: "stat",
+        pathOrDescriptor: path,
+        description: `ENOENT: no such file or directory, stat '${path}'`,
+      }),
+    )
+  }
+
+  return FileSystem.makeNoop({
+    readFileString,
+    exists,
+    writeFileString,
+    remove,
+    makeDirectory,
+    realPath,
+    readDirectory,
+    stat,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// 2. In-memory ConfigService layer — a `ConfigSource` + `FileRefReader` pair
+// fed through `Config.ts`'s shared `configServiceLayer`, so an `@inmem`
+// scenario runs the SAME parse/merge/decode/compile pipeline production does
+// (including `ConfigSchema`'s strict decode), never a bespoke copy.
+// ---------------------------------------------------------------------------
+
+/**
+ * Scans `SEARCH_PLACES` directly off the fake worktree and returns at most
+ * ONE level — a single directory, unlike `nodeConfigSource`'s cwd→home walk
+ * (there is no "home directory" concept in the fake). `filepath` is
+ * `join(root, name)` so `inlineLevel`'s `dirname(filepath)` lands on `root`,
+ * matching production.
+ */
+const worktreeConfigSource = (repo: InMemRepo, root: string): ConfigSource => ({
+  levels: () =>
+    Effect.try({
+      try: (): ReadonlyArray<ConfigLevel> => {
+        for (const name of SEARCH_PLACES) {
+          const content = repo.readFile(name)
+          if (content !== undefined) {
+            return [{ filepath: `${root}/${name}`, config: parseConfigLevel(name, content) }]
+          }
+        }
+        return []
+      },
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    }),
+})
+
+/**
+ * Maps the absolute paths `resolveContent` builds (`join(configDir, ref)`)
+ * back to a repo-relative worktree key by stripping `${root}/`, and reports
+ * not-exists for anything outside `root` — the honest in-memory semantics (a
+ * content file reference can't reach outside the fake's one worktree).
+ */
+const fileRefReader = (repo: InMemRepo, root: string): FileRefReader => {
+  const prefix = `${root}/`
+  const relative = (path: string): string | undefined =>
+    path.startsWith(prefix) ? path.slice(prefix.length) : undefined
+  return {
+    exists: (path) => {
+      const rel = relative(path)
+      return rel !== undefined && repo.hasPath(rel)
+    },
+    read: (path) => {
+      const content = relative(path) !== undefined ? repo.readFile(relative(path)!) : undefined
+      if (content === undefined) {
+        throw new Error(`ENOENT: no such file or directory, open '${path}'`)
+      }
+      return content
+    },
+  }
+}
+
+const makeInMemoryConfigService = (repo: InMemRepo, root: string): Layer.Layer<ConfigService> =>
+  configServiceLayer(worktreeConfigSource(repo, root), root, fileRefReader(repo, root))
+
+// ---------------------------------------------------------------------------
+// 3. In-memory WorktreeReader layer
+// ---------------------------------------------------------------------------
+
+/** `PatternTemplates.TemplateContext.read` for the in-memory tier: a synchronous lookup straight into the repo's worktree (never real `fs`). */
+const makeInMemoryWorktreeReader = (repo: InMemRepo): Layer.Layer<WorktreeReader> =>
+  Layer.succeed(WorktreeReader, {
+    read: (path: string) => {
+      const content = repo.readFile(path)
+      if (content === undefined) {
+        throw new Error(`ENOENT: no such file or directory, open '${path}'`)
+      }
+      return content
+    },
+  })
+
+// ---------------------------------------------------------------------------
+// Assembly
+// ---------------------------------------------------------------------------
+
+export interface TestWorldOptions {
+  readonly env?: Readonly<Record<string, string | undefined>>
+  readonly root?: string
+}
+
+/** The fine-grained `GitService` layer alone — for unit tests that need only git. */
+export const gitTestLayer = (repo: InMemRepo): Layer.Layer<GitService> =>
+  Layer.succeed(GitService, withIndexLockRetries(fakeGitOperations(repo)))
+
+/** Every layer `makeProgram` needs — `ProgramRequirements`'s return type here IS the guarantee: a new port added there fails this function's typecheck instead of silently under-providing. */
+export function testLayers(
+  repo: InMemRepo,
+  opts: TestWorldOptions = {},
+): Layer.Layer<ProgramRequirements> {
+  const root = opts.root ?? "/repo"
+  const fsLayer = Layer.succeed(FileSystem.FileSystem, makeInMemoryFileSystem(repo, root))
+  const configLayer = makeInMemoryConfigService(repo, root)
+
+  return Layer.mergeAll(
+    gitTestLayer(repo),
+    fsLayer,
+    configLayer,
+    Cwd.layer(root),
+    makeInMemoryWorktreeReader(repo),
+    EnvVars.layer(opts.env ?? {}),
+  )
+}

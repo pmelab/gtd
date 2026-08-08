@@ -803,8 +803,10 @@ npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
 npm run build        # tsdown → dist/gtd.bundle.mjs
 npm test             # format:check, typecheck, lint, unit + e2e tests, fallow
-npm run test:unit    # vitest unit tests (the pure resolver) — --project unit
-npm run test:e2e     # gherkin e2e via vitest + quickpickle — --project e2e
+npm run test:unit       # vitest unit tests (the pure resolver) — --project unit
+npm run test:e2e        # gherkin e2e, both tiers — test:e2e:inmem + test:e2e:live
+npm run test:e2e:inmem  # @inmem scenarios, in-process, no build — --project e2e-inmem
+npm run test:e2e:live   # @live scenarios against the built bundle — --project e2e-live
 npm run test:mutation # StrykerJS mutation testing (manual only, ~10 min)
 npm run typecheck
 npm run lint
@@ -821,6 +823,12 @@ patterns, retry) is a plain-data `WorkflowDefinition` (`src/PatternMachine.ts`),
 and the same module's `resolveState`/`step` are the pure resolver/interpreter
 over it — so the whole engine is trivially unit-testable in isolation. All
 git/filesystem/template IO is confined to the edge (`src/Edge.ts`).
+
+`src/testing/` holds the in-memory git/config/filesystem test double every
+`@inmem` scenario and unit test runs against instead of a real repo — it never
+ships (a lint rule and a build-time check both enforce that) and is trustworthy
+only because the same `GitOperations` contract suite runs against a real git
+repo too.
 
 Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
 or breaking changes) to `main` and semantic-release computes the next version,
