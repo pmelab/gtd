@@ -8,13 +8,12 @@ import { NodeContext } from "@effect/platform-node"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
-import { computeProcessRun } from "./Edge.js"
+import { currentRun, reviewBaseFor } from "./Edge.js"
 import {
   closeReviewWindow,
   LEGACY_REVIEW_BASE_REF,
   LEGACY_REVIEW_HEAD_REF,
   openReviewWindow,
-  reviewBaseHash,
   REVIEW_BASE_REF,
   REVIEW_HEAD_REF,
 } from "./ReviewWindow.js"
@@ -167,13 +166,8 @@ describe("reviewBase — narrowing the diff base", () => {
     commit("gtd(agent): building", { "src/b.ts": "b\n" })
     commit("gtd(human): gate")
 
-    const base = await run(
-      Effect.gen(function* () {
-        const git = yield* GitService
-        const run = yield* computeProcessRun(git, def)
-        return yield* reviewBaseHash(git, def, run)
-      }),
-    )
+    const processRun = await run(currentRun)
+    const base = reviewBaseFor(def, processRun)
     expect(base).toBe(checkpoint)
 
     await run(openReviewWindow)

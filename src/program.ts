@@ -9,35 +9,19 @@ import { EnvVars } from "./EnvVars.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
-  buildTemplateContext,
-  computeProcessRun,
-  executeDecision,
-  memoryKeyFor,
-  pendingChanges,
-  renderFile,
-  renderLabel,
-  renderModel,
-  renderOnEdges,
+  currentRest,
+  currentRun,
+  planEntry,
+  planStep,
   renderRest,
-  resolveRest,
-  resolveVars,
-  retainsNothing,
-  toTemplateEdges,
+  restAt,
   UNATTRIBUTED_MODEL,
-  withRenderedOn,
-  withEntryTrailers,
-  type ExecutableDecision,
   type ModelCost,
-  type ProcessRun,
+  type Rest,
   type RenderedRest,
-  type ResolvedRest,
+  type RestRequirements,
 } from "./Edge.js"
-import {
-  closeReviewWindow,
-  openReviewWindow,
-  reviewBaseHash,
-  REVIEW_HEAD_REF,
-} from "./ReviewWindow.js"
+import { closeReviewWindow, openReviewWindow, REVIEW_HEAD_REF } from "./ReviewWindow.js"
 import {
   clearRetainedHistory,
   readRetainedHistory,
@@ -59,23 +43,17 @@ import {
   unknownModeMessage,
 } from "./SteeringMode.js"
 import {
-  enterableStates,
-  entryBaseTemplateOf,
   initialStateOf,
   isAnswerGateState,
   isRequireProgressState,
   isReviewWindowState,
   matchesPattern,
   parsePattern,
-  parseStateSubject,
-  stateSubject,
-  step,
   type OnEdge,
   type PendingChange,
-  type StepRefusal,
 } from "./PatternMachine.js"
 import { parseOpenQuestions } from "./OpenQuestions.js"
-import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
+import { type TemplateEdge } from "./PatternTemplates.js"
 
 const _require = createRequire(import.meta.url)
 const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
@@ -502,82 +480,14 @@ const runInitCommand = (
     }
   })
 
-/** Render a state's `on` edges against `vars` (see `renderOnEdges`), surfacing a malformed pattern template as a plain command error, exactly like a content render failure. */
-const renderOnEdgesOrFail = (
-  onEdges: readonly OnEdge[] | undefined,
-  vars: Record<string, string>,
-): Effect.Effect<readonly OnEdge[], Error> =>
-  Effect.try({
-    try: () => renderOnEdges(onEdges, vars),
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
 /**
- * Resolve HEAD's rest, the current process run, and the template context for
- * rendering that rest's OWN state/actor — the common prefix shared by `gtd
- * next` and `gtd status` (each fetches `git` itself first, since
- * `gtd status` also needs it for `pendingChanges`; `stepAsActor`'s squash
- * path renders a DIFFERENT state, so it builds its own context inline
- * instead of sharing this helper). `renderedOn` is the resting state's `on`
- * edges already rendered against `it.vars` (`renderOnEdges`) — `next`/`status`
- * reuse it instead of re-rendering the same patterns themselves. `memory` is
- * the COMPUTED memory key (`memoryKeyFor`, package 05/06) for this rest —
- * `undefined` for a non-`prompt` rest or when no scope resolves — computed
- * once here (against the loaded config's `stateScopes`) rather than by each
- * caller separately.
- */
-const resolveRestContext = (
-  git: GitOperations,
-): Effect.Effect<
-  {
-    readonly rest: ResolvedRest
-    readonly run: ProcessRun
-    readonly context: TemplateContext
-    readonly renderedOn: readonly OnEdge[]
-    readonly memory: string | undefined
-  },
-  Error,
-  GitService | ConfigService | WorktreeReader | EnvVars
-> =>
-  Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
-    const worktree = yield* WorktreeReader
-    const envVars = yield* EnvVars
-    const rest = yield* resolveRest()
-    const run = yield* computeProcessRun(git, rest.def)
-    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
-    const renderedOn = yield* renderOnEdgesOrFail(rest.stateDef.on, vars)
-    const reviewBase = yield* reviewBaseHash(git, rest.def, run)
-    const context = yield* buildTemplateContext(
-      git,
-      worktree.read,
-      rest.state,
-      rest.actor,
-      run,
-      vars,
-      renderedOn,
-      0,
-      undefined,
-      reviewBase,
-    )
-    const memory = memoryKeyFor(config.stateScopes, rest, run)
-    return { rest, run, context, renderedOn, memory }
-  })
-
-/** The user-facing message for a `step` refusal — out-of-turn names the awaited actor, no-match names every declared pattern. */
-const formatStepRefusal = (invoker: string, refusal: StepRefusal): string =>
-  refusal.reason === "out-of-turn"
-    ? `gtd step ${invoker}: out of turn — "${refusal.state}" awaits ${refusal.awaits}`
-    : `gtd step ${invoker}: no declared pattern matches the pending changes at "${refusal.state}" — declared patterns: ${
-        refusal.patterns.length > 0 ? refusal.patterns.join(", ") : "(none)"
-      }`
-
-/**
- * Authenticate `invoker` against the resolved rest and perform the one
- * resulting transition (commit or squash) for `gtd step`.
- * Refusals fail the Effect with a formatted message; a no-op returns
- * `subject: null` rather than failing (exit zero, per the plan's "clean
- * no-op exits zero").
+ * Authenticate `invoker` against the currently resolved rest and perform the
+ * one resulting transition (commit or squash) for `gtd step`. `currentRest` →
+ * `planStep` decides; the four capture gates sit between the plan and
+ * `plan.perform` (nothing has written git yet), then `perform` runs. Refusals
+ * fail the Effect with a formatted message; a no-op/reset returns `subject:
+ * null` rather than failing (exit zero, per the plan's "clean no-op exits
+ * zero").
  */
 const stepAsActor = (
   invoker: string,
@@ -593,99 +503,44 @@ const stepAsActor = (
   Error,
   ProgramRequirements
 > =>
-  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
-    const git = yield* GitService
-    const config = yield* (yield* ConfigService).load
     const worktree = yield* WorktreeReader
-    const envVars = yield* EnvVars
-    const rest = yield* resolveRest()
-    const run = yield* computeProcessRun(git, rest.def)
-    const changes = yield* pendingChanges(git)
-    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
-    const renderedOn = yield* renderOnEdgesOrFail(rest.stateDef.on, vars)
-    const decision = step(withRenderedOn(rest.def, rest.state, renderedOn), rest.state, invoker, {
-      changes,
-      // `StepPayload.processTrace` stays `readonly StateName[]` — the pure
-      // engine's retry-entry counting (`applyRetry`) only ever compares state
-      // NAMES, never commit hashes, so widening it to carry `TraceEntry`s
-      // (added to `ProcessRun.trace` for `memoryKeyFor`, package 05/06) would
-      // just churn every `step` test that builds a payload for data the
-      // engine never reads.
-      processTrace: run.trace.map((entry) => entry.state),
+    const rest = yield* currentRest
+    const plan = yield* planStep(rest, invoker, {
+      ...(cost !== undefined ? { cost } : {}),
+      ...(model !== undefined ? { model } : {}),
     })
 
-    if (decision.kind === "refusal") {
-      return yield* Effect.fail(new Error(formatStepRefusal(invoker, decision)))
+    if (plan.kind === "refusal") {
+      return yield* Effect.fail(new Error(plan.message))
+    }
+    if (plan.kind === "noop") {
+      return { state: plan.state, subject: null, cost: null, model: null }
     }
 
-    if (decision.kind === "noop") {
-      return { state: decision.state, subject: null, cost: null, model: null }
-    }
-
-    const executable: ExecutableDecision = decision
-    const renderedState = decision.kind === "squash" ? decision.state : rest.state
-    const renderedStateOn =
-      renderedState === rest.state
-        ? renderedOn
-        : yield* renderOnEdgesOrFail(rest.def.states[renderedState]?.on, vars)
-    const reviewBase = yield* reviewBaseHash(git, rest.def, run)
-    const context = yield* buildTemplateContext(
-      git,
-      worktree.read,
-      renderedState,
-      invoker,
-      run,
-      vars,
-      renderedStateOn,
-      cost ?? 0,
-      model,
-      reviewBase,
-    )
     // Steering-file gate: before capturing a normal turn, format the rest
     // state's steering file in place and validate it — so whoever just acted
     // (a producing agent OR a human editing at a gate) hands the next rest a
     // tidy, well-formed file. Invalid content refuses the step (see the helper,
     // which no-ops for a squash and when there is nothing to validate).
-    yield* enforceSteeringGate(worktree.read, invoker, rest, context, decision.kind)
+    yield* enforceSteeringGate(worktree.read, invoker, rest, plan.kind)
     // Review sign-off gate (edge): refuse a deleted review doc or an unfinished
     // review with no comment before either can commit (see the helper).
-    yield* enforceReviewSignoffGate(worktree.read, invoker, rest, context, changes, decision.kind)
+    yield* enforceReviewSignoffGate(worktree.read, invoker, rest, plan.kind)
     // Feedback-progress gate (edge): at a `requireProgress` state, refuse a
     // work-free turn that just deletes the instructions file (the "captured
     // then silently discarded" bug), exempting a NOTHING ACTIONABLE sentinel.
-    yield* enforceFeedbackProgressGate(invoker, rest, context, changes, decision.kind)
+    yield* enforceFeedbackProgressGate(invoker, rest, plan.kind)
     // Answer-completeness gate (edge): at an `answerGate` qa state, refuse a
     // human step while any open question is not answered (exactly one tick each)
     // — the advanced flow's product-answer/technical-answer gates.
-    yield* enforceAnswerCompletenessGate(worktree.read, invoker, rest, context, decision.kind)
-    if (decision.kind === "commit") {
-      const target = parseStateSubject(decision.subject)?.state
-      if (
-        target === initialStateOf(rest.def) &&
-        run.startParentHash !== EMPTY_TREE &&
-        (yield* retainsNothing(git, run, changes))
-      ) {
-        // A process that returns to its initial state having kept nothing (a
-        // green `gtd --entry fix-precheck`: an empty entry commit + a green
-        // check that changed nothing) leaves no useful history — mixed-reset
-        // past its commits like `gtd abandon` rather than committing a
-        // `→ idle` turn, so a
-        // no-op probe never dirties the log. Pure engine is oblivious; this is
-        // an edge concern like the review window and the steering gate.
-        const tip = yield* git.resolveRef("HEAD")
-        yield* retainHistory(git, tip, run.startParentHash)
-        yield* git.mixedResetTo(run.startParentHash)
-        return { state: target, subject: null, cost: null, model: null }
-      }
+    yield* enforceAnswerCompletenessGate(worktree.read, invoker, rest, plan.kind)
+
+    const outcome = yield* plan.perform
+    if (outcome.kind === "reset" || outcome.kind === "noop") {
+      return { state: outcome.state, subject: null, cost: null, model: null }
     }
-    const outcome = yield* executeDecision(git, run, executable, context, cost, model)
-    return {
-      state: rest.state,
-      subject: outcome.kind === "noop" ? null : outcome.subject,
-      cost: cost ?? null,
-      model: model ?? null,
-    }
+    return { state: rest.state, subject: outcome.subject, cost: cost ?? null, model: model ?? null }
   })
 
 /** Renders `stepAsActor`'s result for `gtd step`. */
@@ -763,35 +618,10 @@ const runStepCommand = (
  * `gtd step <actor> --entry <state> [--var <name>=<value> ...]` (or its
  * subcommand-less short form `gtd --entry <state> ...`, `actor` defaulting to
  * `human` there — see `makeProgram`): start a brand NEW process at `<state>`
- * — any declared, non-commit state (see `PatternMachine.enterableStates`) —
- * replacing the two former named commands `gtd review <commitish>`/`gtd fix`
- * with one generic mechanism. Writes an ordinary turn commit
- * (`gtd(<actor>): <state>`) carrying zero or more `Gtd-Var: <name>=<value>`
- * trailers (`withEntryTrailers`) for each `--var` override, plus — when
- * `<state>` declares a string `reviewBase:` — a `Gtd-Review-Base:` trailer
- * pinning the new process's diff base (rendered from that template against
- * the merged `it.vars`, resolved to a commit, and checked sane). Unlike the
- * old commands (which required a clean tree and used `commitAsIs`), this
- * commits via `commitAllWithPrefix` — capturing whatever the working tree
- * carries at the moment of entry, exactly like an ordinary `gtd step`
- * capture, rather than demanding a clean tree first.
- *
- * Any failure below is a plain refusal: nothing is written. Checked in order:
- *
- * 1. The machine must currently rest at the workflow's INITIAL state — a
- *    plain non-gtd branch (the normal case) resolves there via the
- *    inert-subject rule (see `resolveState`); a process already underway
- *    refuses.
- * 2. `<state>` must be one of `enterableStates(rest.def)` — every declared,
- *    non-commit state, NOT narrowed to whatever declared `entry: true` (that
- *    narrower set only seeds the workflow's own `entries.manual` reachability
- *    roots — this command lets an operator enter any of them).
- * 3. Every `--var` name must already be declared by the workflow's own
- *    `vars:` or the top-level `.gtdrc` `vars:` — an undeclared name is a
- *    usage error, not a silently-ignored override.
- * 4. When `<state>` declares a string `reviewBase:`, that template must
- *    render to a NON-BLANK commitish that resolves to a commit, is an
- *    ancestor of HEAD, and differs from HEAD.
+ * — any declared, non-commit state — via `Edge.ts`'s `planEntry`, which owns
+ * every refusal (already-underway, not-enterable, undeclared `--var`, a bad
+ * `reviewBase:` template) and the entry commit's trailers. This command is
+ * just: resolve the current rest, plan the entry, perform it, report it.
  */
 const runEntryCommand = (
   actor: string,
@@ -801,101 +631,26 @@ const runEntryCommand = (
   write: (chunk: string) => void,
   commandLabel: string,
 ): Effect.Effect<void, Error, ProgramRequirements> =>
-  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
-    const git = yield* GitService
-    const config = yield* (yield* ConfigService).load
-    const envVars = yield* EnvVars
-    const rest = yield* resolveRest()
-    if (rest.state !== initialStateOf(rest.def)) {
-      return yield* Effect.fail(
-        new Error(
-          `${commandLabel}: a process is already underway (resting at "${rest.state}") — finish it, or run \`gtd abandon\`, before entering`,
-        ),
-      )
+    const rest = yield* currentRest
+    const plan = yield* planEntry(rest, actor, {
+      state: entryState,
+      commandLabel,
+      vars: varOverrides,
+    })
+    if (plan.kind === "refusal") {
+      return yield* Effect.fail(new Error(plan.message))
     }
-
-    const enterable = enterableStates(rest.def)
-    if (!enterable.includes(entryState)) {
-      return yield* Effect.fail(
-        new Error(
-          `${commandLabel}: "${entryState}" is not an enterable state — enterable states:\n${enterable
-            .map((s) => `  ${s}`)
-            .join("\n")}`,
-        ),
-      )
-    }
-
-    const declaredNames = Object.keys({ ...config.workflowVars, ...config.rcVars })
-    const undeclared = Object.keys(varOverrides).filter((name) => !declaredNames.includes(name))
-    if (undeclared.length > 0) {
-      return yield* Effect.fail(
-        new Error(
-          `${commandLabel}: --var name(s) not declared by this workflow: ${undeclared.join(
-            ", ",
-          )} — declared: ${declaredNames.length > 0 ? declaredNames.join(", ") : "(none)"}`,
-        ),
-      )
-    }
-
-    const vars = resolveVars(config.workflowVars, config.rcVars, varOverrides, envVars.all)
-
-    let base: string | undefined
-    const baseTemplate = entryBaseTemplateOf(rest.def, entryState)
-    if (baseTemplate !== undefined) {
-      const rendered = yield* Effect.try({
-        try: () => renderStateTemplate(baseTemplate, varsOnlyContext(vars, entryState)),
-        catch: (e) => new Error(`${commandLabel}: ${e instanceof Error ? e.message : String(e)}`),
-      })
-      if (rendered.trim() === "") {
-        const refs = Array.from(
-          new Set(Array.from(baseTemplate.matchAll(/it\.vars\.(\w+)/g)).map((m) => m[1]!)),
-        )
-        return yield* Effect.fail(
-          new Error(
-            `${commandLabel}: "${entryState}"'s reviewBase template rendered blank — template: ${JSON.stringify(
-              baseTemplate,
-            )}; it.vars references: ${
-              refs.length > 0 ? refs.map((r) => `it.vars.${r}`).join(", ") : "(none found)"
-            }`,
-          ),
-        )
-      }
-      const resolvedBase = yield* git
-        .resolveRef(rendered)
-        .pipe(
-          Effect.mapError(
-            () => new Error(`${commandLabel}: "${rendered}" does not resolve to a commit`),
-          ),
-        )
-      const isBaseAncestor = yield* git.isAncestor(resolvedBase, "HEAD")
-      if (!isBaseAncestor) {
-        return yield* Effect.fail(
-          new Error(`${commandLabel}: "${rendered}" is not an ancestor of HEAD`),
-        )
-      }
-      const headHash = yield* git.resolveRef("HEAD")
-      if (resolvedBase === headHash) {
-        return yield* Effect.fail(
-          new Error(`${commandLabel}: "${rendered}" is HEAD — nothing to review`),
-        )
-      }
-      base = resolvedBase
-    }
-
-    const subject = stateSubject(actor, entryState)
-    yield* git.commitAllWithPrefix(
-      withEntryTrailers(subject, { ...(base !== undefined ? { base } : {}), vars: varOverrides }),
-    )
+    yield* plan.perform
     if (json) {
-      write(JSON.stringify({ state: entryState, subject }) + "\n")
+      write(JSON.stringify({ state: plan.state, subject: plan.subject }) + "\n")
     } else {
-      write(`committed: ${subject}\n`)
+      write(`committed: ${plan.subject}\n`)
     }
   })
 
-// git's empty-tree object — `computeProcessRun`'s `startParentHash` when the
-// process covers the whole history, so there is no earlier commit to rewind to.
+// git's empty-tree object — `ProcessRun.startParentHash` when the process
+// covers the whole history, so there is no earlier commit to rewind to.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 /**
@@ -942,7 +697,7 @@ const runAbandonCommand = (
     const config = yield* (yield* ConfigService).load
     const def = config.workflow
     const initial = initialStateOf(def)
-    const run = yield* computeProcessRun(git, def)
+    const run = yield* currentRun
     if (run.trace.length === 0) {
       if (json) {
         write(JSON.stringify({ state: initial, abandoned: false }) + "\n")
@@ -1008,8 +763,13 @@ const runRestoreCommand = (
 
     const git = yield* GitService
 
-    const changes = yield* pendingChanges(git)
-    if (changes.length > 0) {
+    // Reading `rest.changes` off `currentRest` (rather than `pendingChanges`
+    // directly) means the renamed-state refusal now wins over the dirty-tree
+    // message when both apply — restore already refused on a renamed state
+    // before this change (it resolved a rest too), so only which of the two
+    // refusals surfaces changes.
+    const before = yield* currentRest
+    if (before.changes.length > 0) {
       return yield* Effect.fail(
         new Error(
           "gtd restore: refuses on a dirty working tree — commit, stash, or discard your changes first.",
@@ -1023,7 +783,6 @@ const runRestoreCommand = (
     }
     const tip = retained.value
 
-    const before = yield* resolveRest()
     const headHash = yield* git.resolveRef("HEAD")
     const headMessage = yield* git.lastCommitMessage()
     const check = yield* restorability(git, headHash, headMessage, tip)
@@ -1039,7 +798,7 @@ const runRestoreCommand = (
     yield* git.hardResetTo(tip)
     yield* clearRetainedHistory(git)
 
-    const after = yield* resolveRest()
+    const after = yield* currentRest
     const subject = yield* git.lastCommitSubject()
 
     if (json) {
@@ -1103,9 +862,7 @@ const runNextCommand = (
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
-    const git = yield* GitService
-    const { rest, context, memory } = yield* resolveRestContext(git)
-    const rendered = yield* renderRest(rest, context, memory)
+    const rendered = yield* renderRest(yield* currentRest)
     write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
   })
 
@@ -1121,11 +878,12 @@ interface SteeringCheck {
 
 /**
  * Format the resolved rest's steering file in place, then validate its
- * formatted contents. When the state declares both `file:` and `mode:` and
- * that file exists in the working tree, the mode's format-then-validate pair
- * runs over it — each half resolved independently from the `modes:` map and
- * gtd's built-in `qa`/`review` validators beneath it (see
- * `src/SteeringMode.ts`). `present` is false — and nothing is
+ * formatted contents. `rest.hints.file`/`rest.hints.mode` are already
+ * rendered/resolved by `currentRest` — this never re-renders them. When both
+ * are present and the file exists in the working tree, the mode's
+ * format-then-validate pair runs over it — each half resolved independently
+ * from the `modes:` map and gtd's built-in `qa`/`review` validators beneath
+ * it (see `src/SteeringMode.ts`). `present` is false — and nothing is
  * formatted or validated — when the state declares no steering file, or the
  * file is absent (e.g. `building` deleted `.gtd/TODO.md`, or a human deleted
  * `.gtd/REVIEW.md` to approve), so those flows pass cleanly. Shared by
@@ -1134,12 +892,11 @@ interface SteeringCheck {
  */
 const formatAndCheckSteeringFile = (
   worktreeRead: (path: string) => string,
-  rest: ResolvedRest,
-  context: TemplateContext,
+  rest: Rest,
 ): Effect.Effect<SteeringCheck, Error, FileSystem.FileSystem | Cwd> =>
   Effect.gen(function* () {
-    const file = yield* renderFile(rest.stateDef, context)
-    const mode = rest.stateDef.mode
+    const file = rest.hints.file
+    const mode = rest.hints.mode
     if (file === undefined || mode === undefined) return { file, present: false, errors: [] }
     const fs = yield* FileSystem.FileSystem
     if (!(yield* fs.exists(file))) return { file, present: false, errors: [] }
@@ -1154,7 +911,7 @@ const formatAndCheckSteeringFile = (
       resolved,
       file,
       () => worktreeRead(file),
-      context,
+      rest.context,
       root,
     )
     return { file, present: true, errors }
@@ -1169,15 +926,14 @@ const formatAndCheckSteeringFile = (
 const enforceSteeringGate = (
   worktreeRead: (path: string) => string,
   invoker: string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-  kind: ExecutableDecision["kind"],
+  rest: Rest,
+  kind: "commit" | "squash",
 ): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd> =>
   Effect.gen(function* () {
     // Only a normal commit captures the rest state's steering file; a squash
     // discards it, and a no-op writes nothing.
     if (kind !== "commit") return
-    const gate = yield* formatAndCheckSteeringFile(worktreeRead, rest, context)
+    const gate = yield* formatAndCheckSteeringFile(worktreeRead, rest)
     if (gate.errors.length > 0) {
       return yield* Effect.fail(
         new Error(
@@ -1258,15 +1014,13 @@ export const classifyReviewSignoff = (input: {
 const enforceReviewSignoffGate = (
   worktreeRead: (path: string) => string,
   invoker: string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-  changes: readonly PendingChange[],
-  kind: ExecutableDecision["kind"],
+  rest: Rest,
+  kind: "commit" | "squash",
 ): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
   Effect.gen(function* () {
     if (kind !== "commit") return
     if (!isReviewWindowState(rest.def, rest.state) || rest.stateDef.mode !== REVIEW_MODE) return
-    const file = yield* renderFile(rest.stateDef, context)
+    const file = rest.hints.file
     if (file === undefined) return
 
     const git = yield* GitService
@@ -1280,8 +1034,8 @@ const enforceReviewSignoffGate = (
       file,
       stateName: rest.state,
       invoker,
-      reviewDocDeleted: changes.some((c) => c.path === file && c.status === "D"),
-      hasCodeChange: changes.some((c) => !c.path.startsWith(".gtd/")),
+      reviewDocDeleted: rest.changes.some((c) => c.path === file && c.status === "D"),
+      hasCodeChange: rest.changes.some((c) => !c.path.startsWith(".gtd/")),
       original,
       current,
     })
@@ -1332,15 +1086,13 @@ export const classifyFeedbackProgress = (input: {
  */
 const enforceFeedbackProgressGate = (
   invoker: string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-  changes: readonly PendingChange[],
-  kind: ExecutableDecision["kind"],
+  rest: Rest,
+  kind: "commit" | "squash",
 ): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
   Effect.gen(function* () {
     if (kind !== "commit") return
     if (!isRequireProgressState(rest.def, rest.state)) return
-    const file = yield* renderFile(rest.stateDef, context)
+    const file = rest.hints.file
     if (file === undefined) return
     const git = yield* GitService
     const deletedContent = yield* git
@@ -1350,7 +1102,7 @@ const enforceFeedbackProgressGate = (
       file,
       stateName: rest.state,
       invoker,
-      changes,
+      changes: rest.changes,
       deletedContent,
     })
     if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
@@ -1405,14 +1157,13 @@ export const classifyAnswerCompleteness = (input: {
 const enforceAnswerCompletenessGate = (
   worktreeRead: (path: string) => string,
   invoker: string,
-  rest: ResolvedRest,
-  context: TemplateContext,
-  kind: ExecutableDecision["kind"],
+  rest: Rest,
+  kind: "commit" | "squash",
 ): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
   Effect.gen(function* () {
     if (kind !== "commit") return
     if (!isAnswerGateState(rest.def, rest.state) || rest.stateDef.mode !== QA_MODE) return
-    const file = yield* renderFile(rest.stateDef, context)
+    const file = rest.hints.file
     if (file === undefined) return
     const current = yield* Effect.try(() => worktreeRead(file)).pipe(
       Effect.catchAll(() => Effect.succeed("")),
@@ -1445,14 +1196,9 @@ const runValidateCommand = (
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
     yield* rejectExtraArgs("validate", argv)
-    const git = yield* GitService
     const worktree = yield* WorktreeReader
-    const { rest, context } = yield* resolveRestContext(git)
-    const { file, present, errors } = yield* formatAndCheckSteeringFile(
-      worktree.read,
-      rest,
-      context,
-    )
+    const rest = yield* currentRest
+    const { file, present, errors } = yield* formatAndCheckSteeringFile(worktree.read, rest)
     if (!present) {
       if (json) write(JSON.stringify({ state: rest.state, valid: true, errors: [] }) + "\n")
       else write(`nothing to validate at "${rest.state}"\n`)
@@ -1580,12 +1326,12 @@ const pendingStatusLines = (statusChanges: readonly StatusChange[]): string[] =>
         ...statusChanges.map((c) => `  ${c.status} ${c.path} -> ${c.pattern ?? "(no match)"}`),
       ]
 
-/** `gtd status --json`'s emission — `{state, actor, changes, next, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. `renderedOn` is the resting state's `on` edges already rendered against `it.vars` (`renderOnEdges`), so the emitted `edges[].pattern` carries the same rendered path as `changes[].pattern`. `next` is ALWAYS present (an object, or `null` on no match) — the headline conclusion, never omit-vs-null, same as `changes`. */
+/** `gtd status --json`'s emission — `{state, actor, changes, next, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. `edges` is `rest.context.edges` — the resting state's `on` edges already rendered against `it.vars`, so the emitted `edges[].pattern` carries the same rendered path as `changes[].pattern`. `next` is ALWAYS present (an object, or `null` on no match) — the headline conclusion, never omit-vs-null, same as `changes`. */
 const writeStatusJson = (
   write: (chunk: string) => void,
-  rest: ResolvedRest,
+  rest: Rest,
   statusChanges: readonly StatusChange[],
-  renderedOn: readonly OnEdge[],
+  edges: readonly TemplateEdge[],
   next: NextMatch | null,
   model: string | undefined,
   memory: string | undefined,
@@ -1594,7 +1340,6 @@ const writeStatusJson = (
   cost: number,
   costByModel: readonly ModelCost[],
 ): void => {
-  const edges = toTemplateEdges(renderedOn)
   const hasCost = cost > 0
   write(
     JSON.stringify({
@@ -1619,7 +1364,7 @@ const writeStatusJson = (
 /** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Label:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:`/`Next:` lines. */
 const writeStatusPlain = (
   write: (chunk: string) => void,
-  rest: ResolvedRest,
+  rest: Rest,
   statusChanges: readonly StatusChange[],
   next: NextMatch | null,
   model: string | undefined,
@@ -1655,27 +1400,22 @@ const runStatusCommand = (
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
     yield* rejectExtraArgs("status", argv)
-    const git: GitOperations = yield* GitService
-    const { rest, context, renderedOn, memory } = yield* resolveRestContext(git)
-    const changes = yield* pendingChanges(git)
-    const model = yield* renderModel(rest.stateDef, context)
-    const label = yield* renderLabel(rest.stateDef, context)
-    const file = yield* renderFile(rest.stateDef, context)
-    const statusChanges = computeStatusChanges(renderedOn, changes)
-    const next = computeNextMatch(renderedOn, changes)
+    const rest = yield* currentRest
+    const statusChanges = computeStatusChanges(rest.on, rest.changes)
+    const next = computeNextMatch(rest.on, rest.changes)
     if (json) {
       writeStatusJson(
         write,
         rest,
         statusChanges,
-        renderedOn,
+        rest.context.edges,
         next,
-        model,
-        memory,
-        label,
-        file,
-        context.processCost,
-        context.processCostByModel,
+        rest.hints.model,
+        rest.memory,
+        rest.hints.label,
+        rest.hints.file,
+        rest.context.processCost,
+        rest.context.processCostByModel,
       )
     } else {
       writeStatusPlain(
@@ -1683,12 +1423,12 @@ const runStatusCommand = (
         rest,
         statusChanges,
         next,
-        model,
-        memory,
-        label,
-        file,
-        context.processCost,
-        context.processCostByModel,
+        rest.hints.model,
+        rest.memory,
+        rest.hints.label,
+        rest.hints.file,
+        rest.context.processCost,
+        rest.context.processCostByModel,
       )
     }
   })
@@ -1758,19 +1498,13 @@ const parseVisualizeOptions = (rest: readonly string[]): VisualizeOptions | { er
  */
 const computeCurrentState = (
   model: VizModel,
-): Effect.Effect<CurrentStateModel, Error, GitService | ConfigService | EnvVars> =>
+): Effect.Effect<CurrentStateModel, Error, RestRequirements> =>
   Effect.gen(function* () {
     const git: GitOperations = yield* GitService
-    const config = yield* (yield* ConfigService).load
-    const envVars = yield* EnvVars
     const reviewHead = yield* git.readRefOption(REVIEW_HEAD_REF)
-    const currentRest = yield* resolveRest(Option.getOrUndefined(reviewHead))
-    const run = yield* computeProcessRun(git, currentRest.def)
-    const changes = yield* pendingChanges(git)
-    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
-    const renderedOn = yield* renderOnEdgesOrFail(currentRest.stateDef.on, vars)
-    const group = model.states.find((s) => s.name === currentRest.state)?.group
-    return buildCurrentStateModel(currentRest, changes, renderedOn, group)
+    const rest = yield* restAt(Option.getOrUndefined(reviewHead))
+    const group = model.states.find((s) => s.name === rest.state)?.group
+    return buildCurrentStateModel(rest, rest.changes, rest.on, group)
   })
 
 /**
@@ -1788,7 +1522,7 @@ const runVisualizeCommand = (
   argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, GitService | ConfigService | EnvVars> =>
+): Effect.Effect<void, Error, RestRequirements> =>
   Effect.gen(function* () {
     const tokens = argv.slice(2)
     const subIdx = tokens.indexOf("visualize")
@@ -1812,11 +1546,15 @@ const runVisualizeCommand = (
       return
     }
 
-    const runtime = yield* Effect.runtime<GitService | ConfigService | EnvVars>()
+    const runtime = yield* Effect.runtime<RestRequirements>()
     const resolveCurrent = () =>
-      Runtime.runPromise(runtime)(computeCurrentState(model).pipe(Effect.either)).then(
-        Either.getOrNull,
-      )
+      Runtime.runPromise(runtime)(computeCurrentState(model).pipe(Effect.either)).then((result) => {
+        if (Either.isLeft(result)) {
+          write(`gtd visualize: current-state panel unavailable — ${result.left.message}\n`)
+          return null
+        }
+        return result.right
+      })
 
     const { server, url } = yield* Effect.tryPromise({
       try: () => startVizServer(model, opts.port, "127.0.0.1", resolveCurrent),

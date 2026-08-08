@@ -33,7 +33,7 @@ export const withHistoryTrailer = (subject: string, hash: string): string =>
  * `withHistoryTrailer`), or `undefined` when `message` carries none. Read back
  * by a later `gtd restore` command to recover the pre-squash tip.
  */
-export const parseHistoryTrailer = (message: string): string | undefined =>
+const parseHistoryTrailer = (message: string): string | undefined =>
   HISTORY_TRAILER_RE.exec(message)?.[1]
 
 /**
