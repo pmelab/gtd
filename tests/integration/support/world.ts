@@ -9,7 +9,7 @@ const execFile = promisify(execFileCb)
 import { existsSync, readFileSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { makeProgram } from "../../../src/program.js"
-import { testLayers } from "../../../src/testing/Layers.js"
+import { testLayers, type ScriptedCommand } from "../../../src/testing/Layers.js"
 import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
@@ -59,6 +59,9 @@ export class GtdWorld extends QuickPickleWorld {
 
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_<UPPERCASE-name>` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}
+
+  /** Canned `bash` command behaviors for the in-memory tier's `CommandRunner` — real subprocess execution is unreachable against an in-memory worktree. Keyed by the rendered command string; set by `Given the shell command "..." ...` (@inmem steering-mode scenarios only). */
+  scriptedCommands: Map<string, ScriptedCommand> = new Map()
 
   /** Dispatch: routes to the live or in-process implementation based on this.tier. */
   async runGtd(...args: string[]): Promise<void> {
@@ -110,7 +113,7 @@ export class GtdWorld extends QuickPickleWorld {
     const argv = ["node", "gtd.js", ...args]
 
     const program = makeProgram({ argv, write }).pipe(
-      Effect.provide(testLayers(repo, { env: this.envVars })),
+      Effect.provide(testLayers(repo, { env: this.envVars, commands: this.scriptedCommands })),
     )
 
     const exit = await Effect.runPromiseExit(program)

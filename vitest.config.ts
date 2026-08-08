@@ -57,6 +57,7 @@ export default defineConfig({
             "./tests/integration/support/steps/lsp.steps.ts",
             "./tests/integration/support/steps/review-signoff.steps.ts",
             "./tests/integration/support/steps/review-window.steps.ts",
+            "./tests/integration/support/steps/steering.steps.ts",
           ],
           testTimeout: 300_000,
         },

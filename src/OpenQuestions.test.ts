@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { FREE_TEXT_PLACEHOLDER, parseOpenQuestions } from "./OpenQuestions.js"
+import { FREE_TEXT_PLACEHOLDER, parseOpenQuestions, unansweredQuestions } from "./OpenQuestions.js"
 
 describe("parseOpenQuestions", () => {
   it("returns zero questions and zero errors when there is no questions section", () => {
@@ -309,5 +309,33 @@ describe("parseOpenQuestions", () => {
       const chosen = question.options.find((o) => o.checked)!
       expect(chosen).toMatchObject({ text: "use tRPC", sourceLine: 5, endLine: 6 })
     })
+  })
+})
+
+describe("unansweredQuestions", () => {
+  const doc = (options: readonly string[]): string =>
+    ["Build a thing.", "", "## Open Questions", "", "### Which API?", "", ...options, ""].join("\n")
+
+  it("returns nothing when there are no open questions", () => {
+    expect(unansweredQuestions(parseOpenQuestions("Build a thing. Plan: do it.\n"))).toEqual([])
+  })
+
+  it("returns the open question when no option is ticked", () => {
+    const result = unansweredQuestions(
+      parseOpenQuestions(doc(["- [ ] REST", "- [ ] GraphQL", "- [ ] _your answer_"])),
+    )
+    expect(result.map((q) => q.question)).toEqual(["Which API?"])
+  })
+
+  it("returns nothing when every open question is answered", () => {
+    const result = unansweredQuestions(
+      parseOpenQuestions(doc(["- [ ] REST", "- [x] GraphQL", "- [ ] _your answer_"])),
+    )
+    expect(result).toEqual([])
+  })
+
+  it("excludes answered-status questions", () => {
+    const content = "## Answered Questions\n\n### Which API?\n\nUse tRPC.\n"
+    expect(unansweredQuestions(parseOpenQuestions(content))).toEqual([])
   })
 })

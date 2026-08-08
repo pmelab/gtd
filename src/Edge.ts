@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { GitService, type GitOperations } from "./Git.js"
 import { ConfigService } from "./Config.js"
-import { WorktreeReader } from "./WorktreeReader.js"
+import { RepoFiles, templateRead } from "./RepoFiles.js"
 import { EnvVars } from "./EnvVars.js"
 import {
   contentKindOf,
@@ -688,7 +688,7 @@ const retainsNothing = (
 // ── The resolved rest, fully assembled ───────────────────────────────────────
 
 /** The four services resolving a rest needs. */
-export type RestRequirements = GitService | ConfigService | WorktreeReader | EnvVars
+export type RestRequirements = GitService | ConfigService | RepoFiles | EnvVars
 
 /**
  * Every field a resolved rest carries as a hint (`rest: "rendered"` or
@@ -745,7 +745,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const worktree = yield* WorktreeReader
+    const files = yield* RepoFiles
     const envVars = yield* EnvVars
     const def = config.workflow
 
@@ -763,7 +763,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const changes = yield* pendingChanges(git)
     const context = yield* buildTemplateContext(
       git,
-      worktree.read,
+      templateRead(files),
       resolved.state,
       resolved.actor,
       run,
@@ -890,7 +890,8 @@ export type StepOutcome =
   | { readonly kind: "entry"; readonly state: StateName; readonly subject: string }
 
 /** The two `StepDecision` kinds that actually perform IO — `"refusal"` and `"noop"` are handled by `planStep` itself before a `perform` closure is ever built. */
-type ExecutableDecision = Extract<StepDecision, { kind: "commit" | "squash" }>
+/** A decision that actually writes git — the two kinds a guard may run before. Exported for `src/StepGuards.ts`. */
+export type ExecutableDecision = Extract<StepDecision, { kind: "commit" | "squash" }>
 
 /** The user-facing message for a `step` refusal — out-of-turn names the awaited actor, no-match names every declared pattern. */
 const formatStepRefusal = (invoker: string, refusal: StepRefusal): string =>
@@ -913,10 +914,10 @@ const contextAt = (
   invoker: string,
   cost: number | undefined,
   model: string | undefined,
-): Effect.Effect<TemplateContext, Error, GitService | WorktreeReader> =>
+): Effect.Effect<TemplateContext, Error, GitService | RepoFiles> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const worktree = yield* WorktreeReader
+    const files = yield* RepoFiles
     const onEdges =
       targetState === rest.state
         ? rest.on
@@ -924,7 +925,7 @@ const contextAt = (
     const hasCommits = yield* git.hasCommits()
     return yield* buildTemplateContext(
       git,
-      worktree.read,
+      templateRead(files),
       targetState,
       invoker,
       rest.run,

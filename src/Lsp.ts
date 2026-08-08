@@ -90,7 +90,7 @@ import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
-import { WorktreeReader } from "./WorktreeReader.js"
+import { RepoFiles } from "./RepoFiles.js"
 import { currentRest } from "./Edge.js"
 import type { StateMode, WorkflowDefinition } from "./PatternMachine.js"
 import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
@@ -509,8 +509,8 @@ const configLayerForRoot = (root: string) => ConfigService.Live.pipe(Layer.provi
 const gitLayerForRoot = (root: string) =>
   GitService.Live.pipe(Layer.provide(Layer.merge(Cwd.layer(root), NodeContext.layer)))
 
-const worktreeLayerForRoot = (root: string) =>
-  WorktreeReader.Live.pipe(Layer.provide(Cwd.layer(root)))
+const repoFilesLayerForRoot = (root: string) =>
+  RepoFiles.Live.pipe(Layer.provide(Layer.merge(Cwd.layer(root), gitLayerForRoot(root))))
 
 // The `GTD_<UPPERCASE-name>` env-override half of `Edge.ts`'s (private)
 // `resolveVars` — this call site has no resolved process (it builds a STATIC
@@ -600,7 +600,7 @@ const resolveSteeringFile = (
       Layer.mergeAll(
         gitLayerForRoot(root),
         configLayerForRoot(root),
-        worktreeLayerForRoot(root),
+        repoFilesLayerForRoot(root),
         EnvVars.Live,
       ),
     ),

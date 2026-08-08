@@ -825,14 +825,18 @@ over it — so the whole engine is trivially unit-testable in isolation. All
 git/filesystem/template IO is confined to the edge (`src/Edge.ts`), whose
 `currentRest` resolves everything derivable from where the process rests right
 now into a single snapshot, and whose `planStep`/`planEntry` pair separates
-deciding a transition from performing it — so a command's own capture gates run
-between the two.
+deciding a transition from performing it — so a command's own capture guards run
+between the two. The edge reaches the outside world through two content ports
+(`src/RepoFiles.ts` for working-tree and committed reads, `src/CommandRunner.ts`
+for the one place gtd spawns a subprocess itself), with the `gtd step` capture
+guards (`src/StepGuards.ts`) built on top of them.
 
 `src/testing/` holds the in-memory git/config/filesystem test double every
 `@inmem` scenario and unit test runs against instead of a real repo — it never
 ships (a lint rule and a build-time check both enforce that) and is trustworthy
 only because the same `GitOperations` contract suite runs against a real git
 repo too.
+
 
 Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
 or breaking changes) to `main` and semantic-release computes the next version,

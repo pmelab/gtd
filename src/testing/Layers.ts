@@ -4,12 +4,11 @@
  * `@inmem` scenario and `src/**\/*.test.ts` unit test provides — see
  * `ProgramRequirements` (`src/program.ts`) for what it must cover.
  *
- * Not yet covered: `SteeringMode.ts`'s `spawnSync` and `Visualize.ts`'s
- * `spawn` go straight to a real subprocess, not through a port — a mode's
- * `format:`/`validate:` in an `@inmem` scenario shells out to real bash with
- * `cwd: "/repo"` (a path that doesn't exist). RFCs #157/#161 introduce the
- * subprocess port (`CommandRunner`); `testLayers` will provide it once it
- * exists.
+ * Subprocess work goes through `CommandRunner` (#157), which `testLayers`
+ * provides as a SCRIPTED runner: an `@inmem` scenario declares each command's
+ * canned outcome and an unscripted command fails loudly, so nothing shells out
+ * to real bash with `cwd: "/repo"` (a path that doesn't exist). `Visualize.ts`'s
+ * browser `spawn` is still portless, but no `@inmem` scenario reaches it.
  */
 
 import { FileSystem } from "@effect/platform"
@@ -29,7 +28,8 @@ import { fakeGitOperations } from "./GitDoubles.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { Cwd } from "../Cwd.js"
 import { EnvVars } from "../EnvVars.js"
-import { WorktreeReader } from "../WorktreeReader.js"
+import { RepoFiles } from "../RepoFiles.js"
+import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
 import type { ProgramRequirements } from "../program.js"
 
 // ---------------------------------------------------------------------------
@@ -225,14 +225,45 @@ const makeInMemoryConfigService = (repo: InMemRepo, root: string): Layer.Layer<C
 // ---------------------------------------------------------------------------
 
 /** `PatternTemplates.TemplateContext.read` for the in-memory tier: a synchronous lookup straight into the repo's worktree (never real `fs`). */
-const makeInMemoryWorktreeReader = (repo: InMemRepo): Layer.Layer<WorktreeReader> =>
-  Layer.succeed(WorktreeReader, {
-    read: (path: string) => {
-      const content = repo.readFile(path)
-      if (content === undefined) {
-        throw new Error(`ENOENT: no such file or directory, open '${path}'`)
+/** `RepoFiles` for the in-memory tier: a synchronous worktree lookup (never real `fs`) and `committed` via the repo's own `fileAtRef`. Absence is `undefined` on BOTH members — `templateRead` re-adds the ENOENT throw for the one caller (Eta) that needs it. */
+const makeInMemoryRepoFiles = (repo: InMemRepo): Layer.Layer<RepoFiles> =>
+  Layer.succeed(RepoFiles, {
+    working: (path: string) => repo.readFile(path),
+    committed: (path: string, ref = "HEAD") =>
+      Effect.succeed(repo.fileAtRef(ref, path) ?? undefined),
+  })
+
+/** One scripted `bash` command's canned behavior, keyed by the RENDERED command string a scenario's `Given` step declares. */
+export type ScriptedCommand =
+  | { readonly kind: "exit"; readonly status: number; readonly output: string }
+  | { readonly kind: "rewrite"; readonly file: string; readonly content: string }
+
+/**
+ * `CommandRunner` for the in-memory tier: real subprocess execution is
+ * unreachable against an in-memory worktree, so every command a scenario
+ * needs must be declared with a `Given the shell command "<cmd>" ...` step —
+ * keyed by the command string AFTER Eta rendering, exactly as `bash` would
+ * receive it. An unscripted command fails LOUDLY (never silently succeeds),
+ * so a scenario that forgets to declare one fails with a clear message
+ * rather than passing by accident.
+ */
+const makeScriptedCommandRunner = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+): Layer.Layer<CommandRunner> =>
+  Layer.succeed(CommandRunner, {
+    bash: (command: string): Effect.Effect<CommandOutcome, Error> => {
+      const scripted = commands.get(command)
+      if (scripted === undefined) {
+        return Effect.fail(
+          new Error(`unscripted command "${command}" — declare it with a Given step`),
+        )
       }
-      return content
+      if (scripted.kind === "rewrite") {
+        repo.writeFile(scripted.file, scripted.content)
+        return Effect.succeed({ status: 0, output: "" })
+      }
+      return Effect.succeed({ status: scripted.status, output: scripted.output })
     },
   })
 
@@ -243,6 +274,8 @@ const makeInMemoryWorktreeReader = (repo: InMemRepo): Layer.Layer<WorktreeReader
 export interface TestWorldOptions {
   readonly env?: Readonly<Record<string, string | undefined>>
   readonly root?: string
+  /** Canned `bash` outcomes for the scripted `CommandRunner` — see `ScriptedCommand`. */
+  readonly commands?: ReadonlyMap<string, ScriptedCommand>
 }
 
 /** The fine-grained `GitService` layer alone — for unit tests that need only git. */
@@ -263,7 +296,8 @@ export function testLayers(
     fsLayer,
     configLayer,
     Cwd.layer(root),
-    makeInMemoryWorktreeReader(repo),
+    makeInMemoryRepoFiles(repo),
+    makeScriptedCommandRunner(repo, opts.commands ?? new Map()),
     EnvVars.layer(opts.env ?? {}),
   )
 }

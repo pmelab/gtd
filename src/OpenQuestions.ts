@@ -265,6 +265,10 @@ const parseQuestionBlock = (
   }
 }
 
+/** Every OPEN question that is not answered (see `OpenQuestion.answered`) — the answer-completeness guard (`src/StepGuards.ts`) refuses a step while this is non-empty. */
+export const unansweredQuestions = (doc: OpenQuestionsDoc): readonly OpenQuestion[] =>
+  doc.questions.filter((q) => q.status === "open" && !q.answered)
+
 /**
  * Parses the open-questions structure out of `content` (the raw text of
  * `.gtd/TODO.md` or `.gtd/ARCHITECTURE.md`). Total and side-effect-free:

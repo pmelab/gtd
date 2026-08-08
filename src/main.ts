@@ -4,7 +4,8 @@ import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
-import { WorktreeReader } from "./WorktreeReader.js"
+import { RepoFiles } from "./RepoFiles.js"
+import { CommandRunner } from "./CommandRunner.js"
 import { cliErrorLine, isEnveloped, makeProgram, runVersionOrHelp } from "./program.js"
 
 // Version/help must short-circuit before the Effect runtime exists: layer
@@ -15,9 +16,10 @@ if (runVersionOrHelp(process.argv, (chunk) => process.stdout.write(chunk))) {
 }
 
 makeProgram().pipe(
-  Effect.provide(GitService.Live),
   Effect.provide(ConfigService.Live),
-  Effect.provide(WorktreeReader.Live),
+  Effect.provide(RepoFiles.Live),
+  Effect.provide(CommandRunner.Live),
+  Effect.provide(GitService.Live),
   Effect.provide(EnvVars.Live),
   Effect.provide(Cwd.Live),
   Effect.provide(NodeContext.layer),
