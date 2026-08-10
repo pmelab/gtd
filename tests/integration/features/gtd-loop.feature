@@ -200,6 +200,45 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And "src/calc.ts" exists
     And the git log contains "chore: calculator done"
 
+  Scenario: Resumes driving on a mid-process restart instead of failing at the opening capture
+    # pmelab/gtd#168: a mid-process restart can leave the machine resting at a
+    # message-kind gate that is NOT the human's turn (an "announcing" step
+    # some other actor owns). The opening move used to peek `kind ==
+    # "message"` and unconditionally run `gtd step human`, which refused out
+    # of turn and aborted the loop under `set -e`. The now-unconditional
+    # `gtd step human --if-resting` no-ops instead, so the loop reaches its
+    # own message-gate handling and hands off cleanly instead of crashing.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": announcing
+              announcing:
+                actor: agent
+                message: "heads up: work is starting"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
+      """
+    And a commit "gtd(human): announcing" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "[you]  announcing"
+
   Scenario: Settles instead of looping forever when a script rest makes no progress
     Given a test project
     And a gtd config file at ".gtdrc" with:

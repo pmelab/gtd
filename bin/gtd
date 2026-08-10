@@ -395,41 +395,25 @@ invoke_agent() {
 # Opening move: capture the human's pending edit so gtd-loop is the ONLY command
 # a human runs. A human acts at a gate by editing files (a plan answer, a review
 # tick, a code fix) and re-launching the loop — they should never have to run
-# `gtd step human` by hand first. So before driving, if the machine currently
-# rests at a human gate, step the human once to commit whatever they left, then
-# fall into the loop below from the resulting state.
-#
-# We peek with the pure, mutation-free `gtd next --json` (deliberately WITHOUT
-# --dispatch — a peek must not claim a dispatch, or it would arm/consume the
-# beat marker before the loop below ever hands this beat to an executor) and
-# step ONLY when it reports a human rest (`kind == "message"`): at an
-# agent/check rest `gtd step human` would refuse out-of-turn (non-zero,
-# aborting under `set -e`), and a mid-process restart must simply resume
-# driving, not fail. A clean gate is a harmless no-op; a genuine refusal there
-# (a malformed steering file, or an edit no `on` pattern accepts) is surfaced
-# and stops the loop rather than being driven past. --once treats a captured
-# commit here as the run's one beat and exits; a clean/no-op gate captures
-# nothing, so it isn't a beat — it falls into the loop below exactly as it
-# would without --once.
-if ! peek_json="$(run_gtd next --json 2>&1)"; then
-  emit_error "could not determine the next step:
-$peek_json
-Run \`gtd status\` to inspect the repo."
+# `gtd step human` by hand first. `--if-resting` (pmelab/gtd#168) makes this
+# call unconditional: the bundle, not bash, decides whether it's the human's
+# turn — at an agent/check rest it exits 0 doing nothing (a mid-process
+# restart simply resumes driving below), and at a human gate it captures
+# whatever they left (the emitted script prints its own outcome). A genuine
+# refusal (a malformed steering file, or an edit no `on` pattern accepts)
+# still surfaces and stops the loop rather than being driven past. --once
+# treats a captured commit here as the run's one beat and exits; a no-op
+# capture isn't a beat — it falls into the loop below exactly as it would
+# without --once.
+opening_head_before="$(git rev-parse --verify --quiet HEAD || echo none)"
+if ! run_gtd_command step human --if-resting; then
+  emit_error "could not capture your changes at the human gate — fix the reported issue and re-run gtd-loop."
   emit_log_pointer
   exit 1
 fi
-peek_kind="$(jq -r .kind <<<"$peek_json")"
-if [[ "$peek_kind" == "message" ]]; then
-  opening_head_before="$(git rev-parse --verify --quiet HEAD || echo none)"
-  if ! run_gtd_command step human; then
-    emit_error "could not capture your changes at the human gate — fix the reported issue and re-run gtd-loop."
-    emit_log_pointer
-    exit 1
-  fi
-  opening_head_after="$(git rev-parse --verify --quiet HEAD || echo none)"
-  if [[ "$once_mode" == 1 && "$opening_head_before" != "$opening_head_after" ]]; then
-    exit 0
-  fi
+opening_head_after="$(git rev-parse --verify --quiet HEAD || echo none)"
+if [[ "$once_mode" == 1 && "$opening_head_before" != "$opening_head_after" ]]; then
+  exit 0
 fi
 
 while true; do

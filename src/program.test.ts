@@ -834,6 +834,60 @@ describe("gtd step — StepPayload.processTrace still receives plain state names
   })
 })
 
+describe("gtd step <actor> --if-resting", () => {
+  // Same idle(human)/looping(agent) shape as the retry-redirect describe
+  // above — HEAD entering "looping" rests the process awaiting the agent, so
+  // a human's step is out of turn.
+  const workflow = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": looping',
+    "        looping:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", workflow)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(human): looping") // rests awaiting the agent
+    return repo
+  }
+
+  it("--if-resting suppresses the out-of-turn refusal as a no-op, touching nothing", async () => {
+    const repo = seededRepo()
+    const before = repo.resolveRef("HEAD")
+    const { stdout, exitCode } = await run(repo, "step", "human", "--if-resting", "--json")
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout)).toEqual({
+      state: "looping",
+      subject: null,
+      required: "",
+      optional: "",
+    })
+    expect(repo.resolveRef("HEAD")).toBe(before)
+  })
+
+  it("without --if-resting, the same out-of-turn step still fails", async () => {
+    const repo = seededRepo()
+    const { exitCode } = await run(repo, "step", "human")
+    expect(exitCode).not.toBe(0)
+  })
+})
+
 describe("gtd check <mode> <file>", () => {
   // Fully standalone (needsOf("check") === "none") — no config, no commit, no
   // git state at all is required; the file just needs to exist in the

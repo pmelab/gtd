@@ -539,6 +539,7 @@ describe("planStep", () => {
     const plan = await provide(planStep(rest, "agent"), repo) // idle awaits human
     expect(plan.kind).toBe("refusal")
     expect(plan.kind === "refusal" && plan.message).toContain("out of turn")
+    expect(plan.kind === "refusal" && plan.reason).toBe("out-of-turn")
     expect(repo.resolveRef("HEAD")).toBe(before)
   })
 
@@ -550,6 +551,7 @@ describe("planStep", () => {
     const plan = await provide(planStep(rest, "agent"), repo)
     expect(plan.kind).toBe("refusal")
     expect(plan.kind === "refusal" && plan.message).toContain("A PLAN.md")
+    expect(plan.kind === "refusal" && plan.reason).toBe("no-match")
   })
 
   it("a clean tree with no declared C row is a no-op — no write", async () => {

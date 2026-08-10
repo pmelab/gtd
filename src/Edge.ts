@@ -1214,9 +1214,15 @@ const buildStepScripts = (
  * Decide + perform a step. Nothing writes git until `perform` runs, so the
  * capture gates (`program.ts`'s `enforce*Gate` family) sit between `planStep`
  * and `plan.perform` by construction rather than by statement order.
+ *
+ * The refusal variant carries the pure engine's own `StepRefusal.reason`
+ * alongside the formatted `message` — `program.ts`'s `--if-resting` policy
+ * needs to tell "not your turn" (`"out-of-turn"`) from "nothing recognizes
+ * this edit" (`"no-match"`), and that classification belongs to the pure
+ * engine, not re-derived at the edge.
  */
 export type StepPlan =
-  | { readonly kind: "refusal"; readonly message: string }
+  | { readonly kind: "refusal"; readonly message: string; readonly reason: StepRefusal["reason"] }
   | { readonly kind: "noop"; readonly state: StateName }
   | {
       readonly kind: "commit" | "squash"
@@ -1266,7 +1272,11 @@ export const planStep = (
     })
 
     if (decision.kind === "refusal") {
-      return { kind: "refusal", message: formatStepRefusal(invoker, decision) } as const
+      return {
+        kind: "refusal",
+        message: formatStepRefusal(invoker, decision),
+        reason: decision.reason,
+      } as const
     }
     if (decision.kind === "noop") {
       return { kind: "noop", state: decision.state } as const

@@ -28,6 +28,7 @@ const FLAG_NAMES = [
   "--no-open",
   "--cost",
   "--model",
+  "--if-resting",
   "--entry",
   "--var",
   "--dispatch",
@@ -156,6 +157,30 @@ describe("parseArgv — scope", () => {
       }
     }
   })
+
+  it("--if-resting on status is rejected", () => {
+    const plan = parseArgv(["node", "gtd.js", "status", "--if-resting"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("only valid for `gtd step`")
+      expect(plan.message).toContain("--if-resting")
+    }
+  })
+
+  it("--if-resting with --entry is rejected the same way", () => {
+    const plan = parseArgv(["node", "gtd.js", "step", "human", "--entry", "foo", "--if-resting"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("only valid for `gtd step`")
+      expect(plan.message).toContain("--if-resting")
+    }
+  })
+
+  it("--if-resting=true (arity-0 = form) is an unknown-option usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "step", "human", "--if-resting=true"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("unknown option '--if-resting=true'")
+  })
 })
 
 describe("parseArgv — gtd next --dispatch", () => {
@@ -181,6 +206,25 @@ describe("parseArgv — gtd next --dispatch", () => {
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
       expect(plan.command).toEqual({ kind: "next", dispatch: false })
+    }
+  })
+})
+
+describe("parseArgv — --if-resting", () => {
+  it("gtd step human --if-resting parses to a step command with ifResting: true", () => {
+    const plan = parseArgv(["node", "gtd.js", "step", "human", "--if-resting"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "step", actor: "human", ifResting: true })
+    }
+  })
+
+  it("gtd step human parses WITHOUT an ifResting key (omit-when-absent)", () => {
+    const plan = parseArgv(["node", "gtd.js", "step", "human"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "step", actor: "human" })
+      expect(plan.command).not.toHaveProperty("ifResting")
     }
   })
 })
@@ -461,6 +505,7 @@ describe("renderHelp", () => {
     expect(help).toContain("--no-open")
     expect(help).toContain("--cost")
     expect(help).toContain("--model")
+    expect(help).toContain("--if-resting")
     expect(help).toContain("--version, -v")
     expect(help).toContain("--help, -h")
     expect(help).not.toContain("review <commitish>")

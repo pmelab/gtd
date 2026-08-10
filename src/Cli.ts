@@ -38,6 +38,7 @@ export type Command =
       readonly actor: string
       readonly cost?: number
       readonly model?: string
+      readonly ifResting?: boolean
     }
   | {
       readonly kind: "entry"
@@ -169,6 +170,21 @@ const FLAGS: readonly FlagRow[] = [
     help: ["(gtd step only, with --cost) tag that cost's model"],
   },
   {
+    name: "--if-resting",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "step",
+    decode: () => Either.right(true),
+    scopeError:
+      "gtd: --if-resting is only valid for `gtd step` without --entry — an entry is unconditional",
+    valueHint: "",
+    help: [
+      "(gtd step only) exit 0 doing nothing when the resolved",
+      "rest awaits a different actor, instead of refusing",
+      "out of turn; a genuine gate refusal still fails",
+    ],
+  },
+  {
     name: "--entry",
     arity: 1,
     repeatable: false,
@@ -287,7 +303,9 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "Pass --entry <state> to start a brand NEW process at",
       "<state> instead — any declared, non-commit state — with",
       "repeatable --var <name>=<value> supplying that new",
-      "process's fixed it.vars overrides",
+      "process's fixed it.vars overrides. Pass --if-resting to",
+      "exit 0 doing nothing instead of refusing when the",
+      "resolved rest awaits a different actor",
     ],
   },
   {
@@ -641,6 +659,22 @@ const decodeFlags = (
   return Either.right(bag)
 }
 
+/** Assembles a `step` `Command` from its already-scope-checked flag bag — split out of `parseArgv` so its three independent, omit-when-absent optional fields don't inflate that function's own branching. */
+const buildStepCommand = (
+  actor: string,
+  bag: {
+    readonly "--cost"?: number
+    readonly "--model"?: string
+    readonly "--if-resting"?: boolean
+  },
+): Command => ({
+  kind: "step",
+  actor,
+  ...(bag["--cost"] !== undefined ? { cost: bag["--cost"] } : {}),
+  ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
+  ...(bag["--if-resting"] !== undefined ? { ifResting: true } : {}),
+})
+
 // fallow-ignore-next-line complexity
 export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (argv.includes("--help") || argv.includes("-h"))
@@ -720,6 +754,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--no-open"?: boolean
     readonly "--cost"?: number
     readonly "--model"?: string
+    readonly "--if-resting"?: boolean
     readonly "--var"?: Readonly<Record<string, string>>
     readonly "--dispatch"?: boolean
   }
@@ -733,13 +768,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         json,
       )
     }
-    const step: Command = {
-      kind: "step",
-      actor: restPositionals[0]!,
-      ...(bag["--cost"] !== undefined ? { cost: bag["--cost"] } : {}),
-      ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
-    }
-    return { kind: "command", command: step, json }
+    return { kind: "command", command: buildStepCommand(restPositionals[0]!, bag), json }
   }
 
   if (kind === "entry") {
