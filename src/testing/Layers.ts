@@ -30,6 +30,7 @@ import { Cwd } from "../Cwd.js"
 import { EnvVars } from "../EnvVars.js"
 import { RepoFiles } from "../RepoFiles.js"
 import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
+import { DriverState } from "../DriverState.js"
 import type { CommandRequirements } from "../program.js"
 
 // ---------------------------------------------------------------------------
@@ -233,6 +234,22 @@ const makeInMemoryRepoFiles = (repo: InMemRepo): Layer.Layer<RepoFiles> =>
       Effect.succeed(repo.fileAtRef(ref, path) ?? undefined),
   })
 
+/**
+ * `DriverState` for the in-memory tier: backed by `InMemRepo`'s own private
+ * `driverState` map (never the `worktree` map — see that field's own
+ * comment), so this state never shows up in the pending diff / `gtd status` /
+ * `changedPaths`, exactly like the real port's git-dir file.
+ */
+const makeInMemoryDriverState = (repo: InMemRepo, root: string): Layer.Layer<DriverState> =>
+  Layer.succeed(DriverState, {
+    read: (name: string) => Effect.succeed(repo.readDriverState(name)),
+    write: (name: string, content: string) =>
+      Effect.sync(() => {
+        repo.writeDriverState(name, content)
+      }),
+    path: (name: string) => Effect.succeed(`${root}/.git/${name}`),
+  })
+
 /** One scripted `bash` command's canned behavior, keyed by the RENDERED command string a scenario's `Given` step declares. */
 export type ScriptedCommand =
   | { readonly kind: "exit"; readonly status: number; readonly output: string }
@@ -299,5 +316,6 @@ export function testLayers(
     makeInMemoryRepoFiles(repo),
     makeScriptedCommandRunner(repo, opts.commands ?? new Map()),
     EnvVars.layer(opts.env ?? {}),
+    makeInMemoryDriverState(repo, root),
   )
 }

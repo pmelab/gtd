@@ -101,6 +101,12 @@ declaring `entry: true`, reachable as `gtd step <actor> --entry <state>`.
 keyed off a machine's position in the machine tree rather than any per-state
 field. _Avoid_: session, context window, conversation, history
 
+**Session id**: The agent CLI's own conversation handle — minted per memory
+scope and remembered per scope in the git dir (`gtd next --json`'s
+`sessionId`/`resume`), so a driver can resume the same agent conversation across
+turns in one scope. The one place "session" is the right word — the _Avoid_ on
+**Memory scope** stands: gtd's own span is still a memory scope, not a session.
+
 **Review window**: The temporary rewind of HEAD and the index to the review base
 while a process rests at a `reviewWindow: true` state, so a whole process's diff
 surfaces as ordinary uncommitted changes in any editor's git integration.

@@ -199,23 +199,6 @@ emit_output_since() {
   emit_block "$bytes"
 }
 
-# A resume that failed because the session it names no longer exists — claude
-# prints "No conversation found with session ID: <uuid>". Loose on purpose: any
-# adapter whose CLI says something session-shaped gets the same recovery
-# instead of stopping the loop.
-SESSION_GONE_RE='no conversation found with session id|no such session|session (id )?[^ ]*( was)? not found|session [^ ]* does not exist'
-
-# session_gone_since <offset> — true when the log bytes appended since <offset>
-# carry the missing-session signature above. Blind (returns false) when no log
-# is configured, so recovery is best-effort, never a hard dependency.
-session_gone_since() {
-  local offset="$1" bytes=""
-  if [[ -n "${GTD_LOOP_LOG:-}" && -f "$GTD_LOOP_LOG" ]]; then
-    bytes="$(tail -c "+$((offset + 1))" "$GTD_LOOP_LOG" 2>/dev/null || true)"
-  fi
-  [[ -n "$bytes" ]] && grep -qiE "$SESSION_GONE_RE" <<<"$bytes"
-}
-
 # emit_warn <message> — a surfaced but NON-fatal failure (a check script that
 # exited non-zero).
 emit_warn() {
@@ -492,89 +475,25 @@ fi
 # adapter invoked at a "prompt" rest; the default adapter appends `--model
 # "$GTD_LOOP_MODEL"` only when it's non-empty.
 #
-# `.memory` (optional, opaque) is the agent-memory scope label. gtd never interprets it; the driver does:
-# consecutive "prompt" turns emitting the SAME label continue ONE agent
-# session (so the agent still remembers its previous turn), and a changed
-# label — or the first turn, or an unset label — starts fresh. That is what
-# lets a loop retain memory within itself (grilling ↔ answer, fixing ↔
-# checking) and clear it at a phase boundary. The previous prompt turn's scope
-# and its agent session id are persisted in the git dir (NOT the working tree,
-# so `gtd status` and the pending diff never see them), so retention survives
-# across restarts — a grilling loop that halts at its human gate every lap
-# still resumes one planning session. The scope, session id, and a
-# resume-or-fresh flag are exported as $GTD_LOOP_MEMORY / $GTD_LOOP_SESSION_ID
-# / $GTD_LOOP_MEMORY_RESUME; the default adapter turns them into
-# `--resume`/`--session-id`. An adapter that ignores them keeps working. A
+# `.memory` (optional, opaque) is the agent-memory scope label — advisory
+# only, never read by this driver directly. `.sessionId`/`.resume` are what
+# the driver actually acts on: gtd itself now owns the per-scope session
+# table (`src/DriverState.ts`/`src/Sessions.ts`, in the git dir, NOT the
+# working tree, so `gtd status` and the pending diff never see it) —
+# `gtd next --json` mints/resumes an agent session id per memory scope and
+# reports it ready-made, so this driver only ever maps `.sessionId`/`.resume`
+# straight onto the agent adapter's own session flags. Exported as
+# $GTD_LOOP_SESSION_ID / $GTD_LOOP_MEMORY_RESUME ("1" when this turn should
+# continue the prior session), alongside $GTD_LOOP_MEMORY carrying the scope
+# label itself. `gtd step <actor>` is what CONFIRMS a freshly minted id is
+# safe to resume next lap — see src/Sessions.ts's own doc comment; a
 # remembered session that has since vanished (the retention window elapsed, a
-# wiped `~/.claude/projects`, a machine change) degrades to a fresh session
-# with a warning rather than failing the turn — see run_agent_turn's own
-# comment.
-
-# new_session_id — mints an opaque session id for a fresh memory scope
-# (uuidgen, falling back to the kernel's random uuid, or empty when neither is
-# available — the default adapter then omits --session-id entirely).
-new_session_id() {
-  uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo ""
-}
-
-# scope_of <key> — the scope part of a "<scope>#<hash>" memory key: everything
-# before the first "#". Used to decide which existing table row a fresh entry
-# into a scope displaces (see write_scope_session).
-scope_of() {
-  printf '%s' "${1%%#*}"
-}
-
-# lookup_scope_session <key> — print the session id remembered for EXACTLY
-# this key (a row whose first field string-equals it), or fail with no output
-# if no row matches (a lookup miss -> the caller starts fresh). $memory_marker
-# absent counts as no rows at all.
-lookup_scope_session() {
-  local key="$1" row_key row_sid
-  [[ -f "$memory_marker" ]] || return 1
-  while read -r row_key row_sid; do
-    if [[ "$row_key" == "$key" ]]; then
-      printf '%s' "$row_sid"
-      return 0
-    fi
-  done <"$memory_marker"
-  return 1
-}
-
-# write_scope_session <key> <session_id> — replace the ONE row for this key's
-# SCOPE (scope_of) with a fresh row for <key>, leaving every OTHER scope's row
-# in the table untouched. A scope has at most one live conversation at any
-# moment, so an existing row for this scope is dead the instant a new entry
-# into it begins — this is the entire pruning story, no process concept
-# needed (see the module's own memory-scope doc comment below). The table is
-# rewritten via a sibling temp file + rename, so a crash mid-write never
-# leaves a half-written table.
-write_scope_session() {
-  local key="$1" session_id="$2" scope tmp row_key row_sid
-  scope="$(scope_of "$key")"
-  tmp="$(mktemp "${memory_marker}.XXXXXX")"
-  if [[ -f "$memory_marker" ]]; then
-    while read -r row_key row_sid; do
-      [[ "$(scope_of "$row_key")" == "$scope" ]] && continue
-      printf '%s %s\n' "$row_key" "$row_sid" >>"$tmp"
-    done <"$memory_marker"
-  fi
-  printf '%s %s\n' "$key" "$session_id" >>"$tmp"
-  mv "$tmp" "$memory_marker"
-}
+# wiped `~/.claude/projects`, a machine change) is no longer self-healed —
+# `rm $(git rev-parse --git-dir)/gtd-loop-memory` and restart the loop.
 
 prev_state=""
 prev_content=""
 prev_head=""
-# Where each scope's remembered agent session is persisted across iterations
-# and across restarts, as a TABLE — one "<key> <session_id>" row per scope
-# (keys contain no whitespace, so plain field-splitting is safe) — never a
-# single last-label value: with machine-scoped memory, a scope's key can
-# legitimately reappear AFTER the loop has run turns in a completely
-# different (or nested) scope — e.g. build.fix -> into a nested health-gate
-# child's own agent turn -> back to build.fix, still the same builder
-# conversation. "The last label" can't represent that; a table where each
-# scope owns exactly one row can. In the git dir, never the work tree.
-memory_marker="$(worktree_git_dir 2>/dev/null || echo .git)/gtd-loop-memory"
 
 # Truncated once here (not every iteration), so the file always reflects the
 # current run but survives after the loop exits.
@@ -614,35 +533,6 @@ invoke_agent() {
   GTD_LOOP_PROMPT="$prompt" GTD_LOOP_MODEL="$model" GTD_LOOP_MEMORY="$memory" \
     GTD_LOOP_SESSION_ID="$session_id" GTD_LOOP_MEMORY_RESUME="$do_resume" bash -c "$cmd" \
     >>"${GTD_LOOP_LOG:-/dev/null}" 2>&1
-}
-
-# run_agent_turn <prompt> <resume> — invoke_agent, with one recovery: a
-# resumed turn (do_resume == 1) that fails AND whose output carries the
-# missing-session signature (session_gone_since) means the CURRENT scope's
-# remembered session no longer exists on disk. Rather than failing the turn
-# (and every turn after it, since the dead id would just be resumed again),
-# mint a fresh session and rewrite ONLY this scope's row in $memory_marker
-# (write_scope_session — every other scope's row survives untouched) — the
-# self-healing part, so a later launch doesn't repeat this — and retry the
-# SAME prompt once with resume off. $resume and $session_id are the enclosing
-# iteration's globals; recovery rewrites them too, so a later validate-gate
-# re-prompt in the same turn resumes the newly pinned session. Blind to the
-# failure mode when session_gone_since can't tell (no log configured): a
-# genuine agent failure then correctly propagates.
-run_agent_turn() {
-  local prompt="$1" do_resume="$2" offset status=0
-  offset="$(log_offset)"
-  invoke_agent "$prompt" "$do_resume" && return 0
-  status=$?
-  if [[ "$do_resume" == "1" ]] && session_gone_since "$offset"; then
-    emit_warn "the remembered agent session for '$memory' is gone — continuing in a fresh session (this turn starts without its previous context)"
-    session_id="$(new_session_id)"
-    resume=0
-    write_scope_session "$memory" "$session_id"
-    invoke_agent "$prompt" 0
-    return $?
-  fi
-  return $status
 }
 
 # The furthest commit already reported to the terminal by report_commits (see
@@ -708,6 +598,9 @@ Run \`gtd status\` to inspect the repo."
   content="$(jq -r .content <<<"$next_json")"
   model="$(jq -r '.model // empty' <<<"$next_json")"
   memory="$(jq -r '.memory // empty' <<<"$next_json")"
+  session_id="$(jq -r '.sessionId // empty' <<<"$next_json")"
+  resume=0
+  [[ "$(jq -r '.resume // false' <<<"$next_json")" == "true" ]] && resume=1
   label="$(jq -r '.label // .state' <<<"$next_json")"
 
   if [[ "$kind" == "message" ]]; then
@@ -776,29 +669,7 @@ $next_out"
   prev_content="$content"
   prev_head="$cur_head"
 
-  # Agent-memory scope: look this turn's `memory` key up in the per-scope
-  # table (lookup_scope_session — exact string equality against a row's full
-  # key, "<scope>#<hash>", not just its scope part). A hit -> resume that
-  # session; a miss -> start fresh with a new session id, then write ONLY this
-  # key's scope's row (write_scope_session), leaving every other scope's row
-  # untouched — a scope can legitimately go quiet and reappear later (see the
-  # $memory_marker declaration's own comment) without losing its place. An
-  # absent/empty key carries no constraint (harness default) and leaves the
-  # table completely untouched — it may hold live sessions for OTHER scopes
-  # this turn knows nothing about, so it's neither read nor written here.
-  resume=0
-  session_id=""
-  if [[ -n "$memory" ]]; then
-    if found_session_id="$(lookup_scope_session "$memory")"; then
-      resume=1
-      session_id="$found_session_id"
-    else
-      session_id="$(new_session_id)"
-    fi
-    write_scope_session "$memory" "$session_id"
-  fi
-
-  # Run the agent turn (see run_agent_turn's own comment for the adapter
+  # Run the agent turn (see invoke_agent's own comment for the adapter
   # contract). Then the self-validation gate: a producing state may declare a
   # `file:`/`mode:` pair (e.g. the default workflow's grilling/reviewing),
   # making its output's format checkable. `gtd validate --json` always exits
@@ -813,7 +684,7 @@ $next_out"
   emit_action "$M_AGENT" "$label"
   turn_offset="$(log_offset)"
   agent_status=0
-  run_agent_turn "$content" "$resume" || agent_status=$?
+  invoke_agent "$content" "$resume" || agent_status=$?
   if ((agent_status != 0)); then
     emit_error "the agent turn at '$state' failed (exit $agent_status):"
     emit_output_since "$turn_offset"
@@ -852,7 +723,7 @@ Stopping rather than stepping with a malformed steering file."
     [[ -n "$session_id" ]] && fix_resume=1
     turn_offset="$(log_offset)"
     agent_status=0
-    run_agent_turn "$content"$'\n\n'"Your last turn does not pass its own validation script. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume" || agent_status=$?
+    invoke_agent "$content"$'\n\n'"Your last turn does not pass its own validation script. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume" || agent_status=$?
     if ((agent_status != 0)); then
       emit_error "the agent's fix attempt $fix_attempt at '$state' failed (exit $agent_status):"
       emit_output_since "$turn_offset"

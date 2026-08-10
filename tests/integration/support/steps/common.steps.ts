@@ -444,39 +444,51 @@ Then("the commit count is unchanged", (world: GtdWorld) => {
   )
 })
 
-// Pulls `.memory` off the most recent `gtd next --json`/`gtd status --json`
-// stdout (`world.lastResult.stdout`) — for scenarios comparing the COMPUTED
-// `<scope>#<hash>` memory key across turns without knowing its exact value.
-const currentMemoryKey = (world: GtdWorld): string | undefined => {
-  const parsed = JSON.parse(world.lastResult.stdout) as { memory?: string }
-  return parsed.memory
+// Pulls an arbitrary field off the most recent `gtd next --json`/
+// `gtd status --json` stdout (`world.lastResult.stdout`) — for scenarios
+// comparing a COMPUTED value (the `<scope>#<hash>` memory key, a minted
+// session id) across turns without knowing its exact value.
+const currentJsonField = (world: GtdWorld, field: string): string | undefined => {
+  const parsed = JSON.parse(world.lastResult.stdout) as Record<string, unknown>
+  const value = parsed[field]
+  return value === undefined ? undefined : String(value)
 }
 
-Then("I record the memory key as {string}", (world: GtdWorld, label: string) => {
-  world.recordedMemoryKeys[label] = currentMemoryKey(world)
-})
-
-Then("the memory key matches the one recorded as {string}", (world: GtdWorld, label: string) => {
-  const recorded = world.recordedMemoryKeys[label]
-  assert.notStrictEqual(recorded, undefined, `no memory key was ever recorded as "${label}"`)
-  assert.strictEqual(
-    currentMemoryKey(world),
-    recorded,
-    `expected the memory key to match the one recorded as "${label}" (${recorded})`,
-  )
-})
+Then(
+  "I record the json field {string} as {string}",
+  (world: GtdWorld, field: string, label: string) => {
+    world.recordedJsonFields[label] = currentJsonField(world, field)
+  },
+)
 
 Then(
-  "the memory key differs from the one recorded as {string}",
-  (world: GtdWorld, label: string) => {
-    const recorded = world.recordedMemoryKeys[label]
-    assert.notStrictEqual(recorded, undefined, `no memory key was ever recorded as "${label}"`)
-    const current = currentMemoryKey(world)
-    assert.notStrictEqual(current, undefined, "expected a memory key on this turn, got none")
+  "the json field {string} matches the one recorded as {string}",
+  (world: GtdWorld, field: string, label: string) => {
+    const recorded = world.recordedJsonFields[label]
+    assert.notStrictEqual(recorded, undefined, `no json field was ever recorded as "${label}"`)
+    assert.strictEqual(
+      currentJsonField(world, field),
+      recorded,
+      `expected json field "${field}" to match the one recorded as "${label}" (${recorded})`,
+    )
+  },
+)
+
+Then(
+  "the json field {string} differs from the one recorded as {string}",
+  (world: GtdWorld, field: string, label: string) => {
+    const recorded = world.recordedJsonFields[label]
+    assert.notStrictEqual(recorded, undefined, `no json field was ever recorded as "${label}"`)
+    const current = currentJsonField(world, field)
+    assert.notStrictEqual(
+      current,
+      undefined,
+      `expected json field "${field}" on this turn, got none`,
+    )
     assert.notStrictEqual(
       current,
       recorded,
-      `expected the memory key to differ from the one recorded as "${label}" (${recorded}), got the same value`,
+      `expected json field "${field}" to differ from the one recorded as "${label}" (${recorded}), got the same value`,
     )
   },
 )
