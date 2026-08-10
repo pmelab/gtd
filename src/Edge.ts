@@ -1194,7 +1194,7 @@ const buildStepScripts = (
  */
 export type StepPlan =
   | { readonly kind: "refusal"; readonly message: string }
-  | { readonly kind: "noop"; readonly state: StateName }
+  | { readonly kind: "noop"; readonly state: StateName; readonly settled: boolean }
   | {
       readonly kind: "commit" | "squash"
       readonly state: StateName
@@ -1210,6 +1210,18 @@ export type StepPlan =
        */
       readonly scripts: EmittedScripts
     }
+
+/**
+ * A no-op is TERMINAL only at a `script` rest: gtd rendered the script, the
+ * driver ran it, it left nothing any pattern claims, and re-running it can't
+ * change that — the loop should exit rather than spin (`gtd step --json`'s
+ * `settled` flag). A no-op at a `prompt` rest means the external agent was
+ * asked to act and didn't (an effector failure, not a terminal state) — that
+ * is #167's `stalled`, and firing `settled` there too would preempt its
+ * guard. A no-op at a `message` rest is a human gate the loop already halts
+ * on (`kind: "message"`), so it needs no signal either.
+ */
+const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "script"
 
 /**
  * Decide what invoking `invoker` at `rest` does (`PatternMachine.step` over
@@ -1246,7 +1258,7 @@ export const planStep = (
       return { kind: "refusal", message: formatStepRefusal(invoker, decision) } as const
     }
     if (decision.kind === "noop") {
-      return { kind: "noop", state: decision.state } as const
+      return { kind: "noop", state: decision.state, settled: noOpSettles(rest) } as const
     }
 
     const { cost, model } = opts

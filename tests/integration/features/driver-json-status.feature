@@ -5,9 +5,11 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
   see docs/design/pattern-machine-plan.md §3) for the `script` and `prompt`
   kinds — smoke.feature already pins the `message` kind at `idle` — the
   `edges` list (the resting state's `on` edges as `{pattern, target,
-  describe?}`, also what a `message:` template sees as `it.edges`), and `gtd
+  describe?}`, also what a `message:` template sees as `it.edges`), `gtd
   status`'s pattern-match reporting (plain text and `--json`), which shows
-  which declared `on` pattern (if any) each pending change matches.
+  which declared `on` pattern (if any) each pending change matches, and `gtd
+  step --json`'s `settled` flag — the driver-protocol signal that a `script`
+  rest's no-op is terminal.
 
   Scenario: gtd next --json reports kind "script" for a check-actor state
     Given a test project
@@ -628,3 +630,63 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout contains "\"edges\":[{\"pattern\":\"* **\",\"target\":\"idle\"}]"
     And stdout does not contain "\"describe\""
+
+  Scenario: gtd step --json reports settled at a script rest that matched nothing
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "echo hi"
+                on:
+                  "A OUT.txt": idle
+      """
+    And a commit "gtd(check): checking" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd step check with "--json"
+    Then it succeeds
+    And stdout contains "\"settled\":true"
+
+  Scenario: gtd step --json reports settled false at a prompt rest that matched nothing
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "A DONE.md": idle
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd step agent with "--json"
+    Then it succeeds
+    And stdout contains "\"settled\":false"

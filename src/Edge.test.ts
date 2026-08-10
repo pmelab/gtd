@@ -497,6 +497,12 @@ const STEP_WORKFLOW = [
   "          prompt: work-prompt",
   "          on:",
   '            "A PLAN.md": accepted',
+  "        probing:",
+  "          entry: true",
+  "          actor: check",
+  "          script: probe-script",
+  "          on:",
+  '            "A PLAN.md": accepted',
   "        accepted:",
   '          commit: "chore: accepted <%= it.state %>"',
   "        fixing:",
@@ -551,13 +557,23 @@ describe("planStep", () => {
     expect(plan.kind === "refusal" && plan.message).toContain("A PLAN.md")
   })
 
-  it("a clean tree with no declared C row is a no-op — no write", async () => {
+  it("a clean tree with no declared C row is a no-op — no write, and a prompt rest's no-op is not settled (that's #167's stall)", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): working")
     const before = repo.resolveRef("HEAD")
     const rest = await provide(currentRest, repo)
     const plan = await provide(planStep(rest, "agent"), repo)
-    expect(plan).toEqual({ kind: "noop", state: "working" })
+    expect(plan).toEqual({ kind: "noop", state: "working", settled: false })
+    expect(repo.resolveRef("HEAD")).toBe(before)
+  })
+
+  it("a clean tree with no declared C row at a script rest is settled — the check ran and re-running it can't change that", async () => {
+    const repo = seededStepRepo()
+    repo.commitAllWithPrefix("gtd(check): probing")
+    const before = repo.resolveRef("HEAD")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest, "check"), repo)
+    expect(plan).toEqual({ kind: "noop", state: "probing", settled: true })
     expect(repo.resolveRef("HEAD")).toBe(before)
   })
 

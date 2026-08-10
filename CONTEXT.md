@@ -66,6 +66,12 @@ optional `describe`/`action` sentences a `message`/`prompt` renders for a human.
 **No-op**: A step that authors nothing, because the tree is clean and the state
 declares no `C` pattern. The default for an actor invoked before it has acted.
 
+**Settled**: A no-op at a `script` rest — the check ran, left nothing any
+pattern claims, and re-running it cannot change that. Reported as
+`settled: true` by `gtd step --json` so a loop exits rather than spins. A
+`prompt` rest that authors nothing is not settled but stalled. _Avoid_: done,
+finished, idle
+
 **Gate**: A state whose actor is `human` — the process rests there until a
 person acts. _Avoid_: checkpoint, approval, the bare "the gate"
 

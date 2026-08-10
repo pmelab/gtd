@@ -517,6 +517,17 @@ scripts are self-contained (each carries its own precondition assert and retry
 helper) and safe to run standalone, in sequence, or not at all — paste either
 into a terminal and it does exactly what it says.
 
+`gtd step --json` always carries one more field, `settled`: `true` means the
+step was a no-op AND the resting state's content kind is `script` — the check
+ran, left nothing any pattern claims, and re-running the same beat cannot change
+that, so a loop should exit 0 rather than spin (`jq -e .settled`). Every other
+outcome reports `settled: false`, including a step that lands the process back
+at the workflow's initial state — a loop ends those runs the way it always did,
+by stopping at the next `kind: "message"` rest. A no-op at a `prompt` rest is
+NOT settled — an agent that was asked to act and produced nothing is a stall, a
+driver's own concern, not this flag's. Declaring a `C` edge on a `script` state
+is the workflow-side way to make the state advance instead of settling.
+
 ### Failure taxonomy and recovery
 
 Two different things can go wrong, and they mean different things:
