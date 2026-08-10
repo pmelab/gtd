@@ -720,15 +720,28 @@ const resolveSelfValidateCommand = (
  * human or a simple driver who reads the prompt and hands it to an agent, so
  * the agent self-validates); withheld from `gtd next --json`, where the
  * driving loop instead runs `gtd validate` after the turn and re-prompts on
- * findings (see the `bin/gtd` loop driver). This is advisory: `gtd step`
- * embeds that same command ahead of its own commit and REFUSES a turn whose
- * steering file is invalid (see `stepAsActor`), so a malformed file is never
- * captured whether or not this instruction was followed.
+ * findings (see the `bin/gtd` loop driver, and `fixPromptInstruction` below —
+ * its driver-side counterpart). This is advisory: `gtd step` embeds that same
+ * command ahead of its own commit and REFUSES a turn whose steering file is
+ * invalid (see `stepAsActor`), so a malformed file is never captured whether
+ * or not this instruction was followed.
  */
 const selfValidateInstruction = (command: string, file: string): string =>
   `\nBefore finishing your turn, run \`${command}\` — it checks ${file} — and fix ` +
   `every violation it reports until it exits cleanly. Do not finish while it ` +
   `still reports violations.\n`
+
+/**
+ * The driver-side counterpart of `selfValidateInstruction` above — the same
+ * gate, expressed for a loop that RUNS the validate script itself and
+ * re-prompts the same agent session on a non-zero exit, rather than for an
+ * agent that self-validates before finishing. Wrapped onto the emitted
+ * validate script's last command via `Emit.ts`'s `onFailure` (see
+ * `runValidateCommand`), so a driver's fix re-prompt is exactly this text
+ * plus the script's own captured findings — never hand-composed in bash.
+ */
+const fixPromptInstruction = (file: string): string =>
+  `Your last turn does not pass its own validation script. Fix these format violations in ${file}, then finish:`
 
 /** True when a rendered rest is a `prompt` turn that hands over a validatable steering file (`file:`+`mode:` both declared). */
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
@@ -794,6 +807,13 @@ const runNextCommand = (
  * verdict now lives in the emitted script's own future exit code, not this
  * command's, so this never fails on a bad file. `RepoFiles`/`FileSystem` is
  * used only to check the file's PRESENCE, never to read or judge its content.
+ * When the resolved mode's validate half is a `command` (never a `"builtin"`
+ * validator, which renders no shell command at all), the LAST rendered
+ * command carries `onFailure: fixPromptInstruction(file)` (`Emit.ts`'s
+ * `failurePromptWrapper`) — so a non-zero exit from the script prints the
+ * COMPLETE ready-to-send fix prompt (instruction + findings) rather than bare
+ * findings, letting a driver treat the script's captured output as opaque
+ * prompt text (see `bin/gtd`).
  */
 const runValidateCommand = (
   json: boolean,
@@ -837,10 +857,17 @@ const runValidateCommand = (
       return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
     }
     const commands = yield* renderSteeringCommands(resolved, file, rest.context)
-    const script = emitScripts(
-      headPreconditions(rest.context.currentCommit),
-      commands.map((command): EmitStep => ({ kind: "command", command })),
-    ).required
+    const lastIndex = commands.length - 1
+    const steps: EmitStep[] = commands.map(
+      (command, index): EmitStep => ({
+        kind: "command",
+        command,
+        ...(index === lastIndex && resolved.validate?.kind === "command"
+          ? { onFailure: fixPromptInstruction(file) }
+          : {}),
+      }),
+    )
+    const script = emitScripts(headPreconditions(rest.context.currentCommit), steps).required
 
     if (json) {
       write(JSON.stringify({ state: rest.state, file, mode, script }) + "\n")

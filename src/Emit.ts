@@ -6,7 +6,11 @@
  * nothing but that view). Pure, like `src/GitScript.ts`: no git, no
  * filesystem, no `Effect`. Every input string (a `GitScript.ts` builder's
  * output, a steering mode's already-rendered `format:`/`validate:` command)
- * arrives already rendered — this module only concatenates and wraps.
+ * arrives already rendered — this module only concatenates and wraps: once
+ * for a `gitWrite` step's index-lock retry (`gtd_retry`), and once for a
+ * `command` step's `onFailure` fix prompt (`failurePromptWrapper`), which
+ * prints a ready-to-send instruction plus the command's captured output
+ * ahead of propagating its exit code.
  *
  * Both halves are meant to stand alone: a driver may run either, both, or
  * only `required`, and a person could paste either into a terminal. That's
@@ -51,7 +55,18 @@ export interface EmitPreconditions {
  */
 export type EmitStep =
   | { readonly kind: "gitWrite"; readonly command: string }
-  | { readonly kind: "command"; readonly command: string }
+  | {
+      readonly kind: "command"
+      readonly command: string
+      /**
+       * The prompt text to print, followed by the command's captured
+       * combined output, when this command exits non-zero — the command's
+       * own exit code is then propagated. Omitted for a step that should
+       * fail raw (a `format:` command's own broken-tooling failure, which an
+       * agent can't fix by editing the steering file).
+       */
+      readonly onFailure?: string
+    }
 
 /**
  * The CLI resolves `expectedHead` (and a review window's `expectedHash`) at
@@ -109,6 +124,31 @@ export const reviewWindowAssertion = (ref: string, expectedHash: string): string
 }
 
 /**
+ * Wraps `command` so that a non-zero exit prints `prompt` (the ready-to-send
+ * fix instruction), a blank line, then the command's own captured combined
+ * output, before propagating the command's exit code — rather than letting
+ * that output escape raw. The `{ … }` GROUP (not a bare command
+ * substitution) is what lets a MULTI-LINE `command` be inlined verbatim
+ * inside it; the assignment sits on the left of `||`, so `set -e` never trips
+ * on the failing command itself. Exported (alongside `headAssertion`) solely
+ * so `src/testing/EmittedScriptRecognizer.ts` can re-derive and
+ * string-compare this exact shape.
+ */
+export const failurePromptWrapper = (command: string, prompt: string): string => {
+  const promptQ = shellQuote(prompt)
+  return [
+    `gtd_validate_status=0`,
+    `gtd_validate_out="$( {`,
+    command,
+    `} 2>&1 )" || gtd_validate_status=$?`,
+    `if [ "$gtd_validate_status" -ne 0 ]; then`,
+    `  printf '%s\\n\\n%s\\n' ${promptQ} "$gtd_validate_out"`,
+    `  exit "$gtd_validate_status"`,
+    `fi`,
+  ].join("\n")
+}
+
+/**
  * `gtd_retry` takes ONE already-`shellQuote`d command string and `eval`s it,
  * mirroring `src/Git.ts`'s `withIndexLockRetry`: retry ONLY on the same two
  * substrings `isIndexLockError` matches, with jittered exponential backoff
@@ -148,8 +188,12 @@ const RETRY_HELPER = [
   `}`,
 ].join("\n")
 
-const renderStep = (step: EmitStep): string =>
-  step.kind === "gitWrite" ? `gtd_retry ${shellQuote(step.command)}` : step.command
+const renderStep = (step: EmitStep): string => {
+  if (step.kind === "gitWrite") return `gtd_retry ${shellQuote(step.command)}`
+  return step.onFailure !== undefined
+    ? failurePromptWrapper(step.command, step.onFailure)
+    : step.command
+}
 
 const assembleScript = (
   preconditions: EmitPreconditions,

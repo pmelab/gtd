@@ -556,6 +556,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       case "$GTD_LOOP_PROMPT" in
         *"does not pass"*)
           echo "AGENT: fixing the plan"
+          echo "FIX PROMPT WAS: $GTD_LOOP_PROMPT"
           cat > .gtd/PLAN.md <<'PLAN'
       Plan: build the calculator. No open questions.
       PLAN
@@ -580,6 +581,10 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the log file contains "AGENT: fixing the plan"
     And stdout contains "[fix] attempt 1"
     And the git log contains "chore: planned"
+    # The fix re-prompt is the validate script's own output verbatim — not the
+    # state's own prompt text prefixed onto it (see bin/gtd's run_agent_turn
+    # call in the fix loop, and src/program.ts's fixPromptInstruction).
+    And the log file does not contain "Write .gtd/PLAN.md with the plan."
 
   Scenario: Does not print validate findings on a fix attempt, only logs them
     Given a test project

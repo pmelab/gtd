@@ -325,7 +325,10 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "own exit code/output. Always exits 0; --json emits",
       '{state, file?, mode?, script} (script is "" when there is',
       'nothing to validate; plain text prints "nothing to',
-      'validate" in that case)',
+      'validate" in that case). On a non-zero validate exit',
+      "the emitted script prints a ready-to-send fix prompt",
+      "(instruction + findings) and exits with the",
+      "validator's own code",
     ],
   },
   {

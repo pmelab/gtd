@@ -234,7 +234,10 @@ Commands:
                    own exit code/output. Always exits 0; --json emits
                    {state, file?, mode?, script} (script is "" when there is
                    nothing to validate; plain text prints "nothing to
-                   validate" in that case)
+                   validate" in that case). On a non-zero validate exit
+                   the emitted script prints a ready-to-send fix prompt
+                   (instruction + findings) and exits with the
+                   validator's own code
   lsp              Start the LSP server for .gtd/ steering files (stdio)
   visualize        Serve an interactive diagram of the active workflow on a
                    local web server (--port <n>, --no-open; --json prints the
@@ -516,6 +519,19 @@ no-op `gtd step` (a clean tree matching no `on` pattern) emits
 scripts are self-contained (each carries its own precondition assert and retry
 helper) and safe to run standalone, in sequence, or not at all — paste either
 into a terminal and it does exactly what it says.
+
+### The self-validation gate
+
+After an agent turn at a state that declares `file:`+`mode:`, run
+`gtd validate --json`'s `.script`. Exit 0 means the file is well-formed —
+proceed to `gtd step`. A non-zero exit means the script's own captured output IS
+a complete, ready-to-send fix prompt (an instruction plus the findings, see
+`src/Emit.ts`'s `failurePromptWrapper`): send it back to the same agent session
+verbatim, and cap how many fix attempts you allow yourself — the driver owns
+that retry count, not gtd. gtd never validates on the driver's behalf at step
+time either: the `gtd step` gate re-runs the same format/validate commands ahead
+of its own commit and refuses independently, so a malformed file is never
+captured whether or not you ran `gtd validate` first.
 
 ### Failure taxonomy and recovery
 

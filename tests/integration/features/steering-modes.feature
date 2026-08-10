@@ -119,6 +119,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "docs/adr.md is not valid"
     And stderr contains "docs/adr.md: missing a '## Decision' section"
+    And stderr contains "does not pass"
 
   @live
   Scenario: gtd validate exits 0 when the custom mode's validate command is happy
