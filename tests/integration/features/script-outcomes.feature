@@ -2,12 +2,13 @@
 Feature: Emitted required/optional scripts print their own outcome lines
 
   A `gtd step`/`gtd abandon`/`gtd restore` invocation no longer performs its
-  own git write, and the driver that DOES (this suite's own `world.ts`, or
-  `bin/gtd`) no longer re-derives the commit grammar or re-prints the write
-  commands' wording itself either: the emitted `required` script prints its
-  own human-facing outcome line (`src/OutcomeScript.ts`'s `gtd_report_*`
-  calls), so ANY driver — this suite, `bin/gtd`, or a human pasting `required`
-  into a terminal — sees the same feedback. `@live` only: the in-memory tier
+  own git write, and the driver that DOES (this suite's own `world.ts`, or the
+  README's minimal driver) no longer re-derives the commit grammar or
+  re-prints the write commands' wording itself either: the emitted `required`
+  script prints its own human-facing outcome line (`src/OutcomeScript.ts`'s
+  `gtd_report_*` calls), so ANY driver — this suite, a real driver, or a human
+  pasting `required` into a terminal — sees the same feedback. `@live` only:
+  the in-memory tier
   never runs an emitted script's outcome block (it recognizes the block as
   inert and prints nothing — see `src/testing/EmittedScriptRecognizer.ts`'s
   own doc comment), so these scenarios would prove nothing under `@inmem`.

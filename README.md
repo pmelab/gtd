@@ -197,12 +197,6 @@ the workflow is just `.gtdrc` config.
 Usage: gtd [command] [options]
 
 Commands:
-  (no command), loop
-                   Launch the loop driver (bin/gtd), which repeatedly drives
-                   an agent through gtd next/gtd step calls until the
-                   workflow rests at a human gate (a non-autonomous state)
-                   or settles. A bare gtd invocation and gtd loop both
-                   launch it identically
   init             Scaffold a minimal .gtdrc.json for this repo, seeding the
                    default variables you are most likely to change (the test
                    command) and a Prettier formatting suggestion. gtd runs its
@@ -299,13 +293,15 @@ Options:
 
 `--version` (`-v`) / `gtd version` and `--help` (`-h`) / `gtd help`
 short-circuit before any git or repository-state work — they run outside a repo
-and in any repo state. Bare `gtd` (no subcommand) and `gtd loop` both launch the
-loop driver immediately — neither is a usage error. Any other, truly unknown
-subcommand is a usage error: it prints the help text and exits 1 without
-touching the repository. Every other (recognized) command must be run from the
-**repository root** — gtd derives the workflow, pending changes, and process
-history relative to cwd, so it refuses with a clear error if invoked from a
-subdirectory.
+and in any repo state. Bare `gtd` (no subcommand) and `gtd loop` are both usage
+errors that exit 1 and print help — gtd decides and prints, full stop; driving a
+loop is a driver's job, not a bundled command (see
+[Driving the loop](#driving-the-loop) below). Any other, truly unknown
+subcommand is likewise a usage error: it prints the help text and exits 1
+without touching the repository. Every other (recognized) command must be run
+from the **repository root** — gtd derives the workflow, pending changes, and
+process history relative to cwd, so it refuses with a clear error if invoked
+from a subdirectory.
 
 `--json`, `--cost=<n>`, `--model=<name>` (the latter two only for `gtd step`),
 `--if-resting` (`gtd step` only, without `--entry`), `--entry <state>`
@@ -320,9 +316,6 @@ duplicate `--var` name, `--cost`/`--model` combined with `--entry`, or
 `--cost`/`--model` with no value, a non-numeric or negative `--cost`, an empty
 `--model`, `--model` without `--cost`, or any of `--cost`/`--model`/
 `--if-resting` on any command other than `gtd step` are all usage errors.
-
-`--once` is a separate, bash-level flag handled entirely by the `bin/gtd` driver
-itself, stripped before anything reaches the bundle.
 
 ### `gtd status`'s `Next:`/`next`
 
@@ -361,39 +354,23 @@ already authored with its own `gtd:`/`gtd <cmd>:` prefix is never doubled.
 
 ## Driving the loop
 
-Bare `gtd` (or `gtd loop`) is a ready-to-run driver for the whole protocol —
-point it at a repo and it runs the loop until it's your turn. It drives the
-autonomous states (agent turns, check runs) and stops at the first
-non-autonomous one: reaching a human gate it prints the gate and exits. You act
-by editing files (answer a plan question, tick a review box, fix code) and
-re-launching it — its opening move is now one unconditional
-`gtd step human --if-resting` call, so you never run `gtd step human` by hand,
-whether that captures your edit or simply resumes driving after a mid-process
-restart.
+gtd itself is not a loop — it decides and prints, full stop; driving a loop is a
+driver's job. The README's minimal driver below (see
+[A complete minimal driver](#a-complete-minimal-driver)) is that driver: save it
+as `~/.local/bin/gtd-loop`, `chmod +x` it, and point it at a repo — it runs the
+loop until it's your turn. It drives the autonomous states (agent turns, check
+runs) and stops at the first non-autonomous one: reaching a human gate it prints
+the gate's message and exits. You act by editing files (answer a plan question,
+tick a review box, fix code) and re-running it — its opening move is one
+unconditional `gtd step human --if-resting` call, so you never run
+`gtd step human` by hand, whether that captures your edit or simply resumes
+driving after a mid-process restart.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
-terminal-multiplexer status — is the job of an outer wrapper around `gtd`, not
-of the loop itself; see
+terminal-multiplexer status — is the job of an outer wrapper around the driver,
+not of the loop itself; see
 [Terminal-multiplexer status: a herdr wrapper](#terminal-multiplexer-status-a-herdr-wrapper)
-below for a worked example. Pass `--once` to restrict a run to exactly one beat
-— one human-gate capture, one check, or one agent turn — instead of driving all
-the way to idle.
-
-Bare `gtd` prints one line per event — colored and emoji on a real terminal,
-plain ASCII under `NO_COLOR` or when piped. Most of these lines are the loop
-driver's OWN presentation (the agent/check heartbeat, the human gate, the
-settled signal); what a turn actually LANDED — a transition, a bare capture, an
-abandon/restore — is printed by the emitted `required` script itself as it runs
-(see [Writing your own driver](#writing-your-own-driver)), so that line looks
-the same whether `bin/gtd` runs it or you paste it into a terminal yourself. The
-loop redirects the noisier agent/check subprocess output to a
-per-repo/per-worktree log file, whose path comes from `gtd next --json`'s own
-`log` field (its path is the run's first output line, ready to `tail -f`). Any
-execution that FAILS also replays its last 20 lines of output inline on stderr,
-on top of the log still holding the complete record: an agent turn that fails
-stops the loop (it would fail identically next lap), while a check script that
-exits non-zero is reported as a warning and the loop carries on, because the
-outcome lives in the tree, not in the script's exit code.
+below for a worked example.
 
 A workflow state can declare an optional `label:` — a human-readable display
 name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
@@ -437,12 +414,11 @@ peeking (a driver's own opening peek, a status poll, a curious human) can never
 poison a beat with an id nobody dispatched: a row starts `fresh` and only
 becomes resumable once `gtd step <actor>` confirms the dispatch for that same
 actor. The dispatched `next --json --dispatch` reports the resolved id as
-`sessionId` plus whether it is being resumed as `resume`, and the loop driver
-(`bin/gtd`) maps both straight onto the agent adapter's own session flags,
-exported as `$GTD_LOOP_SESSION_ID` and `$GTD_LOOP_MEMORY_RESUME` (`"1"` when
-resuming) alongside `$GTD_LOOP_MEMORY` (the key). If the remembered session no
-longer exists (retention expired, `~/.claude/projects` wiped, a machine change),
-there is no more automatic recovery — delete
+`sessionId` plus whether it is being resumed as `resume`, and a driver maps both
+straight onto the agent CLI's own session flags — the README's minimal driver
+passes them as `--session-id <id>`/`--resume <id>` to `claude -p`. If the
+remembered session no longer exists (retention expired, `~/.claude/projects`
+wiped, a machine change), there is no more automatic recovery — delete
 `$(git rev-parse --git-dir)/gtd-loop-memory` and restart the loop.
 
 ### Terminal-multiplexer status: a herdr wrapper
@@ -456,8 +432,7 @@ anything owed. It needs nothing from `gtd` beyond `gtd next --json`'s `.actor`
 field, which the loop's driver already reads at every beat.
 
 Save this as `~/.local/bin/gtdh`, `chmod +x` it, and run `gtdh` in place of
-`gtd` — it's a plain bash file, so it works from fish or any other shell, and it
-forwards every argument (`gtdh --once`, `gtdh status`, ...).
+`gtd-loop` — it's a plain bash file, so it works from fish or any other shell.
 
 ```bash
 #!/usr/bin/env bash
@@ -486,7 +461,7 @@ trap 'report blocked; exit 130' INT TERM
 # without it no `claude -p` turn reports a claude SESSION identity for this
 # pane. That is load-bearing, not cosmetic — a pane that owns one rejects every
 # later state report, so the report below would be dropped.
-env -u HERDR_PANE_ID gtd "$@"
+env -u HERDR_PANE_ID gtd-loop "$@"
 rc=$?
 
 # Whose turn is it now? `gtd status --json` is a strictly read-only peek —
@@ -529,18 +504,21 @@ than the state itself.
 
 ## Writing your own driver
 
-`bin/gtd` is gtd's own reference driver, not a privileged one — the engine
-itself is a supported public surface, and anything below holds for any driver
-you write against it. gtd decides and prints; it never touches git itself. The
-four commands that change anything — `gtd step [<actor>]` (including
-`--entry <state>`), `gtd abandon`, and `gtd restore` — perform no git write when
-run. Instead, under `--json`, each one's output object carries two extra string
-fields, `required` and `optional`: bash scripts for YOU to execute. (Plain-text
-output, without `--json`, never shows these — it prints only the human-facing
-result line, e.g. `committed: <subject>`, so a plain-text caller never sees a
-script at all.) A driver that only prints gtd's plain-text output is not driving
-anything; to actually land a turn, run `gtd ... --json`, pull `required`/
-`optional` out with `jq`, and execute them.
+The README's minimal driver below is gtd's own reference driver, not a
+privileged one — the engine itself is a supported public surface, and anything
+below holds for any driver you write against it. gtd decides and prints; it
+never touches git itself. The four commands that change anything —
+`gtd step [<actor>]` (including `--entry <state>`), `gtd abandon`, and
+`gtd restore` — perform no git write when run. Instead, each one's output
+carries `required`/`optional`: bash scripts for YOU to execute. Plain-text
+output (no `--json`) prints them combined into ONE pasteable script — `required`
+verbatim, then `optional` wrapped so its own failure can't turn a landed turn
+into a non-zero exit — so `gtd step human | bash` is a complete, single-command
+way to land a turn. Under `--json`, each one's output object instead carries
+`required`/`optional` as two separate string fields, for a driver that wants to
+run them apart (e.g. to skip `optional` outright). Either way, printing gtd's
+output and never running it is not driving anything; a driver must pipe or
+`jq`-and-execute what gtd prints.
 
 - **`required`** is everything that decides what lands in git — closing an open
   review checkout window, the resting state's own steering-mode
@@ -564,19 +542,20 @@ anything; to actually land a turn, run `gtd ... --json`, pull `required`/
   the worktree's own git dir, so two worktrees looping concurrently never share
   one file; set `$GTD_LOOP_LOG` to override it verbatim. gtd itself neither
   creates nor truncates this file — a driver appends subprocess output to it and
-  truncates once at the start of a run, exactly like `bin/gtd` does.
+  truncates once at the start of a run, exactly like the driver above does.
 
 `optional` may be the empty string `""`, meaning "nothing to do here".
 `required` is `""` only for `--if-resting`'s suppressed out-of-turn case (see
 below) — a genuine no-op `gtd step` (a clean tree matching no `on` pattern)
 still emits a PRINT-ONLY script: no git write, just the same
-`nothing to do at "<state>"` line gtd's own plain-text output shows. Both
-scripts are self-contained (each carries its own precondition assert and retry
-helper) and safe to run standalone, in sequence, or not at all — paste either
-into a terminal and it does exactly what it says, printed output included: the
-scripts detect their own tty/`NO_COLOR` at RUN time (not at the moment gtd
-generated them), so the fancy/plain rendering always matches wherever you
-actually run them.
+`nothing to do at "<state>"` line the script prints when a driver runs it (or,
+under plain text with no `--json`, when gtd prints the very same script back to
+you). Both scripts are self-contained (each carries its own precondition assert
+and retry helper) and safe to run standalone, in sequence, or not at all — paste
+either into a terminal and it does exactly what it says, printed output
+included: the scripts detect their own tty/`NO_COLOR` at RUN time (not at the
+moment gtd generated them), so the fancy/plain rendering always matches wherever
+you actually run them.
 
 A driver's OPENING move — before it knows whose turn it is, e.g. right after a
 restart — can be one unconditional `gtd step human --if-resting`: it exits 0
@@ -599,10 +578,11 @@ is the workflow-side way to make the state advance instead of settling.
 
 ### A complete minimal driver
 
-Everything above compresses into a loop small enough to paste from this README
-and own outright — swap the `claude` line for any agent CLI and it keeps
-working. This is the whole protocol; `bin/gtd` adds only presentation (heartbeat
-lines, log tailing hints, inline failure replay) on top of it.
+This is the whole protocol described above, compressed into a loop small enough
+to paste from this README and own outright — save it as `~/.local/bin/gtd-loop`
+(`chmod +x`) and it's the ready-to-run driver
+[Driving the loop](#driving-the-loop) above points at; swap the `claude` line
+for any agent CLI and it keeps working.
 
 ```bash
 #!/usr/bin/env bash

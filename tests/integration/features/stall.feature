@@ -8,7 +8,7 @@ Feature: gtd next --json --dispatch — the beat marker's stall detection
   CONSUMES the marker, instead of being re-dispatched forever. Plain
   `gtd next --json` (no `--dispatch`) never touches the marker, since it is
   both polled (a status wrapper reading `.actor`) and peeked (a loop driver's
-  opening move) — see `bin/gtd`'s stall guard, package/step 3.
+  opening move) — see the README's minimal driver's own `.stalled` guard.
 
   Background:
     Given a test project

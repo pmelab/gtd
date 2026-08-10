@@ -1,10 +1,10 @@
 import { execFileSync, execSync } from "node:child_process"
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { REVIEW_HEAD_REF } from "./ReviewWindow.js"
-import { emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
+import { combinedScript, emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
 
 const runBashCheckSyntax = (script: string): number => {
   try {
@@ -451,5 +451,49 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     }
     expect(status).not.toBe(0)
     expect(commitCount(dir)).toBe(before)
+  })
+})
+
+describe("combinedScript — the plain-text write commands' single pasteable script", () => {
+  it("is the empty string when required is empty (the --if-resting suppressed case)", () => {
+    expect(combinedScript("", "")).toBe("")
+    expect(combinedScript("", "echo optional")).toBe("")
+  })
+
+  it("prepends the leading 'did not run it' comment ahead of required, with no optional block", () => {
+    const script = combinedScript("echo required", "")
+    expect(script.startsWith("# gtd emitted this and did NOT run it")).toBe(true)
+    expect(script).toContain("echo required")
+    expect(script).not.toContain("presentation-only follow-up failed")
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+
+  it("wraps a non-empty optional in a subshell that never fails the whole script", () => {
+    const script = combinedScript("echo required", "echo optional")
+    expect(script.startsWith("# gtd emitted this and did NOT run it")).toBe(true)
+    expect(script).toContain("echo required")
+    expect(script).toContain("(\necho optional\n) || echo")
+    expect(script).toContain("presentation-only follow-up failed — continuing")
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+
+  it("required runs before optional, and a failing required aborts before optional runs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "emit-combined-"))
+    const script = combinedScript("exit 1", "touch optional-ran")
+    let status = 0
+    try {
+      execSync("bash", { input: script, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+    } catch (error) {
+      status = (error as { status?: number }).status ?? 1
+    }
+    expect(status).not.toBe(0)
+    expect(existsSync(join(dir, "optional-ran"))).toBe(false)
+  })
+
+  it("a failing optional is swallowed — the whole script still exits 0", () => {
+    const dir = mkdtempSync(join(tmpdir(), "emit-combined-"))
+    const script = combinedScript("touch required-ran", "exit 1")
+    execSync("bash", { input: script, cwd: dir })
+    expect(existsSync(join(dir, "required-ran"))).toBe(true)
   })
 })

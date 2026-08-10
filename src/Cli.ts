@@ -425,6 +425,10 @@ const REMOVED: Readonly<Record<string, string>> = {
     "gtd: `gtd fix` is gone — this workflow's own state names aren't known to " +
     "gtd; run `gtd step <actor> --entry <fix-state>` instead — run it with an " +
     "unknown <fix-state> to see this workflow's own enterable states",
+  loop:
+    "gtd: `gtd loop` is gone — gtd decides and prints, a driver executes. " +
+    'Copy the driver from the README\'s "A complete minimal driver" section ' +
+    "and run that instead",
 }
 
 // ---------------------------------------------------------------------------
@@ -442,14 +446,6 @@ const renderBlock = (header: string, lines: readonly string[]): string => {
       : `${headerCell}\n${" ".repeat(COLUMN)}${first ?? ""}\n`
   return headerLine + rest.map((l) => `${" ".repeat(COLUMN)}${l}\n`).join("")
 }
-
-const PRELUDE_LOOP = renderBlock("(no command), loop", [
-  "Launch the loop driver (bin/gtd), which repeatedly drives",
-  "an agent through gtd next/gtd step calls until the",
-  "workflow rests at a human gate (a non-autonomous state)",
-  "or settles. A bare gtd invocation and gtd loop both",
-  "launch it identically",
-])
 
 const ENTRY_SHORT_FORM = renderBlock("(no command) --entry <state>", [
   "Short form of 'step human --entry <state>' — starts a new",
@@ -478,14 +474,14 @@ export const renderHelp = (): string => {
           : `${row.token} <${row.arity.name}>`
     return renderBlock(header, row.details)
   })
-  const commands =
-    PRELUDE_LOOP +
-    commandBlocks[0] + // init
-    commandBlocks[1] + // step
-    ENTRY_SHORT_FORM +
-    commandBlocks.slice(2).join("") + // abandon..check
-    VERSION_BLOCK +
-    HELP_BLOCK
+  const commands = [
+    commandBlocks[0], // init
+    commandBlocks[1], // step
+    ENTRY_SHORT_FORM,
+    ...commandBlocks.slice(2), // abandon..check
+    VERSION_BLOCK,
+    HELP_BLOCK,
+  ].join("")
 
   const options = FLAGS.map((row) => renderBlock(flagHeader(row), row.help)).join("")
   const versionHelpOptions =
@@ -715,7 +711,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     if (violation !== undefined) return usagePlan(violation, jsonSeen)
     if (first === undefined) {
       return usagePlan(
-        "gtd: missing command — see usage above (`gtd --help`)",
+        "gtd: missing command — gtd decides and prints, a driver executes; " +
+          'copy one from the README\'s "A complete minimal driver" section ' +
+          "and run that, or see usage above (`gtd --help`)",
         jsonSeen,
         renderHelp(),
       )

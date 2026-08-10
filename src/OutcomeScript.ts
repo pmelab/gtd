@@ -8,11 +8,14 @@
  * below emit the one-line calls, every argument routed through
  * `src/GitScript.ts`'s `shellQuote`.
  *
- * `abandon`/`restore`/no-op wording is also printed as PLAIN TEXT by
- * `src/program.ts` at decide time (before any script has run) — its format
- * strings live once here (`FMT_*`, with `%s` placeholders) and reach both
- * sides through `renderFormat` (the plain path) and `printfLine` (the bash
- * `printf` call embedded in `OUTCOME_PREAMBLE`), so the two can never drift.
+ * `noopText`/`abandonNoopText` are also printed as PLAIN TEXT directly by
+ * `src/program.ts` — `noopText` for the `--if-resting` suppressed out-of-turn
+ * case (there is no script at all then), `abandonNoopText` as the one no-op
+ * outcome an `outcome`-carrying script still prints for itself via
+ * `abandonNoopOutcome`. Their format strings live once here (`FMT_*`, with
+ * `%s` placeholders) and reach both sides through `renderFormat` (the plain
+ * path) and `printfLine` (the bash `printf` call embedded in
+ * `OUTCOME_PREAMBLE`), so the two can never drift.
  */
 
 import { shellQuote } from "./GitScript.js"
@@ -49,18 +52,6 @@ export const noopText = (state: string): string => renderFormat(FMT_NOOP, state)
 /** `no gtd process is underway (resting at "<initial>") — nothing to abandon` — `gtd abandon`'s no-op plain-text line. */
 export const abandonNoopText = (initial: string): string => renderFormat(FMT_ABANDON_NOOP, initial)
 
-/** `gtd abandon`'s two-line plain text: the `from`/short-hash/subject/`state` prose, then the "everything is kept" note. */
-export const abandonedText = (
-  from: string,
-  headShort: string,
-  subject: string,
-  state: string,
-): string => renderFormat(FMT_ABANDONED, from, headShort, subject, state)
-
-/** `gtd restore`'s one-line plain text. */
-export const restoredText = (headShort: string, subject: string, state: string): string =>
-  renderFormat(FMT_RESTORED, headShort, subject, state)
-
 /**
  * The bash preamble every outcome-carrying script includes, ONE block (no
  * blank lines, like `src/Emit.ts`'s `RETRY_HELPER`) so `assembleScript`'s
@@ -68,14 +59,14 @@ export const restoredText = (headShort: string, subject: string, state: string):
  * naming this module, so a reader (or the recognizer) can tell at a glance
  * where the block comes from.
  *
- * The palette/marker detection mirrors `bin/gtd`'s own `FANCY` check exactly
- * (`[ -t 1 ] && [ -z "${NO_COLOR:-}" ]`) and its exact plain-mode fallback
- * strings (`->`/`[commit]`/`...`), so existing `@live` assertions on the
- * bundle's plain output keep matching once this preamble takes over printing
- * it. `gtd_files` mirrors `bin/gtd`'s `report_commits` (the diff-tree read,
- * now with `--root` so a repository's very first commit shows its files
- * too) + `emit_file_rows` (the 3-row cap) fused into one function, since a
- * script-side caller always has the commit, never a pre-fetched file list.
+ * The palette/marker detection follows the `NO_COLOR` convention
+ * (`[ -t 1 ] && [ -z "${NO_COLOR:-}" ]`) with the same plain-mode fallback
+ * strings (`->`/`[commit]`/`...`) the now-deleted bash `bin/gtd` used to
+ * render, so existing `@live` assertions on plain output kept matching once
+ * this preamble took over printing it. `gtd_files` is the diff-tree read
+ * (with `--root` so a repository's very first commit shows its files too)
+ * plus the 3-row cap, fused into one function, since a script-side caller
+ * always has the commit, never a pre-fetched file list.
  */
 export const OUTCOME_PREAMBLE = [
   "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",

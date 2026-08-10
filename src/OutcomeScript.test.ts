@@ -8,14 +8,12 @@ import {
   abandonedOutcome,
   abandonNoopOutcome,
   abandonNoopText,
-  abandonedText,
   commitOutcome,
   noopText,
   noteOutcome,
   OUTCOME_PREAMBLE,
   renderFormat,
   restoredOutcome,
-  restoredText,
   transitionOutcome,
 } from "./OutcomeScript.js"
 
@@ -80,23 +78,6 @@ describe("plain-text twins", () => {
   it("abandonNoopText names the initial state", () => {
     expect(abandonNoopText("idle")).toBe(
       'no gtd process is underway (resting at "idle") — nothing to abandon\n',
-    )
-  })
-
-  it("abandonedText matches today's exact bundle wording", () => {
-    expect(abandonedText("build.fix", "abc1234", "gtd(human): idle", "idle")).toBe(
-      'abandoned the process resting at "build.fix" — HEAD is back at abc1234 ' +
-        '("gtd(human): idle"), resting at "idle".\n' +
-        "Everything the process produced is kept as uncommitted changes (`git status`); " +
-        "discard them with `git checkout -- . && git clean -fd .gtd` for a clean tree.\n",
-    )
-  })
-
-  it("restoredText matches today's exact bundle wording", () => {
-    expect(restoredText("abc1234", "gtd(agent): reviewing", "await-review")).toBe(
-      'restored the retained history — HEAD is back at abc1234 ("gtd(agent): reviewing"), ' +
-        'resting at "await-review". Resume with the loop, or `git reset` to any earlier ' +
-        "turn to restart from there.\n",
     )
   })
 })
@@ -235,10 +216,15 @@ describe("gtd_report_abandoned / gtd_report_restored — real repo", () => {
     }).trim()
     const script = [OUTCOME_PREAMBLE, abandonedOutcome("build.fix", head, "idle")].join("\n")
     const out = execSync("bash", { input: script, cwd: dir, encoding: "utf8" })
-    expect(out).toBe(abandonedText("build.fix", short, "gtd(human): idle", "idle"))
+    expect(out).toBe(
+      `abandoned the process resting at "build.fix" — HEAD is back at ${short} ` +
+        '("gtd(human): idle"), resting at "idle".\n' +
+        "Everything the process produced is kept as uncommitted changes (`git status`); " +
+        "discard them with `git checkout -- . && git clean -fd .gtd` for a clean tree.\n",
+    )
   })
 
-  it("restoredOutcome matches restoredText for the same commitish", () => {
+  it("restoredOutcome resolves the short hash/subject post-hoc from the given commitish", () => {
     const dir = initRepo()
     const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()
     const short = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
@@ -247,6 +233,10 @@ describe("gtd_report_abandoned / gtd_report_restored — real repo", () => {
     }).trim()
     const script = [OUTCOME_PREAMBLE, restoredOutcome(head, "await-review")].join("\n")
     const out = execSync("bash", { input: script, cwd: dir, encoding: "utf8" })
-    expect(out).toBe(restoredText(short, "gtd(human): idle", "await-review"))
+    expect(out).toBe(
+      `restored the retained history — HEAD is back at ${short} ("gtd(human): idle"), ` +
+        'resting at "await-review". Resume with the loop, or `git reset` to any earlier ' +
+        "turn to restart from there.\n",
+    )
   })
 })

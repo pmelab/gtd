@@ -152,9 +152,9 @@ name gtd interprets. Don't add a blessed config key for one.
 Checks are just an ordinary actor's turns at a `script`-content state (the
 bundled template's `build.health.check` state, awaited by the `check` actor) —
 **the engine NEVER executes anything itself**. `gtd next` renders and prints the
-script; the DRIVER (`bin/gtd`, or any loop harness) executes it verbatim via
-`bash`. The only place gtd spawns a subprocess at all is a steering-file mode's
-own `format:`/`validate:` command.
+script; the DRIVER (the README's minimal driver, your own, or any loop harness)
+executes it verbatim via `bash`. The only place gtd spawns a subprocess at all
+is a steering-file mode's own `format:`/`validate:` command.
 
 Mechanics belong in the script; which `on` pattern the resulting diff matches is
 the only thing that decides the outcome. In e2e, simulate a check's outcome by
