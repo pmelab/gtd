@@ -30,23 +30,21 @@ description, and must be preserved:
   const data and total functions.
 - **Everything IO-shaped lives at the edge.** `src/Edge.ts` (git/templates),
   `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
-  <<<<<<< HEAD window). A command resolves ONE `Rest` (`Edge.ts`'s
-  `currentRest`/`restAt`) and hands it to `planStep`/`planEntry` —
-  `src/program.ts` never reaches into `GitService` directly except two narrow
-  exceptions: the `abandon`/`restore` hard/mixed resets (recovery commands that
-  must work even when a `Rest` would refuse — see `runAbandonCommand`'s own doc
-  comment), and the review sign-off/ feedback-progress gates' own
-  `readFileAtRef` reads (they need the COMMITTED, pre-turn copy of a file, which
-  a `Rest` snapshot — taken before the turn lands — doesn't carry). The review
-  window and the steering-file gate are deliberately invisible to the pure
-  engine — don't "simplify" them back into it. ======= window),
-  `src/StepGuards.ts` (the step-capture guard registry), `src/RepoFiles.ts` (the
-  working-tree/committed content port), `src/CommandRunner.ts` (the subprocess
-  port). `src/program.ts` calls the edge; it never reaches into `GitService`
-  directly. The review window and the steering-file guard are deliberately
-  invisible to the pure engine — don't "simplify" them back into it.
-
-> > > > > > > extract-step-guards
+  window), `src/StepGuards.ts` (the step-capture guard registry),
+  `src/RepoFiles.ts` (the working-tree/committed content port),
+  `src/CommandRunner.ts` (the subprocess port), `src/DriverState.ts` (the
+  driver-scoped git-dir state port — `gtd next --json` writes driver-scoped
+  git-dir state through it, e.g. the session table; plain `next` and `status`
+  never do). A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`)
+  and hands it to `planStep`/`planEntry` — `src/program.ts` never reaches into
+  `GitService` directly except two narrow exceptions: the `abandon`/`restore`
+  hard/mixed resets (recovery commands that must work even when a `Rest` would
+  refuse — see `runAbandonCommand`'s own doc comment), and the review sign-off/
+  feedback-progress gates' own `readFileAtRef` reads (they need the COMMITTED,
+  pre-turn copy of a file, which a `Rest` snapshot — taken before the turn lands
+  — doesn't carry). The review window and the steering-file gate are
+  deliberately invisible to the pure engine — don't "simplify" them back into
+  it.
 
 - **The review window issues no whole-tree index WRITE, and every git index
   write tolerates `index.lock` contention.** gtd shares one worktree index with

@@ -8,6 +8,8 @@ import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
+import { DriverState } from "./DriverState.js"
+import { confirmSession, resolveSession } from "./Sessions.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
   contextAt,
@@ -81,6 +83,7 @@ export type CommandRequirements =
   | RepoFiles
   | CommandRunner
   | EnvVars
+  | DriverState
 
 /**
  * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio. Its
@@ -310,6 +313,14 @@ const stepAsActor = (
 ): Effect.Effect<StepResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
+    // Promote the resting prompt's session row EARLY — before guards/plan can
+    // refuse — and only IN-TURN (see decision 3, src/Sessions.ts's own doc
+    // comment): a step that then refuses still happened after a real agent
+    // turn, so the session it dispatched should still resume next lap; an
+    // out-of-turn step (a different actor than the one resting) must not
+    // claim a session nobody dispatched. A no-op `confirmSession` call for a
+    // non-prompt rest (`rest.memory` is always `undefined` there).
+    if (invoker === rest.actor) yield* confirmSession(rest.memory)
     const plan = yield* planStep(rest, invoker, stepOptions(cost, model))
 
     if (plan.kind === "refusal") {
@@ -738,8 +749,11 @@ const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
 /** `gtd next [--json]`: pure emitter of the resolved rest's rendered content (no mutation). */
-/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. */
-const nextJsonOutput = (rendered: RenderedRest): string =>
+/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. `session` (see `runNextCommand`) is only ever passed for a `prompt` rest — `sessionId`/`resume` are its two keys, present or absent together. */
+const nextJsonOutput = (
+  rendered: RenderedRest,
+  session?: { readonly sessionId: string; readonly resume: boolean },
+): string =>
   JSON.stringify({
     state: rendered.state,
     actor: rendered.actor,
@@ -747,6 +761,7 @@ const nextJsonOutput = (rendered: RenderedRest): string =>
     content: rendered.content,
     ...(rendered.model !== undefined ? { model: rendered.model } : {}),
     ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
+    ...(session !== undefined ? { sessionId: session.sessionId, resume: session.resume } : {}),
     ...(rendered.label !== undefined ? { label: rendered.label } : {}),
     ...(rendered.file !== undefined ? { file: rendered.file } : {}),
     ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
@@ -783,7 +798,13 @@ const runNextCommand = (
             rest.context,
           ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
         : undefined
-    write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered, selfValidateCommand))
+    // `next --json` is the beat dispatch (plain `next`/`status --json` stay
+    // read-only peeks — see src/Sessions.ts's own doc comment): only here, and
+    // only for a `prompt` rest, is a session resolved (and possibly minted
+    // and written).
+    const session =
+      json && rendered.kind === "prompt" ? yield* resolveSession(rendered.memory) : undefined
+    write(json ? nextJsonOutput(rendered, session) : nextPlainOutput(rendered, selfValidateCommand))
   })
 
 /**

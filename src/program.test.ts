@@ -458,6 +458,54 @@ describe("gtd next --json / gtd status — memory key emission", () => {
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("memory")
   })
+
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+  it("gtd next --json mints a fresh sessionId for a prompt rest, resume: false", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as Record<string, unknown>
+    expect(parsed.sessionId).toMatch(UUID)
+    expect(parsed.resume).toBe(false)
+  })
+
+  it("gtd next --json resumes the SAME sessionId once a step has confirmed it", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const first = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    const { exitCode: stepExit } = await run(repo, "step", "agent")
+    expect(stepExit).toBe(0)
+    const second = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(second.resume).toBe(true)
+  })
+
+  it("two gtd next --json calls with no step in between mint DIFFERENT ids, both resume: false", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const first = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    const second = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    expect(first.sessionId).not.toBe(second.sessionId)
+    expect(first.resume).toBe(false)
+    expect(second.resume).toBe(false)
+  })
+
+  it("gtd status --json omits sessionId/resume even at a prompt rest", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const { stdout, exitCode } = await run(repo, "status", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as Record<string, unknown>
+    expect(parsed).not.toHaveProperty("sessionId")
+    expect(parsed).not.toHaveProperty("resume")
+  })
+
+  it("gtd next --json omits sessionId/resume for a non-prompt rest", async () => {
+    const repo = seededRepoAt(workflowNonPrompt, "gtd(human): checking")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as Record<string, unknown>
+    expect(parsed).not.toHaveProperty("sessionId")
+    expect(parsed).not.toHaveProperty("resume")
+  })
 })
 
 describe("gtd next — refuses when HEAD names a state the current workflow no longer declares", () => {

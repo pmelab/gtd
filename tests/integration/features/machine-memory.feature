@@ -25,7 +25,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.product-author\""
-    And I record the memory key as "first lap"
+    And I record the json field "memory" as "first lap"
 
     Given a commit "gtd(agent): design.product-answer" that adds "src/marker-1.txt" with:
       """
@@ -43,7 +43,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.product-author\""
-    And the memory key matches the one recorded as "first lap"
+    And the json field "memory" matches the one recorded as "first lap"
 
   Scenario: memory is retained across an excursion into a child machine's own check (and its escalate) — build.fix resumes across build.health.check/.escalate
     Given a test project
@@ -55,7 +55,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
-    And I record the memory key as "first fix attempt"
+    And I record the json field "memory" as "first fix attempt"
 
     Given a commit "gtd(agent): build.health.check" that adds "src/widget.ts" with:
       """
@@ -82,7 +82,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
-    And the memory key matches the one recorded as "first fix attempt"
+    And the json field "memory" matches the one recorded as "first fix attempt"
 
   Scenario: memory is retained across a CHILD's own full agent turn, and that child's own session is never confused with the caller's — packages.item.building ⇄ packages.item.spec.review ⇄ packages.item.fix-spec
     # The sharpest case, and the one the old "last label" driver design (before
@@ -100,7 +100,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
-    And I record the memory key as "the builder's turn"
+    And I record the json field "memory" as "the builder's turn"
 
     Given a commit "gtd(agent): packages.item.spec.review" that adds "src/widget.ts" with:
       """
@@ -109,8 +109,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.spec.review\""
-    And the memory key differs from the one recorded as "the builder's turn"
-    And I record the memory key as "the reviewer's turn"
+    And the json field "memory" differs from the one recorded as "the builder's turn"
+    And I record the json field "memory" as "the reviewer's turn"
 
     Given a commit "gtd(agent): packages.item.fix-spec" that adds ".gtd/SPEC_FEEDBACK.md" with:
       """
@@ -119,8 +119,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.fix-spec\""
-    And the memory key matches the one recorded as "the builder's turn"
-    And the memory key differs from the one recorded as "the reviewer's turn"
+    And the json field "memory" matches the one recorded as "the builder's turn"
+    And the json field "memory" differs from the one recorded as "the reviewer's turn"
 
   Scenario: a fresh memory key per entry — two different packages each get their own distinct session at packages.item.building
     Given a test project
@@ -131,7 +131,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And I record the memory key as "package 1's builder turn"
+    And I record the json field "memory" as "package 1's builder turn"
 
     Given a commit "gtd(agent): packages.item.closing" that adds "src/widget.ts" with:
       """
@@ -148,7 +148,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
-    And the memory key differs from the one recorded as "package 1's builder turn"
+    And the json field "memory" differs from the one recorded as "package 1's builder turn"
 
   Scenario: two instances of one healthGate-shaped machine never share a session, even with byte-identical check output
     Given a test project
@@ -214,7 +214,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.building\""
-    And I record the memory key as "the builder's turn"
+    And I record the json field "memory" as "the builder's turn"
 
     Given a commit "gtd(agent): build.health.check" that adds "src/widget.ts" with:
       """
@@ -232,7 +232,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
-    And the memory key differs from the one recorded as "the builder's turn"
+    And the json field "memory" differs from the one recorded as "the builder's turn"
 
     # `await-review` declares `reviewWindow: true` — querying `gtd next` while
     # resting there would OPEN the review checkout window (a mutating side
@@ -271,7 +271,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.addressing\""
-    And the memory key matches the one recorded as "the builder's turn"
+    And the json field "memory" matches the one recorded as "the builder's turn"
 
     Given a commit "gtd(agent): build.health.check" that adds "src/widget.ts" with:
       """
@@ -314,7 +314,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.squashing\""
-    And the memory key matches the one recorded as "the builder's turn"
+    And the json field "memory" matches the one recorded as "the builder's turn"
 
   Scenario: a fresh reviewer session per round — the sibling break at build.health.check gives each review round a new mind
     # build.review.reviewing's own scope ("build.review") is a descendant of
@@ -340,7 +340,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
-    And I record the memory key as "round 1's reviewer turn"
+    And I record the json field "memory" as "round 1's reviewer turn"
 
     Given a commit "gtd(agent): build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
@@ -375,7 +375,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
-    And the memory key differs from the one recorded as "round 1's reviewer turn"
+    And the json field "memory" differs from the one recorded as "round 1's reviewer turn"
 
   Scenario: one design conversation spans both Q&A phases and decomposition — design.technical-author and design.decompose resume design.product-author's session
     # advancedPlan is one planner identity across all five of its own states —
@@ -390,7 +390,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.product-author\""
-    And I record the memory key as "the design conversation's first turn"
+    And I record the json field "memory" as "the design conversation's first turn"
 
     Given a commit "gtd(agent): design.product-answer" that adds "src/marker-1.txt" with:
       """
@@ -408,7 +408,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.technical-author\""
-    And the memory key matches the one recorded as "the design conversation's first turn"
+    And the json field "memory" matches the one recorded as "the design conversation's first turn"
 
     Given a commit "gtd(agent): design.technical-answer" that adds "src/marker-3.txt" with:
       """
@@ -426,7 +426,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.decompose\""
-    And the memory key matches the one recorded as "the design conversation's first turn"
+    And the json field "memory" matches the one recorded as "the design conversation's first turn"
 
   Scenario: the advanced flow gets a fresh builder session at the shared tail, distinct from any package's own session
     # The per-package build queue (packages.*) closes out into the SAME shared
@@ -451,7 +451,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
     And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
-    And I record the memory key as "the package builder's turn"
+    And I record the json field "memory" as "the package builder's turn"
 
     Given a commit "gtd(check): build.review.reviewing" that adds "src/widget.ts" with:
       """
@@ -460,7 +460,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
-    And the memory key differs from the one recorded as "the package builder's turn"
+    And the json field "memory" differs from the one recorded as "the package builder's turn"
 
     Given a commit "gtd(agent): build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
@@ -482,7 +482,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.squashing\""
-    And the memory key differs from the one recorded as "the package builder's turn"
+    And the json field "memory" differs from the one recorded as "the package builder's turn"
 
   Scenario: a state-level "model:" is rejected at load time — model is a machine-level property, not a state one
     # Part of this feature's own "done when" list: a workflow author can no

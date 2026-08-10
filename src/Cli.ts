@@ -22,6 +22,7 @@ import { GitService } from "./Git.js"
 import { runCommand, type CommandRequirements } from "./program.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
+import { DriverState } from "./DriverState.js"
 
 export type { CommandRequirements }
 
@@ -780,9 +781,16 @@ export const nodeCliIo: CliIo = {
   // "command"`, so --version/--help/a usage error never provoke it.
   layers: () =>
     // Dependency order matters: RepoFiles.Live needs GitService, both need Cwd,
-    // and GitService/CommandRunner need NodeContext's CommandExecutor. Each
+    // and GitService/CommandRunner need NodeContext's CommandExecutor.
+    // DriverState.Live needs only Cwd (see its own module doc comment). Each
     // `provideMerge` satisfies the layers above it AND stays in the output.
-    Layer.mergeAll(ConfigService.Live, RepoFiles.Live, CommandRunner.Live, EnvVars.Live).pipe(
+    Layer.mergeAll(
+      ConfigService.Live,
+      RepoFiles.Live,
+      CommandRunner.Live,
+      EnvVars.Live,
+      DriverState.Live,
+    ).pipe(
       Layer.provideMerge(GitService.Live),
       Layer.provideMerge(Cwd.Live),
       Layer.provideMerge(NodeContext.layer),
