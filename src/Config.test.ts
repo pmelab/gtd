@@ -7,6 +7,7 @@ import { NodeContext } from "@effect/platform-node"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { compileTemplate } from "./workflows/templates.js"
+import { seededValidateCommand } from "./SteeringFormats.js"
 
 // ConfigService.Live only loads/validates the config — it never writes.
 // NodeContext.layer satisfies FileSystem + CommandExecutor.
@@ -99,7 +100,10 @@ describe("ConfigService", () => {
 
     // No `workflow:` -> built-in default, with the rc `modes:` merged in.
     expect(cfg.workflow.states).toEqual(compileTemplate().definition.states)
-    expect(cfg.workflow.modes?.qa).toEqual({ format: "adr-fmt <%= it.file %>" })
+    expect(cfg.workflow.modes?.qa).toEqual({
+      format: "adr-fmt <%= it.file %>",
+      validate: seededValidateCommand("qa"),
+    })
   })
 
   it("reads a custom `workflow:` from a single .gtdrc.yaml in cwd", async () => {
@@ -232,8 +236,8 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.modes).toEqual({
-      qa: {},
-      review: {},
+      qa: { validate: seededValidateCommand("qa") },
+      review: { validate: seededValidateCommand("review") },
       adr: { format: "adr-fmt <%= it.file %>", validate: "adr-lint <%= it.file %>" },
     })
   })

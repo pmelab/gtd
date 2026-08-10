@@ -10,25 +10,29 @@ import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
+  contextAt,
   currentRest,
   currentRun,
   planEntry,
   planStep,
+  renderDecision,
   renderRest,
   restAt,
   UNATTRIBUTED_MODEL,
+  type ExecutableDecision,
   type ModelCost,
   type Rest,
   type RenderedRest,
   type RestRequirements,
 } from "./Edge.js"
-import { closeReviewWindow, openReviewWindow, REVIEW_HEAD_REF } from "./ReviewWindow.js"
 import {
-  clearRetainedHistory,
-  readRetainedHistory,
-  restorability,
-  retainHistory,
-} from "./RetainedHistory.js"
+  buildCloseWindowScript,
+  buildOpenWindowScript,
+  decideCloseWindow,
+  decideOpenWindow,
+  REVIEW_HEAD_REF,
+} from "./ReviewWindow.js"
+import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
 import {
   buildCurrentStateModel,
@@ -38,15 +42,26 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
-import { enforceStepGuards, checkSteeringFile } from "./StepGuards.js"
+import { enforceStepGuards } from "./StepGuards.js"
+import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
+import { resolveSteeringMode, renderSteeringCommands, unknownModeMessage } from "./SteeringMode.js"
 import {
   initialStateOf,
   matchesPattern,
   parsePattern,
   type OnEdge,
   type PendingChange,
+  type StateMode,
+  type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { type TemplateEdge } from "./PatternTemplates.js"
+import {
+  renderModeCommand,
+  renderStateTemplate,
+  type TemplateContext,
+  type TemplateEdge,
+} from "./PatternTemplates.js"
+import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
+import { emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
 
 export type CommandRequirements =
   | GitService
@@ -123,73 +138,224 @@ const runInitCommand = (
     }
   })
 
+/** `stepAsActor`'s result — a preview of what `gtd step` WOULD do, plus the `required`/`optional` bash the external driver runs to actually do it (see the module doc comment: `step` is now a pure read/emitter, never a git write itself). */
+interface StepResult {
+  readonly state: string
+  readonly subject: string | null
+  readonly cost: number | null
+  readonly model: string | null
+  readonly required: string
+  readonly optional: string
+}
+
+// git's empty-tree object — the precondition base for a script built against a
+// commit-less repo, where there is no real HEAD hash to pin to yet. Copied
+// here (rather than imported) exactly like `Edge.ts`/`ReviewWindow.ts` each
+// keep their own copy — see their doc comments on the same tradeoff.
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+/** The `EmitPreconditions` every script this file assembles asserts against: the resolved HEAD hash the snapshot driving it was taken at (falling back to `EMPTY_TREE` for a commit-less repo). */
+const headPreconditions = (currentCommit: string): EmitPreconditions => ({
+  expectedHead: currentCommit !== "" ? currentCommit : EMPTY_TREE,
+})
+
 /**
- * Authenticate `invoker` against the currently resolved rest and perform the
- * one resulting transition (commit or squash) for `gtd step`. `currentRest` →
- * `planStep` decides; the four capture gates sit between the plan and
- * `plan.perform` (nothing has written git yet), then `perform` runs. Refusals
- * fail the Effect with a formatted message; a no-op/reset returns `subject:
- * null` rather than failing (exit zero, per the plan's "clean no-op exits
- * zero").
+ * The resting state's own steering-mode commands, embedded ahead of the
+ * commit — the step script now carries its own format/validate pair instead
+ * of gtd running it in process (see `src/StepGuards.ts`'s shrunk registry).
+ * Empty for a state declaring no `file:`+`mode:` pair; an unknown mode name
+ * is a refusal, exactly as it was when gtd ran the commands itself.
+ */
+const steeringModeSteps = (
+  rest: Rest,
+): Effect.Effect<readonly EmitStep[], Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const file = rest.hints.file
+    const mode = rest.stateDef.mode
+    if (file === undefined || mode === undefined) return []
+    const resolved = resolveSteeringMode(rest.def, mode)
+    if (resolved === undefined) {
+      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
+    }
+    const commands = yield* renderSteeringCommands(resolved, file, rest.context)
+    return commands.map((command): EmitStep => ({ kind: "command", command }))
+  })
+
+/**
+ * The `optional` half: re-open the review checkout window when the step lands
+ * at a `reviewWindow: true` state, `""` otherwise.
+ *
+ * `"HEAD"` is deliberately the literal string, not a resolved hash — git
+ * resolves it at the moment this script runs, which is after the required
+ * script has already landed the new commit (see `ReviewWindow.ts`'s
+ * `decideOpenWindow` doc comment). For the same reason it carries no
+ * `expectedHead` precondition: the HEAD it will see is a hash that does not
+ * exist yet at decide time (see `EmitPreconditions`).
+ */
+const openWindowScript = (rest: Rest, targetState: string): string => {
+  const decision = decideOpenWindow(rest.def, targetState, rest.run, "HEAD")
+  if (!decision.shouldOpen) return ""
+  return emitScripts(
+    {},
+    [],
+    [{ kind: "gitWrite", command: buildOpenWindowScript({ base: decision.base, head: "HEAD" }) }],
+  ).optional
+}
+
+/**
+ * The subject the required script WILL produce. A `"commit"` decision's is
+ * fully deterministic already; a `"squash"` decision's is only known once its
+ * template is rendered. Unreachable-on-failure: `renderDecision` already
+ * rendered the same template and refused the command if it threw, so this
+ * second render can never be the first to fail.
+ */
+const previewSubject = (
+  decision: ExecutableDecision,
+  rest: Rest,
+): Effect.Effect<string | null, never> =>
+  decision.kind === "commit"
+    ? Effect.succeed(decision.subject)
+    : Effect.try(() =>
+        renderStateTemplate(decision.template, rest.context).split("\n")[0]!.trim(),
+      ).pipe(Effect.catchAll(() => Effect.succeed(null)))
+
+/**
+ * The `required` half: everything that decides what lands in git, in order —
+ * the review-window CLOSE (when one is open), the resting state's own
+ * steering-mode format/validate commands, then the commit/squash steps
+ * themselves.
+ */
+const buildRequiredScript = (
+  rest: Rest,
+  decision: ExecutableDecision,
+  invoker: string,
+  cost: number | undefined,
+  model: string | undefined,
+): Effect.Effect<string, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    // Read-only: decides whether a review window is currently open and, when
+    // so, that it's safe to close (the same guards `closeReviewWindow` used to
+    // run) — a genuine refusal, exactly like the old `closeReviewWindow`
+    // failing, propagates as-is.
+    const closeDecision = yield* decideCloseWindow
+    // A squash renders its commit template at the TARGET commit state with
+    // this step's own `--cost`/`--model` folded in (`contextAt`) — not against
+    // `rest.context`, which is pinned to the resting state and carries
+    // `cost: 0`, so `it.processCost` would omit the squashing turn itself.
+    const commitContext =
+      decision.kind === "commit"
+        ? rest.context
+        : yield* contextAt(rest, decision.state, invoker, cost, model)
+    const steps: EmitStep[] = [
+      ...(closeDecision.shouldClose
+        ? [{ kind: "gitWrite" as const, command: buildCloseWindowScript(closeDecision.refs) }]
+        : []),
+      ...(yield* steeringModeSteps(rest)),
+      // A render failure (a squash template that fails against the pending
+      // tree) REFUSES the whole command — with the git write moved into the
+      // emitted script, this emitting path is the only place that failure can
+      // still be reported, and "nothing was committed" has to reach the caller
+      // as a non-zero exit rather than as a silently empty script.
+      ...(yield* renderDecision(git, rest, decision, commitContext, cost, model)),
+    ]
+    return emitScripts(headPreconditions(rest.context.currentCommit), steps).required
+  })
+
+/** A step's `--cost`/`--model` as `planStep` options — each key OMITTED (never `undefined`-valued) when the flag was not given. */
+const stepOptions = (
+  cost: number | undefined,
+  model: string | undefined,
+): { cost?: number; model?: string } => ({
+  ...(cost !== undefined ? { cost } : {}),
+  ...(model !== undefined ? { model } : {}),
+})
+
+/**
+ * Authenticate `invoker` against the currently resolved rest and decide the
+ * one resulting transition (commit or squash) for `gtd step` — WITHOUT
+ * performing it. `currentRest` → `planStep` decides; the step-capture guards
+ * (`src/StepGuards.ts`) then refuse before anything is emitted, exactly as
+ * before. What used to be `plan.perform` is now assembled by hand into a
+ * `required` script (the review-window CLOSE, when one is open; the resting
+ * state's steering-mode format/validate commands, when it declares
+ * `file:`+`mode:`; then the commit/squash steps themselves, via
+ * `renderDecision`) and an `optional` one (the review-window OPEN, when the
+ * target declares `reviewWindow: true`) — see the "Review-window management"
+ * recipe this mirrors. Refusals fail the Effect with a formatted message; a
+ * no-op returns `subject: null` and empty scripts (exit zero, nothing to
+ * run).
+ *
+ * `plan.scripts` (built by `Edge.ts` itself) is NOT reused here: its baked-in
+ * precondition uses `rest.context.currentCommit`, the LITERAL git HEAD at
+ * decide time — which, while a review window is open, is the window's BASE,
+ * not the real head — and it contains no window close/open steps at all. This
+ * function builds its own required/optional pair to sidestep that trap.
  */
 const stepAsActor = (
   invoker: string,
   cost?: number,
   model?: string,
-): Effect.Effect<
-  {
-    readonly state: string
-    readonly subject: string | null
-    readonly cost: number | null
-    readonly model: string | null
-  },
-  Error,
-  CommandRequirements
-> =>
+): Effect.Effect<StepResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const plan = yield* planStep(rest, invoker, {
-      ...(cost !== undefined ? { cost } : {}),
-      ...(model !== undefined ? { model } : {}),
-    })
+    const plan = yield* planStep(rest, invoker, stepOptions(cost, model))
 
     if (plan.kind === "refusal") {
       return yield* Effect.fail(new Error(plan.message))
     }
     if (plan.kind === "noop") {
-      return { state: plan.state, subject: null, cost: null, model: null }
+      return {
+        state: plan.state,
+        subject: null,
+        cost: null,
+        model: null,
+        required: "",
+        optional: "",
+      }
+    }
+
+    // `StepPlan.decision`'s declared type is the full `StepDecision` union
+    // (Edge.ts never narrows it to match its own sibling `kind` field) — this
+    // re-narrows it to `ExecutableDecision`, which is always true in practice
+    // since `plan.kind` is already known to be `"commit" | "squash"` here.
+    const decision = plan.decision
+    if (decision.kind !== "commit" && decision.kind !== "squash") {
+      return yield* Effect.fail(
+        new Error(
+          `gtd: internal error — plan kind "${plan.kind}" but decision kind "${decision.kind}"`,
+        ),
+      )
     }
 
     // Step-capture guards (edge, not engine — see src/StepGuards.ts): the
     // steering-file, review-signoff, feedback-progress and answer-completeness
-    // guards, in registry order, each able to refuse before anything commits.
-    // They sit between the plan and `plan.perform`, so nothing has written git
-    // yet. `file` is the rest's already-rendered `file:` hint — rendered once
-    // when the snapshot was built, not re-rendered per guard.
+    // guards, in registry order, each able to refuse before anything is
+    // emitted. `file` is the rest's already-rendered `file:` hint — rendered
+    // once when the snapshot was built, not re-rendered per guard.
     yield* enforceStepGuards({
       rest,
       context: rest.context,
       file: rest.hints.file,
       changes: rest.changes,
       invoker,
-      kind: plan.kind,
+      kind: decision.kind,
     })
 
-    const outcome = yield* plan.perform
-    if (outcome.kind === "reset" || outcome.kind === "noop") {
-      return { state: outcome.state, subject: null, cost: null, model: null }
+    const targetState = decision.kind === "commit" ? decision.to : decision.state
+    return {
+      state: rest.state,
+      subject: yield* previewSubject(decision, rest),
+      cost: cost ?? null,
+      model: model ?? null,
+      required: yield* buildRequiredScript(rest, decision, invoker, cost, model),
+      optional: openWindowScript(rest, targetState),
     }
-    return { state: rest.state, subject: outcome.subject, cost: cost ?? null, model: model ?? null }
   })
 
-/** Renders `stepAsActor`'s result for `gtd step`. */
+/** Renders `stepAsActor`'s result for `gtd step`. Plain text names the (previewed) resulting subject exactly as before; `--json` additionally carries `required`/`optional` — the bash the external driver runs to actually land it. */
 const reportStepResult = (
-  result: {
-    readonly state: string
-    readonly subject: string | null
-    readonly cost: number | null
-    readonly model: string | null
-  },
+  result: StepResult,
   json: boolean,
   write: (chunk: string) => void,
 ): void => {
@@ -200,6 +366,8 @@ const reportStepResult = (
         subject: result.subject,
         ...(result.cost !== null ? { cost: result.cost } : {}),
         ...(result.model !== null ? { model: result.model } : {}),
+        required: result.required,
+        optional: result.optional,
       }) + "\n",
     )
   } else {
@@ -285,17 +453,26 @@ const runEntryCommand = (
     if (plan.kind === "refusal") {
       return yield* Effect.fail(new Error(plan.message))
     }
-    yield* plan.perform
+    // `plan.scripts` is safe to reuse verbatim here (unlike `stepAsActor`'s own
+    // build): an entry always lands fresh at a brand-new process's first
+    // state, which can never have an open review window and — per
+    // `enterableStates`/the bundled template — declares no `file:`/`mode:` of
+    // its own to validate ahead of the commit (that gate applies to the NEXT
+    // step away from the entered state, once its actor has produced
+    // something, not to entering it).
     if (json) {
-      write(JSON.stringify({ state: plan.state, subject: plan.subject }) + "\n")
+      write(
+        JSON.stringify({
+          state: plan.state,
+          subject: plan.subject,
+          required: plan.scripts.required,
+          optional: plan.scripts.optional,
+        }) + "\n",
+      )
     } else {
       write(`committed: ${plan.subject}\n`)
     }
   })
-
-// git's empty-tree object — `ProcessRun.startParentHash` when the process
-// covers the whole history, so there is no earlier commit to rewind to.
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 /**
  * `gtd abandon`: end the process currently underway WITHOUT completing it,
@@ -328,6 +505,13 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  * that fails when there is nothing to recover is a worse tool. The one refusal
  * is a process whose first commit is the repository's own root commit: there is
  * no earlier commit to rewind to.
+ *
+ * The read-side refusal/no-op checks above stay direct `GitService` reads (the
+ * documented exception, `AGENTS.md`) — abandon must still work when a `Rest`
+ * would refuse. The actual mutation (retaining history, then the mixed reset)
+ * is no longer PERFORMED here: it's emitted as a `required` bash script for
+ * the external driver to run, built from `src/GitScript.ts`'s pure
+ * `updateRef`/`mixedResetTo` — narrowing the exception further still.
  */
 const runAbandonCommand = (
   json: boolean,
@@ -358,11 +542,36 @@ const runAbandonCommand = (
       )
     }
 
-    const tip = yield* git.resolveRef("HEAD")
-    yield* retainHistory(git, tip, run.startParentHash)
+    // An open review checkout window has rewound real HEAD to the review
+    // base, so the reviewed branch tip — the thing abandon must retain and
+    // rewind FROM — is the window's saved head, not `HEAD`. Closing it is the
+    // required script's first step, exactly as the deleted review-window
+    // bracket used to do before the command ran.
+    const closeDecision = yield* decideCloseWindow
+    const tip = closeDecision.shouldClose
+      ? closeDecision.refs.headHash
+      : yield* git.resolveRef("HEAD")
+    // A preview of the resulting HEAD's subject — read at `startParentHash`
+    // directly rather than after an actual reset, since none has happened yet.
+    const subject = yield* git.lastCommitSubject(run.startParentHash)
 
-    yield* git.mixedResetTo(run.startParentHash)
-    const subject = yield* git.lastCommitSubject()
+    const steps: EmitStep[] = [
+      ...(closeDecision.shouldClose
+        ? [
+            {
+              kind: "gitWrite" as const,
+              command: buildCloseWindowScript(closeDecision.refs),
+            },
+          ]
+        : []),
+      { kind: "gitWrite", command: updateRef(HISTORY_REF, tip) },
+      { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
+    ]
+    // The precondition is real HEAD (the rewound one, while a window is open)
+    // — that is what `git rev-parse HEAD` will actually report when the
+    // script runs, before its own close step moves it.
+    const required = emitScripts(headPreconditions(yield* git.resolveRef("HEAD")), steps).required
+
     if (json) {
       write(
         JSON.stringify({
@@ -370,6 +579,8 @@ const runAbandonCommand = (
           abandoned: true,
           from: restState,
           head: run.startParentHash,
+          required,
+          optional: "",
         }) + "\n",
       )
     } else {
@@ -392,7 +603,10 @@ const runAbandonCommand = (
  * Guarded by `restorability` so it never discards work it didn't create:
  * refuses on a dirty working tree, when there is no retained history, and
  * when HEAD has advanced past the retained tip with commits that would be
- * lost by resetting.
+ * lost by resetting. Those checks stay direct `GitService` reads (same
+ * documented exception as `gtd abandon`); the mutation itself (the hard
+ * reset, then clearing the retained-history ref) is emitted as a `required`
+ * script instead of performed here.
  */
 const runRestoreCommand = (
   json: boolean,
@@ -433,15 +647,27 @@ const runRestoreCommand = (
       )
     }
 
-    yield* git.hardResetTo(tip)
-    yield* clearRetainedHistory(git)
+    // Previews of the resulting state/subject — resolved at `tip` directly
+    // rather than after an actual reset, since none has happened yet.
+    const after = yield* restAt(tip)
+    const subject = yield* git.lastCommitSubject(tip)
 
-    const after = yield* currentRest
-    const subject = yield* git.lastCommitSubject()
+    const steps: EmitStep[] = [
+      { kind: "gitWrite", command: hardResetTo(tip) },
+      { kind: "gitWrite", command: deleteRef(HISTORY_REF) },
+    ]
+    const required = emitScripts(headPreconditions(headHash), steps).required
 
     if (json) {
       write(
-        JSON.stringify({ state: after.state, restored: true, to: tip, from: before.state }) + "\n",
+        JSON.stringify({
+          state: after.state,
+          restored: true,
+          to: tip,
+          from: before.state,
+          required,
+          optional: "",
+        }) + "\n",
       )
     } else {
       write(
@@ -453,21 +679,55 @@ const runRestoreCommand = (
   })
 
 /**
+ * The mode's own resolved VALIDATE command, rendered against `file` — the
+ * command `selfValidateInstruction` names. Resolution mirrors
+ * `renderSteeringCommands`'s own layering (`src/SteeringMode.ts`) but picks
+ * out the validate half alone: a declared `validate:` command (or, for
+ * `qa`/`review`, `PatternConfig.ts`'s own seeded `gtd check <mode> '<file>'`
+ * default — every compiled definition carries ONE of the two) renders as the
+ * LAST command `renderSteeringCommands` would emit (format, if any, always
+ * comes first); a mode resolving to a `"builtin"` validator (no shell command
+ * at all — only reachable when `resolveSteeringMode` is asked about a mode
+ * outside the active definition's own compiled `modes:`, since a real
+ * definition always seeds one) or to no mode at all names the leaf
+ * `gtd check <mode> '<file>'` invocation directly instead
+ * (`seededValidateCommand`), so there is always something concrete to name.
+ */
+const resolveSelfValidateCommand = (
+  def: WorkflowDefinition,
+  mode: StateMode,
+  file: string,
+  context: TemplateContext,
+): Effect.Effect<string, Error> =>
+  Effect.gen(function* () {
+    const resolved = resolveSteeringMode(def, mode)
+    if (resolved?.validate?.kind === "command") {
+      const rendered = yield* renderSteeringCommands(resolved, file, context)
+      const validateCommand = rendered[rendered.length - 1]
+      if (validateCommand !== undefined) return validateCommand
+    }
+    return yield* Effect.try({
+      try: () => renderModeCommand(seededValidateCommand(mode), { ...context, file }),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+  })
+
+/**
  * The self-validation instruction gtd APPENDS to a `prompt` rest that declares
  * both `file:` and `mode:` — i.e. a state whose actor hands over a steering
- * file `gtd validate` formats and checks. Appended ONLY to plain `gtd next`
- * output (for a human or a simple driver who reads the prompt and hands it to
- * an agent, so the agent self-validates); withheld from `gtd next --json`,
- * where the driving loop instead runs `gtd validate` after the turn and
- * re-prompts on findings (see the `bin/gtd` loop driver). This is
- * advisory: `gtd step` runs the same format-and-validate gate and REFUSES a
- * turn whose steering file is invalid (see `stepAsActor`), so a malformed file
- * is never captured whether or not this instruction was followed.
+ * file some command validates. Appended ONLY to plain `gtd next` output (for a
+ * human or a simple driver who reads the prompt and hands it to an agent, so
+ * the agent self-validates); withheld from `gtd next --json`, where the
+ * driving loop instead runs `gtd validate` after the turn and re-prompts on
+ * findings (see the `bin/gtd` loop driver). This is advisory: `gtd step`
+ * embeds that same command ahead of its own commit and REFUSES a turn whose
+ * steering file is invalid (see `stepAsActor`), so a malformed file is never
+ * captured whether or not this instruction was followed.
  */
-const selfValidateInstruction = (file: string): string =>
-  `\nBefore finishing your turn, run \`gtd validate\` — it formats and checks ` +
-  `${file} — and fix every violation it reports until it exits cleanly. Do not ` +
-  `finish while it still reports violations.\n`
+const selfValidateInstruction = (command: string, file: string): string =>
+  `\nBefore finishing your turn, run \`${command}\` — it checks ${file} — and fix ` +
+  `every violation it reports until it exits cleanly. Do not finish while it ` +
+  `still reports violations.\n`
 
 /** True when a rendered rest is a `prompt` turn that hands over a validatable steering file (`file:`+`mode:` both declared). */
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
@@ -489,10 +749,15 @@ const nextJsonOutput = (rendered: RenderedRest): string =>
     ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
   }) + "\n"
 
-/** `gtd next`'s plain-text output: the rendered content (newline-terminated), plus the self-validation instruction when the rest is a validatable prompt (see `emitsValidatablePrompt`). */
-const nextPlainOutput = (rendered: RenderedRest): string => {
+/** `gtd next`'s plain-text output: the rendered content (newline-terminated), plus the self-validation instruction (naming `selfValidateCommand`, when resolved) when the rest is a validatable prompt. */
+const nextPlainOutput = (
+  rendered: RenderedRest,
+  selfValidateCommand: string | undefined,
+): string => {
   const base = rendered.content.endsWith("\n") ? rendered.content : rendered.content + "\n"
-  return emitsValidatablePrompt(rendered) ? base + selfValidateInstruction(rendered.file!) : base
+  return emitsValidatablePrompt(rendered) && selfValidateCommand !== undefined
+    ? base + selfValidateInstruction(selfValidateCommand, rendered.file!)
+    : base
 }
 
 const runNextCommand = (
@@ -500,21 +765,34 @@ const runNextCommand = (
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const rendered = yield* renderRest(yield* currentRest)
-    write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
+    const rest = yield* currentRest
+    const rendered = yield* renderRest(rest)
+    // Advisory only (see `selfValidateInstruction`'s doc comment) — a render
+    // failure here must not fail `gtd next` itself, so it degrades to omitting
+    // the instruction rather than propagating.
+    const selfValidateCommand =
+      !json && emitsValidatablePrompt(rendered)
+        ? yield* resolveSelfValidateCommand(
+            rest.def,
+            rendered.mode!,
+            rendered.file!,
+            rest.context,
+          ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+        : undefined
+    write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered, selfValidateCommand))
   })
 
 /**
- * `gtd validate [--json]`: format (in place) then validate the steering file
- * the resolved rest declares (`file:` rendered, `mode:` selecting how), over
- * its WORKING-TREE contents. A state with no `file:`/`mode:`, or an absent
- * file, has nothing to validate (exit 0). A clean verdict exits 0; violations
- * FAIL the Effect with the findings (one per line), so the process exits
- * non-zero — the signal a producing agent (or the driver) loops on until the
- * file is valid. A built-in mode reuses the canonical `OpenQuestions`/
- * `ReviewDoc` parsers (the same the LSP publishes), so there is one source of
- * truth per format and no bash port; any `modes:`-declared command runs
- * instead (or, for `format:`, in addition).
+ * `gtd validate [--json]`: emit the script that would format (in place) then
+ * validate the steering file the resolved rest declares (`file:` rendered,
+ * `mode:` selecting how) — the SAME commands `gtd step`'s capture guard now
+ * embeds ahead of its own commit (see `stepAsActor`), rendered here for a
+ * human or agent to run directly. gtd itself reads no file and executes
+ * nothing: a state with no `file:`/`mode:`, or a file absent from the working
+ * tree, has nothing to validate (`script: ""`, exit 0 either way) — the
+ * verdict now lives in the emitted script's own future exit code, not this
+ * command's, so this never fails on a bad file. `RepoFiles`/`FileSystem` is
+ * used only to check the file's PRESENCE, never to read or judge its content.
  */
 const runValidateCommand = (
   json: boolean,
@@ -522,30 +800,121 @@ const runValidateCommand = (
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const { file, present, errors } = yield* checkSteeringFile(rest, rest.context, rest.hints.file)
-    if (!present) {
-      if (json) write(JSON.stringify({ state: rest.state, valid: true, errors: [] }) + "\n")
-      else write(`nothing to validate at "${rest.state}"\n`)
-      return
-    }
-    if (errors.length === 0) {
+    const file = rest.hints.file
+    const mode = rest.stateDef.mode
+
+    const emitNothingToValidate = (): void => {
       if (json) {
         write(
           JSON.stringify({
             state: rest.state,
-            file,
-            mode: rest.stateDef.mode,
-            valid: true,
-            errors: [],
+            ...(file !== undefined ? { file } : {}),
+            ...(mode !== undefined ? { mode } : {}),
+            script: "",
           }) + "\n",
         )
       } else {
-        write(`${file}: valid\n`)
+        write(`nothing to validate at "${rest.state}"\n`)
       }
+    }
+
+    if (file === undefined || mode === undefined) {
+      emitNothingToValidate()
       return
     }
+
+    const fs = yield* FileSystem.FileSystem
+    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
+    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
+    if (!present) {
+      emitNothingToValidate()
+      return
+    }
+
+    const resolved = resolveSteeringMode(rest.def, mode)
+    if (resolved === undefined) {
+      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
+    }
+    const commands = yield* renderSteeringCommands(resolved, file, rest.context)
+    const script = emitScripts(
+      headPreconditions(rest.context.currentCommit),
+      commands.map((command): EmitStep => ({ kind: "command", command })),
+    ).required
+
+    if (json) {
+      write(JSON.stringify({ state: rest.state, file, mode, script }) + "\n")
+    } else {
+      write(script.length > 0 ? `${script}\n` : `nothing to validate at "${rest.state}"\n`)
+    }
+  })
+
+/**
+ * `gtd check <mode> <file>`: read `<file>` and run the BUILT-IN steering
+ * format named `<mode>`'s pure parser over its contents, printing each
+ * finding one per line and exiting non-zero when there are any. Unlike `gtd
+ * validate` (which resolves the currently resting state's own `file:`/`mode:`
+ * and formats before validating), this resolves NO workflow state and reads
+ * NO config — both `mode` and `file` are given explicitly, so it needs only
+ * `FileSystem.FileSystem` and runs from any directory. This is what a
+ * workflow's seeded `validate:` command (`SteeringFormats.ts`'s
+ * `seededValidateCommand`) invokes as a leaf step; it does no formatting
+ * in-place — an emitted script has no template context to format against.
+ *
+ * An absent file mirrors `gtd validate`'s own absent-file behavior: exit 0,
+ * no output in plain mode, `{valid: true, errors: []}` under `--json`. A
+ * clean parse is the same shape. A non-clean parse writes `--json`'s
+ * `{valid: false, errors}` body (or each finding, one per line, in plain
+ * mode) BEFORE failing the Effect. In PLAIN mode the failure then carries only
+ * a summary message, landing on stderr alone (`cliErrorLine`'s line) — the
+ * findings are already on stdout. Under `--json`, `Cli.ts`'s single envelope
+ * writer (`report`) ALSO puts its own `{state:"error",prompt}` object on
+ * stdout for any failing Effect, so a `--json` invocation with findings emits
+ * stdout as two newline-delimited JSON documents — this handler's own
+ * `{valid,errors}` body first, then the generic error envelope — rather than
+ * one; a consumer must read line-delimited JSON, not `JSON.parse(stdout)`
+ * whole. Kept as the pragmatic resolution of a real tension in this command's
+ * two governing requirements ("exits non-zero" and "`--json` reports
+ * `{valid,errors}`"): the alternative was piping a `--json` failure through a
+ * NEW exit-code channel bypassing `Cli.ts`'s shared envelope entirely, which
+ * every other command's `--json` failure goes through today.
+ */
+const runCheckCommand = (
+  mode: string,
+  file: string,
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const format = steeringFormatFor(mode)
+    if (format === undefined) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd check: unknown mode "${mode}" — known modes: ${builtInModeNames().join(", ")}`,
+        ),
+      )
+    }
+
+    const fs = yield* FileSystem.FileSystem
+    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
+    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
+    const errors = present
+      ? format.validate(yield* fs.readFileString(file).pipe(Effect.mapError(toError)))
+      : []
+
+    if (errors.length === 0) {
+      if (json) write(JSON.stringify({ valid: true, errors: [] }) + "\n")
+      return
+    }
+
+    if (json) {
+      write(JSON.stringify({ valid: false, errors }) + "\n")
+    } else {
+      write(errors.join("\n") + "\n")
+    }
     return yield* Effect.fail(
-      new Error(`${file} is not valid:\n${errors.map((e) => `  - ${e}`).join("\n")}`),
+      new Error(
+        `gtd check: ${file} is not valid under mode "${mode}" (${errors.length} finding(s))`,
+      ),
     )
   })
 
@@ -906,6 +1275,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "lsp":
       return "none"
     case "init":
+    case "check":
       return "fs"
     case "visualize":
       return "config"
@@ -914,8 +1284,13 @@ export const needsOf = (kind: Command["kind"]): Needs => {
   }
 }
 
-/** The three kinds that never touch the repo-root guard / review-window bracket — pinned so a new standalone kind can't be added silently. */
-export const standaloneKinds = (): readonly Command["kind"][] => ["lsp", "init", "visualize"]
+/** The four kinds that never touch the repo-root guard / review-window bracket — pinned so a new standalone kind can't be added silently. */
+export const standaloneKinds = (): readonly Command["kind"][] => [
+  "lsp",
+  "init",
+  "visualize",
+  "check",
+]
 
 /** Dispatches to the named `run*Command` handler for every `Command.kind` — the counterpart of `Cli.ts`'s `parseArgv`, which has already validated every field a handler receives. */
 // fallow-ignore-next-line complexity
@@ -945,54 +1320,24 @@ const dispatchCommand = (
       return runStatusCommand(json, write)
     case "validate":
       return runValidateCommand(json, write)
+    case "check":
+      return runCheckCommand(command.mode, command.file, json, write)
   }
 }
 
 /**
- * Runs `command` inside the bracket every state-touching command shares: the
- * repo-root guard, then close-any-open-review-window before the command sees
- * HEAD, then re-arm it afterward whether `command` succeeded or refused (see
- * `closeReviewWindow`/`openReviewWindow`).
- */
-const runInReviewWindowBracket = (
-  git: GitOperations,
-  fs: FileSystem.FileSystem,
-  command: Effect.Effect<void, Error, CommandRequirements>,
-): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    yield* assertRunningFromRepoRoot(git, fs)
-    // Restore the real HEAD before anything reads or mutates workflow state:
-    // while a review checkout window is open (see src/ReviewWindow.ts), HEAD is
-    // rewound to the review base, so the pure machine would otherwise resolve
-    // against the wrong commit. Keyed on the ref alone — a no-op when no window
-    // is open.
-    //
-    // Second, independent reason this must come BEFORE the subcommand runs:
-    // the computed memory key (`memoryKeyFor`, package 05/06) is derived from
-    // `ProcessRun.trace`, which is walked back from HEAD — while the window is
-    // open, HEAD is rewound and the trace truncated, which would silently
-    // resolve the wrong `entryIndex` (and so the wrong commit-anchored token)
-    // rather than failing loudly.
-    yield* closeReviewWindow
-
-    // Re-arm the window after the subcommand — on success AND on refusal/error,
-    // and after read-only commands too (every command opts into window
-    // management), so the editor's diff view stays consistent no matter which
-    // command the loop last ran. The subcommand's own error takes priority; a
-    // re-arm failure only surfaces when the subcommand itself succeeded.
-    const outcome = yield* Effect.either(command)
-    const rearm = yield* Effect.either(openReviewWindow)
-    if (Either.isLeft(outcome)) return yield* Effect.fail(outcome.left)
-    if (Either.isLeft(rearm)) return yield* Effect.fail(rearm.left)
-  })
-
-/**
  * The one entry point `Cli.ts`'s `runCli` calls for a resolved `Command`:
  * dispatches to the matching `run*Command` handler (see `dispatchCommand`),
- * wrapped in the repo-root guard + review-window bracket exactly when
- * `needsOf(command.kind) === "state"` — `lsp`/`init`/`visualize` (the
- * `standaloneKinds`) run bare. `Cli.ts` has already validated every field on
- * `command` (arity, flag scope, decoding), so nothing here re-parses argv.
+ * wrapped in the repo-root guard exactly when `needsOf(command.kind) ===
+ * "state"` — `lsp`/`init`/`visualize`/`check` (the `standaloneKinds`) run
+ * bare. `Cli.ts` has already validated every field on `command` (arity, flag
+ * scope, decoding), so nothing here re-parses argv.
+ *
+ * No review-window close/open bracket runs here any more: every state-command
+ * handler (see `stepAsActor`) now decides for itself, off `ReviewWindow.ts`'s
+ * pure `decideCloseWindow`/`decideOpenWindow`, whether a close/open belongs in
+ * the script it emits — there is no in-process HEAD to rewind ahead of time
+ * (gtd itself no longer writes git for a state command at all).
  */
 export const runCommand = (
   command: Command,
@@ -1004,6 +1349,7 @@ export const runCommand = (
   return Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
-    yield* runInReviewWindowBracket(git, fs, dispatch)
+    yield* assertRunningFromRepoRoot(git, fs)
+    yield* dispatch
   })
 }

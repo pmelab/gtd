@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
-import { steeringFormatFor } from "./SteeringFormats.js"
+import { isSeededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
 import type { SteeringFormat } from "./SteeringFormat.js"
 import { knownModes, type StateMode, type WorkflowDefinition } from "./PatternMachine.js"
 import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
@@ -114,10 +114,16 @@ export const resolveBuiltInMode = (mode: StateMode): ResolvedMode | undefined =>
  * the sign-off/answer gates) that only cares about capability, not resolution
  * mechanics: `format` is the built-in format (outline/actions/pointer), present
  * whenever `builtIn` is; `liveValidate` is that format's own `validate`
- * function, present IFF `validate.kind === "builtin"` (a declared `validate:`
- * command displaces it); `externalValidate` is `true` IFF `validate.kind ===
- * "command"` — a shell-validated mode, which the LSP shows a notice for instead
- * of live diagnostics.
+ * function, present when `builtIn` is present AND the validator is either the
+ * built-in kind OR a command that is gtd's OWN SEEDED string for this mode
+ * (`src/SteeringFormats.ts`'s `isSeededValidateCommand` — a workflow compiler
+ * seeding `qa`/`review`'s own `gtd check <mode> '<file>'` behind the scenes
+ * changes nothing about how the file is actually validated, so the LSP must
+ * keep publishing live diagnostics rather than switch to an external notice);
+ * `externalValidate` is `true` IFF `validate.kind === "command"` AND that
+ * command is NOT the seeded string — a genuine user override of a built-in
+ * mode's `validate:`, or any command-validated non-built-in mode, which the
+ * LSP shows a notice for instead of live diagnostics.
  */
 export interface SteeringCapabilities {
   readonly format?: SteeringFormat
@@ -127,12 +133,18 @@ export interface SteeringCapabilities {
 
 export const steeringCapabilities = (resolved: ResolvedMode | undefined): SteeringCapabilities => {
   if (resolved === undefined) return {}
+  const seeded =
+    resolved.builtIn !== undefined &&
+    resolved.validate?.kind === "command" &&
+    isSeededValidateCommand(resolved.mode, resolved.validate.command)
+  const liveValidate =
+    resolved.builtIn !== undefined && (resolved.validate?.kind === "builtin" || seeded)
+      ? resolved.builtIn.validate
+      : undefined
   return {
     ...(resolved.builtIn !== undefined ? { format: resolved.builtIn } : {}),
-    ...(resolved.validate?.kind === "builtin"
-      ? { liveValidate: resolved.validate.format.validate }
-      : {}),
-    ...(resolved.validate?.kind === "command" ? { externalValidate: true } : {}),
+    ...(liveValidate !== undefined ? { liveValidate } : {}),
+    ...(resolved.validate?.kind === "command" && !seeded ? { externalValidate: true } : {}),
   }
 }
 
@@ -254,4 +266,35 @@ export const formatAndValidateSteeringFile = (
   Effect.gen(function* () {
     yield* formatSteeringFile(resolved, file, context)
     return yield* validateSteeringFile(resolved, file, content, context)
+  })
+
+/**
+ * Render a mode's `format:`/`validate:` commands as plain strings, WITHOUT
+ * running either — for a caller (an emitter that prints scripts rather than
+ * executing them) that wants the commands themselves, not their outcome.
+ * Unlike its siblings above, this needs no `CommandRunner`: it shares their
+ * `renderCommand` helper for the rendering (and its errors) but never reaches
+ * for a runner to execute the result. Order matches `formatAndValidateSteeringFile`
+ * (format then validate); a half the mode doesn't declare — no `formatCommand`,
+ * or a `validate` that is absent or `"builtin"` (an in-process parser has no
+ * shell command to render) — is OMITTED from the result, not rendered as `""`.
+ */
+export const renderSteeringCommands = (
+  resolved: ResolvedMode,
+  file: string,
+  context: TemplateContext,
+): Effect.Effect<readonly string[], Error> =>
+  Effect.gen(function* () {
+    const commands: string[] = []
+    if (resolved.formatCommand !== undefined) {
+      commands.push(
+        yield* renderCommand(resolved.mode, "format", resolved.formatCommand, file, context),
+      )
+    }
+    if (resolved.validate?.kind === "command") {
+      commands.push(
+        yield* renderCommand(resolved.mode, "validate", resolved.validate.command, file, context),
+      )
+    }
+    return commands
   })

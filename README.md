@@ -227,13 +227,26 @@ Commands:
   next             Print the resolved rest's rendered script/prompt/message (no mutation)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
-  validate         Format and validate the steering file the resolved rest
-                   declares, with its mode's commands (its file:/mode:);
-                   exits non-zero with the findings when it is invalid
+  validate         Print the script that formats (when declared) then
+                   validates the resolved rest's steering file, using its
+                   mode's commands (its file:/mode:), instead of running it —
+                   a driver runs the script and reads the findings from its
+                   own exit code/output. Always exits 0; --json emits
+                   {state, file?, mode?, script} (script is "" when there is
+                   nothing to validate; plain text prints "nothing to
+                   validate" in that case)
   lsp              Start the LSP server for .gtd/ steering files (stdio)
   visualize        Serve an interactive diagram of the active workflow on a
                    local web server (--port <n>, --no-open; --json prints the
                    model and exits)
+  check <mode> <file>
+                   Read <file> and run the built-in steering format named
+                   <mode> (see `gtd validate`'s modes: qa, review) over its
+                   contents, printing each finding one per line and exiting
+                   non-zero when there are any. Resolves no workflow state and
+                   reads no config — standalone, runnable from any directory
+                   with <mode>/<file> given explicitly. This is what a
+                   workflow's emitted validation script invokes as a leaf step
   version          Print version and exit
   help             Print this help and exit
 
@@ -468,6 +481,120 @@ Optionally,
 `herdr pane report-metadata "$HERDR_PANE_ID" --source custom:gtd-display --token summary=<text>`
 sets a value renderable as `$summary` in an Agent sidebar row, if you want more
 than the state itself.
+
+## Writing your own driver
+
+`bin/gtd` is gtd's own reference driver, not a privileged one — the engine
+itself is a supported public surface, and anything below holds for any driver
+you write against it. gtd decides and prints; it never touches git itself. The
+four commands that change anything — `gtd step [<actor>]` (including
+`--entry <state>`), `gtd abandon`, and `gtd restore` — perform no git write when
+run. Instead, under `--json`, each one's output object carries two extra string
+fields, `required` and `optional`: bash scripts for YOU to execute. (Plain-text
+output, without `--json`, never shows these — it prints only the human-facing
+result line, e.g. `committed: <subject>`, so a plain-text caller never sees a
+script at all.) A driver that only prints gtd's plain-text output is not driving
+anything; to actually land a turn, run `gtd ... --json`, pull `required`/
+`optional` out with `jq`, and execute them.
+
+- **`required`** is everything that decides what lands in git — closing an open
+  review checkout window, the resting state's own steering-mode
+  `format:`/`validate:` commands, then the commit or squash itself (`gtd step`
+  and `gtd --entry <state>`), or the ref update and reset that undo a process
+  (`gtd abandon`, `gtd restore`). Run this one. Skipping it means the turn never
+  lands.
+- **`optional`** is presentation only: re-opening the review checkout window
+  (the `<<<<<<< HEAD` diff view) after a `gtd step` lands at a
+  `reviewWindow: true` state, so an editor's diff view has something to show.
+  Skip it and you lose nothing but that view — the workflow is still driven
+  correctly. `gtd abandon`/`gtd restore` always emit `optional: ""` (there is no
+  window to reopen after either).
+
+Either field may be the empty string `""`, meaning "nothing to do here" — a
+no-op `gtd step` (a clean tree matching no `on` pattern) emits
+`required: ""`/`optional: ""` and exits zero; run nothing and move on. Both
+scripts are self-contained (each carries its own precondition assert and retry
+helper) and safe to run standalone, in sequence, or not at all — paste either
+into a terminal and it does exactly what it says.
+
+### Failure taxonomy and recovery
+
+Two different things can go wrong, and they mean different things:
+
+- **`gtd` itself exits non-zero.** Nothing was attempted — this is a refusal (a
+  guard rejected the turn) or a usage error. No script was ever produced.
+- **An emitted script exits non-zero when YOU run it.** Something may have
+  partially happened — e.g. a `gtd_retry`-wrapped git write landed but a later
+  step in the same script failed.
+
+Recovery is the same in both cases: **re-invoke `gtd`.** It re-reads the real
+repository state fresh every time — never a cached plan — and emits whatever
+still needs to happen from there. This works because every emitted script opens
+by asserting its own precondition
+(`[ "$(git rev-parse HEAD)" = <expected> ] || { ...; exit 1; }`, and the same
+shape for a review window's saved ref — see `src/Emit.ts`'s
+`headAssertion`/`reviewWindowAssertion`), so a script generated against a
+repository state that has since moved refuses loudly instead of corrupting
+anything. **Emitted scripts are re-runnable**: this is the single most important
+property for a driver's recovery logic. Re-running a script that already fully
+applied is a no-op (its git writes are `--allow-empty` commits, idempotent ref
+updates, and tolerant staged-restore calls), and re-running one that only
+partially applied resumes correctly, because the precondition either still holds
+(nothing landed yet — safe to retry verbatim) or gtd's next invocation reads the
+new real state and emits a fresh script for what remains. A driver never needs
+its own retry/resume logic beyond "if the script failed, ask gtd again."
+
+### Prerequisites
+
+- **`jq`** — to pull the `required`/`optional` strings back out of gtd's
+  `--json` output.
+- **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one the
+  compiler fills in for the built-in `qa`/`review` formats) is literally the
+  string `gtd check <mode> '<file>'`, invoked by NAME from inside an emitted
+  script, not by absolute path (see `src/SteeringFormats.ts`'s
+  `seededValidateCommand`). This is a deliberate trade: a readable, overridable,
+  copy-pasteable command in exchange for depending on shell name resolution at
+  the moment the script runs. The sharp edge: if the `gtd` binary you invoked to
+  GENERATE the script differs from the `gtd` that resolves on `PATH` when the
+  script later RUNS (a locally-built dev binary vs. a globally-installed
+  release, say), you can get version skew between the two — the command that
+  validates may not be the command that decided. Keep the two in sync (one `gtd`
+  on `PATH`, consistently) if you care about that gap.
+
+### The normalization-only contract on `format:`
+
+A mode's `format:` command may reformat a steering file — whitespace, wrapping,
+reordering — but must NEVER change what a step-capture guard would decide. gtd's
+guards (the review sign-off check, the feedback-progress check, the
+answer-completeness check — `src/StepGuards.ts`) decide ONCE, against whichever
+bytes are on disk at the moment `gtd step` runs, which may be before OR after an
+emitted script's own `format:` line has run (the script runs `format:` then
+`validate:` then the commit — see `src/SteeringMode.ts`'s
+`renderSteeringCommands` — but gtd's decision and the driver's script execution
+are different processes at different times, so there's no guaranteed ordering
+between "gtd decided" and "the script formatted"). That's only safe because
+every built-in guard judges content, not incidental formatting (e.g. it
+normalizes `[ ]`/`[x]` checkboxes before comparing). If you plug in your own
+`format:` command, the same rule binds it: a formatter that also changes meaning
+— ticking a box, stripping a paragraph — makes the guard's decision and the
+file's actual content disagree, and gtd will not catch that for you.
+
+### Built-in steering formats are ordinary modes
+
+`qa` and `review` are gtd's two built-in steering-file formats (parsed and
+validated in-process because `gtd lsp` needs the same parsers for live
+diagnostics), but their `validate:` is not hardcoded or hidden: the compiler
+SEEDS every workflow's `modes:` map with `qa`/`review` entries whose `validate:`
+is the same `gtd check <mode> '<file>'` string described above
+(`src/PatternConfig.ts`, `src/SteeringFormats.ts`'s `seededValidateCommand`).
+That seeded command is visible in `gtd visualize`'s compiled model and in the
+editor JSON schema like any other mode, and it's overridable the same way any
+mode is — declare `modes: { qa: { validate: "your-own-command" } }` (in the
+workflow or in `.gtdrc`) and your command displaces the seed; declaring only a
+`format:` for `qa`/`review` composes with the seeded `validate:` rather than
+replacing it. There is no special-cased built-in behavior a driver needs to know
+about beyond the ordinary mode-resolution rules already documented under
+[The `workflow:` key](#the-workflow-key).
 
 ## Configuration
 
@@ -799,8 +926,8 @@ but `gtd lsp` never runs a shell command per keystroke, so live diagnostics
 become one `Information` notice pointing at `gtd validate` instead of the
 built-in findings. Any OTHER mode name — `prose` (used by the simple flow's plan
 file), or a project's own declared name — has no built-in format, so it gets no
-live editor support at all: `gtd validate` and the `gtd step` gate still format
-and validate it like any other mode.
+live editor support at all: `gtd validate`'s emitted script and the `gtd step`
+gate still format and validate it like any other mode.
 
 ## Development
 

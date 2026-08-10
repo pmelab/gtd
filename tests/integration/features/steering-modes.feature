@@ -344,7 +344,9 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd step agent
     Then it fails
-    And stderr contains "docs/adr.md is not valid at \"drafting\""
+    # The step's own required script runs the mode's validate command ahead of
+    # its commit, so the refusal IS that command's non-zero exit and output —
+    # nothing is committed.
     And stderr contains "an ADR needs a '## Decision' section"
     And the last commit subject is "gtd(human): drafting"
 
@@ -394,7 +396,9 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd step agent
     Then it fails
-    And stderr contains "docs/adr.md is not valid at \"drafting\""
+    # The step's own required script runs the mode's validate command ahead of
+    # its commit, so the refusal IS that command's non-zero exit and output —
+    # nothing is committed.
     And stderr contains "an ADR needs a '## Decision' section"
     And the last commit subject is "gtd(human): drafting"
 
@@ -483,7 +487,10 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd step agent
     Then it fails
-    And stderr contains "format command exited with status 3"
+    # `format:` comes first in the emitted script and the script runs under
+    # `set -e`, so a non-zero format exit stops it before the validate command
+    # or the commit is ever reached — and its status is the script's own.
+    And the exit code is 3
     And stderr contains "adr-fmt: cannot parse docs/adr.md"
     And the last commit subject is "gtd(human): drafting"
 
@@ -530,8 +537,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd step agent
     Then it fails
-    And stderr contains "format command exited with status 3"
+    # `format:` comes first in the emitted script and the script runs under
+    # `set -e`, so a non-zero format exit stops it before the validate command
+    # or the commit is ever reached.
+    And stderr contains "exited 3"
     And stderr contains "adr-fmt: cannot parse docs/adr.md"
+    And stderr does not contain "adr-validate-never-runs"
     And the last commit subject is "gtd(human): drafting"
 
   @live
@@ -810,3 +821,49 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "1 open question(s)"
     And stderr contains "not answered at \"answering\""
     And the last commit subject is "gtd(agent): answering"
+
+  @live
+  Scenario: a seeded validate: command's bare "gtd" resolves to the build under test
+    # SteeringFormats.ts's seededValidateCommand renders as the literal
+    # `gtd check <mode> '<file>'` — resolving `gtd` BY NAME off $PATH rather
+    # than by absolute path, trading PATH independence for readability. This
+    # proves the @live tier's PATH shim (world.ts's pathShimDir, wired up by
+    # hooks.ts's Before/After) makes that bare `gtd` resolve to THIS build
+    # under test, never a stray globally-installed gtd.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            validate: |
+              v=$(gtd version)
+              echo "path-shim: $v"
+              exit 1
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+      """
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains "path-shim:"
+    And stderr contains the gtd version under test

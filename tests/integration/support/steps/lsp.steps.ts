@@ -173,14 +173,22 @@ When("the LSP client sends an initialize request", async (world: GtdWorld) => {
   notify(client, "initialized", {})
 })
 
+// Shared by every "requests X for/in {file} containing:" step below: opens
+// `content` as `path` over `textDocument/didOpen` and returns its URI, so
+// each step only supplies the request that differs.
+function openDocument(client: LspClient, world: GtdWorld, path: string, content: string): string {
+  const uri = pathToFileURL(join(world.repoDir, path)).toString()
+  notify(client, "textDocument/didOpen", {
+    textDocument: { uri, languageId: "markdown", version: 1, text: content },
+  })
+  return uri
+}
+
 When(
   "the LSP client requests document symbols for {string} containing:",
   async (world: GtdWorld, path: string, content: string) => {
     const client = clients.get(world)!
-    const uri = pathToFileURL(join(world.repoDir, path)).toString()
-    notify(client, "textDocument/didOpen", {
-      textDocument: { uri, languageId: "markdown", version: 1, text: content },
-    })
+    const uri = openDocument(client, world, path, content)
     const response = await request(client, "textDocument/documentSymbol", {
       textDocument: { uri },
     })
@@ -192,10 +200,7 @@ When(
   "the LSP client requests a definition at line {int} in {string} containing:",
   async (world: GtdWorld, line: number, path: string, content: string) => {
     const client = clients.get(world)!
-    const uri = pathToFileURL(join(world.repoDir, path)).toString()
-    notify(client, "textDocument/didOpen", {
-      textDocument: { uri, languageId: "markdown", version: 1, text: content },
-    })
+    const uri = openDocument(client, world, path, content)
     const response = await request(client, "textDocument/definition", {
       textDocument: { uri },
       position: { line, character: 0 },
@@ -208,10 +213,7 @@ When(
   "the LSP client requests code actions at line {int} in {string} containing:",
   async (world: GtdWorld, line: number, path: string, content: string) => {
     const client = clients.get(world)!
-    const uri = pathToFileURL(join(world.repoDir, path)).toString()
-    notify(client, "textDocument/didOpen", {
-      textDocument: { uri, languageId: "markdown", version: 1, text: content },
-    })
+    const uri = openDocument(client, world, path, content)
     const response = await request(client, "textDocument/codeAction", {
       textDocument: { uri },
       range: {
@@ -313,11 +315,26 @@ Then(
   },
 )
 
+/** LSP `DiagnosticSeverity` values, named the way a scenario names them — `Warning` is what a built-in format's own live `validate` publishes (see `src/Lsp.ts`'s `toDiagnostic`); `Information` is the external-validator notice (`externalValidatorNotice`). */
+const DIAGNOSTIC_SEVERITY_BY_NAME: Readonly<Record<string, number>> = {
+  Error: 1,
+  Warning: 2,
+  Information: 3,
+  Hint: 4,
+}
+
 Then(
-  "the LSP client received a textDocument\\/publishDiagnostics notification for {string} with exactly one Information diagnostic containing {string}",
-  async (world: GtdWorld, path: string, substring: string) => {
+  "the LSP client received a textDocument\\/publishDiagnostics notification for {string} with exactly one {word} diagnostic containing {string}",
+  async (world: GtdWorld, path: string, severityName: string, substring: string) => {
     const client = clients.get(world)!
     const expectedUri = pathToFileURL(join(world.repoDir, path)).toString()
+    const expectedSeverity = DIAGNOSTIC_SEVERITY_BY_NAME[severityName]
+    assert.ok(
+      expectedSeverity !== undefined,
+      `Unknown diagnostic severity name "${severityName}" — expected one of ${Object.keys(
+        DIAGNOSTIC_SEVERITY_BY_NAME,
+      ).join(", ")}`,
+    )
     const notification = await waitForServerRequest(
       client,
       "textDocument/publishDiagnostics",
@@ -331,7 +348,7 @@ Then(
       1,
       `Expected exactly one diagnostic for "${path}". Got: ${JSON.stringify(diagnostics)}`,
     )
-    assert.strictEqual(diagnostics[0]!.severity, 3 /* DiagnosticSeverity.Information */)
+    assert.strictEqual(diagnostics[0]!.severity, expectedSeverity)
     assert.ok(
       diagnostics[0]!.message.includes(substring),
       `Expected the diagnostic message to contain "${substring}". Got: ${diagnostics[0]!.message}`,

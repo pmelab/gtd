@@ -1,6 +1,8 @@
 import { Before, After } from "quickpickle"
-import { rmSync } from "node:fs"
-import type { GtdWorld } from "./world.js"
+import { rmSync, mkdtempSync, writeFileSync, chmodSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { GTD_BIN, type GtdWorld } from "./world.js"
 import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 
 // Scrub every inherited GIT_* and GTD_LOOP_* var from the test process's
@@ -33,6 +35,25 @@ for (const key of Object.keys(process.env)) {
   if (key.startsWith("GIT_") || key.startsWith("GTD_LOOP_")) delete process.env[key]
 }
 
+// A seeded steering-mode validate: command (`SteeringFormats.ts`'s
+// `seededValidateCommand`) is the literal template `gtd check <mode> <file>`
+// — readable at the cost of resolving `gtd` by NAME off `$PATH`, rather than
+// by an absolute path. Nothing guarantees a `gtd` on the host's PATH at all
+// (a dev machine may have none), and even if one exists it may be a stale
+// global install — either way, running the seeded command for real against
+// whatever `bin/gtd`/`gtd.bundle.mjs` happens to be on PATH would silently
+// test the wrong binary. This shim makes `gtd` resolve to THIS build's own
+// bundle for the whole live-tier subprocess tree (the spawned gtd process
+// itself, and anything IT shells out to, e.g. CommandRunner.Live's `bash -c`
+// running a mode's validate: command).
+function createPathShim(): string {
+  const dir = mkdtempSync(join(tmpdir(), "gtd-path-shim-"))
+  const shim = join(dir, "gtd")
+  writeFileSync(shim, `#!/usr/bin/env bash\nexec node "${GTD_BIN}" "$@"\n`)
+  chmodSync(shim, 0o755)
+  return dir
+}
+
 /**
  * Detect tier from scenario tags. Exactly one of `@live`/`@inmem` is required
  * on every scenario (directly or inherited from its feature) — the tier tag
@@ -55,24 +76,33 @@ Before(async (world: GtdWorld) => {
   if (live) {
     world.tier = "live"
     world.repo = undefined
+    world.pathShimDir = createPathShim()
   } else {
     world.tier = "inmem"
     world.repo = new InMemRepo()
   }
 })
 
-After(async (world: GtdWorld) => {
-  // In-memory tier: just drop the reference — no temp dir to clean up.
-  if (world.tier === "inmem") {
-    world.repo = undefined
-    return
-  }
-
-  // Live tier: remove the temp repo dir (and any purpose-built ancestor dir).
+// Live tier: remove the temp repo dir (and any purpose-built ancestor dir),
+// honoring KEEP_TEST_REPO — then always remove the PATH shim dir regardless
+// (it's harness scaffolding, not part of the test repo KEEP_TEST_REPO is for).
+function cleanupLiveTier(world: GtdWorld): void {
   const keep = process.env["KEEP_TEST_REPO"] === "1"
   const dirs = [world.repoDir, world.extraCleanupDir].filter(Boolean) as string[]
   for (const dir of dirs) {
     if (keep) process.stderr.write(`Test repo preserved at: ${dir}\n`)
     else rmSync(dir, { recursive: true, force: true })
   }
+  if (world.pathShimDir !== undefined) {
+    rmSync(world.pathShimDir, { recursive: true, force: true })
+    world.pathShimDir = undefined
+  }
+}
+
+After(async (world: GtdWorld) => {
+  if (world.tier === "inmem") {
+    world.repo = undefined
+    return
+  }
+  cleanupLiveTier(world)
 })

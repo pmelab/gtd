@@ -5,6 +5,7 @@ import {
   currentRun,
   planEntry,
   planStep,
+  renderDecision,
   reviewBaseFor,
   resolveRestFrom,
   renderRest,
@@ -13,8 +14,23 @@ import {
   type RestRequirements,
 } from "./Edge.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
+import {
+  commitAll,
+  commitAsIs,
+  discardPending,
+  shellQuote,
+  softResetTo,
+  updateRef,
+} from "./GitScript.js"
+import { HISTORY_REF, withHistoryTrailer } from "./RetainedHistory.js"
+import { fakeGitOperations } from "./testing/GitDoubles.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { testLayers } from "./testing/Layers.js"
+
+// The review checkout window's saved-head ref — duplicated here for the same
+// reason `Edge.ts` duplicates it from `ReviewWindow.ts` rather than importing
+// it (see `Edge.ts`'s own `REVIEW_HEAD_REF` doc comment).
+const REVIEW_HEAD_REF = "refs/worktree/gtd/review-head"
 
 /**
  * Coverage for `src/Edge.ts`'s public surface, driven through `InMemRepo` +
@@ -747,6 +763,153 @@ describe("planEntry", () => {
     const after = await provide(currentRest, repo)
     expect(after.state).toBe("fixing")
     expect(after.vars.base).toBe("custom")
+  })
+})
+
+// ── renderDecision + the plan's `scripts` field — render/perform equivalence ─
+
+describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
+  it("a commit decision renders to one commitAll(withCostTrailer(...)) line, byte-identical to what perform commits", async () => {
+    const repo = seededStepRepo()
+    repo.writeFile("README.md", "edited\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest, "human", { cost: 7, model: "haiku" }), repo)
+    if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
+      throw new Error("expected a commit plan")
+    }
+
+    // Direct call — `renderDecision` never reads `RestRequirements`, only the
+    // `GitOperations` it's handed, so it needs no `provide`.
+    const git = fakeGitOperations(repo)
+    const steps = await Effect.runPromise(
+      renderDecision(git, rest, plan.decision, rest.context, 7, "haiku"),
+    )
+    const expectedMessage = `${plan.decision.subject}\n\nGtd-Cost: 7 haiku`
+    expect(steps).toEqual([{ kind: "gitWrite", command: commitAll(expectedMessage) }])
+
+    // The plan's assembled `scripts.required` carries the SAME line, wrapped
+    // in the retry helper — proving Part B's assembly agrees with Part A's
+    // renderer, not just a hand-built comparison.
+    expect(plan.scripts.required).toContain(shellQuote(commitAll(expectedMessage)))
+
+    const outcome = await provide(plan.perform, repo)
+    expect(outcome).toEqual({ kind: "commit", subject: plan.decision.subject })
+    expect(repo.lastCommitMessage()).toBe(expectedMessage)
+  })
+
+  it("a squash decision's assembled script emits retain-history, soft-reset, commit-as-is, and discard-pending in order, with resolved hashes inlined, agreeing with what perform writes", async () => {
+    const repo = seededStepRepo()
+    repo.commitAllWithPrefix("gtd(human): working")
+    repo.writeFile("PLAN.md", "the plan\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest, "agent"), repo)
+    if (plan.kind !== "squash") throw new Error("expected a squash plan")
+
+    const tip = repo.resolveRef("HEAD")! // the pre-squash tip both render and perform resolve
+    const startParent = rest.run.startParentHash
+    expect(tip).not.toBe(startParent) // retain-history must fire, not be skipped
+
+    const expectedMessage = withHistoryTrailer("chore: accepted accepted", tip)
+    const script = plan.scripts.required
+    const retainIdx = script.indexOf(shellQuote(updateRef(HISTORY_REF, tip)))
+    const resetIdx = script.indexOf(shellQuote(softResetTo(startParent)))
+    const commitAsIsIdx = script.indexOf(shellQuote(commitAsIs(expectedMessage)))
+    const discardIdx = script.indexOf(shellQuote(discardPending()))
+
+    expect(retainIdx).toBeGreaterThan(-1)
+    expect(resetIdx).toBeGreaterThan(retainIdx)
+    expect(commitAsIsIdx).toBeGreaterThan(resetIdx)
+    expect(discardIdx).toBeGreaterThan(commitAsIsIdx)
+
+    const outcome = await provide(plan.perform, repo)
+    expect(outcome).toEqual({ kind: "squash", subject: "chore: accepted accepted" })
+    expect(repo.lastCommitMessage()).toBe(expectedMessage)
+  })
+
+  it("a commit-template render failure yields an EMPTY script, matching perform's own refusal", async () => {
+    const repo = seededStepRepo()
+    repo.commitAllWithPrefix("gtd(human): broken-entry") // irrelevant boundary
+    repo.hardResetTo(repo.resolveRef("HEAD~1")!) // back to a clean boundary at idle
+    repo.commitAllWithPrefix("gtd(agent): broken")
+    repo.writeFile("BROKEN.md", "x\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest, "agent"), repo)
+    expect(plan.kind).toBe("squash")
+    if (plan.kind !== "squash") throw new Error("expected a squash plan")
+
+    expect(plan.scripts.required).toBe("")
+    expect(plan.scripts.optional).toBe("")
+
+    const exit = await provideExit(plan.perform, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("planEntry's scripts field carries a single commitAll(message) line matching what perform commits", async () => {
+    const repo = seededStepRepo()
+    repo.writeFile("NOTES.md", "draft\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(
+      planEntry(rest, "human", {
+        state: "fixing",
+        commandLabel: "gtd test",
+        vars: { base: "custom" },
+      }),
+      repo,
+    )
+    if (plan.kind !== "entry") throw new Error("expected an entry plan")
+
+    const expectedMessage = "gtd(human): fixing\n\nGtd-Var: base=custom"
+    expect(plan.scripts.required).toContain(shellQuote(commitAll(expectedMessage)))
+
+    const outcome = await provide(plan.perform, repo)
+    expect(outcome).toEqual({ kind: "entry", state: "fixing", subject: "gtd(human): fixing" })
+    expect(repo.lastCommitMessage()).toBe(expectedMessage)
+  })
+})
+
+// ── restAt — window-aware read (Part C) ──────────────────────────────────────
+
+describe("restAt — the review checkout window's saved-head ref as HEAD", () => {
+  it("currentRest resolves against the window's saved head — state, trace, and startParentHash all follow it", async () => {
+    const { repo, boundary } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(human): grilling")
+    const grilling = repo.resolveRef("HEAD")!
+    repo.commitAllWithPrefix("gtd(agent): building")
+    const building = repo.resolveRef("HEAD")!
+
+    // Simulate an OPEN review checkout window exactly as `openReviewWindow`
+    // leaves it: the saved-head ref pins the real pre-window HEAD, while real
+    // HEAD itself has been rewound (`git reset --mixed`) to an earlier commit.
+    repo.updateRef(REVIEW_HEAD_REF, building)
+    repo.mixedResetTo(grilling)
+
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("building")
+    expect(rest.run.trace.map((e) => e.state)).toEqual(["grilling", "building"])
+    expect(rest.run.startParentHash).toBe(boundary)
+  })
+
+  it("falls through to today's exact behavior (real HEAD) when no window ref exists", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(human): grilling")
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("grilling")
+    expect(rest.run.trace.map((e) => e.state)).toEqual(["grilling"])
+  })
+
+  it("restAt(ref) — visualize's own call pattern — never consults the window ref", async () => {
+    const { repo, boundary } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(human): grilling")
+    const grilling = repo.resolveRef("HEAD")!
+    repo.commitAllWithPrefix("gtd(agent): building")
+    const building = repo.resolveRef("HEAD")!
+    repo.updateRef(REVIEW_HEAD_REF, building)
+    repo.mixedResetTo(grilling)
+
+    // Even with a window ref recorded, an EXPLICIT ref resolves at that ref,
+    // exactly as before this package — this path is deliberately untouched.
+    const atBoundary = await provide(restAt(boundary), repo)
+    expect(atBoundary.state).toBe("idle")
   })
 })
 

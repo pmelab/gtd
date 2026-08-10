@@ -50,6 +50,7 @@ export type Command =
   | { readonly kind: "next" }
   | { readonly kind: "status" }
   | { readonly kind: "validate" }
+  | { readonly kind: "check"; readonly mode: string; readonly file: string }
 
 export type CliPlan =
   | { readonly kind: "output"; readonly stdout: string }
@@ -230,7 +231,7 @@ const flagByToken = (token: string): FlagRow | undefined => {
 // Command table
 // ---------------------------------------------------------------------------
 
-type Arity = "none" | { readonly name: string }
+type Arity = "none" | { readonly name: string } | { readonly names: readonly [string, string] }
 
 interface CommandRow {
   readonly token: string
@@ -317,9 +318,14 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     kind: "validate",
     arity: "none",
     details: [
-      "Format and validate the steering file the resolved rest",
-      "declares, with its mode's commands (its file:/mode:);",
-      "exits non-zero with the findings when it is invalid",
+      "Print the script that formats (when declared) then",
+      "validates the resolved rest's steering file, using its",
+      "mode's commands (its file:/mode:), instead of running it —",
+      "a driver runs the script and reads the findings from its",
+      "own exit code/output. Always exits 0; --json emits",
+      '{state, file?, mode?, script} (script is "" when there is',
+      'nothing to validate; plain text prints "nothing to',
+      'validate" in that case)',
     ],
   },
   {
@@ -336,6 +342,20 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "Serve an interactive diagram of the active workflow on a",
       "local web server (--port <n>, --no-open; --json prints the",
       "model and exits)",
+    ],
+  },
+  {
+    token: "check",
+    kind: "check",
+    arity: { names: ["mode", "file"] },
+    details: [
+      "Read <file> and run the built-in steering format named",
+      "<mode> (see `gtd validate`'s modes: qa, review) over its",
+      "contents, printing each finding one per line and exiting",
+      "non-zero when there are any. Resolves no workflow state and",
+      "reads no config — standalone, runnable from any directory",
+      "with <mode>/<file> given explicitly. This is what a",
+      "workflow's emitted validation script invokes as a leaf step",
     ],
   },
 ]
@@ -406,7 +426,12 @@ const flagHeader = (row: FlagRow): string => {
 
 export const renderHelp = (): string => {
   const commandBlocks = COMMAND_ROWS.map((row) => {
-    const header = row.arity === "none" ? row.token : `${row.token} <${row.arity.name}>`
+    const header =
+      row.arity === "none"
+        ? row.token
+        : "names" in row.arity
+          ? `${row.token} <${row.arity.names[0]}> <${row.arity.names[1]}>`
+          : `${row.token} <${row.arity.name}>`
     return renderBlock(header, row.details)
   })
   const commands =
@@ -414,7 +439,7 @@ export const renderHelp = (): string => {
     commandBlocks[0] + // init
     commandBlocks[1] + // step
     ENTRY_SHORT_FORM +
-    commandBlocks.slice(2).join("") + // abandon..visualize
+    commandBlocks.slice(2).join("") + // abandon..check
     VERSION_BLOCK +
     HELP_BLOCK
 
@@ -556,6 +581,18 @@ const arityError = (cmd: string, rest: readonly string[], arity: Arity): string 
       ? `gtd ${cmd}: too many arguments — expected none, got: ${rest.join(", ")}`
       : undefined
   }
+  if ("names" in arity) {
+    const [first, second] = arity.names
+    if (rest.length < 2) {
+      return rest.length === 0
+        ? `gtd ${cmd}: missing ${first} and ${second} arguments`
+        : `gtd ${cmd}: missing ${second} argument`
+    }
+    if (rest.length > 2) {
+      return `gtd ${cmd}: too many arguments — expected ${first} and ${second}, got: ${rest.join(", ")}`
+    }
+    return undefined
+  }
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
   if (rest.length > 1) {
     return `gtd ${cmd}: too many arguments — expected one ${arity.name}, got: ${rest.join(", ")}`
@@ -696,6 +733,14 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return {
       kind: "command",
       command: { kind: "visualize", port: bag["--port"] ?? 0, open: !(bag["--no-open"] ?? false) },
+      json,
+    }
+  }
+
+  if (kind === "check") {
+    return {
+      kind: "command",
+      command: { kind: "check", mode: restPositionals[0]!, file: restPositionals[1]! },
       json,
     }
   }

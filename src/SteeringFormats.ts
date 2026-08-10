@@ -24,3 +24,20 @@ export const builtInModeNames = (): readonly string[] => [...STEERING_FORMATS.ke
 /** The built-in `SteeringFormat` named `mode`, or `undefined` when `mode` names no built-in. */
 export const steeringFormatFor = (mode: string): SteeringFormat | undefined =>
   STEERING_FORMATS.get(mode)
+
+/**
+ * The literal (unrendered) Eta template a workflow compiler seeds as a
+ * built-in mode's own `validate:` command — quoted so a file path containing
+ * spaces survives `renderModeCommand`'s interpolation.
+ */
+export const seededValidateCommand = (mode: string): string => `gtd check ${mode} '<%= it.file %>'`
+
+/**
+ * True when `command` is EXACTLY `mode`'s own seeded template string — a
+ * literal comparison against the declared template, never a rendered
+ * command, so recognition doesn't depend on which file the mode is applied
+ * to. Lets a later mode resolver tell gtd's own seeding apart from a user's
+ * hand-written override of the same mode.
+ */
+export const isSeededValidateCommand = (mode: string, command: string): boolean =>
+  command === seededValidateCommand(mode)

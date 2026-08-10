@@ -11,7 +11,7 @@ import {
 } from "./PatternMachine.js"
 import { CONTENT_FIELDS, STATE_FIELDS, STATE_FIELD_ENTRIES, type FieldKind } from "./StateFields.js"
 import { flattenMachines, type InstancePath, type MachineNode } from "./Machines.js"
-import { builtInModeNames } from "./SteeringFormats.js"
+import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
 
 /**
  * The v3 `.gtdrc` `workflow:` config compiler. This
@@ -84,11 +84,13 @@ import { builtInModeNames } from "./SteeringFormats.js"
  * `ConfigService` compiles through this module's `compileModesMap` and hands
  * back in as `rcModes`, merged per half by `mergeModes`. Underneath BOTH layers
  * this compiler seeds `src/SteeringFormats.ts`'s built-in registry names (`qa`/
- * `review`) as empty entries, so every compiled definition's `modes` map always
- * carries them and a workflow never has to declare them just to use gtd's own
- * validators — resolution of the merged map against the registry (whether a
- * declared `validate:` displaces a format's own parser) is the edge's job
- * (`src/SteeringMode.ts`), not this compiler's.
+ * `review`) with that module's own `seededValidateCommand(name)` template as
+ * their `validate:`, so every compiled definition's `modes` map always carries
+ * a usable `validate:` command for them and a workflow never has to declare
+ * them just to use gtd's own validators — a workflow (or `.gtdrc`) may still
+ * override either half per name, and `src/SteeringFormats.ts`'s
+ * `isSeededValidateCommand` lets the edge (`src/SteeringMode.ts`) tell gtd's
+ * own seeding apart from a genuine user override.
  *
  * ## File references
  *
@@ -977,7 +979,9 @@ export const compileWorkflowConfig = (
   }
 
   const vars = compileVarsMap(raw.vars, errors)
-  const seeded = Object.fromEntries(builtInModeNames().map((name) => [name, {}]))
+  const seeded = Object.fromEntries(
+    builtInModeNames().map((name) => [name, { validate: seededValidateCommand(name) }]),
+  )
   // `mergeModes` is `undefined` only when BOTH arguments are — `seeded` never
   // is, so this merge (and the one layering `rcModes` over it) always resolves.
   const modes = mergeModes(mergeModes(seeded, compileModesMap(raw.modes, errors)), rcModes)!

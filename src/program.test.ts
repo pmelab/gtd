@@ -18,6 +18,8 @@ import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { renderInitConfig } from "./workflows/templates.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { makeCapturingCliIo } from "./testing/cliIo.js"
+import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
+import { commitAll, shellQuote } from "./GitScript.js"
 
 /** Runs `args` through the real CLI shell (`runCli`) against an in-memory repo, returning the captured stdout/stderr/exit code — the same shape `tests/integration/support/world.ts`'s `@inmem` tier observes. */
 const run = async (
@@ -74,14 +76,29 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
     return repo
   }
 
-  it("the happy path writes one turn commit resting at the entered state", async () => {
+  it("the happy path previews the resulting subject and emits a required script — gtd itself writes nothing", async () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
     const { stdout, exitCode } = await run(repo, "step", "human", "--entry", "side-entry")
     expect(exitCode).toBe(0)
     expect(stdout).toContain("committed: gtd(human): side-entry")
-    expect(repo.commitHistory()).toHaveLength(before + 1)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): side-entry")
+    // `gtd step --entry` is now a pure emitter — no commit lands until the
+    // external driver runs the printed script.
+    expect(repo.commitHistory()).toHaveLength(before)
+
+    const { stdout: jsonOut, exitCode: jsonExit } = await run(
+      repo,
+      "step",
+      "human",
+      "--entry",
+      "side-entry",
+      "--json",
+    )
+    expect(jsonExit).toBe(0)
+    const parsed = JSON.parse(jsonOut) as { subject: string; required: string }
+    expect(parsed.subject).toBe("gtd(human): side-entry")
+    expect(parsed.required).toContain(shellQuote(commitAll("gtd(human): side-entry")))
+    expect(repo.commitHistory()).toHaveLength(before)
   })
 
   it("--entry naming an undeclared state refuses, listing every enterable state", async () => {
@@ -125,9 +142,10 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
     expect(stderr).toContain("greeting")
   })
 
-  it("a declared --var override is recorded as a Gtd-Var trailer on the entry commit", async () => {
+  it("a declared --var override renders as a Gtd-Var trailer in the emitted commit script", async () => {
     const repo = seededRepo()
-    const { exitCode } = await run(
+    const before = repo.commitHistory().length
+    const { exitCode, stdout } = await run(
       repo,
       "step",
       "human",
@@ -135,27 +153,32 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
       "side-entry",
       "--var",
       "greeting=world",
+      "--json",
     )
     expect(exitCode).toBe(0)
-    const message = repo.commitHistory().at(-1)!.message
-    expect(message).toContain("Gtd-Var: greeting=world")
+    const parsed = JSON.parse(stdout) as { required: string }
+    expect(parsed.required).toContain("Gtd-Var: greeting=world")
+    expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("a dirty working tree is CAPTURED, not refused (commitAllWithPrefix, unlike the old commitAsIs-based gtd review/gtd fix)", async () => {
+  it("a dirty working tree does not refuse entry — the emitted script would capture it (commitAll, unlike the old commitAsIs-based gtd review/gtd fix)", async () => {
     const repo = seededRepo()
     repo.writeFile("scratch.txt", "uncommitted\n")
     const before = repo.commitHistory().length
-    const { exitCode } = await run(repo, "step", "human", "--entry", "side-entry")
+    const { exitCode, stdout } = await run(repo, "step", "human", "--entry", "side-entry", "--json")
     expect(exitCode).toBe(0)
-    expect(repo.commitHistory()).toHaveLength(before + 1)
+    const parsed = JSON.parse(stdout) as { required: string }
+    expect(parsed.required.length).toBeGreaterThan(0)
+    expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("the subcommand-less short form `gtd --entry <state>` dispatches as human", async () => {
+  it("the subcommand-less short form `gtd --entry <state>` dispatches as human, emitting the same script", async () => {
     const repo = seededRepo()
-    const { stdout, exitCode } = await run(repo, "--entry", "side-entry")
+    const { stdout, exitCode } = await run(repo, "--entry", "side-entry", "--json")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("committed: gtd(human): side-entry")
-    expect(repo.lastCommitSubject()).toBe("gtd(human): side-entry")
+    const parsed = JSON.parse(stdout) as { subject: string; required: string }
+    expect(parsed.subject).toBe("gtd(human): side-entry")
+    expect(parsed.required).toContain(shellQuote(commitAll("gtd(human): side-entry")))
   })
 })
 
@@ -172,7 +195,7 @@ describe("gtd step <actor> --entry <state> — the bundled unified template", ()
     return repo
   }
 
-  it("--entry review-gate.check --var reviewBase=<base> starts a review process anchored to that base", async () => {
+  it("--entry review-gate.check --var reviewBase=<base> emits a script that would start a review process anchored to that base", async () => {
     // review-gate.check declares a template-form `reviewBase:` (fixing the
     // whole process's diff base) — entering it requires a `--var
     // reviewBase=<commitish>` that resolves to an ancestor of HEAD distinct
@@ -191,21 +214,32 @@ describe("gtd step <actor> --entry <state> — the bundled unified template", ()
       "review-gate.check",
       "--var",
       `reviewBase=${base}`,
+      "--json",
     )
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("committed: gtd(human): review-gate.check")
-    expect(repo.commitHistory()).toHaveLength(before + 1)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): review-gate.check")
+    const parsed = JSON.parse(stdout) as { subject: string; required: string }
+    expect(parsed.subject).toBe("gtd(human): review-gate.check")
+    expect(parsed.required).toContain("gtd(human): review-gate.check")
+    expect(parsed.required).toContain(`Gtd-Review-Base: ${base}`)
+    expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("--entry fix-precheck starts a fix process at the template's own fix-entry state", async () => {
+  it("--entry fix-precheck emits a script that would start a fix process at the template's own fix-entry state", async () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(repo, "step", "human", "--entry", "fix-precheck")
+    const { stdout, exitCode } = await run(
+      repo,
+      "step",
+      "human",
+      "--entry",
+      "fix-precheck",
+      "--json",
+    )
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("committed: gtd(human): fix-precheck")
-    expect(repo.commitHistory()).toHaveLength(before + 1)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): fix-precheck")
+    const parsed = JSON.parse(stdout) as { subject: string; required: string }
+    expect(parsed.subject).toBe("gtd(human): fix-precheck")
+    expect(parsed.required).toContain("gtd(human): fix-precheck")
+    expect(repo.commitHistory()).toHaveLength(before)
   })
 })
 
@@ -472,9 +506,20 @@ describe("gtd next — refuses when HEAD names a state the current workflow no l
   it("`gtd abandon` itself still works for a renamed-away rest — the escape hatch it points to must not refuse right alongside everything else", async () => {
     const repo = seededRepoAt("gtd(agent): renamedAway")
     const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(repo, "abandon")
+
+    // Plain text keeps today's friendly wording (abandon now EMITS its
+    // mutation instead of performing it, so this call alone changes nothing).
+    const plain = await run(repo, "abandon")
+    expect(plain.exitCode).toBe(0)
+    expect(plain.stdout).toContain('abandoned the process resting at "renamedAway"')
+    expect(repo.commitHistory()).toHaveLength(before)
+
+    // Applying the emitted required script is what actually performs it.
+    const { stdout, exitCode } = await run(repo, "abandon", "--json")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain('abandoned the process resting at "renamedAway"')
+    const { required } = JSON.parse(stdout) as { required: string }
+    const applied = applyEmittedScript(repo, new Map(), required)
+    expect(applied.ok).toBe(true)
     expect(repo.commitHistory()).toHaveLength(before - 1)
   })
 })
@@ -522,9 +567,162 @@ describe("gtd step — StepPayload.processTrace still receives plain state names
     repo.commitAllWithPrefix("gtd(human): looping")
     repo.writeFile("src/fix.ts", "export const x = 1\n")
 
-    const { exitCode } = await run(repo, "step", "agent")
+    const { stdout, exitCode } = await run(repo, "step", "agent", "--json")
     expect(exitCode).toBe(0)
+    const { required } = JSON.parse(stdout) as { required: string }
+    const applied = applyEmittedScript(repo, new Map(), required)
+    expect(applied.ok).toBe(true)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): looping → idle")
+  })
+})
+
+describe("gtd check <mode> <file>", () => {
+  // Fully standalone (needsOf("check") === "none") — no config, no commit, no
+  // git state at all is required; the file just needs to exist in the
+  // in-memory worktree. Sample valid/invalid content mirrors
+  // OpenQuestions.test.ts's `questionsDoc`/`malformed` and
+  // ReviewDoc.test.ts's `reviewDoc`.
+
+  const validQaDoc = [
+    "# Plan",
+    "",
+    "## Open Questions",
+    "",
+    "### Which operations?",
+    "",
+    "add and subtract.",
+    "",
+    "## Answered Questions",
+    "",
+    "### What is the target platform?",
+    "",
+    "web only.",
+    "",
+  ].join("\n")
+
+  const invalidQaDoc = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
+
+  const validReviewDoc = [
+    "# Review: abc1234",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Add calculator",
+    "",
+    "- [x] ./src/calc.ts#1",
+    "",
+  ].join("\n")
+
+  const invalidReviewDoc = "Just some text\n"
+
+  const bareRepo = (): InMemRepo => new InMemRepo()
+
+  it("exits 0 with no output for valid qa content", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", validQaDoc)
+    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("exits 0 with no output for valid review content", async () => {
+    const repo = bareRepo()
+    repo.writeFile("REVIEW.md", validReviewDoc)
+    const { stdout, exitCode } = await run(repo, "check", "review", "REVIEW.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("invalid qa content prints each finding one per line and exits non-zero", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", invalidQaDoc)
+    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
+    expect(exitCode).toBe(1)
+    expect(stdout.trim().split("\n")).toEqual([
+      "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+    ])
+  })
+
+  it("invalid review content prints each finding one per line and exits non-zero", async () => {
+    const repo = bareRepo()
+    repo.writeFile("REVIEW.md", invalidReviewDoc)
+    const { stdout, exitCode } = await run(repo, "check", "review", "REVIEW.md")
+    expect(exitCode).toBe(1)
+    const lines = stdout.trim().split("\n")
+    expect(lines).toContain(
+      "Missing or malformed '# Review: <hash>' header as the document's first line",
+    )
+    expect(lines).toContain("Missing '<!-- base: <hash> -->' comment")
+    expect(lines).toContain("REVIEW.md has no '##' chunks")
+  })
+
+  it("an absent file exits 0 with no output", async () => {
+    const repo = bareRepo()
+    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("an unknown mode is a usage-style error naming the known modes", async () => {
+    const repo = bareRepo()
+    repo.writeFile("TODO.md", validQaDoc)
+    const { stderr, exitCode } = await run(repo, "check", "bogus", "TODO.md")
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain('unknown mode "bogus"')
+    expect(stderr).toContain("qa")
+    expect(stderr).toContain("review")
+  })
+
+  it("--json reports {valid: true, errors: []} for valid content", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", validQaDoc)
+    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md", "--json")
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout.trim().split("\n")[0]!)).toEqual({ valid: true, errors: [] })
+  })
+
+  it("--json reports {valid: true, errors: []} for an absent file", async () => {
+    const repo = bareRepo()
+    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md", "--json")
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout.trim().split("\n")[0]!)).toEqual({ valid: true, errors: [] })
+  })
+
+  it("--json reports {valid: false, errors} for invalid content, still exiting non-zero", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", invalidQaDoc)
+    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md", "--json")
+    expect(exitCode).toBe(1)
+    expect(JSON.parse(stdout.trim().split("\n")[0]!)).toEqual({
+      valid: false,
+      errors: [
+        "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+      ],
+    })
+  })
+
+  it("--json invalid content emits stdout as TWO newline-delimited JSON documents: the body, then Cli.ts's generic error envelope", async () => {
+    // `runCheckCommand` writes its own {valid,errors} body before failing the
+    // Effect; `Cli.ts`'s single envelope writer ALSO puts a {state:"error",prompt}
+    // object on stdout for any failing --json invocation — so this handler is
+    // the one command whose --json stdout is line-delimited JSON, not a single
+    // document. Pinned here because the first-line-only reads above wouldn't
+    // notice a regression on the second line.
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", invalidQaDoc)
+    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md", "--json")
+    expect(exitCode).toBe(1)
+    const lines = stdout.trim().split("\n")
+    expect(lines).toHaveLength(2)
+    expect(JSON.parse(lines[0]!)).toEqual({
+      valid: false,
+      errors: [
+        "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+      ],
+    })
+    expect(JSON.parse(lines[1]!)).toEqual({
+      state: "error",
+      prompt: 'gtd check: .gtd/TODO.md is not valid under mode "qa" (1 finding(s))',
+    })
   })
 })
 

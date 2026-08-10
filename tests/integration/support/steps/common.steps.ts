@@ -1,10 +1,13 @@
 import { Given, Then, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
 import { writeFileSync, mkdirSync } from "node:fs"
+import { createRequire } from "node:module"
 import { join } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 import { createTestProject } from "../../helpers/project-setup.js"
+
+const _require = createRequire(import.meta.url)
 
 // ── Repo / branch setup ──────────────────────────────────────────────────────
 
@@ -250,6 +253,17 @@ Then("stderr contains {string}", (world: GtdWorld, text: string) => {
   assert.ok(
     world.lastResult.stderr.includes(text),
     `Expected stderr to contain "${text}". Got:\n${world.lastResult.stderr}`,
+  )
+})
+
+// Reads package.json's own `version` at run time (same technique as
+// Cli.ts's GTD_VERSION) rather than a literal string, so this assertion
+// doesn't go stale across semantic-release bumps.
+Then("stderr contains the gtd version under test", (world: GtdWorld) => {
+  const { version } = _require("../../../../package.json") as { version: string }
+  assert.ok(
+    world.lastResult.stderr.includes(version),
+    `Expected stderr to contain the gtd version under test (${version}). Got:\n${world.lastResult.stderr}`,
   )
 })
 

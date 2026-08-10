@@ -21,11 +21,22 @@ import {
 } from "node:fs"
 import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
-import { execSync } from "node:child_process"
+import { execSync, execFileSync } from "node:child_process"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GitService, type GitOperations } from "../Git.js"
+import {
+  commitAll,
+  commitAsIs,
+  softResetTo,
+  mixedResetTo,
+  hardResetTo,
+  discardPending,
+  updateRef,
+  deleteRef,
+  restoreStagedFrom,
+} from "../GitScript.js"
 import { ConfigService } from "../Config.js"
 import { Cwd } from "../Cwd.js"
 import type { WorkflowDefinition } from "../PatternMachine.js"
@@ -507,6 +518,17 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       expect(addTwo?.touched).toEqual(expect.arrayContaining(["a.txt", "b.txt"]))
       expect(removeA?.touched).toEqual(["a.txt"])
     })
+
+    it("reads through an explicit head ref instead of literal HEAD when given one", async () => {
+      t.seed.commit("feat: second", { "b.txt": "b" })
+      const earlierHead = t.observe.resolveRef("HEAD")
+      // Moves real HEAD forward — a `head` argument must stop the walk at
+      // `earlierHead` instead, proving the read goes through the given ref
+      // rather than the literal `HEAD` the git CLI would default to.
+      t.seed.commit("feat: third", { "c.txt": "c" })
+      const result = await runGit(t, (g) => g.commitHistory(undefined, earlierHead))
+      expect(result.map((c) => c.message)).toEqual(["init: first commit", "feat: second"])
+    })
   })
 
   describe("commitAllWithPrefix", () => {
@@ -733,6 +755,165 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       const result = await runGitExit(t, (g) => g.commitAllWithPrefix("gtd(test): capture"))
       expect(Exit.isSuccess(result)).toBe(true)
       expect(t.observe.resolveRef("HEAD")).not.toBe(undefined)
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
+// The GitScript contract — real bash, real git, no GitOperations port at all
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs a `GitScript.ts` builder's output through a REAL shell against `t.root`
+ * — the same execution model the eventual driver uses (`bash -c <script>`),
+ * so a builder that's syntactically fine but semantically wrong (a missing
+ * `&&`, a misquoted path) fails here exactly as it would in production.
+ */
+const execScript = (t: GitTier, script: string): void => {
+  execFileSync("bash", ["-c", script], { cwd: t.root, stdio: "pipe" })
+}
+
+/** Names touched by HEAD's own commit — `git show`'s diff against its parent, not the whole tree. */
+const headTouchedPaths = (t: GitTier): ReadonlyArray<string> =>
+  gitExecIn(t.root, "show", "--name-only", "--pretty=format:", "HEAD")
+    .split("\n")
+    .filter((line) => line.length > 0)
+
+const headSubject = (t: GitTier): string => gitExecIn(t.root, "log", "-1", "--pretty=%s")
+
+/**
+ * The SAME 9 writer postconditions `runGitServiceContract` asserts against
+ * `GitOperations`, asserted here against `GitScript.ts`'s bash builders
+ * instead — driven through real `bash` against a real repo (`makeLiveTier`),
+ * never the in-memory fake, since a fake root (`/repo`) has no shell to run
+ * against. Proves the script translation preserves every edge case the doc
+ * comments in `GitScript.ts` call out, not just the happy path.
+ */
+export const runGitScriptContract = (): void => {
+  let t: GitTier
+
+  beforeEach(() => {
+    t = makeLiveTier()
+  })
+
+  afterEach(() => {
+    t.dispose()
+  })
+
+  describe("commitAll", () => {
+    it("stages (git add -A) before committing — a new untracked file lands in the commit", () => {
+      t.seed.writeFile("new.ts", "export const x = 1")
+      const headBefore = t.observe.resolveRef("HEAD")
+      execScript(t, commitAll("gtd: building"))
+      expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
+      expect(headSubject(t)).toBe("gtd: building")
+      expect(headTouchedPaths(t)).toEqual(["new.ts"])
+      expect(t.observe.statusPorcelain().trim()).toBe("")
+    })
+
+    it("commits even on a clean tree (--allow-empty), never 'nothing to commit'", () => {
+      const headBefore = t.observe.resolveRef("HEAD")
+      execScript(t, commitAll("gtd: grilled"))
+      expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
+      expect(headSubject(t)).toBe("gtd: grilled")
+    })
+  })
+
+  describe("commitAsIs", () => {
+    it("does NOT stage — a worktree write after staging is excluded (the squash mechanic)", () => {
+      t.seed.writeFile("a.txt", "a")
+      t.seed.stageAll()
+      t.seed.writeFile("b.txt", "b")
+      execScript(t, commitAsIs("feat: squash"))
+      expect(headSubject(t)).toBe("feat: squash")
+      expect(headTouchedPaths(t)).toEqual(["a.txt"])
+    })
+
+    it("commits even on a clean index (--allow-empty), never 'nothing to commit'", () => {
+      const headBefore = t.observe.resolveRef("HEAD")
+      execScript(t, commitAsIs("gtd: empty squash"))
+      expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
+      expect(headSubject(t)).toBe("gtd: empty squash")
+    })
+  })
+
+  describe("softResetTo", () => {
+    it("moves HEAD back but keeps worktree changes from the second commit", () => {
+      const firstHash = t.observe.resolveRef("HEAD")
+      t.seed.commit("feat: second", { "second.txt": "second content" })
+      execScript(t, softResetTo(firstHash))
+      expect(t.observe.resolveRef("HEAD")).toBe(firstHash)
+      expect(t.observe.statusPorcelain()).toContain("second.txt")
+    })
+  })
+
+  describe("hardResetTo", () => {
+    it("moves HEAD, index, and working tree content back to the target ref", () => {
+      const firstHash = t.observe.resolveRef("HEAD")
+      t.seed.commit("feat: second", { "readme.txt": "modified content" })
+      execScript(t, hardResetTo(firstHash))
+      expect(t.observe.resolveRef("HEAD")).toBe(firstHash)
+      expect(t.observe.statusPorcelain()).toBe("")
+      expect(t.observe.readWorktreeFile("readme.txt")).toBe("hello")
+    })
+  })
+
+  describe("mixedResetTo", () => {
+    it("moves HEAD and index, leaving the working tree untouched", () => {
+      const firstHash = t.observe.resolveRef("HEAD")
+      t.seed.commit("feat: second", { "second.txt": "second content" })
+      execScript(t, mixedResetTo(firstHash))
+      expect(t.observe.resolveRef("HEAD")).toBe(firstHash)
+      expect(t.observe.statusPorcelain()).toContain("second.txt")
+    })
+  })
+
+  describe("discardPending", () => {
+    it("drops both tracked modifications and untracked files", () => {
+      t.seed.writeFile("readme.txt", "modified")
+      t.seed.writeFile("untracked.txt", "new")
+      execScript(t, discardPending())
+      expect(t.observe.statusPorcelain()).toBe("")
+    })
+  })
+
+  describe("updateRef / deleteRef", () => {
+    it("updateRef points a ref at a commit", () => {
+      const head = t.observe.resolveRef("HEAD")
+      execScript(t, updateRef("refs/gtd/marker", head))
+      expect(t.observe.refExists("refs/gtd/marker")).toBe(true)
+      expect(t.observe.resolveRef("refs/gtd/marker")).toBe(head)
+    })
+
+    it("deleteRef removes an existing ref, and tolerates deleting it again", () => {
+      const head = t.observe.resolveRef("HEAD")
+      execScript(t, updateRef("refs/gtd/marker", head))
+      execScript(t, deleteRef("refs/gtd/marker"))
+      execScript(t, deleteRef("refs/gtd/marker"))
+      expect(t.observe.refExists("refs/gtd/marker")).toBe(false)
+    })
+
+    it("deleteRef tolerates a ref that was never created", () => {
+      expect(() => execScript(t, deleteRef("refs/gtd/never-created"))).not.toThrow()
+      expect(t.observe.refExists("refs/gtd/never-created")).toBe(false)
+    })
+  })
+
+  describe("restoreStagedFrom", () => {
+    it("pins the index for the given paths back to source, leaving HEAD/worktree untouched", () => {
+      const base = t.observe.resolveRef("HEAD")
+      t.seed.commit("feat: touch plumbing", { ".gtd/TODO.md": "sketch" })
+      const beforeHead = t.observe.resolveRef("HEAD")
+      execScript(t, restoreStagedFrom(base, [".gtd"]))
+      expect(t.observe.resolveRef("HEAD")).toBe(beforeHead)
+      // Present at HEAD, absent from `base` — pinning to `base` surfaces as a
+      // staged deletion, mirroring `restoreStagedFrom`'s existing port test.
+      expect(t.observe.statusPorcelain()).toContain(".gtd/TODO.md")
+    })
+
+    it("is tolerant of a path absent at source (best-effort plumbing pin)", () => {
+      const base = t.observe.resolveRef("HEAD")
+      expect(() => execScript(t, restoreStagedFrom(base, [".gtd/never-existed"]))).not.toThrow()
     })
   })
 }

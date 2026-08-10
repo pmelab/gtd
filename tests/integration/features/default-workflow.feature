@@ -340,13 +340,16 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
 
       - [ ] ./src/thing.ts#1
       """
-    Given the file ".gtd/REVIEW.md" is deleted
+    Given I record the commit count
+    And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step human
     Then it fails
     And stderr contains "was deleted"
-    # Nothing committed — the refusal re-arms the review window, so the process
-    # stays at the gate for the reviewer to restore + tick.
-    And the git ref "refs/worktree/gtd/review-head" exists
+    # Nothing committed, and a refusal emits no script at all — the process
+    # stays at the gate for the reviewer to restore + tick. (What a refusal
+    # does to an OPEN review window is review-window.feature's subject; no
+    # step has landed at the gate here, so there is none.)
+    And the commit count is unchanged
 
   Scenario: stepping at await-review with a box still unticked and no comment is refused — finish reviewing first
     Given a test project
@@ -372,11 +375,12 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       - [x] ./src/a.ts#1
       - [ ] ./src/b.ts#1
       """
+    And I record the commit count
     When I run gtd step human
     Then it fails
     And stderr contains "still unticked and no comment"
-    # Nothing committed — the window re-arms, keeping the reviewer at the gate.
-    And the git ref "refs/worktree/gtd/review-head" exists
+    # Nothing committed — the reviewer stays at the gate.
+    And the commit count is unchanged
 
   Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
     Given a test project

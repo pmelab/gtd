@@ -2,11 +2,11 @@
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
   gtd v3 exposes `init`, `step <actor>` (with `--entry <state>`), `abandon`,
-  `restore`, `next`, `status`, `validate`, `lsp`, `visualize`, `version`, and
-  `help` as its subcommands. Bare `gtd` (no subcommand) is a usage error unless
-  `--entry <state>` is given. `--help`/`help` and `--version`/`version`
-  short-circuit before any repo-state work and exit 0 everywhere, including
-  outside a workflow state.
+  `restore`, `next`, `status`, `validate`, `check <mode> <file>`, `lsp`,
+  `visualize`, `version`, and `help` as its subcommands. Bare `gtd` (no
+  subcommand) is a usage error unless `--entry <state>` is given. `--help`/
+  `help` and `--version`/`version` short-circuit before any repo-state work
+  and exit 0 everywhere, including outside a workflow state.
 
   Scenario: Bare gtd fails with usage help and authors nothing
     Given a test project
@@ -53,6 +53,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout contains "abandon"
     And stdout contains "next"
     And stdout contains "visualize"
+    And stdout contains "check <mode> <file>"
     And stdout does not contain "review <commitish>"
 
   Scenario: --version prints the version and exits 0

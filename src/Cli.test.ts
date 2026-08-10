@@ -264,6 +264,54 @@ describe("parseArgv — the --entry selector", () => {
   })
 })
 
+describe("parseArgv — gtd check <mode> <file>", () => {
+  it("parses to a check command carrying mode and file", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "qa", ".gtd/TODO.md"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "check", mode: "qa", file: ".gtd/TODO.md" })
+      expect(plan.json).toBe(false)
+    }
+  })
+
+  it("--json is in scope for check", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "review", "REVIEW.md", "--json"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") expect(plan.json).toBe(true)
+  })
+
+  it("missing both arguments is a usage error naming mode and file", () => {
+    const plan = parseArgv(["node", "gtd.js", "check"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("missing mode and file arguments")
+    }
+  })
+
+  it("missing the file argument (mode only) is a usage error naming file", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "qa"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("missing file argument")
+    }
+  })
+
+  it("too many arguments is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "qa", "TODO.md", "extra"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("too many arguments")
+      expect(plan.message).toContain("extra")
+    }
+  })
+
+  it("a scoped-out flag (e.g. --cost) is rejected on check", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "qa", "TODO.md", "--cost=5"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd step`")
+  })
+})
+
 describe("parseArgv — help/version short-circuits", () => {
   it("--help produces an output plan", () => {
     expect(parseArgv(["node", "gtd.js", "--help"]).kind).toBe("output")
@@ -317,12 +365,13 @@ describe("parseArgv — removed subcommands", () => {
 })
 
 describe("standaloneKinds / needsOf", () => {
-  it("pins the three standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "init", "visualize"])
+  it("pins the four standalone kinds", () => {
+    expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check"])
   })
 
   it("needsOf matches none/fs/config for the standalone kinds and state for everything else", () => {
     expect(needsOf("lsp")).toBe("none")
+    expect(needsOf("check")).toBe("fs")
     expect(needsOf("init")).toBe("fs")
     expect(needsOf("visualize")).toBe("config")
     for (const kind of [
@@ -354,6 +403,7 @@ describe("renderHelp", () => {
     expect(help).toContain("validate")
     expect(help).toContain("lsp")
     expect(help).toContain("visualize")
+    expect(help).toContain("check <mode> <file>")
     expect(help).toContain("version")
     expect(help).toContain("help")
     expect(help).toContain("--json")
