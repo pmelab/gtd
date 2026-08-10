@@ -856,6 +856,37 @@ const nextPlainOutput = (
     : base
 }
 
+/** What a dispatched `prompt` beat resolves beyond the rendered rest itself. `session` is `sessionId`/`resume` ready-made; `stalled` is the armed/consumed beat marker's verdict. The undispatched (peek) shape is `NOT_DISPATCHED`. */
+interface DispatchedBeat {
+  readonly session: { readonly sessionId: string; readonly resume: boolean } | undefined
+  readonly stalled: boolean
+}
+
+const NOT_DISPATCHED: DispatchedBeat = { session: undefined, stalled: false }
+
+/**
+ * The two driver-scoped writes a dispatched `prompt` beat performs — ONLY
+ * `gtd next --json --dispatch` reaches here (never plain `gtd next --json`,
+ * which is polled/peeked): resolving (possibly minting) the prompt session —
+ * see src/Sessions.ts's own doc comment — and arming/consuming the beat
+ * marker — see `BeatMarker.ts`'s module doc comment. `script`/`message` beats
+ * never touch either (decision: only a `prompt` beat's no-change turn is
+ * invisible to the machine).
+ */
+const resolveDispatchedBeat = (
+  rest: Rest,
+  rendered: RenderedRest,
+): Effect.Effect<DispatchedBeat, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const session = yield* resolveSession(rendered.memory)
+    const stalled = yield* resolveDispatch({
+      state: rendered.state,
+      content: hashContent(rendered.content),
+      head: rest.context.currentCommit,
+    })
+    return { session, stalled }
+  })
+
 const runNextCommand = (
   json: boolean,
   dispatch: boolean,
@@ -876,29 +907,14 @@ const runNextCommand = (
             rest.context,
           ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
         : undefined
-    // `--dispatch` claims this beat is being handed to an executor, so ONLY
-    // it (never plain `gtd next --json`, which is polled/peeked) performs the
-    // two driver-scoped writes: resolving (possibly minting) the prompt
-    // session — see src/Sessions.ts's own doc comment — and arming/consuming
-    // the beat marker — see `BeatMarker.ts`'s module doc comment.
-    // `script`/`message` beats never touch either (decision: only a `prompt`
-    // beat's no-change turn is invisible to the machine).
-    const session =
+    const beat =
       json && dispatch && rendered.kind === "prompt"
-        ? yield* resolveSession(rendered.memory)
-        : undefined
-    const stalled =
-      json && dispatch && rendered.kind === "prompt"
-        ? yield* resolveDispatch({
-            state: rendered.state,
-            content: hashContent(rendered.content),
-            head: rest.context.currentCommit,
-          })
-        : false
+        ? yield* resolveDispatchedBeat(rest, rendered)
+        : NOT_DISPATCHED
     const log = yield* loopLogPath
     write(
       json
-        ? nextJsonOutput(rendered, log, session, stalled)
+        ? nextJsonOutput(rendered, log, beat.session, beat.stalled)
         : nextPlainOutput(rendered, selfValidateCommand),
     )
   })
