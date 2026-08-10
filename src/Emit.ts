@@ -24,14 +24,18 @@ export interface EmittedScripts {
 
 export interface EmitPreconditions {
   /**
-   * The HEAD the deciding read resolved. OMITTED for a script that is meant
-   * to run AFTER another one already moved HEAD — the `optional` half of a
-   * step that commits and then opens a review window is the one such case:
-   * its own expected HEAD is the commit the `required` half is about to
-   * create, a hash no one can know at decide time. Asserting the pre-commit
-   * hash there would fail the open every single time. Nothing is lost by
-   * omitting it: the open script is presentation-only, re-runnable, and
-   * resolves `HEAD` itself at run time.
+   * The HEAD the deciding read resolved. `""` means the deciding read saw a
+   * repository with NO commits yet — `rest.context.currentCommit`'s own
+   * convention for that case, passed straight through rather than translated
+   * into a hash that stands in for it (an empty tree is a tree, not a commit;
+   * there is no real HEAD to pin to). OMITTED (`undefined`) for a script that
+   * is meant to run AFTER another one already moved HEAD — the `optional`
+   * half of a step that commits and then opens a review window is the one
+   * such case: its own expected HEAD is the commit the `required` half is
+   * about to create, a hash no one can know at decide time. Asserting the
+   * pre-commit hash there would fail the open every single time. Nothing is
+   * lost by omitting it: the open script is presentation-only, re-runnable,
+   * and resolves `HEAD` itself at run time.
    */
   readonly expectedHead?: string
   readonly reviewWindow?: { readonly ref: string; readonly expectedHash: string }
@@ -63,14 +67,29 @@ export type EmitStep =
  * string-compare this exact shape, the same "call the real builder, never
  * hand-copy its template" discipline it already applies to every
  * `GitScript.ts` builder.
+ *
+ * The probe is `git rev-parse --verify --quiet HEAD 2>/dev/null`, not the
+ * bare `git rev-parse HEAD` a born repo's assertion could get away with —
+ * load-bearing, not cosmetic: against an UNBORN HEAD (a repository with no
+ * commits), the bare form prints the literal string `HEAD` to stdout (plus a
+ * `fatal:` line to stderr) and exits 128, so `"$(git rev-parse HEAD)"` reads
+ * as `"HEAD"`, never `""`, and an `expectedHead === ""` comparison could
+ * never pass. `--verify --quiet` makes an unborn HEAD read back as an empty
+ * string instead — the same idiom `reviewWindowAssertion` already uses for a
+ * missing ref — so `[ "$(…)" = '' ]` is simply the unborn case of the same
+ * comparison every born repo already runs; only the `printf` wording
+ * branches on it, to avoid naming a hash that doesn't exist.
  */
 export const headAssertion = (expectedHead: string): string => {
   const q = shellQuote(expectedHead)
-  return (
-    `[ "$(git rev-parse HEAD)" = ${q} ] || ` +
-    `{ printf 'gtd: repository changed since this script was generated ` +
-    `(expected HEAD %s) — re-run gtd\\n' ${q} >&2; exit 1; }`
-  )
+  const probe = `[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = ${q} ] || `
+  return expectedHead === ""
+    ? probe +
+        `{ printf 'gtd: repository changed since this script was generated ` +
+        `(expected a repository with no commits yet) — re-run gtd\\n' >&2; exit 1; }`
+    : probe +
+        `{ printf 'gtd: repository changed since this script was generated ` +
+        `(expected HEAD %s) — re-run gtd\\n' ${q} >&2; exit 1; }`
 }
 
 /**

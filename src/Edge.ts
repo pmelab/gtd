@@ -1139,13 +1139,14 @@ export const renderDecision = (
 /**
  * The `EmitPreconditions` a step's/entry's assembled scripts assert against:
  * `expectedHead` is the resolved HEAD hash the `Rest` snapshot was already
- * taken at (`rest.context.currentCommit`, falling back to `EMPTY_TREE` for a
- * commit-less repo — there is no real HEAD hash to pin to yet). When
- * `targetState` declares `reviewWindow: true` AND a window is currently open
- * (`REVIEW_HEAD_REF` resolves), the script also pins the window's saved-head
- * hash — a later run whose window has since closed or moved must re-decide
- * rather than trust a stale script. No window, or a non-review-window
- * target, carries no `reviewWindow` precondition at all.
+ * taken at — `rest.context.currentCommit`, passed straight through, `""`
+ * included (its own convention for "no commits yet", which `headAssertion`
+ * now understands natively). When `targetState` declares `reviewWindow: true`
+ * AND a window is currently open (`REVIEW_HEAD_REF` resolves), the script also
+ * pins the window's saved-head hash — a later run whose window has since
+ * closed or moved must re-decide rather than trust a stale script. No window,
+ * or a non-review-window target, carries no `reviewWindow` precondition at
+ * all.
  */
 const buildPreconditions = (
   git: GitOperations,
@@ -1153,7 +1154,7 @@ const buildPreconditions = (
   targetState: StateName,
 ): Effect.Effect<EmitPreconditions, Error> =>
   Effect.gen(function* () {
-    const expectedHead = rest.context.currentCommit !== "" ? rest.context.currentCommit : EMPTY_TREE
+    const expectedHead = rest.context.currentCommit
     if (!isReviewWindowState(rest.def, targetState)) {
       return { expectedHead }
     }

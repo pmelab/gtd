@@ -252,9 +252,18 @@ parse_subject() {
 # when it reported at least one; returns non-zero (having emitted nothing,
 # and leaving $reported_head unchanged) when there were no new commits. Global
 # rather than per-beat so the review checkout window's HEAD rewinds between
-# beats never cause an already-reported commit to replay.
+# beats never cause an already-reported commit to replay. $reported_head ==
+# "none" (the repo had no commits at all when it was last captured) can't
+# form a "none"..HEAD range — `git rev-list` would fail resolving "none" as a
+# revision — so that case walks the whole history from the root instead.
 report_commits() {
   local sha subject files reported=0
+  local range
+  if [[ "$reported_head" == none ]]; then
+    range="HEAD"
+  else
+    range="$reported_head..HEAD"
+  fi
   while IFS= read -r sha; do
     [[ -z "$sha" ]] && continue
     reported=1
@@ -265,7 +274,7 @@ report_commits() {
       transition) emit_transition "$S_FROM" "$S_TO" "$files" ;;
       capture | squash) emit_commit "$subject" "$files" ;;
     esac
-  done < <(git rev-list --reverse "$reported_head"..HEAD)
+  done < <(git rev-list --reverse "$range")
   if [[ "$reported" == 1 ]]; then
     reported_head="$(git rev-parse HEAD)"
   fi
@@ -640,7 +649,7 @@ run_agent_turn() {
 # its own comment) — a global high-water mark rather than a per-beat
 # head_before, so a review checkout window's HEAD rewind between beats never
 # causes an already-printed transition to replay.
-reported_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
+reported_head="$(git rev-parse --verify --quiet HEAD || echo none)"
 
 # Opening move: capture the human's pending edit so gtd-loop is the ONLY command
 # a human runs. A human acts at a gate by editing files (a plan answer, a review
@@ -667,7 +676,7 @@ Run \`gtd status\` to inspect the repo."
 fi
 peek_kind="$(jq -r .kind <<<"$peek_json")"
 if [[ "$peek_kind" == "message" ]]; then
-  opening_head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  opening_head_before="$(git rev-parse --verify --quiet HEAD || echo none)"
   if ! step_out="$(run_gtd_command step human 2>&1)"; then
     emit_error "could not capture your changes at the human gate:
 $step_out
@@ -678,7 +687,7 @@ Fix the reported issue and re-run gtd-loop."
   # This branch reports nothing — advance the marker past whatever was just
   # (silently) captured so the first loop-body beat below doesn't newly
   # print it.
-  reported_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  reported_head="$(git rev-parse --verify --quiet HEAD || echo none)"
   if [[ "$once_mode" == 1 && "$opening_head_before" != "$reported_head" ]]; then
     exit 0
   fi
@@ -755,7 +764,7 @@ Run \`gtd status\` to inspect the repo."
   # stall from a return lap back into the same state (e.g. checking ->
   # fixing): a static prompt looks identical to last time, but a commit
   # landed in between, so HEAD has moved and this isn't a stall.
-  cur_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  cur_head="$(git rev-parse --verify --quiet HEAD || echo none)"
   if [[ "$state" == "$prev_state" && "$content" == "$prev_content" && "$cur_head" == "$prev_head" ]]; then
     next_out="$(run_gtd next 2>&1)" || true
     emit_error "no progress at '$state' — the agent's last turn changed nothing. Stopping to avoid spinning.

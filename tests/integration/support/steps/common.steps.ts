@@ -1,7 +1,8 @@
 import { Given, Then, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
-import { writeFileSync, mkdirSync } from "node:fs"
+import { writeFileSync, mkdirSync, mkdtempSync } from "node:fs"
 import { createRequire } from "node:module"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
@@ -24,6 +25,24 @@ Given("a test project", (world: GtdWorld) => {
   } else {
     world.repoDir = createTestProject()
   }
+})
+
+// The unborn-HEAD case "a test project" deliberately doesn't cover: no
+// initial commit at all, so `git rev-parse HEAD` has nothing to resolve.
+// Inmem: the Before hook's `new InMemRepo()` is already commit-less — nothing
+// to seed. Live: `git init` plus the author identity `commit --allow-empty`
+// needs, and nothing else.
+Given("a git repository with no commits", (world: GtdWorld) => {
+  if (world.tier === "inmem") {
+    world.repoDir = "/inmem"
+    return
+  }
+  const dir = mkdtempSync(join(tmpdir(), "gtd-test-unborn-"))
+  execFileSync("git", ["init", "-q"], { cwd: dir })
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+  execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir })
+  execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
+  world.repoDir = dir
 })
 
 // ── Working-tree file edits (uncommitted) ────────────────────────────────────
