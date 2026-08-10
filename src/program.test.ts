@@ -491,29 +491,41 @@ describe("gtd next --json / gtd status — memory key emission", () => {
 
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-  it("gtd next --json mints a fresh sessionId for a prompt rest, resume: false", async () => {
+  it("gtd next --json --dispatch mints a fresh sessionId for a prompt rest, resume: false", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "next", "--json")
+    const { stdout, exitCode } = await run(repo, "next", "--json", "--dispatch")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed.sessionId).toMatch(UUID)
     expect(parsed.resume).toBe(false)
   })
 
-  it("gtd next --json resumes the SAME sessionId once a step has confirmed it", async () => {
+  it("gtd next --json --dispatch resumes the SAME sessionId once a step has confirmed it", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const first = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    const first = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
+      string,
+      unknown
+    >
     const { exitCode: stepExit } = await run(repo, "step", "agent")
     expect(stepExit).toBe(0)
-    const second = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    const second = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
+      string,
+      unknown
+    >
     expect(second.sessionId).toBe(first.sessionId)
     expect(second.resume).toBe(true)
   })
 
-  it("two gtd next --json calls with no step in between mint DIFFERENT ids, both resume: false", async () => {
+  it("two dispatched next calls with no step in between mint DIFFERENT ids, both resume: false", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const first = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
-    const second = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    const first = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
+      string,
+      unknown
+    >
+    const second = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
+      string,
+      unknown
+    >
     expect(first.sessionId).not.toBe(second.sessionId)
     expect(first.resume).toBe(false)
     expect(second.resume).toBe(false)
@@ -528,9 +540,16 @@ describe("gtd next --json / gtd status — memory key emission", () => {
     expect(parsed).not.toHaveProperty("resume")
   })
 
+  it("plain gtd next --json (no --dispatch) omits sessionId/resume even at a prompt rest", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const peek = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    expect(peek).not.toHaveProperty("sessionId")
+    expect(peek).not.toHaveProperty("resume")
+  })
+
   it("gtd next --json omits sessionId/resume for a non-prompt rest", async () => {
     const repo = seededRepoAt(workflowNonPrompt, "gtd(human): checking")
-    const { stdout, exitCode } = await run(repo, "next", "--json")
+    const { stdout, exitCode } = await run(repo, "next", "--json", "--dispatch")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("sessionId")
@@ -907,6 +926,7 @@ describe("gtd step <actor> --if-resting", () => {
       subject: null,
       required: "",
       optional: "",
+      settled: false,
     })
     expect(repo.resolveRef("HEAD")).toBe(before)
   })
@@ -1247,13 +1267,16 @@ describe("gtd step --json — the settled signal", () => {
     return repo
   }
 
-  it("a clean tree at the script rest is settled, with an empty required script", async () => {
+  it("a clean tree at the script rest is settled, with a print-only required script", async () => {
     const repo = seededRepo("gtd(check): checking")
     const { stdout, exitCode } = await run(repo, "step", "check", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
     expect(parsed.settled).toBe(true)
-    expect(parsed.required).toBe("")
+    // A genuine no-op still emits the outcome-printing script (gtd#165) — no
+    // git write, just the `nothing to do at "<state>"` line.
+    expect(parsed.required).toContain("nothing to do")
+    expect(parsed.required).not.toContain("git commit")
   })
 
   it("a clean tree at a prompt rest is not settled — that's a stall, not a terminal state", async () => {

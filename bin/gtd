@@ -289,6 +289,16 @@ fi
 
 if [[ $# -gt 0 && "$1" != "loop" ]]; then
   if is_write_command "${1:-}"; then
+    # An EXPLICIT --json from the caller passes through raw: they are asking
+    # for the driver contract (`required`/`optional` scripts to execute
+    # themselves — see README "Writing your own driver"), not for this script
+    # to execute on their behalf. Without it, this script is the executor.
+    for a in "$@"; do
+      if [[ "$a" == "--json" ]]; then
+        run_gtd "$@"
+        exit $?
+      fi
+    done
     run_gtd_command "$@"
     exit $?
   fi

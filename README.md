@@ -431,19 +431,19 @@ scopes.
 and the pending diff never see it), not a single "last" value: this is what lets
 a scope's session survive an excursion into a child machine's own agent turn
 (the child writes its own row; the parent's row is untouched). Only
-`gtd next --json` ever mints or resumes an id — plain `gtd next` and
-`gtd status --json` stay strictly read-only peeks, so calling `next --json` more
-than once per beat (a driver's own opening peek, a custom loop) can never poison
-a beat with an id nobody dispatched: a row starts `fresh` and only becomes
-resumable once `gtd step <actor>` confirms the dispatch for that same actor.
-`gtd next --json` reports the resolved id as `sessionId` plus whether it is
-being resumed as `resume`, and the loop driver (`bin/gtd`) maps both straight
-onto the agent adapter's own session flags, exported as `$GTD_LOOP_SESSION_ID`
-and `$GTD_LOOP_MEMORY_RESUME` (`"1"` when resuming) alongside `$GTD_LOOP_MEMORY`
-(the key). If the remembered session no longer exists (retention expired,
-`~/.claude/projects` wiped, a machine change), there is no more automatic
-recovery — delete `$(git rev-parse --git-dir)/gtd-loop-memory` and restart the
-loop.
+`gtd next --json --dispatch` ever mints or resumes an id — plain
+`gtd next [--json]` and `gtd status --json` stay strictly read-only peeks, so
+peeking (a driver's own opening peek, a status poll, a curious human) can never
+poison a beat with an id nobody dispatched: a row starts `fresh` and only
+becomes resumable once `gtd step <actor>` confirms the dispatch for that same
+actor. The dispatched `next --json --dispatch` reports the resolved id as
+`sessionId` plus whether it is being resumed as `resume`, and the loop driver
+(`bin/gtd`) maps both straight onto the agent adapter's own session flags,
+exported as `$GTD_LOOP_SESSION_ID` and `$GTD_LOOP_MEMORY_RESUME` (`"1"` when
+resuming) alongside `$GTD_LOOP_MEMORY` (the key). If the remembered session no
+longer exists (retention expired, `~/.claude/projects` wiped, a machine change),
+there is no more automatic recovery — delete
+`$(git rev-parse --git-dir)/gtd-loop-memory` and restart the loop.
 
 ### Terminal-multiplexer status: a herdr wrapper
 
@@ -490,10 +490,10 @@ env -u HERDR_PANE_ID gtd "$@"
 rc=$?
 
 # Whose turn is it now? `gtd status --json` is a strictly read-only peek —
-# unlike `gtd next --json`, which mints/resumes an agent session at a prompt
-# rest, so peeking with it here would burn a session id for nothing. A human
-# actor means gtd is waiting on you; anything else means the run ended with
-# nothing owed.
+# every gtd command is, except `gtd next --json --dispatch` (which
+# mints/resumes an agent session at a prompt rest) and the emitted scripts a
+# driver runs. A human actor means gtd is waiting on you; anything else means
+# the run ended with nothing owed.
 actor="$(gtd status --json 2>/dev/null | jq -r '.actor // ""' 2>/dev/null || true)"
 
 if [ "$rc" -ne 0 ] || [ -z "$actor" ] || [ "$actor" = human ]; then
@@ -596,6 +596,66 @@ by stopping at the next `kind: "message"` rest. A no-op at a `prompt` rest is
 NOT settled — an agent that was asked to act and produced nothing is a stall, a
 driver's own concern, not this flag's. Declaring a `C` edge on a `script` state
 is the workflow-side way to make the state advance instead of settling.
+
+### A complete minimal driver
+
+Everything above compresses into a loop small enough to paste from this README
+and own outright — swap the `claude` line for any agent CLI and it keeps
+working. This is the whole protocol; `bin/gtd` adds only presentation (heartbeat
+lines, log tailing hints, inline failure replay) on top of it.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The bundle plans; this executes. Emitted scripts print their own outcomes.
+gtd_do() {
+  local json
+  json="$(gtd "$@" --json)" || return 1
+  bash -c "$(jq -r '.required // empty' <<<"$json")" || return $?
+  bash -c "$(jq -r '.optional // empty' <<<"$json")" ||
+    echo "warn: presentation follow-up failed — continuing" >&2
+  GTD_STEP_JSON="$json"
+}
+
+gtd_do step human --if-resting # capture your pending edit, or resume
+
+while :; do
+  next="$(gtd next --json --dispatch)" || exit 1
+  kind="$(jq -r .kind <<<"$next")"
+  log="$(jq -r .log <<<"$next")"
+  jq -e '.stalled // false' <<<"$next" >/dev/null &&
+    { echo "stalled at $(jq -r .state <<<"$next") — stopping" >&2; exit 1; }
+  case "$kind" in
+    message) jq -r .content <<<"$next"; exit 0 ;;
+    script) bash -c "$(jq -r .content <<<"$next")" >>"$log" 2>&1 || true ;;
+    prompt)
+      sid="$(jq -r '.sessionId // empty' <<<"$next")"
+      [ "$(jq -r '.resume // false' <<<"$next")" = true ] &&
+        sf="--resume $sid" || sf="--session-id $sid"
+      model="$(jq -r '.model // empty' <<<"$next")"
+      claude -p "$(jq -r .content <<<"$next")" $sf ${model:+--model "$model"} \
+        --dangerously-skip-permissions >>"$log" 2>&1
+      v="$(gtd validate --json | jq -r '.script // empty')" n=0
+      while [ -n "$v" ] && ! out="$(bash -c "$v" 2>&1)"; do
+        n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\n' "$out" >&2; exit 1; }
+        claude -p "$out" --resume "$sid" --dangerously-skip-permissions \
+          >>"$log" 2>&1 # $out IS the fix prompt, verbatim
+      done ;;
+  esac
+  gtd_do step "$(jq -r .actor <<<"$next")" || exit 1
+  jq -e .settled <<<"$GTD_STEP_JSON" >/dev/null && exit 0
+done
+```
+
+Line by line it is the protocol described above: the unconditional
+`--if-resting` opening capture; one dispatched `next` per beat (`.stalled`
+guarding against a spinning agent); `message` halts, `script` runs in the
+driver, `prompt` goes to the agent with gtd's own `sessionId`/`resume` mapped
+onto the agent's session flags; the validate script's output re-prompted
+verbatim on failure (the driver owns only the retry cap); and every landed turn
+executed — and reported — by the emitted scripts themselves, with `.settled`
+ending a run that has nothing left to do.
 
 ### The self-validation gate
 
