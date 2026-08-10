@@ -652,10 +652,10 @@ describe("planStep", () => {
     // Resolves back at idle, the entry commit rewound rather than piled on.
     const after = await provide(currentRest, repo)
     expect(after.state).toBe("idle")
-    // The collapse branch lands no commit, so its script prints no outcome —
-    // no `gtd_report_*` call, and no OUTCOME_PREAMBLE pulled in for it.
-    expect(plan.scripts.required).not.toContain("gtd_report_")
-    expect(plan.scripts.required).not.toContain(
+    // The collapse branch lands no commit, so it reports itself via a plain
+    // note rather than a commit report — there is no commit to list files for.
+    expect(plan.scripts.required).toContain("gtd_report_note")
+    expect(plan.scripts.required).toContain(
       "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",
     )
   })

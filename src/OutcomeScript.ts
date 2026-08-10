@@ -46,6 +46,13 @@ const FMT_RESTORED =
 /** `nothing to do at "<state>"` — a no-op step's plain-text line, and the text a print-only script's `gtd_report_note` carries. */
 export const noopText = (state: string): string => renderFormat(FMT_NOOP, state)
 
+/** The initial-state collapse's own line — no commit landed, HEAD was rewound
+ *  to the process's start parent. Trailing newline, exactly like `noopText`:
+ *  printed verbatim by `program.ts` and via `noteOutcome`/`gtd_report_note` by
+ *  the emitted script. */
+export const COLLAPSED_TEXT =
+  "nothing to retain — rewound to the commit before the process started\n"
+
 /** `no gtd process is underway (resting at "<initial>") — nothing to abandon` — `gtd abandon`'s no-op plain-text line. */
 export const abandonNoopText = (initial: string): string => renderFormat(FMT_ABANDON_NOOP, initial)
 

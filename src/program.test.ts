@@ -1296,4 +1296,63 @@ describe("gtd step --json — the settled signal", () => {
     expect(parsed.settled).toBe(false)
     expect(parsed.required).not.toBe("")
   })
+
+  // Identical to SETTLED_WORKFLOW, but "checking" also declares a "C": idle
+  // row — adding that row to SETTLED_WORKFLOW itself would turn its own no-op
+  // tests above into commits, so the collapse gets its own workflow constant.
+  const COLLAPSE_WORKFLOW = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": checking',
+    "        checking:",
+    "          actor: check",
+    "          script: run-checks",
+    "          on:",
+    '            "A OUT.txt": idle',
+    '            "C": idle',
+    "",
+  ].join("\n")
+
+  const seededCollapseRepo = (lastCommitSubject: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", COLLAPSE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix(lastCommitSubject)
+    return repo
+  }
+
+  it("a clean tree at `checking` after an empty commit collapses back to idle — reported settled, no commit", async () => {
+    const repo = seededCollapseRepo("gtd(check): checking")
+    const { stdout, exitCode } = await run(repo, "step", "check", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
+    expect(parsed.settled).toBe(true)
+    expect(parsed.required).toContain("git reset --mixed")
+    expect(parsed.required).toContain("nothing to retain")
+    expect(parsed.required).not.toContain("git commit")
+  })
+
+  it("the same rest with a pending change that retains something is not settled — proves it's the rewind, not the target state, that settles", async () => {
+    const repo = seededCollapseRepo("gtd(check): checking")
+    repo.writeFile("OUT.txt", "all green\n")
+    const { stdout, exitCode } = await run(repo, "step", "check", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
+    expect(parsed.settled).toBe(false)
+    expect(parsed.required).toContain("git commit")
+  })
 })

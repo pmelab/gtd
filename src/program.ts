@@ -12,6 +12,7 @@ import { DriverState } from "./DriverState.js"
 import { confirmSession, resolveSession } from "./Sessions.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
+  collapsesToInitialState,
   contextAt,
   currentRest,
   currentRun,
@@ -70,6 +71,7 @@ import {
   abandonedText,
   abandonNoopOutcome,
   abandonNoopText,
+  COLLAPSED_TEXT,
   noopText,
   noteOutcome,
   restoredOutcome,
@@ -162,7 +164,14 @@ interface StepResult {
   readonly model: string | null
   readonly required: string
   readonly optional: string
-  /** True iff the step is a no-op at a `script` rest (`Edge.ts`'s `noOpSettles`) — the terminal, benign signal a driver should exit 0 on rather than spin. False for every other outcome, including one that lands back at the workflow's initial state. */
+  /**
+   * True for either of the two terminal shapes a step can land: a no-op at a
+   * `script` rest (`Edge.ts`'s `noOpSettles`), or a decision that collapses
+   * back to the workflow's initial state retaining nothing (`Edge.ts`'s
+   * `collapsesToInitialState` — a green re-entry rewound like `gtd abandon`
+   * instead of committed). The terminal, benign signal a driver should exit 0
+   * on rather than spin. False for every other outcome.
+   */
   readonly settled: boolean
 }
 
@@ -303,7 +312,8 @@ const noopResult = (state: string): StepResult => ({
   required: "",
   optional: "",
   // A suppressed out-of-turn refusal is never the terminal signal — `settled`
-  // is reserved for a genuine no-op at a `script` rest (`plan.settled`).
+  // is reserved for the two genuine terminal shapes: a no-op at a `script`
+  // rest (`plan.settled`) and the initial-state collapse.
   settled: false,
 })
 
@@ -413,7 +423,7 @@ const stepAsActor = (
       model: opts.model ?? null,
       required: yield* buildRequiredScript(rest, decision, invoker, opts.cost, opts.model),
       optional: openWindowScript(rest, targetState),
-      settled: false,
+      settled: yield* collapsesToInitialState(rest, decision),
     }
   })
 
@@ -435,6 +445,11 @@ const reportStepResult = (
         settled: result.settled,
       }) + "\n",
     )
+  } else if (result.settled && result.subject !== null) {
+    // A settled step that still previews a subject is the initial-state
+    // collapse (the other settled shape — a genuine no-op — has `subject:
+    // null`): nothing was committed, so plain text must not claim one.
+    write(COLLAPSED_TEXT)
   } else {
     write(result.subject !== null ? `committed: ${result.subject}\n` : noopText(result.state))
   }

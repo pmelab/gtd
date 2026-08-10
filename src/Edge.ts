@@ -42,7 +42,7 @@ import {
   updateRef,
 } from "./GitScript.js"
 import { emitScripts, type EmitPreconditions, type EmitStep, type EmittedScripts } from "./Emit.js"
-import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
+import { COLLAPSED_TEXT, commitOutcome, noteOutcome, transitionOutcome } from "./OutcomeScript.js"
 
 /**
  * The v3 Effect edge. Everything git/filesystem-shaped lives here —
@@ -1084,14 +1084,15 @@ const executeDecision = (
  * emits retain-history + a mixed reset to the process start instead of a
  * commit, so the entry commit and the probe collapse away together rather
  * than dirtying the log with a round trip to `idle` — this COLLAPSE case
- * prints no outcome at all: no commit lands, so there is nothing to report,
- * and a file-row read of `HEAD` there would list the pre-process commit's
- * unrelated files. Deciding it needs the whole `rest` (its definition for
- * the initial state, its pending changes for the "retained nothing" test),
- * which is why this takes a `Rest` rather than the `ProcessRun` alone. The
- * ordinary commit path's own trailing outcome is a `transitionOutcome` when
- * the decided subject moves to a DIFFERENT state than it started from, else
- * a `commitOutcome` naming the bare (never cost-trailer'd) subject.
+ * prints `COLLAPSED_TEXT` via a `gtd_report_note`, never a `gtd_report_commit`:
+ * no commit lands, so there is nothing to report by reading `HEAD`'s files —
+ * that read would list the pre-process commit's unrelated files instead.
+ * Deciding it needs the whole `rest` (its definition for the initial state,
+ * its pending changes for the "retained nothing" test), which is why this
+ * takes a `Rest` rather than the `ProcessRun` alone. The ordinary commit
+ * path's own trailing outcome is a `transitionOutcome` when the decided
+ * subject moves to a DIFFERENT state than it started from, else a
+ * `commitOutcome` naming the bare (never cost-trailer'd) subject.
  */
 /** `updateRef(HISTORY_REF, tip)` as a single-element (or empty) step list — OMITTED when `tip === startParentHash`, mirroring `retainHistory`'s own no-op check. Shared by the squash branch and the commit branch's collapse case below. */
 const retainHistoryStep = (tip: string, startParentHash: string): readonly EmitStep[] =>
@@ -1110,6 +1111,50 @@ const commitDecisionOutcome = (decision: {
       : transitionOutcome(decision.from, decision.to),
 })
 
+/**
+ * True for a `"commit"` decision that is the "green re-entry into the initial
+ * state retaining nothing" collapse — the process's target is the workflow's
+ * initial state, it started somewhere other than the empty tree, and nothing
+ * pending or already-committed since its start parent survives
+ * (`retainsNothing`). Always `false` for a `"squash"` decision (a squash's
+ * target is never the initial state by construction). The ONE predicate both
+ * `renderDecision`'s emitted-script branch and `planStep`'s direct `perform`
+ * call, so the two can never decide differently about the same run —
+ * `program.ts`'s `stepAsActor` asks the same question, through the exported
+ * `collapsesToInitialState` below, at the same moment.
+ */
+const collapsesWith = (
+  git: GitOperations,
+  rest: Rest,
+  decision: ExecutableDecision,
+): Effect.Effect<boolean, Error> =>
+  Effect.gen(function* () {
+    if (decision.kind === "squash") return false
+    const target = parseStateSubject(decision.subject)?.state
+    return (
+      target === initialStateOf(rest.def) &&
+      rest.run.startParentHash !== EMPTY_TREE &&
+      (yield* retainsNothing(git, rest.run, rest.changes))
+    )
+  })
+
+/**
+ * The service-requiring twin of `collapsesWith`, for `program.ts` to ask
+ * instead of reaching into `GitService` itself — the boundary AGENTS.md pins.
+ * `stepAsActor` calls this to fill `StepResult.settled` for a `"commit"`/
+ * `"squash"` plan, off the same `rest`/`decision` `renderDecision` already
+ * decided against, so the two git reads (`changedPathsSince` + `resolveRef`)
+ * can never disagree with each other.
+ */
+export const collapsesToInitialState = (
+  rest: Rest,
+  decision: ExecutableDecision,
+): Effect.Effect<boolean, Error, GitService> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    return yield* collapsesWith(git, rest, decision)
+  })
+
 export const renderDecision = (
   git: GitOperations,
   rest: Rest,
@@ -1122,16 +1167,12 @@ export const renderDecision = (
     const run = rest.run
     switch (decision.kind) {
       case "commit": {
-        const target = parseStateSubject(decision.subject)?.state
-        if (
-          target === initialStateOf(rest.def) &&
-          run.startParentHash !== EMPTY_TREE &&
-          (yield* retainsNothing(git, run, rest.changes))
-        ) {
+        if (yield* collapsesWith(git, rest, decision)) {
           const tip = yield* git.resolveRef("HEAD")
           return [
             ...retainHistoryStep(tip, run.startParentHash),
             { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
+            { kind: "outcome", command: noteOutcome(COLLAPSED_TEXT) },
           ]
         }
         const command = commitAll(withCostTrailer(decision.subject, cost, model))
@@ -1248,7 +1289,10 @@ export type StepPlan =
  * asked to act and didn't (an effector failure, not a terminal state) — that
  * is #167's `stalled`, and firing `settled` there too would preempt its
  * guard. A no-op at a `message` rest is a human gate the loop already halts
- * on (`kind: "message"`), so it needs no signal either.
+ * on (`kind: "message"`), so it needs no signal either. This is one of TWO
+ * settled shapes — the other is the initial-state collapse (`collapsesWith`/
+ * `collapsesToInitialState`), decided independently by `program.ts`'s
+ * `stepAsActor` for a `"commit"`/`"squash"` plan.
  */
 const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "script"
 
@@ -1298,16 +1342,11 @@ export const planStep = (
     const perform: Effect.Effect<StepOutcome, Error, RestRequirements> = Effect.gen(function* () {
       const git = yield* GitService
       if (decision.kind === "commit") {
-        const target = parseStateSubject(decision.subject)?.state
-        if (
-          target === initialStateOf(rest.def) &&
-          rest.run.startParentHash !== EMPTY_TREE &&
-          (yield* retainsNothing(git, rest.run, rest.changes))
-        ) {
+        if (yield* collapsesWith(git, rest, decision)) {
           const tip = yield* git.resolveRef("HEAD")
           yield* retainHistory(git, tip, rest.run.startParentHash)
           yield* git.mixedResetTo(rest.run.startParentHash)
-          return { kind: "reset", state: target }
+          return { kind: "reset", state: initialStateOf(rest.def) }
         }
         return yield* executeDecision(git, rest.run, decision, rest.context, cost, model)
       }

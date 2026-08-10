@@ -702,3 +702,33 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     When I run gtd step agent with "--json"
     Then it succeeds
     And stdout contains "\"settled\":false"
+
+  Scenario: gtd step --json reports settled for a green re-entry that collapses back to the initial state
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "echo hi"
+                on:
+                  "C": idle
+      """
+    And I record the commit count
+    And an empty commit "gtd(check): checking"
+    When I run gtd step check with "--json"
+    Then it succeeds
+    And stdout contains "\"settled\":true"
+    And the commit count is unchanged
+    And the git log does not contain "gtd("
