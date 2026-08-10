@@ -531,18 +531,21 @@ Recovery is the same in both cases: **re-invoke `gtd`.** It re-reads the real
 repository state fresh every time — never a cached plan — and emits whatever
 still needs to happen from there. This works because every emitted script opens
 by asserting its own precondition
-(`[ "$(git rev-parse HEAD)" = <expected> ] || { ...; exit 1; }`, and the same
-shape for a review window's saved ref — see `src/Emit.ts`'s
+(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = <expected> ] || { ...; exit 1; }`,
+and the same shape for a review window's saved ref — see `src/Emit.ts`'s
 `headAssertion`/`reviewWindowAssertion`), so a script generated against a
 repository state that has since moved refuses loudly instead of corrupting
-anything. **Emitted scripts are re-runnable**: this is the single most important
-property for a driver's recovery logic. Re-running a script that already fully
-applied is a no-op (its git writes are `--allow-empty` commits, idempotent ref
-updates, and tolerant staged-restore calls), and re-running one that only
-partially applied resumes correctly, because the precondition either still holds
-(nothing landed yet — safe to retry verbatim) or gtd's next invocation reads the
-new real state and emits a fresh script for what remains. A driver never needs
-its own retry/resume logic beyond "if the script failed, ask gtd again."
+anything. In a repository with no commits yet, `<expected>` is the empty string
+— the deciding read's own convention for "no commits yet" — so the first
+workflow commit is allowed to land instead of being blocked by an unborn `HEAD`.
+**Emitted scripts are re-runnable**: this is the single most important property
+for a driver's recovery logic. Re-running a script that already fully applied is
+a no-op (its git writes are `--allow-empty` commits, idempotent ref updates, and
+tolerant staged-restore calls), and re-running one that only partially applied
+resumes correctly, because the precondition either still holds (nothing landed
+yet — safe to retry verbatim) or gtd's next invocation reads the new real state
+and emits a fresh script for what remains. A driver never needs its own
+retry/resume logic beyond "if the script failed, ask gtd again."
 
 ### Prerequisites
 

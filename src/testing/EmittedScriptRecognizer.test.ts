@@ -386,15 +386,28 @@ describe("applyEmittedScript — src/Emit.ts's real head assertion", () => {
     expect(repo.lastCommitMessage()).toBe("chore: first")
   })
 
-  it("EMPTY_TREE matches a repo with no commits yet", () => {
+  it("an unborn HEAD (expectedHead '') matches a repo with no commits yet", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
 
-    const script = [headAssertion(EMPTY_TREE), commitAll("gtd(agent): first")].join("\n\n")
+    const script = [headAssertion(""), commitAll("gtd(agent): first")].join("\n\n")
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
 
     expect(result).toEqual({ ok: true })
     expect(repo.lastCommitMessage()).toBe("gtd(agent): first")
+  })
+
+  it("an unborn-HEAD assertion fails against a repo that already has commits", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+    repo.commitAllWithPrefix("chore: first")
+
+    const script = [headAssertion(""), commitAll("gtd(agent): should never land")].join("\n\n")
+    const result = applyEmittedScript(repo, NO_COMMANDS, script)
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("repository changed")
+    expect(repo.lastCommitMessage()).toBe("chore: first")
   })
 })
 
@@ -447,7 +460,7 @@ describe("applyEmittedScript — a realistic src/Emit.ts-assembled script (gtd_r
     const steps: readonly EmitStep[] = [
       { kind: "gitWrite", command: commitAll("gtd(agent): building") },
     ]
-    const { required } = emitScripts({ expectedHead: EMPTY_TREE }, steps)
+    const { required } = emitScripts({ expectedHead: "" }, steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
     twin.commitAllWithPrefix("gtd(agent): building")
 

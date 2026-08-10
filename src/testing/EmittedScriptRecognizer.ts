@@ -59,12 +59,6 @@ import { steeringFormatFor } from "../SteeringFormats.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
 
-// git's empty-tree object — `src/Emit.ts`'s `EmitPreconditions.expectedHead`
-// falls back to this when the repo has no commits yet, mirroring every other
-// module's own local copy of the same constant (`src/Edge.ts`,
-// `src/ReviewWindow.ts`).
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
 export interface AppliedScriptResult {
   readonly ok: boolean
   /** Present exactly when `ok` is `false` — names the block/line that stopped the script. */
@@ -257,16 +251,17 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
  * preamble every assembled script (`emitScripts`) opens with, right after
  * `set -euo pipefail`. Re-derives the block from the extracted hash and
  * compares full strings, exactly like a `GitScript.ts` builder — so this can
- * never silently drift from `headAssertion`'s actual template. A repo with no
- * commits yet resolves `HEAD` to `null` (`InMemRepo.resolveRef`); `EMPTY_TREE`
- * is the one hash value that matches that case (mirrors every write op's own
- * `ref === EMPTY_TREE` special-casing).
+ * never silently drift from `headAssertion`'s actual template. The real
+ * probe (`git rev-parse --verify --quiet HEAD 2>/dev/null`) reads an unborn
+ * HEAD back as an empty string; `InMemRepo.resolveRef` models the same
+ * repository state as `null`, so `(actual ?? "") === hash` is the fake's
+ * exact mirror of that behavior — no special-casing a hash stand-in needed.
  */
 const recognizeHeadAssertion = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const [hash] = extractQuotedTokens(block)
   if (hash === undefined || headAssertion(hash) !== block) return undefined
   const actual = repo.resolveRef("HEAD")
-  if (actual === hash || (actual === null && hash === EMPTY_TREE)) return { kind: "noop" }
+  if ((actual ?? "") === hash) return { kind: "noop" }
   return {
     kind: "failed",
     error: `gtd: repository changed since this script was generated (expected HEAD ${hash}, got ${actual ?? "(no commits)"})`,

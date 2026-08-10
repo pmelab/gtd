@@ -148,15 +148,16 @@ interface StepResult {
   readonly optional: string
 }
 
-// git's empty-tree object — the precondition base for a script built against a
-// commit-less repo, where there is no real HEAD hash to pin to yet. Copied
-// here (rather than imported) exactly like `Edge.ts`/`ReviewWindow.ts` each
-// keep their own copy — see their doc comments on the same tradeoff.
+// git's empty-tree object — the abandon command's first-commit guard uses
+// this to recognize a process that starts at the repository's very first
+// commit (no earlier commit to rewind to). Copied here (rather than imported)
+// exactly like `Edge.ts`/`ReviewWindow.ts` each keep their own copy — see
+// their doc comments on the same tradeoff.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-/** The `EmitPreconditions` every script this file assembles asserts against: the resolved HEAD hash the snapshot driving it was taken at (falling back to `EMPTY_TREE` for a commit-less repo). */
+/** The `EmitPreconditions` every script this file assembles asserts against: the resolved HEAD hash the snapshot driving it was taken at — `""` when the repo has no commits yet, `headAssertion`'s own convention for that case. */
 const headPreconditions = (currentCommit: string): EmitPreconditions => ({
-  expectedHead: currentCommit !== "" ? currentCommit : EMPTY_TREE,
+  expectedHead: currentCommit,
 })
 
 /**

@@ -47,7 +47,7 @@ describe("emitScripts — required only", () => {
   })
 
   it("asserts HEAD before doing anything, naming the mismatch and telling the reader to re-run gtd", () => {
-    expect(required).toContain("git rev-parse HEAD")
+    expect(required).toContain("git rev-parse --verify --quiet HEAD")
     expect(required).toContain(HEAD)
     expect(required).toContain("re-run gtd")
   })
@@ -121,6 +121,26 @@ describe("emitScripts — a script with no gitWrite steps omits the retry helper
   })
 
   it("is still syntactically valid bash", () => {
+    expect(runBashCheckSyntax(required)).toBe(0)
+  })
+})
+
+describe("emitScripts — unborn HEAD precondition (expectedHead: '')", () => {
+  const steps: ReadonlyArray<EmitStep> = [
+    { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
+  ]
+  const { required } = emitScripts({ expectedHead: "" }, steps)
+
+  it("renders an empty-string comparison against the --verify --quiet probe", () => {
+    expect(required).toContain(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = '' ]`)
+  })
+
+  it("names 'no commits yet' rather than a hash in the failure message", () => {
+    expect(required).toContain("expected a repository with no commits yet")
+    expect(required).toContain("re-run gtd")
+  })
+
+  it("is syntactically valid bash", () => {
     expect(runBashCheckSyntax(required)).toBe(0)
   })
 })
@@ -269,6 +289,37 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     const dir = initRepo()
     const before = commitCount(dir)
     const { required } = emitScripts({ expectedHead: "f".repeat(40) }, [
+      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): should-not-land'" },
+    ])
+    let status = 0
+    try {
+      execSync("bash", { input: required, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+    } catch (error) {
+      status = (error as { status?: number }).status ?? 1
+    }
+    expect(status).not.toBe(0)
+    expect(commitCount(dir)).toBe(before)
+  })
+
+  it("an unborn HEAD (repo with no commits yet) lets the first commit land", () => {
+    const dir = mkdtempSync(join(tmpdir(), "emit-realrepo-unborn-"))
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    const { required } = emitScripts({ expectedHead: "" }, [
+      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): first'" },
+    ])
+    execSync("bash", { input: required, cwd: dir })
+    expect(commitCount(dir)).toBe(1)
+    expect(
+      execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd: dir, encoding: "utf8" }).trim(),
+    ).toBe("gtd(agent): first")
+  })
+
+  it("an unborn-HEAD precondition run against a repo that already has a commit aborts non-zero and lands nothing", () => {
+    const dir = initRepo()
+    const before = commitCount(dir)
+    const { required } = emitScripts({ expectedHead: "" }, [
       { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): should-not-land'" },
     ])
     let status = 0
