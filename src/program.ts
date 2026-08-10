@@ -76,6 +76,7 @@ import {
   restoredText,
 } from "./OutcomeScript.js"
 import { hashContent, resolveDispatch } from "./BeatMarker.js"
+import { loopLogPath } from "./WorktreeState.js"
 
 export type CommandRequirements =
   | GitService
@@ -787,9 +788,20 @@ const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
 /** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content (no mutation, unless `--dispatch` resolves the session and arms/consumes the beat marker — see `Sessions.ts`/`BeatMarker.ts`). */
-/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. `session` (see `runNextCommand`) is only ever passed for a dispatched `prompt` rest — `sessionId`/`resume` are its two keys, present or absent together. `stalled` is the one EXCEPTION to "omitted when unset": it's omitted unless `true`, never emitted as `false` (see `runNextCommand`). */
+/**
+ * `gtd next --json`'s single-line object — `log` (the per-worktree loop log
+ * path, `src/WorktreeState.ts`'s `loopLogPath`) is UNCONDITIONAL, unlike the
+ * optional keys below it: a driver reads it every run, so there is nothing to
+ * omit. The optional keys are never `null`-valued, omitted entirely when
+ * their source is unset, exactly like `gtd status --json`. `session` (see
+ * `runNextCommand`) is only ever passed for a dispatched `prompt` rest —
+ * `sessionId`/`resume` are its two keys, present or absent together.
+ * `stalled` is the one EXCEPTION to "omitted when unset": it's omitted unless
+ * `true`, never emitted as `false` (see `runNextCommand`).
+ */
 const nextJsonOutput = (
   rendered: RenderedRest,
+  log: string,
   session: { readonly sessionId: string; readonly resume: boolean } | undefined,
   stalled: boolean,
 ): string =>
@@ -798,6 +810,7 @@ const nextJsonOutput = (
     actor: rendered.actor,
     kind: rendered.kind,
     content: rendered.content,
+    log,
     ...(rendered.model !== undefined ? { model: rendered.model } : {}),
     ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
     ...(session !== undefined ? { sessionId: session.sessionId, resume: session.resume } : {}),
@@ -858,9 +871,10 @@ const runNextCommand = (
             head: rest.context.currentCommit,
           })
         : false
+    const log = yield* loopLogPath
     write(
       json
-        ? nextJsonOutput(rendered, session, stalled)
+        ? nextJsonOutput(rendered, log, session, stalled)
         : nextPlainOutput(rendered, selfValidateCommand),
     )
   })

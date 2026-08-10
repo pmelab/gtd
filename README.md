@@ -78,31 +78,22 @@ gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
 template), with an ordered set of change-patterns routing to the next state.
 
-<<<<<<< HEAD The loop is one beat, repeated: run `gtd next --json` and dispatch
-on `kind` — `"message"` means it's a human's move (stop and hand off); `"script"`
+The loop is one beat, repeated: run `gtd next --json --dispatch` and dispatch on
+`kind` — `"message"` means it's a human's move (stop and hand off); `"script"`
 means the driver runs `content` itself, then steps its actor; `"prompt"` means
 feed `content` to your agent — using the accompanying `sessionId`/`resume` to
 continue or start that agent conversation (see "Driving the loop" below) — then
 run `gtd step <actor>` once it's done, which is also what confirms `sessionId`
 as safe to resume on the next lap. gtd itself never executes anything — the
-driver owns running scripts.
-=======
-
-The loop is one beat, repeated: run `gtd next --json --dispatch` and dispatch on
-`kind` — `"message"` means it's a human's move (stop and hand off); `"script"`
-means the driver runs `content` itself, then steps its actor; `"prompt"` means
-feed `content` to your agent, then run `gtd step <actor>` once it's done. gtd
-itself never executes anything — the driver owns running scripts. Plain
-`gtd next --json` (no `--dispatch`) stays strictly mutation-free, safe to poll
-or peek at any time; `--dispatch` additionally claims the beat is being handed
-to an executor, arming a per-worktree marker (`<git dir>/gtd-beat`) so a
-`prompt` beat that repeats verbatim — same state, same rendered content, same
-HEAD, meaning the agent's last turn changed nothing — reports `"stalled": true`
-(and consumes the marker) instead of being re-dispatched forever. The fix for a
+driver owns running scripts. Plain `gtd next --json` (no `--dispatch`) stays
+strictly mutation-free, safe to poll or peek at any time; `--dispatch`
+additionally claims the beat is being handed to an executor, resolving the
+session and arming a per-worktree marker (`<git dir>/gtd-beat`) so a `prompt`
+beat that repeats verbatim — same state, same rendered content, same HEAD,
+meaning the agent's last turn changed nothing — reports `"stalled": true` (and
+consumes the marker) instead of being re-dispatched forever. The fix for a
 repeated stall is either a better prompt, or — if the state can legitimately
 finish with nothing to change — declaring a `C` (clean-tree) pattern on it.
-
-> > > > > > > issue-167-stall-marker
 
 An `on` edge may also carry a short imperative `action` (e.g. `Accept plan`)
 alongside its existing `describe` sentence — a human-facing name for the choice
@@ -393,12 +384,13 @@ abandon/restore — is printed by the emitted `required` script itself as it run
 (see [Writing your own driver](#writing-your-own-driver)), so that line looks
 the same whether `bin/gtd` runs it or you paste it into a terminal yourself. The
 loop redirects the noisier agent/check subprocess output to a
-per-repo/per-worktree log file (its path is the run's first output line, ready
-to `tail -f`). Any execution that FAILS also replays its last 20 lines of output
-inline on stderr, on top of the log still holding the complete record: an agent
-turn that fails stops the loop (it would fail identically next lap), while a
-check script that exits non-zero is reported as a warning and the loop carries
-on, because the outcome lives in the tree, not in the script's exit code.
+per-repo/per-worktree log file, whose path comes from `gtd next --json`'s own
+`log` field (its path is the run's first output line, ready to `tail -f`). Any
+execution that FAILS also replays its last 20 lines of output inline on stderr,
+on top of the log still holding the complete record: an agent turn that fails
+stops the loop (it would fail identically next lap), while a check script that
+exits non-zero is reported as a warning and the loop carries on, because the
+outcome lives in the tree, not in the script's exit code.
 
 A workflow state can declare an optional `label:` — a human-readable display
 name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
@@ -563,9 +555,18 @@ anything; to actually land a turn, run `gtd ... --json`, pull `required`/
   correctly. `gtd abandon`/`gtd restore` always emit `optional: ""` (there is no
   window to reopen after either).
 
+`gtd next --json` carries one more field worth a custom driver's attention:
+
+- **`log`** — the per-worktree loop log path, always present. It's derived from
+  the worktree's own git dir, so two worktrees looping concurrently never share
+  one file; set `$GTD_LOOP_LOG` to override it verbatim. gtd itself neither
+  creates nor truncates this file — a driver appends subprocess output to it and
+  truncates once at the start of a run, exactly like `bin/gtd` does.
+
 `optional` may be the empty string `""`, meaning "nothing to do here".
-`required` is never `""` — even a no-op `gtd step` (a clean tree matching no
-`on` pattern) emits a PRINT-ONLY script: no git write, just the same
+`required` is `""` only for `--if-resting`'s suppressed out-of-turn case (see
+below) — a genuine no-op `gtd step` (a clean tree matching no `on` pattern)
+still emits a PRINT-ONLY script: no git write, just the same
 `nothing to do at "<state>"` line gtd's own plain-text output shows. Both
 scripts are self-contained (each carries its own precondition assert and retry
 helper) and safe to run standalone, in sequence, or not at all — paste either

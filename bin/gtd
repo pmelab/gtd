@@ -242,29 +242,12 @@ run_gtd_command() {
   fi
 }
 
-# ── Log file (resolve_log_path) ─────────────────────────────────────────────
-
-# worktree_git_dir — the git dir of the working tree gtd is operating in,
-# derived purely from the cwd. GIT_DIR/GIT_WORK_TREE are scrubbed for this one
-# call so an inherited GIT_DIR (e.g. leaked from a parent git process, a hook,
-# or another worktree's shell) can never point our per-worktree state at a
-# DIFFERENT worktree — that would let two concurrently looping worktrees
-# collide on one log/memory file. A linked worktree's git-dir is its own
-# private .git/worktrees/<name>, so this is per-repository AND per-worktree.
-worktree_git_dir() {
-  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
-    git rev-parse --git-dir
-}
-
-# resolve_log_path — echoes the loop's logfile path: $GTD_LOOP_LOG verbatim if
-# set, else "$(worktree_git_dir)/gtd-loop.log".
-resolve_log_path() {
-  if [[ -n "${GTD_LOOP_LOG:-}" ]]; then
-    echo "$GTD_LOOP_LOG"
-  else
-    echo "$(worktree_git_dir)/gtd-loop.log"
-  fi
-}
+# ── Log file ─────────────────────────────────────────────────────────────────
+# The log path comes from the opening `gtd next --json` peek's own `log`
+# field (see the opening-move block below, gtd#169) — TS resolves it from the
+# worktree's own git dir, immune to a stray GIT_DIR/GIT_WORK_TREE by
+# construction, so this script derives no per-worktree path of its own (the
+# session table and beat marker moved into TS the same way, gtd#166/gtd#167).
 
 # --once governs only the loop driver, recognised in exactly two positions —
 # bare (`gtd --once`) or immediately after `loop` (`gtd loop --once`) — at
@@ -352,17 +335,6 @@ fi
 # wiped `~/.claude/projects`, a machine change) is no longer self-healed —
 # `rm $(git rev-parse --git-dir)/gtd-loop-memory` and restart the loop.
 
-# Truncated once here (not every iteration), so the file always reflects the
-# current run but survives after the loop exits.
-log_path="$(resolve_log_path)"
-: >"$log_path"
-export GTD_LOOP_LOG="$log_path"
-if [[ "$FANCY" == 1 ]]; then
-  printf '%s📄 log: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
-else
-  printf '%slog: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
-fi
-
 # Swappable agent adapter: GTD_LOOP_AGENT_CMD lets any coding agent CLI stand
 # in for the default, receiving the prompt via $GTD_LOOP_PROMPT, the state's
 # opaque model hint (if any) via $GTD_LOOP_MODEL, and the memory scope via
@@ -405,6 +377,31 @@ invoke_agent() {
 # treats a captured commit here as the run's one beat and exits; a no-op
 # capture isn't a beat — it falls into the loop below exactly as it would
 # without --once.
+#
+# Before it, one peek — the pure, mutation-free `gtd next --json` (no
+# --dispatch: a peek must not claim a dispatch) — fetches the run's log path
+# (`.log`, gtd#169): TS resolves it from the worktree's own git dir, immune
+# to a stray GIT_DIR/GIT_WORK_TREE by construction. No log exists yet to
+# point at on THIS call's own failure, so unlike every later failure path,
+# this one emits no `emit_log_pointer` — the error message stands alone.
+if ! peek_json="$(run_gtd next --json 2>&1)"; then
+  emit_error "could not determine the next step:
+$peek_json
+Run \`gtd status\` to inspect the repo."
+  exit 1
+fi
+
+# Truncated once here (not every iteration), so the file always reflects the
+# current run but survives after the loop exits.
+log_path="$(jq -r .log <<<"$peek_json")"
+: >"$log_path"
+export GTD_LOOP_LOG="$log_path"
+if [[ "$FANCY" == 1 ]]; then
+  printf '%s📄 log: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
+else
+  printf '%slog: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
+fi
+
 opening_head_before="$(git rev-parse --verify --quiet HEAD || echo none)"
 if ! run_gtd_command step human --if-resting; then
   emit_error "could not capture your changes at the human gate — fix the reported issue and re-run gtd-loop."
