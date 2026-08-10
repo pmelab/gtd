@@ -10,6 +10,15 @@
   text — don't hide setup behind abstract step names
 - inline setup logic into step definitions rather than chaining helpers; each
   step maps to one commit
+- README.md's "A complete minimal driver" section is DOC-TESTED, not just prose:
+  `tests/integration/features/readme-driver.feature` extracts its fenced bash
+  block verbatim (`tests/integration/helpers/readme-driver.ts`) and runs it as a
+  real driver. The heading text and the single fence are load-bearing — renaming
+  the heading or splitting the paste across more than one fence fails the
+  extraction, not just a stale doc. The extracted script is spawned with only
+  `$PATH` (a shim dir first) and `$HOME` — any new env dependency the paste
+  grows must be documented in its own Prerequisites section, and is a scenario
+  failure until it is
 
 ## Architecture
 

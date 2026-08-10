@@ -604,6 +604,10 @@ and own outright — swap the `claude` line for any agent CLI and it keeps
 working. This is the whole protocol; `bin/gtd` adds only presentation (heartbeat
 lines, log tailing hints, inline failure replay) on top of it.
 
+This exact fenced block is extracted and executed by
+`tests/integration/features/readme-driver.feature` — renaming the heading above
+or splitting the block into more than one fence breaks the build.
+
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail

@@ -1,8 +1,6 @@
 import { Given, Then, When } from "quickpickle"
 import { execFile as execFileCb, execFileSync } from "node:child_process"
 import { promisify } from "node:util"
-import { writeFileSync, mkdtempSync, chmodSync, readFileSync, existsSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
@@ -11,17 +9,6 @@ const execFile = promisify(execFileCb)
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 const GTD_BIN_PATH = join(PROJECT_ROOT, "bin/gtd")
-
-// The stub stands in for a real coding agent CLI: it reads $GTD_LOOP_PROMPT
-// (set by the loop per turn) and reacts however the docstring says to, so the
-// scenario text shows exactly what the "agent" does for each prompt it sees.
-Given("a stub agent script that responds to prompts with:", (world: GtdWorld, script: string) => {
-  const dir = mkdtempSync(join(tmpdir(), "gtd-loop-stub-"))
-  const scriptPath = join(dir, "agent.sh")
-  writeFileSync(scriptPath, `#!/usr/bin/env bash\nset -euo pipefail\n${script}\n`)
-  chmodSync(scriptPath, 0o755)
-  world.stubAgentPath = scriptPath
-})
 
 // Drops any inherited GTD_LOOP_* runtime state from a spawn env so a spawned
 // bin/gtd resolves its OWN log path, not the loop driver's (which exports
@@ -171,84 +158,6 @@ When("I run gtd loop {word}", async (world: GtdWorld, extraArg: string) => {
 When("I run {string} via gtd", async (world: GtdWorld, args: string) => {
   await runBinGtd(world, args.split(" "))
 })
-
-// Resolves the loop's log file path the same way bin/gtd now does (reading
-// `gtd next --json`'s own `.log` field, src/WorktreeState.ts's `loopLogPath`):
-// $GTD_LOOP_LOG verbatim when a scenario overrode it, else the default
-// ".git/gtd-loop.log" (every gtd-loop.feature scenario runs against a plain,
-// non-worktree test project, so its git-dir is always ".git").
-function loopLogPath(world: GtdWorld): string {
-  return world.gtdLoopLogOverride ?? ".git/gtd-loop.log"
-}
-
-// Asserts on the loop's log file — where the agent turn, the check script,
-// and `gtd step`'s own output now land instead of the terminal.
-Then("the log file contains {string}", (world: GtdWorld, text: string) => {
-  const path = join(world.repoDir, loopLogPath(world))
-  const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-  assert.ok(
-    content.includes(text),
-    `Expected the log file ("${loopLogPath(world)}") to contain "${text}". Got:\n${content}`,
-  )
-})
-
-Then("the log file does not contain {string}", (world: GtdWorld, text: string) => {
-  const path = join(world.repoDir, loopLogPath(world))
-  const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-  assert.ok(
-    !content.includes(text),
-    `Expected the log file ("${loopLogPath(world)}") not to contain "${text}". Got:\n${content}`,
-  )
-})
-
-// Counts NON-OVERLAPPING occurrences — used to prove a recovered retry ran
-// (e.g. "AGENT MEMORY=fix RESUME=0" appearing twice: once for the scope's
-// first entry, once for the retry after a doomed resume), which a plain
-// "contains" assertion can't distinguish from a single occurrence.
-Then(
-  "the log file contains {string} {int} times",
-  (world: GtdWorld, text: string, count: number) => {
-    const path = join(world.repoDir, loopLogPath(world))
-    const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-    let actual = 0
-    let idx = 0
-    while ((idx = content.indexOf(text, idx)) !== -1) {
-      actual++
-      idx += text.length
-    }
-    assert.strictEqual(
-      actual,
-      count,
-      `Expected the log file ("${loopLogPath(world)}") to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${content}`,
-    )
-  },
-)
-
-// Regex variants of the two assertions above — needed for the computed
-// `<scope>#<hash7>` memory key (src/Edge.ts's `memoryKeyFor`), whose hash
-// suffix is a real (@live) commit hash and so isn't a fixed literal.
-Then("the log file matches {string}", (world: GtdWorld, pattern: string) => {
-  const path = join(world.repoDir, loopLogPath(world))
-  const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-  assert.ok(
-    new RegExp(pattern).test(content),
-    `Expected the log file ("${loopLogPath(world)}") to match /${pattern}/. Got:\n${content}`,
-  )
-})
-
-Then(
-  "the log file matches {string} {int} times",
-  (world: GtdWorld, pattern: string, count: number) => {
-    const path = join(world.repoDir, loopLogPath(world))
-    const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-    const matches = content.match(new RegExp(pattern, "g")) ?? []
-    assert.strictEqual(
-      matches.length,
-      count,
-      `Expected the log file ("${loopLogPath(world)}") to match /${pattern}/ exactly ${count} times, found ${matches.length}. Got:\n${content}`,
-    )
-  },
-)
 
 // The plain-ASCII rendering proof: no ANSI escape sequence (ESC "[") anywhere.
 // Built from a char code rather than a regex literal to avoid embedding a

@@ -160,6 +160,10 @@ export class GtdWorld extends QuickPickleWorld {
   gtdTestCommandOverride: string | undefined = undefined
   /** A scenario-scoped temp dir holding a `gtd` shim (see hooks.ts's `Before`) so a bare `gtd` invoked BY NAME — e.g. a seeded steering-mode `validate:` command (`gtd check <mode> <file>`) — resolves to this build, not a globally-installed gtd. Set by the Before hook, live tier only. */
   pathShimDir: string | undefined = undefined
+  /** A temp dir OUTSIDE the repo holding the README's extracted driver script — proves the paste needs nothing inside the project. Set by "Given the driver pasted from README.md" (`readme-driver.steps.ts`), removed by the After hook alongside `repoDir`. */
+  readmeDriverDir: string | undefined = undefined
+  /** Absolute path to the extracted driver script inside `readmeDriverDir`, chmod'd executable — what "When I run the README driver" spawns. */
+  readmeDriverPath: string | undefined = undefined
 
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_<UPPERCASE-name>` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}

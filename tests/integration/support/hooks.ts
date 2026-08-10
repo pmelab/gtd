@@ -88,7 +88,9 @@ Before(async (world: GtdWorld) => {
 // (it's harness scaffolding, not part of the test repo KEEP_TEST_REPO is for).
 function cleanupLiveTier(world: GtdWorld): void {
   const keep = process.env["KEEP_TEST_REPO"] === "1"
-  const dirs = [world.repoDir, world.extraCleanupDir].filter(Boolean) as string[]
+  const dirs = [world.repoDir, world.extraCleanupDir, world.readmeDriverDir].filter(
+    Boolean,
+  ) as string[]
   for (const dir of dirs) {
     if (keep) process.stderr.write(`Test repo preserved at: ${dir}\n`)
     else rmSync(dir, { recursive: true, force: true })
