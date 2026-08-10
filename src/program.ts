@@ -62,6 +62,7 @@ import {
 } from "./PatternTemplates.js"
 import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
 import { emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
+import { hashContent, resolveDispatch } from "./BeatMarker.js"
 
 export type CommandRequirements =
   | GitService
@@ -734,9 +735,9 @@ const selfValidateInstruction = (command: string, file: string): string =>
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
-/** `gtd next [--json]`: pure emitter of the resolved rest's rendered content (no mutation). */
-/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. */
-const nextJsonOutput = (rendered: RenderedRest): string =>
+/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content (no mutation, unless `--dispatch` arms/consumes the beat marker — see `BeatMarker.ts`). */
+/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. `stalled` is the one EXCEPTION to "omitted when unset": it's omitted unless `true`, never emitted as `false` (see `runNextCommand`). */
+const nextJsonOutput = (rendered: RenderedRest, stalled: boolean): string =>
   JSON.stringify({
     state: rendered.state,
     actor: rendered.actor,
@@ -748,6 +749,7 @@ const nextJsonOutput = (rendered: RenderedRest): string =>
     ...(rendered.file !== undefined ? { file: rendered.file } : {}),
     ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
     ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
+    ...(stalled ? { stalled: true } : {}),
   }) + "\n"
 
 /** `gtd next`'s plain-text output: the rendered content (newline-terminated), plus the self-validation instruction (naming `selfValidateCommand`, when resolved) when the rest is a validatable prompt. */
@@ -763,6 +765,7 @@ const nextPlainOutput = (
 
 const runNextCommand = (
   json: boolean,
+  dispatch: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
@@ -780,7 +783,20 @@ const runNextCommand = (
             rest.context,
           ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
         : undefined
-    write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered, selfValidateCommand))
+    // `--dispatch` claims this beat is being handed to an executor, so ONLY
+    // it (never plain `gtd next --json`, which is polled/peeked) arms or
+    // consumes the beat marker — see `BeatMarker.ts`'s module doc comment.
+    // `script`/`message` beats never touch it (decision: only a `prompt`
+    // beat's no-change turn is invisible to the machine).
+    const stalled =
+      json && dispatch && rendered.kind === "prompt"
+        ? yield* resolveDispatch({
+            state: rendered.state,
+            content: hashContent(rendered.content),
+            head: rest.context.currentCommit,
+          })
+        : false
+    write(json ? nextJsonOutput(rendered, stalled) : nextPlainOutput(rendered, selfValidateCommand))
   })
 
 /**
@@ -1316,7 +1332,7 @@ const dispatchCommand = (
     case "restore":
       return runRestoreCommand(json, write)
     case "next":
-      return runNextCommand(json, write)
+      return runNextCommand(json, command.dispatch, write)
     case "status":
       return runStatusCommand(json, write)
     case "validate":

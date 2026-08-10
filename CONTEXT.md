@@ -47,6 +47,16 @@ one commit. _Avoid_: action, move
 **Step**: One `gtd step <actor>` invocation. Distinct from a turn: a step may
 capture a turn, refuse, or do nothing at all.
 
+**Beat**: One dispatch cycle of the driver loop — resolve a rest, hand its
+content to its actor, then step. `gtd next --json --dispatch` is what arms the
+per-worktree marker a repeated `prompt` beat is compared against. _Avoid_:
+iteration, tick, cycle
+
+**Stall**: A dispatched `prompt` beat that produced no commit — the agent's turn
+changed nothing. An EFFECTOR failure the driver detects (`BeatMarker.ts`), not a
+machine state; the machine-level answer, where a state may legitimately finish
+with nothing to change, is declaring a `C` edge on it instead.
+
 **Capture**: Turning a dirty tree into one turn commit, subject
 `gtd(<actor>): <from> → <to>` (collapsing to `gtd(<actor>): <to>` when there is
 no transition). The matched pattern's target is committed verbatim; nothing

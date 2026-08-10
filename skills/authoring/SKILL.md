@@ -178,6 +178,13 @@ At `gtd step <actor>`, the engine decides:
   every change the state's actor can legitimately make (usually via a trailing
   `"* **"`).
 
+A no-op at a `prompt` state is invisible to the engine, but not to a driver: on
+the NEXT dispatch of that same state with the same rendered content and HEAD,
+`gtd next --json --dispatch` reports `"stalled": true` — the agent's turn
+changed nothing. If a `prompt` state can legitimately finish with nothing to
+change, declare a `C` row on it so the no-op is the intended signal rather than
+a stall a driver stops on.
+
 ### `describe` — human-readable routing
 
 An `on` value may be `{ to: <target>, describe: <sentence> }`. `describe` is

@@ -451,6 +451,115 @@ describe("gtd next --json / gtd status — memory key emission", () => {
   })
 })
 
+describe("gtd next --json --dispatch — stall detection (BeatMarker, issue #167)", () => {
+  const workflow = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a process",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: do the work described in NOTE.md",
+    "          on:",
+    '            "* **": checking',
+    "        checking:",
+    "          actor: check",
+    "          script: echo hi",
+    "          on:",
+    '            "C": idle',
+    "",
+  ].join("\n")
+
+  /** A repo whose current rest is `idle` (a `message` beat) — no second commit at all. */
+  const seededAtIdle = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", workflow)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    return repo
+  }
+
+  /** A repo whose current rest is named by `lastCommitSubject`'s target state. */
+  const seededAt = (lastCommitSubject: string): InMemRepo => {
+    const repo = seededAtIdle()
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix(lastCommitSubject)
+    return repo
+  }
+
+  it("reports stalled on the second --dispatch of the exact same prompt beat", async () => {
+    const repo = seededAt("gtd(human): working")
+    const first = await run(repo, "next", "--json", "--dispatch")
+    expect(first.exitCode).toBe(0)
+    expect(JSON.parse(first.stdout)).not.toHaveProperty("stalled")
+
+    const second = await run(repo, "next", "--json", "--dispatch")
+    expect(second.exitCode).toBe(0)
+    expect(JSON.parse(second.stdout)).toMatchObject({ stalled: true })
+  })
+
+  it("a plain --json peek between two dispatches neither arms nor consumes the marker", async () => {
+    const repo = seededAt("gtd(human): working")
+    await run(repo, "next", "--json", "--dispatch")
+
+    const peek = await run(repo, "next", "--json")
+    expect(JSON.parse(peek.stdout)).not.toHaveProperty("stalled")
+
+    const second = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(second.stdout)).toMatchObject({ stalled: true })
+  })
+
+  it("a commit landing between dispatches (HEAD moved) never reports stalled, even with identical state/content — the check→fix return lap", async () => {
+    const repo = seededAt("gtd(human): working")
+    await run(repo, "next", "--json", "--dispatch")
+
+    // A return lap back into "working" with the SAME prompt text, but HEAD
+    // has moved since the last dispatch (a real commit landed in between).
+    repo.writeFile("FEEDBACK.md", "try again")
+    repo.commitAllWithPrefix("gtd(check): working")
+
+    const second = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(second.stdout)).not.toHaveProperty("stalled")
+  })
+
+  it("a script beat is never armed or reported stalled, dispatched any number of times", async () => {
+    const repo = seededAt("gtd(agent): checking")
+    const first = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(first.stdout).kind).toBe("script")
+    expect(JSON.parse(first.stdout)).not.toHaveProperty("stalled")
+
+    const second = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(second.stdout)).not.toHaveProperty("stalled")
+  })
+
+  it("a message beat is never armed or reported stalled, dispatched any number of times", async () => {
+    const repo = seededAtIdle()
+    const first = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(first.stdout).kind).toBe("message")
+    expect(JSON.parse(first.stdout)).not.toHaveProperty("stalled")
+
+    const second = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(second.stdout)).not.toHaveProperty("stalled")
+  })
+
+  it("consume-on-report: a third dispatch after a reported stall is clean again", async () => {
+    const repo = seededAt("gtd(human): working")
+    await run(repo, "next", "--json", "--dispatch")
+    const second = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(second.stdout)).toMatchObject({ stalled: true })
+
+    const third = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(third.stdout)).not.toHaveProperty("stalled")
+  })
+})
+
 describe("gtd next — refuses when HEAD names a state the current workflow no longer declares", () => {
   // A workflow upgrade that renames/removes a state out from under an
   // in-flight process must not look like a fresh, idle repo (silently

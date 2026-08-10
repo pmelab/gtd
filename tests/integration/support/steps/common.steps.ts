@@ -193,6 +193,13 @@ When("I run gtd next with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd("next", arg)
 })
 
+When(
+  "I run gtd next with {string} and {string}",
+  async (world: GtdWorld, arg1: string, arg2: string) => {
+    await world.runGtd("next", arg1, arg2)
+  },
+)
+
 When("I run gtd status", async (world: GtdWorld) => {
   await world.runGtd("status")
 })

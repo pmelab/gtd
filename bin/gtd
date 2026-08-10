@@ -562,9 +562,6 @@ write_scope_session() {
   mv "$tmp" "$memory_marker"
 }
 
-prev_state=""
-prev_content=""
-prev_head=""
 # Where each scope's remembered agent session is persisted across iterations
 # and across restarts, as a TABLE — one "<key> <session_id>" row per scope
 # (keys contain no whitespace, so plain field-splitting is safe) — never a
@@ -658,15 +655,18 @@ reported_head="$(git rev-parse --verify --quiet HEAD || echo none)"
 # rests at a human gate, step the human once to commit whatever they left, then
 # fall into the loop below from the resulting state.
 #
-# We peek with the pure, mutation-free `gtd next --json` and step ONLY when it
-# reports a human rest (`kind == "message"`): at an agent/check rest
-# `gtd step human` would refuse out-of-turn (non-zero, aborting under `set -e`),
-# and a mid-process restart must simply resume driving, not fail. A clean gate is
-# a harmless no-op; a genuine refusal there (a malformed steering file, or an
-# edit no `on` pattern accepts) is surfaced and stops the loop rather than being
-# driven past. --once treats a captured commit here as the run's one beat and
-# exits; a clean/no-op gate captures nothing, so it isn't a beat — it falls
-# into the loop below exactly as it would without --once.
+# We peek with the pure, mutation-free `gtd next --json` (deliberately WITHOUT
+# --dispatch — a peek must not claim a dispatch, or it would arm/consume the
+# beat marker before the loop below ever hands this beat to an executor) and
+# step ONLY when it reports a human rest (`kind == "message"`): at an
+# agent/check rest `gtd step human` would refuse out-of-turn (non-zero,
+# aborting under `set -e`), and a mid-process restart must simply resume
+# driving, not fail. A clean gate is a harmless no-op; a genuine refusal there
+# (a malformed steering file, or an edit no `on` pattern accepts) is surfaced
+# and stops the loop rather than being driven past. --once treats a captured
+# commit here as the run's one beat and exits; a clean/no-op gate captures
+# nothing, so it isn't a beat — it falls into the loop below exactly as it
+# would without --once.
 if ! peek_json="$(run_gtd next --json 2>&1)"; then
   emit_error "could not determine the next step:
 $peek_json
@@ -694,7 +694,11 @@ Fix the reported issue and re-run gtd-loop."
 fi
 
 while true; do
-  if ! next_json="$(run_gtd next --json 2>&1)"; then
+  # --dispatch claims this beat is being handed to an executor: the bundle
+  # arms/consumes its own per-worktree marker (`<git dir>/gtd-beat`,
+  # `src/BeatMarker.ts`) and reports `.stalled` for a repeated no-op prompt
+  # beat — see the guard right below.
+  if ! next_json="$(run_gtd next --json --dispatch 2>&1)"; then
     emit_error "could not determine the next step:
 $next_json
 Run \`gtd status\` to inspect the repo."
@@ -709,6 +713,20 @@ Run \`gtd status\` to inspect the repo."
   model="$(jq -r '.model // empty' <<<"$next_json")"
   memory="$(jq -r '.memory // empty' <<<"$next_json")"
   label="$(jq -r '.label // .state' <<<"$next_json")"
+
+  # The same agent-owned state and content repeating, with NO COMMIT authored
+  # since the last dispatch of this exact beat, means the last dispatch made
+  # no progress; stop rather than spin on it. `gtd next --json --dispatch`
+  # itself distinguishes this from a return lap back into the same state
+  # (e.g. checking -> fixing): a static prompt looks identical to last time,
+  # but a commit landing in between moves HEAD, so it isn't a stall.
+  if jq -e '.stalled // false' <<<"$next_json" >/dev/null; then
+    next_out="$(run_gtd next 2>&1)" || true
+    emit_error "no progress at '$state' — the agent's last turn changed nothing. Stopping to avoid spinning.
+$next_out"
+    emit_log_pointer
+    exit 1
+  fi
 
   if [[ "$kind" == "message" ]]; then
     # The non-autonomous halt: print the gate, hand off, exit 0. The human
@@ -749,32 +767,14 @@ Run \`gtd status\` to inspect the repo."
       emit_settled "$state"
       exit 0
     fi
-    prev_state=""
-    prev_content=""
     if [[ "$once_mode" == 1 ]]; then
       exit 0
     fi
     continue
   fi
 
-  # kind == "prompt": stall detection — the same
-  # agent-owned state and content repeating, WITH NO COMMIT authored since the
-  # last time we saw this beat, means the last dispatch made no progress; stop
-  # rather than spin on it. The HEAD check is what distinguishes a genuine
-  # stall from a return lap back into the same state (e.g. checking ->
-  # fixing): a static prompt looks identical to last time, but a commit
-  # landed in between, so HEAD has moved and this isn't a stall.
-  cur_head="$(git rev-parse --verify --quiet HEAD || echo none)"
-  if [[ "$state" == "$prev_state" && "$content" == "$prev_content" && "$cur_head" == "$prev_head" ]]; then
-    next_out="$(run_gtd next 2>&1)" || true
-    emit_error "no progress at '$state' — the agent's last turn changed nothing. Stopping to avoid spinning.
-$next_out"
-    emit_log_pointer
-    exit 1
-  fi
-  prev_state="$state"
-  prev_content="$content"
-  prev_head="$cur_head"
+  # kind == "prompt" from here — stall detection already ran above, against
+  # the bundle's own per-worktree marker, before this branch was reached.
 
   # Agent-memory scope: look this turn's `memory` key up in the per-scope
   # table (lookup_scope_session — exact string equality against a row's full

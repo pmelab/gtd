@@ -37,8 +37,15 @@ import type { CommandRequirements } from "../program.js"
 // ---------------------------------------------------------------------------
 
 const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileSystem => {
+  // `.git/`-rooted paths (`BeatMarker.ts`'s `gtd-beat`) route to the repo's
+  // SEPARATE git-dir file store, never `worktree` — real git never reports a
+  // `.git/**` path as a pending change, so the fake must not either (see
+  // `InMemRepo.ts`'s `gitDirFiles` field comment).
+  const gitDirPrefix = `${root}/.git/`
+  const isGitDirPath = (path: string): boolean => path.startsWith(gitDirPrefix)
+
   const readFileString = (path: string): Effect.Effect<string, PlatformError> => {
-    const content = repo.readFile(path)
+    const content = isGitDirPath(path) ? repo.readGitDirFile(path) : repo.readFile(path)
     if (content === undefined) {
       return Effect.fail(
         new SystemError({
@@ -54,10 +61,11 @@ const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileS
   }
 
   const exists = (path: string): Effect.Effect<boolean, PlatformError> =>
-    Effect.succeed(repo.hasPath(path))
+    Effect.succeed(isGitDirPath(path) ? repo.hasGitDirFile(path) : repo.hasPath(path))
 
   const writeFileString = (path: string, data: string): Effect.Effect<void, PlatformError> => {
-    repo.writeFile(path, data)
+    if (isGitDirPath(path)) repo.writeGitDirFile(path, data)
+    else repo.writeFile(path, data)
     return Effect.void
   }
 
@@ -66,6 +74,22 @@ const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileS
     path: string,
     options?: FileSystem.RemoveOptions,
   ): Effect.Effect<void, PlatformError> => {
+    if (isGitDirPath(path)) {
+      if (!repo.hasGitDirFile(path)) {
+        if (options?.force === true) return Effect.void
+        return Effect.fail(
+          new SystemError({
+            reason: "NotFound",
+            module: "FileSystem",
+            method: "remove",
+            pathOrDescriptor: path,
+            description: `ENOENT: no such file or directory, unlink '${path}'`,
+          }),
+        )
+      }
+      repo.deleteGitDirFile(path)
+      return Effect.void
+    }
     if (options?.recursive === true) {
       for (const key of repo.pathsUnder(path)) repo.deleteFile(key)
     } else {
@@ -278,9 +302,9 @@ export interface TestWorldOptions {
   readonly commands?: ReadonlyMap<string, ScriptedCommand>
 }
 
-/** The fine-grained `GitService` layer alone — for unit tests that need only git. */
-export const gitTestLayer = (repo: InMemRepo): Layer.Layer<GitService> =>
-  Layer.succeed(GitService, withIndexLockRetries(fakeGitOperations(repo)))
+/** The fine-grained `GitService` layer alone — for unit tests that need only git. `root` (default `/repo`) is only consumed by `topLevel`/`gitDir` — see `fakeGitOperations`. */
+export const gitTestLayer = (repo: InMemRepo, root = "/repo"): Layer.Layer<GitService> =>
+  Layer.succeed(GitService, withIndexLockRetries(fakeGitOperations(repo, root)))
 
 /** Every layer `makeProgram` needs — `CommandRequirements`'s return type here IS the guarantee: a new port added there fails this function's typecheck instead of silently under-providing. */
 export function testLayers(
@@ -292,7 +316,7 @@ export function testLayers(
   const configLayer = makeInMemoryConfigService(repo, root)
 
   return Layer.mergeAll(
-    gitTestLayer(repo),
+    gitTestLayer(repo, root),
     fsLayer,
     configLayer,
     Cwd.layer(root),
