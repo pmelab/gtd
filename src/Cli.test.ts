@@ -22,7 +22,16 @@ import {
   type CommandRequirements,
 } from "./Cli.js"
 
-const FLAG_NAMES = ["--json", "--port", "--no-open", "--cost", "--model", "--entry", "--var"]
+const FLAG_NAMES = [
+  "--json",
+  "--port",
+  "--no-open",
+  "--cost",
+  "--model",
+  "--entry",
+  "--var",
+  "--dispatch",
+]
 
 describe("parseArgv — unknown options", () => {
   it("any `--` token not in the flag table forces kind === 'usage' (property)", () => {
@@ -132,6 +141,47 @@ describe("parseArgv — scope", () => {
     const plan = parseArgv(["node", "gtd.js", "step", "agent", "--model=opus"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("--model requires --cost")
+  })
+
+  it("--dispatch on step/status/… is a scope error", () => {
+    for (const args of [
+      ["step", "agent", "--dispatch"],
+      ["status", "--dispatch"],
+      ["validate", "--dispatch"],
+    ]) {
+      const plan = parseArgv(["node", "gtd.js", ...args])
+      expect(plan.kind).toBe("usage")
+      if (plan.kind === "usage") {
+        expect(plan.message).toBe("gtd: --dispatch is only valid for `gtd next`")
+      }
+    }
+  })
+})
+
+describe("parseArgv — gtd next --dispatch", () => {
+  it("--dispatch without --json is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--dispatch"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toBe("gtd: next --dispatch requires --json")
+    }
+  })
+
+  it("--dispatch with --json parses to a next command with dispatch: true", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json", "--dispatch"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "next", dispatch: true })
+      expect(plan.json).toBe(true)
+    }
+  })
+
+  it("plain gtd next (no --dispatch) parses to dispatch: false", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "next", dispatch: false })
+    }
   })
 })
 

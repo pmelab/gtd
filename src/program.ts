@@ -74,6 +74,7 @@ import {
   restoredOutcome,
   restoredText,
 } from "./OutcomeScript.js"
+import { hashContent, resolveDispatch } from "./BeatMarker.js"
 
 export type CommandRequirements =
   | GitService
@@ -748,11 +749,12 @@ const selfValidateInstruction = (command: string, file: string): string =>
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
-/** `gtd next [--json]`: pure emitter of the resolved rest's rendered content (no mutation). */
-/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. `session` (see `runNextCommand`) is only ever passed for a `prompt` rest — `sessionId`/`resume` are its two keys, present or absent together. */
+/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content (no mutation, unless `--dispatch` resolves the session and arms/consumes the beat marker — see `Sessions.ts`/`BeatMarker.ts`). */
+/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. `session` (see `runNextCommand`) is only ever passed for a dispatched `prompt` rest — `sessionId`/`resume` are its two keys, present or absent together. `stalled` is the one EXCEPTION to "omitted when unset": it's omitted unless `true`, never emitted as `false` (see `runNextCommand`). */
 const nextJsonOutput = (
   rendered: RenderedRest,
-  session?: { readonly sessionId: string; readonly resume: boolean },
+  session: { readonly sessionId: string; readonly resume: boolean } | undefined,
+  stalled: boolean,
 ): string =>
   JSON.stringify({
     state: rendered.state,
@@ -766,6 +768,7 @@ const nextJsonOutput = (
     ...(rendered.file !== undefined ? { file: rendered.file } : {}),
     ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
     ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
+    ...(stalled ? { stalled: true } : {}),
   }) + "\n"
 
 /** `gtd next`'s plain-text output: the rendered content (newline-terminated), plus the self-validation instruction (naming `selfValidateCommand`, when resolved) when the rest is a validatable prompt. */
@@ -781,6 +784,7 @@ const nextPlainOutput = (
 
 const runNextCommand = (
   json: boolean,
+  dispatch: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
@@ -798,13 +802,30 @@ const runNextCommand = (
             rest.context,
           ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
         : undefined
-    // `next --json` is the beat dispatch (plain `next`/`status --json` stay
-    // read-only peeks — see src/Sessions.ts's own doc comment): only here, and
-    // only for a `prompt` rest, is a session resolved (and possibly minted
-    // and written).
+    // `--dispatch` claims this beat is being handed to an executor, so ONLY
+    // it (never plain `gtd next --json`, which is polled/peeked) performs the
+    // two driver-scoped writes: resolving (possibly minting) the prompt
+    // session — see src/Sessions.ts's own doc comment — and arming/consuming
+    // the beat marker — see `BeatMarker.ts`'s module doc comment.
+    // `script`/`message` beats never touch either (decision: only a `prompt`
+    // beat's no-change turn is invisible to the machine).
     const session =
-      json && rendered.kind === "prompt" ? yield* resolveSession(rendered.memory) : undefined
-    write(json ? nextJsonOutput(rendered, session) : nextPlainOutput(rendered, selfValidateCommand))
+      json && dispatch && rendered.kind === "prompt"
+        ? yield* resolveSession(rendered.memory)
+        : undefined
+    const stalled =
+      json && dispatch && rendered.kind === "prompt"
+        ? yield* resolveDispatch({
+            state: rendered.state,
+            content: hashContent(rendered.content),
+            head: rest.context.currentCommit,
+          })
+        : false
+    write(
+      json
+        ? nextJsonOutput(rendered, session, stalled)
+        : nextPlainOutput(rendered, selfValidateCommand),
+    )
   })
 
 /**
@@ -1340,7 +1361,7 @@ const dispatchCommand = (
     case "restore":
       return runRestoreCommand(json, write)
     case "next":
-      return runNextCommand(json, write)
+      return runNextCommand(json, command.dispatch, write)
     case "status":
       return runStatusCommand(json, write)
     case "validate":

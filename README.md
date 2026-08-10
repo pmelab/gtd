@@ -78,14 +78,31 @@ gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
 template), with an ordered set of change-patterns routing to the next state.
 
-The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
-`"message"` means it's a human's move (stop and hand off); `"script"` means the
-driver runs `content` itself, then steps its actor; `"prompt"` means feed
-`content` to your agent — using the accompanying `sessionId`/`resume` to
+<<<<<<< HEAD The loop is one beat, repeated: run `gtd next --json` and dispatch
+on `kind` — `"message"` means it's a human's move (stop and hand off); `"script"`
+means the driver runs `content` itself, then steps its actor; `"prompt"` means
+feed `content` to your agent — using the accompanying `sessionId`/`resume` to
 continue or start that agent conversation (see "Driving the loop" below) — then
 run `gtd step <actor>` once it's done, which is also what confirms `sessionId`
 as safe to resume on the next lap. gtd itself never executes anything — the
 driver owns running scripts.
+=======
+
+The loop is one beat, repeated: run `gtd next --json --dispatch` and dispatch on
+`kind` — `"message"` means it's a human's move (stop and hand off); `"script"`
+means the driver runs `content` itself, then steps its actor; `"prompt"` means
+feed `content` to your agent, then run `gtd step <actor>` once it's done. gtd
+itself never executes anything — the driver owns running scripts. Plain
+`gtd next --json` (no `--dispatch`) stays strictly mutation-free, safe to poll
+or peek at any time; `--dispatch` additionally claims the beat is being handed
+to an executor, arming a per-worktree marker (`<git dir>/gtd-beat`) so a
+`prompt` beat that repeats verbatim — same state, same rendered content, same
+HEAD, meaning the agent's last turn changed nothing — reports `"stalled": true`
+(and consumes the marker) instead of being re-dispatched forever. The fix for a
+repeated stall is either a better prompt, or — if the state can legitimately
+finish with nothing to change — declaring a `C` (clean-tree) pattern on it.
+
+> > > > > > > issue-167-stall-marker
 
 An `on` edge may also carry a short imperative `action` (e.g. `Accept plan`)
 alongside its existing `describe` sentence — a human-facing name for the choice
@@ -227,7 +244,11 @@ Commands:
                    Refuses on a dirty working tree, when there is no retained
                    history, or when HEAD has advanced past the squash with
                    commits that would be lost
-  next             Print the resolved rest's rendered script/prompt/message (no mutation)
+  next             Print the resolved rest's rendered script/prompt/message
+                   (no mutation). --dispatch (requires --json) additionally
+                   arms/consumes a per-worktree dispatch marker, emitting
+                   "stalled": true when this exact beat (state, content,
+                   HEAD) was already dispatched with no commit landing since
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Print the script that formats (when declared) then
@@ -268,6 +289,11 @@ Options:
                    (with --entry; repeatable) supply a fixed it.vars
                    override for the new process; the name must already be
                    declared by the workflow's own vars: or the .gtdrc vars:
+  --dispatch       (gtd next only, requires --json) claim this beat as
+                   handed to an executor — arms/consumes the per-worktree
+                   dispatch marker, emitting "stalled": true when this exact
+                   beat (state, content, HEAD) was already dispatched with
+                   no commit landing since
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```

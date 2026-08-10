@@ -16,6 +16,14 @@ export interface GitReaderOperations {
   /** `git rev-parse --show-toplevel` — the working-tree root; fails outside a repository. */
   readonly topLevel: () => Effect.Effect<string, Error>
   /**
+   * `git rev-parse --absolute-git-dir` — the absolute, PER-WORKTREE git
+   * directory. Not derived from `Cwd.root + "/.git"`: a linked worktree's
+   * `.git` is a FILE pointing at `…/.git/worktrees/<name>`, and per-worktree
+   * isolation is the whole point — two worktrees looping concurrently must
+   * never collide on one file (`BeatMarker.ts`'s dispatch marker lives here).
+   */
+  readonly gitDir: () => Effect.Effect<string, Error>
+  /**
    * First-parent history from `base..head` (or all commits through `head` if
    * no base), oldest→newest. `head` defaults to the literal `"HEAD"` when
    * omitted — every existing call site (`commitHistory()`,
@@ -354,6 +362,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       ),
 
     topLevel: () => exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),
+
+    gitDir: () => exec("git", "rev-parse", "--absolute-git-dir").pipe(Effect.map((s) => s.trim())),
 
     commitHistory: (base?: string, head = "HEAD") => {
       const range = base !== undefined ? `${base}..${head}` : head !== "HEAD" ? head : undefined

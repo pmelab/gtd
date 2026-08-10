@@ -48,7 +48,7 @@ export type Command =
     }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
-  | { readonly kind: "next" }
+  | { readonly kind: "next"; readonly dispatch: boolean }
   | { readonly kind: "status" }
   | { readonly kind: "validate" }
   | { readonly kind: "check"; readonly mode: string; readonly file: string }
@@ -220,6 +220,22 @@ const FLAGS: readonly FlagRow[] = [
       "declared by the workflow's own vars: or the .gtdrc vars:",
     ],
   },
+  {
+    name: "--dispatch",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "next",
+    decode: () => Either.right(true),
+    scopeError: "gtd: --dispatch is only valid for `gtd next`",
+    valueHint: "",
+    help: [
+      "(gtd next only, requires --json) claim this beat as",
+      "handed to an executor — arms/consumes the per-worktree",
+      'dispatch marker, emitting "stalled": true when this exact',
+      "beat (state, content, HEAD) was already dispatched with",
+      "no commit landing since",
+    ],
+  },
 ]
 
 const flagByToken = (token: string): FlagRow | undefined => {
@@ -303,7 +319,13 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     token: "next",
     kind: "next",
     arity: "none",
-    details: ["Print the resolved rest's rendered script/prompt/message (no mutation)"],
+    details: [
+      "Print the resolved rest's rendered script/prompt/message",
+      "(no mutation). --dispatch (requires --json) additionally",
+      "arms/consumes a per-worktree dispatch marker, emitting",
+      '"stalled": true when this exact beat (state, content,',
+      "HEAD) was already dispatched with no commit landing since",
+    ],
   },
   {
     token: "status",
@@ -699,6 +721,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--cost"?: number
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
+    readonly "--dispatch"?: boolean
   }
 
   const json = present.has("--json")
@@ -746,9 +769,17 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
+  if (kind === "next") {
+    const dispatch = bag["--dispatch"] ?? false
+    if (dispatch && !json) {
+      return usagePlan("gtd: next --dispatch requires --json", json)
+    }
+    return { kind: "command", command: { kind: "next", dispatch }, json }
+  }
+
   // Every other kind carries no extra fields.
   const command: Command = {
-    kind: kind as "lsp" | "init" | "abandon" | "restore" | "next" | "status" | "validate",
+    kind: kind as "lsp" | "init" | "abandon" | "restore" | "status" | "validate",
   }
   return { kind: "command", command, json }
 }
