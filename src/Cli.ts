@@ -53,6 +53,7 @@ export type Command =
   | { readonly kind: "status" }
   | { readonly kind: "validate" }
   | { readonly kind: "check"; readonly mode: string; readonly file: string }
+  | { readonly kind: "install" }
 
 export type CliPlan =
   | { readonly kind: "output"; readonly stdout: string }
@@ -400,6 +401,19 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "reads no config — standalone, runnable from any directory",
       "with <mode>/<file> given explicitly. This is what a",
       "workflow's emitted validation script invokes as a leaf step",
+    ],
+  },
+  {
+    token: "install",
+    kind: "install",
+    arity: "none",
+    details: [
+      "Print a complete, self-contained briefing that teaches an",
+      "agent (or a human) to build a gtd loop driver in any shell",
+      "or runtime — the self-serve version of README's 'Writing",
+      "your own driver'. Writes nothing: this installs knowledge",
+      "into the calling agent's context, not files on disk. Runs",
+      "from any directory, in or out of a repository",
     ],
   },
 ]
@@ -811,7 +825,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   // Every other kind carries no extra fields.
   const command: Command = {
-    kind: kind as "lsp" | "init" | "abandon" | "restore" | "status" | "validate",
+    kind: kind as "lsp" | "init" | "abandon" | "restore" | "status" | "validate" | "install",
   }
   return { kind: "command", command, json }
 }

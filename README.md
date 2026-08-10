@@ -267,6 +267,12 @@ Commands:
                    reads no config — standalone, runnable from any directory
                    with <mode>/<file> given explicitly. This is what a
                    workflow's emitted validation script invokes as a leaf step
+  install          Print a complete, self-contained briefing that teaches an
+                   agent (or a human) to build a gtd loop driver in any shell
+                   or runtime — the self-serve version of README's 'Writing
+                   your own driver'. Writes nothing: this installs knowledge
+                   into the calling agent's context, not files on disk. Runs
+                   from any directory, in or out of a repository
   version          Print version and exit
   help             Print this help and exit
 
@@ -528,6 +534,12 @@ sets a value renderable as `$summary` in an Agent sidebar row, if you want more
 than the state itself.
 
 ## Writing your own driver
+
+Run `gtd install` to print this whole chapter's protocol as a complete,
+self-contained briefing — paste it into an agent's context (or read it yourself)
+to build a driver without leaving your terminal. It writes nothing: "install"
+means installing knowledge into the calling agent's context, and the briefing it
+prints is always exactly as current as the `gtd` that printed it.
 
 `bin/gtd` is gtd's own reference driver, not a privileged one — the engine
 itself is a supported public surface, and anything below holds for any driver

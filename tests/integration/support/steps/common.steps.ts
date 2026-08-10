@@ -505,6 +505,27 @@ Then(
   },
 )
 
+// The top-level keys of the most recent `--json` command's stdout — for a
+// drift guard proving a later document (`gtd install`'s briefing) still names
+// every field a real command emits, without hand-listing them twice.
+const currentJsonKeys = (world: GtdWorld): readonly string[] =>
+  Object.keys(JSON.parse(world.lastResult.stdout) as Record<string, unknown>)
+
+When("I record the JSON keys of stdout as {string}", (world: GtdWorld, label: string) => {
+  world.recordedJsonKeys[label] = currentJsonKeys(world)
+})
+
+Then("stdout contains every JSON key recorded as {string}", (world: GtdWorld, label: string) => {
+  const keys = world.recordedJsonKeys[label]
+  assert.notStrictEqual(keys, undefined, `no JSON keys were ever recorded as "${label}"`)
+  for (const key of keys!) {
+    assert.ok(
+      world.lastResult.stdout.includes(key),
+      `Expected stdout to contain JSON key "${key}" (recorded as "${label}"). Got:\n${world.lastResult.stdout}`,
+    )
+  }
+})
+
 Then(
   "the json field {string} differs from the one recorded as {string}",
   (world: GtdWorld, field: string, label: string) => {
