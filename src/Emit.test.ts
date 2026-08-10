@@ -188,6 +188,84 @@ describe("emitScripts — unborn HEAD precondition (expectedHead: '')", () => {
   })
 })
 
+describe("emitScripts — a command step with onFailure", () => {
+  const initRepo = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), "emit-onfailure-repo-"))
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], { cwd: dir })
+    return dir
+  }
+  const headOf = (dir: string): string =>
+    execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()
+  const runIn = (dir: string, script: string): { status: number; output: string } => {
+    try {
+      const output = execSync("bash", { input: script, cwd: dir, encoding: "utf8" })
+      return { status: 0, output }
+    } catch (error) {
+      const e = error as { status?: number; stdout?: string }
+      return { status: e.status ?? 1, output: e.stdout ?? "" }
+    }
+  }
+
+  it("is syntactically valid bash", () => {
+    const steps: ReadonlyArray<EmitStep> = [
+      { kind: "command", command: "true", onFailure: "fix it" },
+    ]
+    const { required } = emitScripts(basePreconditions, steps)
+    expect(runBashCheckSyntax(required)).toBe(0)
+  })
+
+  it("a succeeding wrapped command exits 0 and prints nothing of its own", () => {
+    const dir = initRepo()
+    const steps: ReadonlyArray<EmitStep> = [
+      { kind: "command", command: "true", onFailure: "fix it" },
+    ]
+    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { status, output } = runIn(dir, required)
+    expect(status).toBe(0)
+    expect(output).toBe("")
+  })
+
+  it("a failing command prints the instruction, a blank line, then its combined output, and exits with its own code", () => {
+    const dir = initRepo()
+    const steps: ReadonlyArray<EmitStep> = [
+      {
+        kind: "command",
+        command: "echo boom >&2; exit 3",
+        onFailure: "Fix this violation",
+      },
+    ]
+    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { status, output } = runIn(dir, required)
+    expect(status).toBe(3)
+    expect(output).toBe("Fix this violation\n\nboom\n")
+  })
+
+  it("a multi-line inner command round-trips through the { … } group", () => {
+    const dir = initRepo()
+    const steps: ReadonlyArray<EmitStep> = [
+      {
+        kind: "command",
+        command: "echo line1 >&2\necho line2 >&2\nexit 5",
+        onFailure: "Fix multi",
+      },
+    ]
+    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { status, output } = runIn(dir, required)
+    expect(status).toBe(5)
+    expect(output).toBe("Fix multi\n\nline1\nline2\n")
+  })
+
+  it("a command step without onFailure is still emitted verbatim", () => {
+    const steps: ReadonlyArray<EmitStep> = [{ kind: "command", command: "some-command --flag" }]
+    const { required } = emitScripts(basePreconditions, steps)
+    expect(required).toContain("some-command --flag")
+    expect(required).not.toContain("gtd_validate_status")
+  })
+})
+
 /**
  * A fake git-alike, invoked by ABSOLUTE PATH from within the assembled
  * script's `gitWrite` step (never named bare `git`), behaving per invocation

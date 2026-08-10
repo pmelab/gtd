@@ -192,6 +192,15 @@ Then("the log file contains {string}", (world: GtdWorld, text: string) => {
   )
 })
 
+Then("the log file does not contain {string}", (world: GtdWorld, text: string) => {
+  const path = join(world.repoDir, loopLogPath(world))
+  const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
+  assert.ok(
+    !content.includes(text),
+    `Expected the log file ("${loopLogPath(world)}") not to contain "${text}". Got:\n${content}`,
+  )
+})
+
 // Counts NON-OVERLAPPING occurrences — used to prove a recovered retry ran
 // (e.g. "AGENT MEMORY=fix RESUME=0" appearing twice: once for the scope's
 // first entry, once for the retry after a doomed resume), which a plain

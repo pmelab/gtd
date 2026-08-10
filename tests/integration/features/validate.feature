@@ -59,6 +59,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it fails
     And stderr contains ".gtd/REQUIREMENTS.md is not valid"
     And stderr contains "has no question text"
+    And stderr contains "does not pass its own validation script"
 
   Scenario: --json reports the emitted script structurally
     # `--json` is the raw engine response: the resolved state, its file and
@@ -76,6 +77,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And stdout contains "\"mode\":\"qa\""
     And stdout contains "\"file\":\".gtd/REQUIREMENTS.md\""
     And stdout contains "gtd check qa"
+    And stdout contains "does not pass its own validation script"
+    And stdout contains "Fix these format violations in .gtd/REQUIREMENTS.md"
 
   Scenario: a well-formed REVIEW.md at build.review.reviewing validates cleanly
     Given a test project

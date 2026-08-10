@@ -508,12 +508,13 @@ $next_out"
   # making its output's format checkable. `gtd validate --json` always exits
   # 0 now — it hands back the SCRIPT that formats/checks the file (`.script`,
   # empty when the resolved rest has nothing to validate) rather than running
-  # it itself, so this driver runs that script after EVERY agent turn and
-  # re-prompts the SAME agent session on ITS non-zero exit (up to a cap)
-  # before stepping — the plain-`gtd next` self-validation instruction's
-  # driver-side equivalent, so the next rest is only ever handed a
-  # well-formed file. gtd itself never validates at step time — this is the
-  # loop's job.
+  # it itself, so this driver runs that script after EVERY agent turn. On a
+  # non-zero exit, the script's own captured output IS the ready-to-send fix
+  # prompt (instruction + findings, see src/Emit.ts's `failurePromptWrapper`
+  # and src/program.ts's `fixPromptInstruction`) — this driver owns only the
+  # retry CAP and which session to resume it against, re-prompting on that
+  # verbatim output before stepping. gtd itself never validates at step
+  # time — this is the loop's job.
   emit_action "$M_AGENT" "$label"
   turn_offset="$(log_offset)"
   agent_status=0
@@ -556,7 +557,10 @@ Stopping rather than stepping with a malformed steering file."
     [[ -n "$session_id" ]] && fix_resume=1
     turn_offset="$(log_offset)"
     agent_status=0
-    invoke_agent "$content"$'\n\n'"Your last turn does not pass its own validation script. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume" || agent_status=$?
+    # $validate_out IS the complete fix prompt: the emitted validate script
+    # prints the TS-authored fix instruction plus the validator's findings on
+    # failure (gtd#171) — nothing to compose here.
+    invoke_agent "$validate_out" "$fix_resume" || agent_status=$?
     if ((agent_status != 0)); then
       emit_error "the agent's fix attempt $fix_attempt at '$state' failed (exit $agent_status):"
       emit_output_since "$turn_offset"

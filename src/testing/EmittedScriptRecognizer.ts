@@ -20,7 +20,9 @@
  * `gtd_report_*` calls (recognized LOOSELY — see `recognizeOutcomePreamble`/
  * `recognizeOutcomeCall` — since an outcome block only prints and changes
  * nothing, unlike every git-effecting block above where an exact match is
- * load-bearing), one invented placeholder precondition shape (see
+ * load-bearing), `src/Emit.ts`'s `failurePromptWrapper` around a `command`
+ * step's `onFailure` fix prompt (see `recognizeFailurePromptWrapper`), one
+ * invented placeholder precondition shape (see
  * `preconditionHeadEquals` — kept only because some unit tests below still
  * hand-build scripts with it; no production emitter writes it any more), and
  * anything else must be an EXACT hit in the scripted-command table
@@ -51,7 +53,7 @@ import {
   softResetTo,
   updateRef,
 } from "../GitScript.js"
-import { headAssertion, reviewWindowAssertion } from "../Emit.js"
+import { failurePromptWrapper, headAssertion, reviewWindowAssertion } from "../Emit.js"
 import { OUTCOME_PREAMBLE } from "../OutcomeScript.js"
 import {
   buildCloseWindowScript,
@@ -419,6 +421,55 @@ const recognizeRetryWrappedGitWrite = (
   )
 }
 
+/**
+ * `src/Emit.ts`'s `failurePromptWrapper` — wraps a `command` step's
+ * `onFailure` fix prompt around its inner command. The header/middle/footer
+ * constants below bracket the one variable part of the template (the inner
+ * command's text, and the shell-quoted prompt), matching
+ * `failurePromptWrapper`'s own `.join("\n")` shape exactly; the extracted
+ * `inner`/`prompt` pair is then confirmed by RE-RUNNING `failurePromptWrapper`
+ * and string-comparing, same discipline as every other recognizer here.
+ * Recurses into `recognizeGtdCheck ?? recognizeScriptedCommand` on the
+ * unwrapped inner text (the only two step "command" shapes this suite emits),
+ * and on a failing inner outcome prefixes the prompt onto its error — the
+ * fake's stand-in for what the real wrapper prints to stdout before exiting
+ * non-zero.
+ */
+const FAILURE_PROMPT_HEADER = 'gtd_validate_status=0\ngtd_validate_out="$( {\n'
+const FAILURE_PROMPT_MIDDLE =
+  '\n} 2>&1 )" || gtd_validate_status=$?\n' +
+  'if [ "$gtd_validate_status" -ne 0 ]; then\n' +
+  "  printf '%s\\n\\n%s\\n' "
+const FAILURE_PROMPT_FOOTER = ' "$gtd_validate_out"\n  exit "$gtd_validate_status"\nfi'
+
+const recognizeFailurePromptWrapper = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+  block: string,
+): BlockOutcome | undefined => {
+  if (!block.startsWith(FAILURE_PROMPT_HEADER) || !block.endsWith(FAILURE_PROMPT_FOOTER)) {
+    return undefined
+  }
+  const middleIndex = block.indexOf(FAILURE_PROMPT_MIDDLE, FAILURE_PROMPT_HEADER.length)
+  if (middleIndex === -1) return undefined
+
+  const inner = block.slice(FAILURE_PROMPT_HEADER.length, middleIndex)
+  const promptQuoted = block.slice(
+    middleIndex + FAILURE_PROMPT_MIDDLE.length,
+    block.length - FAILURE_PROMPT_FOOTER.length,
+  )
+  const [prompt] = extractQuotedTokens(promptQuoted)
+  if (prompt === undefined || failurePromptWrapper(inner, prompt) !== block) return undefined
+
+  const innerOutcome =
+    recognizeGtdCheck(repo, inner) ?? recognizeScriptedCommand(repo, commands, inner)
+  if (innerOutcome === undefined) return undefined
+  if (innerOutcome.kind === "failed") {
+    return { kind: "failed", error: `${prompt}\n\n${innerOutcome.error}` }
+  }
+  return innerOutcome
+}
+
 const GTD_CHECK_RE = /^gtd check (\S+) (.+)$/
 
 /** `gtd check <mode> <file>` — a non-empty findings array fails the script, mirroring a real invocation's non-zero exit under `set -e`. */
@@ -535,6 +586,7 @@ export const applyEmittedScript = (
       recognizeReviewWindowClose(repo, block) ??
       recognizeReviewWindowOpen(repo, block) ??
       recognizeRetryWrappedGitWrite(repo, block) ??
+      recognizeFailurePromptWrapper(repo, commands, block) ??
       recognizeGtdCheck(repo, block) ??
       recognizeOutcomePreamble(block) ??
       recognizeOutcomeCall(block) ??
