@@ -3,8 +3,8 @@
  * in-memory group pinning the `.git` resolution table (D1's own words in
  * gtd#169), and a real-git group proving the resolver is byte-identical to
  * `git rev-parse --git-dir` — including under a `GIT_DIR`/`GIT_WORK_TREE`
- * pointed at an unrelated repo, the env-immunity property `bin/gtd`'s old
- * `env -u` scrub existed to provide.
+ * pointed at an unrelated repo, the env-immunity property a driver's own
+ * `env -u` scrub is expected to provide.
  */
 
 import { join } from "node:path"

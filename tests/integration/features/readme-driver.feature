@@ -726,3 +726,48 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And the log file matches "AGENT SESSION=[0-9a-f-]{36} RESUME=1" 1 times
     And the log file matches "^AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1"
     And stdout contains "write NOTE.md to start a process"
+
+  Scenario: A still-red suite with byte-identical output escalates instead of false-greening into review
+    # Drives the REAL bundled unified template (not a custom .gtdrc) through
+    # `gtd --entry fix-precheck`: a suite that always fails with
+    # byte-identical output must never be mistaken for green just because a
+    # re-run produces no diff — `build.fix`'s own `retry: {max: 3}` routes to
+    # `build.health.escalate` after 3 unsuccessful fix attempts.
+    Given a test project
+    And the workflow
+    And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"the failing test output"*)
+          echo x >> scratch.txt
+          ;;
+        *)
+          echo "readme-driver test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    Given the driver pasted from README.md
+    When I run the README driver
+    Then it succeeds
+    And stdout contains "The agent could not get the check to pass after repeated attempts."
+    And the git log does not contain "build.health.check → build.review"
+
+  Scenario: --entry fix-precheck on a green baseline collapses to nothing
+    # A green suite is nothing to fix: the empty `gtd(human): fix-precheck`
+    # entry commit and the no-op check are collapsed away rather than left as
+    # permanent bookkeeping commits — and the collapse itself reports
+    # `settled`, so the driver exits 0 here rather than at a message rest.
+    Given a test project
+    And the workflow
+    And GTD_TESTCOMMAND is set to "true"
+    And I record the commit count
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    Given the driver pasted from README.md
+    When I run the README driver
+    Then it succeeds
+    And the commit count is unchanged

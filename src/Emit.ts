@@ -245,3 +245,34 @@ export const emitScripts = (
   required: assembleScript(preconditions, required),
   optional: assembleScript(preconditions, optional),
 })
+
+const DID_NOT_RUN_COMMENT =
+  "# gtd emitted this and did NOT run it — pipe it into `bash` to land the turn"
+
+const PRESENTATION_ONLY_COMMENT = "# presentation only — safe to skip"
+
+const PRESENTATION_FAILURE_WARNING =
+  'echo "gtd: presentation-only follow-up failed — continuing" >&2'
+
+/**
+ * A plain-text (no `--json`) write command's single pasteable script: `gtd
+ * step human | bash` lands the turn without ever separating `required` from
+ * `optional`. `required` runs verbatim (its own `set -euo pipefail` aborts
+ * before `optional` ever starts if it fails); `optional`, when non-empty, is
+ * wrapped in a subshell whose failure is swallowed — presentation-only, so it
+ * must never turn a landed turn into a non-zero exit. Empty when `required`
+ * is (the `--if-resting` suppressed out-of-turn case) — callers fall back to
+ * `noopText(state)` for a genuine no-op instead of calling this at all.
+ */
+export const combinedScript = (required: string, optional: string): string => {
+  if (required.length === 0) return ""
+  if (optional.length === 0) return `${DID_NOT_RUN_COMMENT}\n\n${required}`
+  return [
+    DID_NOT_RUN_COMMENT,
+    "",
+    required,
+    "",
+    PRESENTATION_ONLY_COMMENT,
+    `(\n${optional}\n) || ${PRESENTATION_FAILURE_WARNING}`,
+  ].join("\n")
+}

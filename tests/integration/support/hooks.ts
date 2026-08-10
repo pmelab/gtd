@@ -7,26 +7,25 @@ import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 
 // Scrub every inherited GIT_* and GTD_LOOP_* var from the test process's
 // environment, once, at support-load time — so the suite runs identically
-// whether launched from a plain shell or AS A gtd LOOP'S OWN CHECK (the loop
-// driver runs `npm test` as a child, inheriting its runtime env).
+// whether launched from a plain shell or AS A gtd LOOP'S OWN CHECK (a driver
+// running `npm test` as a child, inheriting its runtime env).
 //
 // - GIT_*: @live scenarios spawn git and the gtd bundle against a fresh tmp
 //   repo, relying on cwd-based discovery; an ambient GIT_DIR/GIT_WORK_TREE
 //   would override that discovery and point `git init` and every subsequent op
 //   at the OUTER worktree's git dir instead of the tmp repo's own .git — the
-//   same cross-worktree leak `bin/gtd`'s worktree_git_dir guards against.
-// - GTD_LOOP_*: the loop driver exports GTD_LOOP_LOG (bin/gtd), the absolute
-//   path of the CURRENT worktree's loop log. `bin/gtd`'s resolve_log_path uses
-//   $GTD_LOOP_LOG verbatim when set — so a spawned `bin/gtd` inheriting it would
-//   report the driver's log path instead of resolving the tmp repo's own,
-//   breaking every gtd-log/gtd-loop log-path assertion. Scrubbing the whole
-//   GTD_LOOP_ prefix also drops any other leaked driver runtime state
-//   (GTD_LOOP_PROMPT/SESSION_ID/…); scenarios that WANT these set them
-//   explicitly via world overrides in gtd-loop.steps.ts.
+//   same cross-worktree leak per-worktree git-dir resolution guards against.
+// - GTD_LOOP_*: a driver may export `$GTD_LOOP_LOG`, the absolute path of the
+//   CURRENT worktree's loop log (`src/WorktreeState.ts`'s `loopLogPath` reads
+//   it verbatim when set) — so a spawned gtd inheriting it would report the
+//   driver's log path instead of resolving the tmp repo's own, breaking every
+//   log-path assertion. Scrubbing the whole GTD_LOOP_ prefix also drops any
+//   other leaked driver runtime state; scenarios that WANT one set it
+//   explicitly via world overrides in readme-driver.steps.ts.
 //
 // Mutating process.env here keeps every child spawn and `{ ...process.env }`
-// spread (world.ts, gtd-loop.steps.ts, project-setup.ts) hermetic from one
-// place. The vitest runner itself needs none of these vars. This runs once
+// spread (world.ts, readme-driver.steps.ts, project-setup.ts) hermetic from
+// one place. The vitest runner itself needs none of these vars. This runs once
 // per WORKER (module load, not per-test), so it stays safe under the
 // `e2e-inmem` project's `fileParallelism: true` — but it IS a mutation of
 // global process state, so any future step definition adding its own
@@ -41,11 +40,11 @@ for (const key of Object.keys(process.env)) {
 // by an absolute path. Nothing guarantees a `gtd` on the host's PATH at all
 // (a dev machine may have none), and even if one exists it may be a stale
 // global install — either way, running the seeded command for real against
-// whatever `bin/gtd`/`gtd.bundle.mjs` happens to be on PATH would silently
-// test the wrong binary. This shim makes `gtd` resolve to THIS build's own
-// bundle for the whole live-tier subprocess tree (the spawned gtd process
-// itself, and anything IT shells out to, e.g. CommandRunner.Live's `bash -c`
-// running a mode's validate: command).
+// whatever `gtd.bundle.mjs` happens to be on PATH would silently test the
+// wrong binary. This shim makes `gtd` resolve to THIS build's own bundle for
+// the whole live-tier subprocess tree (the spawned gtd process itself, and
+// anything IT shells out to, e.g. CommandRunner.Live's `bash -c` running a
+// mode's validate: command).
 function createPathShim(): string {
   const dir = mkdtempSync(join(tmpdir(), "gtd-path-shim-"))
   const shim = join(dir, "gtd")

@@ -251,6 +251,17 @@ describe("parseArgv — bare/unknown command under --json", () => {
     }
   })
 
+  it("bare gtd's missing-command message points at the README's minimal driver, not a bundled loop", () => {
+    const plan = parseArgv(["node", "gtd.js"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("missing command")
+      expect(plan.message).toContain("gtd decides and prints")
+      expect(plan.message).toContain("README")
+      expect(plan.message).toContain("A complete minimal driver")
+    }
+  })
+
   it("an unknown command under --json carries json:true and names the subcommand", () => {
     const plan = parseArgv(["node", "gtd.js", "bogus", "--json"])
     expect(plan.kind).toBe("usage")
@@ -456,6 +467,18 @@ describe("parseArgv — removed subcommands", () => {
       expect(plan.message).toContain("--entry")
     }
   })
+
+  it("`gtd loop` points at the README's minimal driver — not the old bash loop", () => {
+    const plan = parseArgv(["node", "gtd.js", "loop"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("gtd loop")
+      expect(plan.message).toContain("gone")
+      expect(plan.message).toContain("README")
+      expect(plan.message).toContain("A complete minimal driver")
+      expect(plan.message).not.toContain("unknown command")
+    }
+  })
 })
 
 describe("parseArgv — gtd install", () => {
@@ -543,6 +566,8 @@ describe("renderHelp", () => {
     expect(help).not.toContain("format <file>")
     expect(help).not.toContain("--verbose")
     expect(help).not.toContain("--debug")
+    expect(help).not.toContain("bin/gtd")
+    expect(help).not.toContain("(no command), loop")
     expect(help).toMatch(/\n$/)
   })
 

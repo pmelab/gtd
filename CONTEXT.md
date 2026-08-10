@@ -25,15 +25,15 @@ one content kind, and an ordered set of edges out. _Avoid_: node, step, phase
 `check` is the driver executing a `script` state's rendered command; gtd itself
 executes nothing. _Avoid_: role, party, runner
 
-**Driver**: Whatever executes what gtd prints — `bin/gtd`, a loop harness, a CI
-job, or a person reading it aloud. gtd is indifferent to which. _Avoid_:
-harness, runner, client
+**Driver**: Whatever executes what gtd prints — a driver (the README's minimal
+driver, or your own), a loop harness, a CI job, or a person reading it aloud.
+gtd is indifferent to which. _Avoid_: harness, runner, client
 
 **Outcome line**: The human-facing line an emitted script prints for what it
 just landed — a transition, a bare capture, an abandon, a restore. Authored in
 TS (`src/OutcomeScript.ts`), printed by the driver's bash, so it reads the same
-whether `bin/gtd` runs the script or a person pastes it into a terminal.
-_Avoid_: report, log line
+whether a driver runs the script or a person pastes it into a terminal. _Avoid_:
+report, log line
 
 **Content kind**: The one thing a state carries: a `script`, a `prompt`, a
 `message`, or a `commit` template. Which kind it is determines what gtd prints

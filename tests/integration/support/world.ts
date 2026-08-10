@@ -23,12 +23,12 @@ export const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 export type Tier = "live" | "inmem"
 
 /**
- * Mirrors `bin/gtd`'s own `is_write_command`: the tokens whose command no
- * longer performs its git effect itself but PRINTS it as a `required`/
- * `optional` script pair for a driver to run (`step`, `abandon`, `restore`,
- * and the bare `gtd --entry <state>` short form). `--entry`'s long form
- * (`gtd step --entry <state>`) is already covered by the `step` token in
- * front of it. Everything else is a read command with nothing to drive.
+ * The tokens whose command no longer performs its git effect itself but
+ * PRINTS it as a `required`/`optional` script pair for a driver to run
+ * (`step`, `abandon`, `restore`, and the bare `gtd --entry <state>` short
+ * form). `--entry`'s long form (`gtd step --entry <state>`) is already
+ * covered by the `step` token in front of it. Everything else is a read
+ * command with nothing to drive.
  */
 const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["step", "abandon", "restore", "--entry"])
 
@@ -148,17 +148,9 @@ export class GtdWorld extends QuickPickleWorld {
   recordedJsonFields: Record<string, string | undefined> = {}
   /** Named sets of top-level JSON keys captured from a prior `--json` command's stdout — for a drift guard proving a later document (e.g. `gtd install`'s briefing) still names every field a real command emits. Keyed by the label a scenario names it, same vocabulary as `recordedJsonFields`. */
   recordedJsonKeys: Record<string, readonly string[]> = {}
-  /** Path to a stub agent script for `gtd-loop` scenarios (@live only). */
+  /** Path to a stub agent script for `readme-driver` scenarios (@live only) — the `claude` shim on the scenario's PATH translates the README driver's own argv into this stub's `$GTD_LOOP_*` env. */
   stubAgentPath: string | undefined = undefined
-  /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (loop logging scenarios, @live only). */
-  gtdLoopLogOverride: string | undefined = undefined
-  /** A stray `$GIT_DIR` value a scenario wants injected into the spawned bin/gtd's env — proving per-worktree state (log, memory marker) stays keyed to the cwd worktree, never the inherited GIT_DIR (@live only). */
-  gitDirOverride: string | undefined = undefined
-  /** A leaked `$GTD_LOOP_LOG` (as the loop driver exports when running the suite as its own check) to seed into the spawned env BEFORE the hermetic GTD_LOOP_* strip — proving the strip neutralises it so the spawned gtd resolves its own log, not the driver's (@live only). */
-  leakedGtdLoopLog: string | undefined = undefined
-  /** Explicit `$NO_COLOR` value a scenario wants exported (loop rendering scenarios, @live only). */
-  noColorOverride: string | undefined = undefined
-  /** Explicit `$GTD_TESTCOMMAND` value a scenario wants exported — overrides the bundled template's `vars.testCommand` for a real `checking`/`fix-precheck` script run (`gtd-loop` @live scenarios only). */
+  /** Explicit `$GTD_TESTCOMMAND` value a scenario wants exported — overrides the bundled template's `vars.testCommand` for a real `checking`/`fix-precheck` script run (@live only). */
   gtdTestCommandOverride: string | undefined = undefined
   /** A scenario-scoped temp dir holding a `gtd` shim (see hooks.ts's `Before`) so a bare `gtd` invoked BY NAME — e.g. a seeded steering-mode `validate:` command (`gtd check <mode> <file>`) — resolves to this build, not a globally-installed gtd. Set by the Before hook, live tier only. */
   pathShimDir: string | undefined = undefined
@@ -174,8 +166,9 @@ export class GtdWorld extends QuickPickleWorld {
   scriptedCommands: Map<string, ScriptedCommand> = new Map()
 
   /**
-   * The e2e DRIVER — the test-suite counterpart of `bin/gtd`. gtd's write
-   * commands no longer perform their own git effect: they print a `required`
+   * The e2e DRIVER — the test-suite counterpart of a real driver (the
+   * README's minimal driver, or your own). gtd's write commands no longer
+   * perform their own git effect: they print a `required`
    * (and sometimes `optional`) bash script for a driver to run, and `gtd
    * validate` likewise prints the script that formats-then-validates rather
    * than doing it. Every scenario's assertions are about what those scripts
@@ -226,9 +219,10 @@ export class GtdWorld extends QuickPickleWorld {
    * `step`/`--entry`/`abandon`/`restore`: run `required` (the commit, reset,
    * ref update, review-window close/open — everything that decides what lands
    * in git), then `optional` (presentation only, so a non-zero exit there is
-   * ignored exactly as `bin/gtd` ignores it). gtd's own plain-text line stays
-   * as `lastResult`; only a FAILING required script overrides it, since a
-   * scenario asserting "it succeeds" must not pass when the work never landed.
+   * ignored exactly as the README's minimal driver ignores it). gtd's own
+   * plain-text line stays as `lastResult`; only a FAILING required script
+   * overrides it, since a scenario asserting "it succeeds" must not pass when
+   * the work never landed.
    */
   private async driveWriteCommand(args: string[]): Promise<void> {
     this.lastScriptOutput = ""
@@ -299,13 +293,20 @@ export class GtdWorld extends QuickPickleWorld {
    * The environment every live-tier subprocess gets. Prepends the PATH shim
    * dir (see hooks.ts's Before) so a bare `gtd` invoked BY NAME — by the
    * process spawned here, or by anything IT spawns — resolves to this same
-   * build under test rather than a stray global install.
+   * build under test rather than a stray global install. Applies
+   * `$GTD_TESTCOMMAND` when a scenario set one (readme-driver.steps.ts's
+   * "GTD_TESTCOMMAND is set to"), so both a direct `--entry fix-precheck`
+   * invocation and the required/optional script it emits see the override.
    */
   private spawnEnv(): NodeJS.ProcessEnv {
     const pathEnv = this.pathShimDir
       ? { PATH: `${this.pathShimDir}:${process.env["PATH"] ?? ""}` }
       : {}
-    return { ...process.env, ...pathEnv, NODE_OPTIONS: undefined }
+    const testCommandEnv =
+      this.gtdTestCommandOverride !== undefined
+        ? { GTD_TESTCOMMAND: this.gtdTestCommandOverride }
+        : {}
+    return { ...process.env, ...pathEnv, ...testCommandEnv, NODE_OPTIONS: undefined }
   }
 
   /** Async execFile implementation — used for the live tier. */

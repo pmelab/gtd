@@ -20,7 +20,7 @@ from the `.gtdrc` `workflow:` key.
 
 Your job here is to produce or edit that data so it compiles cleanly and does
 what the user wants. Driving a workflow once it exists is a separate concern —
-that is what the `bin/gtd` loop driver does.
+that is what a driver (the README's minimal driver, or your own) does.
 
 ## Golden rule: start from the built-in default, edit incrementally
 

@@ -65,17 +65,13 @@ import {
   type TemplateEdge,
 } from "./PatternTemplates.js"
 import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
-import { emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
+import { combinedScript, emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
 import {
   abandonedOutcome,
-  abandonedText,
   abandonNoopOutcome,
-  abandonNoopText,
-  COLLAPSED_TEXT,
   noopText,
   noteOutcome,
   restoredOutcome,
-  restoredText,
 } from "./OutcomeScript.js"
 import { hashContent, resolveDispatch } from "./BeatMarker.js"
 import { loopLogPath } from "./WorktreeState.js"
@@ -471,13 +467,13 @@ const reportStepResult = (
         settled: result.settled,
       }) + "\n",
     )
-  } else if (result.settled && result.subject !== null) {
-    // A settled step that still previews a subject is the initial-state
-    // collapse (the other settled shape — a genuine no-op — has `subject:
-    // null`): nothing was committed, so plain text must not claim one.
-    write(COLLAPSED_TEXT)
+  } else if (result.required.length === 0) {
+    write(noopText(result.state))
   } else {
-    write(result.subject !== null ? `committed: ${result.subject}\n` : noopText(result.state))
+    // The printed script carries its own outcome rendering — including the
+    // initial-state collapse's `COLLAPSED_TEXT` note (see `renderDecision`'s
+    // collapse branch), so no plain-text special case re-derives it here.
+    write(combinedScript(result.required, result.optional))
   }
 }
 
@@ -580,7 +576,7 @@ const runEntryCommand = (
         }) + "\n",
       )
     } else {
-      write(`committed: ${plan.subject}\n`)
+      write(combinedScript(plan.scripts.required, plan.scripts.optional))
     }
   })
 
@@ -640,7 +636,7 @@ const runAbandonCommand = (
       if (json) {
         write(JSON.stringify({ state: initial, abandoned: false, required, optional: "" }) + "\n")
       } else {
-        write(abandonNoopText(initial))
+        write(combinedScript(required, ""))
       }
       return
     }
@@ -664,9 +660,6 @@ const runAbandonCommand = (
     const tip = closeDecision.shouldClose
       ? closeDecision.refs.headHash
       : yield* git.resolveRef("HEAD")
-    // A preview of the resulting HEAD's subject — read at `startParentHash`
-    // directly rather than after an actual reset, since none has happened yet.
-    const subject = yield* git.lastCommitSubject(run.startParentHash)
 
     const steps: EmitStep[] = [
       ...(closeDecision.shouldClose
@@ -698,7 +691,7 @@ const runAbandonCommand = (
         }) + "\n",
       )
     } else {
-      write(abandonedText(restState, run.startParentHash.slice(0, 7), subject, initial))
+      write(combinedScript(required, ""))
     }
   })
 
@@ -756,10 +749,9 @@ const runRestoreCommand = (
       )
     }
 
-    // Previews of the resulting state/subject — resolved at `tip` directly
-    // rather than after an actual reset, since none has happened yet.
+    // A preview of the resulting state — resolved at `tip` directly rather
+    // than after an actual reset, since none has happened yet.
     const after = yield* restAt(tip)
-    const subject = yield* git.lastCommitSubject(tip)
 
     const steps: EmitStep[] = [
       { kind: "gitWrite", command: hardResetTo(tip) },
@@ -780,7 +772,7 @@ const runRestoreCommand = (
         }) + "\n",
       )
     } else {
-      write(restoredText(tip.slice(0, 7), subject, after.state))
+      write(combinedScript(required, ""))
     }
   })
 
@@ -825,8 +817,8 @@ const resolveSelfValidateCommand = (
  * human or a simple driver who reads the prompt and hands it to an agent, so
  * the agent self-validates); withheld from `gtd next --json`, where the
  * driving loop instead runs `gtd validate` after the turn and re-prompts on
- * findings (see the `bin/gtd` loop driver, and `fixPromptInstruction` below —
- * its driver-side counterpart). This is advisory: `gtd step` embeds that same
+ * findings (see the README's minimal driver, and `fixPromptInstruction` below
+ * — its driver-side counterpart). This is advisory: `gtd step` embeds that same
  * command ahead of its own commit and REFUSES a turn whose steering file is
  * invalid (see `stepAsActor`), so a malformed file is never captured whether
  * or not this instruction was followed.
@@ -977,7 +969,7 @@ const runNextCommand = (
  * `failurePromptWrapper`) — so a non-zero exit from the script prints the
  * COMPLETE ready-to-send fix prompt (instruction + findings) rather than bare
  * findings, letting a driver treat the script's captured output as opaque
- * prompt text (see `bin/gtd`).
+ * prompt text (see the README's minimal driver).
  */
 const runValidateCommand = (
   json: boolean,

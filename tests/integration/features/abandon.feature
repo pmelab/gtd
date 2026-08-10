@@ -30,7 +30,12 @@ Feature: gtd abandon — end the process underway without completing it
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
     When I run gtd with args "abandon"
     Then it succeeds
-    And stdout contains "abandoned the process resting at \"plan.planning\""
+    # Plain text prints the pasteable script itself — the rendered "abandoned
+    # the process resting at ..." prose is printed by the script when a driver
+    # RUNS it (script-outcomes.feature's own @live-only coverage), not by gtd
+    # deciding; this only proves the script calls the right outcome function
+    # with the right resting state.
+    And stdout contains "gtd_report_abandoned 'plan.planning'"
     # HEAD is back at the process boundary: the config commit before the process.
     And the last commit subject is "chore: init gtd workflow"
     # The plan the process committed is kept, now as a pending change.
