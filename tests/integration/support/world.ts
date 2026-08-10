@@ -131,6 +131,18 @@ export class GtdWorld extends QuickPickleWorld {
     stdout: "",
     stderr: "",
   }
+  /**
+   * The combined output of the `required`/`optional` scripts the last write
+   * command (`step`/`--entry`/`abandon`/`restore`) drove — distinct from
+   * `lastResult.stdout`, which carries gtd's OWN plain-text line, not what a
+   * driven script printed. Only meaningful on the LIVE tier: a script's
+   * outcome lines (`src/OutcomeScript.ts`'s `gtd_report_*` calls) are printed
+   * by real `bash`, which the in-memory tier's `applyEmittedScript` never
+   * runs (see its own module doc comment's "outcome blocks are inert"
+   * decision) — reset to `""` at the start of every `driveWriteCommand` call,
+   * so a scenario never reads a STALE prior command's output.
+   */
+  lastScriptOutput: string = ""
   savedCommitCount: number | undefined = undefined
   /** Named `memory` keys captured from a prior `gtd next --json`/`gtd status --json` output (`world.lastResult.stdout`), for scenarios that must prove two turns' computed keys are the SAME (session resumed) or DIFFERENT (fresh session) without knowing the exact `<scope>#<hash>` value in advance. */
   recordedMemoryKeys: Record<string, string | undefined> = {}
@@ -213,17 +225,19 @@ export class GtdWorld extends QuickPickleWorld {
    * scenario asserting "it succeeds" must not pass when the work never landed.
    */
   private async driveWriteCommand(args: string[]): Promise<void> {
+    this.lastScriptOutput = ""
     const json = await this.emittedJson(args)
     if (json === undefined) return
     if (!(await this.runRequiredScript(stringField(json, "required")))) return
     const optional = stringField(json, "optional")
-    if (optional.length > 0) await this.runEmittedScript(optional)
+    if (optional.length > 0) this.lastScriptOutput += (await this.runEmittedScript(optional)).output
   }
 
   /** Runs a write command's `required` half; `false` (with `lastResult` already rewritten to say so) when it failed, so the caller skips `optional`. */
   private async runRequiredScript(required: string): Promise<boolean> {
     if (required.length === 0) return true
     const run = await this.runEmittedScript(required)
+    this.lastScriptOutput += run.output
     if (run.exitCode === 0) return true
     this.lastResult = {
       exitCode: run.exitCode,

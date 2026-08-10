@@ -103,6 +103,49 @@ describe("emitScripts — both halves populated", () => {
   })
 })
 
+describe("emitScripts — outcome steps", () => {
+  const OUTCOME_MARKER = "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)"
+
+  it("includes the outcome preamble when a step is kind 'outcome'", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "outcome", command: "gtd_report_note 'nothing to do at \"idle\"'" },
+    ])
+    expect(required).toContain(OUTCOME_MARKER)
+    expect(required).toContain("gtd_report_note")
+  })
+
+  it("omits the outcome preamble from a script with no outcome step", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
+    ])
+    expect(required).not.toContain(OUTCOME_MARKER)
+  })
+
+  it("renders an outcome step verbatim, not routed through the retry helper", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "outcome", command: "gtd_report_commit 'gtd(agent): x'" },
+    ])
+    expect(required).toContain("gtd_report_commit 'gtd(agent): x'")
+    expect(required).not.toContain("gtd_retry 'gtd_report_commit")
+  })
+
+  it("both the outcome preamble and the retry helper appear when a script has both kinds of steps", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
+      { kind: "outcome", command: "gtd_report_commit 'gtd(agent): x'" },
+    ])
+    expect(required).toContain("gtd_retry()")
+    expect(required).toContain(OUTCOME_MARKER)
+  })
+
+  it("is syntactically valid bash", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "outcome", command: "gtd_report_note 'nothing to do at \"idle\"'" },
+    ])
+    expect(runBashCheckSyntax(required)).toBe(0)
+  })
+})
+
 describe("emitScripts — no reviewWindow means no extra ref assertion", () => {
   const steps: ReadonlyArray<EmitStep> = [{ kind: "command", command: "echo hi" }]
   const { required } = emitScripts(basePreconditions, steps)

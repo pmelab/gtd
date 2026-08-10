@@ -242,7 +242,9 @@ Then("stdout does not contain {string}", (world: GtdWorld, text: string) => {
 
 // Counts NON-OVERLAPPING occurrences of `text` in stdout — used to prove a
 // transition line was printed exactly once even when the review checkout
-// window rewinds HEAD between beats (see the report_commits monotonic marker).
+// window rewinds HEAD between beats (each transition's own required script
+// prints it exactly once, at the turn that produced it — see
+// src/OutcomeScript.ts).
 Then(
   "stdout contains {string} exactly {int} times",
   (world: GtdWorld, text: string, count: number) => {
@@ -260,6 +262,28 @@ Then(
     )
   },
 )
+
+/**
+ * Asserts on `world.lastScriptOutput` — what the last driven write command's
+ * `required`/`optional` scripts themselves printed (`src/OutcomeScript.ts`'s
+ * `gtd_report_*` calls), distinct from `world.lastResult.stdout` (gtd's own
+ * plain-text line). LIVE tier only: the in-memory tier's `applyEmittedScript`
+ * treats an outcome block as inert and prints nothing (see its own module
+ * doc comment's "outcome blocks are inert" decision), so a scenario tagged
+ * `@inmem` asking this question would silently prove nothing — this fails
+ * loudly instead, naming the tier, rather than passing on an empty string.
+ */
+Then("the emitted script printed {string}", (world: GtdWorld, text: string) => {
+  assert.strictEqual(
+    world.tier,
+    "live",
+    "the emitted script's own stdout is a @live-only observation — the in-memory tier never runs an outcome block, it only recognizes it as inert",
+  )
+  assert.ok(
+    world.lastScriptOutput.includes(text),
+    `Expected the emitted script's output to contain "${text}". Got:\n${world.lastScriptOutput}`,
+  )
+})
 
 Then("stderr matches {string}", (world: GtdWorld, pattern: string) => {
   assert.ok(

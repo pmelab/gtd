@@ -23,6 +23,7 @@ import {
   updateRef,
 } from "./GitScript.js"
 import { HISTORY_REF, withHistoryTrailer } from "./RetainedHistory.js"
+import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
 import { fakeGitOperations } from "./testing/GitDoubles.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { testLayers } from "./testing/Layers.js"
@@ -633,6 +634,12 @@ describe("planStep", () => {
     // Resolves back at idle, the entry commit rewound rather than piled on.
     const after = await provide(currentRest, repo)
     expect(after.state).toBe("idle")
+    // The collapse branch lands no commit, so its script prints no outcome —
+    // no `gtd_report_*` call, and no OUTCOME_PREAMBLE pulled in for it.
+    expect(plan.scripts.required).not.toContain("gtd_report_")
+    expect(plan.scripts.required).not.toContain(
+      "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",
+    )
   })
 })
 
@@ -785,16 +792,43 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
       renderDecision(git, rest, plan.decision, rest.context, 7, "haiku"),
     )
     const expectedMessage = `${plan.decision.subject}\n\nGtd-Cost: 7 haiku`
-    expect(steps).toEqual([{ kind: "gitWrite", command: commitAll(expectedMessage) }])
+    expect(steps).toEqual([
+      { kind: "gitWrite", command: commitAll(expectedMessage) },
+      // idle -> working: a genuine transition, not a self-loop, so the
+      // trailing outcome names both states rather than the bare subject.
+      { kind: "outcome", command: transitionOutcome("idle", "working") },
+    ])
 
     // The plan's assembled `scripts.required` carries the SAME line, wrapped
     // in the retry helper — proving Part B's assembly agrees with Part A's
     // renderer, not just a hand-built comparison.
     expect(plan.scripts.required).toContain(shellQuote(commitAll(expectedMessage)))
+    expect(plan.scripts.required).toContain(transitionOutcome("idle", "working"))
+  })
 
-    const outcome = await provide(plan.perform, repo)
-    expect(outcome).toEqual({ kind: "commit", subject: plan.decision.subject })
-    expect(repo.lastCommitMessage()).toBe(expectedMessage)
+  it("a self-loop commit (from === to) renders a bare commitOutcome, not a transitionOutcome", async () => {
+    const repo = seededStepRepo()
+    repo.commitAllWithPrefix("gtd(agent): working")
+    const rest = await provide(currentRest, repo)
+    const git = fakeGitOperations(repo)
+    // Hand-built rather than decided by `planStep`: `STEP_WORKFLOW` has no
+    // declared self-loop, but `renderDecision` only reads `decision.from`/
+    // `to`/`subject` plus `rest.def`/`rest.run` — a synthetic `StepCommit`
+    // exercises its from === to branch directly.
+    const decision = {
+      kind: "commit" as const,
+      subject: "gtd(agent): working",
+      actor: "agent",
+      from: "working",
+      to: "working",
+    }
+    const steps = await Effect.runPromise(
+      renderDecision(git, rest, decision, rest.context, undefined, undefined),
+    )
+    expect(steps).toEqual([
+      { kind: "gitWrite", command: commitAll(decision.subject) },
+      { kind: "outcome", command: commitOutcome("gtd(agent): working") },
+    ])
   })
 
   it("a squash decision's assembled script emits retain-history, soft-reset, commit-as-is, and discard-pending in order, with resolved hashes inlined, agreeing with what perform writes", async () => {
@@ -815,11 +849,15 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     const resetIdx = script.indexOf(shellQuote(softResetTo(startParent)))
     const commitAsIsIdx = script.indexOf(shellQuote(commitAsIs(expectedMessage)))
     const discardIdx = script.indexOf(shellQuote(discardPending()))
+    const outcomeIdx = script.indexOf(commitOutcome("chore: accepted accepted"))
 
     expect(retainIdx).toBeGreaterThan(-1)
     expect(resetIdx).toBeGreaterThan(retainIdx)
     expect(commitAsIsIdx).toBeGreaterThan(resetIdx)
     expect(discardIdx).toBeGreaterThan(commitAsIsIdx)
+    // The trailing outcome names the rendered message's bare subject line —
+    // last, so a file-row read of HEAD sees the commit that just landed.
+    expect(outcomeIdx).toBeGreaterThan(discardIdx)
 
     const outcome = await provide(plan.perform, repo)
     expect(outcome).toEqual({ kind: "squash", subject: "chore: accepted accepted" })
@@ -860,6 +898,9 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
 
     const expectedMessage = "gtd(human): fixing\n\nGtd-Var: base=custom"
     expect(plan.scripts.required).toContain(shellQuote(commitAll(expectedMessage)))
+    // The trailing outcome names the BARE subject, never `expectedMessage`
+    // (which carries the `Gtd-Var:` trailer).
+    expect(plan.scripts.required).toContain(commitOutcome("gtd(human): fixing"))
 
     const outcome = await provide(plan.perform, repo)
     expect(outcome).toEqual({ kind: "entry", state: "fixing", subject: "gtd(human): fixing" })

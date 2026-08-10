@@ -42,6 +42,7 @@ import {
   updateRef,
 } from "./GitScript.js"
 import { emitScripts, type EmitPreconditions, type EmitStep, type EmittedScripts } from "./Emit.js"
+import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
 
 /**
  * The v3 Effect edge. Everything git/filesystem-shaped lives here —
@@ -1057,7 +1058,7 @@ const executeDecision = (
 
 /**
  * Render a `"commit"`/`"squash"` decision as the `EmitStep`s the external
- * driver would run to produce the SAME effect `executeDecision` performs
+ * driver would run to produce the SAME git effect `executeDecision` performs
  * directly — same switch, same subjects, same trailers, same ordering. Every
  * git call here is a READ (`git.resolveRef("HEAD")` for the squash branch's
  * pre-squash tip); nothing is written. `planStep`/`planEntry`'s script
@@ -1071,7 +1072,10 @@ const executeDecision = (
  * run.startParentHash` — an empty process retains nothing, mirroring
  * `retainHistory`'s own no-op check, decided here since `tip` is already
  * known), soft-reset to the process start, commit-as-is with the rendered
- * message plus its `Gtd-History:` trailer, then discard-pending.
+ * message plus its `Gtd-History:` trailer, discard-pending, then a trailing
+ * `commitOutcome` naming the rendered message's bare subject line — the ONE
+ * addition with no `executeDecision` counterpart, since `executeDecision`
+ * never prints anything itself (only a driven SCRIPT does).
  *
  * The commit branch carries `executeDecision`'s one non-obvious case too: a
  * commit whose target is the workflow's INITIAL state, from a process that
@@ -1079,11 +1083,33 @@ const executeDecision = (
  * green suite is the shipped example) and must leave no trace at all. It
  * emits retain-history + a mixed reset to the process start instead of a
  * commit, so the entry commit and the probe collapse away together rather
- * than dirtying the log with a round trip to `idle`. Deciding it needs the
- * whole `rest` (its definition for the initial state, its pending changes for
- * the "retained nothing" test), which is why this takes a `Rest` rather than
- * the `ProcessRun` alone.
+ * than dirtying the log with a round trip to `idle` — this COLLAPSE case
+ * prints no outcome at all: no commit lands, so there is nothing to report,
+ * and a file-row read of `HEAD` there would list the pre-process commit's
+ * unrelated files. Deciding it needs the whole `rest` (its definition for
+ * the initial state, its pending changes for the "retained nothing" test),
+ * which is why this takes a `Rest` rather than the `ProcessRun` alone. The
+ * ordinary commit path's own trailing outcome is a `transitionOutcome` when
+ * the decided subject moves to a DIFFERENT state than it started from, else
+ * a `commitOutcome` naming the bare (never cost-trailer'd) subject.
  */
+/** `updateRef(HISTORY_REF, tip)` as a single-element (or empty) step list — OMITTED when `tip === startParentHash`, mirroring `retainHistory`'s own no-op check. Shared by the squash branch and the commit branch's collapse case below. */
+const retainHistoryStep = (tip: string, startParentHash: string): readonly EmitStep[] =>
+  tip === startParentHash ? [] : [{ kind: "gitWrite", command: updateRef(HISTORY_REF, tip) }]
+
+/** The commit branch's own trailing outcome: a bare `commitOutcome` for a self-loop (`from === to`), else a `transitionOutcome` naming both states. */
+const commitDecisionOutcome = (decision: {
+  readonly subject: string
+  readonly from: StateName
+  readonly to: StateName
+}): EmitStep => ({
+  kind: "outcome",
+  command:
+    decision.from === decision.to
+      ? commitOutcome(decision.subject)
+      : transitionOutcome(decision.from, decision.to),
+})
+
 export const renderDecision = (
   git: GitOperations,
   rest: Rest,
@@ -1103,15 +1129,13 @@ export const renderDecision = (
           (yield* retainsNothing(git, run, rest.changes))
         ) {
           const tip = yield* git.resolveRef("HEAD")
-          const steps: EmitStep[] = []
-          if (tip !== run.startParentHash) {
-            steps.push({ kind: "gitWrite", command: updateRef(HISTORY_REF, tip) })
-          }
-          steps.push({ kind: "gitWrite", command: mixedResetTo(run.startParentHash) })
-          return steps
+          return [
+            ...retainHistoryStep(tip, run.startParentHash),
+            { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
+          ]
         }
         const command = commitAll(withCostTrailer(decision.subject, cost, model))
-        return [{ kind: "gitWrite", command }] as const
+        return [{ kind: "gitWrite", command }, commitDecisionOutcome(decision)]
       }
       case "squash": {
         const message = yield* Effect.try({
@@ -1124,14 +1148,13 @@ export const renderDecision = (
             ),
         })
         const tip = yield* git.resolveRef("HEAD")
-        const steps: EmitStep[] = []
-        if (tip !== run.startParentHash) {
-          steps.push({ kind: "gitWrite", command: updateRef(HISTORY_REF, tip) })
-        }
-        steps.push({ kind: "gitWrite", command: softResetTo(run.startParentHash) })
-        steps.push({ kind: "gitWrite", command: commitAsIs(withHistoryTrailer(message, tip)) })
-        steps.push({ kind: "gitWrite", command: discardPending() })
-        return steps
+        return [
+          ...retainHistoryStep(tip, run.startParentHash),
+          { kind: "gitWrite", command: softResetTo(run.startParentHash) },
+          { kind: "gitWrite", command: commitAsIs(withHistoryTrailer(message, tip)) },
+          { kind: "gitWrite", command: discardPending() },
+          { kind: "outcome", command: commitOutcome(subjectOf(message)) },
+        ]
       }
     }
   })
@@ -1421,10 +1444,16 @@ export const planEntry = (
     })
 
     // Built alongside `perform` — a single `commitAll(message)` line mirrors
-    // `commitAllWithPrefix` exactly, no template render involved.
+    // `commitAllWithPrefix` exactly, no template render involved. The trailing
+    // outcome step names the BARE subject (never `message`, which may carry
+    // the `Gtd-Review-Base:`/`Gtd-Var:` trailers) — the same "bare subject"
+    // discipline `renderDecision`'s commit branch applies.
     const scriptsGit = yield* GitService
     const preconditions = yield* buildPreconditions(scriptsGit, rest, entryState)
-    const scripts = emitScripts(preconditions, [{ kind: "gitWrite", command: commitAll(message) }])
+    const scripts = emitScripts(preconditions, [
+      { kind: "gitWrite", command: commitAll(message) },
+      { kind: "outcome", command: commitOutcome(subject) },
+    ])
 
     return { kind: "entry", state: entryState, subject, perform, scripts }
   })

@@ -349,14 +349,19 @@ below for a worked example. Pass `--once` to restrict a run to exactly one beat
 the way to idle.
 
 Bare `gtd` prints one line per event — colored and emoji on a real terminal,
-plain ASCII under `NO_COLOR` or when piped — and redirects the noisier
-agent/check/step subprocess output to a per-repo/per-worktree log file (its path
-is the run's first output line, ready to `tail -f`). Any execution that FAILS
-also replays its last 20 lines of output inline on stderr, on top of the log
-still holding the complete record: an agent turn that fails stops the loop (it
-would fail identically next lap), while a check script that exits non-zero is
-reported as a warning and the loop carries on, because the outcome lives in the
-tree, not in the script's exit code.
+plain ASCII under `NO_COLOR` or when piped. Most of these lines are the loop
+driver's OWN presentation (the agent/check heartbeat, the human gate, the
+settled signal); what a turn actually LANDED — a transition, a bare capture, an
+abandon/restore — is printed by the emitted `required` script itself as it runs
+(see [Writing your own driver](#writing-your-own-driver)), so that line looks
+the same whether `bin/gtd` runs it or you paste it into a terminal yourself. The
+loop redirects the noisier agent/check subprocess output to a
+per-repo/per-worktree log file (its path is the run's first output line, ready
+to `tail -f`). Any execution that FAILS also replays its last 20 lines of output
+inline on stderr, on top of the log still holding the complete record: an agent
+turn that fails stops the loop (it would fail identically next lap), while a
+check script that exits non-zero is reported as a warning and the loop carries
+on, because the outcome lives in the tree, not in the script's exit code.
 
 A workflow state can declare an optional `label:` — a human-readable display
 name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
@@ -499,10 +504,13 @@ anything; to actually land a turn, run `gtd ... --json`, pull `required`/
 
 - **`required`** is everything that decides what lands in git — closing an open
   review checkout window, the resting state's own steering-mode
-  `format:`/`validate:` commands, then the commit or squash itself (`gtd step`
-  and `gtd --entry <state>`), or the ref update and reset that undo a process
-  (`gtd abandon`, `gtd restore`). Run this one. Skipping it means the turn never
-  lands.
+  `format:`/`validate:` commands, the commit or squash itself (`gtd step` and
+  `gtd --entry <state>`), or the ref update and reset that undo a process
+  (`gtd abandon`, `gtd restore`) — and, last, a printed line naming what just
+  landed (`src/OutcomeScript.ts`'s `gtd_report_*` calls): a transition or
+  capture's changed-file rows, or the abandon/restore prose, resolved from the
+  repository AFTER the write above it. Run this one. Skipping it means the turn
+  never lands, and you never see what it did.
 - **`optional`** is presentation only: re-opening the review checkout window
   (the `<<<<<<< HEAD` diff view) after a `gtd step` lands at a
   `reviewWindow: true` state, so an editor's diff view has something to show.
@@ -510,12 +518,16 @@ anything; to actually land a turn, run `gtd ... --json`, pull `required`/
   correctly. `gtd abandon`/`gtd restore` always emit `optional: ""` (there is no
   window to reopen after either).
 
-Either field may be the empty string `""`, meaning "nothing to do here" — a
-no-op `gtd step` (a clean tree matching no `on` pattern) emits
-`required: ""`/`optional: ""` and exits zero; run nothing and move on. Both
+`optional` may be the empty string `""`, meaning "nothing to do here".
+`required` is never `""` — even a no-op `gtd step` (a clean tree matching no
+`on` pattern) emits a PRINT-ONLY script: no git write, just the same
+`nothing to do at "<state>"` line gtd's own plain-text output shows. Both
 scripts are self-contained (each carries its own precondition assert and retry
 helper) and safe to run standalone, in sequence, or not at all — paste either
-into a terminal and it does exactly what it says.
+into a terminal and it does exactly what it says, printed output included: the
+scripts detect their own tty/`NO_COLOR` at RUN time (not at the moment gtd
+generated them), so the fancy/plain rendering always matches wherever you
+actually run them.
 
 ### Failure taxonomy and recovery
 

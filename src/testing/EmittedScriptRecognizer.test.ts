@@ -17,6 +17,7 @@ import {
   REVIEW_BASE_REF,
   REVIEW_HEAD_REF,
 } from "../ReviewWindow.js"
+import { commitOutcome, noteOutcome, OUTCOME_PREAMBLE } from "../OutcomeScript.js"
 import { applyEmittedScript, preconditionHeadEquals } from "./EmittedScriptRecognizer.js"
 import { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
@@ -605,6 +606,62 @@ describe("applyEmittedScript — src/ReviewWindow.ts's compound open/close scrip
     expect(repo.resolveRef(REVIEW_BASE_REF)).toBe(base)
     expect(repo.resolveRef(REVIEW_HEAD_REF)).toBe(realHead)
     expect(repo.resolveRef("HEAD")).toBe(base)
+  })
+})
+
+describe("applyEmittedScript — outcome blocks are inert (no git effect to miss)", () => {
+  it("the OUTCOME_PREAMBLE block applies as a no-op", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+    const before = snapshot(repo)
+
+    const result = applyEmittedScript(repo, NO_COMMANDS, OUTCOME_PREAMBLE)
+
+    expect(result).toEqual({ ok: true })
+    expect(snapshot(repo)).toEqual(before)
+  })
+
+  it("a bare gtd_report_* call applies as a no-op", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+    const before = snapshot(repo)
+
+    const result = applyEmittedScript(repo, NO_COMMANDS, commitOutcome("gtd(agent): x"))
+
+    expect(result).toEqual({ ok: true })
+    expect(snapshot(repo)).toEqual(before)
+  })
+
+  it("a realistic assembled script — commitAll's gitWrite plus a trailing outcome step — applies exactly like commitAllWithPrefix, the outcome step contributing nothing", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+    const twin = new InMemRepo()
+    twin.writeFile("a.txt", "1")
+
+    const steps: readonly EmitStep[] = [
+      { kind: "gitWrite", command: commitAll("gtd(agent): building") },
+      { kind: "outcome", command: commitOutcome("gtd(agent): building") },
+    ]
+    const { required } = emitScripts({ expectedHead: "" }, steps)
+    const result = applyEmittedScript(repo, NO_COMMANDS, required)
+    twin.commitAllWithPrefix("gtd(agent): building")
+
+    expect(result).toEqual({ ok: true })
+    expect(snapshot(repo)).toEqual(snapshot(twin))
+  })
+
+  it("a print-only no-op script (a single outcome step, no gitWrite) applies as a no-op", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+    const before = snapshot(repo)
+
+    const { required } = emitScripts({}, [
+      { kind: "outcome", command: noteOutcome('nothing to do at "idle"') },
+    ])
+    const result = applyEmittedScript(repo, NO_COMMANDS, required)
+
+    expect(result).toEqual({ ok: true })
+    expect(snapshot(repo)).toEqual(before)
   })
 })
 

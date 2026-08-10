@@ -16,6 +16,7 @@
  */
 
 import { shellQuote } from "./GitScript.js"
+import { OUTCOME_PREAMBLE } from "./OutcomeScript.js"
 
 export interface EmittedScripts {
   readonly required: string
@@ -47,11 +48,14 @@ export interface EmitPreconditions {
  * `validate:` line, a `gtd check` script) that never touches git's index and
  * must NOT be retry-wrapped — wrapping a non-git command would silently retry
  * on any output that happens to contain the lock wording, e.g. a check whose
- * own diff mentions "index.lock" in prose.
+ * own diff mentions "index.lock" in prose — vs. an `outcome` step (a
+ * `src/OutcomeScript.ts` builder's call), presentation only, never a git
+ * write, rendered verbatim exactly like `command`.
  */
 export type EmitStep =
   | { readonly kind: "gitWrite"; readonly command: string }
   | { readonly kind: "command"; readonly command: string }
+  | { readonly kind: "outcome"; readonly command: string }
 
 /**
  * The CLI resolves `expectedHead` (and a review window's `expectedHash`) at
@@ -171,6 +175,9 @@ const assembleScript = (
   }
   if (steps.some((step) => step.kind === "gitWrite")) {
     sections.push(RETRY_HELPER)
+  }
+  if (steps.some((step) => step.kind === "outcome")) {
+    sections.push(OUTCOME_PREAMBLE)
   }
   sections.push(...steps.map(renderStep))
 

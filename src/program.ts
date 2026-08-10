@@ -62,6 +62,16 @@ import {
 } from "./PatternTemplates.js"
 import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
 import { emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
+import {
+  abandonedOutcome,
+  abandonedText,
+  abandonNoopOutcome,
+  abandonNoopText,
+  noopText,
+  noteOutcome,
+  restoredOutcome,
+  restoredText,
+} from "./OutcomeScript.js"
 
 export type CommandRequirements =
   | GitService
@@ -311,7 +321,8 @@ const stepAsActor = (
         subject: null,
         cost: null,
         model: null,
-        required: "",
+        required: emitScripts({}, [{ kind: "outcome", command: noteOutcome(noopText(plan.state)) }])
+          .required,
         optional: "",
       }
     }
@@ -372,11 +383,7 @@ const reportStepResult = (
       }) + "\n",
     )
   } else {
-    write(
-      result.subject !== null
-        ? `committed: ${result.subject}\n`
-        : `nothing to do at "${result.state}"\n`,
-    )
+    write(result.subject !== null ? `committed: ${result.subject}\n` : noopText(result.state))
   }
 }
 
@@ -525,10 +532,13 @@ const runAbandonCommand = (
     const initial = initialStateOf(def)
     const run = yield* currentRun
     if (run.trace.length === 0) {
+      const required = emitScripts({}, [
+        { kind: "outcome", command: abandonNoopOutcome(initial) },
+      ]).required
       if (json) {
-        write(JSON.stringify({ state: initial, abandoned: false }) + "\n")
+        write(JSON.stringify({ state: initial, abandoned: false, required, optional: "" }) + "\n")
       } else {
-        write(`no gtd process is underway (resting at "${initial}") — nothing to abandon\n`)
+        write(abandonNoopText(initial))
       }
       return
     }
@@ -567,6 +577,7 @@ const runAbandonCommand = (
         : []),
       { kind: "gitWrite", command: updateRef(HISTORY_REF, tip) },
       { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
+      { kind: "outcome", command: abandonedOutcome(restState, run.startParentHash, initial) },
     ]
     // The precondition is real HEAD (the rewound one, while a window is open)
     // — that is what `git rev-parse HEAD` will actually report when the
@@ -585,12 +596,7 @@ const runAbandonCommand = (
         }) + "\n",
       )
     } else {
-      write(
-        `abandoned the process resting at "${restState}" — HEAD is back at ` +
-          `${run.startParentHash.slice(0, 7)} ("${subject}"), resting at "${initial}".\n` +
-          `Everything the process produced is kept as uncommitted changes (\`git status\`); ` +
-          `discard them with \`git checkout -- . && git clean -fd .gtd\` for a clean tree.\n`,
-      )
+      write(abandonedText(restState, run.startParentHash.slice(0, 7), subject, initial))
     }
   })
 
@@ -656,6 +662,7 @@ const runRestoreCommand = (
     const steps: EmitStep[] = [
       { kind: "gitWrite", command: hardResetTo(tip) },
       { kind: "gitWrite", command: deleteRef(HISTORY_REF) },
+      { kind: "outcome", command: restoredOutcome(tip, after.state) },
     ]
     const required = emitScripts(headPreconditions(headHash), steps).required
 
@@ -671,11 +678,7 @@ const runRestoreCommand = (
         }) + "\n",
       )
     } else {
-      write(
-        `restored the retained history — HEAD is back at ${tip.slice(0, 7)} ("${subject}"), ` +
-          `resting at "${after.state}". Resume with the loop, or \`git reset\` to any earlier ` +
-          `turn to restart from there.\n`,
-      )
+      write(restoredText(tip.slice(0, 7), subject, after.state))
     }
   })
 

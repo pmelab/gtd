@@ -29,6 +29,12 @@ executes nothing. _Avoid_: role, party, runner
 job, or a person reading it aloud. gtd is indifferent to which. _Avoid_:
 harness, runner, client
 
+**Outcome line**: The human-facing line an emitted script prints for what it
+just landed — a transition, a bare capture, an abandon, a restore. Authored in
+TS (`src/OutcomeScript.ts`), printed by the driver's bash, so it reads the same
+whether `bin/gtd` runs the script or a person pastes it into a terminal.
+_Avoid_: report, log line
+
 **Content kind**: The one thing a state carries: a `script`, a `prompt`, a
 `message`, or a `commit` template. Which kind it is determines what gtd prints
 and who reads it.

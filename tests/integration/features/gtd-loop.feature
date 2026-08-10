@@ -639,7 +639,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stderr does not contain "has no question text"
     And the log file contains "has no question text"
 
-  Scenario: Renders a transition line and a bare self-loop capture line, logging what gtd step committed
+  Scenario: Renders a transition line and a bare self-loop capture line on stdout
     # `working -> checking` differs (a real transition), while `checking`'s own
     # "A .gtd/FEEDBACK.md": checking pattern targets itself (a self-loop, the
     # bare `gtd(check): checking` capture form) before the second check attempt
@@ -702,10 +702,11 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       """
     When I run bare gtd
     Then it succeeds
-    And stdout contains "working → checking"
-    And stdout contains "gtd(check): checking"
-    And the log file contains "committed: gtd(agent): working → checking"
-    And the log file contains "committed: gtd(check): checking"
+    # The step's outcome now goes straight to the terminal (printed by the
+    # emitted script itself, via src/OutcomeScript.ts's gtd_report_* calls) —
+    # not to the log file, so these assert on stdout's own marker forms.
+    And stdout contains "-> working → checking"
+    And stdout contains "[commit] gtd(check): checking"
     And "src/calc.ts" exists
     And the git log contains "chore: calculator done"
 
@@ -1211,12 +1212,15 @@ Feature: gtd loop — the packaged reference loop driver (v3)
   Scenario: Prints each transition once even after the review checkout window rewinds HEAD
     # await-review opens a real review checkout window (reviewWindow: true, no
     # `mode: review` so the plain "D .gtd/REVIEW.md" pattern is the sign-off,
-    # not the sign-off gate). While the window is open HEAD rests rewound at
-    # the review base, so the second run starts with its reported-commit
-    # marker pointing BELOW commits the first run already printed; the opening
-    # move's silent capture must advance the marker past them — a driver with
-    # a per-beat head_before (or one that skipped the opening advance) would
-    # re-print the first run's transitions once the window closes.
+    # not the sign-off gate). Each transition is now printed by its OWN
+    # `required` script (src/OutcomeScript.ts's gtd_report_transition), before
+    # the `optional` script ever opens the window and rewinds HEAD back to the
+    # review base — so "reviewing → await-review" legitimately prints on the
+    # FIRST run too, unlike a HEAD-diff-based reporter, which would find no
+    # new commit once HEAD had already been rewound. The second run must not
+    # re-print any of the first run's three transitions — that now holds by
+    # construction (each is printed exactly once, at the turn that produced
+    # it), not via a high-water mark a driver has to remember to advance.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -1288,9 +1292,10 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     Then it succeeds
     And stdout contains "working → checking" exactly 1 times
     And stdout contains "checking → reviewing" exactly 1 times
-    # The step into await-review itself is already inside the open window (HEAD
-    # rests rewound at the review base by the time the driver reports), so that
-    # one transition surfaces as the gate line, never as a transition row.
+    # The required script prints this BEFORE the optional script opens the
+    # review window and rewinds HEAD — so it legitimately shows up here too,
+    # alongside the gate line for the resulting await-review rest.
+    And stdout contains "reviewing → await-review" exactly 1 times
     And stdout contains "[you]  await-review"
     When the file ".gtd/REVIEW.md" is deleted
     And I run bare gtd

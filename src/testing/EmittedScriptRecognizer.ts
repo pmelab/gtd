@@ -16,7 +16,11 @@
  * `recognizeReviewWindowOpen`/`Close`), `src/Emit.ts`'s real preamble
  * (`set -euo pipefail`, the HEAD assertion, the optional review-window-ref
  * assertion, the `gtd_retry` function definition itself), a `gtd check <mode>
- * <file>` line, one invented placeholder precondition shape (see
+ * <file>` line, `src/OutcomeScript.ts`'s `OUTCOME_PREAMBLE` and its
+ * `gtd_report_*` calls (recognized LOOSELY — see `recognizeOutcomePreamble`/
+ * `recognizeOutcomeCall` — since an outcome block only prints and changes
+ * nothing, unlike every git-effecting block above where an exact match is
+ * load-bearing), one invented placeholder precondition shape (see
  * `preconditionHeadEquals` — kept only because some unit tests below still
  * hand-build scripts with it; no production emitter writes it any more), and
  * anything else must be an EXACT hit in the scripted-command table
@@ -48,6 +52,7 @@ import {
   updateRef,
 } from "../GitScript.js"
 import { headAssertion, reviewWindowAssertion } from "../Emit.js"
+import { OUTCOME_PREAMBLE } from "../OutcomeScript.js"
 import {
   buildCloseWindowScript,
   buildOpenWindowScript,
@@ -305,6 +310,29 @@ const recognizeRetryHelperDefinition = (block: string): BlockOutcome | undefined
   block.startsWith("gtd_retry() {") ? { kind: "noop" } : undefined
 
 /**
+ * `src/OutcomeScript.ts`'s `OUTCOME_PREAMBLE` — present as its own block
+ * whenever any step is `kind: "outcome"`. Recognized loosely, by its own
+ * marker comment line, rather than re-derived and string-compared like every
+ * git-effecting block above: an outcome block PRINTS and changes nothing, so
+ * there is no git effect a loose match could ever miss (contrast
+ * `recognizeGitBuilders`, where a byte-for-byte match is load-bearing — a
+ * near-miss there could silently skip a real mutation).
+ */
+const OUTCOME_PREAMBLE_MARKER = OUTCOME_PREAMBLE.split("\n")[0]!
+
+const recognizeOutcomePreamble = (block: string): BlockOutcome | undefined =>
+  block.startsWith(OUTCOME_PREAMBLE_MARKER) ? { kind: "noop" } : undefined
+
+/**
+ * A `src/OutcomeScript.ts` builder's one-line call (`gtd_report_transition
+ * 'a' 'b'`, `gtd_report_commit '...'`, etc.) — inert for the same reason the
+ * preamble above is: it only prints, so a loose prefix match is sound here
+ * exactly like `recognizeOutcomePreamble`.
+ */
+const recognizeOutcomeCall = (block: string): BlockOutcome | undefined =>
+  block.startsWith("gtd_report_") ? { kind: "noop" } : undefined
+
+/**
  * `src/ReviewWindow.ts`'s `buildCloseWindowScript` — the compound `mixedResetTo
  * && deleteRef && deleteRef` sequence `openReviewWindow`'s script-emitting
  * twin writes to close a review checkout window. Its three `&&`-joined lines
@@ -508,6 +536,8 @@ export const applyEmittedScript = (
       recognizeReviewWindowOpen(repo, block) ??
       recognizeRetryWrappedGitWrite(repo, block) ??
       recognizeGtdCheck(repo, block) ??
+      recognizeOutcomePreamble(block) ??
+      recognizeOutcomeCall(block) ??
       recognizeScriptedCommand(repo, commands, block)
 
     if (outcome === undefined) {

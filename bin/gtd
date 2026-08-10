@@ -79,47 +79,10 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-# emit_file_rows <files> — render a commit's changed files as dim, indented
-# rows BELOW the transition/commit line: at most 3, then a "… (N more)" row
-# when there are more. <files> is a newline-separated list (git diff-tree
-# --name-only output); empty input prints nothing.
-emit_file_rows() {
-  local files="$1" f shown=0 total=0
-  [[ -z "$files" ]] && return 0
-  while IFS= read -r f; do [[ -n "$f" ]] && total=$((total + 1)); done <<<"$files"
-  while IFS= read -r f; do
-    [[ -z "$f" ]] && continue
-    if ((shown >= 3)); then
-      printf '   %s%s (%d more)%s\n' "$C_DIM" "$M_ELLIPSIS" "$((total - 3))" "$C_RESET"
-      break
-    fi
-    printf '   %s%s%s\n' "$C_DIM" "$f" "$C_RESET"
-    shown=$((shown + 1))
-  done <<<"$files"
-}
-
-# emit_transition <from> <to> <files> — a captured state-to-state move. The
-# "→" separator is literal (not FANCY-dependent) — the same separator the
-# engine's commit grammar itself uses, per the package spec.
-emit_transition() {
-  local from="$1" to="$2" files="$3"
-  printf '%s %s%s → %s%s\n' \
-    "$M_TRANS" "$C_BOLD$C_CYAN" "$from" "$to" "$C_RESET"
-  emit_file_rows "$files"
-}
-
 # emit_action <marker> <label> — the heartbeat printed before a turn runs.
 emit_action() {
   local marker="$1" label="$2"
   printf '%s %s%s\n' "$marker" "$label" "$C_RESET"
-}
-
-# emit_commit <subject> <files> — a non-transition capture (a bare-subject
-# self-loop, or the squash's agent-authored final commit).
-emit_commit() {
-  local subject="$1" files="$2"
-  printf '%s %s%s%s\n' "$M_COMMIT" "$C_GREEN" "$subject" "$C_RESET"
-  emit_file_rows "$files"
 }
 
 # emit_gate <state> <message> — the human-instruction line at a message rest.
@@ -167,8 +130,8 @@ log_offset() {
 }
 
 # emit_block <text> — replay captured subprocess output to stderr, dim and
-# indented like emit_file_rows, capped at the LAST $ERR_TAIL_LINES lines with
-# an overflow row naming the log. Empty <text> prints nothing. CSI escapes are
+# indented, capped at the LAST $ERR_TAIL_LINES lines with an overflow row
+# naming the log. Empty <text> prints nothing. CSI escapes are
 # stripped under FANCY=0 (the plain-ASCII promise), using a sed form (\e, not
 # \x1b) that both BSD and GNU sed accept.
 emit_block() {
@@ -222,65 +185,6 @@ emit_warn() {
   printf '%s %s%s%s\n' "$M_WARN" "$C_YELLOW" "$1" "$C_RESET" >&2
 }
 
-# ── Git-derivation helpers (parse_subject, report_commits) ──────────────────
-
-# parse_subject <subject> — sets S_ACTOR / S_FROM / S_TO / S_KIND. Patterns are
-# held in variables (rather than inlined) so bash's [[ =~ ]] doesn't need the
-# literal parens/spaces quoted inline.
-parse_subject() {
-  local subject="$1"
-  local transition_re='^gtd\(([^)]+)\): (.+) → (.+)$'
-  local capture_re='^gtd\(([^)]+)\): (.+)$'
-  S_ACTOR="" S_FROM="" S_TO="" S_KIND=""
-  if [[ "$subject" =~ $transition_re ]]; then
-    S_KIND=transition
-    S_ACTOR="${BASH_REMATCH[1]}"
-    S_FROM="${BASH_REMATCH[2]}"
-    S_TO="${BASH_REMATCH[3]}"
-  elif [[ "$subject" =~ $capture_re ]]; then
-    S_KIND=capture
-    S_ACTOR="${BASH_REMATCH[1]}"
-    S_TO="${BASH_REMATCH[2]}"
-  else
-    S_KIND=squash
-    S_TO="$subject"
-  fi
-}
-
-# report_commits — walks "$reported_head"..HEAD in order, emitting a
-# transition/commit line per new commit, and advances $reported_head to HEAD
-# when it reported at least one; returns non-zero (having emitted nothing,
-# and leaving $reported_head unchanged) when there were no new commits. Global
-# rather than per-beat so the review checkout window's HEAD rewinds between
-# beats never cause an already-reported commit to replay. $reported_head ==
-# "none" (the repo had no commits at all when it was last captured) can't
-# form a "none"..HEAD range — `git rev-list` would fail resolving "none" as a
-# revision — so that case walks the whole history from the root instead.
-report_commits() {
-  local sha subject files reported=0
-  local range
-  if [[ "$reported_head" == none ]]; then
-    range="HEAD"
-  else
-    range="$reported_head..HEAD"
-  fi
-  while IFS= read -r sha; do
-    [[ -z "$sha" ]] && continue
-    reported=1
-    subject="$(git log -1 --format=%s "$sha")"
-    files="$(git diff-tree --no-commit-id --name-only -r "$sha")"
-    parse_subject "$subject"
-    case "$S_KIND" in
-      transition) emit_transition "$S_FROM" "$S_TO" "$files" ;;
-      capture | squash) emit_commit "$subject" "$files" ;;
-    esac
-  done < <(git rev-list --reverse "$range")
-  if [[ "$reported" == 1 ]]; then
-    reported_head="$(git rev-parse HEAD)"
-  fi
-  [[ "$reported" == 1 ]]
-}
-
 # ── Write-command execution (is_write_command, run_gtd_command) ────────────
 # The bundle no longer performs a WRITE subcommand's git effect itself: its
 # `--json` response for `step`/the `--entry` forms/`abandon`/`restore` now
@@ -317,24 +221,18 @@ is_write_command() {
 # — returning its exit code — before `.optional` ever runs, mirroring `set
 # -e`), then `.optional` via `bash -c` (a non-zero exit there is only ever a
 # warning: it is presentation-only, e.g. re-opening the review checkout
-# window, per its own "safe to skip" billing). On success it prints, on
-# stdout, the plain human-facing line in TODAY's exact wording — the same
-# text `runStepCommand`/`runEntryCommand`/`runAbandonCommand`/
-# `runRestoreCommand` printed themselves before this rewrite moved the git
-# write into `required`. A direct caller lets that line stream straight to
-# the terminal; the loop instead captures it (`$(... 2>&1)`, the file's
-# established idiom) and logs it, since its own on-screen presentation is
-# `report_commits`. `abandon`/`restore` have no `subject` in their JSON (never
-# did — the original handlers computed it from git AFTER writing), so this
-# recomputes it from HEAD after `.required` has run; every other field used
-# below (`state`, `from`, `head`, `to`) is one of the contract's own preserved
-# "existing keys". On failure (the JSON fetch itself — a refusal/usage error —
-# or `.required`), the combined fetch output is sent to stderr and the
-# function returns non-zero; a failing `.required`'s own output streams
-# (or is captured by the caller) exactly as it happened, unredirected here.
+# window, per its own "safe to skip" billing). Neither half's output is
+# captured any more: the human-facing outcome line is now printed BY the
+# script itself (`src/OutcomeScript.ts`'s `gtd_report_*` calls, embedded in
+# `.required`), so `bash -c "$required"` writes straight to this process's own
+# stdout/stderr — a direct caller sees it stream to the terminal, and the loop
+# body (which used to capture+log it here) now sees the exact same stream,
+# uncaptured, at its own call sites below. On failure (the JSON fetch itself —
+# a refusal/usage error — or `.required`), the combined fetch output (or,
+# for `.required`, its own live stderr) is what names the problem; this
+# function only returns non-zero, naming nothing itself.
 run_gtd_command() {
   local subcmd="${1:-}" json_out required optional opt_status
-  local state subject head to from
 
   if ! json_out="$(run_gtd "$@" --json 2>&1)"; then
     printf '%s' "$json_out" >&2
@@ -342,10 +240,9 @@ run_gtd_command() {
   fi
 
   # `// empty` guards a command whose JSON doesn't (yet, or ever) carry these
-  # keys for a given branch — e.g. `gtd abandon`'s "nothing to abandon" no-op
-  # reply has neither key at all — so a missing/null field reads as "" (jq's
-  # own `null` stringifies to the 4-character text "null" otherwise, which
-  # would misread as a non-empty script).
+  # keys for a given branch — a missing/null field reads as "" (jq's own
+  # `null` stringifies to the 4-character text "null" otherwise, which would
+  # misread as a non-empty script).
   required="$(jq -r '.required // empty' <<<"$json_out")"
   optional="$(jq -r '.optional // empty' <<<"$json_out")"
 
@@ -360,42 +257,6 @@ run_gtd_command() {
       emit_warn "the presentation-only follow-up after '$subcmd' failed (exit $opt_status) — continuing"
     fi
   fi
-
-  case "$subcmd" in
-    abandon)
-      if [[ -z "$required" ]]; then
-        state="$(jq -r '.state' <<<"$json_out")"
-        printf 'no gtd process is underway (resting at "%s") — nothing to abandon\n' "$state"
-      else
-        from="$(jq -r '.from' <<<"$json_out")"
-        state="$(jq -r '.state' <<<"$json_out")"
-        head="$(jq -r '.head' <<<"$json_out")"
-        subject="$(git log -1 --format=%s HEAD)"
-        printf 'abandoned the process resting at "%s" — HEAD is back at %s ("%s"), resting at "%s".\n' \
-          "$from" "${head:0:7}" "$subject" "$state"
-        printf 'Everything the process produced is kept as uncommitted changes (`git status`); discard them with `git checkout -- . && git clean -fd .gtd` for a clean tree.\n'
-      fi
-      ;;
-    restore)
-      to="$(jq -r '.to' <<<"$json_out")"
-      state="$(jq -r '.state' <<<"$json_out")"
-      subject="$(git log -1 --format=%s HEAD)"
-      printf 'restored the retained history — HEAD is back at %s ("%s"), resting at "%s". Resume with the loop, or `git reset` to any earlier turn to restart from there.\n' \
-        "${to:0:7}" "$subject" "$state"
-      ;;
-    *)
-      # `step` (subject nullable — a no-op prints "nothing to do") and the
-      # `--entry` forms (subject never null — always "committed: ...") share
-      # this one branch: the null-check alone tells them apart.
-      subject="$(jq -r '.subject' <<<"$json_out")"
-      if [[ -n "$subject" && "$subject" != "null" ]]; then
-        printf 'committed: %s\n' "$subject"
-      else
-        state="$(jq -r '.state' <<<"$json_out")"
-        printf 'nothing to do at "%s"\n' "$state"
-      fi
-      ;;
-  esac
 }
 
 # ── Log file (resolve_log_path) ─────────────────────────────────────────────
@@ -645,12 +506,6 @@ run_agent_turn() {
   return $status
 }
 
-# The furthest commit already reported to the terminal by report_commits (see
-# its own comment) — a global high-water mark rather than a per-beat
-# head_before, so a review checkout window's HEAD rewind between beats never
-# causes an already-printed transition to replay.
-reported_head="$(git rev-parse --verify --quiet HEAD || echo none)"
-
 # Opening move: capture the human's pending edit so gtd-loop is the ONLY command
 # a human runs. A human acts at a gate by editing files (a plan answer, a review
 # tick, a code fix) and re-launching the loop — they should never have to run
@@ -677,18 +532,13 @@ fi
 peek_kind="$(jq -r .kind <<<"$peek_json")"
 if [[ "$peek_kind" == "message" ]]; then
   opening_head_before="$(git rev-parse --verify --quiet HEAD || echo none)"
-  if ! step_out="$(run_gtd_command step human 2>&1)"; then
-    emit_error "could not capture your changes at the human gate:
-$step_out
-Fix the reported issue and re-run gtd-loop."
+  if ! run_gtd_command step human; then
+    emit_error "could not capture your changes at the human gate — fix the reported issue and re-run gtd-loop."
     emit_log_pointer
     exit 1
   fi
-  # This branch reports nothing — advance the marker past whatever was just
-  # (silently) captured so the first loop-body beat below doesn't newly
-  # print it.
-  reported_head="$(git rev-parse --verify --quiet HEAD || echo none)"
-  if [[ "$once_mode" == 1 && "$opening_head_before" != "$reported_head" ]]; then
+  opening_head_after="$(git rev-parse --verify --quiet HEAD || echo none)"
+  if [[ "$once_mode" == 1 && "$opening_head_before" != "$opening_head_after" ]]; then
     exit 0
   fi
 fi
@@ -738,14 +588,17 @@ Run \`gtd status\` to inspect the repo."
       emit_warn "the check script at '$state' exited $script_status — continuing; the outcome is whatever it left in the tree:"
       emit_output_since "$script_offset"
     fi
-    if ! step_out="$(run_gtd_command step "$actor" 2>&1)"; then
-      printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
-      emit_error "$step_out"
+    head_before="$(git rev-parse --verify --quiet HEAD || echo none)"
+    if ! run_gtd_command step "$actor"; then
+      emit_error "gtd step '$actor' failed at '$state'"
       emit_log_pointer
       exit 1
     fi
-    printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
-    if ! report_commits; then
+    # No new commit landed — either a pure no-op (nothing matched a declared
+    # pattern) or a collapse (a green re-entry into the initial state,
+    # rewound rather than committed) — both read as "settled" here: the new
+    # HEAD is an ancestor of (or equal to) the pre-step HEAD.
+    if git merge-base --is-ancestor HEAD "$head_before" 2>/dev/null; then
       emit_settled "$state"
       exit 0
     fi
@@ -861,17 +714,15 @@ Stopping rather than stepping with a malformed steering file."
     fi
   done
 
-  if ! step_out="$(run_gtd_command step "$actor" 2>&1)"; then
-    printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
-    emit_error "$step_out"
+  if ! run_gtd_command step "$actor"; then
+    emit_error "gtd step '$actor' failed at '$state'"
     emit_log_pointer
     exit 1
   fi
-  printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
-  # A no-op step (nothing matched a declared pattern on a clean tree) reports
-  # zero commits here — report_commits returns non-zero, and that's fine: the
-  # NEXT iteration's stall check is what catches unchanged state/content.
-  report_commits || true
+  # A no-op step (nothing matched a declared pattern on a clean tree) prints
+  # its own "nothing to do" note (from the required script) and leaves HEAD
+  # unmoved; the NEXT iteration's stall check is what catches unchanged
+  # state/content, exactly as before.
   if [[ "$once_mode" == 1 ]]; then
     exit 0
   fi

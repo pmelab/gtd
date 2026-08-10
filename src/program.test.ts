@@ -20,6 +20,15 @@ import { InMemRepo } from "./testing/InMemRepo.js"
 import { makeCapturingCliIo } from "./testing/cliIo.js"
 import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
 import { commitAll, shellQuote } from "./GitScript.js"
+import { HISTORY_REF } from "./RetainedHistory.js"
+import {
+  abandonNoopOutcome,
+  abandonNoopText,
+  noopText,
+  noteOutcome,
+  restoredOutcome,
+  restoredText,
+} from "./OutcomeScript.js"
 
 /** Runs `args` through the real CLI shell (`runCli`) against an in-memory repo, returning the captured stdout/stderr/exit code — the same shape `tests/integration/support/world.ts`'s `@inmem` tier observes. */
 const run = async (
@@ -521,6 +530,98 @@ describe("gtd next — refuses when HEAD names a state the current workflow no l
     const applied = applyEmittedScript(repo, new Map(), required)
     expect(applied.ok).toBe(true)
     expect(repo.commitHistory()).toHaveLength(before - 1)
+  })
+})
+
+describe("outcome scripts — step no-op / abandon no-op / restore", () => {
+  const WORKFLOW = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    return repo
+  }
+
+  it("a clean-tree step is a no-op whose required script is print-only, naming the resting state", async () => {
+    const repo = seededRepo()
+    const before = repo.commitHistory().length
+
+    const plain = await run(repo, "step", "human")
+    expect(plain.exitCode).toBe(0)
+    expect(plain.stdout).toBe(noopText("idle"))
+
+    const { stdout, exitCode } = await run(repo, "step", "human", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as { subject: string | null; required: string }
+    expect(parsed.subject).toBeNull()
+    expect(parsed.required).toContain(noteOutcome(noopText("idle")))
+
+    const applied = applyEmittedScript(repo, new Map(), parsed.required)
+    expect(applied.ok).toBe(true)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("gtd abandon with nothing underway emits a print-only required script carrying the same wording", async () => {
+    const repo = seededRepo()
+    const before = repo.commitHistory().length
+
+    const plain = await run(repo, "abandon")
+    expect(plain.exitCode).toBe(0)
+    expect(plain.stdout).toBe(abandonNoopText("idle"))
+
+    const { stdout, exitCode } = await run(repo, "abandon", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as { abandoned: boolean; required: string }
+    expect(parsed.abandoned).toBe(false)
+    expect(parsed.required).toContain(abandonNoopOutcome("idle"))
+
+    const applied = applyEmittedScript(repo, new Map(), parsed.required)
+    expect(applied.ok).toBe(true)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("gtd restore's script prints the post-hoc short hash/subject via gtd_report_restored", async () => {
+    const repo = seededRepo()
+    repo.commitAllWithPrefix("gtd(agent): working")
+    const tip = repo.resolveRef("HEAD")!
+    const tipSubject = repo.lastCommitMessage()!
+    repo.updateRef(HISTORY_REF, tip)
+    // Case (b) of `restorability`: HEAD is an ancestor of the retained tip —
+    // e.g. an abandon happened after the squash this history retains.
+    repo.hardResetTo(repo.resolveRef("HEAD~1")!)
+
+    const plain = await run(repo, "restore")
+    expect(plain.exitCode).toBe(0)
+    expect(plain.stdout).toBe(restoredText(tip.slice(0, 7), tipSubject, "working"))
+
+    const { stdout, exitCode } = await run(repo, "restore", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as { to: string; required: string }
+    expect(parsed.required).toContain(restoredOutcome(tip, "working"))
+
+    const applied = applyEmittedScript(repo, new Map(), parsed.required)
+    expect(applied.ok).toBe(true)
+    expect(repo.resolveRef("HEAD")).toBe(tip)
   })
 })
 
