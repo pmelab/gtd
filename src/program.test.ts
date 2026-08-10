@@ -1208,3 +1208,69 @@ describe("gtd status — Next: preview", () => {
     expect(parsed.next).toBeNull()
   })
 })
+
+describe("gtd step --json — the settled signal", () => {
+  // idle (message) -> working (prompt) -> checking (script, no C row) — the
+  // shape #170 cares about: a script rest's no-op is the terminal "nothing
+  // left to do" signal, a prompt rest's no-op is not (that's #167's stall).
+  const SETTLED_WORKFLOW = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": checking',
+    "        checking:",
+    "          actor: check",
+    "          script: run-checks",
+    "          on:",
+    '            "A OUT.txt": idle',
+    "",
+  ].join("\n")
+
+  const seededRepo = (lastCommitSubject: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", SETTLED_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix(lastCommitSubject)
+    return repo
+  }
+
+  it("a clean tree at the script rest is settled, with an empty required script", async () => {
+    const repo = seededRepo("gtd(check): checking")
+    const { stdout, exitCode } = await run(repo, "step", "check", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
+    expect(parsed.settled).toBe(true)
+    expect(parsed.required).toBe("")
+  })
+
+  it("a clean tree at a prompt rest is not settled — that's a stall, not a terminal state", async () => {
+    const repo = seededRepo("gtd(agent): working")
+    const { stdout, exitCode } = await run(repo, "step", "agent", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as { settled: boolean }
+    expect(parsed.settled).toBe(false)
+  })
+
+  it("a dirty tree matching the script rest's own pattern is not settled — proves it's the no-op, not the state, that settles", async () => {
+    const repo = seededRepo("gtd(check): checking")
+    repo.writeFile("OUT.txt", "all green\n")
+    const { stdout, exitCode } = await run(repo, "step", "check", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
+    expect(parsed.settled).toBe(false)
+    expect(parsed.required).not.toBe("")
+  })
+})

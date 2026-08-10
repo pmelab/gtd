@@ -162,6 +162,8 @@ interface StepResult {
   readonly model: string | null
   readonly required: string
   readonly optional: string
+  /** True iff the step is a no-op at a `script` rest (`Edge.ts`'s `noOpSettles`) — the terminal, benign signal a driver should exit 0 on rather than spin. False for every other outcome, including one that lands back at the workflow's initial state. */
+  readonly settled: boolean
 }
 
 // git's empty-tree object — the abandon command's first-commit guard uses
@@ -300,6 +302,9 @@ const noopResult = (state: string): StepResult => ({
   model: null,
   required: "",
   optional: "",
+  // A suppressed out-of-turn refusal is never the terminal signal — `settled`
+  // is reserved for a genuine no-op at a `script` rest (`plan.settled`).
+  settled: false,
 })
 
 /** A `StepPlan` refusal's outcome: a no-op when `--if-resting` suppresses it (an `"out-of-turn"` reason, requested), else the ordinary Effect failure — split out of `stepAsActor` so its own branching doesn't grow. */
@@ -369,6 +374,7 @@ const stepAsActor = (
         required: emitScripts({}, [{ kind: "outcome", command: noteOutcome(noopText(plan.state)) }])
           .required,
         optional: "",
+        settled: plan.settled,
       }
     }
 
@@ -407,6 +413,7 @@ const stepAsActor = (
       model: opts.model ?? null,
       required: yield* buildRequiredScript(rest, decision, invoker, opts.cost, opts.model),
       optional: openWindowScript(rest, targetState),
+      settled: false,
     }
   })
 
@@ -425,6 +432,7 @@ const reportStepResult = (
         ...(result.model !== null ? { model: result.model } : {}),
         required: result.required,
         optional: result.optional,
+        settled: result.settled,
       }) + "\n",
     )
   } else {
@@ -518,6 +526,9 @@ const runEntryCommand = (
     // its own to validate ahead of the commit (that gate applies to the NEXT
     // step away from the entered state, once its actor has produced
     // something, not to entering it).
+    // No `settled` key here: an entry can never be a no-op (it always writes a
+    // fresh commit), so a driver reading `.settled // false` off this JSON
+    // already gets the right answer without this command naming the field.
     if (json) {
       write(
         JSON.stringify({
