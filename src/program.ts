@@ -62,6 +62,7 @@ import {
 } from "./PatternTemplates.js"
 import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
 import { emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
+import { loopLogPath } from "./WorktreeState.js"
 
 export type CommandRequirements =
   | GitService
@@ -735,13 +736,20 @@ const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
 /** `gtd next [--json]`: pure emitter of the resolved rest's rendered content (no mutation). */
-/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. */
-const nextJsonOutput = (rendered: RenderedRest): string =>
+/**
+ * `gtd next --json`'s single-line object — `log` (the per-worktree loop log
+ * path, `src/WorktreeState.ts`'s `loopLogPath`) is UNCONDITIONAL, unlike the
+ * optional keys below it: a driver reads it every run, so there is nothing to
+ * omit. Those optional keys are never `null`-valued, omitted entirely when
+ * their source is unset, exactly like `gtd status --json`.
+ */
+const nextJsonOutput = (rendered: RenderedRest, log: string): string =>
   JSON.stringify({
     state: rendered.state,
     actor: rendered.actor,
     kind: rendered.kind,
     content: rendered.content,
+    log,
     ...(rendered.model !== undefined ? { model: rendered.model } : {}),
     ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
     ...(rendered.label !== undefined ? { label: rendered.label } : {}),
@@ -780,7 +788,8 @@ const runNextCommand = (
             rest.context,
           ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
         : undefined
-    write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered, selfValidateCommand))
+    const log = yield* loopLogPath
+    write(json ? nextJsonOutput(rendered, log) : nextPlainOutput(rendered, selfValidateCommand))
   })
 
 /**

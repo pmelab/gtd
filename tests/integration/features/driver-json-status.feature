@@ -628,3 +628,16 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout contains "\"edges\":[{\"pattern\":\"* **\",\"target\":\"idle\"}]"
     And stdout does not contain "\"describe\""
+
+  Scenario: gtd next --json reports the per-worktree loop log path by default (gtd#169)
+    Given a test project
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"log\":\".git/gtd-loop.log\""
+
+  Scenario: gtd next --json reports GTD_LOOP_LOG verbatim when set (gtd#169)
+    Given a test project
+    And an environment variable "GTD_LOOP_LOG" set to "/tmp/run.log"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"log\":\"/tmp/run.log\""

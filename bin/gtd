@@ -398,28 +398,25 @@ run_gtd_command() {
   esac
 }
 
-# ── Log file (resolve_log_path) ─────────────────────────────────────────────
+# ── Log file ─────────────────────────────────────────────────────────────────
+# The log path itself now comes from the opening `gtd next --json` peek's own
+# `log` field (see the opening-move block below, gtd#169) — TS resolves it
+# from the filesystem, immune to a stray GIT_DIR/GIT_WORK_TREE by
+# construction, rather than this script deriving it via a scrubbed `git
+# rev-parse --git-dir` call.
 
 # worktree_git_dir — the git dir of the working tree gtd is operating in,
 # derived purely from the cwd. GIT_DIR/GIT_WORK_TREE are scrubbed for this one
 # call so an inherited GIT_DIR (e.g. leaked from a parent git process, a hook,
 # or another worktree's shell) can never point our per-worktree state at a
 # DIFFERENT worktree — that would let two concurrently looping worktrees
-# collide on one log/memory file. A linked worktree's git-dir is its own
-# private .git/worktrees/<name>, so this is per-repository AND per-worktree.
+# collide on one memory file. A linked worktree's git-dir is its own private
+# .git/worktrees/<name>, so this is per-repository AND per-worktree. Its only
+# remaining caller is $memory_marker below — #166 (the session table) is
+# expected to replace that caller too, at which point this can go.
 worktree_git_dir() {
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     git rev-parse --git-dir
-}
-
-# resolve_log_path — echoes the loop's logfile path: $GTD_LOOP_LOG verbatim if
-# set, else "$(worktree_git_dir)/gtd-loop.log".
-resolve_log_path() {
-  if [[ -n "${GTD_LOOP_LOG:-}" ]]; then
-    echo "$GTD_LOOP_LOG"
-  else
-    echo "$(worktree_git_dir)/gtd-loop.log"
-  fi
 }
 
 # --once governs only the loop driver, recognised in exactly two positions —
@@ -576,17 +573,6 @@ prev_head=""
 # scope owns exactly one row can. In the git dir, never the work tree.
 memory_marker="$(worktree_git_dir 2>/dev/null || echo .git)/gtd-loop-memory"
 
-# Truncated once here (not every iteration), so the file always reflects the
-# current run but survives after the loop exits.
-log_path="$(resolve_log_path)"
-: >"$log_path"
-export GTD_LOOP_LOG="$log_path"
-if [[ "$FANCY" == 1 ]]; then
-  printf '%s📄 log: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
-else
-  printf '%slog: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
-fi
-
 # Swappable agent adapter: GTD_LOOP_AGENT_CMD lets any coding agent CLI stand
 # in for the default, receiving the prompt via $GTD_LOOP_PROMPT, the state's
 # opaque model hint (if any) via $GTD_LOOP_MODEL, and the memory scope via
@@ -667,13 +653,30 @@ reported_head="$(git rev-parse --verify --quiet HEAD || echo none)"
 # driven past. --once treats a captured commit here as the run's one beat and
 # exits; a clean/no-op gate captures nothing, so it isn't a beat — it falls
 # into the loop below exactly as it would without --once.
+#
+# This first `next --json` call also carries the run's log path (`.log`,
+# gtd#169) — TS resolves it from the worktree's own git dir, immune to a
+# stray GIT_DIR/GIT_WORK_TREE by construction. No log exists yet to point at
+# on THIS call's own failure, so unlike every later failure path, this one
+# emits no `emit_log_pointer` — the error message stands alone.
 if ! peek_json="$(run_gtd next --json 2>&1)"; then
   emit_error "could not determine the next step:
 $peek_json
 Run \`gtd status\` to inspect the repo."
-  emit_log_pointer
   exit 1
 fi
+
+# Truncated once here (not every iteration), so the file always reflects the
+# current run but survives after the loop exits.
+log_path="$(jq -r .log <<<"$peek_json")"
+: >"$log_path"
+export GTD_LOOP_LOG="$log_path"
+if [[ "$FANCY" == 1 ]]; then
+  printf '%s📄 log: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
+else
+  printf '%slog: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
+fi
+
 peek_kind="$(jq -r .kind <<<"$peek_json")"
 if [[ "$peek_kind" == "message" ]]; then
   opening_head_before="$(git rev-parse --verify --quiet HEAD || echo none)"

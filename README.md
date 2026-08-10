@@ -350,13 +350,14 @@ the way to idle.
 
 Bare `gtd` prints one line per event — colored and emoji on a real terminal,
 plain ASCII under `NO_COLOR` or when piped — and redirects the noisier
-agent/check/step subprocess output to a per-repo/per-worktree log file (its path
-is the run's first output line, ready to `tail -f`). Any execution that FAILS
-also replays its last 20 lines of output inline on stderr, on top of the log
-still holding the complete record: an agent turn that fails stops the loop (it
-would fail identically next lap), while a check script that exits non-zero is
-reported as a warning and the loop carries on, because the outcome lives in the
-tree, not in the script's exit code.
+agent/check/step subprocess output to a per-repo/per-worktree log file, whose
+path comes from `gtd next --json`'s own `log` field (its path is the run's first
+output line, ready to `tail -f`). Any execution that FAILS also replays its last
+20 lines of output inline on stderr, on top of the log still holding the
+complete record: an agent turn that fails stops the loop (it would fail
+identically next lap), while a check script that exits non-zero is reported as a
+warning and the loop carries on, because the outcome lives in the tree, not in
+the script's exit code.
 
 A workflow state can declare an optional `label:` — a human-readable display
 name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
@@ -509,6 +510,14 @@ anything; to actually land a turn, run `gtd ... --json`, pull `required`/
   Skip it and you lose nothing but that view — the workflow is still driven
   correctly. `gtd abandon`/`gtd restore` always emit `optional: ""` (there is no
   window to reopen after either).
+
+`gtd next --json` carries one more field worth a custom driver's attention:
+
+- **`log`** — the per-worktree loop log path, always present. It's derived from
+  the worktree's own git dir, so two worktrees looping concurrently never share
+  one file; set `$GTD_LOOP_LOG` to override it verbatim. gtd itself neither
+  creates nor truncates this file — a driver appends subprocess output to it and
+  truncates once at the start of a run, exactly like `bin/gtd` does.
 
 Either field may be the empty string `""`, meaning "nothing to do here" — a
 no-op `gtd step` (a clean tree matching no `on` pattern) emits

@@ -344,6 +344,36 @@ describe("gtd next --json / gtd status — label emission", () => {
   })
 })
 
+describe("gtd next --json — log path emission (gtd#169)", () => {
+  // `log` is the per-worktree loop log path (src/WorktreeState.ts's
+  // `loopLogPath`) — always present, unlike the omit-when-unset keys above.
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd: init")
+    return repo
+  }
+
+  it("defaults to .git/gtd-loop.log", async () => {
+    const repo = seededRepo()
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as Record<string, unknown>
+    expect(parsed.log).toBe(".git/gtd-loop.log")
+  })
+
+  it("GTD_LOOP_LOG overrides it verbatim", async () => {
+    const repo = seededRepo()
+    const { io, result } = makeCapturingCliIo(repo, { GTD_LOOP_LOG: "/tmp/run.log" })
+    await Effect.runPromise(runCli(["node", "gtd.js", "next", "--json"], io))
+    const { stdout, exitCode } = result()
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as Record<string, unknown>
+    expect(parsed.log).toBe("/tmp/run.log")
+  })
+})
+
 describe("gtd next --json / gtd status — memory key emission", () => {
   // `memory` is now COMPUTED (src/Edge.ts's `memoryKeyFor`, package 05/06)
   // from the resting state's scope (`ConfigOperations.stateScopes`) and a

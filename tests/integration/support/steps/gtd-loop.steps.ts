@@ -75,11 +75,11 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
 }
 
 // Sets $GTD_LOOP_LOG explicitly — the single-explicit-path override
-// `resolve_log_path` uses verbatim instead of deriving
-// "$(git rev-parse --git-dir)/gtd-loop.log". `value` is resolved relative to
-// the repo root by the subprocess itself (its cwd), exactly like the plain
-// "a file ..." step resolves paths, so scenarios can seed/assert on it with
-// the same relative path string.
+// `gtd next --json`'s `.log` field (src/WorktreeState.ts's `loopLogPath`)
+// reports verbatim instead of deriving "<git-dir>/gtd-loop.log". `value` is
+// resolved relative to the repo root by the subprocess itself (its cwd),
+// exactly like the plain "a file ..." step resolves paths, so scenarios can
+// seed/assert on it with the same relative path string.
 Given("GTD_LOOP_LOG is set to {string}", (world: GtdWorld, value: string) => {
   world.gtdLoopLogOverride = value
 })
@@ -172,8 +172,9 @@ When("I run {string} via gtd", async (world: GtdWorld, args: string) => {
   await runBinGtd(world, args.split(" "))
 })
 
-// Resolves the loop's log file path the same way bin/gtd's resolve_log_path
-// does: $GTD_LOOP_LOG verbatim when a scenario overrode it, else the default
+// Resolves the loop's log file path the same way bin/gtd now does (reading
+// `gtd next --json`'s own `.log` field, src/WorktreeState.ts's `loopLogPath`):
+// $GTD_LOOP_LOG verbatim when a scenario overrode it, else the default
 // ".git/gtd-loop.log" (every gtd-loop.feature scenario runs against a plain,
 // non-worktree test project, so its git-dir is always ".git").
 function loopLogPath(world: GtdWorld): string {
