@@ -88,25 +88,29 @@ Given("GTD_TESTCOMMAND is set to {string}", (world: GtdWorld, value: string) => 
   world.gtdTestCommandOverride = value
 })
 
-// Spawns the extracted driver with a MINIMAL env — PATH (the shim dir first,
-// so `gtd` and `claude` resolve to this build's bundle and the stub) and
-// HOME, nothing else. That absence is itself the copy-paste-complete proof:
-// no $GTD_* var, no $NODE_*, no test-harness leak. The one exception is
+// The MINIMAL env the driver spawns with — PATH (the shim dir first, so
+// `gtd` and `claude` resolve to this build's bundle and the stub) and HOME,
+// nothing else. That absence is itself the copy-paste-complete proof: no
+// $GTD_* var, no $NODE_*, no test-harness leak. The one exception is
 // $GTD_TESTCOMMAND when a scenario set it: it parameterizes the WORKFLOW
 // under test (the bundled template's `vars.testCommand`), not the driver.
+function driverEnv(world: GtdWorld): Record<string, string> {
+  return {
+    PATH: `${world.pathShimDir}:${process.env["PATH"] ?? ""}`,
+    HOME: process.env["HOME"] ?? "",
+    ...(world.gtdTestCommandOverride !== undefined
+      ? { GTD_TESTCOMMAND: world.gtdTestCommandOverride }
+      : {}),
+  }
+}
+
 When("I run the README driver", async (world: GtdWorld) => {
   const path = world.readmeDriverPath
   assert.ok(path, 'no README driver — run "Given the driver pasted from README.md" first')
   try {
     const { stdout, stderr } = await execFile("bash", [path], {
       cwd: world.repoDir,
-      env: {
-        PATH: `${world.pathShimDir}:${process.env["PATH"] ?? ""}`,
-        HOME: process.env["HOME"] ?? "",
-        ...(world.gtdTestCommandOverride !== undefined
-          ? { GTD_TESTCOMMAND: world.gtdTestCommandOverride }
-          : {}),
-      },
+      env: driverEnv(world),
       encoding: "utf-8",
       timeout: 30_000,
     })
