@@ -6,7 +6,7 @@ import {
   withIndexLockRetries,
   type GitOperations,
 } from "./Git.js"
-import { gitTiers, runGitServiceContract } from "./testing/GitTiers.js"
+import { gitTiers, runGitServiceContract, runGitScriptContract } from "./testing/GitTiers.js"
 
 /**
  * The `GitOperations` contract, run identically against both the Live and
@@ -20,6 +20,16 @@ for (const makeTier of gitTiers) {
     runGitServiceContract(makeTier)
   })
 }
+
+/**
+ * `GitScript.ts`'s bash builders, run through real `bash` against a real git
+ * repo — the Live tier only, since the in-memory fake's root has no shell to
+ * execute against. Asserts the same 9 writer postconditions as the contract
+ * above, driven via the emitted script instead of the `GitOperations` port.
+ */
+describe("GitScript", () => {
+  runGitScriptContract()
+})
 
 // ---------------------------------------------------------------------------
 // index.lock contention retry — pure, tier-free unit assertions. The

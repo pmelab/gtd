@@ -3,7 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { Effect } from "effect"
 import { assertScopesCoverStates, compileWorkflowConfig } from "./PatternConfig.js"
+import { isSeededValidateCommand, seededValidateCommand } from "./SteeringFormats.js"
+import { resolveSteeringMode, renderSteeringCommands } from "./SteeringMode.js"
+import type { TemplateContext } from "./PatternTemplates.js"
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -148,18 +152,78 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
     )
     // A `./`-prefixed COMMAND is never inlined as a file reference the way a
     // content string is — it is a shell command, kept verbatim. `qa`/`review`
-    // are seeded (empty) even though this workflow never mentions them.
+    // are seeded with their own `validate:` even though this workflow never
+    // mentions them.
     expect(definition.modes).toEqual({
-      qa: {},
-      review: {},
+      qa: { validate: seededValidateCommand("qa") },
+      review: { validate: seededValidateCommand("review") },
       adr: { format: "./scripts/fmt-adr.sh <%= it.file %>", validate: "adr-lint <%= it.file %>" },
       spec: { validate: "npx ajv -s spec.schema.json -d <%= it.file %>" },
     })
   })
 
-  it("seeds the built-in registry's names (qa/review) as empty entries even when no `modes:` is declared", () => {
+  it("seeds the built-in registry's names (qa/review) with their own `validate:` command even when no `modes:` is declared", () => {
     const { definition } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
-    expect(definition.modes).toEqual({ qa: {}, review: {} })
+    expect(definition.modes).toEqual({
+      qa: { validate: seededValidateCommand("qa") },
+      review: { validate: seededValidateCommand("review") },
+    })
+  })
+
+  it("keeps the seed's `validate:` when a workflow overrides only `format:` for a built-in name", () => {
+    const { definition } = compileWorkflowConfig(
+      { ...draftCheckRevise, modes: { qa: { format: "npx prettier --write <%= it.file %>" } } },
+      "/config-dir",
+    )
+    expect(definition.modes).toEqual({
+      qa: {
+        format: "npx prettier --write <%= it.file %>",
+        validate: seededValidateCommand("qa"),
+      },
+      review: { validate: seededValidateCommand("review") },
+    })
+  })
+
+  it("fully displaces the seed when a workflow declares both halves for a built-in name", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        ...draftCheckRevise,
+        modes: {
+          qa: { format: "my-fmt <%= it.file %>", validate: "my-qa-linter <%= it.file %>" },
+        },
+      },
+      "/config-dir",
+    )
+    const qa = definition.modes?.["qa"]
+    expect(qa).toEqual({ format: "my-fmt <%= it.file %>", validate: "my-qa-linter <%= it.file %>" })
+    expect(isSeededValidateCommand("qa", qa?.validate ?? "")).toBe(false)
+  })
+
+  it("seeds a usable `validate:` command that round-trips through resolveSteeringMode/renderSteeringCommands", async () => {
+    const { definition } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
+    const resolved = resolveSteeringMode(definition, "qa")
+    expect(resolved?.validate).toEqual({ kind: "command", command: seededValidateCommand("qa") })
+
+    const context: TemplateContext = {
+      startCommit: "",
+      currentCommit: "",
+      previousCommit: "",
+      state: "",
+      actor: "",
+      reviewBase: "",
+      retainedBase: "",
+      processCost: 0,
+      processCostByModel: [],
+      read: () => {
+        throw new Error("must not be called")
+      },
+      vars: {},
+      edges: [],
+    }
+    const rendered = await Effect.runPromise(
+      renderSteeringCommands(resolved!, ".gtd/TODO.md", context),
+    )
+    expect(rendered).toEqual([`gtd check qa '.gtd/TODO.md'`])
   })
 
   it("rejects a non-object `modes:` value", () => {
@@ -210,8 +274,8 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       { adr: { format: "project-fmt <%= it.file %>" }, spec: { validate: "spec-lint" } },
     )
     expect(definition.modes).toEqual({
-      qa: {},
-      review: {},
+      qa: { validate: seededValidateCommand("qa") },
+      review: { validate: seededValidateCommand("review") },
       adr: { format: "project-fmt <%= it.file %>", validate: "adr-lint <%= it.file %>" },
       spec: { validate: "spec-lint" },
     })
@@ -240,8 +304,8 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       { adr: { validate: "adr-lint <%= it.file %>" } },
     )
     expect(definition.modes).toEqual({
-      qa: {},
-      review: {},
+      qa: { validate: seededValidateCommand("qa") },
+      review: { validate: seededValidateCommand("review") },
       adr: { validate: "adr-lint <%= it.file %>" },
     })
   })

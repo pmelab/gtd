@@ -36,19 +36,41 @@ function scrubInheritedLoopEnv(env: NodeJS.ProcessEnv, world: GtdWorld): void {
   }
 }
 
+// Prepend the PATH shim dir (see hooks.ts's Before / world.ts's spawnEnv,
+// same rationale) so a `gtd` invoked BY NAME resolves to this build's own
+// bundle. bin/gtd itself needs no shim (it self-locates dist/gtd.bundle.mjs
+// relative to its own script path), but a WRITE subcommand's `required`/
+// `.script` bash — e.g. a seeded steering-mode validate: command
+// (`SteeringFormats.ts`'s literal `gtd check <mode> <file>`) that
+// `run_gtd_command`/the validate gate execute via `bash -c` — shells out to
+// `gtd` by name, and would otherwise resolve to whatever (if anything) is
+// globally installed on the host.
+function prependPathShim(env: NodeJS.ProcessEnv, shimDir: string | undefined): void {
+  if (shimDir === undefined) return
+  env["PATH"] = `${shimDir}:${env["PATH"] ?? ""}`
+}
+
+/** Sets each override whose value the scenario actually supplied; an absent one leaves the inherited value alone. */
+function applyEnvOverrides(
+  env: NodeJS.ProcessEnv,
+  overrides: Record<string, string | undefined>,
+): void {
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== undefined) env[key] = value
+  }
+}
+
 function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
   const env = { ...process.env }
   scrubInheritedLoopEnv(env, world)
-  const overrides: Record<string, string | undefined> = {
+  prependPathShim(env, world.pathShimDir)
+  applyEnvOverrides(env, {
     GTD_LOOP_AGENT_CMD: world.stubAgentPath ? `bash "${world.stubAgentPath}"` : undefined,
     GTD_LOOP_LOG: world.gtdLoopLogOverride,
     GIT_DIR: world.gitDirOverride,
     NO_COLOR: world.noColorOverride,
     GTD_TESTCOMMAND: world.gtdTestCommandOverride,
-  }
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value !== undefined) env[key] = value
-  }
+  })
   return env
 }
 

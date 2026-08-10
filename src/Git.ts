@@ -16,7 +16,14 @@ export interface GitReaderOperations {
   /** `git rev-parse --show-toplevel` — the working-tree root; fails outside a repository. */
   readonly topLevel: () => Effect.Effect<string, Error>
   /**
-   * First-parent history from `base..HEAD` (or all commits if no base), oldest→newest.
+   * First-parent history from `base..head` (or all commits through `head` if
+   * no base), oldest→newest. `head` defaults to the literal `"HEAD"` when
+   * omitted — every existing call site (`commitHistory()`,
+   * `commitHistory(base)`) means exactly what it always has. Pass a resolved
+   * hash to walk through a DIFFERENT head instead — `Edge.ts`'s `restAt`
+   * does this while a review checkout window is open, since real HEAD has
+   * been rewound to the review base and a literal `HEAD` there would miss
+   * every commit between the base and the window's saved real head.
    * Each entry carries the full commit message, `removedErrors: true` iff that
    * commit's name-status diff contains a deletion (`D`) of `.gtd/ERRORS.md`
    * (or legacy root-level `ERRORS.md` from pre-namespaced history), and
@@ -26,7 +33,10 @@ export interface GitReaderOperations {
    * additional per-commit subprocess is spawned.
    * Returns `[]` for an empty repo.
    */
-  readonly commitHistory: (base?: string) => Effect.Effect<
+  readonly commitHistory: (
+    base?: string,
+    head?: string,
+  ) => Effect.Effect<
     ReadonlyArray<{
       readonly hash: string
       readonly message: string
@@ -43,16 +53,32 @@ export interface GitReaderOperations {
    */
   readonly readFileAtRef: (ref: string, path: string) => Effect.Effect<string, Error>
   /**
-   * The pending working-tree changes vs HEAD, as `{path, status}` pairs —
-   * tracked modifications (`git diff --name-status HEAD`) unioned with
-   * untracked files (reported as `status: "A"`), deduplicated by path. The
-   * v3 pattern machine's `step`/`gtd status` only need the status/path shape,
-   * never diff content, for pattern matching.
+   * The pending working-tree changes vs `base` (default `HEAD`), as
+   * `{path, status}` pairs — tracked modifications
+   * (`git diff --name-status <base>`) unioned with untracked files (reported
+   * as `status: "A"`), deduplicated by path. The v3 pattern machine's
+   * `step`/`gtd status` only need the status/path shape, never diff content,
+   * for pattern matching.
+   *
+   * `base` exists for exactly one caller: `Edge.ts`'s rest resolution while a
+   * review checkout window is OPEN. Real HEAD is rewound to the review base
+   * then, so "pending" against literal HEAD would mean "the whole reviewed
+   * diff" rather than "what the reviewer just did" — and, worse, a file the
+   * window staged back from the saved head but the reviewer DELETED shows up
+   * in neither tree and so reports no change at all (real git agrees: the
+   * index-only `AD` entry is invisible to `git diff --name-status HEAD`),
+   * which is precisely the deletion the review sign-off guard must catch.
+   * Passing the window's saved head restores the pre-window meaning.
+   *
+   * When `base` is given, an untracked path that already EXISTS at `base` is
+   * not an addition and is dropped — with the window open, every file added
+   * since the review base is untracked (the index sits at that base) while
+   * being perfectly present at the saved head. With no `base`, untracked
+   * means untracked and no filtering is paid for.
    */
-  readonly changedPaths: () => Effect.Effect<
-    ReadonlyArray<{ readonly path: string; readonly status: string }>,
-    Error
-  >
+  readonly changedPaths: (
+    base?: string,
+  ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
   /**
    * `git diff --name-status <ref> HEAD` — the paths (and their status) changed
    * across the committed range `ref..HEAD`, with no content pass. The
@@ -265,12 +291,12 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     changedPathsSince: (ref: string) =>
       exec("git", "diff", "--name-status", ref, "HEAD").pipe(Effect.map(parseNameStatus)),
 
-    changedPaths: () =>
+    changedPaths: (base?: string) =>
       Effect.gen(function* () {
         // Only the empty-repo case (no HEAD) is tolerated here — an
         // `index.lock` failure must propagate so the port-level retry
         // (`withIndexLockRetries`) sees it, not this catch.
-        const nameStatusOut = yield* exec("git", "diff", "--name-status", "HEAD").pipe(
+        const nameStatusOut = yield* exec("git", "diff", "--name-status", base ?? "HEAD").pipe(
           Effect.catchIf(
             (e) => !isIndexLockError(e),
             () => Effect.succeed(""),
@@ -279,10 +305,19 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         const trackedPaths = parseNameStatus(nameStatusOut)
 
         const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard", "-z")
-        const untracked = untrackedRaw
+        const untrackedAll = untrackedRaw
           .split("\0")
           .filter((s) => s.length > 0)
           .map((path) => ({ path, status: "A" }))
+        const atBase =
+          base === undefined
+            ? new Set<string>()
+            : new Set(
+                (yield* exec("git", "ls-tree", "-r", "--name-only", "-z", base))
+                  .split("\0")
+                  .filter((s) => s.length > 0),
+              )
+        const untracked = untrackedAll.filter((entry) => !atBase.has(entry.path))
 
         const seen = new Set<string>()
         const all: Array<{ path: string; status: string }> = []
@@ -320,8 +355,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 
     topLevel: () => exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),
 
-    commitHistory: (base?: string) => {
-      const range = base !== undefined ? `${base}..HEAD` : undefined
+    commitHistory: (base?: string, head = "HEAD") => {
+      const range = base !== undefined ? `${base}..${head}` : head !== "HEAD" ? head : undefined
       const args: [string, ...Array<string>] = [
         "git",
         "log",

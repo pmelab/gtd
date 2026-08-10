@@ -58,9 +58,9 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
 
   topLevel: () => Effect.succeed("/repo"),
 
-  commitHistory: (base?: string) => Effect.succeed(repo.commitHistory(base)),
+  commitHistory: (base?: string, head?: string) => Effect.succeed(repo.commitHistory(base, head)),
 
-  changedPaths: () => Effect.succeed(repo.changedPathsWorktree()),
+  changedPaths: (base?: string) => Effect.succeed(repo.changedPathsWorktree(base)),
 
   changedPathsSince: (ref: string) =>
     tryCatch(() => {

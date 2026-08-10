@@ -284,3 +284,54 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result contains a symbol named "[unanswered] Which operations?"
     And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/PLAN.md" with exactly one Information diagnostic containing "exit 1"
+
+  Scenario: a modes: qa validate: entry carrying gtd's own SEEDED command keeps live diagnostics, not the external notice
+    # A later package's workflow compiler will seed `qa`/`review`'s own
+    # `validate:` with the literal string `gtd check <mode> '<%= it.file %>'`
+    # (src/SteeringFormats.ts's seededValidateCommand) — a shell-out that just
+    # calls back into gtd's own parser, changing nothing about how the file is
+    # actually validated. steeringCapabilities must recognize that string
+    # (isSeededValidateCommand) and keep publishing the built-in parser's live
+    # findings, never the "validated by an external command" notice a genuine
+    # user override gets (see the scenario above, which uses "exit 1").
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          qa:
+            validate: "gtd check qa '<%= it.file %>'"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/PLAN.md"
+                mode: qa
+                prompt: "develop the plan"
+                on:
+                  "* **": idle
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Plan.
+
+      ## Open Questions
+
+      ###
+
+      no question text.
+      """
+    Then the LSP response has no error
+    And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/PLAN.md" with exactly one Warning diagnostic containing "has no question text"

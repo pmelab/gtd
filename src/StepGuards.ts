@@ -1,12 +1,5 @@
 import { Effect } from "effect"
-import { CommandRunner } from "./CommandRunner.js"
 import { RepoFiles } from "./RepoFiles.js"
-import {
-  formatSteeringFile,
-  resolveSteeringMode,
-  unknownModeMessage,
-  validateSteeringFile,
-} from "./SteeringMode.js"
 import {
   isAnswerGateState,
   isReviewWindowState,
@@ -23,11 +16,9 @@ import type { TemplateContext } from "./PatternTemplates.js"
  * before it can commit — never engine concerns (`src/PatternMachine.ts`'s
  * `step` never sees any of this; a state's declared `on` pattern is the only
  * thing that decides WHERE a step lands, these guards only decide WHETHER it
- * may land at all). One registry (`stepGuards`) replaces four hand-copied
+ * may land at all). One registry (`stepGuards`) replaces hand-copied
  * `enforce*` blocks that used to live in `src/program.ts`:
  *
- * - **steering-file** — format then validate a state's `file:`/`mode:` pair,
- *   refusing an invalid result (`src/SteeringMode.ts`).
  * - **review-signoff** — at a review window's `mode: review` gate, refuse a
  *   deleted doc or an unfinished tick-only pass with no comment.
  * - **feedback-progress** — at a `requireProgress` state, refuse deleting the
@@ -35,20 +26,30 @@ import type { TemplateContext } from "./PatternTemplates.js"
  * - **answer-completeness** — at an `answerGate` `mode: qa` state, refuse
  *   while any open question is unanswered.
  *
- * `enforceStepGuards` runs every APPLICABLE guard's `prepare` (writes — only
- * the steering-file guard's format command has one) to completion BEFORE
- * sampling the committed/working bytes ONCE (cached), then runs every
- * `check` (reads) against that one sample — so a `format:` command's rewrite
- * is visible to every guard, including one it wasn't written for, and no
- * guard ever judges half-formatted bytes.
+ * `enforceStepGuards` samples the committed/working bytes ONCE (cached), then
+ * runs every applicable guard's `check` (reads) against that one sample.
+ * There is no write phase here anymore: a `format:` command (a mode's own
+ * whitespace/wrapping/ordering normalization) is emitted into a step's bash
+ * script for an EXTERNAL driver to run — it may run before or after this
+ * process reads the file, or not at all before the CLI decides. That is
+ * sound only because a `format:` command is NORMALIZATION-ONLY and must
+ * NEVER change what a guard would decide: this repo's guards judge whichever
+ * bytes are currently on disk (pre-format or post-format, indistinguishable
+ * to a guard that only cares about content, not incidental formatting), so
+ * the CLI's ONE decision — made here, now, against whatever the working tree
+ * currently holds — can never be invalidated by a formatter running later. A
+ * `format:` command that changes a guard's verdict (e.g. one that also
+ * mutates checkbox state, or strips content) would be a mode-author bug, not
+ * a gtd concern; gtd enforces nothing about a mode's `format:` beyond "it
+ * runs as part of the step script."
  */
 
-export type GuardRequirements = RepoFiles | CommandRunner
+export type GuardRequirements = RepoFiles
 
 /** A guard's verdict: `undefined` allows the step; a string is the refusal reason (the `gtd step <invoker>: ` prefix is added once, by `enforceStepGuards`). */
 export type Refusal = string | undefined
 
-/** Everything a guard's `check` (and the steering-file guard's `prepare`) needs — assembled once per `enforceStepGuards` call, shared by every applicable guard. */
+/** Everything a guard's `check` needs — assembled once per `enforceStepGuards` call, shared by every applicable guard. */
 export interface GuardContext {
   readonly rest: ResolvedRest
   /** The rest state's rendered `file:` — non-optional, since `enforceStepGuards` already returned early when the state declares none. */
@@ -61,7 +62,7 @@ export interface GuardContext {
   readonly template: TemplateContext
   /** `file`'s contents at HEAD (before this step), `undefined` if absent there. Cached — evaluated once per `enforceStepGuards` call. */
   readonly head: Effect.Effect<string | undefined, Error>
-  /** `file`'s WORKING-TREE contents, sampled AFTER every applicable guard's `prepare` has run — so every `check` sees post-format bytes. Cached. */
+  /** `file`'s CURRENT working-tree contents — whatever is on disk right now, pre- or post- an external driver's own `format:` run. Cached. */
   readonly worktree: Effect.Effect<string | undefined, Error>
 }
 
@@ -69,47 +70,12 @@ export interface StepGuard {
   readonly name: string
   /** Pure — decided from the definition/state alone, before any IO is paid for. */
   readonly appliesTo: (rest: ResolvedRest) => boolean
-  /** The WRITE phase (only the steering-file guard has one): runs for every applicable guard, in order, before any guard's `check`. */
-  readonly prepare?: (
-    ctx: Omit<GuardContext, "head" | "worktree">,
-  ) => Effect.Effect<void, Error, GuardRequirements>
-  /** The READ phase: decide allow (`undefined`) or refuse (a reason string). */
+  /** Decide allow (`undefined`) or refuse (a reason string). */
   readonly check: (ctx: GuardContext) => Effect.Effect<Refusal, Error, GuardRequirements>
 }
 
 /** Normalize every markdown checkbox to a single placeholder so a pure `[ ]`→`[x]` tick is invisible to a text comparison; any surviving difference is a human note. */
 const normalizeCheckboxes = (content: string): string => content.replace(/\[[ xX]\]/g, "[_]")
-
-const steeringFileGuard: StepGuard = {
-  name: "steering-file",
-  appliesTo: (rest) => rest.stateDef.mode !== undefined,
-  prepare: (ctx) =>
-    Effect.gen(function* () {
-      const mode = ctx.rest.stateDef.mode!
-      const resolved = resolveSteeringMode(ctx.rest.def, mode)
-      if (resolved === undefined) {
-        // `validateDefinition` rejects an unresolvable `mode:` at load time —
-        // defensive, not a reachable config path.
-        return yield* Effect.fail(new Error(unknownModeMessage(ctx.rest.def, ctx.rest.state, mode)))
-      }
-      const files = yield* RepoFiles
-      if (files.working(ctx.file) === undefined) return // a deletion — nothing to format
-      yield* formatSteeringFile(resolved, ctx.file, ctx.template)
-    }),
-  check: (ctx) =>
-    Effect.gen(function* () {
-      const mode = ctx.rest.stateDef.mode!
-      const resolved = resolveSteeringMode(ctx.rest.def, mode)
-      if (resolved === undefined) return undefined // `prepare` already failed this path
-      const current = yield* ctx.worktree
-      if (current === undefined) return undefined // a deletion — nothing to validate
-      const errors = yield* validateSteeringFile(resolved, ctx.file, current, ctx.template)
-      if (errors.length === 0) return undefined
-      return `${ctx.file} is not valid at "${ctx.rest.state}" — fix these before stepping:\n${errors
-        .map((e) => `  - ${e}`)
-        .join("\n")}`
-    }),
-}
 
 /** The `mode:` name of gtd's built-in REVIEW.md checkbox validator — the only mode the sign-off guard understands. */
 const REVIEW_MODE = "review"
@@ -170,9 +136,8 @@ const answerCompletenessGuard: StepGuard = {
     }),
 }
 
-/** The four step-capture guards, in EVALUATION order — message precedence when two would fire is observable, so this order is the contract (matches the old hand-copied call order). */
+/** The three step-capture guards, in EVALUATION order — message precedence when two would fire is observable, so this order is the contract (matches the old hand-copied call order, minus the now-removed steering-file guard). */
 export const stepGuards: readonly StepGuard[] = [
-  steeringFileGuard,
   reviewSignoffGuard,
   feedbackProgressGuard,
   answerCompletenessGuard,
@@ -180,7 +145,7 @@ export const stepGuards: readonly StepGuard[] = [
 
 /**
  * The `gtd step` capture gate: run every guard the resolved rest's state
- * applies to, formatting (write phase) before validating (read phase) — see
+ * applies to against ONE sample of the current committed/working bytes — see
  * the module docstring — and fail with the first refusal's reason, prefixed
  * `gtd step <invoker>: ` (the one place that prefix, and the `cliErrorLine`
  * `/^gtd[: ]/` contract, is satisfied). A no-op for a squash/no-op decision, a
@@ -214,10 +179,6 @@ export const enforceStepGuards = (input: {
       template: input.context,
     }
 
-    for (const g of applicable) {
-      if (g.prepare !== undefined) yield* g.prepare(base)
-    }
-
     const files = yield* RepoFiles
     const head = yield* Effect.cached(files.committed(file))
     const worktree = yield* Effect.cached(Effect.try(() => files.working(file)))
@@ -229,43 +190,4 @@ export const enforceStepGuards = (input: {
         return yield* Effect.fail(new Error(`gtd step ${input.invoker}: ${refusal}`))
       }
     }
-  })
-
-/** Format the resolved state's steering file (in place) then validate it — `gtd validate`'s shape. */
-export interface SteeringCheck {
-  /** The rendered `file:` path, or `undefined` when the state declares no `file:`/`mode:`. */
-  readonly file: string | undefined
-  /** True when a steering file was actually present and got formatted + validated (false when the state declares none, or the file is absent — a deletion). */
-  readonly present: boolean
-  /** The parser findings (empty when `present` is false). */
-  readonly errors: readonly string[]
-}
-
-/**
- * `gtd validate`'s shared evaluation: format the resolved rest's steering
- * file in place, then validate its formatted contents — the SAME
- * format-then-validate pair the `steering-file` guard's `prepare`/`check`
- * split runs, so both format and check the same way (an agent's fresh draft
- * and a human's edit are treated alike). `present` is false — and nothing is
- * formatted or validated — when the state declares no steering file, or the
- * file is absent (e.g. a human deleted `.gtd/REVIEW.md` to approve).
- */
-export const checkSteeringFile = (
-  rest: ResolvedRest,
-  context: TemplateContext,
-  file: string | undefined,
-): Effect.Effect<SteeringCheck, Error, GuardRequirements> =>
-  Effect.gen(function* () {
-    const mode = rest.stateDef.mode
-    if (file === undefined || mode === undefined) return { file, present: false, errors: [] }
-    const files = yield* RepoFiles
-    if (files.working(file) === undefined) return { file, present: false, errors: [] }
-    const resolved = resolveSteeringMode(rest.def, mode)
-    if (resolved === undefined) {
-      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
-    }
-    yield* formatSteeringFile(resolved, file, context)
-    const content = files.working(file) ?? ""
-    const errors = yield* validateSteeringFile(resolved, file, content, context)
-    return { file, present: true, errors }
   })

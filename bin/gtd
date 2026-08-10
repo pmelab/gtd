@@ -10,8 +10,13 @@ set -euo pipefail
 #   - no arguments, or exactly `loop` with no further arguments -> fall through
 #     into the loop body below (the loop protocol comment further down).
 #   - `loop` with an unrecognised extra argument -> usage error, exit 2.
-#   - anything else -> hand off to the bundle via `run_gtd`, forwarding all
-#     arguments unchanged (e.g. `bin/gtd status`, `bin/gtd step human`).
+#   - anything else -> a WRITE subcommand (`step`, the `--entry` forms,
+#     `abandon`, `restore` — see `is_write_command`) routes through
+#     `run_gtd_command`, which actually performs the bundle's emitted
+#     `required`/`optional` scripts (the bundle itself only ever PRINTS them
+#     now); everything else (`status`, `next`, `validate`, `visualize`, `lsp`,
+#     `check`, `init`) hands off straight to the bundle via `run_gtd`,
+#     forwarding all arguments unchanged (e.g. `bin/gtd status`).
 # The loop's whole job is to drive the process until it rests at a
 # NON-AUTONOMOUS state (a human gate) or settles. Everything beyond that —
 # editors, desktop notifications, terminal-multiplexer status — is an OUTER
@@ -59,6 +64,19 @@ else
   C_CYAN=""; C_GREEN=""; C_YELLOW=""; C_RED=""
   M_TRANS="->"; M_AGENT="[agent]"; M_CHECK="[check]"; M_HUMAN="[you]"
   M_FIX="[fix]"; M_COMMIT="[commit]"; M_SETTLE="[done]"; M_ERROR="[err]"; M_WARN="[warn]"; M_ELLIPSIS="..."
+fi
+
+# `jq` used to be a loop-only dependency (the loop's own `next --json`
+# parsing); now every write subcommand's `--json` response (parsed by
+# `run_gtd_command`, below) carries the `required`/`optional` scripts this
+# script must execute for ANY invocation, not just `loop`. Checked once, up
+# front, before any dispatch below ever reaches for `jq` — a plain
+# `echo`/`exit` rather than `emit_error` since that helper (and the
+# fancy/plain markers it relies on) isn't the point; keeping the check
+# dependency-free is.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "gtd: jq is required (used to parse the bundle's --json output) — install it and retry" >&2
+  exit 1
 fi
 
 # emit_file_rows <files> — render a commit's changed files as dim, indented
@@ -254,6 +272,123 @@ report_commits() {
   [[ "$reported" == 1 ]]
 }
 
+# ── Write-command execution (is_write_command, run_gtd_command) ────────────
+# The bundle no longer performs a WRITE subcommand's git effect itself: its
+# `--json` response for `step`/the `--entry` forms/`abandon`/`restore` now
+# carries `required` (a bash script that performs the command's whole
+# effect — commit/reset/etc, including any review-window close/open
+# management) and `optional` (presentation-only, e.g. re-opening the review
+# checkout window — safe to skip), alongside whichever keys that command's
+# JSON always carried. This script is the ONE driver for every invocation
+# (not just the loop's), so it — not the bundle — must run those scripts.
+
+# is_write_command <token> — true for exactly the tokens whose command
+# mutates the repo: `step` (with or without `--entry` trailing), `abandon`,
+# `restore`, and the bare `--entry` short form (`gtd --entry <state>`, where
+# `--entry` itself is $1 since there is no subcommand token in front of it).
+# Everything else (next/status/validate/visualize/lsp/check/init, or an
+# unrecognised token) is read-only or has its own arity/usage errors and is
+# left to the existing plain `run_gtd "$@"` forwarding.
+# `--entry` takes both spellings (`--entry <state>` and `--entry=<state>`), so
+# the bare short form has to be recognised either way.
+is_write_command() {
+  case "${1:-}" in
+    step | abandon | restore | --entry | --entry=*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# run_gtd_command <subcommand-and-args...> — the ONE execution path for every
+# write subcommand, used both by the direct dispatch below and by the loop
+# body's own step calls (so there is one execution path rather than two, not
+# a loop-only one and a separate direct one). Fetches the bundle's `--json`
+# response for "$@" (forcing --json on regardless of whether the caller's own
+# arguments already carry it — repeating `--json` is harmless, see
+# `Cli.ts`'s arity-0 flag handling), runs `.required` via `bash -c` (aborting
+# — returning its exit code — before `.optional` ever runs, mirroring `set
+# -e`), then `.optional` via `bash -c` (a non-zero exit there is only ever a
+# warning: it is presentation-only, e.g. re-opening the review checkout
+# window, per its own "safe to skip" billing). On success it prints, on
+# stdout, the plain human-facing line in TODAY's exact wording — the same
+# text `runStepCommand`/`runEntryCommand`/`runAbandonCommand`/
+# `runRestoreCommand` printed themselves before this rewrite moved the git
+# write into `required`. A direct caller lets that line stream straight to
+# the terminal; the loop instead captures it (`$(... 2>&1)`, the file's
+# established idiom) and logs it, since its own on-screen presentation is
+# `report_commits`. `abandon`/`restore` have no `subject` in their JSON (never
+# did — the original handlers computed it from git AFTER writing), so this
+# recomputes it from HEAD after `.required` has run; every other field used
+# below (`state`, `from`, `head`, `to`) is one of the contract's own preserved
+# "existing keys". On failure (the JSON fetch itself — a refusal/usage error —
+# or `.required`), the combined fetch output is sent to stderr and the
+# function returns non-zero; a failing `.required`'s own output streams
+# (or is captured by the caller) exactly as it happened, unredirected here.
+run_gtd_command() {
+  local subcmd="${1:-}" json_out required optional opt_status
+  local state subject head to from
+
+  if ! json_out="$(run_gtd "$@" --json 2>&1)"; then
+    printf '%s' "$json_out" >&2
+    return 1
+  fi
+
+  # `// empty` guards a command whose JSON doesn't (yet, or ever) carry these
+  # keys for a given branch — e.g. `gtd abandon`'s "nothing to abandon" no-op
+  # reply has neither key at all — so a missing/null field reads as "" (jq's
+  # own `null` stringifies to the 4-character text "null" otherwise, which
+  # would misread as a non-empty script).
+  required="$(jq -r '.required // empty' <<<"$json_out")"
+  optional="$(jq -r '.optional // empty' <<<"$json_out")"
+
+  if [[ -n "$required" ]]; then
+    bash -c "$required" || return $?
+  fi
+
+  if [[ -n "$optional" ]]; then
+    opt_status=0
+    bash -c "$optional" || opt_status=$?
+    if ((opt_status != 0)); then
+      emit_warn "the presentation-only follow-up after '$subcmd' failed (exit $opt_status) — continuing"
+    fi
+  fi
+
+  case "$subcmd" in
+    abandon)
+      if [[ -z "$required" ]]; then
+        state="$(jq -r '.state' <<<"$json_out")"
+        printf 'no gtd process is underway (resting at "%s") — nothing to abandon\n' "$state"
+      else
+        from="$(jq -r '.from' <<<"$json_out")"
+        state="$(jq -r '.state' <<<"$json_out")"
+        head="$(jq -r '.head' <<<"$json_out")"
+        subject="$(git log -1 --format=%s HEAD)"
+        printf 'abandoned the process resting at "%s" — HEAD is back at %s ("%s"), resting at "%s".\n' \
+          "$from" "${head:0:7}" "$subject" "$state"
+        printf 'Everything the process produced is kept as uncommitted changes (`git status`); discard them with `git checkout -- . && git clean -fd .gtd` for a clean tree.\n'
+      fi
+      ;;
+    restore)
+      to="$(jq -r '.to' <<<"$json_out")"
+      state="$(jq -r '.state' <<<"$json_out")"
+      subject="$(git log -1 --format=%s HEAD)"
+      printf 'restored the retained history — HEAD is back at %s ("%s"), resting at "%s". Resume with the loop, or `git reset` to any earlier turn to restart from there.\n' \
+        "${to:0:7}" "$subject" "$state"
+      ;;
+    *)
+      # `step` (subject nullable — a no-op prints "nothing to do") and the
+      # `--entry` forms (subject never null — always "committed: ...") share
+      # this one branch: the null-check alone tells them apart.
+      subject="$(jq -r '.subject' <<<"$json_out")"
+      if [[ -n "$subject" && "$subject" != "null" ]]; then
+        printf 'committed: %s\n' "$subject"
+      else
+        state="$(jq -r '.state' <<<"$json_out")"
+        printf 'nothing to do at "%s"\n' "$state"
+      fi
+      ;;
+  esac
+}
+
 # ── Log file (resolve_log_path) ─────────────────────────────────────────────
 
 # worktree_git_dir — the git dir of the working tree gtd is operating in,
@@ -317,6 +452,10 @@ if [[ "$valid_combo" == 1 && "$n_once" == 1 ]]; then
 fi
 
 if [[ $# -gt 0 && "$1" != "loop" ]]; then
+  if is_write_command "${1:-}"; then
+    run_gtd_command "$@"
+    exit $?
+  fi
   run_gtd "$@"
   exit $?
 fi
@@ -529,7 +668,7 @@ fi
 peek_kind="$(jq -r .kind <<<"$peek_json")"
 if [[ "$peek_kind" == "message" ]]; then
   opening_head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
-  if ! step_out="$(run_gtd step human 2>&1)"; then
+  if ! step_out="$(run_gtd_command step human 2>&1)"; then
     emit_error "could not capture your changes at the human gate:
 $step_out
 Fix the reported issue and re-run gtd-loop."
@@ -590,7 +729,7 @@ Run \`gtd status\` to inspect the repo."
       emit_warn "the check script at '$state' exited $script_status — continuing; the outcome is whatever it left in the tree:"
       emit_output_since "$script_offset"
     fi
-    if ! step_out="$(run_gtd step "$actor" 2>&1)"; then
+    if ! step_out="$(run_gtd_command step "$actor" 2>&1)"; then
       printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
       emit_error "$step_out"
       emit_log_pointer
@@ -653,12 +792,15 @@ $next_out"
   # Run the agent turn (see run_agent_turn's own comment for the adapter
   # contract). Then the self-validation gate: a producing state may declare a
   # `file:`/`mode:` pair (e.g. the default workflow's grilling/reviewing),
-  # making its output's format checkable. `gtd validate` is a no-op (exit 0)
-  # when the resolved rest has nothing to validate, so run it after EVERY agent
-  # turn; on findings, re-prompt the SAME agent session to fix them (up to a
-  # cap) before stepping — the plain-`gtd next` self-validation instruction's
-  # driver-side equivalent, so the next rest is only ever handed a well-formed
-  # file. gtd itself never validates at step time — this is the loop's job.
+  # making its output's format checkable. `gtd validate --json` always exits
+  # 0 now — it hands back the SCRIPT that formats/checks the file (`.script`,
+  # empty when the resolved rest has nothing to validate) rather than running
+  # it itself, so this driver runs that script after EVERY agent turn and
+  # re-prompts the SAME agent session on ITS non-zero exit (up to a cap)
+  # before stepping — the plain-`gtd next` self-validation instruction's
+  # driver-side equivalent, so the next rest is only ever handed a
+  # well-formed file. gtd itself never validates at step time — this is the
+  # loop's job.
   emit_action "$M_AGENT" "$label"
   turn_offset="$(log_offset)"
   agent_status=0
@@ -670,12 +812,24 @@ $next_out"
     exit 1
   fi
 
+  if ! validate_json="$(run_gtd validate --json 2>&1)"; then
+    emit_error "could not resolve the validation script at '$state':
+$validate_json
+Stopping rather than stepping with a possibly-malformed steering file."
+    emit_log_pointer
+    exit 1
+  fi
+  validate_script="$(jq -r '.script' <<<"$validate_json")"
+
   fix_attempt=0
-  while ! validate_out="$(run_gtd validate 2>&1)"; do
+  while [[ -n "$validate_script" ]]; do
+    validate_status=0
+    validate_out="$(bash -c "$validate_script" 2>&1)" || validate_status=$?
+    ((validate_status == 0)) && break
     fix_attempt=$((fix_attempt + 1))
     if ((fix_attempt > 3)); then
       printf '%s\n' "$validate_out" >>"$GTD_LOOP_LOG"
-      emit_error "'$state' still fails \`gtd validate\` after 3 fix attempts:
+      emit_error "'$state' still fails its own validation script after 3 fix attempts:
 $validate_out
 Stopping rather than stepping with a malformed steering file."
       emit_log_pointer
@@ -689,7 +843,7 @@ Stopping rather than stepping with a malformed steering file."
     [[ -n "$session_id" ]] && fix_resume=1
     turn_offset="$(log_offset)"
     agent_status=0
-    run_agent_turn "$content"$'\n\n'"Your last turn does not pass \`gtd validate\`. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume" || agent_status=$?
+    run_agent_turn "$content"$'\n\n'"Your last turn does not pass its own validation script. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume" || agent_status=$?
     if ((agent_status != 0)); then
       emit_error "the agent's fix attempt $fix_attempt at '$state' failed (exit $agent_status):"
       emit_output_since "$turn_offset"
@@ -698,7 +852,7 @@ Stopping rather than stepping with a malformed steering file."
     fi
   done
 
-  if ! step_out="$(run_gtd step "$actor" 2>&1)"; then
+  if ! step_out="$(run_gtd_command step "$actor" 2>&1)"; then
     printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
     emit_error "$step_out"
     emit_log_pointer

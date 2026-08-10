@@ -60,7 +60,11 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And stderr contains ".gtd/REQUIREMENTS.md is not valid"
     And stderr contains "has no question text"
 
-  Scenario: --json reports the valid verdict structurally
+  Scenario: --json reports the emitted script structurally
+    # `--json` is the raw engine response: the resolved state, its file and
+    # mode, and the `script` a driver runs to get the verdict. There is no
+    # `valid` key — the verdict lives in that script's exit code, not this
+    # command's, which is why `validate` itself always succeeds now.
     Given a test project
     And the workflow
     And a commit "gtd(human): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
@@ -69,8 +73,9 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd with args "validate --json"
     Then it succeeds
-    And stdout contains "\"valid\":true"
     And stdout contains "\"mode\":\"qa\""
+    And stdout contains "\"file\":\".gtd/REQUIREMENTS.md\""
+    And stdout contains "gtd check qa"
 
   Scenario: a well-formed REVIEW.md at build.review.reviewing validates cleanly
     Given a test project
@@ -111,10 +116,11 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
 
-  Scenario: the simple flow's TODO.md is `prose`-moded — it validates cleanly with no findings to check
+  Scenario: the simple flow's TODO.md is `prose`-moded — there is nothing to emit
     # The SIMPLE flow iterates on a free-form plan; planning declares `file:`
-    # + `mode: prose`, a format-only built-in with no validator, so any
-    # content validates cleanly.
+    # + `mode: prose`, an EMPTY modes: entry — no `format:`, no `validate:`.
+    # A mode with no commands emits no script at all, which is exactly the
+    # "nothing to validate" case: any content is acceptable.
     Given a test project
     And the workflow
     And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
@@ -123,7 +129,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains ".gtd/TODO.md: valid"
+    And stdout contains "nothing to validate at \"plan.planning\""
 
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
@@ -134,7 +140,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "run `gtd validate`"
+    # The instruction names the MODE's own resolved validation command — for a
+    # built-in format that is the leaf `gtd check` invocation the compiler
+    # seeds — not `gtd validate`, which now only prints a script.
+    And stdout contains "run `gtd check qa '.gtd/REQUIREMENTS.md'`"
     And stdout contains "fix every violation"
 
   Scenario: `gtd next --json` withholds the instruction — the driving loop owns the validate-and-retry step
@@ -187,7 +196,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd step human
     Then it fails
-    And stderr contains "is not valid"
+    # The step's own required script runs the same validation ahead of its
+    # commit, so the refusal is the checker's findings and a non-zero exit —
+    # nothing is committed.
+    And stderr contains "has no question text"
     And the last commit subject is "gtd(human): design.product-answer"
 
   Scenario: the step gate captures a human's valid edit (routing it back to design.product-author)

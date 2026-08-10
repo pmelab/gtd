@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
-import {
-  enforceStepGuards,
-  stepGuards,
-  checkSteeringFile,
-  type GuardContext,
-} from "./StepGuards.js"
+import { enforceStepGuards, stepGuards, type GuardContext } from "./StepGuards.js"
 import { RepoFiles, type RepoFilesOps } from "./RepoFiles.js"
-import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
 import type { ResolvedRest } from "./Edge.js"
 import type { PendingChange, StateDef, WorkflowDefinition } from "./PatternMachine.js"
 import type { TemplateContext } from "./PatternTemplates.js"
@@ -358,82 +352,47 @@ describe("answer-completeness guard", () => {
   })
 })
 
-// ── steering-file guard + enforceStepGuards runner ──────────────────────────
-
-const noopCommandRunner = Layer.succeed(CommandRunner, {
-  bash: (): Effect.Effect<CommandOutcome, Error> =>
-    Effect.fail(new Error("unscripted command in this test")),
-})
+// ── enforceStepGuards runner ─────────────────────────────────────────────────
 
 const repoFilesFrom = (files: Record<string, string>): RepoFilesOps => ({
   working: (path) => files[path],
   committed: () => Effect.succeed(undefined),
 })
 
-describe("steering-file guard", () => {
-  const draftingState = rest("drafting", {
-    actor: "agent",
-    prompt: "write",
-    file: ".gtd/TODO.md",
-    mode: "qa",
-  })
-
-  it("applies to any state that declares a mode", () => {
-    expect(guard("steering-file").appliesTo(draftingState)).toBe(true)
-    expect(
-      guard("steering-file").appliesTo(rest("drafting", { actor: "agent", prompt: "x" })),
-    ).toBe(false)
-  })
-
-  it("check reports the built-in validator's findings against post-format bytes", async () => {
-    const refusal = await checkOf(
-      "steering-file",
-      ctx({
-        rest: draftingState,
-        worktree: Effect.succeed("Plan.\n\n## Open Questions\n\n###\n\nno question text.\n"),
-      }),
-    )
-    expect(refusal).toContain("is not valid")
-    expect(refusal).toContain("has no question text")
-  })
-
-  it("check allows a valid file", async () => {
-    const refusal = await checkOf(
-      "steering-file",
-      ctx({ rest: draftingState, worktree: Effect.succeed("Just a plan, no questions.\n") }),
-    )
-    expect(refusal).toBeUndefined()
-  })
-
-  it("check no-ops when the file is absent (a deletion)", async () => {
-    const refusal = await checkOf(
-      "steering-file",
-      ctx({ rest: draftingState, worktree: Effect.succeed(undefined) }),
-    )
-    expect(refusal).toBeUndefined()
-  })
-})
-
 describe("enforceStepGuards", () => {
-  const draftingState = rest("drafting", {
-    actor: "agent",
-    prompt: "write",
-    file: ".gtd/TODO.md",
+  const answerState = rest("product-answer", {
+    actor: "human",
+    message: "answer",
+    file: ".gtd/REQUIREMENTS.md",
     mode: "qa",
+    answerGate: true,
   })
+  const unansweredDoc = [
+    "Build a thing.",
+    "",
+    "## Open Questions",
+    "",
+    "### Which API?",
+    "",
+    "- [ ] REST",
+    "- [ ] GraphQL",
+    "- [ ] _your answer_",
+    "",
+  ].join("\n")
 
-  it("no-ops for a squash or no-op decision, even with an invalid file", async () => {
+  it("no-ops for a squash or no-op decision, even with an unanswered question", async () => {
     const exit = await Effect.runPromiseExit(
       enforceStepGuards({
-        rest: draftingState,
-        file: draftingState.stateDef.file,
+        rest: answerState,
+        file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
         invoker: "agent",
         kind: "squash",
       }).pipe(
-        Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({}))),
-        Effect.provide(noopCommandRunner),
+        Effect.provide(
+          Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
+        ),
       ),
     )
     expect(Exit.isSuccess(exit)).toBe(true)
@@ -449,31 +408,39 @@ describe("enforceStepGuards", () => {
         changes: [],
         invoker: "agent",
         kind: "commit",
-      }).pipe(
-        Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({}))),
-        Effect.provide(noopCommandRunner),
-      ),
+      }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
     )
     expect(Exit.isSuccess(exit)).toBe(true)
   })
 
-  it("fails with the `gtd step <invoker>: ` prefix on a refusal", async () => {
+  it("no-ops when no guard applies to the resting state", async () => {
+    const noGuard = rest("drafting", { actor: "agent", prompt: "write", file: ".gtd/TODO.md" })
     const exit = await Effect.runPromiseExit(
       enforceStepGuards({
-        rest: draftingState,
-        file: draftingState.stateDef.file,
+        rest: noGuard,
+        file: noGuard.stateDef.file,
+        context: templateContext,
+        changes: [],
+        invoker: "agent",
+        kind: "commit",
+      }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+  })
+
+  it("fails with the `gtd step <invoker>: ` prefix on a refusal, requiring only RepoFiles", async () => {
+    const exit = await Effect.runPromiseExit(
+      enforceStepGuards({
+        rest: answerState,
+        file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
         invoker: "agent",
         kind: "commit",
       }).pipe(
         Effect.provide(
-          Layer.succeed(
-            RepoFiles,
-            repoFilesFrom({ ".gtd/TODO.md": "Plan.\n\n## Open Questions\n\n###\n\nno text.\n" }),
-          ),
+          Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
         ),
-        Effect.provide(noopCommandRunner),
       ),
     )
     expect(Exit.isFailure(exit)).toBe(true)
@@ -483,107 +450,44 @@ describe("enforceStepGuards", () => {
     }
   })
 
-  it("runs guards in registry order — steering-file before review-signoff", () => {
+  it("runs guards in registry order — review-signoff, feedback-progress, answer-completeness", () => {
     expect(stepGuards.map((g) => g.name)).toEqual([
-      "steering-file",
       "review-signoff",
       "feedback-progress",
       "answer-completeness",
     ])
   })
 
-  it("write-before-read: a scripted format rewrite is visible to every guard's check", async () => {
-    const reviewState = rest("await-review", {
-      actor: "human",
-      prompt: "review",
-      file: ".gtd/REVIEW.md",
-      mode: "review",
-      reviewWindow: true,
-    })
-    const header = "# Review: abc1234\n<!-- base: abc1234def5678901234567890123456789abcd -->\n\n"
-    const unticked = `${header}## C\n- [ ] ./a.ts#1\n`
-    const ticked = `${header}## C\n- [x] ./a.ts#1\n`
-    const files: Record<string, string> = { ".gtd/REVIEW.md": unticked }
-    const scriptedRunner = Layer.succeed(CommandRunner, {
-      bash: (command: string): Effect.Effect<CommandOutcome, Error> => {
-        if (command.includes("normalize-review")) {
-          files[".gtd/REVIEW.md"] = ticked
-          return Effect.succeed({ status: 0, output: "" })
-        }
-        return Effect.fail(new Error(`unscripted command "${command}"`))
-      },
-    })
-    const def: WorkflowDefinition = {
-      states: { "await-review": reviewState.stateDef },
-      entries: { default: "await-review", manual: [] },
-      modes: { review: { format: "normalize-review <%= it.file %>" } },
-    }
-    const withFormat = { ...reviewState, def }
+  it("reads the CURRENT working tree as-is — no in-process formatting happens here", async () => {
+    // A step script's own `format:` command (run by an external driver) is
+    // never invoked by `enforceStepGuards` — it only samples whatever is on
+    // disk right now. An already-answered doc passes with no formatting step.
+    const answeredDoc = [
+      "Build a thing.",
+      "",
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [x] GraphQL",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
     const exit = await Effect.runPromiseExit(
       enforceStepGuards({
-        rest: withFormat,
-        file: withFormat.stateDef.file,
+        rest: answerState,
+        file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
         invoker: "human",
         kind: "commit",
       }).pipe(
         Effect.provide(
-          Layer.succeed(RepoFiles, {
-            working: (path: string) => files[path],
-            committed: () => Effect.succeed(unticked),
-          }),
+          Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": answeredDoc })),
         ),
-        Effect.provide(scriptedRunner),
       ),
     )
-    // The format command flips the box to ticked BEFORE review-signoff samples
-    // the worktree, so this must succeed (no unticked items survive).
     expect(Exit.isSuccess(exit)).toBe(true)
-  })
-})
-
-describe("checkSteeringFile", () => {
-  const draftingState = rest("drafting", {
-    actor: "agent",
-    prompt: "write",
-    file: ".gtd/TODO.md",
-    mode: "qa",
-  })
-
-  it("reports present: false when the state declares no file:/mode:", async () => {
-    const result = await Effect.runPromise(
-      checkSteeringFile(
-        rest("idle", { actor: "human", message: "go" }),
-        templateContext,
-        undefined,
-      ).pipe(
-        Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({}))),
-        Effect.provide(noopCommandRunner),
-      ),
-    )
-    expect(result).toEqual({ file: undefined, present: false, errors: [] })
-  })
-
-  it("reports present: false when the file is absent", async () => {
-    const result = await Effect.runPromise(
-      checkSteeringFile(draftingState, templateContext, draftingState.stateDef.file).pipe(
-        Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({}))),
-        Effect.provide(noopCommandRunner),
-      ),
-    )
-    expect(result).toEqual({ file: ".gtd/TODO.md", present: false, errors: [] })
-  })
-
-  it("formats then validates a present file", async () => {
-    const result = await Effect.runPromise(
-      checkSteeringFile(draftingState, templateContext, draftingState.stateDef.file).pipe(
-        Effect.provide(
-          Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/TODO.md": "Just a plan.\n" })),
-        ),
-        Effect.provide(noopCommandRunner),
-      ),
-    )
-    expect(result).toEqual({ file: ".gtd/TODO.md", present: true, errors: [] })
   })
 })

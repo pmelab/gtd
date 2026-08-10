@@ -62,6 +62,13 @@ export class InMemRepo {
     return this.headCommit()?.files ?? new Map()
   }
 
+  /** The tree at `ref` (HEAD's own when `ref` is omitted), empty when it resolves to nothing. */
+  private treeAt(ref: string | undefined): Map<string, string> {
+    if (ref === undefined) return this.headTree()
+    const hash = this.resolveRef(ref)
+    return hash === null ? new Map() : (this.getCommit(hash)?.files ?? new Map())
+  }
+
   // ---------------------------------------------------------------------------
   // Read methods
   // ---------------------------------------------------------------------------
@@ -161,17 +168,28 @@ export class InMemRepo {
     return c.message
   }
 
-  commitHistory(base?: string): Array<{
+  /**
+   * `head` (default `this.head`, mirroring production's `"HEAD"` default) is
+   * resolved through the SAME `resolveRef` logic as any other ref — so a
+   * symbolic name, a hash, or a `~N` expression all work exactly as they
+   * would for `head === undefined`. `Edge.ts`'s `restAt` passes the review
+   * checkout window's saved-head hash here while the window is open.
+   */
+  commitHistory(
+    base?: string,
+    head?: string,
+  ): Array<{
     hash: string
     message: string
     removedErrors: boolean
     touched: ReadonlyArray<string>
   }> {
-    if (this.head === null) return []
+    const headHash = head !== undefined ? this.resolveRef(head) : this.head
+    if (headHash === null) return []
 
     // Collect first-parent chain newest→oldest
     const chain: Commit[] = []
-    let cur: string | null = this.head
+    let cur: string | null = headHash
     while (cur !== null) {
       const c = this.getCommit(cur)
       if (!c) break
@@ -221,23 +239,17 @@ export class InMemRepo {
     return diffTrees(treeA, treeB)
   }
 
-  changedPathsWorktree(): Array<{ path: string; status: string }> {
-    const headTree = this.headTree()
-    // Worktree vs HEAD: untracked → "A"
-    const allPaths = new Set([...headTree.keys(), ...this.worktree.keys()])
-    const result: Array<{ path: string; status: string }> = []
-    for (const path of allPaths) {
-      const inHead = headTree.has(path)
-      const inWorktree = this.worktree.has(path)
-      if (!inHead && inWorktree) {
-        result.push({ path, status: "A" })
-      } else if (inHead && !inWorktree) {
-        result.push({ path, status: "D" })
-      } else if (inHead && inWorktree && headTree.get(path) !== this.worktree.get(path)) {
-        result.push({ path, status: "M" })
-      }
-    }
-    return result.sort((a, b) => a.path.localeCompare(b.path))
+  /**
+   * `base` (default HEAD) mirrors the port's own optional base — see
+   * `GitReaderOperations.changedPaths`. Tree-vs-worktree comparison already
+   * subsumes production's untracked-file filtering: a path present at `base`
+   * with identical content is simply not a difference.
+   */
+  changedPathsWorktree(base?: string): Array<{ path: string; status: string }> {
+    // Worktree vs the base tree: untracked → "A"
+    const baseTree = this.treeAt(base)
+    const worktreeTree = new Map(this.worktree)
+    return diffTrees(baseTree, worktreeTree)
   }
 
   /** The worktree content of `path`, or `undefined` when absent. A LIVE read — never a snapshot. */

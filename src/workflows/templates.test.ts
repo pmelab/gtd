@@ -1,6 +1,7 @@
 import { parse as parseYaml } from "yaml"
 import { describe, expect, it } from "vitest"
 import { validateDefinition } from "../PatternMachine.js"
+import { seededValidateCommand } from "../SteeringFormats.js"
 import type { MachineNode } from "../Machines.js"
 import {
   compileTemplate,
@@ -23,11 +24,11 @@ describe("the bundled unified workflow template", () => {
     expect(definition.states[definition.entries.default]).toBeDefined()
   })
 
-  it("declares its own `modes.prose` entry, plus the built-in registry's `qa`/`review` seeded as empty entries", () => {
+  it("declares its own `modes.prose` entry, plus the built-in registry's `qa`/`review` seeded with their validate command", () => {
     const { definition } = compileTemplate()
     expect(definition.modes?.["prose"]).toEqual({})
-    expect(definition.modes?.["qa"]).toEqual({})
-    expect(definition.modes?.["review"]).toEqual({})
+    expect(definition.modes?.["qa"]).toEqual({ validate: seededValidateCommand("qa") })
+    expect(definition.modes?.["review"]).toEqual({ validate: seededValidateCommand("review") })
   })
 
   it("declares exactly one review checkout window and one review entry", () => {
