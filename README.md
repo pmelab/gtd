@@ -209,7 +209,9 @@ Commands:
                    Pass --entry <state> to start a brand NEW process at
                    <state> instead — any declared, non-commit state — with
                    repeatable --var <name>=<value> supplying that new
-                   process's fixed it.vars overrides
+                   process's fixed it.vars overrides. Pass --if-resting to
+                   exit 0 doing nothing instead of refusing when the
+                   resolved rest awaits a different actor
   (no command) --entry <state>
                    Short form of 'step human --entry <state>' — starts a new
                    process authenticated as human, e.g. 'gtd --entry <state>'
@@ -256,6 +258,9 @@ Options:
   --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
+  --if-resting     (gtd step only) exit 0 doing nothing when the resolved
+                   rest awaits a different actor, instead of refusing
+                   out of turn; a genuine gate refusal still fails
   --entry <state>  (gtd step, or with no command at all) start a brand new
                    process at <state> — any declared, non-commit state —
                    instead of stepping the one currently resting. Not
@@ -280,17 +285,18 @@ history relative to cwd, so it refuses with a clear error if invoked from a
 subdirectory.
 
 `--json`, `--cost=<n>`, `--model=<name>` (the latter two only for `gtd step`),
-`--entry <state>` (`gtd step` or no command at all), and `--var <name>=<value>`
-(with `--entry`, repeatable) are the only long options the compiled bundle
-recognizes. `--entry`/`--var` accept both the `--flag=value` and the
-space-separated `--flag value` form. Any other `--` option (including a typo
-like `--jsn`) is rejected with a usage error rather than silently ignored, so a
-mistyped flag can never degrade a JSON caller to plain-text mode. `--var` with
-no `--entry`, a duplicate `--var` name, or `--cost`/`--model` combined with
-`--entry` are all usage errors too. A bare `--cost`/`--model` with no value, a
-non-numeric or negative `--cost`, an empty `--model`, `--model` without
-`--cost`, or either flag on any command other than `gtd step` are all usage
-errors.
+`--if-resting` (`gtd step` only, without `--entry`), `--entry <state>`
+(`gtd step` or no command at all), and `--var <name>=<value>` (with `--entry`,
+repeatable) are the only long options the compiled bundle recognizes.
+`--entry`/`--var` accept both the `--flag=value` and the space-separated
+`--flag value` form. Any other `--` option (including a typo like `--jsn`) is
+rejected with a usage error rather than silently ignored, so a mistyped flag can
+never degrade a JSON caller to plain-text mode. `--var` with no `--entry`, a
+duplicate `--var` name, `--cost`/`--model` combined with `--entry`, or
+`--if-resting` combined with `--entry` are all usage errors too. A bare
+`--cost`/`--model` with no value, a non-numeric or negative `--cost`, an empty
+`--model`, `--model` without `--cost`, or any of `--cost`/`--model`/
+`--if-resting` on any command other than `gtd step` are all usage errors.
 
 `--once` is a separate, bash-level flag handled entirely by the `bin/gtd` driver
 itself, stripped before anything reaches the bundle.
@@ -337,8 +343,10 @@ point it at a repo and it runs the loop until it's your turn. It drives the
 autonomous states (agent turns, check runs) and stops at the first
 non-autonomous one: reaching a human gate it prints the gate and exits. You act
 by editing files (answer a plan question, tick a review box, fix code) and
-re-launching it — its opening move captures whatever you left, so you never run
-`gtd step human` by hand.
+re-launching it — its opening move is now one unconditional
+`gtd step human --if-resting` call, so you never run `gtd step human` by hand,
+whether that captures your edit or simply resumes driving after a mid-process
+restart.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around `gtd`, not
@@ -516,6 +524,14 @@ no-op `gtd step` (a clean tree matching no `on` pattern) emits
 scripts are self-contained (each carries its own precondition assert and retry
 helper) and safe to run standalone, in sequence, or not at all — paste either
 into a terminal and it does exactly what it says.
+
+A driver's OPENING move — before it knows whose turn it is, e.g. right after a
+restart — can be one unconditional `gtd step human --if-resting`: it exits 0
+with `required: ""`/`optional: ""` when the resolved rest isn't human's turn (a
+mid-process restart, simply resume driving from there), and still commits
+normally when it is. A genuine gate refusal (a malformed steering file, an edit
+no `on` pattern accepts) still exits non-zero — the flag only suppresses the
+out-of-turn case, never a real refusal.
 
 ### Failure taxonomy and recovery
 

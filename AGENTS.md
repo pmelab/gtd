@@ -105,7 +105,8 @@ any OTHER name (including `prose`) needs its own `modes:` entry, or
   `init.feature`, `review-window.feature`, `initial-state-entry.feature`,
   `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
   every entry), `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
-  (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`)
+  (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
+  `if-resting.feature` (`gtd step <actor> --if-resting`))
 
 MACHINES, not individual states, are the unit of conversational identity: a
 machine's own `model:` stamps every one of its `prompt` states, and its memory

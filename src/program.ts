@@ -24,6 +24,7 @@ import {
   type Rest,
   type RenderedRest,
   type RestRequirements,
+  type StepPlan,
 } from "./Edge.js"
 import {
   buildCloseWindowScript,
@@ -263,14 +264,38 @@ const buildRequiredScript = (
     return emitScripts(headPreconditions(rest.context.currentCommit), steps).required
   })
 
-/** A step's `--cost`/`--model` as `planStep` options — each key OMITTED (never `undefined`-valued) when the flag was not given. */
-const stepOptions = (
-  cost: number | undefined,
-  model: string | undefined,
-): { cost?: number; model?: string } => ({
-  ...(cost !== undefined ? { cost } : {}),
-  ...(model !== undefined ? { model } : {}),
+/** `gtd step`'s own flags, threaded as one bag rather than growing `stepAsActor`/`runStepCommand`'s positional list. */
+interface StepOptions {
+  readonly cost?: number
+  readonly model?: string
+  readonly ifResting?: boolean
+}
+
+/** A step's `--cost`/`--model` as `planStep` options — each key OMITTED (never `undefined`-valued) when the flag was not given. `ifResting` is stripped: `planStep` itself knows nothing about the flag, only `stepAsActor`'s refusal branch does. */
+const stepOptions = (opts: StepOptions): { cost?: number; model?: string } => ({
+  ...(opts.cost !== undefined ? { cost: opts.cost } : {}),
+  ...(opts.model !== undefined ? { model: opts.model } : {}),
 })
+
+/** The shape both a genuine no-op decision and a suppressed out-of-turn refusal render as — one shape for "nothing happened" so the two callers can't drift apart. */
+const noopResult = (state: string): StepResult => ({
+  state,
+  subject: null,
+  cost: null,
+  model: null,
+  required: "",
+  optional: "",
+})
+
+/** A `StepPlan` refusal's outcome: a no-op when `--if-resting` suppresses it (an `"out-of-turn"` reason, requested), else the ordinary Effect failure — split out of `stepAsActor` so its own branching doesn't grow. */
+const refusalOutcome = (
+  rest: Rest,
+  plan: Extract<StepPlan, { kind: "refusal" }>,
+  ifResting: boolean | undefined,
+): Effect.Effect<StepResult, Error> =>
+  ifResting && plan.reason === "out-of-turn"
+    ? Effect.succeed(noopResult(rest.state))
+    : Effect.fail(new Error(plan.message))
 
 /**
  * Authenticate `invoker` against the currently resolved rest and decide the
@@ -292,28 +317,25 @@ const stepOptions = (
  * decide time — which, while a review window is open, is the window's BASE,
  * not the real head — and it contains no window close/open steps at all. This
  * function builds its own required/optional pair to sidestep that trap.
+ *
+ * `opts.ifResting` suppresses exactly the `"out-of-turn"` refusal reason
+ * (never `"no-match"`, and never a step-capture guard's own refusal — those
+ * run after a decision is already `"commit"`/`"squash"`, past this check) —
+ * see `runStepCommand`'s doc comment for why this exists.
  */
 const stepAsActor = (
   invoker: string,
-  cost?: number,
-  model?: string,
+  opts: StepOptions = {},
 ): Effect.Effect<StepResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const plan = yield* planStep(rest, invoker, stepOptions(cost, model))
+    const plan = yield* planStep(rest, invoker, stepOptions(opts))
 
     if (plan.kind === "refusal") {
-      return yield* Effect.fail(new Error(plan.message))
+      return yield* refusalOutcome(rest, plan, opts.ifResting)
     }
     if (plan.kind === "noop") {
-      return {
-        state: plan.state,
-        subject: null,
-        cost: null,
-        model: null,
-        required: "",
-        optional: "",
-      }
+      return noopResult(plan.state)
     }
 
     // `StepPlan.decision`'s declared type is the full `StepDecision` union
@@ -347,9 +369,9 @@ const stepAsActor = (
     return {
       state: rest.state,
       subject: yield* previewSubject(decision, rest),
-      cost: cost ?? null,
-      model: model ?? null,
-      required: yield* buildRequiredScript(rest, decision, invoker, cost, model),
+      cost: opts.cost ?? null,
+      model: opts.model ?? null,
+      required: yield* buildRequiredScript(rest, decision, invoker, opts.cost, opts.model),
       optional: openWindowScript(rest, targetState),
     }
   })
@@ -381,23 +403,28 @@ const reportStepResult = (
 }
 
 /**
- * `gtd step <actor> [--cost=<n>] [--model=<name>]`: authenticate as `<actor>`
- * and perform the one resulting transition, recording `--cost`/`--model` as a
- * `Gtd-Cost:` trailer. `--entry <state>` no longer nests inside this handler —
- * `Cli.ts`'s `--entry` selector resolves that combination to its own
- * `"entry"` command kind (see `runEntryCommand`) before `runCommand` ever
- * dispatches here, so a `step` `Command` is always the ordinary pattern-
- * matched step.
+ * `gtd step <actor> [--cost=<n>] [--model=<name>] [--if-resting]`:
+ * authenticate as `<actor>` and perform the one resulting transition,
+ * recording `--cost`/`--model` as a `Gtd-Cost:` trailer. `--entry <state>` no
+ * longer nests inside this handler — `Cli.ts`'s `--entry` selector resolves
+ * that combination to its own `"entry"` command kind (see `runEntryCommand`)
+ * before `runCommand` ever dispatches here, so a `step` `Command` is always
+ * the ordinary pattern-matched step.
+ *
+ * `--if-resting` exists for a driver's OPENING move (pmelab/gtd#168): a
+ * mid-process restart must resume driving rather than abort under `set -e`
+ * on an out-of-turn refusal, while a genuinely fresh invocation still needs
+ * to fail loudly on every other refusal. See `stepAsActor`'s doc comment for
+ * exactly which refusal it suppresses.
  */
 const runStepCommand = (
   actor: string,
-  cost: number | undefined,
-  model: string | undefined,
+  opts: StepOptions,
   json: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const result = yield* stepAsActor(actor, cost, model)
+    const result = yield* stepAsActor(actor, opts)
     reportStepResult(result, json, write)
   })
 
@@ -1308,7 +1335,16 @@ const dispatchCommand = (
     case "visualize":
       return runVisualizeCommand(command.port, command.open, json, write)
     case "step":
-      return runStepCommand(command.actor, command.cost, command.model, json, write)
+      return runStepCommand(
+        command.actor,
+        {
+          ...(command.cost !== undefined ? { cost: command.cost } : {}),
+          ...(command.model !== undefined ? { model: command.model } : {}),
+          ...(command.ifResting !== undefined ? { ifResting: command.ifResting } : {}),
+        },
+        json,
+        write,
+      )
     case "entry":
       return runEntryCommand(command.actor, command.state, command.vars, json, write, command.label)
     case "abandon":
