@@ -79,6 +79,7 @@ import {
 } from "./OutcomeScript.js"
 import { hashContent, resolveDispatch } from "./BeatMarker.js"
 import { loopLogPath } from "./WorktreeState.js"
+import { renderBriefing } from "./Install.js"
 
 export type CommandRequirements =
   | GitService
@@ -99,6 +100,31 @@ export type CommandRequirements =
  * already rejected by `Cli.ts` before a `Command` value ever reaches here.
  */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
+
+/**
+ * `gtd install`: print the driver-building briefing (`src/Install.ts`'s
+ * `renderBriefing()`) — a complete, self-contained explanation of how to
+ * build a gtd loop driver in any shell or runtime, emitted by the binary
+ * itself so it is always exactly as current as the gtd that prints it.
+ * Writes nothing: "install" means installing knowledge into the calling
+ * agent's context. Its `needs: "none"` (see `Cli.ts`'s `needsOf`, same as
+ * `gtd lsp`) means it skips the repo-root guard entirely — it resolves no
+ * workflow state and reads no config, so it runs from any directory, in or
+ * out of a repository. `--json` and extra arguments are already rejected by
+ * `Cli.ts` before a `Command` value ever reaches here (`--json` itself is
+ * accepted, wrapping the same text under a `briefing` key).
+ */
+const runInstallCommand = (json: boolean, write: (chunk: string) => void): Effect.Effect<void> =>
+  Effect.sync(() => {
+    const briefing = renderBriefing()
+    write(
+      json
+        ? JSON.stringify({ briefing }) + "\n"
+        : briefing.endsWith("\n")
+          ? briefing
+          : briefing + "\n",
+    )
+  })
 
 /**
  * `gtd init`: scaffold a MINIMAL `.gtdrc.json` seeding the default variables a
@@ -1439,6 +1465,7 @@ const assertInitLocation = (
 export const needsOf = (kind: Command["kind"]): Needs => {
   switch (kind) {
     case "lsp":
+    case "install":
       return "none"
     case "init":
     case "check":
@@ -1450,12 +1477,13 @@ export const needsOf = (kind: Command["kind"]): Needs => {
   }
 }
 
-/** The four kinds that never touch the repo-root guard / review-window bracket — pinned so a new standalone kind can't be added silently. */
+/** The five kinds that never touch the repo-root guard / review-window bracket — pinned so a new standalone kind can't be added silently. */
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "init",
   "visualize",
   "check",
+  "install",
 ]
 
 /** Dispatches to the named `run*Command` handler for every `Command.kind` — the counterpart of `Cli.ts`'s `parseArgv`, which has already validated every field a handler receives. */
@@ -1497,6 +1525,8 @@ const dispatchCommand = (
       return runValidateCommand(json, write)
     case "check":
       return runCheckCommand(command.mode, command.file, json, write)
+    case "install":
+      return runInstallCommand(json, write)
   }
 }
 

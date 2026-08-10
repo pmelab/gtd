@@ -458,9 +458,38 @@ describe("parseArgv — removed subcommands", () => {
   })
 })
 
+describe("parseArgv — gtd install", () => {
+  it("parses to an install command", () => {
+    const plan = parseArgv(["node", "gtd.js", "install"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "install" })
+      expect(plan.json).toBe(false)
+    }
+  })
+
+  it("--json is in scope for install", () => {
+    const plan = parseArgv(["node", "gtd.js", "install", "--json"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") expect(plan.json).toBe(true)
+  })
+
+  it("gtd install extra is a usage error (install takes no argument)", () => {
+    const plan = parseArgv(["node", "gtd.js", "install", "extra"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+
+  it("a scoped-out flag (e.g. --port) is rejected on install", () => {
+    const plan = parseArgv(["node", "gtd.js", "install", "--port=3"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd visualize`")
+  })
+})
+
 describe("standaloneKinds / needsOf", () => {
-  it("pins the four standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check"])
+  it("pins the five standalone kinds", () => {
+    expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check", "install"])
   })
 
   it("needsOf matches none/fs/config for the standalone kinds and state for everything else", () => {
@@ -468,6 +497,7 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("check")).toBe("fs")
     expect(needsOf("init")).toBe("fs")
     expect(needsOf("visualize")).toBe("config")
+    expect(needsOf("install")).toBe("none")
     for (const kind of [
       "step",
       "entry",
@@ -498,6 +528,7 @@ describe("renderHelp", () => {
     expect(help).toContain("lsp")
     expect(help).toContain("visualize")
     expect(help).toContain("check <mode> <file>")
+    expect(help).toContain("install")
     expect(help).toContain("version")
     expect(help).toContain("help")
     expect(help).toContain("--json")

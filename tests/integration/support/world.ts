@@ -146,6 +146,8 @@ export class GtdWorld extends QuickPickleWorld {
   savedCommitCount: number | undefined = undefined
   /** Named JSON fields captured from a prior `gtd next --json`/`gtd status --json` output (`world.lastResult.stdout`) — for scenarios that must prove two turns' values for the SAME field are the SAME (a memory key's scope, a resumed session id) or DIFFERENT (a fresh scope, a freshly minted id) without knowing the exact value in advance. Keyed by the label a scenario names it, not by field — one vocabulary for any `next --json`/`status --json` field. */
   recordedJsonFields: Record<string, string | undefined> = {}
+  /** Named sets of top-level JSON keys captured from a prior `--json` command's stdout — for a drift guard proving a later document (e.g. `gtd install`'s briefing) still names every field a real command emits. Keyed by the label a scenario names it, same vocabulary as `recordedJsonFields`. */
+  recordedJsonKeys: Record<string, readonly string[]> = {}
   /** Path to a stub agent script for `gtd-loop` scenarios (@live only). */
   stubAgentPath: string | undefined = undefined
   /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (loop logging scenarios, @live only). */
