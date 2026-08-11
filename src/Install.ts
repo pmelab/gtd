@@ -188,10 +188,27 @@ precondition — a driver needs no retry logic beyond "ask gtd again".
 
 const referenceImplementation = (): string =>
   `
-## The reference implementation
+## Building YOUR driver
 
-This is the whole protocol, and nothing else — swap the \`claude\` line for
-any agent CLI and it keeps working:
+The obligations above are the contract; everything below is one WORKED
+EXAMPLE of it in bash. Do not copy it blindly — adapt the principle to the
+environment you are in:
+
+1. Pick the runtime you already have: a shell loop, a program in any language
+   that can parse JSON and spawn subprocesses, or yourself following the
+   obligations by hand. There is nothing bash-specific in the protocol.
+2. Pick the agent this environment actually runs and map
+   \`.session.id\`/\`.session.resume\` onto ITS continuation mechanism
+   (obligation 4). An agent CLI with no session concept just ignores them —
+   memory is an optimization, every prompt is self-contained.
+3. Decide where the driver lives here (a \`~/.local/bin\` script, a project
+   task, a CI job step) and where its log should go (obligation 3).
+4. Verify safely before driving: \`gtd next --json\` is a pure read — parse
+   it, check your kind dispatch against the table above, call it as often as
+   you like. Nothing happens until you run an emitted script.
+
+The reference rendering in bash (requires \`jq\`; the \`claude\` lines are
+the part you replace in step 2):
 
 \`\`\`bash
 ${MINIMAL_DRIVER}
