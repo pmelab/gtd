@@ -516,9 +516,13 @@ than the state itself.
 
 Run `gtd install` to print this whole chapter's protocol as a complete,
 self-contained briefing — paste it into an agent's context (or read it yourself)
-to build a driver without leaving your terminal. It writes nothing: "install"
-means installing knowledge into the calling agent's context, and the briefing it
-prints is always exactly as current as the `gtd` that printed it.
+to build a driver without leaving your terminal. The briefing ends by directing
+the agent to INTERVIEW you first — which agent CLI runs the turns, under what
+permission model, how you want to invoke the loop, what should happen at a human
+gate — and to build the driver your answers describe rather than copying the
+reference bash. It writes nothing: "install" means installing knowledge into the
+calling agent's context, and the briefing it prints is always exactly as current
+as the `gtd` that printed it.
 
 The README's minimal driver below is gtd's own reference driver, not a
 privileged one — the engine itself is a supported public surface, and anything

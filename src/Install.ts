@@ -188,27 +188,39 @@ precondition — a driver needs no retry logic beyond "ask gtd again".
 
 const referenceImplementation = (): string =>
   `
-## Building YOUR driver
+## Building the user's driver: interview first, then adapt
 
-The obligations above are the contract; everything below is one WORKED
-EXAMPLE of it in bash. Do not copy it blindly — adapt the principle to the
-environment you are in:
+The obligations above are the contract; the bash block below is one WORKED
+EXAMPLE of it. Do not copy it blindly, and do not guess the user's setup —
+INTERVIEW them, then build a driver shaped by their answers. Ask (offering
+the default when they have no preference):
 
-1. Pick the runtime you already have: a shell loop, a program in any language
-   that can parse JSON and spawn subprocesses, or yourself following the
-   obligations by hand. There is nothing bash-specific in the protocol.
-2. Pick the agent this environment actually runs and map
-   \`.session.id\`/\`.session.resume\` onto ITS continuation mechanism
-   (obligation 4). An agent CLI with no session concept just ignores them —
-   memory is an optimization, every prompt is self-contained.
-3. Decide where the driver lives here (a \`~/.local/bin\` script, a project
-   task, a CI job step) and where its log should go (obligation 3).
-4. Verify safely before driving: \`gtd next --json\` is a pure read — parse
-   it, check your kind dispatch against the table above, call it as often as
-   you like. Nothing happens until you run an emitted script.
+1. **Which agent should run the turns?** Whatever coding-agent CLI they
+   already use (default: \`claude\`). Map \`.session.id\`/\`.session.resume\`
+   onto THAT agent's continuation mechanism (obligation 4); an agent with no
+   session concept just ignores them — memory is an optimization, every
+   prompt is self-contained.
+2. **Under which permission model?** Fully autonomous turns (e.g.
+   \`--dangerously-skip-permissions\`), a sandbox, or the agent's default
+   prompting — their risk tolerance, their call. Also whether the workflow's
+   own \`.model\` hints should be honored (default: yes).
+3. **How do they want to invoke it?** A command on PATH (default:
+   \`~/.local/bin/gtd-loop\`), a project task-runner entry, a CI job step —
+   or no artifact at all: YOU drive the beats yourself, following the
+   obligations directly. Pick the runtime to match: bash, their language of
+   choice, anything that parses JSON and spawns subprocesses.
+4. **What should happen at the boundaries?** Where the log goes (obligation
+   3), and whether halting at a human gate should do anything richer than
+   print — desktop notification, terminal-multiplexer status, editor focus —
+   which belongs in their wrapper, never in gtd.
+
+Then build it, and verify safely before the first real drive:
+\`gtd next --json\` is a pure read — parse it, check your kind dispatch
+against the table above, call it as often as you like. Nothing happens until
+you run an emitted script.
 
 The reference rendering in bash (requires \`jq\`; the \`claude\` lines are
-the part you replace in step 2):
+what answers 1–2 replace):
 
 \`\`\`bash
 ${MINIMAL_DRIVER}
