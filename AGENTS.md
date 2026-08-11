@@ -41,19 +41,21 @@ description, and must be preserved:
   `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
   window), `src/StepGuards.ts` (the step-capture guard registry),
   `src/RepoFiles.ts` (the working-tree/committed content port),
-  `src/CommandRunner.ts` (the subprocess port), `src/DriverState.ts` (the
-  driver-scoped git-dir state port — `gtd next --json` writes driver-scoped
-  git-dir state through it, e.g. the session table; plain `next` and `status`
-  never do). A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`)
-  and hands it to `planStep`/`planEntry` — `src/program.ts` never reaches into
-  `GitService` directly except two narrow exceptions: the `abandon`/`restore`
-  hard/mixed resets (recovery commands that must work even when a `Rest` would
-  refuse — see `runAbandonCommand`'s own doc comment), and the review sign-off/
-  feedback-progress gates' own `readFileAtRef` reads (they need the COMMITTED,
-  pre-turn copy of a file, which a `Rest` snapshot — taken before the turn lands
-  — doesn't carry). The review window and the steering-file gate are
-  deliberately invisible to the pure engine — don't "simplify" them back into
-  it.
+  `src/CommandRunner.ts` (the subprocess port). The one remaining driver-scoped
+  git-dir write is `src/BeatMarker.ts`'s `gtd-beat` file, armed/ consumed only
+  under `gtd next --json --dispatch` — `src/Sessions.ts`'s `sessionId`/`resume`
+  are a pure derivation of history now (`uuidv5` of the resting state's memory
+  key) and write nothing at all; plain `next` and `status` never touch the git
+  dir either way. A command resolves ONE `Rest` (`Edge.ts`'s
+  `currentRest`/`restAt`) and hands it to `planStep`/`planEntry` —
+  `src/program.ts` never reaches into `GitService` directly except two narrow
+  exceptions: the `abandon`/`restore` hard/mixed resets (recovery commands that
+  must work even when a `Rest` would refuse — see `runAbandonCommand`'s own doc
+  comment), and the review sign-off/ feedback-progress gates' own
+  `readFileAtRef` reads (they need the COMMITTED, pre-turn copy of a file, which
+  a `Rest` snapshot — taken before the turn lands — doesn't carry). The review
+  window and the steering-file gate are deliberately invisible to the pure
+  engine — don't "simplify" them back into it.
 
 - **The review window issues no whole-tree index WRITE, and every git index
   write tolerates `index.lock` contention.** gtd shares one worktree index with

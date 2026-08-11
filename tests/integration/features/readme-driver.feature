@@ -727,6 +727,70 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And the log file matches "^AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1"
     And stdout contains "write NOTE.md to start a process"
 
+  Scenario: A refused --session-id (the crash edge's symptom) recovers via the driver's own || fallback
+    # The crash edge src/Sessions.ts documents: an agent turn that mints a
+    # session but lands no commit (a crash, a killed driver) re-derives the
+    # SAME id with resume:false on the next lap, so `claude --session-id`
+    # hits "id already in use" the second time around — `resume` is a HINT,
+    # not a contract, so the driver's own `||` falls back to `--resume` on
+    # that SAME id instead of wedging. The stub simulates exactly that
+    # symptom directly: it refuses every `--session-id` call (as if this
+    # fresh scope-run's id had already been registered by an earlier, now-gone
+    # attempt) and only accepts `--resume` — proving the fallback recovers
+    # within the very first beat, with no driver restart needed.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": working
+                  "M .gtd/FEEDBACK.md": working
+                  "C": done
+              done:
+                commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      echo "AGENT SESSION=${GTD_LOOP_SESSION_ID} RESUME=${GTD_LOOP_MEMORY_RESUME}"
+      if [ "$GTD_LOOP_MEMORY_RESUME" = "0" ]; then
+        echo "gtd-loop test stub: session id already in use" >&2
+        exit 1
+      fi
+      mkdir -p src
+      echo 'export const add = (a, b) => a + b' > src/calc.ts
+      """
+    And the driver pasted from README.md
+    When I run the README driver
+    Then it succeeds
+    And the log file contains "gtd-loop test stub: session id already in use"
+    And "src/calc.ts" exists
+    And the git log contains "chore: calculator done"
+    And the log file matches "AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1"
+
   Scenario: A still-red suite with byte-identical output escalates instead of false-greening into review
     # Drives the REAL bundled unified template (not a custom .gtdrc) through
     # `gtd --entry fix-precheck`: a suite that always fails with

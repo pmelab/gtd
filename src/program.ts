@@ -8,8 +8,7 @@ import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
-import { DriverState } from "./DriverState.js"
-import { confirmSession, resolveSession } from "./Sessions.js"
+import { resolveSession } from "./Sessions.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
   collapsesToInitialState,
@@ -85,7 +84,6 @@ export type CommandRequirements =
   | RepoFiles
   | CommandRunner
   | EnvVars
-  | DriverState
 
 /**
  * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio. Its
@@ -391,14 +389,6 @@ const stepAsActor = (
 ): Effect.Effect<StepResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    // Promote the resting prompt's session row EARLY — before guards/plan can
-    // refuse — and only IN-TURN (see decision 3, src/Sessions.ts's own doc
-    // comment): a step that then refuses still happened after a real agent
-    // turn, so the session it dispatched should still resume next lap; an
-    // out-of-turn step (a different actor than the one resting) must not
-    // claim a session nobody dispatched. A no-op `confirmSession` call for a
-    // non-prompt rest (`rest.memory` is always `undefined` there).
-    if (invoker === rest.actor) yield* confirmSession(rest.memory)
     const plan = yield* planStep(rest, invoker, stepOptions(opts))
 
     if (plan.kind === "refusal") {
@@ -855,15 +845,15 @@ const fixPromptInstruction = (file: string): string =>
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
-/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content (no mutation, unless `--dispatch` resolves the session — see `Sessions.ts`). */
+/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content — no mutation at all: `sessionId`/`resume` are DERIVED (see `Sessions.ts`) and `stalled` is a pure read off history (see `Edge.ts`'s `stalledAt`). `--dispatch` is accepted but changes nothing any more; it dies with the beat-document package. */
 /**
  * `gtd next --json`'s single-line object — `log` (the per-worktree loop log
  * path, `src/WorktreeState.ts`'s `loopLogPath`) is UNCONDITIONAL, unlike the
  * optional keys below it: a driver reads it every run, so there is nothing to
  * omit. The optional keys are never `null`-valued, omitted entirely when
  * their source is unset, exactly like `gtd status --json`. `session` (see
- * `runNextCommand`) is only ever passed for a dispatched `prompt` rest —
- * `sessionId`/`resume` are its two keys, present or absent together.
+ * `runNextCommand`) is present for EVERY `prompt` rest, peek or dispatch alike
+ * — `sessionId`/`resume` are its two keys, present or absent together.
  * `stalled` is the one EXCEPTION to "omitted when unset": it's omitted unless
  * `true`, never emitted as `false` (see `runNextCommand` — a pure read off
  * `Edge.ts`'s `stalledAt`, emitted by EVERY `--json` call, dispatched or not).
@@ -901,21 +891,6 @@ const nextPlainOutput = (
     : base
 }
 
-/**
- * `gtd next --json --dispatch`'s one driver-scoped write: resolving (possibly
- * minting) the prompt session — see `Sessions.ts`'s own doc comment. ONLY
- * `gtd next --json --dispatch` reaches here (never plain `gtd next --json`,
- * which is polled/peeked) — `script`/`message` beats never touch it either
- * (only a `prompt` beat carries a session at all).
- */
-const resolveDispatchedSession = (
-  rendered: RenderedRest,
-): Effect.Effect<
-  { readonly sessionId: string; readonly resume: boolean } | undefined,
-  Error,
-  CommandRequirements
-> => resolveSession(rendered.memory)
-
 const runNextCommand = (
   json: boolean,
   dispatch: boolean,
@@ -936,12 +911,14 @@ const runNextCommand = (
             rest.context,
           ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
         : undefined
+    // No `--dispatch` gate on either derived field: `resolveSession` derives
+    // the same id for a peek as it would for a dispatch, and `stalled` is a
+    // pure read off history — nothing is written, so there is nothing to
+    // protect a peek from (see `Sessions.ts`/`Edge.ts`'s `stalledAt`).
     const session =
-      json && dispatch && rendered.kind === "prompt"
-        ? yield* resolveDispatchedSession(rendered)
+      json && rendered.kind === "prompt"
+        ? resolveSession(rendered.memory, rendered.memoryResumed)
         : undefined
-    // A pure read off the already-resolved `rest` — no mutation left to gate
-    // on, so every `--json` call reports it, dispatched or not (decision 3).
     const stalled = json ? stalledAt(rest) : false
     const log = yield* loopLogPath
     write(
