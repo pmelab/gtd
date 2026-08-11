@@ -493,7 +493,9 @@ describe("combinedScript — the plain-text write commands' single pasteable scr
   it("a failing optional is swallowed — the whole script still exits 0", () => {
     const dir = mkdtempSync(join(tmpdir(), "emit-combined-"))
     const script = combinedScript("touch required-ran", "exit 1")
-    execSync("bash", { input: script, cwd: dir })
+    // stderr piped, not inherited: the optional half's own failure warning is
+    // the point of this case, and must not leak into the test run's output.
+    execSync("bash", { input: script, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
     expect(existsSync(join(dir, "required-ran"))).toBe(true)
   })
 })

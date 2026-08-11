@@ -48,7 +48,7 @@ export type Command =
     }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
-  | { readonly kind: "next"; readonly dispatch: boolean }
+  | { readonly kind: "next" }
   | { readonly kind: "status" }
   | { readonly kind: "validate" }
   | { readonly kind: "check"; readonly mode: string; readonly file: string }
@@ -236,22 +236,6 @@ const FLAGS: readonly FlagRow[] = [
       "declared by the workflow's own vars: or the .gtdrc vars:",
     ],
   },
-  {
-    name: "--dispatch",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "next",
-    decode: () => Either.right(true),
-    scopeError: "gtd: --dispatch is only valid for `gtd next`",
-    valueHint: "",
-    help: [
-      "(gtd next only, requires --json) claim this beat as",
-      "handed to an executor — resolves the prompt session",
-      '(sessionId/resume). "stalled": true is reported by',
-      "every --json call regardless of --dispatch — see gtd",
-      "next's own help",
-    ],
-  },
 ]
 
 const flagByToken = (token: string): FlagRow | undefined => {
@@ -339,12 +323,11 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: "none",
     details: [
       "Print the resolved rest's rendered script/prompt/message",
-      '(no mutation). --json emits "stalled": true when HEAD is',
-      "an empty gtd(<actor>): <state> attempt at the resting",
-      "state and the tree is clean — a fruitless prompt dispatch,",
-      "sticky until a C row or retry: escalation clears it.",
-      "--dispatch (requires --json) additionally resolves the",
-      "prompt session (sessionId/resume)",
+      "(no mutation, safe to poll). --json emits the whole beat",
+      "document instead: kind (capture|message|script|prompt|",
+      "stalled) selects what a driver does, content is what it",
+      "runs or shows, plus the prompt session, model, validate",
+      "script, log path and the resting state's own fields",
     ],
   },
   {
@@ -772,7 +755,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--model"?: string
     readonly "--if-resting"?: boolean
     readonly "--var"?: Readonly<Record<string, string>>
-    readonly "--dispatch"?: boolean
   }
 
   const json = present.has("--json")
@@ -814,17 +796,17 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
-  if (kind === "next") {
-    const dispatch = bag["--dispatch"] ?? false
-    if (dispatch && !json) {
-      return usagePlan("gtd: next --dispatch requires --json", json)
-    }
-    return { kind: "command", command: { kind: "next", dispatch }, json }
-  }
-
   // Every other kind carries no extra fields.
   const command: Command = {
-    kind: kind as "lsp" | "init" | "abandon" | "restore" | "status" | "validate" | "install",
+    kind: kind as
+      | "lsp"
+      | "init"
+      | "abandon"
+      | "restore"
+      | "next"
+      | "status"
+      | "validate"
+      | "install",
   }
   return { kind: "command", command, json }
 }

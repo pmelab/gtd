@@ -3,11 +3,12 @@ Feature: gtd next --json — attempt commits and the derived stall
 
   A no-change agent turn is now VISIBLE: a `prompt` beat whose step lands a
   clean tree and declares no `C` row commits an empty `gtd(<actor>): <state>`
-  attempt instead of the old silent no-op. `stalled` is derived from that
-  history — HEAD is an empty attempt at the resting state, the tree is clean,
-  and another dispatch would just repeat it (see `Edge.ts`'s `stalledAt`) — a
-  pure read `gtd next --json` reports on EVERY call, dispatched or not,
-  sticky until the workflow's own `C` row or `retry:` escalation clears it.
+  attempt instead of the old silent no-op. `kind: "stalled"` is derived from
+  that history — HEAD is an empty attempt at the resting state, the tree is
+  clean, and another dispatch would just repeat it (see `Edge.ts`'s
+  `stalledAt`) — a pure read `gtd next --json` reports on EVERY call, peeked
+  any number of times, sticky until the workflow's own `C` row or `retry:`
+  escalation clears it.
 
   Background:
     Given a test project
@@ -48,7 +49,22 @@ Feature: gtd next --json — attempt commits and the derived stall
     And the git status is clean
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"stalled\":true"
+    And stdout contains "\"kind\":\"stalled\""
+
+  Scenario: the stalled beat's content is a diagnosis naming the state and every escape
+    Given a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): working"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"kind\":\"stalled\""
+    And the json field "content" contains "stalled at \"working\""
+    And the json field "content" contains "retry:"
+    And the json field "content" contains "\"C\" pattern"
 
   Scenario: before the attempt lands, the same beat reports no stall
     Given a commit "gtd(human): working" that adds "NOTE.md" with:

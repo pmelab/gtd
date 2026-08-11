@@ -315,15 +315,59 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And the driver pasted from README.md
     When I run the README driver
     Then it fails
-    And stderr contains "stalled at working — stopping"
+    And stderr contains "stalled at \"working\""
+
+  Scenario: A dirty human gate reached mid-run is a capture beat — landed outright, never halting the driver
+    # The opening `gtd_do step human --if-resting` call only ever authenticates
+    # AS human, so it cannot itself land this gate: "confirm" awaits a
+    # DIFFERENT actor (reviewer), so that opening call is out-of-turn and
+    # suppressed (a no-op). The loop's own first `next --json` read then finds
+    # "confirm" resting with REVIEW.md already written — a message rest with a
+    # dirty tree is `kind: "capture"` — and the loop's `capture) ;;` branch
+    # falls straight through to landing it as reviewer, with no display and no
+    # halt, continuing on to the next gate.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: confirm
+            states:
+              confirm:
+                actor: reviewer
+                message: "confirm before continuing"
+                on:
+                  "A REVIEW.md": done
+              done:
+                actor: human
+                message: "all done"
+      """
+    And a file "REVIEW.md" with:
+      """
+      looks good
+      """
+    And the driver pasted from README.md
+    When I run the README driver
+    Then it succeeds
+    And the last commit subject is "gtd(reviewer): confirm → done"
+    And stdout contains "all done"
 
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
-    # a checkable format. The stub writes a MALFORMED plan first; the paste's
-    # `gtd validate --json` script fails, and it re-prompts the SAME session
-    # with the validator's own findings (verbatim — `$out` IS the fix prompt),
-    # on which the stub writes a valid plan — only then does the paste step,
-    # squashing to done.
+    # a checkable format. The paste's `.validate` field is embedded in the
+    # BEAT it reads before the agent's turn runs — so the file must already
+    # exist at that point for the field to be populated at all (`gtd next
+    # --json` omits it for a file the working tree doesn't have yet, exactly
+    # like `gtd validate --json` degrades) — this is why a placeholder
+    # .gtd/PLAN.md is seeded below, standing in for a prior draft. The stub
+    # then OVERWRITES it with a MALFORMED plan first; the paste's embedded
+    # validate script fails, and it re-prompts the SAME session with the
+    # validator's own findings (verbatim — `$out` IS the fix prompt), on which
+    # the stub writes a valid plan — only then does the paste step, squashing
+    # to done.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -352,6 +396,10 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And a commit "gtd(agent): planning" that adds "NOTE.md" with:
       """
       Build a calculator.
+      """
+    And a file ".gtd/PLAN.md" with:
+      """
+      a prior draft, about to be overwritten
       """
     And a stub agent script that responds to prompts with:
       """
@@ -417,6 +465,13 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And a commit "gtd(agent): planning" that adds "NOTE.md" with:
       """
       Build a calculator.
+      """
+    # A placeholder — needed so the paste's embedded `.validate` field (read
+    # from the beat fetched BEFORE the agent's turn) is populated at all; see
+    # the comment on the scenario above.
+    And a file ".gtd/PLAN.md" with:
+      """
+      a prior draft, about to be overwritten
       """
     And a stub agent script that responds to prompts with:
       """
@@ -551,7 +606,7 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     # (`fixLoop`) so its `fixing` state shares one scope (and so one agent
     # session) across repeated visits, distinct from `working`'s (root-scope)
     # session. The stub echoes the session env the paste's `claude` lines map
-    # `.sessionId`/`.resume` onto (via the `claude` shim), so the log proves:
+    # `.session.id`/`.session.resume` onto (via the `claude` shim), so the log proves:
     # a fresh id for root's one-off turn, a fresh id for fix's first turn, and
     # THAT SAME fix-scope id resumed on fix's second turn. The check's attempt
     # counter lives in .git (never the work tree), forcing exactly two fix laps.

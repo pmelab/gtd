@@ -53,11 +53,13 @@ import {
   initialStateOf,
   matchesPattern,
   parsePattern,
+  type ContentKind,
   type OnEdge,
   type PendingChange,
   type StateMode,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
+import { beatDocument, beatKindOf } from "./Beat.js"
 import {
   renderModeCommand,
   renderStateTemplate,
@@ -845,40 +847,52 @@ const fixPromptInstruction = (file: string): string =>
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
-/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content — no mutation at all: `sessionId`/`resume` are DERIVED (see `Sessions.ts`) and `stalled` is a pure read off history (see `Edge.ts`'s `stalledAt`). `--dispatch` is accepted but changes nothing any more; it dies with the beat-document package. */
 /**
- * `gtd next --json`'s single-line object — `log` (the per-worktree loop log
- * path, `src/WorktreeState.ts`'s `loopLogPath`) is UNCONDITIONAL, unlike the
- * optional keys below it: a driver reads it every run, so there is nothing to
- * omit. The optional keys are never `null`-valued, omitted entirely when
- * their source is unset, exactly like `gtd status --json`. `session` (see
- * `runNextCommand`) is present for EVERY `prompt` rest, peek or dispatch alike
- * — `sessionId`/`resume` are its two keys, present or absent together.
- * `stalled` is the one EXCEPTION to "omitted when unset": it's omitted unless
- * `true`, never emitted as `false` (see `runNextCommand` — a pure read off
- * `Edge.ts`'s `stalledAt`, emitted by EVERY `--json` call, dispatched or not).
+ * Resolve the resting state's own steering-file validate script — the SAME
+ * script both `gtd validate --json` (`runValidateCommand`, its thin caller
+ * now) and `gtd next --json`'s embedded `validate` field emit, from one
+ * shared resolver so the two surfaces can't drift. `undefined` = nothing to
+ * validate: no `file:`+`mode:` declared, or the declared file is absent from
+ * the working tree. An unknown `mode:` FAILS this Effect (exactly as
+ * `runValidateCommand` always has) — `runNextCommand` is the one caller that
+ * degrades that failure to omitting `validate`, mirroring how the plain-text
+ * self-validation instruction already degrades on the same failure.
  */
-const nextJsonOutput = (
-  rendered: RenderedRest,
-  log: string,
-  session: { readonly sessionId: string; readonly resume: boolean } | undefined,
-  stalled: boolean,
-): string =>
-  JSON.stringify({
-    state: rendered.state,
-    actor: rendered.actor,
-    kind: rendered.kind,
-    content: rendered.content,
-    log,
-    ...(rendered.model !== undefined ? { model: rendered.model } : {}),
-    ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
-    ...(session !== undefined ? { sessionId: session.sessionId, resume: session.resume } : {}),
-    ...(rendered.label !== undefined ? { label: rendered.label } : {}),
-    ...(rendered.file !== undefined ? { file: rendered.file } : {}),
-    ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
-    ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
-    ...(stalled ? { stalled: true } : {}),
-  }) + "\n"
+const resolveValidateScript = (
+  rest: Rest,
+): Effect.Effect<
+  { readonly file: string; readonly mode: StateMode; readonly script: string } | undefined,
+  Error,
+  FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const file = rest.hints.file
+    const mode = rest.stateDef.mode
+    if (file === undefined || mode === undefined) return undefined
+
+    const fs = yield* FileSystem.FileSystem
+    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
+    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
+    if (!present) return undefined
+
+    const resolved = resolveSteeringMode(rest.def, mode)
+    if (resolved === undefined) {
+      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
+    }
+    const commands = yield* renderSteeringCommands(resolved, file, rest.context)
+    const lastIndex = commands.length - 1
+    const steps: EmitStep[] = commands.map(
+      (command, index): EmitStep => ({
+        kind: "command",
+        command,
+        ...(index === lastIndex && resolved.validate?.kind === "command"
+          ? { onFailure: fixPromptInstruction(file) }
+          : {}),
+      }),
+    )
+    const script = emitScripts(headPreconditions(rest.context.currentCommit), steps).required
+    return { file, mode, script }
+  })
 
 /** `gtd next`'s plain-text output: the rendered content (newline-terminated), plus the self-validation instruction (naming `selfValidateCommand`, when resolved) when the rest is a validatable prompt. */
 const nextPlainOutput = (
@@ -891,41 +905,81 @@ const nextPlainOutput = (
     : base
 }
 
+/**
+ * `gtd next --json`'s output: the whole BEAT DOCUMENT (`src/Beat.ts`'s
+ * `beatDocument`) for the resolved rest — one self-describing, POLLABLE line.
+ * `stalledAt` (a pure read off history) and the dirty-tree test both feed
+ * `beatKindOf`, which picks the driver-facing `kind`; the dispatch block
+ * (`session`/`validate`) is resolved only when `kind === "prompt"`, since
+ * `beatDocument` drops it at every other kind regardless. Nothing is written
+ * by any of this — `resolveSession` derives the same id for a peek as it
+ * would for a dispatch, and `resolveValidateScript` only READS the file/mode
+ * it inspects — so there is nothing left for a separate claiming form to
+ * protect (see `runNextCommand` below).
+ */
+const nextBeatOutput = (
+  rest: Rest,
+  rendered: RenderedRest,
+): Effect.Effect<string, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const kind = beatKindOf({
+      contentKind: rendered.kind as Exclude<ContentKind, "commit">,
+      dirty: rest.changes.length > 0,
+      stalled: stalledAt(rest),
+    })
+    const session =
+      kind === "prompt" ? resolveSession(rendered.memory, rendered.memoryResumed) : undefined
+    const resolvedValidate =
+      kind === "prompt"
+        ? yield* resolveValidateScript(rest).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+        : undefined
+    const validate =
+      resolvedValidate !== undefined && resolvedValidate.script.length > 0
+        ? resolvedValidate.script
+        : undefined
+
+    return beatDocument({
+      rendered,
+      kind,
+      log: yield* loopLogPath,
+      ...(session !== undefined
+        ? { session: { id: session.sessionId, resume: session.resume } }
+        : {}),
+      ...(validate !== undefined ? { validate } : {}),
+    })
+  })
+
+/**
+ * `gtd next`: pure emitter of the resolved rest's rendered content — no
+ * mutation at all. Plain-text output is the human rendering, unchanged: the
+ * rendered content plus (when resolvable) the self-validation instruction;
+ * `--json` hands off to `nextBeatOutput` above. Nothing is written either
+ * way, so a peek and a would-be dispatch are the same call — there is no
+ * separate claiming form any more.
+ */
 const runNextCommand = (
   json: boolean,
-  dispatch: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
     const rendered = yield* renderRest(rest)
+    if (json) {
+      write(yield* nextBeatOutput(rest, rendered))
+      return
+    }
     // Advisory only (see `selfValidateInstruction`'s doc comment) — a render
     // failure here must not fail `gtd next` itself, so it degrades to omitting
     // the instruction rather than propagating.
-    const selfValidateCommand =
-      !json && emitsValidatablePrompt(rendered)
-        ? yield* resolveSelfValidateCommand(
-            rest.def,
-            rendered.mode!,
-            rendered.file!,
-            rest.context,
-          ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-        : undefined
-    // No `--dispatch` gate on either derived field: `resolveSession` derives
-    // the same id for a peek as it would for a dispatch, and `stalled` is a
-    // pure read off history — nothing is written, so there is nothing to
-    // protect a peek from (see `Sessions.ts`/`Edge.ts`'s `stalledAt`).
-    const session =
-      json && rendered.kind === "prompt"
-        ? resolveSession(rendered.memory, rendered.memoryResumed)
-        : undefined
-    const stalled = json ? stalledAt(rest) : false
-    const log = yield* loopLogPath
-    write(
-      json
-        ? nextJsonOutput(rendered, log, session, stalled)
-        : nextPlainOutput(rendered, selfValidateCommand),
-    )
+    const selfValidateCommand = emitsValidatablePrompt(rendered)
+      ? yield* resolveSelfValidateCommand(
+          rest.def,
+          rendered.mode!,
+          rendered.file!,
+          rest.context,
+        ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      : undefined
+    write(nextPlainOutput(rendered, selfValidateCommand))
   })
 
 /**
@@ -971,40 +1025,20 @@ const runValidateCommand = (
       }
     }
 
-    if (file === undefined || mode === undefined) {
-      emitNothingToValidate()
-      return
-    }
-
-    const fs = yield* FileSystem.FileSystem
-    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
-    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
-    if (!present) {
-      emitNothingToValidate()
-      return
-    }
-
-    const resolved = resolveSteeringMode(rest.def, mode)
+    const resolved = yield* resolveValidateScript(rest)
     if (resolved === undefined) {
-      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
+      emitNothingToValidate()
+      return
     }
-    const commands = yield* renderSteeringCommands(resolved, file, rest.context)
-    const lastIndex = commands.length - 1
-    const steps: EmitStep[] = commands.map(
-      (command, index): EmitStep => ({
-        kind: "command",
-        command,
-        ...(index === lastIndex && resolved.validate?.kind === "command"
-          ? { onFailure: fixPromptInstruction(file) }
-          : {}),
-      }),
-    )
-    const script = emitScripts(headPreconditions(rest.context.currentCommit), steps).required
 
     if (json) {
-      write(JSON.stringify({ state: rest.state, file, mode, script }) + "\n")
+      write(JSON.stringify({ state: rest.state, ...resolved }) + "\n")
     } else {
-      write(script.length > 0 ? `${script}\n` : `nothing to validate at "${rest.state}"\n`)
+      write(
+        resolved.script.length > 0
+          ? `${resolved.script}\n`
+          : `nothing to validate at "${rest.state}"\n`,
+      )
     }
   })
 
@@ -1486,7 +1520,7 @@ const dispatchCommand = (
     case "restore":
       return runRestoreCommand(json, write)
     case "next":
-      return runNextCommand(json, command.dispatch, write)
+      return runNextCommand(json, write)
     case "status":
       return runStatusCommand(json, write)
     case "validate":

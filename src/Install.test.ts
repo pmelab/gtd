@@ -30,9 +30,8 @@ describe("renderBriefing", () => {
 
   it("names every command a driver invokes", () => {
     const briefing = renderBriefing()
-    expect(briefing).toContain("gtd next --json --dispatch")
+    expect(briefing).toContain("gtd next --json")
     expect(briefing).toContain("gtd step human --if-resting")
-    expect(briefing).toContain("gtd validate --json")
     expect(briefing).toContain("gtd step <actor> --json")
   })
 

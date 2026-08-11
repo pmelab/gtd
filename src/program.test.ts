@@ -13,6 +13,7 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { runCli } from "./Cli.js"
+import { stallDiagnosis } from "./Beat.js"
 import { computeNextMatch } from "./program.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { renderInitConfig } from "./workflows/templates.js"
@@ -486,28 +487,35 @@ describe("gtd next --json / gtd status — memory key emission", () => {
 
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-  it("gtd next --json --dispatch derives a sessionId for a prompt rest, resume: false on the fresh scope-run", async () => {
+  type WithSession = { readonly session?: { readonly id: string; readonly resume: boolean } }
+
+  it("gtd next --json derives a session for a prompt rest, resume: false on the fresh scope-run", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "next", "--json", "--dispatch")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
-    const parsed = JSON.parse(stdout) as Record<string, unknown>
-    expect(parsed.sessionId).toMatch(UUID)
-    expect(parsed.resume).toBe(false)
+    const parsed = JSON.parse(stdout) as WithSession
+    expect(parsed.session?.id).toMatch(UUID)
+    expect(parsed.session?.resume).toBe(false)
   })
 
-  it("two --dispatch next calls back-to-back, with no step in between, yield the SAME id and resume — nothing is written, so a peek can never poison a beat", async () => {
+  it("two next calls back-to-back, with no step in between, yield the SAME id and resume — nothing is written, so a peek can never poison a beat", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const first = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
-      string,
-      unknown
-    >
-    const second = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
-      string,
-      unknown
-    >
-    expect(second.sessionId).toBe(first.sessionId)
-    expect(first.resume).toBe(false)
-    expect(second.resume).toBe(false)
+    const first = JSON.parse((await run(repo, "next", "--json")).stdout) as WithSession
+    const second = JSON.parse((await run(repo, "next", "--json")).stdout) as WithSession
+    expect(second.session?.id).toBe(first.session?.id)
+    expect(first.session?.resume).toBe(false)
+    expect(second.session?.resume).toBe(false)
+  })
+
+  it("purity property: three consecutive next --json calls at a prompt rest are byte-identical and leave the commit count unchanged", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const before = repo.commitHistory().length
+    const first = (await run(repo, "next", "--json")).stdout
+    const second = (await run(repo, "next", "--json")).stdout
+    const third = (await run(repo, "next", "--json")).stdout
+    expect(second).toBe(first)
+    expect(third).toBe(first)
+    expect(repo.commitHistory().length).toBe(before)
   })
 
   // A separate 3-state workflow — working (prompt) → check (script) → working
@@ -546,11 +554,8 @@ describe("gtd next --json / gtd status — memory key emission", () => {
 
   it("resume flips false → true once a turn commit lands back at the same prompt state, id unchanged", async () => {
     const repo = seededRepoAt(workflowPromptThenCheck, "gtd(human): working")
-    const first = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
-      string,
-      unknown
-    >
-    expect(first.resume).toBe(false)
+    const first = JSON.parse((await run(repo, "next", "--json")).stdout) as WithSession
+    expect(first.session?.resume).toBe(false)
 
     const applyStep = async (actor: string): Promise<void> => {
       const { stdout, exitCode } = await run(repo, "step", actor, "--json")
@@ -564,40 +569,25 @@ describe("gtd next --json / gtd status — memory key emission", () => {
     repo.writeFile("FEEDBACK.md", "check ran\n")
     await applyStep("check")
 
-    const second = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
-      string,
-      unknown
-    >
-    expect(second.sessionId).toBe(first.sessionId)
-    expect(second.resume).toBe(true)
+    const second = JSON.parse((await run(repo, "next", "--json")).stdout) as WithSession
+    expect(second.session?.id).toBe(first.session?.id)
+    expect(second.session?.resume).toBe(true)
   })
 
-  it("a plain --json peek (no --dispatch) emits the SAME sessionId/resume a --dispatch call would — nothing is written either way", async () => {
-    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const dispatched = JSON.parse(
-      (await run(repo, "next", "--json", "--dispatch")).stdout,
-    ) as Record<string, unknown>
-    const peek = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
-    expect(peek.sessionId).toBe(dispatched.sessionId)
-    expect(peek.resume).toBe(dispatched.resume)
-  })
-
-  it("gtd status --json omits sessionId/resume even at a prompt rest — status is the inspection surface, next is the driver surface", async () => {
+  it("gtd status --json omits session even at a prompt rest — status is the inspection surface, next is the driver surface", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
     const { stdout, exitCode } = await run(repo, "status", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
-    expect(parsed).not.toHaveProperty("sessionId")
-    expect(parsed).not.toHaveProperty("resume")
+    expect(parsed).not.toHaveProperty("session")
   })
 
-  it("gtd next --json omits sessionId/resume for a non-prompt rest", async () => {
+  it("gtd next --json omits session for a non-prompt rest", async () => {
     const repo = seededRepoAt(workflowNonPrompt, "gtd(human): checking")
-    const { stdout, exitCode } = await run(repo, "next", "--json", "--dispatch")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
-    expect(parsed).not.toHaveProperty("sessionId")
-    expect(parsed).not.toHaveProperty("resume")
+    expect(parsed).not.toHaveProperty("session")
   })
 })
 
@@ -652,20 +642,24 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     expect(applied.ok).toBe(true)
   }
 
-  it("is not stalled before the attempt lands", async () => {
+  it("is not kind stalled before the attempt lands", async () => {
     const repo = seededAt("gtd(human): working")
     const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
-    expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
+    expect(JSON.parse(stdout).kind).not.toBe("stalled")
   })
 
-  it("is stalled once `gtd step agent` has landed an empty attempt", async () => {
+  it("is kind stalled once `gtd step agent` has landed an empty attempt, with the diagnosis as content and no session/validate key", async () => {
     const repo = seededAt("gtd(human): working")
     await landAgentStep(repo)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
 
     const { stdout } = await run(repo, "next", "--json")
-    expect(JSON.parse(stdout)).toMatchObject({ stalled: true })
+    const parsed = JSON.parse(stdout) as Record<string, unknown>
+    expect(parsed.kind).toBe("stalled")
+    expect(parsed.content).toBe(stallDiagnosis("working", "agent"))
+    expect(parsed).not.toHaveProperty("session")
+    expect(parsed).not.toHaveProperty("validate")
   })
 
   it("stays stalled on a repeat — sticky, unlike the old marker's single-shot report", async () => {
@@ -673,18 +667,18 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     await landAgentStep(repo)
 
     const first = await run(repo, "next", "--json")
-    expect(JSON.parse(first.stdout)).toMatchObject({ stalled: true })
+    expect(JSON.parse(first.stdout).kind).toBe("stalled")
     const second = await run(repo, "next", "--json")
-    expect(JSON.parse(second.stdout)).toMatchObject({ stalled: true })
+    expect(JSON.parse(second.stdout).kind).toBe("stalled")
   })
 
-  it("is not stalled with a dirty tree", async () => {
+  it("is not kind stalled with a dirty tree", async () => {
     const repo = seededAt("gtd(human): working")
     await landAgentStep(repo)
     repo.writeFile("scratch.txt", "x\n")
 
     const { stdout } = await run(repo, "next", "--json")
-    expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
+    expect(JSON.parse(stdout).kind).not.toBe("stalled")
   })
 
   it("is never stalled at a script rest — a clean step there is a plain no-op, not an attempt", async () => {
@@ -693,7 +687,6 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
 
     const { stdout } = await run(repo, "next", "--json")
     expect(JSON.parse(stdout).kind).toBe("script")
-    expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
   })
 
   it("is never stalled at a message rest — a clean step there is a plain no-op, not an attempt", async () => {
@@ -701,17 +694,109 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
 
     const { stdout } = await run(repo, "next", "--json")
     expect(JSON.parse(stdout).kind).toBe("message")
-    expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
+  })
+})
+
+describe("gtd next --json — capture/message kinds at a human gate", () => {
+  const workflow = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a process",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: do the work described in NOTE.md",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", workflow)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    return repo
+  }
+
+  it("is kind message at a clean message rest", async () => {
+    const repo = seededRepo()
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout).kind).toBe("message")
   })
 
-  it("is reported by plain --json as well as --dispatch — a pure read, not gated on the session-minting flag", async () => {
-    const repo = seededAt("gtd(human): working")
-    await landAgentStep(repo)
+  it("is kind capture at a dirty message rest — the human already acted", async () => {
+    const repo = seededRepo()
+    repo.writeFile("NOTE.md", "a note\n")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout).kind).toBe("capture")
+  })
+})
 
-    const plain = await run(repo, "next", "--json")
-    expect(JSON.parse(plain.stdout)).toMatchObject({ stalled: true })
-    const dispatched = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(dispatched.stdout)).toMatchObject({ stalled: true })
+describe("gtd next --json — embedded validate script", () => {
+  const workflow = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a process",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    '          file: ".gtd/PLAN.md"',
+    "          mode: qa",
+    "          prompt: do the work described in NOTE.md",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const seededRepoAtWorking = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", workflow)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd(human): working")
+    return repo
+  }
+
+  it("embeds the same script gtd validate --json emits, when the declared file is present", async () => {
+    const repo = seededRepoAtWorking()
+    repo.writeFile(".gtd/PLAN.md", "- [ ] a question\n")
+
+    const { stdout: nextStdout, exitCode: nextExit } = await run(repo, "next", "--json")
+    expect(nextExit).toBe(0)
+    const next = JSON.parse(nextStdout) as { validate?: string }
+
+    const { stdout: validateStdout, exitCode: validateExit } = await run(repo, "validate", "--json")
+    expect(validateExit).toBe(0)
+    const validate = JSON.parse(validateStdout) as { script: string }
+
+    expect(next.validate).toBeDefined()
+    expect(next.validate).toBe(validate.script)
+  })
+
+  it("omits validate when the declared file is absent from the working tree", async () => {
+    const repo = seededRepoAtWorking()
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as Record<string, unknown>
+    expect(parsed).not.toHaveProperty("validate")
   })
 })
 

@@ -478,12 +478,34 @@ Then("the commit count is unchanged", (world: GtdWorld) => {
 // Pulls an arbitrary field off the most recent `gtd next --json`/
 // `gtd status --json` stdout (`world.lastResult.stdout`) — for scenarios
 // comparing a COMPUTED value (the `<scope>#<hash>` memory key, a minted
-// session id) across turns without knowing its exact value.
+// session id) across turns without knowing its exact value. `field` may be a
+// dot path (e.g. "session.id") to reach into a nested object — the beat
+// document's own dispatch block (`session: {id, resume}`) is the reason this
+// walks rather than doing a single flat lookup.
 const currentJsonField = (world: GtdWorld, field: string): string | undefined => {
-  const parsed = JSON.parse(world.lastResult.stdout) as Record<string, unknown>
-  const value = parsed[field]
+  const value = field
+    .split(".")
+    .reduce<unknown>(
+      (node, segment) =>
+        node !== null && typeof node === "object"
+          ? (node as Record<string, unknown>)[segment]
+          : undefined,
+      JSON.parse(world.lastResult.stdout) as unknown,
+    )
   return value === undefined ? undefined : String(value)
 }
+
+Then(
+  "the json field {string} contains {string}",
+  (world: GtdWorld, field: string, text: string) => {
+    const value = currentJsonField(world, field)
+    assert.notStrictEqual(value, undefined, `no json field "${field}" on this turn`)
+    assert.ok(
+      value!.includes(text),
+      `expected json field "${field}" to contain "${text}". Got:\n${value}`,
+    )
+  },
+)
 
 Then(
   "I record the json field {string} as {string}",

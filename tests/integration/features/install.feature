@@ -65,16 +65,16 @@ Feature: gtd install — the driver-building briefing
       """
       a note
       """
-    When I run gtd next with "--json" and "--dispatch"
+    When I run gtd next with "--json"
     Then it succeeds
     And I record the JSON keys of stdout as "next"
 
     When I run gtd step agent
     Then it succeeds
 
-    When I run gtd next with "--json" and "--dispatch"
+    When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"stalled\":true"
+    And stdout contains "\"kind\":\"stalled\""
     And I record the JSON keys of stdout as "next-stalled"
 
     When I run gtd step agent with "--json"

@@ -28,24 +28,24 @@ gtd_do() {
 gtd_do step human --if-resting # capture your pending edit, or resume
 
 while :; do
-  next="$(gtd next --json --dispatch)" || exit 1
+  next="$(gtd next --json)" || exit 1
   kind="$(jq -r .kind <<<"$next")"
   log="$(jq -r .log <<<"$next")"
-  jq -e '.stalled // false' <<<"$next" >/dev/null &&
-    { echo "stalled at $(jq -r .state <<<"$next") — stopping" >&2; exit 1; }
   case "$kind" in
+    stalled) jq -r .content <<<"$next" >&2; exit 1 ;;
     message) jq -r .content <<<"$next"; exit 0 ;;
+    capture) ;; # the human already acted — just land it
     script) bash -c "$(jq -r .content <<<"$next")" >>"$log" 2>&1 || true ;;
     prompt)
-      sid="$(jq -r '.sessionId // empty' <<<"$next")"
+      sid="$(jq -r '.session.id // empty' <<<"$next")"
       c="$(jq -r .content <<<"$next")" model="$(jq -r '.model // empty' <<<"$next")"
       agent_turn() { claude -p "$c" "$1" "$sid" \${model:+--model "$model"} \\
         --dangerously-skip-permissions >>"$log" 2>&1; }
-      if [ "$(jq -r '.resume // false' <<<"$next")" = true ]
+      if [ "$(jq -r '.session.resume // false' <<<"$next")" = true ]
       then agent_turn --resume || agent_turn --session-id
       else agent_turn --session-id || agent_turn --resume
       fi
-      v="$(gtd validate --json | jq -r '.script // empty')" n=0
+      v="$(jq -r '.validate // empty' <<<"$next")" n=0
       while [ -n "$v" ] && ! out="$(bash -c "$v" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\\n' "$out" >&2; exit 1; }
         claude -p "$out" --resume "$sid" --dangerously-skip-permissions \\
@@ -67,17 +67,22 @@ const HEADER = (): string =>
 const BEAT_PROTOCOL = `
 ## The beat protocol
 
-\`gtd next --json\` is a read-only PEEK — \`sessionId\`/\`resume\` are derived,
-never stored, so a peek is exactly as safe as a dispatch. \`gtd next --json
---dispatch\` additionally CLAIMS the beat: it arms the beat marker. Dispatch
-exactly once per beat.
+\`gtd next --json\` is a read-only PEEK — every field (\`.session.id\`/
+\`.session.resume\` included) is DERIVED from history, never stored, so looking
+is free: nothing distinguishes a peek from a dispatch, and calling it twice in
+a row is always safe. There is no separate claiming form.
 
 The \`kind\` field selects what to do:
 
+- \`stalled\` — print \`.content\` (a diagnosis) to stderr and exit non-zero.
+  Terminal: another dispatch would just repeat the same fruitless turn.
 - \`message\` — print \`.content\` and exit 0. This is a human gate.
+- \`capture\` — a human gate the human already acted on (the tree is dirty).
+  Land it immediately, no display needed.
 - \`script\` — run \`bash -c .content\`, appending its output to \`.log\`, and
   ignore its exit code — the outcome lives in the tree, not in the exit code.
-- \`prompt\` — send \`.content\` to your agent CLI.
+- \`prompt\` — send \`.content\` to your agent CLI, using the embedded
+  \`.session\`/\`.model\`/\`.validate\` fields (see below).
 `
 
 const JSON_FIELD_REFERENCE = `
@@ -85,16 +90,18 @@ const JSON_FIELD_REFERENCE = `
 
 Every field below is always present unless marked "when set".
 
-### \`gtd next --json [--dispatch]\`
+### \`gtd next --json\` — the beat document
 
-- Always: \`state\`, \`actor\`, \`kind\`, \`content\`, \`log\`
-- When set: \`model\`, \`memory\`, \`label\`, \`file\`, \`mode\`, \`edges\`
-- On every \`prompt\` beat, peek or dispatch alike: \`sessionId\` + \`resume\`,
-  together — both are DERIVED (a hash of the resting state's memory scope),
-  never stored, so a plain peek is safe to call as often as you like
-- \`stalled: true\` only when HEAD is an empty attempt at the resting state and
-  the tree is clean (derived from history, not a marker) — never emitted as
-  \`false\`
+- Always: \`kind\` (\`capture\`|\`message\`|\`script\`|\`prompt\`|\`stalled\`),
+  \`content\`, \`log\`, \`state\`, \`actor\`
+- When set: \`model\`, \`memory\`, \`label\`, \`file\`, \`mode\`, \`edges\` — plain
+  facts about the resting state, present at every kind
+- Only at \`kind: "prompt"\` (the DISPATCH BLOCK — absent at every other kind,
+  a \`stalled\` beat included, by construction): \`session\` (\`{id, resume}\`,
+  both DERIVED from history — a hash of the resting state's memory scope —
+  never stored, so a plain peek is exactly as safe to call as a dispatch would
+  be) and, when the state declares a validatable steering file, \`validate\`
+  (the same script \`gtd validate --json\`'s \`.script\` emits, embedded)
 
 ### \`gtd step --json\` (also \`--entry\`)
 
@@ -123,18 +130,18 @@ const DRIVER_OBLIGATIONS = `
 
 1. Opening move: run \`gtd step human --if-resting\`, unconditionally, before
    you know whose turn it is.
-2. Dispatch exactly one \`gtd next --json --dispatch\` per beat.
-3. A \`.stalled\` beat halts the driver with a non-zero exit.
+2. Read exactly one \`gtd next --json\` beat document per iteration.
+3. A \`kind: "stalled"\` beat halts the driver with a non-zero exit.
 4. Run scripts with their output appended to \`.log\` — gtd never creates or
    truncates that file itself; truncate it once per run. \`$GTD_LOOP_LOG\`
    overrides its path.
-5. Map \`sessionId\`/\`resume\` onto the agent CLI's own session flags — try
-   \`resume\`'s hinted flag first and fall back to the other on failure
-   (\`resume\` is a hint, not a contract: nothing is stored, so a crashed prior
-   turn or an expired agent session recovers by itself).
-6. After a \`prompt\` beat, run \`gtd validate --json\`'s \`.script\` and
-   re-prompt its output verbatim on failure — the DRIVER owns the retry cap,
-   not gtd.
+5. Map \`.session.id\`/\`.session.resume\` onto the agent CLI's own session
+   flags — try \`resume\`'s hinted flag first and fall back to the other on
+   failure (\`resume\` is a hint, not a contract: nothing is stored, so a
+   crashed prior turn or an expired agent session recovers by itself).
+6. After a \`prompt\` beat, run the document's own \`.validate\` script (when
+   present) and re-prompt its output verbatim on failure — the DRIVER owns
+   the retry cap, not gtd.
 7. Run \`gtd step <actor> --json\`, then execute its \`required\` (always) and
    \`optional\` (presentation only — its failure is a warning, not a halt).
 8. \`.settled\` exits 0 — there is nothing left to do.

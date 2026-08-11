@@ -1,14 +1,14 @@
 @inmem
-Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
+Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
 
-  `gtd next --json` (peek OR `--dispatch` — both derive the exact same
-  answer, since nothing is written; see src/Sessions.ts's own doc comment)
-  resolves a `sessionId`/`resume` pair at every `prompt` rest by hashing the
-  resting state's memory key (`<scope>#<anchor7>`, src/Edge.ts's
-  `memoryKeyFor`) into a UUIDv5. There is no per-scope table anymore: the
-  same scope-run always re-derives the same id, and `resume` is `true` iff a
-  prior `prompt` rest already landed a turn commit within that same
-  scope-run (src/Edge.ts's `memoryResumedFor`).
+  `gtd next --json` (a pure peek, called once or twice back to back — both
+  derive the exact same answer, since nothing is written; see
+  src/Sessions.ts's own doc comment) resolves a `session: {id, resume}` pair
+  at every `prompt` rest by hashing the resting state's memory key
+  (`<scope>#<anchor7>`, src/Edge.ts's `memoryKeyFor`) into a UUIDv5. There is
+  no per-scope table anymore: the same scope-run always re-derives the same
+  id, and `resume` is `true` iff a prior `prompt` rest already landed a turn
+  commit within that same scope-run (src/Edge.ts's `memoryResumedFor`).
 
   Background:
     Given a test project
@@ -61,12 +61,12 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
     When I run gtd step human
     Then it succeeds
 
-    When I run gtd next with "--json" and "--dispatch"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
-    And stdout matches "\"sessionId\":\"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\""
+    And stdout matches "\"session\":\{\"id\":\"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\""
     And stdout contains "\"resume\":false"
-    And I record the json field "sessionId" as "s1"
+    And I record the json field "session.id" as "s1"
 
     Given a file "NOTE.md" with:
       """
@@ -76,60 +76,39 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
 
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And stdout contains "\"state\":\"working\""
-    And the json field "sessionId" matches the one recorded as "s1"
-    And stdout contains "\"resume\":true"
-
-  Scenario: two --dispatch next calls with no step in between derive the SAME id, both resume:false
-    Given a file "NOTE.md" with:
-      """
-      start
-      """
-    When I run gtd step human
-    Then it succeeds
-
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And stdout contains "\"resume\":false"
-    And I record the json field "sessionId" as "first dispatch"
-
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And stdout contains "\"resume\":false"
-    And the json field "sessionId" matches the one recorded as "first dispatch"
-
-  Scenario: a plain --json peek derives the SAME sessionId/resume a --dispatch call would; gtd status --json still omits both
-    Given a file "NOTE.md" with:
-      """
-      start
-      """
-    When I run gtd step human
-    Then it succeeds
-
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And stdout contains "\"resume\":false"
-    And I record the json field "sessionId" as "dispatched"
-
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
-    And the json field "sessionId" matches the one recorded as "dispatched"
+    And the json field "session.id" matches the one recorded as "s1"
+    And stdout contains "\"resume\":true"
+
+  Scenario: two peeks with no step in between derive the SAME id, both resume:false
+    Given a file "NOTE.md" with:
+      """
+      start
+      """
+    When I run gtd step human
+    Then it succeeds
+
+    When I run gtd next with "--json"
+    Then it succeeds
     And stdout contains "\"resume\":false"
+    And I record the json field "session.id" as "first peek"
+
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"resume\":false"
+    And the json field "session.id" matches the one recorded as "first peek"
 
     When I run gtd status with "--json"
     Then it succeeds
-    And stdout does not contain "\"sessionId\""
-    And stdout does not contain "\"resume\""
+    And stdout does not contain "\"session\""
 
-  Scenario: a message rest and a script rest emit neither sessionId nor resume
-    When I run gtd next with "--json" and "--dispatch"
+  Scenario: a message rest and a script rest emit no session at all
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""
-    And stdout does not contain "\"sessionId\""
-    And stdout does not contain "\"resume\""
+    And stdout does not contain "\"session\""
 
     Given a file "NOTE.md" with:
       """
@@ -145,11 +124,10 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
     When I run gtd step agent
     Then it succeeds
 
-    When I run gtd next with "--json" and "--dispatch"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking.verify\""
-    And stdout does not contain "\"sessionId\""
-    And stdout does not contain "\"resume\""
+    And stdout does not contain "\"session\""
 
   Scenario: a nested child machine prompt gets a DIFFERENT id from the parent; on return the parent's id is unchanged with resume:true
     Given a file "NOTE.md" with:
@@ -160,11 +138,11 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
 
-    When I run gtd next with "--json" and "--dispatch"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"resume\":false"
-    And I record the json field "sessionId" as "the outer session"
+    And I record the json field "session.id" as "the outer session"
 
     Given a file "CHECKFILE.md" with:
       """
@@ -174,34 +152,41 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(agent): working → checking.verify"
 
-    When I run gtd next with "--json" and "--dispatch"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking.verify\""
-    And stdout does not contain "\"sessionId\""
+    And stdout does not contain "\"session\""
 
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): checking.verify → checking.ask"
 
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And stdout contains "\"state\":\"checking.ask\""
-    And stdout contains "\"resume\":false"
-    And the json field "sessionId" differs from the one recorded as "the outer session"
-    And I record the json field "sessionId" as "the child session"
-
+    # REVIEW.md is written BEFORE this peek, not after: the "verify" script's
+    # own clean-tree "C" transition just landed an EMPTY commit at checking.ask
+    # (a prompt rest) — a bare peek there would otherwise itself derive
+    # kind: "stalled" (Beat.ts's beatKindOf), which drops the session field by
+    # construction. A dirty tree suppresses that (stalledAt's own first
+    # clause), so writing the reviewer's file first is what makes this peek a
+    # kind: "prompt" beat worth inspecting.
     Given a file "REVIEW.md" with:
       """
       looks good
       """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"checking.ask\""
+    And stdout contains "\"resume\":false"
+    And the json field "session.id" differs from the one recorded as "the outer session"
+    And I record the json field "session.id" as "the child session"
+
     When I run gtd step reviewer
     Then it succeeds
     And the last commit subject is "gtd(reviewer): checking.ask → working"
 
-    When I run gtd next with "--json" and "--dispatch"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
-    And the json field "sessionId" matches the one recorded as "the outer session"
+    And the json field "session.id" matches the one recorded as "the outer session"
     And stdout contains "\"resume\":true"
 
   Scenario: re-entering the child machine a second time derives a DIFFERENT child id — a new scope entry anchors to a new commit
@@ -223,14 +208,16 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(check): checking.verify → checking.ask"
 
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And I record the json field "sessionId" as "the first child session"
-
+    # See the same-named comment above: REVIEW.md must exist before this peek,
+    # or the just-landed empty "C" transition reads as a stalled beat instead.
     Given a file "REVIEW.md" with:
       """
       looks good
       """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And I record the json field "session.id" as "the first child session"
+
     When I run gtd step reviewer
     Then it succeeds
     And the last commit subject is "gtd(reviewer): checking.ask → working"
@@ -247,7 +234,12 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(check): checking.verify → checking.ask"
 
-    When I run gtd next with "--json" and "--dispatch"
+    # See the same-named comment above: REVIEW.md must exist before this peek.
+    Given a file "REVIEW.md" with:
+      """
+      looks good again
+      """
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking.ask\""
-    And the json field "sessionId" differs from the one recorded as "the first child session"
+    And the json field "session.id" differs from the one recorded as "the first child session"

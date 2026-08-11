@@ -78,26 +78,27 @@ gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
 template), with an ordered set of change-patterns routing to the next state.
 
-The loop is one beat, repeated: run `gtd next --json --dispatch` and dispatch on
-`kind` — `"message"` means it's a human's move (stop and hand off); `"script"`
-means the driver runs `content` itself, then steps its actor; `"prompt"` means
-feed `content` to your agent — using the accompanying `sessionId`/`resume` to
-continue or start that agent conversation (see "Driving the loop" below) — then
-run `gtd step <actor>` once it's done. gtd itself never executes anything — the
-driver owns running scripts. Every `gtd next` call is strictly mutation-free,
-safe to poll or peek at any time: `sessionId`/`resume` are DERIVED, never
-stored, so a peek gets the exact same answer a dispatch would (`--dispatch` is
-still accepted but changes nothing any more). A `prompt` beat whose turn changes
-nothing still lands: `gtd step <actor>` commits an EMPTY `gtd(<actor>): <state>`
-attempt instead of silently doing nothing, so the fruitless dispatch is visible
-in history rather than invisible. `"stalled": true` is derived from that history
-— HEAD is an empty attempt at the resting state and the tree is clean — so every
-`gtd next --json` call reports it, and it stays `true` on a repeat (there's no
-marker to consume) until something actually changes. The fix for a repeated
-stall is either a better prompt, a `retry:` cap on the state that redirects to
-an escalation state after N fruitless attempts, or — if the state can
-legitimately finish with nothing to change — declaring a `C` (clean-tree)
-pattern on it.
+The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
+`"message"` means it's a human's move (stop and hand off); `"capture"` means a
+human gate the human already acted on (land it immediately); `"script"` means
+the driver runs `content` itself, then steps its actor; `"prompt"` means feed
+`content` to your agent — using the accompanying `session.id`/`session.resume`
+to continue or start that agent conversation (see "Driving the loop" below) —
+then run `gtd step <actor>` once it's done. gtd itself never executes anything —
+the driver owns running scripts. Every `gtd next` call is strictly
+mutation-free, safe to poll or peek at any time: `session.id`/`session.resume`
+are DERIVED, never stored, so looking is free — nothing distinguishes a peek
+from a dispatch, and there is no separate claiming form at all. A `prompt` beat
+whose turn changes nothing still lands: `gtd step <actor>` commits an EMPTY
+`gtd(<actor>): <state>` attempt instead of silently doing nothing, so the
+fruitless dispatch is visible in history rather than invisible.
+`"kind": "stalled"` is derived from that history — HEAD is an empty attempt at
+the resting state and the tree is clean — so every `gtd next --json` call
+reports it, and it stays reported on a repeat (there's no marker to consume)
+until something actually changes. The fix for a repeated stall is either a
+better prompt, a `retry:` cap on the state that redirects to an escalation state
+after N fruitless attempts, or — if the state can legitimately finish with
+nothing to change — declaring a `C` (clean-tree) pattern on it.
 
 An `on` edge may also carry a short imperative `action` (e.g. `Accept plan`)
 alongside its existing `describe` sentence — a human-facing name for the choice
@@ -236,12 +237,11 @@ Commands:
                    history, or when HEAD has advanced past the squash with
                    commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
-                   (no mutation). --json emits "stalled": true when HEAD is
-                   an empty gtd(<actor>): <state> attempt at the resting
-                   state and the tree is clean — a fruitless prompt dispatch,
-                   sticky until a C row or retry: escalation clears it.
-                   --dispatch (requires --json) additionally resolves the
-                   prompt session (sessionId/resume)
+                   (no mutation, safe to poll). --json emits the whole beat
+                   document instead: kind (capture|message|script|prompt|
+                   stalled) selects what a driver does, content is what it
+                   runs or shows, plus the prompt session, model, validate
+                   script, log path and the resting state's own fields
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Print the script that formats (when declared) then
@@ -294,11 +294,6 @@ Options:
                    (with --entry; repeatable) supply a fixed it.vars
                    override for the new process; the name must already be
                    declared by the workflow's own vars: or the .gtdrc vars:
-  --dispatch       (gtd next only, requires --json) claim this beat as
-                   handed to an executor — resolves the prompt session
-                   (sessionId/resume). "stalled": true is reported by
-                   every --json call regardless of --dispatch — see gtd
-                   next's own help
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -414,20 +409,20 @@ resumes an implementer's session, and vice versa** — a reviewer machine and th
 implementer machine it reviews are always different instances with different
 scopes.
 
-`gtd` itself stores NOTHING to make this work: `sessionId` is
+`gtd` itself stores NOTHING to make this work: `session.id` is
 `UUIDv5(<fixed gtd namespace>, <memory key>)` — a deterministic hash of the
 computed `<scope>#<hash7>` key above — so the same scope-run always re-derives
 the exact same id, and there is no table, no file, no write to keep in sync.
-`resume` is `true` iff a prior `prompt` turn already landed within that same
-scope-run. Because nothing is written, `gtd next --json` (a peek) and
-`gtd next --json --dispatch` derive IDENTICAL `sessionId`/`resume` values — a
-driver's own opening peek, a status poll, a curious human running
-`gtd next --json` twice in a row can never poison anything, since there is
-nothing to poison. The per-scope survival story (a child machine's own excursion
-doesn't disturb the parent's session) falls out of the key itself, not out of a
+`session.resume` is `true` iff a prior `prompt` turn already landed within that
+same scope-run. Because nothing is written, calling `gtd next --json` twice in a
+row — a driver's own opening peek, a status poll, a curious human — derives
+IDENTICAL `session.id`/`session.resume` values both times, since there is
+nothing to poison: looking is free, and there is no separate claiming form to
+protect. The per-scope survival story (a child machine's own excursion doesn't
+disturb the parent's session) falls out of the key itself, not out of a
 per-scope row: the parent's anchor commit is unaffected by whatever the child
-scope does in between. A driver maps `sessionId`/`resume` straight onto the
-agent CLI's own session flags — the README's minimal driver passes them as
+scope does in between. A driver maps `session.id`/`session.resume` straight onto
+the agent CLI's own session flags — the README's minimal driver passes them as
 `--session-id <id>`/`--resume <id>` to `claude -p`, but treats `resume` as a
 HINT rather than a contract: it tries the flag `resume` points at first and
 falls back to the other on failure. That fallback is what recovers BOTH
@@ -483,10 +478,10 @@ env -u HERDR_PANE_ID gtd-loop "$@"
 rc=$?
 
 # Whose turn is it now? `gtd status --json` is a strictly read-only peek —
-# every gtd command is, except `gtd next --json --dispatch` (which
-# mints/resumes an agent session at a prompt rest) and the emitted scripts a
-# driver runs. A human actor means gtd is waiting on you; anything else means
-# the run ended with nothing owed.
+# every gtd command is, including `gtd next --json` (its prompt session id is
+# derived, never minted/stored) — only the emitted scripts a driver runs
+# actually touch git. A human actor means gtd is waiting on you; anything else
+# means the run ended with nothing owed.
 actor="$(gtd status --json 2>/dev/null | jq -r '.actor // ""' 2>/dev/null || true)"
 
 if [ "$rc" -ne 0 ] || [ -z "$actor" ] || [ "$actor" = human ]; then
@@ -630,24 +625,24 @@ gtd_do() {
 gtd_do step human --if-resting # capture your pending edit, or resume
 
 while :; do
-  next="$(gtd next --json --dispatch)" || exit 1
+  next="$(gtd next --json)" || exit 1
   kind="$(jq -r .kind <<<"$next")"
   log="$(jq -r .log <<<"$next")"
-  jq -e '.stalled // false' <<<"$next" >/dev/null &&
-    { echo "stalled at $(jq -r .state <<<"$next") — stopping" >&2; exit 1; }
   case "$kind" in
+    stalled) jq -r .content <<<"$next" >&2; exit 1 ;;
     message) jq -r .content <<<"$next"; exit 0 ;;
+    capture) ;; # the human already acted — just land it
     script) bash -c "$(jq -r .content <<<"$next")" >>"$log" 2>&1 || true ;;
     prompt)
-      sid="$(jq -r '.sessionId // empty' <<<"$next")"
+      sid="$(jq -r '.session.id // empty' <<<"$next")"
       c="$(jq -r .content <<<"$next")" model="$(jq -r '.model // empty' <<<"$next")"
       agent_turn() { claude -p "$c" "$1" "$sid" ${model:+--model "$model"} \
         --dangerously-skip-permissions >>"$log" 2>&1; }
-      if [ "$(jq -r '.resume // false' <<<"$next")" = true ]
+      if [ "$(jq -r '.session.resume // false' <<<"$next")" = true ]
       then agent_turn --resume || agent_turn --session-id
       else agent_turn --session-id || agent_turn --resume
       fi
-      v="$(gtd validate --json | jq -r '.script // empty')" n=0
+      v="$(jq -r '.validate // empty' <<<"$next")" n=0
       while [ -n "$v" ] && ! out="$(bash -c "$v" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\n' "$out" >&2; exit 1; }
         claude -p "$out" --resume "$sid" --dangerously-skip-permissions \
@@ -660,28 +655,33 @@ done
 ```
 
 Line by line it is the protocol described above: the unconditional
-`--if-resting` opening capture; one dispatched `next` per beat (`.stalled`
-guarding against a spinning agent); `message` halts, `script` runs in the
-driver, `prompt` goes to the agent with gtd's own `sessionId`/`resume` mapped
-onto the agent's session flags — trying `resume`'s hinted flag first and falling
-back to the other on failure, since `sessionId` is derived, not remembered (see
-[Driving the loop](#driving-the-loop) below); the validate script's output
-re-prompted verbatim on failure (the driver owns only the retry cap); and every
-landed turn executed — and reported — by the emitted scripts themselves, with
-`.settled` ending a run that has nothing left to do.
+`--if-resting` opening capture; one `gtd next --json` beat document read per
+loop (`kind: "stalled"` guarding against a spinning agent); `message` halts,
+`capture` lands a human's already-made edit outright, `script` runs in the
+driver, `prompt` goes to the agent with the document's own
+`session.id`/`session.resume` mapped onto the agent's session flags — trying
+`resume`'s hinted flag first and falling back to the other on failure, since
+`session.id` is derived, not remembered (see
+[Driving the loop](#driving-the-loop) below) — and its embedded `.validate`
+script's output re-prompted verbatim on failure (the driver owns only the retry
+cap); and every landed turn executed — and reported — by the emitted scripts
+themselves, with `.settled` ending a run that has nothing left to do.
 
 ### The self-validation gate
 
-After an agent turn at a state that declares `file:`+`mode:`, run
-`gtd validate --json`'s `.script`. Exit 0 means the file is well-formed —
-proceed to `gtd step`. A non-zero exit means the script's own captured output IS
-a complete, ready-to-send fix prompt (an instruction plus the findings, see
-`src/Emit.ts`'s `failurePromptWrapper`): send it back to the same agent session
-verbatim, and cap how many fix attempts you allow yourself — the driver owns
-that retry count, not gtd. gtd never validates on the driver's behalf at step
-time either: the `gtd step` gate re-runs the same format/validate commands ahead
-of its own commit and refuses independently, so a malformed file is never
-captured whether or not you ran `gtd validate` first.
+After an agent turn at a state that declares `file:`+`mode:`, run the script:
+either `gtd next --json`'s own embedded `.validate` field (present at every
+`prompt` beat that hands over a validatable file), or, standalone,
+`gtd validate --json`'s `.script` — both resolve the exact same script from one
+shared resolver. Exit 0 means the file is well-formed — proceed to `gtd step`. A
+non-zero exit means the script's own captured output IS a complete,
+ready-to-send fix prompt (an instruction plus the findings, see `src/Emit.ts`'s
+`failurePromptWrapper`): send it back to the same agent session verbatim, and
+cap how many fix attempts you allow yourself — the driver owns that retry count,
+not gtd. gtd never validates on the driver's behalf at step time either: the
+`gtd step` gate re-runs the same format/validate commands ahead of its own
+commit and refuses independently, so a malformed file is never captured whether
+or not you ran `gtd validate` first.
 
 ### Failure taxonomy and recovery
 

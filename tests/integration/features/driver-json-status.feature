@@ -77,6 +77,69 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout contains "\"kind\":\"prompt\""
     And stdout contains "do the work described in NOTE.md"
 
+  Scenario: gtd next --json reports kind "capture" for a message rest with a dirty tree — the human already acted
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"idle\""
+    And stdout contains "\"kind\":\"capture\""
+
+  Scenario: gtd next --json's dispatch block (session/validate) is absent at a script rest, even when a prompt rest nearby would carry it
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "echo hi"
+                on:
+                  "C": idle
+      """
+    And a commit "gtd(human): checking" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"kind\":\"script\""
+    And stdout does not contain "\"session\""
+    And stdout does not contain "\"validate\""
+
   Scenario: gtd status prints which declared pattern each pending change matches
     Given a test project
     And a gtd config file at ".gtdrc" with:
