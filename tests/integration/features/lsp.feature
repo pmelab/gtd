@@ -165,7 +165,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
                 on:
                   "* **": idle
       """
-    And I run gtd with args "step human --entry review-check --var planFile=OTHER.md"
+    And I run gtd with args "--entry review-check --var planFile=OTHER.md"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error

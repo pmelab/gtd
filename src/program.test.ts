@@ -1,5 +1,5 @@
 /**
- * Unit tests for src/program.ts — behavioral coverage of `step <actor>` /
+ * Unit tests for src/program.ts — behavioral coverage of `land` /
  * `next` / `status` / `--entry` against an in-memory repo, plus the pure
  * refusal-classifier functions (`classifyReviewSignoff`,
  * `classifyFeedbackProgress`, `classifyAnswerCompleteness`) and
@@ -34,7 +34,7 @@ const run = async (
   return result()
 }
 
-describe("gtd step <actor> --entry <state> — a custom workflow declaring `entry: true`", () => {
+describe("gtd --entry <state> — a custom workflow declaring `entry: true`", () => {
   // The generic entry mechanism that replaced `gtd review`/`gtd fix`: any
   // declared, non-commit state may be entered directly via `--entry`, not
   // just one flagged `entry: true` (that narrower set only seeds the
@@ -82,9 +82,9 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
   it("the happy path previews the resulting subject and emits a required script — gtd itself writes nothing", async () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(repo, "step", "human", "--entry", "side-entry")
+    const { stdout, exitCode } = await run(repo, "--entry", "side-entry")
     expect(exitCode).toBe(0)
-    // `gtd step --entry` is now a pure emitter — no commit lands until the
+    // `gtd --entry` is now a pure emitter — no commit lands until the
     // external driver runs the printed script. Plain text prints the script
     // itself, not a result line — the subject lives inside it.
     expect(stdout).toContain(shellQuote(commitAll("gtd(human): side-entry")))
@@ -92,8 +92,6 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
 
     const { stdout: jsonOut, exitCode: jsonExit } = await run(
       repo,
-      "step",
-      "human",
       "--entry",
       "side-entry",
       "--json",
@@ -108,7 +106,7 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
   it("--entry naming an undeclared state refuses, listing every enterable state", async () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(repo, "step", "human", "--entry", "bogus-state")
+    const { exitCode, stderr } = await run(repo, "--entry", "bogus-state")
     expect(exitCode).toBe(1)
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain("enterable states")
@@ -122,7 +120,7 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
     repo.writeFile(".gtd/TODO.md", "sketch\n")
     repo.commitAllWithPrefix("gtd(agent): working")
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(repo, "step", "human", "--entry", "side-entry")
+    const { exitCode, stderr } = await run(repo, "--entry", "side-entry")
     expect(exitCode).toBe(1)
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain("already underway")
@@ -131,15 +129,7 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
   it("an undeclared --var name refuses, listing the declared names", async () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(
-      repo,
-      "step",
-      "human",
-      "--entry",
-      "side-entry",
-      "--var",
-      "bogus=1",
-    )
+    const { exitCode, stderr } = await run(repo, "--entry", "side-entry", "--var", "bogus=1")
     expect(exitCode).toBe(1)
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain("bogus")
@@ -151,8 +141,6 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
     const before = repo.commitHistory().length
     const { exitCode, stdout } = await run(
       repo,
-      "step",
-      "human",
       "--entry",
       "side-entry",
       "--var",
@@ -169,7 +157,7 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
     const repo = seededRepo()
     repo.writeFile("scratch.txt", "uncommitted\n")
     const before = repo.commitHistory().length
-    const { exitCode, stdout } = await run(repo, "step", "human", "--entry", "side-entry", "--json")
+    const { exitCode, stdout } = await run(repo, "--entry", "side-entry", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as { required: string }
     expect(parsed.required.length).toBeGreaterThan(0)
@@ -186,7 +174,7 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
   })
 })
 
-describe("gtd step <actor> --entry <state> — the bundled unified template", () => {
+describe("gtd --entry <state> — the bundled unified template", () => {
   // Full downstream coverage (the review checkout window, feedback laps, the
   // fix-precheck green-baseline gate) lives in entry.feature/
   // fix-entry.feature; these pin only the entry commit itself — the same
@@ -212,8 +200,6 @@ describe("gtd step <actor> --entry <state> — the bundled unified template", ()
     const before = repo.commitHistory().length
     const { stdout, exitCode } = await run(
       repo,
-      "step",
-      "human",
       "--entry",
       "review-gate.check",
       "--var",
@@ -231,14 +217,7 @@ describe("gtd step <actor> --entry <state> — the bundled unified template", ()
   it("--entry fix-precheck emits a script that would start a fix process at the template's own fix-entry state", async () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(
-      repo,
-      "step",
-      "human",
-      "--entry",
-      "fix-precheck",
-      "--json",
-    )
+    const { stdout, exitCode } = await run(repo, "--entry", "fix-precheck", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as { subject: string; required: string }
     expect(parsed.subject).toBe("gtd(human): fix-precheck")
@@ -552,17 +531,17 @@ describe("gtd next --json / gtd status — memory key emission", () => {
     >
     expect(first.resume).toBe(false)
 
-    const applyStep = async (actor: string): Promise<void> => {
-      const { stdout, exitCode } = await run(repo, "step", actor, "--json")
+    const applyLand = async (): Promise<void> => {
+      const { stdout, exitCode } = await run(repo, "land", "--json")
       expect(exitCode).toBe(0)
       const { required } = JSON.parse(stdout) as { required: string }
       expect(applyEmittedScript(repo, new Map(), required).ok).toBe(true)
     }
 
     repo.writeFile("NOTE.md", "the agent did the work\n")
-    await applyStep("agent")
+    await applyLand()
     repo.writeFile("FEEDBACK.md", "check ran\n")
-    await applyStep("check")
+    await applyLand()
 
     const second = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
       string,
@@ -644,9 +623,9 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     return repo
   }
 
-  /** Lands `gtd step agent`'s emitted script onto `repo` — the attempt commit itself. */
+  /** Lands `gtd land`'s emitted script onto `repo` — the attempt commit itself. */
   const landAgentStep = async (repo: InMemRepo): Promise<void> => {
-    const { stdout } = await run(repo, "step", "agent", "--json")
+    const { stdout } = await run(repo, "land", "--json")
     const { required } = JSON.parse(stdout) as { required: string }
     const applied = applyEmittedScript(repo, new Map(), required)
     expect(applied.ok).toBe(true)
@@ -659,7 +638,7 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
   })
 
-  it("is stalled once `gtd step agent` has landed an empty attempt", async () => {
+  it("is stalled once `gtd land` has landed an empty attempt", async () => {
     const repo = seededAt("gtd(human): working")
     await landAgentStep(repo)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
@@ -824,13 +803,13 @@ describe("outcome scripts — step no-op / abandon no-op / restore", () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
 
-    const { stdout, exitCode } = await run(repo, "step", "human", "--json")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as { subject: string | null; required: string }
     expect(parsed.subject).toBeNull()
     expect(parsed.required).toContain(noteOutcome(noopText("idle")))
 
-    const plain = await run(repo, "step", "human")
+    const plain = await run(repo, "land")
     expect(plain.exitCode).toBe(0)
     expect(plain.stdout).toBe(combinedScript(parsed.required, ""))
 
@@ -882,12 +861,12 @@ describe("outcome scripts — step no-op / abandon no-op / restore", () => {
   })
 })
 
-describe("gtd step — StepPayload.processTrace still receives plain state names", () => {
+describe("gtd land — StepPayload.processTrace still receives plain state names", () => {
   // `ProcessRun.trace` widened to `TraceEntry[]` (state + commit hash, for
   // `memoryKeyFor` — package 05/06), but `PatternMachine.step`'s
   // `StepPayload.processTrace` stays `readonly StateName[]` — retry-entry
   // counting (`applyRetry`) only ever compares state NAMES. If the mapping
-  // at the one call site (`stepAsActor`, src/program.ts) ever regressed to
+  // at the one call site (`planLanding`, src/program.ts) ever regressed to
   // pass `TraceEntry` objects through instead, retry redirection would never
   // trigger (an object never `===` a string), so this pins the real
   // end-to-end behavior, not just the type.
@@ -925,67 +904,12 @@ describe("gtd step — StepPayload.processTrace still receives plain state names
     repo.commitAllWithPrefix("gtd(human): looping")
     repo.writeFile("src/fix.ts", "export const x = 1\n")
 
-    const { stdout, exitCode } = await run(repo, "step", "agent", "--json")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
     const { required } = JSON.parse(stdout) as { required: string }
     const applied = applyEmittedScript(repo, new Map(), required)
     expect(applied.ok).toBe(true)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): looping → idle")
-  })
-})
-
-describe("gtd step <actor> --if-resting", () => {
-  // Same idle(human)/looping(agent) shape as the retry-redirect describe
-  // above — HEAD entering "looping" rests the process awaiting the agent, so
-  // a human's step is out of turn.
-  const workflow = [
-    "workflow:",
-    "  entry:",
-    "    default: root",
-    "  machines:",
-    "    root:",
-    "      entry: idle",
-    "      states:",
-    "        idle:",
-    "          actor: human",
-    "          message: hi",
-    "          on:",
-    '            "* **": looping',
-    "        looping:",
-    "          actor: agent",
-    "          prompt: go",
-    "          on:",
-    '            "* **": idle',
-    "",
-  ].join("\n")
-
-  const seededRepo = (): InMemRepo => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", workflow)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    repo.commitAllWithPrefix("gtd(human): looping") // rests awaiting the agent
-    return repo
-  }
-
-  it("--if-resting suppresses the out-of-turn refusal as a no-op, touching nothing", async () => {
-    const repo = seededRepo()
-    const before = repo.resolveRef("HEAD")
-    const { stdout, exitCode } = await run(repo, "step", "human", "--if-resting", "--json")
-    expect(exitCode).toBe(0)
-    expect(JSON.parse(stdout)).toEqual({
-      state: "looping",
-      subject: null,
-      required: "",
-      optional: "",
-      settled: false,
-    })
-    expect(repo.resolveRef("HEAD")).toBe(before)
-  })
-
-  it("without --if-resting, the same out-of-turn step still fails", async () => {
-    const repo = seededRepo()
-    const { exitCode } = await run(repo, "step", "human")
-    expect(exitCode).not.toBe(0)
   })
 })
 
@@ -1280,7 +1204,7 @@ describe("gtd status — Next: preview", () => {
   })
 })
 
-describe("gtd step --json — the settled signal", () => {
+describe("gtd land --json — the settled signal", () => {
   // idle (message) -> working (prompt) -> checking (script, no C row) — the
   // shape #170 cares about: a script rest's no-op is the terminal "nothing
   // left to do" signal, a prompt rest's no-op is not (that's #167's stall).
@@ -1320,8 +1244,8 @@ describe("gtd step --json — the settled signal", () => {
 
   it("a clean tree at the script rest is settled, with a print-only required script", async () => {
     const repo = seededRepo("gtd(check): checking")
-    const { stdout, exitCode } = await run(repo, "step", "check", "--json")
-    expect(exitCode).toBe(0)
+    const { stdout, exitCode } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(3)
     const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
     expect(parsed.settled).toBe(true)
     // A genuine no-op still emits the outcome-printing script (gtd#165) — no
@@ -1332,7 +1256,7 @@ describe("gtd step --json — the settled signal", () => {
 
   it("a clean tree at a prompt rest is not settled — that's a stall, not a terminal state", async () => {
     const repo = seededRepo("gtd(agent): working")
-    const { stdout, exitCode } = await run(repo, "step", "agent", "--json")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as { settled: boolean }
     expect(parsed.settled).toBe(false)
@@ -1341,7 +1265,7 @@ describe("gtd step --json — the settled signal", () => {
   it("a dirty tree matching the script rest's own pattern is not settled — proves it's the no-op, not the state, that settles", async () => {
     const repo = seededRepo("gtd(check): checking")
     repo.writeFile("OUT.txt", "all green\n")
-    const { stdout, exitCode } = await run(repo, "step", "check", "--json")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
     expect(parsed.settled).toBe(false)
@@ -1388,8 +1312,8 @@ describe("gtd step --json — the settled signal", () => {
 
   it("a clean tree at `checking` after an empty commit collapses back to idle — reported settled, no commit", async () => {
     const repo = seededCollapseRepo("gtd(check): checking")
-    const { stdout, exitCode } = await run(repo, "step", "check", "--json")
-    expect(exitCode).toBe(0)
+    const { stdout, exitCode } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(3)
     const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
     expect(parsed.settled).toBe(true)
     expect(parsed.required).toContain("git reset --mixed")
@@ -1400,7 +1324,7 @@ describe("gtd step --json — the settled signal", () => {
   it("the same rest with a pending change that retains something is not settled — proves it's the rewind, not the target state, that settles", async () => {
     const repo = seededCollapseRepo("gtd(check): checking")
     repo.writeFile("OUT.txt", "all green\n")
-    const { stdout, exitCode } = await run(repo, "step", "check", "--json")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as { settled: boolean; required: string }
     expect(parsed.settled).toBe(false)

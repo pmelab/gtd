@@ -58,7 +58,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       start
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     When I run gtd next with "--json" and "--dispatch"
@@ -72,7 +72,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       the agent did some work
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
 
@@ -87,7 +87,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       start
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     When I run gtd next with "--json" and "--dispatch"
@@ -105,7 +105,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       start
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     When I run gtd next with "--json" and "--dispatch"
@@ -135,14 +135,14 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       start
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given a file "CHECKFILE.md" with:
       """
       ready
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
     When I run gtd next with "--json" and "--dispatch"
@@ -156,7 +156,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       start
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
 
@@ -170,7 +170,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       ready
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → checking.verify"
 
@@ -179,7 +179,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
     And stdout contains "\"state\":\"checking.verify\""
     And stdout does not contain "\"sessionId\""
 
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): checking.verify → checking.ask"
 
@@ -194,7 +194,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       looks good
       """
-    When I run gtd step reviewer
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(reviewer): checking.ask → working"
 
@@ -209,17 +209,17 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       start
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given a file "CHECKFILE.md" with:
       """
       ready
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): checking.verify → checking.ask"
 
@@ -231,7 +231,7 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       looks good
       """
-    When I run gtd step reviewer
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(reviewer): checking.ask → working"
 
@@ -239,11 +239,11 @@ Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
       """
       ready again
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → checking.verify"
 
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): checking.verify → checking.ask"
 

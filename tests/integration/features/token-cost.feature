@@ -1,8 +1,8 @@
 @inmem
-Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost, summed for the squash
+Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost, summed for the squash
 
   A loop driver knows how many tokens the invocation it just drove cost, and on
-  which model. `gtd step <actor> --cost=<n> [--model=<name>]` records both as a
+  which model. `gtd land --cost=<n> [--model=<name>]` records both as a
   `Gtd-Cost: <n> <model>` trailer on the turn commit (persisted in the git log,
   one per turn, subject line untouched). `computeProcessRun` collects every
   such entry across the current process; a `commit:` squash template renders
@@ -11,7 +11,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
   since tokens alone don't tell you the price. `gtd status` shows the running
   total (and per-model breakdown) mid-process.
 
-  Scenario: gtd step --cost records a Gtd-Cost trailer on the turn commit, subject untouched
+  Scenario: gtd land --cost records a Gtd-Cost trailer on the turn commit, subject untouched
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -46,12 +46,12 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       export const x = 1
       """
-    When I run gtd step agent with "--cost=1450"
+    When I run gtd land with "--cost=1450"
     Then it succeeds
     And the last commit subject is "gtd(agent): building → reviewing"
     And the last commit body contains "Gtd-Cost: 1450"
 
-  Scenario: gtd step --json echoes the recorded cost
+  Scenario: gtd land --json echoes the recorded cost
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -81,7 +81,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       export const x = 1
       """
-    When I run gtd step agent with "--cost=1450" and "--json"
+    When I run gtd land with "--cost=1450" and "--json"
     Then it succeeds
     And stdout contains "\"subject\":\"gtd(agent): building → idle\""
     And stdout contains "\"cost\":1450"
@@ -126,14 +126,14 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       export const a = 1
       """
-    When I run gtd step agent with "--cost=100"
+    When I run gtd land with "--cost=100"
     Then it succeeds
     And the last commit subject is "gtd(agent): building → reviewing"
     Given a file "src/b.ts" with:
       """
       export const b = 2
       """
-    When I run gtd step agent with "--cost=250"
+    When I run gtd land with "--cost=250"
     Then it succeeds
     And the last commit subject is "gtd(agent): reviewing → polishing"
     When I run gtd status
@@ -213,7 +213,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       export const a = 1
       """
-    When I run gtd step agent with "--cost=100"
+    When I run gtd land with "--cost=100"
     Then it succeeds
     And the last commit subject is "gtd(agent): building → finishing"
     And the last commit body contains "Gtd-Cost: 100"
@@ -221,31 +221,31 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       shipped
       """
-    When I run gtd step agent with "--cost=250"
+    When I run gtd land with "--cost=250"
     Then it succeeds
     And the last commit subject is "feat: ship it"
     And the last commit body contains "Total token cost: 350"
     And the last commit body does not contain "Gtd-Cost:"
 
-  Scenario: --cost is rejected on a non-step command
+  Scenario: --cost is rejected on a non-land command
     Given a test project
     When I run gtd status with "--cost=5"
     Then it fails
-    And stderr contains "gtd: --cost is only valid for `gtd step`"
+    And stderr contains "gtd: --cost is only valid for `gtd land`"
 
   Scenario: a bare --cost (no value) is a usage error
     Given a test project
-    When I run gtd step agent with "--cost"
+    When I run gtd land with "--cost"
     Then it fails
     And stderr contains "gtd: --cost requires a value"
 
   Scenario: a non-numeric --cost is a usage error
     Given a test project
-    When I run gtd step agent with "--cost=lots"
+    When I run gtd land with "--cost=lots"
     Then it fails
     And stderr contains "gtd: --cost must be a non-negative number"
 
-  Scenario: gtd step --cost --model records the model alongside the cost in the trailer
+  Scenario: gtd land --cost --model records the model alongside the cost in the trailer
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -280,12 +280,12 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       export const x = 1
       """
-    When I run gtd step agent with "--cost=1450" and "--model=claude-opus-4-8"
+    When I run gtd land with "--cost=1450" and "--model=claude-opus-4-8"
     Then it succeeds
     And the last commit subject is "gtd(agent): building → reviewing"
     And the last commit body contains "Gtd-Cost: 1450 claude-opus-4-8"
 
-  Scenario: gtd step --json echoes both the recorded cost and model
+  Scenario: gtd land --json echoes both the recorded cost and model
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -315,7 +315,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       export const x = 1
       """
-    When I run gtd step agent with "--cost=1450" and "--model=opus" and "--json"
+    When I run gtd land with "--cost=1450" and "--model=opus" and "--json"
     Then it succeeds
     And stdout contains "\"cost\":1450"
     And stdout contains "\"model\":\"opus\""
@@ -360,13 +360,13 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       export const a = 1
       """
-    When I run gtd step agent with "--cost=100" and "--model=haiku"
+    When I run gtd land with "--cost=100" and "--model=haiku"
     Then it succeeds
     Given a file "src/b.ts" with:
       """
       export const b = 2
       """
-    When I run gtd step agent with "--cost=250" and "--model=opus"
+    When I run gtd land with "--cost=250" and "--model=opus"
     Then it succeeds
     When I run gtd status
     Then it succeeds
@@ -418,7 +418,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       export const a = 1
       """
-    When I run gtd step agent with "--cost=100" and "--model=haiku"
+    When I run gtd land with "--cost=100" and "--model=haiku"
     Then it succeeds
     And the last commit subject is "gtd(agent): building → finishing"
     And the last commit body contains "Gtd-Cost: 100 haiku"
@@ -426,27 +426,27 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
       shipped
       """
-    When I run gtd step agent with "--cost=250" and "--model=opus"
+    When I run gtd land with "--cost=250" and "--model=opus"
     Then it succeeds
     And the last commit subject is "feat: ship it"
     And the last commit body contains "Total token cost: 350"
     And the last commit body contains "- opus: 250"
     And the last commit body contains "- haiku: 100"
 
-  Scenario: --model is rejected on a non-step command
+  Scenario: --model is rejected on a non-land command
     Given a test project
     When I run gtd status with "--model=opus"
     Then it fails
-    And stderr contains "gtd: --model is only valid for `gtd step`"
+    And stderr contains "gtd: --model is only valid for `gtd land`"
 
   Scenario: a bare --model (no value) is a usage error
     Given a test project
-    When I run gtd step agent with "--model"
+    When I run gtd land with "--model"
     Then it fails
     And stderr contains "gtd: --model requires a value"
 
   Scenario: --model without --cost is a usage error
     Given a test project
-    When I run gtd step agent with "--model=opus"
+    When I run gtd land with "--model=opus"
     Then it fails
     And stderr contains "gtd: --model requires --cost"

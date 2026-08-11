@@ -1648,7 +1648,7 @@ describe("validateDefinition", () => {
 
   it("treats entries.manual as reachable even with no inbound `on`/`retry` edge (seeded as a root)", () => {
     // "fix-check" has no inbound `on`/`retry` edge from the default entry — it
-    // is entered ONLY via `gtd step <actor> --entry fix-check`, so seeding it
+    // is entered ONLY via `gtd --entry fix-check`, so seeding it
     // as a reachability root is what keeps it from being wrongly flagged
     // unreachable.
     const errors = validateDefinition({

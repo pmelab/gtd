@@ -325,7 +325,7 @@ export const buildVizModel = (
   }
 }
 
-/** One `on` edge from the currently-rested state, flagged with whether it's the one `gtd step` would fire right now. */
+/** One `on` edge from the currently-rested state, flagged with whether it's the one `gtd land` would fire right now. */
 export interface CurrentStateEdge {
   readonly pattern: string
   readonly to: string

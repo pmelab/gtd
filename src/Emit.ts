@@ -256,13 +256,14 @@ const PRESENTATION_FAILURE_WARNING =
 
 /**
  * A plain-text (no `--json`) write command's single pasteable script: `gtd
- * step human | bash` lands the turn without ever separating `required` from
+ * land | bash` lands the turn without ever separating `required` from
  * `optional`. `required` runs verbatim (its own `set -euo pipefail` aborts
  * before `optional` ever starts if it fails); `optional`, when non-empty, is
  * wrapped in a subshell whose failure is swallowed — presentation-only, so it
  * must never turn a landed turn into a non-zero exit. Empty when `required`
- * is (the `--if-resting` suppressed out-of-turn case) — callers fall back to
- * `noopText(state)` for a genuine no-op instead of calling this at all.
+ * is — unreachable in practice today (every caller's `required` is always
+ * non-empty, even a genuine no-op's print-only note), kept as the function's
+ * own total behavior rather than assumed by every caller.
  */
 export const combinedScript = (required: string, optional: string): string => {
   if (required.length === 0) return ""

@@ -49,17 +49,17 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
       v1
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → drafting"
     Given "DRAFT.md" is modified to:
       """
       v2
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting → revising"
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): revising → working"
     Given a file "COMMIT_MSG.md" with:
@@ -68,7 +68,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
 
       Body text.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: draft workflow"
     And the commit subjects from oldest to newest are:
@@ -121,10 +121,10 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
       v1
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → drafting"
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting"
     And the git status is clean
@@ -132,10 +132,10 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
       v2
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting → revising"
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): revising → working"
     Given a file "COMMIT_MSG.md" with:
@@ -144,7 +144,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
 
       Body text.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: draft workflow"
     And the commit subjects from oldest to newest are:
@@ -192,7 +192,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
 
       Body.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: finish"
     And the git ref "refs/worktree/gtd/history" exists
@@ -237,7 +237,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
       leftover debug notes that should never be committed
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: finish"
     And "SCRATCH.md" does not exist
@@ -278,7 +278,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
       feat: never lands
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     And the commit count is unchanged
     And "COMMIT_MSG.md" exists

@@ -27,7 +27,6 @@ import {
   type Rest,
   type RenderedRest,
   type RestRequirements,
-  type StepPlan,
 } from "./Edge.js"
 import {
   buildCloseWindowScript,
@@ -134,7 +133,7 @@ const runInstallCommand = (json: boolean, write: (chunk: string) => void): Effec
  * instead (`assertInitLocation`, which also allows a directory outside any
  * repository) since it writes `.gtdrc.json` at the root and refuses to
  * clobber an existing config. The file is left UNCOMMITTED, so the message
- * warns to commit it before the first `gtd step` (an uncommitted config
+ * warns to commit it before the first `gtd land` (an uncommitted config
  * counts as a pending change the initial state's `* **` edge would otherwise
  * capture).
  */
@@ -166,18 +165,18 @@ const runInitCommand = (
         `a workflow: key only if you want to customize the machine itself.\n\n`
       const nextSteps = inRepo
         ? `Review and commit it before starting: an uncommitted .gtdrc.json counts as a\n` +
-          `pending change, so the initial state would capture it on the first step. Once\n` +
-          `committed, run \`gtd step human\` to begin.\n`
+          `pending change, so the initial state would capture it on the first landing. Once\n` +
+          `committed, run \`gtd land\` to begin.\n`
         : `This directory is not a git repository, so there is nothing to commit here. The\n` +
           `config applies to any gtd repository nested below it — gtd discovers it by\n` +
-          `walking up from the repository root. Run \`gtd step human\` from such a repo to\n` +
+          `walking up from the repository root. Run \`gtd land\` from such a repo to\n` +
           `begin.\n`
       write(wrote + nextSteps)
     }
   })
 
-/** `stepAsActor`'s result — a preview of what `gtd step` WOULD do, plus the `required`/`optional` bash the external driver runs to actually do it (see the module doc comment: `step` is now a pure read/emitter, never a git write itself). */
-interface StepResult {
+/** `planLanding`'s result — a preview of what `gtd land` WOULD do, plus the `required`/`optional` bash the external driver runs to actually do it (see the module doc comment: `land` is a pure read/emitter, never a git write itself). */
+interface LandResult {
   readonly state: string
   readonly subject: string | null
   readonly cost: number | null
@@ -185,15 +184,19 @@ interface StepResult {
   readonly required: string
   readonly optional: string
   /**
-   * True for either of the two terminal shapes a step can land: a no-op at a
-   * `script` rest (`Edge.ts`'s `noOpSettles`), or a decision that collapses
-   * back to the workflow's initial state retaining nothing (`Edge.ts`'s
-   * `collapsesToInitialState` — a green re-entry rewound like `gtd abandon`
-   * instead of committed). The terminal, benign signal a driver should exit 0
-   * on rather than spin. False for every other outcome.
+   * True for either of the two terminal shapes a landing can settle into: a
+   * no-op at a `script` rest (`Edge.ts`'s `noOpSettles`), or a decision that
+   * collapses back to the workflow's initial state retaining nothing
+   * (`Edge.ts`'s `collapsesToInitialState` — a green re-entry rewound like
+   * `gtd abandon` instead of committed). The terminal, benign signal a driver
+   * should treat as exit 3 (`EXIT_SETTLED`) rather than spin. False for every
+   * other outcome (exit 0).
    */
   readonly settled: boolean
 }
+
+/** `gtd land`'s exit code for the two SETTLED shapes (`LandResult.settled`) — nothing owed, but stdout still carries a script a piping driver must run. Every other successful landing exits 0. */
+const EXIT_SETTLED = 3
 
 // git's empty-tree object — the abandon command's first-commit guard uses
 // this to recognize a process that starts at the repository's very first
@@ -285,7 +288,6 @@ const previewSubject = (
 const buildRequiredScript = (
   rest: Rest,
   decision: ExecutableDecision,
-  invoker: string,
   cost: number | undefined,
   model: string | undefined,
 ): Effect.Effect<string, Error, CommandRequirements> =>
@@ -300,10 +302,12 @@ const buildRequiredScript = (
     // this step's own `--cost`/`--model` folded in (`contextAt`) — not against
     // `rest.context`, which is pinned to the resting state and carries
     // `cost: 0`, so `it.processCost` would omit the squashing turn itself.
+    // `rest.actor` — the state's own declared actor — is who landing always
+    // authenticates as (see `Edge.ts`'s `planStep`).
     const commitContext =
       decision.kind === "commit"
         ? rest.context
-        : yield* contextAt(rest, decision.state, invoker, cost, model)
+        : yield* contextAt(rest, decision.state, rest.actor, cost, model)
     const isAttempt = isAttemptDecision(decision)
     const steps: EmitStep[] = [
       ...(closeDecision.shouldClose
@@ -320,47 +324,17 @@ const buildRequiredScript = (
     return emitScripts(headPreconditions(rest.context.currentCommit), steps).required
   })
 
-/** `gtd step`'s own flags, threaded as one bag rather than growing `stepAsActor`/`runStepCommand`'s positional list. */
-interface StepOptions {
+/** `gtd land`'s own flags, threaded as one bag rather than growing `planLanding`/`runLandCommand`'s positional list. */
+interface LandOptions {
   readonly cost?: number
   readonly model?: string
-  readonly ifResting?: boolean
 }
 
-/** A step's `--cost`/`--model` as `planStep` options — each key OMITTED (never `undefined`-valued) when the flag was not given. `ifResting` is stripped: `planStep` itself knows nothing about the flag, only `stepAsActor`'s refusal branch does. */
-const stepOptions = (opts: StepOptions): { cost?: number; model?: string } => ({
-  ...(opts.cost !== undefined ? { cost: opts.cost } : {}),
-  ...(opts.model !== undefined ? { model: opts.model } : {}),
-})
-
-/** The shape both a genuine no-op decision and a suppressed out-of-turn refusal render as — one shape for "nothing happened" so the two callers can't drift apart. */
-const noopResult = (state: string): StepResult => ({
-  state,
-  subject: null,
-  cost: null,
-  model: null,
-  required: "",
-  optional: "",
-  // A suppressed out-of-turn refusal is never the terminal signal — `settled`
-  // is reserved for the two genuine terminal shapes: a no-op at a `script`
-  // rest (`plan.settled`) and the initial-state collapse.
-  settled: false,
-})
-
-/** A `StepPlan` refusal's outcome: a no-op when `--if-resting` suppresses it (an `"out-of-turn"` reason, requested), else the ordinary Effect failure — split out of `stepAsActor` so its own branching doesn't grow. */
-const refusalOutcome = (
-  rest: Rest,
-  plan: Extract<StepPlan, { kind: "refusal" }>,
-  ifResting: boolean | undefined,
-): Effect.Effect<StepResult, Error> =>
-  ifResting && plan.reason === "out-of-turn"
-    ? Effect.succeed(noopResult(rest.state))
-    : Effect.fail(new Error(plan.message))
-
 /**
- * Authenticate `invoker` against the currently resolved rest and decide the
- * one resulting transition (commit or squash) for `gtd step` — WITHOUT
- * performing it. `currentRest` → `planStep` decides; the step-capture guards
+ * Decide the one resulting transition (commit or squash) for `gtd land` —
+ * WITHOUT performing it. `currentRest` → `planStep` decides, authenticating
+ * as `rest.actor` (the resolved rest's own declared actor — landing derives
+ * who acts, it never takes an actor argument); the step-capture guards
  * (`src/StepGuards.ts`) then refuse before anything is emitted, exactly as
  * before. What used to be `plan.perform` is now assembled by hand into a
  * `required` script (the review-window CLOSE, when one is open; the resting
@@ -377,27 +351,20 @@ const refusalOutcome = (
  * decide time — which, while a review window is open, is the window's BASE,
  * not the real head — and it contains no window close/open steps at all. This
  * function builds its own required/optional pair to sidestep that trap.
- *
- * `opts.ifResting` suppresses exactly the `"out-of-turn"` refusal reason
- * (never `"no-match"`, and never a step-capture guard's own refusal — those
- * run after a decision is already `"commit"`/`"squash"`, past this check) —
- * see `runStepCommand`'s doc comment for why this exists.
  */
-const stepAsActor = (
-  invoker: string,
-  opts: StepOptions = {},
-): Effect.Effect<StepResult, Error, CommandRequirements> =>
+const planLanding = (
+  opts: LandOptions = {},
+): Effect.Effect<LandResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const plan = yield* planStep(rest, invoker, stepOptions(opts))
+    const plan = yield* planStep(rest, opts)
 
     if (plan.kind === "refusal") {
-      return yield* refusalOutcome(rest, plan, opts.ifResting)
+      return yield* Effect.fail(new Error(plan.message))
     }
     if (plan.kind === "noop") {
-      // A GENUINE no-op still prints its own outcome ("nothing to do at …")
-      // via the emitted script — unlike `noopResult` (the `--if-resting`
-      // suppressed-refusal shape), which stays silent on purpose.
+      // A no-op still prints its own outcome ("nothing to do at …") via the
+      // emitted script.
       return {
         state: plan.state,
         subject: null,
@@ -424,16 +391,15 @@ const stepAsActor = (
     }
 
     // Step-capture guards (edge, not engine — see src/StepGuards.ts): the
-    // steering-file, review-signoff, feedback-progress and answer-completeness
-    // guards, in registry order, each able to refuse before anything is
-    // emitted. `file` is the rest's already-rendered `file:` hint — rendered
-    // once when the snapshot was built, not re-rendered per guard.
+    // review-signoff, feedback-progress and answer-completeness guards, in
+    // registry order, each able to refuse before anything is emitted. `file`
+    // is the rest's already-rendered `file:` hint — rendered once when the
+    // snapshot was built, not re-rendered per guard.
     yield* enforceStepGuards({
       rest,
       context: rest.context,
       file: rest.hints.file,
       changes: rest.changes,
-      invoker,
       kind: decision.kind,
       attempt: isAttemptDecision(decision),
     })
@@ -444,18 +410,15 @@ const stepAsActor = (
       subject: yield* previewSubject(decision, rest),
       cost: opts.cost ?? null,
       model: opts.model ?? null,
-      required: yield* buildRequiredScript(rest, decision, invoker, opts.cost, opts.model),
+      required: yield* buildRequiredScript(rest, decision, opts.cost, opts.model),
       optional: openWindowScript(rest, targetState),
       settled: yield* collapsesToInitialState(rest, decision),
     }
   })
 
-/** Renders `stepAsActor`'s result for `gtd step`. Plain text names the (previewed) resulting subject exactly as before; `--json` additionally carries `required`/`optional` — the bash the external driver runs to actually land it. */
-const reportStepResult = (
-  result: StepResult,
-  json: boolean,
-  write: (chunk: string) => void,
-): void => {
+/** Renders `planLanding`'s result for `gtd land`. Plain text prints the combined script exactly as before (its own outcome rendering, including a genuine no-op's "nothing to do at …" note and the initial-state collapse's `COLLAPSED_TEXT` note, is already baked in — see `renderDecision`'s collapse branch); `--json` additionally carries `required`/`optional`/`script`/`settled`. */
+const reportLanding = (result: LandResult, json: boolean, write: (chunk: string) => void): void => {
+  const script = combinedScript(result.required, result.optional)
   if (json) {
     write(
       JSON.stringify({
@@ -463,51 +426,45 @@ const reportStepResult = (
         subject: result.subject,
         ...(result.cost !== null ? { cost: result.cost } : {}),
         ...(result.model !== null ? { model: result.model } : {}),
+        script,
         required: result.required,
         optional: result.optional,
         settled: result.settled,
       }) + "\n",
     )
-  } else if (result.required.length === 0) {
-    write(noopText(result.state))
   } else {
-    // The printed script carries its own outcome rendering — including the
-    // initial-state collapse's `COLLAPSED_TEXT` note (see `renderDecision`'s
-    // collapse branch), so no plain-text special case re-derives it here.
-    write(combinedScript(result.required, result.optional))
+    write(script)
   }
 }
 
 /**
- * `gtd step <actor> [--cost=<n>] [--model=<name>] [--if-resting]`:
- * authenticate as `<actor>` and perform the one resulting transition,
- * recording `--cost`/`--model` as a `Gtd-Cost:` trailer. `--entry <state>` no
- * longer nests inside this handler — `Cli.ts`'s `--entry` selector resolves
- * that combination to its own `"entry"` command kind (see `runEntryCommand`)
- * before `runCommand` ever dispatches here, so a `step` `Command` is always
- * the ordinary pattern-matched step.
+ * `gtd land [--cost=<n>] [--model=<name>]`: land whatever the tree now shows
+ * at the currently resolved rest — authenticated as the rest's own actor,
+ * never a caller-supplied one — recording `--cost`/`--model` as a `Gtd-Cost:`
+ * trailer. `--entry <state>` no longer nests inside this handler — `Cli.ts`'s
+ * `--entry` selector resolves that combination to its own `"entry"` command
+ * kind (see `runEntryCommand`) before `runCommand` ever dispatches here, so a
+ * `land` `Command` is always the ordinary pattern-matched landing.
  *
- * `--if-resting` exists for a driver's OPENING move (pmelab/gtd#168): a
- * mid-process restart must resume driving rather than abort under `set -e`
- * on an out-of-turn refusal, while a genuinely fresh invocation still needs
- * to fail loudly on every other refusal. See `stepAsActor`'s doc comment for
- * exactly which refusal it suppresses.
+ * Returns the exit code `runCommand`/`Cli.ts`'s `runCli` should use: `0` for
+ * an ordinary landing, `EXIT_SETTLED` (3) when `result.settled` — nothing
+ * owed, but stdout still carries a script a piping driver must run (see
+ * `EXIT_SETTLED`'s own doc comment).
  */
-const runStepCommand = (
-  actor: string,
-  opts: StepOptions,
+const runLandCommand = (
+  opts: LandOptions,
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, CommandRequirements> =>
+): Effect.Effect<number, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const result = yield* stepAsActor(actor, opts)
-    reportStepResult(result, json, write)
+    const result = yield* planLanding(opts)
+    reportLanding(result, json, write)
+    return result.settled ? EXIT_SETTLED : 0
   })
 
 /**
- * `gtd step <actor> --entry <state> [--var <name>=<value> ...]` (or its
- * subcommand-less short form `gtd --entry <state> ...`, `actor` defaulting to
- * `human` there — see `Cli.ts`'s `--entry` selector): start a brand NEW process at `<state>`
+ * `gtd --entry <state> [--var <name>=<value> ...]` (`actor` always `"human"`
+ * — see `Cli.ts`'s `--entry` selector): start a brand NEW process at `<state>`
  * — any declared, non-commit state (see `PatternMachine.enterableStates`) —
  * replacing the two former named commands `gtd review <commitish>`/`gtd fix`
  * with one generic mechanism. Writes an ordinary turn commit
@@ -518,7 +475,7 @@ const runStepCommand = (
  * the merged `it.vars`, resolved to a commit, and checked sane). Unlike the
  * old commands (which required a clean tree and used `commitAsIs`), this
  * commits via `commitAllWithPrefix` — capturing whatever the working tree
- * carries at the moment of entry, exactly like an ordinary `gtd step`
+ * carries at the moment of entry, exactly like an ordinary `gtd land`
  * capture, rather than demanding a clean tree first.
  *
  * Any failure below is a plain refusal: nothing is written. Checked in order:
@@ -557,7 +514,7 @@ const runEntryCommand = (
     if (plan.kind === "refusal") {
       return yield* Effect.fail(new Error(plan.message))
     }
-    // `plan.scripts` is safe to reuse verbatim here (unlike `stepAsActor`'s own
+    // `plan.scripts` is safe to reuse verbatim here (unlike `planLanding`'s own
     // build): an entry always lands fresh at a brand-new process's first
     // state, which can never have an open review window and — per
     // `enterableStates`/the bundled template — declares no `file:`/`mode:` of
@@ -819,9 +776,9 @@ const resolveSelfValidateCommand = (
  * the agent self-validates); withheld from `gtd next --json`, where the
  * driving loop instead runs `gtd validate` after the turn and re-prompts on
  * findings (see the README's minimal driver, and `fixPromptInstruction` below
- * — its driver-side counterpart). This is advisory: `gtd step` embeds that same
+ * — its driver-side counterpart). This is advisory: `gtd land` embeds that same
  * command ahead of its own commit and REFUSES a turn whose steering file is
- * invalid (see `stepAsActor`), so a malformed file is never captured whether
+ * invalid (see `planLanding`), so a malformed file is never captured whether
  * or not this instruction was followed.
  */
 const selfValidateInstruction = (command: string, file: string): string =>
@@ -931,8 +888,8 @@ const runNextCommand = (
 /**
  * `gtd validate [--json]`: emit the script that would format (in place) then
  * validate the steering file the resolved rest declares (`file:` rendered,
- * `mode:` selecting how) — the SAME commands `gtd step`'s capture guard now
- * embeds ahead of its own commit (see `stepAsActor`), rendered here for a
+ * `mode:` selecting how) — the SAME commands `gtd land`'s capture guard now
+ * embeds ahead of its own commit (see `planLanding`), rendered here for a
  * human or agent to run directly. gtd itself reads no file and executes
  * nothing: a state with no `file:`/`mode:`, or a file absent from the working
  * tree, has nothing to validate (`script: ""`, exit 0 either way) — the
@@ -1085,7 +1042,7 @@ interface StatusChange {
   readonly pattern: string | null
 }
 
-/** Which declared `on` pattern (if any) each pending change matches — the pure computation `gtd status` reports (both plain and `--json`). `onEdges` is ALREADY RENDERED against `it.vars` (`renderOnEdges`) — the reported pattern is the one a real `gtd step` would match against. */
+/** Which declared `on` pattern (if any) each pending change matches — the pure computation `gtd status` reports (both plain and `--json`). `onEdges` is ALREADY RENDERED against `it.vars` (`renderOnEdges`) — the reported pattern is the one a real `gtd land` would match against. */
 const computeStatusChanges = (
   onEdges: readonly OnEdge[],
   changes: readonly PendingChange[],
@@ -1098,7 +1055,7 @@ const computeStatusChanges = (
     return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
   })
 
-/** The first declared `on` edge that WOULD fire for `gtd next`/`gtd step` right now, for `gtd status` to preview. */
+/** The first declared `on` edge that WOULD fire for `gtd next`/`gtd land` right now, for `gtd status` to preview. */
 interface NextMatch {
   readonly action: string | undefined
   readonly pattern: string
@@ -1454,10 +1411,10 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "install",
 ]
 
-/** Dispatches to the named `run*Command` handler for every `Command.kind` — the counterpart of `Cli.ts`'s `parseArgv`, which has already validated every field a handler receives. */
+/** Dispatches to the named `run*Command` handler for every `Command.kind` EXCEPT `"land"` (which alone returns a non-zero exit code — see `dispatchCommand`) — the counterpart of `Cli.ts`'s `parseArgv`, which has already validated every field a handler receives. */
 // fallow-ignore-next-line complexity
-const dispatchCommand = (
-  command: Command,
+const dispatchVoidCommand = (
+  command: Exclude<Command, { kind: "land" }>,
   json: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, CommandRequirements> => {
@@ -1468,17 +1425,6 @@ const dispatchCommand = (
       return runInitCommand(json, write)
     case "visualize":
       return runVisualizeCommand(command.port, command.open, json, write)
-    case "step":
-      return runStepCommand(
-        command.actor,
-        {
-          ...(command.cost !== undefined ? { cost: command.cost } : {}),
-          ...(command.model !== undefined ? { model: command.model } : {}),
-          ...(command.ifResting !== undefined ? { ifResting: command.ifResting } : {}),
-        },
-        json,
-        write,
-      )
     case "entry":
       return runEntryCommand(command.actor, command.state, command.vars, json, write, command.label)
     case "abandon":
@@ -1499,15 +1445,42 @@ const dispatchCommand = (
 }
 
 /**
+ * Dispatches every `Command` to its exit code — `"land"` alone can return
+ * non-zero (`EXIT_SETTLED`, via `runLandCommand`); every other kind always
+ * succeeds at `0` (`dispatchVoidCommand`, piped through `Effect.as(0)`).
+ * Splitting the exhaustive switch out to `dispatchVoidCommand` keeps this
+ * function's own branching to the one kind that actually varies.
+ */
+const dispatchCommand = (
+  command: Command,
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<number, Error, CommandRequirements> => {
+  if (command.kind === "land") {
+    return runLandCommand(
+      {
+        ...(command.cost !== undefined ? { cost: command.cost } : {}),
+        ...(command.model !== undefined ? { model: command.model } : {}),
+      },
+      json,
+      write,
+    )
+  }
+  return dispatchVoidCommand(command, json, write).pipe(Effect.as(0))
+}
+
+/**
  * The one entry point `Cli.ts`'s `runCli` calls for a resolved `Command`:
  * dispatches to the matching `run*Command` handler (see `dispatchCommand`),
  * wrapped in the repo-root guard exactly when `needsOf(command.kind) ===
  * "state"` — `lsp`/`init`/`visualize`/`check` (the `standaloneKinds`) run
  * bare. `Cli.ts` has already validated every field on `command` (arity, flag
- * scope, decoding), so nothing here re-parses argv.
+ * scope, decoding), so nothing here re-parses argv. Returns the exit code
+ * `Cli.ts`'s `runCli` should use — `0` for every command except a `land` that
+ * settles (`EXIT_SETTLED`).
  *
  * No review-window close/open bracket runs here any more: every state-command
- * handler (see `stepAsActor`) now decides for itself, off `ReviewWindow.ts`'s
+ * handler (see `planLanding`) now decides for itself, off `ReviewWindow.ts`'s
  * pure `decideCloseWindow`/`decideOpenWindow`, whether a close/open belongs in
  * the script it emits — there is no in-process HEAD to rewind ahead of time
  * (gtd itself no longer writes git for a state command at all).
@@ -1516,13 +1489,13 @@ export const runCommand = (
   command: Command,
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, CommandRequirements> => {
+): Effect.Effect<number, Error, CommandRequirements> => {
   const dispatch = dispatchCommand(command, json, write)
   if (needsOf(command.kind) !== "state") return dispatch
   return Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
-    yield* dispatch
+    return yield* dispatch
   })
 }

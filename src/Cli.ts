@@ -33,11 +33,9 @@ export type Command =
   | { readonly kind: "init" }
   | { readonly kind: "visualize"; readonly port: number; readonly open: boolean }
   | {
-      readonly kind: "step"
-      readonly actor: string
+      readonly kind: "land"
       readonly cost?: number
       readonly model?: string
-      readonly ifResting?: boolean
     }
   | {
       readonly kind: "entry"
@@ -148,41 +146,24 @@ const FLAGS: readonly FlagRow[] = [
     name: "--cost",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "step",
+    scope: (kind) => kind === "land",
     decode: ([raw]) => nonNegativeNumber(raw ?? "", "--cost"),
-    scopeError:
-      "gtd: --cost is only valid for `gtd step` without --entry — an entry is not a metered agent turn",
+    scopeError: "gtd: --cost is only valid for `gtd land` — an entry is not a metered agent turn",
     valueHint: "<n>",
-    help: ["(gtd step only) record the invocation's token cost"],
+    help: ["(gtd land only) record the invocation's token cost"],
   },
   {
     name: "--model",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "step",
+    scope: (kind) => kind === "land",
     decode: ([raw]) =>
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
         ? Either.left("gtd: --model must be a non-empty, single-line value")
         : Either.right(raw),
-    scopeError:
-      "gtd: --model is only valid for `gtd step` without --entry — an entry is not a metered agent turn",
+    scopeError: "gtd: --model is only valid for `gtd land` — an entry is not a metered agent turn",
     valueHint: "<name>",
-    help: ["(gtd step only, with --cost) tag that cost's model"],
-  },
-  {
-    name: "--if-resting",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "step",
-    decode: () => Either.right(true),
-    scopeError:
-      "gtd: --if-resting is only valid for `gtd step` without --entry — an entry is unconditional",
-    valueHint: "",
-    help: [
-      "(gtd step only) exit 0 doing nothing when the resolved",
-      "rest awaits a different actor, instead of refusing",
-      "out of turn; a genuine gate refusal still fails",
-    ],
+    help: ["(gtd land only, with --cost) tag that cost's model"],
   },
   {
     name: "--entry",
@@ -190,14 +171,14 @@ const FLAGS: readonly FlagRow[] = [
     repeatable: false,
     scope: (kind) => kind === "entry",
     decode: ([raw]) => Either.right(raw ?? ""),
-    scopeError: "gtd: --entry is only valid for `gtd step` or the bare `gtd --entry <state>` form",
+    scopeError:
+      "gtd: --entry is only valid with no other command — use the bare `gtd --entry <state>` " +
+      "form; landing and entering are different verbs",
     valueHint: "<state>",
     help: [
-      "(gtd step, or with no command at all) start a brand new",
-      "process at <state> — any declared, non-commit state —",
-      "instead of stepping the one currently resting. Not",
-      "combinable with --cost/--model (an entry is not a metered",
-      "agent turn)",
+      "(with no command at all) start a brand new process at",
+      "<state> — any declared, non-commit state — authenticated",
+      "as human",
     ],
   },
   {
@@ -290,22 +271,22 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
-    token: "step",
-    kind: "step",
-    arity: { name: "actor" },
+    token: "land",
+    kind: "land",
+    arity: "none",
     details: [
-      "Authenticate as <actor>, match the resolved rest's",
-      "declared patterns against the pending changes, and commit",
-      "(or squash) the one resulting transition. Pass",
-      "--cost=<n> (optionally --model=<name>) to record the",
-      "just-finished invocation's token cost and model on the",
-      "turn commit (summed into it.processCost/processCostByModel).",
-      "Pass --entry <state> to start a brand NEW process at",
-      "<state> instead — any declared, non-commit state — with",
-      "repeatable --var <name>=<value> supplying that new",
-      "process's fixed it.vars overrides. Pass --if-resting to",
-      "exit 0 doing nothing instead of refusing when the",
-      "resolved rest awaits a different actor",
+      "Land whatever the tree now shows at the currently",
+      "resolved rest — a human capture, an agent/check turn, an",
+      "empty attempt (a fruitless prompt turn), or a squash — and",
+      "print the script that records it; a driver runs the",
+      "script, e.g. `gtd land | bash`. Pass --cost=<n>",
+      "(optionally --model=<name>) to record the just-finished",
+      "invocation's token cost and model on the turn commit",
+      "(summed into it.processCost/processCostByModel). Exits 0",
+      "when a script is emitted (or a benign no-op at a clean",
+      "message rest), 3 when SETTLED — nothing owed: a no-op at a",
+      "script rest, or the initial-state collapse (stdout still",
+      "carries the script) — 1 on any refusal",
     ],
   },
   {
@@ -431,14 +412,17 @@ const commandByToken = (token: string): CommandRow | undefined =>
  * enterable states.
  */
 const REMOVED: Readonly<Record<string, string>> = {
+  step:
+    "gtd: `gtd step <actor>` is gone — landing is actorless; run `gtd land` " +
+    "instead (`gtd --entry <state>` for entries)",
   review:
     "gtd: `gtd review <commitish>` is gone — this workflow's own state names " +
-    "aren't known to gtd; run `gtd step <actor> --entry <review-state> " +
+    "aren't known to gtd; run `gtd --entry <review-state> " +
     "--var <name>=<value> ...` instead — run it with an unknown <review-state> " +
     "to see this workflow's own enterable states",
   fix:
     "gtd: `gtd fix` is gone — this workflow's own state names aren't known to " +
-    "gtd; run `gtd step <actor> --entry <fix-state>` instead — run it with an " +
+    "gtd; run `gtd --entry <fix-state>` instead — run it with an " +
     "unknown <fix-state> to see this workflow's own enterable states",
   loop:
     "gtd: `gtd loop` is gone — gtd decides and prints, a driver executes. " +
@@ -463,8 +447,8 @@ const renderBlock = (header: string, lines: readonly string[]): string => {
 }
 
 const ENTRY_SHORT_FORM = renderBlock("(no command) --entry <state>", [
-  "Short form of 'step human --entry <state>' — starts a new",
-  "process authenticated as human, e.g. 'gtd --entry <state>'",
+  "Starts a new process authenticated as human, e.g.",
+  "'gtd --entry <state>'",
 ])
 
 const VERSION_BLOCK = renderBlock("version", ["Print version and exit"])
@@ -491,7 +475,7 @@ export const renderHelp = (): string => {
   })
   const commands = [
     commandBlocks[0], // init
-    commandBlocks[1], // step
+    commandBlocks[1], // land
     ENTRY_SHORT_FORM,
     ...commandBlocks.slice(2), // abandon..check
     VERSION_BLOCK,
@@ -673,20 +657,14 @@ const decodeFlags = (
   return Either.right(bag)
 }
 
-/** Assembles a `step` `Command` from its already-scope-checked flag bag — split out of `parseArgv` so its three independent, omit-when-absent optional fields don't inflate that function's own branching. */
-const buildStepCommand = (
-  actor: string,
-  bag: {
-    readonly "--cost"?: number
-    readonly "--model"?: string
-    readonly "--if-resting"?: boolean
-  },
-): Command => ({
-  kind: "step",
-  actor,
+/** Assembles a `land` `Command` from its already-scope-checked flag bag — split out of `parseArgv` so its two independent, omit-when-absent optional fields don't inflate that function's own branching. */
+const buildLandCommand = (bag: {
+  readonly "--cost"?: number
+  readonly "--model"?: string
+}): Command => ({
+  kind: "land",
   ...(bag["--cost"] !== undefined ? { cost: bag["--cost"] } : {}),
   ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
-  ...(bag["--if-resting"] !== undefined ? { ifResting: true } : {}),
 })
 
 // fallow-ignore-next-line complexity
@@ -711,9 +689,11 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const row = first === undefined ? undefined : commandByToken(first)
   const removedMessage = first === undefined ? undefined : REMOVED[first]
 
-  // The `--entry` selector: a `step` row (or no row at all) with `--entry`
-  // present resolves to the generic `entry` command instead.
-  const selectsEntry = entryPresent && (first === undefined || row?.kind === "step")
+  // The `--entry` selector: no command at all, with `--entry` present,
+  // resolves to the generic `entry` command instead — landing and entering
+  // are different verbs, so `gtd land --entry <state>` is NOT a synonym (it
+  // fails the scope check below instead).
+  const selectsEntry = entryPresent && first === undefined
   const kind: Command["kind"] | undefined = selectsEntry ? "entry" : row?.kind
 
   if (row === undefined && removedMessage === undefined && !selectsEntry) {
@@ -752,10 +732,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       )
     }
   } else {
-    // Both `step` and its `--entry`-selected sibling share `step`'s arity
-    // (the actor is always required — it names who authors the commit).
-    const arityRow = kind === "entry" ? commandByToken("step")! : row!
-    const arityMsg = arityError(first!, restPositionals, arityRow.arity)
+    // `kind === "entry"` is unreachable here: `selectsEntry` only fires when
+    // `first === undefined`, which the `if` branch above already handled.
+    const arityMsg = arityError(first!, restPositionals, row!.arity)
     if (arityMsg !== undefined) return usagePlan(arityMsg, jsonSeen)
   }
 
@@ -770,30 +749,27 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--no-open"?: boolean
     readonly "--cost"?: number
     readonly "--model"?: string
-    readonly "--if-resting"?: boolean
     readonly "--var"?: Readonly<Record<string, string>>
     readonly "--dispatch"?: boolean
   }
 
   const json = present.has("--json")
 
-  if (kind === "step") {
+  if (kind === "land") {
     if (bag["--model"] !== undefined && bag["--cost"] === undefined) {
       return usagePlan(
         "gtd: --model requires --cost — it tags the recorded cost with the model that ran",
         json,
       )
     }
-    return { kind: "command", command: buildStepCommand(restPositionals[0]!, bag), json }
+    return { kind: "command", command: buildLandCommand(bag), json }
   }
 
   if (kind === "entry") {
-    const actor = first === undefined ? "human" : restPositionals[0]!
-    const label =
-      first === undefined ? `gtd --entry ${entryRaw}` : `gtd step ${actor} --entry ${entryRaw}`
+    const label = `gtd --entry ${entryRaw}`
     return {
       kind: "command",
-      command: { kind: "entry", actor, state: entryRaw!, vars: bag["--var"] ?? {}, label },
+      command: { kind: "entry", actor: "human", state: entryRaw!, vars: bag["--var"] ?? {}, label },
       json,
     }
   }
@@ -904,6 +880,13 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
   }
 
   return runCommand(plan.command, plan.json, io.stdout).pipe(
+    // `runCommand` returns the exit code to use (0 for the ordinary case,
+    // e.g. `land`'s settled 3) — `io.exit` is called only for a non-zero
+    // code, exactly like the ordinary success path never called `exit` at
+    // all before this.
+    Effect.map((code) => {
+      if (code !== 0) io.exit(code)
+    }),
     Effect.provide(io.layers()),
     Effect.sandbox,
     // `sandbox` moves EVERY failure mode — a typed error, a defect, an

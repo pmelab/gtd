@@ -42,7 +42,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       Build a calculator.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
     And the git status is clean
@@ -90,7 +90,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       Build a calculator.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → checking"
     When I run gtd next with "--json"
@@ -135,11 +135,11 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       Build a calculator.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
 
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → escalate"
     When I run gtd next with "--json"
@@ -151,7 +151,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       Build a calculator.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
     Given a file "scratch.md" with:
@@ -192,8 +192,8 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       export const add = (a, b) => a + b
       """
-    When I run gtd step check
-    Then it succeeds
+    When I run gtd land
+    Then it settles
     And stdout contains "nothing to do at \"checking\""
     And the last commit subject is "gtd(agent): checking"
     When I run gtd next with "--json"
@@ -201,7 +201,7 @@ Feature: gtd next --json — attempt commits and the derived stall
     And stdout does not contain "stalled"
 
   Scenario: a message rest's clean step is still a plain no-op — never an attempt, never stalled
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And stdout contains "nothing to do at \"idle\""
     And the last commit subject is "chore: add .gtdrc"

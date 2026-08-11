@@ -108,7 +108,7 @@ const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").tr
 
 // ── Token-cost trailers ──────────────────────────────────────────────────────
 //
-// `gtd step <actor> --cost=<n> [--model=<name>]` records the token cost of the
+// `gtd land --cost=<n> [--model=<name>]` records the token cost of the
 // invocation that just produced the pending changes — and the model it ran on
 // — as a `Gtd-Cost: <n> <model>` trailer on the turn commit, persisted in the
 // git log, one entry per turn. `computeProcessRun` collects every such entry
@@ -172,7 +172,7 @@ const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
 
 // ── Review-base trailer ──────────────────────────────────────────────────────
 //
-// `gtd step <actor> --entry <state>` (`planEntry` below) starts a brand NEW
+// `gtd --entry <state>` (`planEntry` below) starts a brand NEW
 // review process by writing an ordinary empty turn commit into a state whose
 // template-form `reviewBase:` renders to a commitish, carrying that
 // commitish's full hash as a `Gtd-Review-Base:` trailer. `computeProcessRun`
@@ -195,8 +195,8 @@ const REVIEW_BASE_TRAILER_PREFIX = "Gtd-Review-Base: "
 const REVIEW_BASE_TRAILER_RE = /^Gtd-Review-Base:[ \t]*(\S+)[ \t]*$/m
 
 /**
- * The `Gtd-Review-Base: <hash>` trailer recorded on a `gtd step <actor>
- * --entry <state>` entry commit (see `withEntryTrailers`), or `undefined`
+ * The `Gtd-Review-Base: <hash>` trailer recorded on a `gtd --entry <state>`
+ * entry commit (see `withEntryTrailers`), or `undefined`
  * when `message` carries none. Read back by `computeProcessRun` — ONLY off
  * the process's first (oldest) commit — to override the run's diff base.
  */
@@ -205,7 +205,7 @@ const parseReviewBaseTrailer = (message: string): string | undefined =>
 
 // ── Entry-var trailers ───────────────────────────────────────────────────────
 //
-// An entry commit (e.g. `gtd step <actor> --entry <state>`) can carry,
+// An entry commit (e.g. `gtd --entry <state>`) can carry,
 // alongside its optional `Gtd-Review-Base:` trailer, zero or more `Gtd-Var:
 // <name>=<value>` trailers — arbitrary `it.vars` overrides fixed at the moment
 // the process started, read back by `computeProcessRun` (again, ONLY off the
@@ -633,7 +633,7 @@ const PREFIX = "GTD_"
  * (`ConfigOperations.workflowVars`), the top-level `.gtdrc` `vars:` key
  * (`ConfigOperations.rcVars`), the current process's entry commit's
  * `Gtd-Var:` trailers (`ProcessRun.entryVars` — fixed overrides recorded at
- * the moment a process like `gtd step <actor> --entry <state>` started it),
+ * the moment a process like `gtd --entry <state>` started it),
  * and — for each name declared by any of those three layers — a
  * `GTD_<UPPERCASE-name>` environment variable, if defined. Unlike the first
  * three layers, the environment can only OVERRIDE a name some earlier layer
@@ -1074,11 +1074,17 @@ export type StepOutcome =
 /** A decision that actually writes git — the two kinds a guard may run before. Exported for `src/StepGuards.ts`. */
 export type ExecutableDecision = Extract<StepDecision, { kind: "commit" | "squash" }>
 
-/** The user-facing message for a `step` refusal — out-of-turn names the awaited actor, no-match names every declared pattern. */
-const formatStepRefusal = (invoker: string, refusal: StepRefusal): string =>
+/**
+ * The user-facing message for a `land` refusal — out-of-turn names the
+ * awaited actor, no-match names every declared pattern. `land` derives its
+ * invoker from `rest.actor` itself (see `planStep`), so out-of-turn is
+ * unreachable by construction there; this branch stays reachable only via
+ * `PatternMachine.step`'s own tests (a defensive message beats a lie).
+ */
+const formatStepRefusal = (refusal: StepRefusal): string =>
   refusal.reason === "out-of-turn"
-    ? `gtd step ${invoker}: out of turn — "${refusal.state}" awaits ${refusal.awaits}`
-    : `gtd step ${invoker}: no declared pattern matches the pending changes at "${refusal.state}" — declared patterns: ${
+    ? `gtd land: out of turn — "${refusal.state}" awaits ${refusal.awaits}`
+    : `gtd land: no declared pattern matches the pending changes at "${refusal.state}" — declared patterns: ${
         refusal.patterns.length > 0 ? refusal.patterns.join(", ") : "(none)"
       }`
 
@@ -1089,7 +1095,7 @@ const formatStepRefusal = (invoker: string, refusal: StepRefusal): string =>
  * `TemplateContext` at all), and it is NOT interchangeable with `rest.context`:
  * that one is pinned to the resting state and carries `cost: 0`, so rendering
  * `it.processCost` against it silently omits the squashing step's own
- * `--cost`. Exported for `program.ts`'s `stepAsActor`, which assembles the
+ * `--cost`. Exported for `program.ts`'s `planLanding`, which assembles the
  * same script by hand and must pick the same context.
  */
 export const contextAt = (
@@ -1239,7 +1245,7 @@ const commitDecisionOutcome = (decision: {
  * genuine collapse. The ONE predicate both
  * `renderDecision`'s emitted-script branch and `planStep`'s direct `perform`
  * call, so the two can never decide differently about the same run —
- * `program.ts`'s `stepAsActor` asks the same question, through the exported
+ * `program.ts`'s `planLanding` asks the same question, through the exported
  * `collapsesToInitialState` below, at the same moment.
  */
 const collapsesWith = (
@@ -1260,7 +1266,7 @@ const collapsesWith = (
 /**
  * The service-requiring twin of `collapsesWith`, for `program.ts` to ask
  * instead of reaching into `GitService` itself — the boundary AGENTS.md pins.
- * `stepAsActor` calls this to fill `StepResult.settled` for a `"commit"`/
+ * `planLanding` calls this to fill `LandResult.settled` for a `"commit"`/
  * `"squash"` plan, off the same `rest`/`decision` `renderDecision` already
  * decided against, so the two git reads (`changedPathsSince` + `resolveRef`)
  * can never disagree with each other.
@@ -1374,15 +1380,9 @@ const buildStepScripts = (
  * Decide + perform a step. Nothing writes git until `perform` runs, so the
  * capture gates (`program.ts`'s `enforce*Gate` family) sit between `planStep`
  * and `plan.perform` by construction rather than by statement order.
- *
- * The refusal variant carries the pure engine's own `StepRefusal.reason`
- * alongside the formatted `message` — `program.ts`'s `--if-resting` policy
- * needs to tell "not your turn" (`"out-of-turn"`) from "nothing recognizes
- * this edit" (`"no-match"`), and that classification belongs to the pure
- * engine, not re-derived at the edge.
  */
 export type StepPlan =
-  | { readonly kind: "refusal"; readonly message: string; readonly reason: StepRefusal["reason"] }
+  | { readonly kind: "refusal"; readonly message: string }
   | { readonly kind: "noop"; readonly state: StateName; readonly settled: boolean }
   | {
       readonly kind: "commit" | "squash"
@@ -1403,24 +1403,26 @@ export type StepPlan =
 /**
  * A no-op is TERMINAL only at a `script` rest: gtd rendered the script, the
  * driver ran it, it left nothing any pattern claims, and re-running it can't
- * change that — the loop should exit rather than spin (`gtd step --json`'s
- * `settled` flag). A `prompt` rest can no longer produce a no-op at all (a
+ * change that — the loop should exit rather than spin (`gtd land`'s exit-3
+ * `settled` signal). A `prompt` rest can no longer produce a no-op at all (a
  * clean tree with no `C` row there is an ATTEMPT commit instead — see
  * `PatternMachine.step`'s doc comment — and `stalledAt` is its own, separately
  * reported signal). A no-op at a `message` rest is a human gate the loop
  * already halts on (`kind: "message"`), so it needs no signal either. This is
  * one of TWO settled shapes — the other is the initial-state collapse
  * (`collapsesWith`/`collapsesToInitialState`), decided independently by
- * `program.ts`'s `stepAsActor` for a `"commit"`/`"squash"` plan.
+ * `program.ts`'s `planLanding` for a `"commit"`/`"squash"` plan.
  */
 const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "script"
 
 /**
- * Decide what invoking `invoker` at `rest` does (`PatternMachine.step` over
- * `rest.stepDef`/`rest.changes`/`rest.run.trace`), and — for a `"commit"`/
- * `"squash"` decision — build the `perform` Effect that actually writes it.
- * `opts.cost`/`opts.model` ride along for the `Gtd-Cost:` trailer and the
- * squash template's folded `it.processCost`/`it.processCostByModel`.
+ * Decide what landing at `rest` does (`PatternMachine.step` over
+ * `rest.stepDef`/`rest.changes`/`rest.run.trace`, authenticated as
+ * `rest.actor` — the state's own declared actor, so out-of-turn is
+ * unreachable by construction), and — for a `"commit"`/`"squash"` decision —
+ * build the `perform` Effect that actually writes it. `opts.cost`/`opts.model`
+ * ride along for the `Gtd-Cost:` trailer and the squash template's folded
+ * `it.processCost`/`it.processCostByModel`.
  *
  * `perform` itself, in order: the "returned to the initial state retaining
  * nothing" mixed-reset branch (a green re-entry into the initial state that
@@ -1431,12 +1433,11 @@ const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "s
  */
 export const planStep = (
   rest: Rest,
-  invoker: string,
   opts: { readonly cost?: number; readonly model?: string } = {},
 ): Effect.Effect<StepPlan, Error, RestRequirements> =>
   Effect.gen(function* () {
     // Pure decision — no Effect needed to reach it.
-    const decision = step(rest.stepDef, rest.state, invoker, {
+    const decision = step(rest.stepDef, rest.state, rest.actor, {
       changes: rest.changes,
       // `StepPayload.processTrace` stays `readonly StateName[]` — the pure
       // engine's retry-entry counting (`applyRetry`) only ever compares state
@@ -1447,11 +1448,7 @@ export const planStep = (
     })
 
     if (decision.kind === "refusal") {
-      return {
-        kind: "refusal",
-        message: formatStepRefusal(invoker, decision),
-        reason: decision.reason,
-      } as const
+      return { kind: "refusal", message: formatStepRefusal(decision) } as const
     }
     if (decision.kind === "noop") {
       return { kind: "noop", state: decision.state, settled: noOpSettles(rest) } as const
@@ -1469,7 +1466,7 @@ export const planStep = (
         }
         return yield* executeDecision(git, rest.run, decision, rest.context, cost, model)
       }
-      const context = yield* contextAt(rest, decision.state, invoker, cost, model)
+      const context = yield* contextAt(rest, decision.state, rest.actor, cost, model)
       return yield* executeDecision(git, rest.run, decision, context, cost, model)
     })
 
@@ -1478,7 +1475,7 @@ export const planStep = (
     const scriptContext =
       decision.kind === "commit"
         ? rest.context
-        : yield* contextAt(rest, decision.state, invoker, cost, model)
+        : yield* contextAt(rest, decision.state, rest.actor, cost, model)
     const scripts = yield* buildStepScripts(git, rest, decision, scriptContext, cost, model)
 
     return { kind: decision.kind, state: rest.state, decision, perform, scripts }
@@ -1499,8 +1496,7 @@ export type EntryPlan =
     }
 
 /**
- * `gtd step <actor> --entry <state>` (or its subcommand-less short form `gtd
- * --entry <state>`): start a brand NEW process at `entry.state` — any
+ * `gtd --entry <state>`: start a brand NEW process at `entry.state` — any
  * declared, non-commit state (see `enterableStates`) — writing an ordinary
  * turn commit (`gtd(<actor>): <state>`) carrying zero or more `Gtd-Var:
  * <name>=<value>` trailers for each `entry.vars` override, plus — when
@@ -1508,7 +1504,7 @@ export type EntryPlan =
  * trailer pinning the new process's diff base (rendered from that template
  * against the merged `it.vars`, resolved to a commit, and checked sane).
  * Commits via `commitAllWithPrefix` — capturing whatever the working tree
- * carries at the moment of entry, exactly like an ordinary step capture,
+ * carries at the moment of entry, exactly like an ordinary land capture,
  * rather than demanding a clean tree first.
  *
  * All validation is a REFUSAL, not an Effect failure — checked in order:

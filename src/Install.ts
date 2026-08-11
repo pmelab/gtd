@@ -16,16 +16,19 @@ export const MINIMAL_DRIVER = `#!/usr/bin/env bash
 set -euo pipefail
 
 # The bundle plans; this executes. Emitted scripts print their own outcomes.
-gtd_do() {
-  local json
-  json="$(gtd "$@" --json)" || return 1
+# Exit 3 means SETTLED — nothing owed — so this exits the whole driver at 0.
+gtd_land() {
+  local json code=0
+  json="$(gtd land --json)" || code=$?
+  [ "$code" = 0 ] || [ "$code" = 3 ] || return "$code"
   bash -c "$(jq -r '.required // empty' <<<"$json")" || return $?
   bash -c "$(jq -r '.optional // empty' <<<"$json")" ||
     echo "warn: presentation follow-up failed — continuing" >&2
-  GTD_STEP_JSON="$json"
+  [ "$code" = 3 ] && exit 0
+  return 0
 }
 
-gtd_do step human --if-resting # capture your pending edit, or resume
+gtd status --json | jq -e '(.changes|length) > 0 and .next != null' >/dev/null && gtd_land
 
 while :; do
   next="$(gtd next --json --dispatch)" || exit 1
@@ -52,8 +55,7 @@ while :; do
           >>"$log" 2>&1 # $out IS the fix prompt, verbatim
       done ;;
   esac
-  gtd_do step "$(jq -r .actor <<<"$next")" || exit 1
-  jq -e .settled <<<"$GTD_STEP_JSON" >/dev/null && exit 0
+  gtd_land || exit 1
 done`
 
 const HEADER = (): string =>
@@ -96,11 +98,13 @@ Every field below is always present unless marked "when set".
   the tree is clean (derived from history, not a marker) — never emitted as
   \`false\`
 
-### \`gtd step --json\` (also \`--entry\`)
+### \`gtd land --json\` (also \`--entry\`)
 
-\`state\`, \`subject\` (\`null\` on a no-op), \`required\`, \`optional\`, \`settled\`;
-\`cost\`/\`model\` when recorded. \`--entry\` omits \`settled\` — read it as
-\`.settled // false\`.
+\`state\`, \`subject\` (\`null\` on a no-op), \`script\` (the combined form —
+\`required\` verbatim, \`optional\` wrapped non-fatally, so a
+\`jq -r .script | bash\` driver needs one \`bash\` call, not two), \`required\`,
+\`optional\`, \`settled\`; \`cost\`/\`model\` when recorded. \`--entry\` omits
+\`settled\` — read it as \`.settled // false\`.
 
 ### \`gtd abandon\`/\`gtd restore --json\`
 
@@ -116,13 +120,26 @@ fix prompt, verbatim.
 
 \`{"state":"error","prompt":"<message>"}\` on stdout, plus a single \`gtd: \`
 line on stderr, exit 1 — this covers usage errors and defects too.
+
+### Exit codes (\`gtd land\` only — every other command is plain 0/1)
+
+| code | meaning                                                              |
+| ---- | --------------------------------------------------------------------- |
+| 0    | a script was emitted (capture, turn, attempt, squash), or a benign no-op at a clean \`message\` rest |
+| 3    | SETTLED — nothing owed: a no-op at a \`script\` rest, or the initial-state collapse. stdout still carries a script (a print-only note, or the collapse's real retain+rewind) — run it |
+| 1    | refusal or usage error — nothing was emitted                          |
+
+With \`set -o pipefail\`, \`gtd land | bash\` propagates gtd's own exit code
+through the pipe.
 `
 
 const DRIVER_OBLIGATIONS = `
 ## Driver obligations, in order
 
-1. Opening move: run \`gtd step human --if-resting\`, unconditionally, before
-   you know whose turn it is.
+1. Opening move: land only when \`gtd status --json\` reports a dirty tree
+   matching a declared pattern (\`(.changes|length) > 0 and .next != null\`) —
+   an unconditional \`gtd land\` would author an attempt at a clean prompt
+   rest.
 2. Dispatch exactly one \`gtd next --json --dispatch\` per beat.
 3. A \`.stalled\` beat halts the driver with a non-zero exit.
 4. Run scripts with their output appended to \`.log\` — gtd never creates or
@@ -135,17 +152,19 @@ const DRIVER_OBLIGATIONS = `
 6. After a \`prompt\` beat, run \`gtd validate --json\`'s \`.script\` and
    re-prompt its output verbatim on failure — the DRIVER owns the retry cap,
    not gtd.
-7. Run \`gtd step <actor> --json\`, then execute its \`required\` (always) and
+7. Run \`gtd land --json\`, then execute its \`required\` (always) and
    \`optional\` (presentation only — its failure is a warning, not a halt).
-8. \`.settled\` exits 0 — there is nothing left to do.
+8. Exit 3 (SETTLED) means there is nothing left to do — run the script first,
+   then stop; exit 0 continues the loop.
 `
 
 const RECOVERY = `
 ## Recovery
 
-gtd itself exiting non-zero means nothing was attempted — a refusal or a
-usage error. An emitted script exiting non-zero when YOU run it means
-something MAY have partially happened. Both recover the same way:
+gtd exiting 1 means nothing was attempted — a refusal or a usage error. Exit
+3 is NOT a failure: it means SETTLED (nothing owed), and stdout still carries
+a script to run. An emitted script exiting non-zero when YOU run it means
+something MAY have partially happened. All three recover the same way:
 re-invoke gtd. It re-reads the real repository state fresh every time, and
 every emitted script asserts its own HEAD precondition, so a script generated
 against a repository state that has since moved refuses loudly instead of

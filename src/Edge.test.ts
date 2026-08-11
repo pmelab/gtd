@@ -712,26 +712,14 @@ const seededStepRepo = (): InMemRepo => {
 }
 
 describe("planStep", () => {
-  it("a refusal (out-of-turn) touches nothing — no perform to even call", async () => {
-    const repo = seededStepRepo()
-    const before = repo.resolveRef("HEAD")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo) // idle awaits human
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("out of turn")
-    expect(plan.kind === "refusal" && plan.reason).toBe("out-of-turn")
-    expect(repo.resolveRef("HEAD")).toBe(before)
-  })
-
   it("a refusal (no-match on a dirty tree) names the declared patterns", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): working")
     repo.writeFile("OTHER.md", "unrelated\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("refusal")
     expect(plan.kind === "refusal" && plan.message).toContain("A PLAN.md")
-    expect(plan.kind === "refusal" && plan.reason).toBe("no-match")
   })
 
   it("a clean tree with no declared C row at a prompt rest is now an ATTEMPT commit, not a no-op", async () => {
@@ -739,7 +727,7 @@ describe("planStep", () => {
     repo.commitAllWithPrefix("gtd(human): working")
     const before = repo.resolveRef("HEAD")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("commit")
     if (plan.kind !== "commit") throw new Error("expected a commit plan")
     expect(plan.decision).toEqual({
@@ -763,7 +751,7 @@ describe("planStep", () => {
     repo.commitAllWithPrefix("gtd(check): probing")
     const before = repo.resolveRef("HEAD")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "check"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan).toEqual({ kind: "noop", state: "probing", settled: true })
     expect(repo.resolveRef("HEAD")).toBe(before)
   })
@@ -773,7 +761,7 @@ describe("planStep", () => {
     repo.writeFile("README.md", "edited\n")
     const before = repo.resolveRef("HEAD")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "human"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("commit")
     expect(plan.kind === "commit" && plan.decision.kind).toBe("commit")
     expect(repo.resolveRef("HEAD")).toBe(before)
@@ -789,7 +777,7 @@ describe("planStep", () => {
     repo.commitAllWithPrefix("gtd(human): working")
     repo.writeFile("PLAN.md", "the plan\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("squash")
     if (plan.kind !== "squash") throw new Error("expected a squash plan")
 
@@ -807,7 +795,7 @@ describe("planStep", () => {
     repo.writeFile("BROKEN.md", "x\n")
     const before = repo.resolveRef("HEAD")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("squash")
     if (plan.kind !== "squash") throw new Error("expected a squash plan")
 
@@ -831,7 +819,7 @@ describe("planStep", () => {
     // above produced no net diff — retainsNothing is true.
     const rest = await provide(currentRest, repo)
     expect(rest.state).toBe("fixing")
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("commit")
     if (plan.kind !== "commit") throw new Error("expected a commit plan")
 
@@ -877,7 +865,7 @@ describe("planStep", () => {
 
     const rest = await provide(currentRest, repo)
     expect(rest.state).toBe("working")
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("commit")
     if (plan.kind !== "commit") throw new Error("expected a commit plan")
     expect(plan.decision).toMatchObject({ attempt: true, from: "working", to: "working" })
@@ -1026,7 +1014,7 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     const repo = seededStepRepo()
     repo.writeFile("README.md", "edited\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "human", { cost: 7, model: "haiku" }), repo)
+    const plan = await provide(planStep(rest, { cost: 7, model: "haiku" }), repo)
     if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
       throw new Error("expected a commit plan")
     }
@@ -1082,7 +1070,7 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     repo.commitAllWithPrefix("gtd(human): working")
     repo.writeFile("PLAN.md", "the plan\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     if (plan.kind !== "squash") throw new Error("expected a squash plan")
 
     const tip = repo.resolveRef("HEAD")! // the pre-squash tip both render and perform resolve
@@ -1117,7 +1105,7 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     repo.commitAllWithPrefix("gtd(agent): broken")
     repo.writeFile("BROKEN.md", "x\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("squash")
     if (plan.kind !== "squash") throw new Error("expected a squash plan")
 

@@ -56,8 +56,8 @@ the fruitless dispatch is in history rather than invisible. Entries in the
 process trace, so a `retry:` cap on the state counts them like any other entry
 and redirects once the cap is reached.
 
-**Step**: One `gtd step <actor>` invocation. Distinct from a turn: a step may
-capture a turn, refuse, or do nothing at all.
+**Step**: One `gtd land` invocation. Distinct from a turn: a step may capture a
+turn, refuse, or do nothing at all.
 
 **Beat**: One dispatch cycle of the driver loop — resolve a rest, hand its
 content to its actor, then step. _Avoid_: iteration, tick, cycle
@@ -93,10 +93,10 @@ equivalent is an [attempt](#attempt), not a no-op.
 
 **Settled**: A step with nothing left to land — a no-op at a `script` rest (the
 check ran, left nothing any pattern claims, and re-running it cannot change
-that), or a rewind back to the initial state retaining nothing. Reported as
-`settled: true` by `gtd step --json` so a loop exits rather than spins. An
-attempt at a `prompt` rest is not settled but stalled. _Avoid_: done, finished,
-idle
+that), or a rewind back to the initial state retaining nothing. Reported as exit
+3 (and `settled: true` under `--json`) by `gtd land` so a loop exits rather than
+spins. An attempt at a `prompt` rest is not settled but stalled. _Avoid_: done,
+finished, idle
 
 **Gate**: A state whose actor is `human` — the process rests there until a
 person acts. _Avoid_: checkpoint, approval, the bare "the gate"
@@ -127,7 +127,7 @@ outline/actions) survives the override.
 into one message. Ends the process.
 
 **Entry**: A state a process may start at — the `default` one, plus every state
-declaring `entry: true`, reachable as `gtd step <actor> --entry <state>`.
+declaring `entry: true`, reachable as `gtd --entry <state>`.
 
 **Memory scope**: The span of a process over which one conversation persists,
 keyed off a machine's position in the machine tree rather than any per-state

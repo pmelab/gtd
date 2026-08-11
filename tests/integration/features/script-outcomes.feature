@@ -1,7 +1,7 @@
 @live
 Feature: Emitted required/optional scripts print their own outcome lines
 
-  A `gtd step`/`gtd abandon`/`gtd restore` invocation no longer performs its
+  A `gtd land`/`gtd abandon`/`gtd restore` invocation no longer performs its
   own git write, and the driver that DOES (this suite's own `world.ts`, or the
   README's minimal driver) no longer re-derives the commit grammar or
   re-prints the write commands' wording itself either: the emitted `required`
@@ -39,13 +39,13 @@ Feature: Emitted required/optional scripts print their own outcome lines
       """
       export const a = 1
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the emitted script printed "-> idle → working"
     And the emitted script printed "src/a.ts"
 
   Scenario: a no-op step's required script is print-only, naming the resting state
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And stdout contains "nothing to do at \"idle\""
     And the emitted script printed "nothing to do at \"idle\""
@@ -55,7 +55,7 @@ Feature: Emitted required/optional scripts print their own outcome lines
       """
       export const a = 1
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
 

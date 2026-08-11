@@ -14,7 +14,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   only a `format:`. gtd ships NO formatter, so a mode formats nothing until a
   project plugs one in.
 
-  Both halves run wherever the gate runs: `gtd validate`, and the `gtd step`
+  Both halves run wherever the gate runs: `gtd validate`, and the `gtd land`
   capture gate that refuses to commit an invalid steering file. The bulk of
   this feature runs `@live` (real subprocess execution over real bash); five
   scenarios are ALSO covered `@inmem` (tagged "(scripted)") over a scripted
@@ -300,7 +300,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And the git status contains "docs/adr.md"
 
   @live
-  Scenario: the gtd step capture gate refuses a turn whose custom-mode steering file is invalid
+  Scenario: the gtd land capture gate refuses a turn whose custom-mode steering file is invalid
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -343,7 +343,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       Accepted.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     # The step's own required script runs the mode's validate command ahead of
     # its commit, so the refusal IS that command's non-zero exit and output —
@@ -352,7 +352,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And the last commit subject is "gtd(human): drafting"
 
   @inmem
-  Scenario: the gtd step capture gate refuses a turn whose custom-mode steering file is invalid (scripted)
+  Scenario: the gtd land capture gate refuses a turn whose custom-mode steering file is invalid (scripted)
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -395,7 +395,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       Accepted.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     # The step's own required script runs the mode's validate command ahead of
     # its commit, so the refusal IS that command's non-zero exit and output —
@@ -443,7 +443,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       Adopt it.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting → idle"
 
@@ -486,7 +486,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       # ADR 1: use gtd (edited)
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     # `format:` comes first in the emitted script and the script runs under
     # `set -e`, so a non-zero format exit stops it before the validate command
@@ -536,7 +536,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       # ADR 1: use gtd (edited)
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     # `format:` comes first in the emitted script and the script runs under
     # `set -e`, so a non-zero format exit stops it before the validate command
@@ -817,7 +817,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       - [ ] REST
       - [ ] GraphQL
       """
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     And stderr contains "1 open question(s)"
     And stderr contains "not answered at \"answering\""

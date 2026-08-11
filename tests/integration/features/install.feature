@@ -69,7 +69,7 @@ Feature: gtd install — the driver-building briefing
     Then it succeeds
     And I record the JSON keys of stdout as "next"
 
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
     When I run gtd next with "--json" and "--dispatch"
@@ -77,7 +77,7 @@ Feature: gtd install — the driver-building briefing
     And stdout contains "\"stalled\":true"
     And I record the JSON keys of stdout as "next-stalled"
 
-    When I run gtd step agent with "--json"
+    When I run gtd land with "--json"
     Then it succeeds
     And I record the JSON keys of stdout as "step"
 

@@ -23,7 +23,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
   Check-actor states (packages.picking, packages.item.health.check,
   packages.item.closing, build.review.deciding) are
   simulated by writing their verdict files directly and running
-  `gtd step check` — @inmem never executes the scripts themselves.
+  `gtd land` — @inmem never executes the scripts themselves.
 
   Scenario: idle forks on the entry file — REQUIREMENTS.md starts the advanced flow gate
     Given a test project
@@ -32,7 +32,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       Build a widget with product requirements.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → spec-gate.check"
 
@@ -43,7 +43,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       Build a small thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → plan-gate.check"
 
@@ -63,7 +63,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       - [ ] _your answer_
       """
     # answerGate: stepping with no tick is refused, nothing committed
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     And stderr contains "not answered"
     And stderr contains "Which storage backend?"
@@ -80,7 +80,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.product-answer → design.product-author"
 
@@ -104,7 +104,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       Build a widget.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.product-answer → design.product-author"
 
@@ -124,7 +124,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       - [x] _your answer_
       """
     # free-text slot ticked but still the placeholder -> refused
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     And stderr contains "not answered"
     # replace the placeholder with real text -> answered, loops to design.technical-author
@@ -140,7 +140,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       - [ ] raw SQL
       - [x] Drizzle — typed, lightweight
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.technical-answer → design.technical-author"
 
@@ -151,12 +151,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       Build a widget.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → spec-gate.check"
 
     # spec-gate.check: green baseline gate — a clean tree (tests pass) -> design.product-author
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): spec-gate.check → design.product-author"
 
@@ -165,12 +165,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       Build a widget. Product plan: it exposes a `widget()` factory.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): design.product-author → design.product-answer"
 
     # design.product-answer: accept with a clean step -> design.technical-author
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.product-answer → design.technical-author"
 
@@ -180,12 +180,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       Technical plan: src/widget.ts with a factory function.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): design.technical-author → design.technical-answer"
 
     # design.technical-answer: accept with a clean step -> design.decompose
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.technical-answer → design.decompose"
 
@@ -196,7 +196,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): design.decompose → packages.picking"
 
@@ -205,7 +205,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       .gtd/packages/01-widget.md
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.picking → packages.item.building"
 
@@ -214,12 +214,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       export const widget = () => ({})
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
 
     # packages.item.health.check (green): a clean step moves to the packages.item.spec.review gate
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
 
@@ -228,7 +228,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       widget() should return a frozen object.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
 
@@ -238,30 +238,30 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       export const widget = () => Object.freeze({})
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.fix-spec → packages.item.health.check"
 
     # packages.item.health.check (green) -> packages.item.spec.review again
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
 
     # packages.item.spec.review (clean = approval): the reviewer writes nothing -> packages.item.closing
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
 
     # packages.item.closing: removes the reviewed package file and NEXT.md -> packages.picking
     Given the file ".gtd/packages/01-widget.md" is deleted
     And the file ".gtd/NEXT.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.closing → packages.picking"
 
     # packages.picking: the queue is now empty — a clean step closes out to the shared
     # review tail
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.picking → build.review.reviewing"
 
@@ -277,7 +277,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
 
       - [ ] ./src/widget.ts#1 — new factory
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the git ref "refs/worktree/gtd/review-head" exists
     When I run gtd status
@@ -333,7 +333,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       kick off
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → nested.gate"
 
@@ -344,7 +344,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       approved
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): nested.gate → nested.inner.work"
     When I run gtd next
@@ -359,6 +359,6 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
       done
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "chore: done"

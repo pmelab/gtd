@@ -8,11 +8,12 @@
  * below emit the one-line calls, every argument routed through
  * `src/GitScript.ts`'s `shellQuote`.
  *
- * `noopText`/`abandonNoopText` are also printed as PLAIN TEXT directly by
- * `src/program.ts` — `noopText` for the `--if-resting` suppressed out-of-turn
- * case (there is no script at all then), `abandonNoopText` as the one no-op
- * outcome an `outcome`-carrying script still prints for itself via
- * `abandonNoopOutcome`. Their format strings live once here (`FMT_*`, with
+ * `noopText`/`abandonNoopText` render the shared no-op wording; both reach the
+ * driver only through an emitted script now (`noteOutcome(noopText(state))`
+ * for a genuine `gtd land` no-op, `abandonNoopOutcome` for `gtd abandon` with
+ * nothing underway) — a no-op's script always prints itself, exactly like
+ * every other outcome, rather than `src/program.ts` special-casing an empty
+ * script. Their format strings live once here (`FMT_*`, with
  * `%s` placeholders) and reach both sides through `renderFormat` (the plain
  * path) and `printfLine` (the bash `printf` call embedded in
  * `OUTCOME_PREAMBLE`), so the two can never drift.

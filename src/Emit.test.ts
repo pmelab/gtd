@@ -455,7 +455,7 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
 })
 
 describe("combinedScript — the plain-text write commands' single pasteable script", () => {
-  it("is the empty string when required is empty (the --if-resting suppressed case)", () => {
+  it("is the empty string when required is empty", () => {
     expect(combinedScript("", "")).toBe("")
     expect(combinedScript("", "echo optional")).toBe("")
   })
