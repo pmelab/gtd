@@ -7,7 +7,7 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
   it, so it can rot silently. These scenarios extract the fenced block
   VERBATIM (see `tests/integration/helpers/readme-driver.ts`) and run it as
   the driver under test, carrying every protocol behaviour `gtd-loop.feature`
-  proves for `bin/gtd` today — chained turns, the opening dirty-tree capture,
+  proves for `bin/gtd` today — chained turns, the capture beat,
   settling vs. stalling, the self-validation gate and its fix cap,
   check-script log redirection, and session continuity across laps. A real
   `claude` CLI is never invoked: a `claude` shim on $PATH translates the
@@ -148,9 +148,9 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     # The machine rests at the initial human gate `idle` (no gtd commit — the
     # test project's "chore: initial commit" resolves to the initial state)
     # with an uncommitted NOTE.md sketch. The human never runs `gtd land`: the
-    # paste's opening `gtd status --json | jq -e ... && gtd_land` line sees
-    # the dirty tree, captures the sketch (idle's `* **` -> working), then
-    # drives working -> checking -> done on its own.
+    # loop's first beat is `kind: "capture"` (a message rest with a dirty
+    # tree), landed immediately (idle's `* **` -> working), then it drives
+    # working -> checking -> done on its own.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -208,13 +208,11 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And the git log contains "chore: calculator done"
 
   Scenario: A mid-process restart resumes driving instead of failing at the opening capture
-    # pmelab/gtd#168: a mid-process restart can leave the machine resting at a
-    # message-kind gate with a CLEAN tree (the process's own commit already
-    # landed it — nothing pending). The paste's opening
-    # `gtd status --json | jq -e '(.changes|length) > 0 and .next != null'`
-    # probe is false there, so it skips `gtd_land` entirely instead of
-    # authoring an attempt, and the loop below reaches its own message
-    # handling and halts cleanly.
+    # A mid-process restart can leave the machine resting at a message-kind
+    # gate with a CLEAN tree (the process's own commit already landed it —
+    # nothing pending). That is a `kind: "message"` beat, not a `capture`, so
+    # the loop halts cleanly at its own message handling instead of authoring
+    # an attempt — there is no opening move to fail.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -319,11 +317,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And stderr contains "stalled at \"working\""
 
   Scenario: A dirty human gate reached mid-run is a capture beat — landed outright, never halting the driver
-    # The opening `gtd_do step human --if-resting` call only ever authenticates
-    # AS human, so it cannot itself land this gate: "confirm" awaits a
-    # DIFFERENT actor (reviewer), so that opening call is out-of-turn and
-    # suppressed (a no-op). The loop's own first `next --json` read then finds
-    # "confirm" resting with REVIEW.md already written — a message rest with a
+    # The loop's own first `next --json` read finds "confirm" resting with
+    # REVIEW.md already written — a message rest with a
     # dirty tree is `kind: "capture"` — and the loop's `capture) ;;` branch
     # falls straight through to landing it as reviewer, with no display and no
     # halt, continuing on to the next gate.

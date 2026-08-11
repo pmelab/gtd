@@ -363,10 +363,10 @@ as `~/.local/bin/gtd-loop`, `chmod +x` it, and point it at a repo — it runs th
 loop until it's your turn. It drives the autonomous states (agent turns, check
 runs) and stops at the first non-autonomous one: reaching a human gate it prints
 the gate's message and exits. You act by editing files (answer a plan question,
-tick a review box, fix code) and re-running it — its opening move lands only a
-genuinely dirty tree matching a declared pattern, so you never run `gtd land` by
-hand, whether that captures your edit or simply resumes driving after a
-mid-process restart.
+tick a review box, fix code) and re-running it — your pending edit arrives as
+the loop's first beat (`kind: "capture"`, landed immediately), so you never run
+`gtd land` by hand; a mid-process restart simply resumes driving from whatever
+beat is actually next.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around the driver,
@@ -622,8 +622,6 @@ gtd_land() {
   return 0
 }
 
-gtd status --json | jq -e '(.changes|length) > 0 and .next != null' >/dev/null && gtd_land
-
 while :; do
   next="$(gtd next --json)" || exit 1
   kind="$(jq -r .kind <<<"$next")"
@@ -653,15 +651,15 @@ while :; do
 done
 ```
 
-Line by line it is the protocol described above: an opening move that lands only
-a genuinely dirty tree matching a declared pattern (an unconditional `gtd land`
-would author an attempt at a clean prompt rest); one `gtd next --json` beat
-document read per loop (`kind: "stalled"` guarding against a spinning agent);
-`message` halts, `capture` lands a human's already-made edit outright, `script`
-runs in the driver, `prompt` goes to the agent with the document's own
-`session.id`/`session.resume` mapped onto the agent's session flags — trying
-`resume`'s hinted flag first and falling back to the other on failure, since
-`session.id` is derived, not remembered (see
+Line by line it is the protocol described above: no opening move at all — a
+human's pending edit arrives as the `capture` beat, and a stray `gtd land`
+outside a beat you acted on would author an empty attempt at a clean prompt rest
+on purpose; one `gtd next --json` beat document read per loop (`kind: "stalled"`
+guarding against a spinning agent); `message` halts, `capture` lands a human's
+already-made edit outright, `script` runs in the driver, `prompt` goes to the
+agent with the document's own `session.id`/`session.resume` mapped onto the
+agent's session flags — trying `resume`'s hinted flag first and falling back to
+the other on failure, since `session.id` is derived, not remembered (see
 [Driving the loop](#driving-the-loop) below) — and its embedded `.validate`
 script's output re-prompted verbatim on failure (the driver owns only the retry
 cap); and every landed turn executed — and reported — by the emitted scripts

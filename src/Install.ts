@@ -28,8 +28,6 @@ gtd_land() {
   return 0
 }
 
-gtd status --json | jq -e '(.changes|length) > 0 and .next != null' >/dev/null && gtd_land
-
 while :; do
   next="$(gtd next --json)" || exit 1
   kind="$(jq -r .kind <<<"$next")"
