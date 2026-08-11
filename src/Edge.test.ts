@@ -454,7 +454,7 @@ describe("currentRun", () => {
       const { repo } = seededTraceRepo()
       repo.commitAllWithPrefix("gtd(agent): building") // no files touched
       const run = await provide(currentRun, repo)
-      expect(run.headTurn).toEqual({ state: "building", empty: true })
+      expect(run.headTurn).toEqual({ state: "building", actor: "agent", empty: true })
     })
 
     it("reports empty: false for a turn that actually changed something", async () => {
@@ -462,7 +462,7 @@ describe("currentRun", () => {
       repo.writeFile("NOTES.md", "hi\n")
       repo.commitAllWithPrefix("gtd(agent): building")
       const run = await provide(currentRun, repo)
-      expect(run.headTurn).toEqual({ state: "building", empty: false })
+      expect(run.headTurn).toEqual({ state: "building", actor: "agent", empty: false })
     })
 
     it("is undefined for a foreign/unparseable HEAD subject", async () => {

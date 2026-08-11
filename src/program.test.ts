@@ -641,6 +641,17 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     expect(parsed).not.toHaveProperty("validate")
   })
 
+  it("a clean-tree entry commit at a prompt rest is NOT a stall — the actor differs (human entered, agent acts)", async () => {
+    // An EMPTY human commit at the resting state — the exact shape a
+    // clean-tree `gtd --entry working` leaves behind. Same state, same
+    // emptiness as an attempt; only the actor tells them apart.
+    const repo = seededAtIdle()
+    repo.commitAllWithPrefix("gtd(human): working")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout).kind).toBe("prompt")
+  })
+
   it("plain gtd next renders the stall diagnosis too — a human peek must not see the prompt that went nowhere", async () => {
     const repo = seededAt("gtd(human): working")
     await landAgentStep(repo)

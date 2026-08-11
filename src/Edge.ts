@@ -389,7 +389,9 @@ export interface ProcessRun {
    * landing at a prompt state that also happens to be the workflow's initial
    * state would leave `trace` empty while HEAD still carries the turn.
    */
-  readonly headTurn: { readonly state: StateName; readonly empty: boolean } | undefined
+  readonly headTurn:
+    | { readonly state: StateName; readonly actor: string; readonly empty: boolean }
+    | undefined
 }
 
 /**
@@ -410,7 +412,7 @@ const headTurnFrom = (
   if (parsed === undefined) return undefined
   const stateDef = def.states[parsed.state]
   if (stateDef === undefined || isCommitState(stateDef)) return undefined
-  return { state: parsed.state, empty: head.touched.length === 0 }
+  return { state: parsed.state, actor: parsed.actor, empty: head.touched.length === 0 }
 }
 
 /**
@@ -1052,6 +1054,13 @@ export const stalledAt = (rest: Rest): boolean =>
   rest.changes.length === 0 &&
   rest.run.headTurn?.state === rest.state &&
   rest.run.headTurn.empty &&
+  // An attempt is authored by the state's OWN actor (`gtd(agent): working`).
+  // An empty commit at the same state by a DIFFERENT actor is not one — the
+  // canonical case is a clean-tree `gtd --entry` commit (`gtd(human):
+  // reviewing`), which must read as a fresh dispatch, never a stall. (A
+  // `prompt` state whose declared actor is `human` can't tell the two apart —
+  // an odd shape a workflow author should avoid anyway.)
+  rest.run.headTurn.actor === rest.actor &&
   wouldAttempt(
     rest.stepDef,
     rest.state,
