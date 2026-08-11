@@ -59,8 +59,14 @@ and redirects once the cap is reached.
 **Step**: One `gtd land` invocation. Distinct from a turn: a step may capture a
 turn, refuse, or do nothing at all.
 
+**Land**: Recording what an actor did — `gtd land` decides and emits the script;
+the driver running that script is what actually writes to git. The verb for the
+third move of a [beat](#beat). Actorless: which actor a landing is attributed to
+is derived from the resting state, never passed in. _Avoid_: step actor, commit,
+capture the turn
+
 **Beat**: One dispatch cycle of the driver loop — resolve a rest, hand its
-content to its actor, then step. _Avoid_: iteration, tick, cycle
+content to its actor, then land. _Avoid_: iteration, tick, cycle
 
 **Stall**: HEAD is an empty [attempt](#attempt) at the resting `prompt` state,
 the tree is clean, and another dispatch would just repeat it — derived from
@@ -135,10 +141,11 @@ field. _Avoid_: session, context window, conversation, history
 
 **Session id**: The agent CLI's own conversation handle — DERIVED from a memory
 scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run
-always re-derives the same id (`gtd next --json`'s `sessionId`/`resume`) and a
-driver can resume the same agent conversation across turns in one scope. The one
-place "session" is the right word — the _Avoid_ on **Memory scope** stands:
-gtd's own span is still a memory scope, not a session.
+always re-derives the same id (`gtd next --json`'s
+`session.id`/`session.resume`) and a driver can resume the same agent
+conversation across turns in one scope. The one place "session" is the right
+word — the _Avoid_ on **Memory scope** stands: gtd's own span is still a memory
+scope, not a session.
 
 **Review window**: The temporary rewind of HEAD and the index to the review base
 while a process rests at a `reviewWindow: true` state, so a whole process's diff

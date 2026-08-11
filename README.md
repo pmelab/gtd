@@ -570,12 +570,13 @@ included: the scripts detect their own tty/`NO_COLOR` at RUN time (not at the
 moment gtd generated them), so the fancy/plain rendering always matches wherever
 you actually run them.
 
-A driver's OPENING move — before it knows whose turn it is, e.g. right after a
-restart — should land only when `gtd status --json` reports a genuinely dirty
-tree matching a declared pattern (`(.changes|length) > 0 and .next != null`): an
-unconditional `gtd land` would author an empty attempt at a clean `prompt` rest
-instead of simply resuming. Gating on that probe reproduces "capture your
-pending edit, or otherwise just resume" without ever risking that attempt.
+A driver has no opening move. It does not need to know whose turn it is before
+it starts — `gtd next --json` tells it, and a human's pending edit arrives as an
+ordinary `kind: "capture"` beat that the driver lands like any other. The rule
+this replaces: never `gtd land` outside a beat you dispatched. A stray land at a
+clean `prompt` rest authors an empty attempt on purpose (that IS the stall
+bookkeeping), so an unconditional opening land would manufacture a stall out of
+a fresh start.
 
 `gtd land`'s exit code IS the settled signal: 0 for an ordinary landing
 (capture, turn, attempt, squash, or a benign no-op at a clean `message` rest), 3
@@ -592,6 +593,19 @@ pipe, and `--json` carries the same fact as `settled: true`. A no-op at a
 nothing is a stall, a driver's own concern, not this signal's. Declaring a `C`
 edge on a `script` state is the workflow-side way to make the state advance
 instead of settling.
+
+### Drivers other than bash
+
+The protocol above is JSON in, subprocesses out — bash is one convenient shape,
+not the only one. A **program** parses `gtd next --json`, switches on `kind`,
+and runs `content`/`required`/`optional` as subprocesses — no bash anywhere in
+it. A **human** runs plain `gtd next` (no `--json`), does what it says, and
+pastes `gtd land | bash`: plain-text output exists for exactly this, printing
+`required` and `optional` already combined into one pasteable script. An
+**agent** gets `gtd install` as its instructions — the same protocol, in a form
+built to be pasted into a context window rather than read. A **CI job** is the
+program case with the `prompt` arm pointed at a headless agent CLI, and
+`kind: "message"`/`kind: "stalled"` mapped onto "stop and report".
 
 ### A complete minimal driver
 
@@ -660,7 +674,7 @@ already-made edit outright, `script` runs in the driver, `prompt` goes to the
 agent with the document's own `session.id`/`session.resume` mapped onto the
 agent's session flags — trying `resume`'s hinted flag first and falling back to
 the other on failure, since `session.id` is derived, not remembered (see
-[Driving the loop](#driving-the-loop) below) — and its embedded `.validate`
+[Driving the loop](#driving-the-loop) above) — and its embedded `.validate`
 script's output re-prompted verbatim on failure (the driver owns only the retry
 cap); and every landed turn executed — and reported — by the emitted scripts
 themselves, with `gtd land`'s exit 3 (SETTLED) ending a run that has nothing

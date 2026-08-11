@@ -67,6 +67,13 @@ const HEADER = (): string =>
 const BEAT_PROTOCOL = `
 ## The beat protocol
 
+Two commands, one repeated beat: ask -> act -> land.
+
+  gtd next --json   what now - a pure read; poll it, peek it, no writes
+  gtd land --json   how to record what happened - run the script it emits
+
+Every beat that acts, lands. Every beat that rests, exits.
+
 \`gtd next --json\` is a read-only PEEK — every field (\`.session.id\`/
 \`.session.resume\` included) is DERIVED from history, never stored, so looking
 is free: nothing distinguishes a peek from a dispatch, and calling it twice in

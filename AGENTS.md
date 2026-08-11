@@ -41,13 +41,13 @@ description, and must be preserved:
   `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
   window), `src/StepGuards.ts` (the step-capture guard registry),
   `src/RepoFiles.ts` (the working-tree/committed content port),
-  `src/CommandRunner.ts` (the subprocess port). The one remaining driver-scoped
-  git-dir write is `src/BeatMarker.ts`'s `gtd-beat` file, armed/ consumed only
-  under `gtd next --json --dispatch` — `src/Sessions.ts`'s `sessionId`/`resume`
-  are a pure derivation of history now (`uuidv5` of the resting state's memory
-  key) and write nothing at all; plain `next` and `status` never touch the git
-  dir either way. A command resolves ONE `Rest` (`Edge.ts`'s
-  `currentRest`/`restAt`) and hands it to `planStep`/`planEntry` —
+  `src/CommandRunner.ts` (the subprocess port). There is no driver-scoped
+  git-dir write left at all: `src/Sessions.ts`'s `sessionId`/`resume` are a pure
+  derivation of history (`uuidv5` of the resting state's memory key) and write
+  nothing; no command — `next`, `status`, or `land` — touches the git dir to
+  record that a beat was dispatched. Every write gtd causes happens inside a
+  script it emitted and the driver ran. A command resolves ONE `Rest`
+  (`Edge.ts`'s `currentRest`/`restAt`) and hands it to `planStep`/`planEntry` —
   `src/program.ts` never reaches into `GitService` directly except two narrow
   exceptions: the `abandon`/`restore` hard/mixed resets (recovery commands that
   must work even when a `Rest` would refuse — see `runAbandonCommand`'s own doc
@@ -115,7 +115,18 @@ any OTHER name (including `prose`) needs its own `modes:` entry, or
   `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
   every entry), `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
   (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
-  `land.feature` (the exit-code contract: 0/3/settled/1))
+  `land.feature` (the exit-code contract: 0/3/settled/1),
+  `readme-driver.feature` (its `--entry fix-precheck` collapse scenario asserts
+  on the bundled template's shape too)
+- A workflow change must keep the DRIVER contract true, not just the engine's:
+  every state a process can rest at must resolve to exactly one `kind` a driver
+  already handles (`capture`/`message`/`script`/`prompt`/`stalled`) — there is
+  no sixth kind to add without changing every driver in the world. In practice
+  that means: a new `prompt` state must be able to terminate (a `C` row, a
+  `retry:` cap, or an outcome its `on` rows actually match) or it stalls
+  forever; a new `script` state with no `C` row settles the loop rather than
+  advancing it; and a new `human` state's `on` rows must match whatever edit the
+  human is being asked to make, or their capture beat is a refusal
 
 MACHINES, not individual states, are the unit of conversational identity: a
 machine's own `model:` stamps every one of its `prompt` states, and its memory
@@ -209,17 +220,17 @@ parser, one envelope. The table is the source of truth, not prose:
   check) is encoded by which pattern the AUTHORED diff happens to match, not by
   a rule re-deriving it after the fact
 - **No matching pattern on a clean tree = a no-op invocation** (zero commits) at
-  a `script`/`message` rest — inert empty steps are the DEFAULT there; the loop
-  protocol opens each iteration with `gtd land` before the actor has acted, so a
-  clean-tree step must author nothing unless the state explicitly declares a `C`
-  pattern. A `prompt` rest is the ONE exception: a clean tree with no `C` row
-  there commits an EMPTY `gtd(<actor>): <state>` ATTEMPT instead of a no-op
-  (`PatternMachine.step`'s `attempt: true`, `StepCommit`'s own doc comment) — a
-  fruitless agent dispatch costs money and must be remembered across restarts
-  (`Edge.ts`'s `stalledAt`), unlike a fruitless check/gate. When adding a state,
-  decide explicitly whether its clean step is a signal (declare a `C` row), an
-  attempt (a `prompt` state's default), or a no-op (a `script`/`message` state
-  declaring no `C` row)
+  a `script`/`message` rest — inert empty steps are the DEFAULT there. A driver
+  lands a `script`/`message` beat it did dispatch, but a clean tree at one means
+  the actor genuinely produced nothing, so a clean-tree step must author nothing
+  unless the state explicitly declares a `C` pattern. A `prompt` rest is the ONE
+  exception: a clean tree with no `C` row there commits an EMPTY
+  `gtd(<actor>): <state>` ATTEMPT instead of a no-op (`PatternMachine.step`'s
+  `attempt: true`, `StepCommit`'s own doc comment) — a fruitless agent dispatch
+  costs money and must be remembered across restarts (`Edge.ts`'s `stalledAt`),
+  unlike a fruitless check/gate. When adding a state, decide explicitly whether
+  its clean step is a signal (declare a `C` row), an attempt (a `prompt` state's
+  default), or a no-op (a `script`/`message` state declaring no `C` row)
 - A dirty tree matching no declared pattern is a **refusal**, not a no-op —
   distinguish "nothing happened" (clean, no `C` row) from "something happened
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`

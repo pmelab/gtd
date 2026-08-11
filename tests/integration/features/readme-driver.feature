@@ -316,6 +316,64 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     Then it fails
     And stderr contains "stalled at \"working\""
 
+  Scenario: A retry cap redirects a would-be stall to a human gate instead of halting
+    # Same shape as the stall above, but `working` declares `retry: {max: 1}`
+    # redirecting to `blocked`. The commit below already counts as `working`'s
+    # first entry, so the next entry attempt — the empty attempt the agent's
+    # no-op turn would otherwise land — exceeds the cap and is redirected to
+    # `blocked` instead: one wasted dispatch, then an ordinary human hand-off,
+    # not a non-zero halt.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                retry:
+                  max: 1
+                  otherwise: blocked
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": working
+              blocked:
+                actor: human
+                message: "stuck — the agent made no progress"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      : # does nothing — the build prompt is never acted on
+      """
+    And the driver pasted from README.md
+    When I run the README driver
+    Then it succeeds
+    And the last commit subject is "gtd(agent): working → blocked"
+    And stdout contains "stuck — the agent made no progress"
+    And stderr does not contain "stalled at"
+
   Scenario: A dirty human gate reached mid-run is a capture beat — landed outright, never halting the driver
     # The loop's own first `next --json` read finds "confirm" resting with
     # REVIEW.md already written — a message rest with a
@@ -841,6 +899,76 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And "src/calc.ts" exists
     And the git log contains "chore: calculator done"
     And the log file matches "AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1"
+
+  Scenario: A refused --resume (retention expired) recovers via the driver's own || fallback
+    # The inverse of the scenario above: `session.resume` is hinted true (this
+    # is the SAME scope's second visit to `working`, after the check loop
+    # below sends it back once), but the remembered agent session is gone —
+    # retention expired, `~/.claude/projects` wiped — so `claude --resume`
+    # fails and the driver's own `||` falls back to `--session-id` on that
+    # SAME id instead of wedging. The stub simulates that symptom directly: it
+    # refuses every `--resume` call and only accepts `--session-id`, and
+    # deliberately writes an incomplete build on its first (`RESUME=0`) turn so
+    # a second `working` turn happens at all — that second turn is the one
+    # that carries `resume: true` and exercises the fallback.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": working
+                  "M .gtd/FEEDBACK.md": working
+                  "D .gtd/FEEDBACK.md": done
+                  "C": done
+              done:
+                commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      echo "AGENT SESSION=${GTD_LOOP_SESSION_ID} RESUME=${GTD_LOOP_MEMORY_RESUME}"
+      if [ "$GTD_LOOP_MEMORY_RESUME" = "1" ]; then
+        echo "gtd-loop test stub: no conversation found with session id" >&2
+        exit 1
+      fi
+      mkdir -p src
+      if [ -f .git/testmarker ]; then
+        echo 'export const add = (a, b) => a + b' > src/calc.ts
+      else
+        echo 1 > .git/testmarker
+        echo 'export const subtract = (a, b) => a - b' > src/calc.ts
+      fi
+      """
+    And the driver pasted from README.md
+    When I run the README driver
+    Then it succeeds
+    And the log file contains "gtd-loop test stub: no conversation found with session id"
+    And "src/calc.ts" exists
+    And the git log contains "chore: calculator done"
+    And the log file matches "AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1[\s\S]*AGENT SESSION=\1 RESUME=0"
 
   Scenario: A still-red suite with byte-identical output escalates instead of false-greening into review
     # Drives the REAL bundled unified template (not a custom .gtdrc) through
