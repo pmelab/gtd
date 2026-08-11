@@ -56,7 +56,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       Build a calculator.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
     When I run gtd next with "--json"
