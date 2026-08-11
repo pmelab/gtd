@@ -13,7 +13,7 @@
  * commit states), and an optional `retry` cap. A `WorkflowDefinition`
  * separately declares `entries` — the state names a process may START at
  * (`default`, plus `manual` — every state declaring `entry: true`, enterable
- * via `gtd step <actor> --entry <state>`). A definition
+ * via `gtd --entry <state>`). A definition
  * may also declare `modes:` —
  * named pairs of format/validate shell commands a state's `mode:` can point
  * at (see `ModeDef`); they are inert data here too, rendered and executed
@@ -78,7 +78,7 @@ export {
  * template context plus `it.file` (the rendered steering-file path — see
  * `PatternTemplates.ModeCommandContext`), and both are entirely EDGE concerns:
  * the pure engine never renders or executes either (`src/SteeringMode.ts`
- * does, for `gtd validate` and the `gtd step` capture gate). At least one of
+ * does, for `gtd validate` and the `gtd land` capture gate). At least one of
  * the two must be declared; the halves resolve INDEPENDENTLY, so declaring one
  * leaves the other at whatever the layer beneath provides (a built-in
  * validator, or nothing at all).
@@ -105,7 +105,7 @@ export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
  * is always a value. `manual` is every OTHER state a process may start at:
  * every state that declared `entry: true` in the source config, qualified and
  * sorted by the compiler, empty when the workflow declares none. A manual
- * entry is reached via `gtd step <actor> --entry <state>` (`src/program.ts`)
+ * entry is reached via `gtd --entry <state>` (`src/program.ts`)
  * — a DELIBERATE, distinct starting point from `default` (e.g. a review or a
  * fix process that begins somewhere other than the ordinary rest).
  * `validateDefinition`'s `validateEntries` guarantees `default` and every
@@ -202,7 +202,7 @@ const TRANSITION_SEP = " → "
  * state being ENTERED and `<from>` the state the authored changes were made
  * in, so the subject reads as what this commit DID, not just where the machine
  * is headed. `from` is optional: when it is omitted or equals `to` (a
- * self-loop, or a manual entry like `gtd step <actor> --entry <state>` that
+ * self-loop, or a manual entry like `gtd --entry <state>` that
  * has no meaningful source), the subject collapses to the bare
  * `gtd(<actor>): <to>` form.
  * `resolveState` reads back only `<to>` — the ` → ` prefix is human context.
@@ -869,8 +869,8 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
  * `retry.otherwise` redirects (a redirect ENTERS its `otherwise` state exactly
  * like an `on` match enters its target — see `applyRetry` — so both are real
  * edges). The roots are `def.entries` — `default` PLUS every state named in
- * `entries.manual`: a manual entry is entered directly (`gtd step <actor>
- * --entry <state>`), so a state reachable only from one of them is
+ * `entries.manual`: a manual entry is entered directly (`gtd --entry
+ * <state>`), so a state reachable only from one of them is
  * legitimately reachable, not dead config (without seeding them, e.g. a
  * manual entry whose only inbound path is `--entry` would be wrongly
  * flagged). Plain BFS; targets naming undefined states are skipped here (they

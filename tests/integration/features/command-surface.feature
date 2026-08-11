@@ -1,12 +1,14 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v3 exposes `init`, `step <actor>` (with `--entry <state>`), `abandon`,
-  `restore`, `next`, `status`, `validate`, `check <mode> <file>`, `lsp`,
-  `visualize`, `version`, and `help` as its subcommands. Bare `gtd` (no
-  subcommand) is a usage error unless `--entry <state>` is given. `--help`/
-  `help` and `--version`/`version` short-circuit before any repo-state work
-  and exit 0 everywhere, including outside a workflow state.
+  gtd v3 exposes `init`, `land` (with `--cost=<n>`/`--model=<name>`),
+  `abandon`, `restore`, `next`, `status`, `validate`, `check <mode> <file>`,
+  `lsp`, `visualize`, `version`, and `help` as its subcommands. `--entry
+  <state>` is only the bare form (no command at all) — landing and entering
+  are different verbs. Bare `gtd` (no subcommand) is a usage error unless
+  `--entry <state>` is given. `--help`/`help` and `--version`/`version`
+  short-circuit before any repo-state work and exit 0 everywhere, including
+  outside a workflow state.
 
   Scenario: Bare gtd fails with usage help and authors nothing
     Given a test project
@@ -47,7 +49,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with "--help"
     Then it succeeds
     And stdout contains "init "
-    And stdout contains "step <actor>"
+    And stdout contains "land"
     And stdout contains "--entry <state>"
     And stdout contains "--var"
     And stdout contains "abandon"
@@ -72,7 +74,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Given a test project
     When I run gtd with args "help"
     Then it succeeds
-    And stdout contains "step <actor>"
+    And stdout contains "land"
 
   Scenario: --help exits 0 outside any workflow state
     Given a test project
@@ -124,8 +126,8 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout contains "\"state\":\"error\""
     And stderr matches "^gtd: [^\n]*\n$"
 
-  Scenario: gtd step human --entry --json fails with --entry requires a value
+  Scenario: gtd --entry --json fails with --entry requires a value
     Given a test project
-    When I run gtd with args "step human --entry --json"
+    When I run gtd with args "--entry --json"
     Then it fails
     And stderr contains "--entry requires a value"

@@ -632,7 +632,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
                 message: |
                   Decide what to do next.
 
-                  What each change does next (then run `gtd step human`):
+                  What each change does next (then run `gtd land`):
                   <% it.edges.forEach(function (e) { if (e.describe) { %>
                   <%~ "- " + e.describe + "\n" %>
                   <% } }) %>
@@ -653,7 +653,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "What each change does next (then run `gtd step human`):"
+    And stdout contains "What each change does next (then run `gtd land`):"
     And stdout contains "- Change nothing to accept the current state and proceed."
     And stdout contains "- Change any source file to leave feedback and start another round."
     When I run gtd next with "--json"
@@ -706,7 +706,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"log\":\"/tmp/run.log\""
-  Scenario: gtd step --json reports settled at a script rest that matched nothing
+  Scenario: gtd land --json reports settled at a script rest that matched nothing
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -732,11 +732,11 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd step check with "--json"
-    Then it succeeds
+    When I run gtd land with "--json"
+    Then it settles
     And stdout contains "\"settled\":true"
 
-  Scenario: gtd step --json reports settled false at a prompt rest that matched nothing
+  Scenario: gtd land --json reports settled false at a prompt rest that matched nothing
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -762,11 +762,11 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd step agent with "--json"
+    When I run gtd land with "--json"
     Then it succeeds
     And stdout contains "\"settled\":false"
 
-  Scenario: gtd step --json reports settled for a green re-entry that collapses back to the initial state
+  Scenario: gtd land --json reports settled for a green re-entry that collapses back to the initial state
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -790,8 +790,8 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
     And I record the commit count
     And an empty commit "gtd(check): checking"
-    When I run gtd step check with "--json"
-    Then it succeeds
+    When I run gtd land with "--json"
+    Then it settles
     And stdout contains "\"settled\":true"
     And the commit count is unchanged
     And the git log does not contain "gtd("

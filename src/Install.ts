@@ -16,16 +16,19 @@ export const MINIMAL_DRIVER = `#!/usr/bin/env bash
 set -euo pipefail
 
 # The bundle plans; this executes. Emitted scripts print their own outcomes.
-gtd_do() {
-  local json
-  json="$(gtd "$@" --json)" || return 1
+# Exit 3 means SETTLED — nothing owed — so this exits the whole driver at 0.
+gtd_land() {
+  local json code=0
+  json="$(gtd land --json)" || code=$?
+  [ "$code" = 0 ] || [ "$code" = 3 ] || return "$code"
   bash -c "$(jq -r '.required // empty' <<<"$json")" || return $?
   bash -c "$(jq -r '.optional // empty' <<<"$json")" ||
     echo "warn: presentation follow-up failed — continuing" >&2
-  GTD_STEP_JSON="$json"
+  [ "$code" = 3 ] && exit 0
+  return 0
 }
 
-gtd_do step human --if-resting # capture your pending edit, or resume
+gtd status --json | jq -e '(.changes|length) > 0 and .next != null' >/dev/null && gtd_land
 
 while :; do
   next="$(gtd next --json)" || exit 1
@@ -52,8 +55,7 @@ while :; do
           >>"$log" 2>&1 # $out IS the fix prompt, verbatim
       done ;;
   esac
-  gtd_do step "$(jq -r .actor <<<"$next")" || exit 1
-  jq -e .settled <<<"$GTD_STEP_JSON" >/dev/null && exit 0
+  gtd_land || exit 1
 done`
 
 const HEADER = (): string =>
@@ -103,11 +105,13 @@ Every field below is always present unless marked "when set".
   be) and, when the state declares a validatable steering file, \`validate\`
   (the same script \`gtd validate --json\`'s \`.script\` emits, embedded)
 
-### \`gtd step --json\` (also \`--entry\`)
+### \`gtd land --json\` (also \`--entry\`)
 
-\`state\`, \`subject\` (\`null\` on a no-op), \`required\`, \`optional\`, \`settled\`;
-\`cost\`/\`model\` when recorded. \`--entry\` omits \`settled\` — read it as
-\`.settled // false\`.
+\`state\`, \`subject\` (\`null\` on a no-op), \`script\` (the combined form —
+\`required\` verbatim, \`optional\` wrapped non-fatally, so a
+\`jq -r .script | bash\` driver needs one \`bash\` call, not two), \`required\`,
+\`optional\`, \`settled\`; \`cost\`/\`model\` when recorded. \`--entry\` omits
+\`settled\` — read it as \`.settled // false\`.
 
 ### \`gtd abandon\`/\`gtd restore --json\`
 
@@ -123,36 +127,53 @@ fix prompt, verbatim.
 
 \`{"state":"error","prompt":"<message>"}\` on stdout, plus a single \`gtd: \`
 line on stderr, exit 1 — this covers usage errors and defects too.
+
+### Exit codes (\`gtd land\` only — every other command is plain 0/1)
+
+| code | meaning                                                              |
+| ---- | --------------------------------------------------------------------- |
+| 0    | a script was emitted (capture, turn, attempt, squash), or a benign no-op at a clean \`message\` rest |
+| 3    | SETTLED — nothing owed: a no-op at a \`script\` rest, or the initial-state collapse. stdout still carries a script (a print-only note, or the collapse's real retain+rewind) — run it |
+| 1    | refusal or usage error — nothing was emitted                          |
+
+With \`set -o pipefail\`, \`gtd land | bash\` propagates gtd's own exit code
+through the pipe.
 `
 
 const DRIVER_OBLIGATIONS = `
 ## Driver obligations, in order
 
-1. Opening move: run \`gtd step human --if-resting\`, unconditionally, before
-   you know whose turn it is.
-2. Read exactly one \`gtd next --json\` beat document per iteration.
-3. A \`kind: "stalled"\` beat halts the driver with a non-zero exit.
-4. Run scripts with their output appended to \`.log\` — gtd never creates or
+1. Read exactly one \`gtd next --json\` beat document per iteration. There is
+   no opening move: a human's pending edit arrives as a \`kind: "capture"\`
+   beat, which you land immediately without executing anything.
+2. A \`kind: "stalled"\` beat halts the driver with a non-zero exit; a
+   \`kind: "message"\` beat prints \`content\` and exits 0.
+3. Run scripts with their output appended to \`.log\` — gtd never creates or
    truncates that file itself; truncate it once per run. \`$GTD_LOOP_LOG\`
    overrides its path.
-5. Map \`.session.id\`/\`.session.resume\` onto the agent CLI's own session
+4. Map \`.session.id\`/\`.session.resume\` onto the agent CLI's own session
    flags — try \`resume\`'s hinted flag first and fall back to the other on
    failure (\`resume\` is a hint, not a contract: nothing is stored, so a
    crashed prior turn or an expired agent session recovers by itself).
-6. After a \`prompt\` beat, run the document's own \`.validate\` script (when
+5. After a \`prompt\` beat, run the document's own \`.validate\` script (when
    present) and re-prompt its output verbatim on failure — the DRIVER owns
    the retry cap, not gtd.
-7. Run \`gtd step <actor> --json\`, then execute its \`required\` (always) and
+6. Land only a beat you acted on (\`capture\`/\`script\`/\`prompt\`) — a stray
+   \`gtd land\` at a clean \`prompt\` rest authors an empty attempt on purpose
+   (that IS the stall bookkeeping), so don't land beats you didn't dispatch.
+7. Run \`gtd land --json\`, then execute its \`required\` (always) and
    \`optional\` (presentation only — its failure is a warning, not a halt).
-8. \`.settled\` exits 0 — there is nothing left to do.
+8. Exit 3 (SETTLED) means there is nothing left to do — run the script first,
+   then stop; exit 0 continues the loop.
 `
 
 const RECOVERY = `
 ## Recovery
 
-gtd itself exiting non-zero means nothing was attempted — a refusal or a
-usage error. An emitted script exiting non-zero when YOU run it means
-something MAY have partially happened. Both recover the same way:
+gtd exiting 1 means nothing was attempted — a refusal or a usage error. Exit
+3 is NOT a failure: it means SETTLED (nothing owed), and stdout still carries
+a script to run. An emitted script exiting non-zero when YOU run it means
+something MAY have partially happened. All three recover the same way:
 re-invoke gtd. It re-reads the real repository state fresh every time, and
 every emitted script asserts its own HEAD precondition, so a script generated
 against a repository state that has since moved refuses loudly instead of

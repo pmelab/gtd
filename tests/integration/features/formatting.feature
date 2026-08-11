@@ -7,7 +7,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
   files use — a top-level `.gtdrc` `modes:` key layered over the configured
   workflow is enough, without re-declaring that mode on the workflow itself
   (see docs/configuration.md's "modes:" section). Formatting runs where
-  validation runs: `gtd validate`, and the `gtd step` capture gate.
+  validation runs: `gtd validate`, and the `gtd land` capture gate.
 
   A git `pre-commit` hook remains a perfectly good alternative, and the last
   scenarios pin that it still works — gtd never fights it.
@@ -101,7 +101,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       A plan. This answer line is deliberately far longer than eighty characters so that the formatter has to rewrap it before the turn is captured.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): grilling-answer → grilling"
     And ".gtd/TODO.md" has no lines longer than 80 characters
@@ -164,7 +164,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       This is a deliberately long single prose line for the plan file that clearly exceeds the eighty character print width.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
     And ".gtd/TODO.md" has no lines longer than 80 characters
@@ -186,7 +186,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       A plan. This edited line is deliberately far longer than eighty characters so the formatter has to rewrap it before the turn is captured.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): plan.await-plan → plan.planning"
     And ".gtd/TODO.md" has no lines longer than 80 characters

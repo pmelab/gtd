@@ -39,7 +39,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       brand new
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → added"
 
@@ -79,7 +79,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       changed content
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → modified"
 
@@ -116,7 +116,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       seed content
       """
     And the file "NOTE.md" is deleted
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → deleted"
 
@@ -144,7 +144,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       brand new
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → any-change"
 
@@ -172,7 +172,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       nested
       """
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     And stderr contains "no declared pattern matches"
     And stderr contains ".gtd/*"
@@ -201,7 +201,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       nested
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → deep"
 
@@ -233,7 +233,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       brand new
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → first-match"
 
@@ -257,7 +257,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
                 actor: human
                 message: "clean"
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → settled"
 
@@ -282,6 +282,6 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
                 message: "..."
       """
     And I record the commit count
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the commit count is unchanged

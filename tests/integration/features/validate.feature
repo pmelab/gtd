@@ -198,7 +198,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       The human deleted the question text.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     # The step's own required script runs the same validation ahead of its
     # commit, so the refusal is the checker's findings and a non-zero exit —
@@ -218,7 +218,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       Build a thing. Plan: add src/thing.ts exporting `thing`, with a named
       export only.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.product-answer → design.product-author"
 

@@ -25,18 +25,21 @@ export type Tier = "live" | "inmem"
 /**
  * The tokens whose command no longer performs its git effect itself but
  * PRINTS it as a `required`/`optional` script pair for a driver to run
- * (`step`, `abandon`, `restore`, and the bare `gtd --entry <state>` short
- * form). `--entry`'s long form (`gtd step --entry <state>`) is already
- * covered by the `step` token in front of it. Everything else is a read
- * command with nothing to drive.
+ * (`land`, `abandon`, `restore`, and the bare `gtd --entry <state>` short
+ * form — the only form `--entry` has: landing and entering are different
+ * verbs, so `gtd land --entry <state>` is a usage error, not a write command
+ * of its own). Everything else is a read command with nothing to drive.
  */
-const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["step", "abandon", "restore", "--entry"])
+const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore", "--entry"])
 
 /** `--entry` takes both spellings (`--entry <state>` and `--entry=<state>`), so the bare short form has to be recognized either way. */
 const isWriteCommand = (args: readonly string[]): boolean => {
   const first = args[0] ?? ""
   return WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--entry=")
 }
+
+/** `gtd land`'s two drivable exit codes — 0 (ordinary) and 3 (SETTLED, still carrying a script to run) — as opposed to a genuine refusal (1), which has nothing to drive. */
+const landExitDrivable = (exitCode: number): boolean => exitCode === 0 || exitCode === 3
 
 /** The one line of a possibly multi-document stdout that parses as a JSON object (`gtd check --json`'s failing shape emits two). */
 const firstJsonObject = (stdout: string): Record<string, unknown> | undefined => {
@@ -66,6 +69,16 @@ const execFailure = (err: unknown): EmittedRun => {
   return {
     exitCode: typeof e.code === "number" ? e.code : 1,
     output: (e.stdout ?? "") + (e.stderr ?? ""),
+  }
+}
+
+/** A rejected `execFile` promise, read back as a `GtdWorld.lastResult` (stdout/stderr kept separate, unlike `execFailure`'s combined `output`). */
+const execFailureResult = (err: unknown): { exitCode: number; stdout: string; stderr: string } => {
+  const e = err as { code?: unknown; stdout?: string; stderr?: string }
+  return {
+    exitCode: typeof e.code === "number" ? e.code : 1,
+    stdout: e.stdout ?? "",
+    stderr: e.stderr ?? "",
   }
 }
 
@@ -133,7 +146,7 @@ export class GtdWorld extends QuickPickleWorld {
   }
   /**
    * The combined output of the `required`/`optional` scripts the last write
-   * command (`step`/`--entry`/`abandon`/`restore`) drove — distinct from
+   * command (`land`/`--entry`/`abandon`/`restore`) drove — distinct from
    * `lastResult.stdout`, which carries gtd's OWN plain-text line, not what a
    * driven script printed. Only meaningful on the LIVE tier: a script's
    * outcome lines (`src/OutcomeScript.ts`'s `gtd_report_*` calls) are printed
@@ -178,11 +191,13 @@ export class GtdWorld extends QuickPickleWorld {
    * Invoke the command exactly as the scenario asked (so `lastResult` carries
    * gtd's own wording and exit code verbatim), then drive whatever it
    * emitted. A read command (`next`, `status`, `visualize`, `lsp`, `check`,
-   * `init`) emits nothing and falls straight through.
+   * `init`) emits nothing and falls straight through. Exit 3 (`gtd land`'s
+   * SETTLED signal) still carries a script to run — same as exit 0 — so the
+   * guard below tolerates both; only a genuine refusal (exit 1) skips driving.
    */
   async runGtd(...args: string[]): Promise<void> {
     await this.invokeGtd(...args)
-    if (this.lastResult.exitCode !== 0) return
+    if (!landExitDrivable(this.lastResult.exitCode)) return
     if (isWriteCommand(args)) await this.driveWriteCommand(args)
     else if (args[0] === "validate") await this.driveValidateCommand(args)
   }
@@ -205,6 +220,7 @@ export class GtdWorld extends QuickPickleWorld {
    * now a pure read, so asking twice against an unchanged repo answers
    * identically. Returns `undefined` when the probe itself failed (a refusal
    * the first invocation already reported) — there is nothing to drive then.
+   * Exit 3 (SETTLED) is not a failure — its script must still run.
    */
   private async emittedJson(args: string[]): Promise<Record<string, unknown> | undefined> {
     if (args.includes("--json")) return firstJsonObject(this.lastResult.stdout)
@@ -212,11 +228,11 @@ export class GtdWorld extends QuickPickleWorld {
     await this.invokeGtd(...args, "--json")
     const probe = this.lastResult
     this.lastResult = reported
-    return probe.exitCode === 0 ? firstJsonObject(probe.stdout) : undefined
+    return landExitDrivable(probe.exitCode) ? firstJsonObject(probe.stdout) : undefined
   }
 
   /**
-   * `step`/`--entry`/`abandon`/`restore`: run `required` (the commit, reset,
+   * `land`/`--entry`/`abandon`/`restore`: run `required` (the commit, reset,
    * ref update, review-window close/open — everything that decides what lands
    * in git), then `optional` (presentation only, so a non-zero exit there is
    * ignored exactly as the README's minimal driver ignores it). gtd's own
@@ -335,6 +351,29 @@ export class GtdWorld extends QuickPickleWorld {
         process.stderr.write(stderr)
       }
       this.lastResult = { exitCode, stdout, stderr }
+    }
+  }
+
+  /**
+   * `@live` only: `gtd land | bash` — the ONE-LINE landing form the whole
+   * package exists for, run as a REAL shell pipe (not this world's own
+   * `driveWriteCommand` machinery) so `set -o pipefail` propagating gtd's own
+   * exit code through the pipe is proven, not assumed. `lastResult.exitCode`
+   * is the pipe's own status (`$?` right after it), so `it settles`/
+   * `it succeeds` read it exactly like any other invocation.
+   */
+  async runGtdLandPiped(): Promise<void> {
+    const pipeline = `set -o pipefail; ${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)} land | bash`
+    try {
+      const { stdout, stderr } = await execFile("bash", ["-c", pipeline], {
+        cwd: this.repoDir,
+        env: this.spawnEnv(),
+        encoding: "utf-8",
+        timeout: 30_000,
+      })
+      this.lastResult = { exitCode: 0, stdout, stderr }
+    } catch (err: unknown) {
+      this.lastResult = execFailureResult(err)
     }
   }
 

@@ -107,7 +107,7 @@ export interface GitWriterOperations {
    * path can net an empty commit — neither must throw "nothing to commit".
    * `message` is normally the bare `gtd(<actor>): <state>` subject, but may
    * carry a trailing body (a blank line then a `Gtd-Cost: <n>` trailer when
-   * `gtd step --cost=<n>` recorded one) — `-m` preserves embedded newlines
+   * `gtd land --cost=<n>` recorded one) — `-m` preserves embedded newlines
    * verbatim, and the subject line is untouched.
    */
   readonly commitAllWithPrefix: (message: string) => Effect.Effect<void, Error>

@@ -90,8 +90,9 @@ states:
     entry: true # optional — an extra `gtd --entry <state>` reachability root (see below)
 ```
 
-`actor` is a **plain string** — no closed vocabulary. `gtd step <actor>`
-authenticates against it, and it becomes the commit subject
+`actor` is a **plain string** — no closed vocabulary. `gtd land` resolves the
+resting state's own declared actor and authenticates as it automatically (no
+caller-supplied actor argument), and it becomes the commit subject
 `gtd(<actor>): <from> → <to>`. Common actors: `human`, `agent`, `check`. Invent
 your own freely; the set of valid actors is derived from what your states
 declare.
@@ -121,14 +122,14 @@ position in the tree), not two references to a shared, reusable machine.
 ### Content kinds — exactly one per state
 
 - **`prompt`** — instructions for an agent. The driver hands `content` to the
-  agent; the agent acts, then the driver runs `gtd step <actor>`.
+  agent; the agent acts, then the driver runs `gtd land`.
 - **`script`** — a shell script the DRIVER runs verbatim via `bash`, then steps
   the actor to capture whatever the script left in the tree. gtd never executes
   it itself. Used for checks (run tests, write a findings file). Mechanics only
   — the _meaning_ of the result is decided by this state's `on` patterns, never
   by the script's exit code.
 - **`message`** — text for a human. Drivers halt here; the human edits files and
-  runs `gtd step <actor>`.
+  runs `gtd land`.
 - **`commit`** — a squash-commit message template. A state with `commit:` is
   **final**: it has NO `actor`, NO `on`, and no `file`/`mode`/`review*` — nor
   does it ever receive its machine's `model:` stamp (that's only stamped onto
@@ -163,15 +164,15 @@ on:
 
 ### Three step outcomes you are designing for
 
-At `gtd step <actor>`, the engine decides:
+At `gtd land`, the engine decides:
 
 - **Commit** — a pattern fired: everything pending is committed as
   `gtd(<actor>): <from> → <target>` (the state stepped from, then the matched
   target) and the machine advances.
 - **No-op** — clean tree AND no `C` row, at a `script`/`message` state: zero
   commits, exit 0. This is the **default and it is deliberate** — the loop opens
-  each iteration with a step before the actor has acted, so a clean step must
-  author nothing unless you explicitly declare a `C` row.
+  each iteration with `gtd land` before the actor has acted, so a clean step
+  must author nothing unless you explicitly declare a `C` row.
 - **Attempt** — clean tree AND no `C` row, at a `prompt` state: an EMPTY
   `gtd(<actor>): <state>` commit lands instead of a no-op — a fruitless agent
   dispatch costs money and must be remembered across restarts, unlike a
@@ -243,12 +244,12 @@ ship in a single-file build); a user's own `.gtdrc` may use `./` refs.
 - Built-in modes: **`qa`** (open-questions format, `## Open Questions` /
   `## Answered Questions` sections with free-form `###` question bodies) and
   **`review`** (checkbox review format). gtd parses these in-process for
-  `gtd validate`, the `gtd step` capture gate, and `gtd lsp` diagnostics.
+  `gtd validate`, the `gtd land` capture gate, and `gtd lsp` diagnostics.
 - Custom modes: declare a `modes:` entry with a `format:` and/or `validate:`
   shell command (each an Eta template over the state context plus `it.file`, run
   via `bash -c`; exit 0 = valid). A state's `mode:` may then name it.
 
-A state that declares `file:`+`mode:` is gated on capture: `gtd step` formats
+A state that declares `file:`+`mode:` is gated on capture: `gtd land` formats
 and validates the file and **refuses** to commit a malformed one. This runs for
 agent drafts and human edits alike, so downstream gates only ever see
 well-formed files. It is a no-op when the file is absent.
@@ -358,9 +359,9 @@ surfaces compile/validation errors — but two commands are best for authoring:
 (qa/review), not the workflow definition.
 
 To sanity-check behavior end to end, in a scratch repo make a change the state's
-`on` expects and run `gtd step <actor>`, then `gtd next --json` to see where it
-landed. Then update the README / any docs describing the workflow if the change
-is user-facing.
+`on` expects and run `gtd land`, then `gtd next --json` to see where it landed.
+Then update the README / any docs describing the workflow if the change is
+user-facing.
 
 ## Worked example: add an approval gate before building
 
@@ -383,7 +384,7 @@ states:
     message: |
       The plan in `<%= it.vars.todoFile %>` is ready. Approve to build.
 
-      What each change does next (then run `gtd step human`):
+      What each change does next (then run `gtd land`):
       <% it.edges.forEach(function (e) { if (e.describe) { %>
       <%~ "- " + e.describe + "\n" %>
       <% } }) %>

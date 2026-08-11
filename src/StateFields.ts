@@ -359,7 +359,7 @@ const STATE_FIELDS = {
    * A STRING is a different shape entirely: an Eta template rendering a
    * commitish. Entering that state fixes the WHOLE PROCESS's diff base to the
    * rendered value (not a window anchor) — this is how a manual entry (e.g.
-   * `gtd step <actor> --entry review --base <commitish>`) pins what the rest
+   * `gtd --entry review --base <commitish>`) pins what the rest
    * of the process diffs against. Rendering the template happens at the edge,
    * not here — this module only carries the raw string and, per
    * `isReviewBaseState`, a string value is NEVER treated as the `true`/
@@ -422,7 +422,7 @@ const STATE_FIELDS = {
 
   /**
    * Authoring-only: an EXTRA reachability root (`WorkflowEntries.manual`),
-   * enterable via `gtd step <actor> --entry <this state's qualified name>`.
+   * enterable via `gtd --entry <this state's qualified name>`.
    * Never lands on the compiled `StateDef` — `compileState` validates its
    * shape but discards the result; `compileWorkflowConfig` reads the RAW
    * `entry: true` flag directly off each qualified state to build

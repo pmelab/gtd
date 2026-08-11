@@ -115,7 +115,7 @@ any OTHER name (including `prose`) needs its own `modes:` entry, or
   `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
   every entry), `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
   (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
-  `if-resting.feature` (`gtd step <actor> --if-resting`))
+  `land.feature` (the exit-code contract: 0/3/settled/1))
 
 MACHINES, not individual states, are the unit of conversational identity: a
 machine's own `model:` stamps every one of its `prompt` states, and its memory
@@ -170,8 +170,8 @@ is a steering-file mode's own `format:`/`validate:` command.
 Mechanics belong in the script; which `on` pattern the resulting diff matches is
 the only thing that decides the outcome. In e2e, simulate a check's outcome by
 writing the output file (e.g. `Given a file "FEEDBACK.md" with:`) and running
-`gtd step check` — `@inmem` scenarios never execute scripts; only `@live`
-scenarios actually run them.
+`gtd land` — `@inmem` scenarios never execute scripts; only `@live` scenarios
+actually run them.
 
 ## CLI design
 
@@ -210,16 +210,16 @@ parser, one envelope. The table is the source of truth, not prose:
   a rule re-deriving it after the fact
 - **No matching pattern on a clean tree = a no-op invocation** (zero commits) at
   a `script`/`message` rest — inert empty steps are the DEFAULT there; the loop
-  protocol opens each iteration with `gtd step <actor>` before the actor has
-  acted, so a clean-tree step must author nothing unless the state explicitly
-  declares a `C` pattern. A `prompt` rest is the ONE exception: a clean tree
-  with no `C` row there commits an EMPTY `gtd(<actor>): <state>` ATTEMPT instead
-  of a no-op (`PatternMachine.step`'s `attempt: true`, `StepCommit`'s own doc
-  comment) — a fruitless agent dispatch costs money and must be remembered
-  across restarts (`Edge.ts`'s `stalledAt`), unlike a fruitless check/gate. When
-  adding a state, decide explicitly whether its clean step is a signal (declare
-  a `C` row), an attempt (a `prompt` state's default), or a no-op (a
-  `script`/`message` state declaring no `C` row)
+  protocol opens each iteration with `gtd land` before the actor has acted, so a
+  clean-tree step must author nothing unless the state explicitly declares a `C`
+  pattern. A `prompt` rest is the ONE exception: a clean tree with no `C` row
+  there commits an EMPTY `gtd(<actor>): <state>` ATTEMPT instead of a no-op
+  (`PatternMachine.step`'s `attempt: true`, `StepCommit`'s own doc comment) — a
+  fruitless agent dispatch costs money and must be remembered across restarts
+  (`Edge.ts`'s `stalledAt`), unlike a fruitless check/gate. When adding a state,
+  decide explicitly whether its clean step is a signal (declare a `C` row), an
+  attempt (a `prompt` state's default), or a no-op (a `script`/`message` state
+  declaring no `C` row)
 - A dirty tree matching no declared pattern is a **refusal**, not a no-op —
   distinguish "nothing happened" (clean, no `C` row) from "something happened
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`

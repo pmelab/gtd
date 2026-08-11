@@ -46,7 +46,7 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       """
       the renamed output
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → captured"
 
@@ -87,7 +87,7 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       """
       written at the stale default path
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     And stderr contains "RENAMED.md"
 
@@ -128,7 +128,7 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       the env-repointed output
       """
     And an environment variable "GTD_OUTFILE" set to "ENV_OUT.md"
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → captured"
 

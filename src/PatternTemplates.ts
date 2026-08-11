@@ -72,7 +72,7 @@ export interface TemplateContext {
   /**
    * The total token cost accumulated over the current process: the sum of
    * every `Gtd-Cost:` trailer on the process's turn commits (recorded by
-   * `gtd step <actor> --cost=<n>`), plus the cost of the in-flight step when
+   * `gtd land --cost=<n>`), plus the cost of the in-flight step when
    * one is being performed (so a `commit:` squash template rendered against
    * the PENDING tree sees the whole-process total, including the squashing
    * step itself). `0` when nothing has been recorded. Always a number —

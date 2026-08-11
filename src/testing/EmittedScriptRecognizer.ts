@@ -5,7 +5,7 @@
  * printing a script instead of writing git directly. This is `world.ts`'s
  * ONE bridge from a `gtd`-emitted `required`/`optional` script back onto the
  * fake repo — it exists so a scenario asserting on `gitLog()`/`gitStatus()`/
- * etc. after a plain (non-`--json`) `gtd step`/`gtd --entry` keeps working
+ * etc. after a plain (non-`--json`) `gtd land`/`gtd --entry` keeps working
  * once that command stops writing git itself and starts only PRINTING what a
  * driver should run.
  *

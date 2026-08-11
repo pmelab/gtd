@@ -2,10 +2,10 @@
 Feature: gtd --entry fix-precheck — start a process that goes straight into repairing failing tests
 
   The bundled unified template declares `entry: true` on `fix-precheck`.
-  `gtd --entry fix-precheck` (short for `gtd step human --entry fix-precheck`)
-  starts a BRAND NEW process there — resting at the initial state is required,
-  but the working tree need not be clean: whatever it carries is CAPTURED into
-  the entry commit (`commitAllWithPrefix`), exactly like an ordinary `gtd step`.
+  `gtd --entry fix-precheck` (always authenticated as `human`) starts a BRAND
+  NEW process there — resting at the initial state is required, but the
+  working tree need not be clean: whatever it carries is CAPTURED into the
+  entry commit (`commitAllWithPrefix`), exactly like an ordinary `gtd land`.
   It writes one `gtd(human): fix-precheck` entry commit (no `Gtd-Review-Base:`
   trailer: a fix reviews its own fixes from the ordinary process start).
   `fix-precheck` runs the suite: a red run drops straight into the shared
@@ -30,9 +30,9 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     And the last commit subject is "gtd(human): fix-precheck"
     # A clean tree at the gate = tests pass = nothing to fix -> idle. The
     # empty entry commit and the no-op check are collapsed away entirely — a
-    # no-op probe must never dirty the log.
-    When I run gtd step check
-    Then it succeeds
+    # no-op probe must never dirty the log. The collapse itself SETTLES.
+    When I run gtd land
+    Then it settles
     And the commit count is unchanged
     And the git status is clean
     And the git log does not contain "gtd("
@@ -46,7 +46,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
       """
       1 test failing
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): fix-precheck → build.fix"
     # fixing: the agent addresses the feedback and deletes it.
@@ -55,11 +55,11 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
       """
       export const repaired = true
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
     # A now-green check hands off to the shared review + squash tail.
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
 
@@ -78,7 +78,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
       """
       a sketch
       """
-    And I run gtd step human
+    And I run gtd land
     And I record the commit count
     When I run gtd with args "--entry fix-precheck"
     Then it fails

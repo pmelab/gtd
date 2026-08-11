@@ -7,8 +7,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
   it, so it can rot silently. These scenarios extract the fenced block
   VERBATIM (see `tests/integration/helpers/readme-driver.ts`) and run it as
   the driver under test, carrying every protocol behaviour `gtd-loop.feature`
-  proves for `bin/gtd` today — chained turns, the opening `--if-resting`
-  capture, settling vs. stalling, the self-validation gate and its fix cap,
+  proves for `bin/gtd` today — chained turns, the opening dirty-tree capture,
+  settling vs. stalling, the self-validation gate and its fix cap,
   check-script log redirection, and session continuity across laps. A real
   `claude` CLI is never invoked: a `claude` shim on $PATH translates the
   paste's own argv (-p, --session-id, --resume, --model,
@@ -147,10 +147,10 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
   Scenario: Captures the human's pending edit at the opening gate, so the human only runs the driver
     # The machine rests at the initial human gate `idle` (no gtd commit — the
     # test project's "chore: initial commit" resolves to the initial state)
-    # with an uncommitted NOTE.md sketch. The human never runs `gtd step
-    # human`: the paste's opening `gtd_do step human --if-resting` line
-    # captures the sketch (idle's `* **` -> working), then drives working ->
-    # checking -> done on its own.
+    # with an uncommitted NOTE.md sketch. The human never runs `gtd land`: the
+    # paste's opening `gtd status --json | jq -e ... && gtd_land` line sees
+    # the dirty tree, captures the sketch (idle's `* **` -> working), then
+    # drives working -> checking -> done on its own.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -209,11 +209,12 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
 
   Scenario: A mid-process restart resumes driving instead of failing at the opening capture
     # pmelab/gtd#168: a mid-process restart can leave the machine resting at a
-    # message-kind gate that is NOT the human's turn (an "announcing" step some
-    # other actor owns). The paste's unconditional `gtd_do step human
-    # --if-resting` no-ops here (it isn't the human's turn) instead of
-    # refusing and killing the run under `set -e`, so the loop below reaches
-    # its own message handling and halts cleanly instead of crashing.
+    # message-kind gate with a CLEAN tree (the process's own commit already
+    # landed it — nothing pending). The paste's opening
+    # `gtd status --json | jq -e '(.changes|length) > 0 and .next != null'`
+    # probe is false there, so it skips `gtd_land` entirely instead of
+    # authoring an attempt, and the loop below reaches its own message
+    # handling and halts cleanly.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """

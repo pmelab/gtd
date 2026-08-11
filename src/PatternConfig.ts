@@ -51,7 +51,7 @@ import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
  *         label: <string>     # optional, opaque display name — never on a commit state
  *         file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
  *         mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
- *         entry: true         # optional — an EXTRA reachability root (WorkflowEntries.manual), enterable via `gtd step <actor> --entry <this state's qualified name>`; distinct from the top-level `entry:` key above
+ *         entry: true         # optional — an EXTRA reachability root (WorkflowEntries.manual), enterable via `gtd --entry <this state's qualified name>`; distinct from the top-level `entry:` key above
  *       <local>: { machine: <name>, with: { ... } }       # a REFERENCE — instantiates <name> as a child, see src/Machines.ts
  * ```
  *

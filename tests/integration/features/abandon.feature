@@ -22,10 +22,10 @@ Feature: gtd abandon — end the process underway without completing it
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → plan-gate.check"
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
     When I run gtd with args "abandon"
@@ -50,9 +50,9 @@ Feature: gtd abandon — end the process underway without completing it
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     Given I mark the current commit as "tip"
     When I run gtd with args "abandon"
@@ -75,7 +75,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
     When I run gtd with args "--entry review-gate.check --var reviewBase=base"
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
@@ -87,7 +87,7 @@ Feature: gtd abandon — end the process underway without completing it
 
       - [ ] ./src/calc.ts#1 — new export
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     # await-review declares `reviewWindow: true`, so the window is open here.
     And the git ref "refs/worktree/gtd/review-head" exists
@@ -107,7 +107,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     When I run gtd with args "abandon --json"
     Then it succeeds

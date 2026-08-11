@@ -365,7 +365,7 @@ machines:
           The agent could not get the check to pass after repeated attempts.
           `<%= it.vars.feedbackFile %>` holds the last failing output.
 
-          What each change does next (then run `gtd step human`):
+          What each change does next (then run `gtd land`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>
           <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
           <% } }) %>
@@ -456,7 +456,7 @@ machines:
           with your text and tick that line. Stepping is refused while any question
           is unanswered.
 
-          What each change does next (then run `gtd step human`):
+          What each change does next (then run `gtd land`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>
           <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
           <% } }) %>
@@ -537,7 +537,7 @@ machines:
           with your text and tick that line. Stepping is refused while any question
           is unanswered.
 
-          What each change does next (then run `gtd step human`):
+          What each change does next (then run `gtd land`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>
           <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
           <% } }) %>
@@ -631,7 +631,7 @@ machines:
           is always the current, clean proposal, never a diff.
 
           Leave `<%= it.vars.todoFile %>` uncommitted and finish your turn — do
-          not commit, and do not run `gtd step agent` yourself; the harness does
+          not commit, and do not run `gtd land` yourself; the harness does
           that.
         on:
           "* **": await-plan
@@ -646,7 +646,7 @@ machines:
           then either accept it as-is or edit it — rewrite a step, add a
           constraint, or drop an inline comment — to send it back for another round.
 
-          What each change does next (then run `gtd step human`):
+          What each change does next (then run `gtd land`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>
           <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
           <% } }) %>
@@ -736,7 +736,7 @@ machines:
           (`- [x]`) as you review each hunk; ticking only records that you've read
           it, it is not sign-off.
 
-          When you've been through the whole diff, run `gtd step human`:
+          When you've been through the whole diff, run `gtd land`:
 
           - **Sign off** — tick EVERY box and leave no comment — no note in
             `<%= it.vars.reviewFile %>`, no code edit — to collapse the process into
@@ -1271,7 +1271,7 @@ machines:
             the ADVANCED flow (product + technical Q&A, package decomposition,
             parallel build, per-package agentic review).
 
-          What each change does next (then run `gtd step human`):
+          What each change does next (then run `gtd land`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>
           <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
           <% } }) %>
@@ -1329,7 +1329,7 @@ machines:
             The test baseline is red — gtd will not start new work on a broken suite.
             `<%= it.vars.feedbackFile %>` holds the failing output.
 
-            What each change does next (then run `gtd step human`):
+            What each change does next (then run `gtd land`):
             <% it.edges.forEach(function (e) { if (e.describe) { %>
             <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
             <% } }) %>
@@ -1351,7 +1351,7 @@ machines:
             The test baseline is red — gtd will not start new work on a broken suite.
             `<%= it.vars.feedbackFile %>` holds the failing output.
 
-            What each change does next (then run `gtd step human`):
+            What each change does next (then run `gtd land`):
             <% it.edges.forEach(function (e) { if (e.describe) { %>
             <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
             <% } }) %>
@@ -1373,7 +1373,7 @@ machines:
             The test baseline is red — gtd will not start a review on a broken suite.
             `<%= it.vars.feedbackFile %>` holds the failing output.
 
-            What each change does next (then run `gtd step human`):
+            What each change does next (then run `gtd land`):
             <% it.edges.forEach(function (e) { if (e.describe) { %>
             <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
             <% } }) %>

@@ -387,7 +387,6 @@ describe("enforceStepGuards", () => {
         file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
-        invoker: "agent",
         kind: "squash",
         attempt: false,
       }).pipe(
@@ -407,7 +406,6 @@ describe("enforceStepGuards", () => {
         file: noFile.stateDef.file,
         context: templateContext,
         changes: [],
-        invoker: "agent",
         kind: "commit",
         attempt: false,
       }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
@@ -423,7 +421,6 @@ describe("enforceStepGuards", () => {
         file: noGuard.stateDef.file,
         context: templateContext,
         changes: [],
-        invoker: "agent",
         kind: "commit",
         attempt: false,
       }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
@@ -431,14 +428,13 @@ describe("enforceStepGuards", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
   })
 
-  it("fails with the `gtd step <invoker>: ` prefix on a refusal, requiring only RepoFiles", async () => {
+  it("fails with the `gtd land: ` prefix on a refusal, requiring only RepoFiles", async () => {
     const exit = await Effect.runPromiseExit(
       enforceStepGuards({
         rest: answerState,
         file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
-        invoker: "agent",
         kind: "commit",
         attempt: false,
       }).pipe(
@@ -450,7 +446,7 @@ describe("enforceStepGuards", () => {
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
       const message = String(exit.cause)
-      expect(message).toContain("gtd step agent:")
+      expect(message).toContain("gtd land:")
     }
   })
 
@@ -484,7 +480,6 @@ describe("enforceStepGuards", () => {
         file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
-        invoker: "human",
         kind: "commit",
         attempt: false,
       }).pipe(

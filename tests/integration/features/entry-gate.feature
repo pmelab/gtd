@@ -20,11 +20,11 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → plan-gate.check"
     # A clean tree at the gate = tests pass = green -> planning.
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 
@@ -33,7 +33,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → plan-gate.check"
     # Simulate a red run: the check script left the failing output behind.
@@ -41,7 +41,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
       1 test failing: baseline broken
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan-gate.blocked"
     # The halt message tells the human the baseline is red and names the fix entry.
@@ -55,11 +55,11 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
       export const fixed = true
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): plan-gate.blocked → plan-gate.check"
     # Re-run the gate: now green -> planning.
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 
@@ -68,10 +68,10 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
       Build a widget with product requirements.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → spec-gate.check"
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): spec-gate.check → design.product-author"
 
@@ -80,13 +80,13 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
       Build a widget with product requirements.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → spec-gate.check"
     Given a file ".gtd/FEEDBACK.md" with:
       """
       compile error: baseline broken
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): spec-gate.check → spec-gate.blocked"

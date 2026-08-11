@@ -8,9 +8,9 @@ const execFile = promisify(execFileCb)
 
 // Actually executes a check-actor state's rendered script against the real
 // repo — the piece a driver performs (`bash -c "$content"`, exit code
-// ignored) before capturing the outcome via `gtd step <actor>`. Reads
+// ignored) before capturing the outcome via `gtd land`. Reads
 // `content` from the last `gtd next --json` result, so a scenario composes it
-// as: `gtd next --json` -> this step -> `gtd step check`. @live only: the bug
+// as: `gtd next --json` -> this step -> `gtd land`. @live only: the bug
 // class this exists to catch (issue #128) lives in the script's own shell
 // logic, which @inmem never runs (see AGENTS.md, review-feedback-guards.feature).
 When("I execute the printed check script", async (world: GtdWorld) => {

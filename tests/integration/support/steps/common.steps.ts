@@ -163,27 +163,31 @@ When("I run gtd with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd(arg)
 })
 
-When("I run gtd step {word}", async (world: GtdWorld, actor: string) => {
-  await world.runGtd("step", actor)
+When("I run gtd land", async (world: GtdWorld) => {
+  await world.runGtd("land")
 })
 
-When("I run gtd step {word} with {string}", async (world: GtdWorld, actor: string, arg: string) => {
-  await world.runGtd("step", actor, arg)
+When("I run gtd land with {string}", async (world: GtdWorld, arg: string) => {
+  await world.runGtd("land", arg)
 })
 
 When(
-  "I run gtd step {word} with {string} and {string}",
-  async (world: GtdWorld, actor: string, arg1: string, arg2: string) => {
-    await world.runGtd("step", actor, arg1, arg2)
+  "I run gtd land with {string} and {string}",
+  async (world: GtdWorld, arg1: string, arg2: string) => {
+    await world.runGtd("land", arg1, arg2)
   },
 )
 
 When(
-  "I run gtd step {word} with {string} and {string} and {string}",
-  async (world: GtdWorld, actor: string, arg1: string, arg2: string, arg3: string) => {
-    await world.runGtd("step", actor, arg1, arg2, arg3)
+  "I run gtd land with {string} and {string} and {string}",
+  async (world: GtdWorld, arg1: string, arg2: string, arg3: string) => {
+    await world.runGtd("land", arg1, arg2, arg3)
   },
 )
+
+When("I run gtd land piped to bash", async (world: GtdWorld) => {
+  await world.runGtdLandPiped()
+})
 
 When("I run gtd next", async (world: GtdWorld) => {
   await world.runGtd("next")
@@ -214,6 +218,17 @@ Then("it succeeds", (world: GtdWorld) => {
   assert.strictEqual(
     world.lastResult.exitCode,
     0,
+    `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
+  )
+})
+
+// `gtd land`'s SETTLED signal — exit 3, nothing owed. Distinct from `it
+// succeeds` (strictly 0): a settled landing's stdout still carries a script a
+// driver must run, but the exit code itself already says "stop, don't spin".
+Then("it settles", (world: GtdWorld) => {
+  assert.strictEqual(
+    world.lastResult.exitCode,
+    3,
     `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
   )
 })
