@@ -10,6 +10,7 @@ import {
   resolveRestFrom,
   renderRest,
   restAt,
+  stalledAt,
   UNATTRIBUTED_MODEL,
   type RestRequirements,
 } from "./Edge.js"
@@ -120,6 +121,7 @@ describe("reviewBaseFor", () => {
     trace,
     costEntries: [],
     entryVars: {},
+    headTurn: undefined,
   })
 
   it("falls back to run.diffBase when no in-process commit entered a reviewBase state", () => {
@@ -298,6 +300,35 @@ describe("currentRun", () => {
     )
     const run = await provide(currentRun, repo)
     expect(run.entryVars).toEqual({ base: "refs/heads/main", reviewer: "alice" })
+  })
+
+  describe("headTurn", () => {
+    it("fills in with an empty turn's own state and empty: true", async () => {
+      const { repo } = seededTraceRepo()
+      repo.commitAllWithPrefix("gtd(agent): building") // no files touched
+      const run = await provide(currentRun, repo)
+      expect(run.headTurn).toEqual({ state: "building", empty: true })
+    })
+
+    it("reports empty: false for a turn that actually changed something", async () => {
+      const { repo } = seededTraceRepo()
+      repo.writeFile("NOTES.md", "hi\n")
+      repo.commitAllWithPrefix("gtd(agent): building")
+      const run = await provide(currentRun, repo)
+      expect(run.headTurn).toEqual({ state: "building", empty: false })
+    })
+
+    it("is undefined for a foreign/unparseable HEAD subject", async () => {
+      const { repo } = seededTraceRepo()
+      const run = await provide(currentRun, repo)
+      expect(run.headTurn).toBeUndefined()
+    })
+
+    it("is undefined for an empty repo", async () => {
+      const repo = new InMemRepo()
+      const run = await provide(currentRun, repo)
+      expect(run.headTurn).toBeUndefined()
+    })
   })
 })
 
@@ -560,14 +591,28 @@ describe("planStep", () => {
     expect(plan.kind === "refusal" && plan.reason).toBe("no-match")
   })
 
-  it("a clean tree with no declared C row is a no-op — no write, and a prompt rest's no-op is not settled (that's #167's stall)", async () => {
+  it("a clean tree with no declared C row at a prompt rest is now an ATTEMPT commit, not a no-op", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): working")
     const before = repo.resolveRef("HEAD")
     const rest = await provide(currentRest, repo)
     const plan = await provide(planStep(rest, "agent"), repo)
-    expect(plan).toEqual({ kind: "noop", state: "working", settled: false })
+    expect(plan.kind).toBe("commit")
+    if (plan.kind !== "commit") throw new Error("expected a commit plan")
+    expect(plan.decision).toEqual({
+      kind: "commit",
+      subject: "gtd(agent): working",
+      actor: "agent",
+      from: "working",
+      to: "working",
+      attempt: true,
+    })
     expect(repo.resolveRef("HEAD")).toBe(before)
+
+    const outcome = await provide(plan.perform, repo)
+    expect(outcome).toEqual({ kind: "commit", subject: "gtd(agent): working" })
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
+    expect(repo.resolveRef("HEAD")).not.toBe(before)
   })
 
   it("a clean tree with no declared C row at a script rest is settled — the check ran and re-running it can't change that", async () => {
@@ -658,6 +703,46 @@ describe("planStep", () => {
     expect(plan.scripts.required).toContain(
       "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",
     )
+  })
+
+  it("an attempt at a prompt state that IS the initial state does not collapse/reset (decision 5)", async () => {
+    // A minimal workflow whose default entry is itself a no-C prompt state —
+    // every criterion `collapsesWith` otherwise checks (target === initial
+    // state, a real prior commit, nothing retained) is satisfied here, so
+    // only the `attempt` flag stops it from wrongly rewinding the attempt.
+    const ATTEMPT_INITIAL_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: working",
+      "      states:",
+      "        working:",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          on:",
+      '            "A DONE.md": done',
+      "        done:",
+      '          commit: "chore: done"',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", ATTEMPT_INITIAL_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const before = repo.resolveRef("HEAD")
+
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("working")
+    const plan = await provide(planStep(rest, "agent"), repo)
+    expect(plan.kind).toBe("commit")
+    if (plan.kind !== "commit") throw new Error("expected a commit plan")
+    expect(plan.decision).toMatchObject({ attempt: true, from: "working", to: "working" })
+
+    const outcome = await provide(plan.perform, repo)
+    expect(outcome).toEqual({ kind: "commit", subject: "gtd(agent): working" })
+    expect(repo.resolveRef("HEAD")).not.toBe(before)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
   })
 })
 
@@ -969,6 +1054,90 @@ describe("restAt — the review checkout window's saved-head ref as HEAD", () =>
     // exactly as before this package — this path is deliberately untouched.
     const atBoundary = await provide(restAt(boundary), repo)
     expect(atBoundary.state).toBe("idle")
+  })
+})
+
+// ── stalledAt — the derived stall, a pure fold over the resolved rest ───────
+
+describe("stalledAt", () => {
+  it("is true: a clean tree, HEAD is an empty attempt at the resting no-C prompt state", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(agent): building") // clean tree -> empty commit
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("building")
+    expect(stalledAt(rest)).toBe(true)
+  })
+
+  it("is false on a dirty tree", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(agent): building")
+    repo.writeFile("scratch.txt", "x\n")
+    const rest = await provide(currentRest, repo)
+    expect(stalledAt(rest)).toBe(false)
+  })
+
+  it("is false when HEAD's own turn actually changed something", async () => {
+    const { repo } = seededTraceRepo()
+    repo.writeFile("NOTES.md", "hi\n")
+    repo.commitAllWithPrefix("gtd(agent): building")
+    const rest = await provide(currentRest, repo)
+    expect(stalledAt(rest)).toBe(false)
+  })
+
+  it("is false when the resting state declares a C row (a clean step would fire it, not attempt)", async () => {
+    const repo = seededStepRepo() // STEP_WORKFLOW's "fixing": prompt, on: [["C", "idle"]]
+    repo.commitAllWithPrefix("gtd(agent): fixing") // clean tree -> empty commit
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("fixing")
+    expect(stalledAt(rest)).toBe(false)
+  })
+
+  it("is false once a retry cap would redirect the next attempt elsewhere", async () => {
+    // "working" must NOT be the workflow's own initial state here: entering
+    // the initial state is itself a process BOUNDARY (excluded from the
+    // trace — see `computeProcessRun`'s doc comment), which would reset
+    // "working"'s own retry count on every attempt and this scenario could
+    // never reach its cap.
+    const RETRY_STALL_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: idle-message",
+      "          on:",
+      '            "* **": working',
+      "        working:",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          retry:",
+      "            max: 1",
+      "            otherwise: escalate",
+      "          on:",
+      '            "A DONE.md": done',
+      "        escalate:",
+      "          actor: human",
+      "          message: stuck",
+      "          on:",
+      '            "* **": done',
+      "        done:",
+      '          commit: "chore: done"',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", RETRY_STALL_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    // One prior attempt already landed at "working" (max: 1) — the NEXT clean
+    // step is at the cap and would redirect to "escalate" instead of
+    // repeating the attempt.
+    repo.commitAllWithPrefix("gtd(agent): working")
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("working")
+    expect(stalledAt(rest)).toBe(false)
   })
 })
 

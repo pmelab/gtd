@@ -304,6 +304,7 @@ describe("decideOpenWindow — answerable for a target state the caller names", 
     trace: [],
     costEntries: [],
     entryVars: {},
+    headTurn: undefined,
   }
 
   it("declines when the target state doesn't declare reviewWindow", () => {

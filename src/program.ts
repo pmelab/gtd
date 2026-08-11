@@ -21,6 +21,7 @@ import {
   renderDecision,
   renderRest,
   restAt,
+  stalledAt,
   UNATTRIBUTED_MODEL,
   type ExecutableDecision,
   type ModelCost,
@@ -73,7 +74,6 @@ import {
   noteOutcome,
   restoredOutcome,
 } from "./OutcomeScript.js"
-import { hashContent, resolveDispatch } from "./BeatMarker.js"
 import { loopLogPath } from "./WorktreeState.js"
 import { renderBriefing } from "./Install.js"
 
@@ -252,6 +252,10 @@ const openWindowScript = (rest: Rest, targetState: string): string => {
   ).optional
 }
 
+/** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag both `enforceStepGuards` and `buildRequiredScript` bypass their own steps for (see each call site). */
+const isAttemptDecision = (decision: ExecutableDecision): boolean =>
+  decision.kind === "commit" && decision.attempt === true
+
 /**
  * The subject the required script WILL produce. A `"commit"` decision's is
  * fully deterministic already; a `"squash"` decision's is only known once its
@@ -273,7 +277,12 @@ const previewSubject = (
  * The `required` half: everything that decides what lands in git, in order —
  * the review-window CLOSE (when one is open), the resting state's own
  * steering-mode format/validate commands, then the commit/squash steps
- * themselves.
+ * themselves. The steering-mode step is SKIPPED for an attempt commit
+ * (decision 6): there is nothing to format/validate in an empty diff, and a
+ * `format:` command running ahead of the commit could dirty the tree and
+ * turn an "empty" attempt non-empty, breaking the derivation `stalledAt`
+ * relies on (`Edge.ts`). The review-window close still runs regardless —
+ * committing with a window open would land the attempt on the review base.
  */
 const buildRequiredScript = (
   rest: Rest,
@@ -297,11 +306,12 @@ const buildRequiredScript = (
       decision.kind === "commit"
         ? rest.context
         : yield* contextAt(rest, decision.state, invoker, cost, model)
+    const isAttempt = isAttemptDecision(decision)
     const steps: EmitStep[] = [
       ...(closeDecision.shouldClose
         ? [{ kind: "gitWrite" as const, command: buildCloseWindowScript(closeDecision.refs) }]
         : []),
-      ...(yield* steeringModeSteps(rest)),
+      ...(isAttempt ? [] : yield* steeringModeSteps(rest)),
       // A render failure (a squash template that fails against the pending
       // tree) REFUSES the whole command — with the git write moved into the
       // emitted script, this emitting path is the only place that failure can
@@ -435,6 +445,7 @@ const stepAsActor = (
       changes: rest.changes,
       invoker,
       kind: decision.kind,
+      attempt: isAttemptDecision(decision),
     })
 
     const targetState = decision.kind === "commit" ? decision.to : decision.state
@@ -844,7 +855,7 @@ const fixPromptInstruction = (file: string): string =>
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
-/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content (no mutation, unless `--dispatch` resolves the session and arms/consumes the beat marker — see `Sessions.ts`/`BeatMarker.ts`). */
+/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content (no mutation, unless `--dispatch` resolves the session — see `Sessions.ts`). */
 /**
  * `gtd next --json`'s single-line object — `log` (the per-worktree loop log
  * path, `src/WorktreeState.ts`'s `loopLogPath`) is UNCONDITIONAL, unlike the
@@ -854,7 +865,8 @@ const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
  * `runNextCommand`) is only ever passed for a dispatched `prompt` rest —
  * `sessionId`/`resume` are its two keys, present or absent together.
  * `stalled` is the one EXCEPTION to "omitted when unset": it's omitted unless
- * `true`, never emitted as `false` (see `runNextCommand`).
+ * `true`, never emitted as `false` (see `runNextCommand` — a pure read off
+ * `Edge.ts`'s `stalledAt`, emitted by EVERY `--json` call, dispatched or not).
  */
 const nextJsonOutput = (
   rendered: RenderedRest,
@@ -889,36 +901,20 @@ const nextPlainOutput = (
     : base
 }
 
-/** What a dispatched `prompt` beat resolves beyond the rendered rest itself. `session` is `sessionId`/`resume` ready-made; `stalled` is the armed/consumed beat marker's verdict. The undispatched (peek) shape is `NOT_DISPATCHED`. */
-interface DispatchedBeat {
-  readonly session: { readonly sessionId: string; readonly resume: boolean } | undefined
-  readonly stalled: boolean
-}
-
-const NOT_DISPATCHED: DispatchedBeat = { session: undefined, stalled: false }
-
 /**
- * The two driver-scoped writes a dispatched `prompt` beat performs — ONLY
+ * `gtd next --json --dispatch`'s one driver-scoped write: resolving (possibly
+ * minting) the prompt session — see `Sessions.ts`'s own doc comment. ONLY
  * `gtd next --json --dispatch` reaches here (never plain `gtd next --json`,
- * which is polled/peeked): resolving (possibly minting) the prompt session —
- * see src/Sessions.ts's own doc comment — and arming/consuming the beat
- * marker — see `BeatMarker.ts`'s module doc comment. `script`/`message` beats
- * never touch either (decision: only a `prompt` beat's no-change turn is
- * invisible to the machine).
+ * which is polled/peeked) — `script`/`message` beats never touch it either
+ * (only a `prompt` beat carries a session at all).
  */
-const resolveDispatchedBeat = (
-  rest: Rest,
+const resolveDispatchedSession = (
   rendered: RenderedRest,
-): Effect.Effect<DispatchedBeat, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const session = yield* resolveSession(rendered.memory)
-    const stalled = yield* resolveDispatch({
-      state: rendered.state,
-      content: hashContent(rendered.content),
-      head: rest.context.currentCommit,
-    })
-    return { session, stalled }
-  })
+): Effect.Effect<
+  { readonly sessionId: string; readonly resume: boolean } | undefined,
+  Error,
+  CommandRequirements
+> => resolveSession(rendered.memory)
 
 const runNextCommand = (
   json: boolean,
@@ -940,14 +936,17 @@ const runNextCommand = (
             rest.context,
           ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
         : undefined
-    const beat =
+    const session =
       json && dispatch && rendered.kind === "prompt"
-        ? yield* resolveDispatchedBeat(rest, rendered)
-        : NOT_DISPATCHED
+        ? yield* resolveDispatchedSession(rendered)
+        : undefined
+    // A pure read off the already-resolved `rest` — no mutation left to gate
+    // on, so every `--json` call reports it, dispatched or not (decision 3).
+    const stalled = json ? stalledAt(rest) : false
     const log = yield* loopLogPath
     write(
       json
-        ? nextJsonOutput(rendered, log, beat.session, beat.stalled)
+        ? nextJsonOutput(rendered, log, session, stalled)
         : nextPlainOutput(rendered, selfValidateCommand),
     )
   })

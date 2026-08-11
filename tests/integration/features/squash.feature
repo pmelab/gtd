@@ -81,6 +81,81 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
     And "DRAFT.md" exists
     And "COMMIT_MSG.md" does not exist
 
+  Scenario: an attempt commit landed mid-process leaves no trace in the squash
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "draft"
+                on:
+                  "* **": revising
+              revising:
+                actor: human
+                message: "revise or accept"
+                on:
+                  "C": working
+                  "* **": drafting
+              working:
+                actor: agent
+                prompt: "write COMMIT_MSG.md"
+                on:
+                  "A COMMIT_MSG.md": done
+                  "M COMMIT_MSG.md": done
+              done:
+                commit: '<%~ it.read("COMMIT_MSG.md") %>'
+      """
+    And a file "DRAFT.md" with:
+      """
+      v1
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → drafting"
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting"
+    And the git status is clean
+    Given "DRAFT.md" is modified to:
+      """
+      v2
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting → revising"
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): revising → working"
+    Given a file "COMMIT_MSG.md" with:
+      """
+      feat: draft workflow
+
+      Body text.
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "feat: draft workflow"
+    And the commit subjects from oldest to newest are:
+      """
+      chore: initial commit
+      chore: add .gtdrc
+      feat: draft workflow
+      """
+    And "DRAFT.md" exists
+    And "COMMIT_MSG.md" does not exist
+
   Scenario: squashing retains the pre-squash tip on the history ref and trailer
     Given a test project
     And a gtd config file at ".gtdrc" with:

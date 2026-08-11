@@ -148,8 +148,9 @@ export const stepGuards: readonly StepGuard[] = [
  * applies to against ONE sample of the current committed/working bytes — see
  * the module docstring — and fail with the first refusal's reason, prefixed
  * `gtd step <invoker>: ` (the one place that prefix, and the `cliErrorLine`
- * `/^gtd[: ]/` contract, is satisfied). A no-op for a squash/no-op decision, a
- * state with no `file:`, or a state no guard applies to.
+ * `/^gtd[: ]/` contract, is satisfied). A no-op for a squash/no-op decision, an
+ * ATTEMPT commit (`input.attempt` — see its own doc comment), a state with no
+ * `file:`, or a state no guard applies to.
  */
 export const enforceStepGuards = (input: {
   readonly rest: ResolvedRest
@@ -159,9 +160,20 @@ export const enforceStepGuards = (input: {
   readonly changes: readonly PendingChange[]
   readonly invoker: string
   readonly kind: ExecutableDecision["kind"]
+  /**
+   * True for an ATTEMPT commit (`PatternMachine.StepCommit.attempt`) — a
+   * fruitless `prompt`-state dispatch whose diff is EMPTY by construction.
+   * There is nothing for any guard to guard: a deletion/tick/answer check can
+   * only ever read "unchanged", and running a mode's `format:` ahead of the
+   * commit (as an ordinary step's script does) could dirty the tree and turn
+   * an "empty" attempt non-empty, breaking the derivation `stalledAt` relies
+   * on (see `Edge.ts`). Bypasses every guard exactly like a squash/no-op
+   * decision.
+   */
+  readonly attempt: boolean
 }): Effect.Effect<void, Error, GuardRequirements> =>
   Effect.gen(function* () {
-    if (input.kind !== "commit") return
+    if (input.kind !== "commit" || input.attempt) return
     const file = input.file
     if (file === undefined) return
     const applicable = stepGuards.filter((g) => g.appliesTo(input.rest))

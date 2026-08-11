@@ -389,6 +389,7 @@ describe("enforceStepGuards", () => {
         changes: [],
         invoker: "agent",
         kind: "squash",
+        attempt: false,
       }).pipe(
         Effect.provide(
           Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
@@ -408,6 +409,7 @@ describe("enforceStepGuards", () => {
         changes: [],
         invoker: "agent",
         kind: "commit",
+        attempt: false,
       }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
     )
     expect(Exit.isSuccess(exit)).toBe(true)
@@ -423,6 +425,7 @@ describe("enforceStepGuards", () => {
         changes: [],
         invoker: "agent",
         kind: "commit",
+        attempt: false,
       }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
     )
     expect(Exit.isSuccess(exit)).toBe(true)
@@ -437,6 +440,7 @@ describe("enforceStepGuards", () => {
         changes: [],
         invoker: "agent",
         kind: "commit",
+        attempt: false,
       }).pipe(
         Effect.provide(
           Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
@@ -482,6 +486,7 @@ describe("enforceStepGuards", () => {
         changes: [],
         invoker: "human",
         kind: "commit",
+        attempt: false,
       }).pipe(
         Effect.provide(
           Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": answeredDoc })),

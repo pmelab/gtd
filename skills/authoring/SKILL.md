@@ -168,22 +168,31 @@ At `gtd step <actor>`, the engine decides:
 - **Commit** — a pattern fired: everything pending is committed as
   `gtd(<actor>): <from> → <target>` (the state stepped from, then the matched
   target) and the machine advances.
-- **No-op** — clean tree AND no `C` row: zero commits, exit 0. This is the
-  **default and it is deliberate** — the loop opens each iteration with a step
-  before the actor has acted, so a clean step must author nothing unless you
-  explicitly declare a `C` row. Decide per state: is a clean step a _signal_
-  (declare `C`) or a _no-op_ (declare none)?
+- **No-op** — clean tree AND no `C` row, at a `script`/`message` state: zero
+  commits, exit 0. This is the **default and it is deliberate** — the loop opens
+  each iteration with a step before the actor has acted, so a clean step must
+  author nothing unless you explicitly declare a `C` row.
+- **Attempt** — clean tree AND no `C` row, at a `prompt` state: an EMPTY
+  `gtd(<actor>): <state>` commit lands instead of a no-op — a fruitless agent
+  dispatch costs money and must be remembered across restarts, unlike a
+  fruitless check. Decide per state: is a clean step a _signal_ (declare `C`),
+  an _attempt_ (a `prompt` state's default), or a _no-op_ (a `script`/`message`
+  state declaring no `C`)?
 - **Refusal** — dirty tree but no pattern fires: zero commits, exit non-zero.
   "Something happened that nothing recognizes." Make sure your `on` map covers
   every change the state's actor can legitimately make (usually via a trailing
   `"* **"`).
 
-A no-op at a `prompt` state is invisible to the engine, but not to a driver: on
-the NEXT dispatch of that same state with the same rendered content and HEAD,
-`gtd next --json --dispatch` reports `"stalled": true` — the agent's turn
-changed nothing. If a `prompt` state can legitimately finish with nothing to
-change, declare a `C` row on it so the no-op is the intended signal rather than
-a stall a driver stops on.
+An attempt is visible in history, not just to a driver: `gtd next --json`
+reports `"stalled": true` whenever HEAD is such an empty attempt at the resting
+state and the tree is clean — on every call, dispatched or not, and sticky until
+something clears it. Two ways to clear a stall, both workflow-authored: if the
+`prompt` state can legitimately finish with nothing to change, declare a `C` row
+on it so that's the intended signal instead; if repeated fruitless dispatches
+should escalate instead (e.g. to a human gate), cap the state with
+`retry: { max, otherwise }` — the Nth attempt redirects to `otherwise` rather
+than repeating forever (arriving at the state already counts as one entry, so
+`max: N` allows N−1 fruitless attempts before redirecting).
 
 ### `describe` — human-readable routing
 

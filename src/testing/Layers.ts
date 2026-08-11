@@ -38,15 +38,28 @@ import type { CommandRequirements } from "../program.js"
 // ---------------------------------------------------------------------------
 
 const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileSystem => {
-  // `.git/`-rooted paths (`BeatMarker.ts`'s `gtd-beat`) route to the repo's
-  // SEPARATE git-dir file store, never `worktree` — real git never reports a
-  // `.git/**` path as a pending change, so the fake must not either (see
-  // `InMemRepo.ts`'s `gitDirFiles` field comment).
+  // `.git/`-rooted paths have no production consumer left through this layer
+  // (`DriverState.ts` reaches the git dir through `node:fs`, not this
+  // `FileSystem` layer) — a stray write under the fake git dir must FAIL
+  // rather than silently fall through to the `worktree` store, which would
+  // make it surface as a pending change (real git never reports a `.git/**`
+  // path as one). See `InMemRepo.ts`'s module doc comment for the same
+  // boundary on the git-side store this used to route to.
   const gitDirPrefix = `${root}/.git/`
   const isGitDirPath = (path: string): boolean => path.startsWith(gitDirPrefix)
 
+  const gitDirNotFound = (method: string, path: string): SystemError =>
+    new SystemError({
+      reason: "NotFound",
+      module: "FileSystem",
+      method,
+      pathOrDescriptor: path,
+      description: `ENOENT: no such file or directory, '${method}' '${path}' — the in-memory fake has no git-dir file store`,
+    })
+
   const readFileString = (path: string): Effect.Effect<string, PlatformError> => {
-    const content = isGitDirPath(path) ? repo.readGitDirFile(path) : repo.readFile(path)
+    if (isGitDirPath(path)) return Effect.fail(gitDirNotFound("readFileString", path))
+    const content = repo.readFile(path)
     if (content === undefined) {
       return Effect.fail(
         new SystemError({
@@ -62,11 +75,11 @@ const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileS
   }
 
   const exists = (path: string): Effect.Effect<boolean, PlatformError> =>
-    Effect.succeed(isGitDirPath(path) ? repo.hasGitDirFile(path) : repo.hasPath(path))
+    isGitDirPath(path) ? Effect.succeed(false) : Effect.succeed(repo.hasPath(path))
 
   const writeFileString = (path: string, data: string): Effect.Effect<void, PlatformError> => {
-    if (isGitDirPath(path)) repo.writeGitDirFile(path, data)
-    else repo.writeFile(path, data)
+    if (isGitDirPath(path)) return Effect.fail(gitDirNotFound("writeFileString", path))
+    repo.writeFile(path, data)
     return Effect.void
   }
 
@@ -76,20 +89,8 @@ const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileS
     options?: FileSystem.RemoveOptions,
   ): Effect.Effect<void, PlatformError> => {
     if (isGitDirPath(path)) {
-      if (!repo.hasGitDirFile(path)) {
-        if (options?.force === true) return Effect.void
-        return Effect.fail(
-          new SystemError({
-            reason: "NotFound",
-            module: "FileSystem",
-            method: "remove",
-            pathOrDescriptor: path,
-            description: `ENOENT: no such file or directory, unlink '${path}'`,
-          }),
-        )
-      }
-      repo.deleteGitDirFile(path)
-      return Effect.void
+      if (options?.force === true) return Effect.void
+      return Effect.fail(gitDirNotFound("remove", path))
     }
     if (options?.recursive === true) {
       for (const key of repo.pathsUnder(path)) repo.deleteFile(key)

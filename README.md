@@ -88,12 +88,17 @@ as safe to resume on the next lap. gtd itself never executes anything — the
 driver owns running scripts. Plain `gtd next --json` (no `--dispatch`) stays
 strictly mutation-free, safe to poll or peek at any time; `--dispatch`
 additionally claims the beat is being handed to an executor, resolving the
-session and arming a per-worktree marker (`<git dir>/gtd-beat`) so a `prompt`
-beat that repeats verbatim — same state, same rendered content, same HEAD,
-meaning the agent's last turn changed nothing — reports `"stalled": true` (and
-consumes the marker) instead of being re-dispatched forever. The fix for a
-repeated stall is either a better prompt, or — if the state can legitimately
-finish with nothing to change — declaring a `C` (clean-tree) pattern on it.
+session for it. A `prompt` beat whose turn changes nothing still lands:
+`gtd step <actor>` commits an EMPTY `gtd(<actor>): <state>` attempt instead of
+silently doing nothing, so the fruitless dispatch is visible in history rather
+than invisible. `"stalled": true` is derived from that history — HEAD is an
+empty attempt at the resting state and the tree is clean — so every
+`gtd next --json` call reports it, dispatched or not, and it stays `true` on a
+repeat (there's no marker to consume) until something actually changes. The fix
+for a repeated stall is either a better prompt, a `retry:` cap on the state that
+redirects to an escalation state after N fruitless attempts, or — if the state
+can legitimately finish with nothing to change — declaring a `C` (clean-tree)
+pattern on it.
 
 An `on` edge may also carry a short imperative `action` (e.g. `Accept plan`)
 alongside its existing `describe` sentence — a human-facing name for the choice
@@ -232,10 +237,12 @@ Commands:
                    history, or when HEAD has advanced past the squash with
                    commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
-                   (no mutation). --dispatch (requires --json) additionally
-                   arms/consumes a per-worktree dispatch marker, emitting
-                   "stalled": true when this exact beat (state, content,
-                   HEAD) was already dispatched with no commit landing since
+                   (no mutation). --json emits "stalled": true when HEAD is
+                   an empty gtd(<actor>): <state> attempt at the resting
+                   state and the tree is clean — a fruitless prompt dispatch,
+                   sticky until a C row or retry: escalation clears it.
+                   --dispatch (requires --json) additionally resolves the
+                   prompt session (sessionId/resume)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Print the script that formats (when declared) then
@@ -289,10 +296,10 @@ Options:
                    override for the new process; the name must already be
                    declared by the workflow's own vars: or the .gtdrc vars:
   --dispatch       (gtd next only, requires --json) claim this beat as
-                   handed to an executor — arms/consumes the per-worktree
-                   dispatch marker, emitting "stalled": true when this exact
-                   beat (state, content, HEAD) was already dispatched with
-                   no commit landing since
+                   handed to an executor — resolves the prompt session
+                   (sessionId/resume). "stalled": true is reported by
+                   every --json call regardless of --dispatch — see gtd
+                   next's own help
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```

@@ -69,6 +69,9 @@ Feature: gtd install — the driver-building briefing
     Then it succeeds
     And I record the JSON keys of stdout as "next"
 
+    When I run gtd step agent
+    Then it succeeds
+
     When I run gtd next with "--json" and "--dispatch"
     Then it succeeds
     And stdout contains "\"stalled\":true"

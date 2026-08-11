@@ -206,12 +206,18 @@ parser, one envelope. The table is the source of truth, not prose:
   IS the rule. A branch outcome (an approval vs. feedback, a green vs. red
   check) is encoded by which pattern the AUTHORED diff happens to match, not by
   a rule re-deriving it after the fact
-- **No matching pattern on a clean tree = a no-op invocation** (zero commits) —
-  inert empty steps are the DEFAULT; the loop protocol opens each iteration with
-  `gtd step <actor>` before the actor has acted, so a clean-tree step must
-  author nothing unless the state explicitly declares a `C` pattern. When adding
-  a state, decide explicitly whether its clean step is a signal (declare a `C`
-  row) or a no-op (declare none)
+- **No matching pattern on a clean tree = a no-op invocation** (zero commits) at
+  a `script`/`message` rest — inert empty steps are the DEFAULT there; the loop
+  protocol opens each iteration with `gtd step <actor>` before the actor has
+  acted, so a clean-tree step must author nothing unless the state explicitly
+  declares a `C` pattern. A `prompt` rest is the ONE exception: a clean tree
+  with no `C` row there commits an EMPTY `gtd(<actor>): <state>` ATTEMPT instead
+  of a no-op (`PatternMachine.step`'s `attempt: true`, `StepCommit`'s own doc
+  comment) — a fruitless agent dispatch costs money and must be remembered
+  across restarts (`Edge.ts`'s `stalledAt`), unlike a fruitless check/gate. When
+  adding a state, decide explicitly whether its clean step is a signal (declare
+  a `C` row), an attempt (a `prompt` state's default), or a no-op (a
+  `script`/`message` state declaring no `C` row)
 - A dirty tree matching no declared pattern is a **refusal**, not a no-op —
   distinguish "nothing happened" (clean, no `C` row) from "something happened
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`
@@ -225,4 +231,6 @@ parser, one envelope. The table is the source of truth, not prose:
   condition fires, so e.g. a malformed steering file is never committed (an
   agent's draft or a human's gate edit alike). Each guard is a no-op when it
   doesn't apply to the resting state (see `StepGuard.appliesTo`), and the whole
-  registry is skipped for a squash/no-op decision
+  registry is skipped for a squash/no-op decision, or an ATTEMPT (there is
+  nothing to guard in an empty diff, and a `format:` run must not dirty an
+  attempt and break the empty-diff derivation `stalledAt` relies on)

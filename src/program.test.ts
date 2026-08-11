@@ -552,7 +552,7 @@ describe("gtd next --json / gtd status — memory key emission", () => {
   })
 })
 
-describe("gtd next --json --dispatch — stall detection (BeatMarker, issue #167)", () => {
+describe("gtd next --json — stall detection (attempt commits)", () => {
   const workflow = [
     "workflow:",
     "  entry:",
@@ -595,69 +595,74 @@ describe("gtd next --json --dispatch — stall detection (BeatMarker, issue #167
     return repo
   }
 
-  it("reports stalled on the second --dispatch of the exact same prompt beat", async () => {
-    const repo = seededAt("gtd(human): working")
-    const first = await run(repo, "next", "--json", "--dispatch")
-    expect(first.exitCode).toBe(0)
-    expect(JSON.parse(first.stdout)).not.toHaveProperty("stalled")
+  /** Lands `gtd step agent`'s emitted script onto `repo` — the attempt commit itself. */
+  const landAgentStep = async (repo: InMemRepo): Promise<void> => {
+    const { stdout } = await run(repo, "step", "agent", "--json")
+    const { required } = JSON.parse(stdout) as { required: string }
+    const applied = applyEmittedScript(repo, new Map(), required)
+    expect(applied.ok).toBe(true)
+  }
 
-    const second = await run(repo, "next", "--json", "--dispatch")
-    expect(second.exitCode).toBe(0)
+  it("is not stalled before the attempt lands", async () => {
+    const repo = seededAt("gtd(human): working")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
+  })
+
+  it("is stalled once `gtd step agent` has landed an empty attempt", async () => {
+    const repo = seededAt("gtd(human): working")
+    await landAgentStep(repo)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
+
+    const { stdout } = await run(repo, "next", "--json")
+    expect(JSON.parse(stdout)).toMatchObject({ stalled: true })
+  })
+
+  it("stays stalled on a repeat — sticky, unlike the old marker's single-shot report", async () => {
+    const repo = seededAt("gtd(human): working")
+    await landAgentStep(repo)
+
+    const first = await run(repo, "next", "--json")
+    expect(JSON.parse(first.stdout)).toMatchObject({ stalled: true })
+    const second = await run(repo, "next", "--json")
     expect(JSON.parse(second.stdout)).toMatchObject({ stalled: true })
   })
 
-  it("a plain --json peek between two dispatches neither arms nor consumes the marker", async () => {
+  it("is not stalled with a dirty tree", async () => {
     const repo = seededAt("gtd(human): working")
-    await run(repo, "next", "--json", "--dispatch")
+    await landAgentStep(repo)
+    repo.writeFile("scratch.txt", "x\n")
 
-    const peek = await run(repo, "next", "--json")
-    expect(JSON.parse(peek.stdout)).not.toHaveProperty("stalled")
-
-    const second = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(second.stdout)).toMatchObject({ stalled: true })
+    const { stdout } = await run(repo, "next", "--json")
+    expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
   })
 
-  it("a commit landing between dispatches (HEAD moved) never reports stalled, even with identical state/content — the check→fix return lap", async () => {
-    const repo = seededAt("gtd(human): working")
-    await run(repo, "next", "--json", "--dispatch")
-
-    // A return lap back into "working" with the SAME prompt text, but HEAD
-    // has moved since the last dispatch (a real commit landed in between).
-    repo.writeFile("FEEDBACK.md", "try again")
-    repo.commitAllWithPrefix("gtd(check): working")
-
-    const second = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(second.stdout)).not.toHaveProperty("stalled")
-  })
-
-  it("a script beat is never armed or reported stalled, dispatched any number of times", async () => {
-    const repo = seededAt("gtd(agent): checking")
-    const first = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(first.stdout).kind).toBe("script")
-    expect(JSON.parse(first.stdout)).not.toHaveProperty("stalled")
-
-    const second = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(second.stdout)).not.toHaveProperty("stalled")
-  })
-
-  it("a message beat is never armed or reported stalled, dispatched any number of times", async () => {
+  it("is never stalled at a script rest — a clean step there is a plain no-op, not an attempt", async () => {
     const repo = seededAtIdle()
-    const first = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(first.stdout).kind).toBe("message")
-    expect(JSON.parse(first.stdout)).not.toHaveProperty("stalled")
+    repo.commitAllWithPrefix("gtd(check): checking")
 
-    const second = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(second.stdout)).not.toHaveProperty("stalled")
+    const { stdout } = await run(repo, "next", "--json")
+    expect(JSON.parse(stdout).kind).toBe("script")
+    expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
   })
 
-  it("consume-on-report: a third dispatch after a reported stall is clean again", async () => {
-    const repo = seededAt("gtd(human): working")
-    await run(repo, "next", "--json", "--dispatch")
-    const second = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(second.stdout)).toMatchObject({ stalled: true })
+  it("is never stalled at a message rest — a clean step there is a plain no-op, not an attempt", async () => {
+    const repo = seededAtIdle()
 
-    const third = await run(repo, "next", "--json", "--dispatch")
-    expect(JSON.parse(third.stdout)).not.toHaveProperty("stalled")
+    const { stdout } = await run(repo, "next", "--json")
+    expect(JSON.parse(stdout).kind).toBe("message")
+    expect(JSON.parse(stdout)).not.toHaveProperty("stalled")
+  })
+
+  it("is reported by plain --json as well as --dispatch — a pure read, not gated on the session-minting flag", async () => {
+    const repo = seededAt("gtd(human): working")
+    await landAgentStep(repo)
+
+    const plain = await run(repo, "next", "--json")
+    expect(JSON.parse(plain.stdout)).toMatchObject({ stalled: true })
+    const dispatched = await run(repo, "next", "--json", "--dispatch")
+    expect(JSON.parse(dispatched.stdout)).toMatchObject({ stalled: true })
   })
 })
 

@@ -20,7 +20,7 @@ export interface GitReaderOperations {
    * directory. Not derived from `Cwd.root + "/.git"`: a linked worktree's
    * `.git` is a FILE pointing at `…/.git/worktrees/<name>`, and per-worktree
    * isolation is the whole point — two worktrees looping concurrently must
-   * never collide on one file (`BeatMarker.ts`'s dispatch marker lives here).
+   * never collide on one file.
    */
   readonly gitDir: () => Effect.Effect<string, Error>
   /**

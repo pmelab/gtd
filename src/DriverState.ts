@@ -5,11 +5,10 @@ import { Cwd } from "./Cwd.js"
 
 /**
  * The driver-scoped state port: small files a driver reads/writes across
- * `gtd` invocations (the session table, and later #167's beat marker/#169's
- * log path) that must live OFF the worktree — `src/testing/InMemRepo.ts`'s
- * `FileSystem` fake writes into the worktree map, which would put this state
- * into the pending diff and `gtd status`. This port keeps it in the git dir
- * in both tiers.
+ * `gtd` invocations (the session table, and the log path) that must live OFF
+ * the worktree — `src/testing/InMemRepo.ts`'s `FileSystem` fake writes into
+ * the worktree map, which would put this state into the pending diff and
+ * `gtd status`. This port keeps it in the git dir in both tiers.
  */
 export interface DriverStateOps {
   /** `name`'s contents in the driver state directory, `undefined` when absent OR unreadable — a cache, never a source of truth a missing/corrupt read should fail a turn over. */

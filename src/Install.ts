@@ -87,7 +87,8 @@ Every field below is always present unless marked "when set".
 - Always: \`state\`, \`actor\`, \`kind\`, \`content\`, \`log\`
 - When set: \`model\`, \`memory\`, \`label\`, \`file\`, \`mode\`, \`edges\`
 - Only on a DISPATCHED \`prompt\` beat: \`sessionId\` + \`resume\`, together
-- \`stalled: true\` only when the beat marker refuses — never emitted as
+- \`stalled: true\` only when HEAD is an empty attempt at the resting state and
+  the tree is clean (derived from history, not a marker) — never emitted as
   \`false\`
 
 ### \`gtd step --json\` (also \`--entry\`)

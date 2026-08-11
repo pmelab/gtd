@@ -50,18 +50,25 @@ session
 **Turn**: What an actor actually did — the work sitting in the tree, captured as
 one commit. _Avoid_: action, move
 
+**Attempt**: A turn that changed nothing, committed anyway — an empty
+`gtd(<actor>): <state>` self-loop at a `prompt` rest declaring no `C` row — so
+the fruitless dispatch is in history rather than invisible. Entries in the
+process trace, so a `retry:` cap on the state counts them like any other entry
+and redirects once the cap is reached.
+
 **Step**: One `gtd step <actor>` invocation. Distinct from a turn: a step may
 capture a turn, refuse, or do nothing at all.
 
 **Beat**: One dispatch cycle of the driver loop — resolve a rest, hand its
-content to its actor, then step. `gtd next --json --dispatch` is what arms the
-per-worktree marker a repeated `prompt` beat is compared against. _Avoid_:
-iteration, tick, cycle
+content to its actor, then step. _Avoid_: iteration, tick, cycle
 
-**Stall**: A dispatched `prompt` beat that produced no commit — the agent's turn
-changed nothing. An EFFECTOR failure the driver detects (`BeatMarker.ts`), not a
-machine state; the machine-level answer, where a state may legitimately finish
-with nothing to change, is declaring a `C` edge on it instead.
+**Stall**: HEAD is an empty [attempt](#attempt) at the resting `prompt` state,
+the tree is clean, and another dispatch would just repeat it — derived from
+history (`Edge.ts`'s `stalledAt`), not tracked by any marker, so it survives a
+restart and reads the same whether polled, peeked, or dispatched. Sticky until
+something actually changes: the workflow's own `C` edge (a state that may
+legitimately finish with nothing to change should declare one) or a `retry:`
+cap's escalation redirect clears it, never a one-shot report.
 
 **Capture**: Turning a dirty tree into one turn commit, subject
 `gtd(<actor>): <from> → <to>` (collapsing to `gtd(<actor>): <to>` when there is
@@ -79,15 +86,17 @@ optional `describe`/`action` sentences a `message`/`prompt` renders for a human.
 **Refusal**: A step rejected because something happened that nothing recognizes
 — a dirty tree matching no declared pattern, or a guard saying no.
 
-**No-op**: A step that authors nothing, because the tree is clean and the state
-declares no `C` pattern. The default for an actor invoked before it has acted.
+**No-op**: A step at a `script`/`message` rest that authors nothing, because the
+tree is clean and the state declares no `C` pattern. The default for a
+`script`/`message` actor invoked before it has acted — a `prompt` rest's
+equivalent is an [attempt](#attempt), not a no-op.
 
 **Settled**: A step with nothing left to land — a no-op at a `script` rest (the
 check ran, left nothing any pattern claims, and re-running it cannot change
 that), or a rewind back to the initial state retaining nothing. Reported as
-`settled: true` by `gtd step --json` so a loop exits rather than spins. A
-`prompt` rest that authors nothing is not settled but stalled. _Avoid_: done,
-finished, idle
+`settled: true` by `gtd step --json` so a loop exits rather than spins. An
+attempt at a `prompt` rest is not settled but stalled. _Avoid_: done, finished,
+idle
 
 **Gate**: A state whose actor is `human` — the process rests there until a
 person acts. _Avoid_: checkpoint, approval, the bare "the gate"

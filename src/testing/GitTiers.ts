@@ -520,6 +520,12 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       expect(removeA?.touched).toEqual(["a.txt"])
     })
 
+    it("reports touched: [] for an empty commit — Edge.ts's headTurn.empty depends on this", async () => {
+      await runGit(t, (g) => g.commitAllWithPrefix("gtd(agent): working"))
+      const result = await runGit(t, (g) => g.commitHistory())
+      expect(result[result.length - 1]?.touched).toEqual([])
+    })
+
     it("reads through an explicit head ref instead of literal HEAD when given one", async () => {
       t.seed.commit("feat: second", { "b.txt": "b" })
       const earlierHead = t.observe.resolveRef("HEAD")

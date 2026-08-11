@@ -247,10 +247,10 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "",
     help: [
       "(gtd next only, requires --json) claim this beat as",
-      "handed to an executor — arms/consumes the per-worktree",
-      'dispatch marker, emitting "stalled": true when this exact',
-      "beat (state, content, HEAD) was already dispatched with",
-      "no commit landing since",
+      "handed to an executor — resolves the prompt session",
+      '(sessionId/resume). "stalled": true is reported by',
+      "every --json call regardless of --dispatch — see gtd",
+      "next's own help",
     ],
   },
 ]
@@ -340,10 +340,12 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: "none",
     details: [
       "Print the resolved rest's rendered script/prompt/message",
-      "(no mutation). --dispatch (requires --json) additionally",
-      "arms/consumes a per-worktree dispatch marker, emitting",
-      '"stalled": true when this exact beat (state, content,',
-      "HEAD) was already dispatched with no commit landing since",
+      '(no mutation). --json emits "stalled": true when HEAD is',
+      "an empty gtd(<actor>): <state> attempt at the resting",
+      "state and the tree is clean — a fruitless prompt dispatch,",
+      "sticky until a C row or retry: escalation clears it.",
+      "--dispatch (requires --json) additionally resolves the",
+      "prompt session (sessionId/resume)",
     ],
   },
   {

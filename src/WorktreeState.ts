@@ -11,8 +11,8 @@
  * because `.git` is a directory reads the same as a missing `.git` — both
  * fall back to `".git"`) and, unlike `git rev-parse --git-dir`, cannot be
  * diverted by a stray `GIT_DIR`/`GIT_WORK_TREE` in the ambient environment —
- * there is no subprocess for those to divert. #166 (session table) and #167
- * (beat marker) add their own marker paths here, next to `loopLogPath`.
+ * there is no subprocess for those to divert. The session table adds its own
+ * marker paths here, next to `loopLogPath`.
  */
 
 import { isAbsolute, join } from "node:path"

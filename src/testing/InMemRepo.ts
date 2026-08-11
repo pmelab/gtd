@@ -46,16 +46,10 @@ export class InMemRepo {
   private pendingFaults: Array<() => Error> = []
   // `DriverState`'s fake backing store (see `Layers.ts`'s `makeInMemoryDriverState`)
   // — deliberately its OWN map, never a `worktree` entry: driver-scoped state
-  // (the session table, later the beat marker/log path) must stay invisible to
-  // the pending diff / `gtd status` / `changedPaths`, exactly like the git-dir
-  // file it fakes.
+  // (the session table, the log path) must stay invisible to the pending
+  // diff / `gtd status` / `changedPaths`, exactly like a real git-dir file
+  // would be.
   private driverState: Map<string, string> = new Map()
-  // Separate from `worktree`: real git never reports a `.git/**` path as a
-  // pending worktree change, so a marker write under the fake git dir
-  // (`BeatMarker.ts`'s `gtd-beat`) must not surface as one either — see
-  // `Layers.ts`'s `makeInMemoryFileSystem`, which routes paths under
-  // `${root}/.git/` here instead of into `worktree`.
-  private gitDirFiles: Map<string, string> = new Map()
 
   // ---------------------------------------------------------------------------
   // Internal helpers
@@ -444,23 +438,6 @@ export class InMemRepo {
 
   deleteFile(path: string): void {
     this.worktree.delete(path)
-  }
-
-  /** The git-dir file store (see the `gitDirFiles` field comment) — keyed by the caller's full path, e.g. `/repo/.git/gtd-beat`. */
-  readGitDirFile(path: string): string | undefined {
-    return this.gitDirFiles.get(path)
-  }
-
-  writeGitDirFile(path: string, content: string): void {
-    this.gitDirFiles.set(path, content)
-  }
-
-  deleteGitDirFile(path: string): void {
-    this.gitDirFiles.delete(path)
-  }
-
-  hasGitDirFile(path: string): boolean {
-    return this.gitDirFiles.has(path)
   }
 
   // ---------------------------------------------------------------------------

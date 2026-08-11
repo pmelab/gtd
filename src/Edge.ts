@@ -8,6 +8,7 @@ import {
   enterableStates,
   entryBaseTemplateOf,
   initialStateOf,
+  isCommitState,
   isReviewBaseState,
   isReviewWindowState,
   memoryScopeAt,
@@ -15,6 +16,7 @@ import {
   resolveState,
   stateSubject,
   step,
+  wouldAttempt,
   type ChangeStatus,
   type ContentKind,
   type OnEdge,
@@ -373,6 +375,42 @@ export interface ProcessRun {
   readonly costEntries: readonly CostEntry[]
   /** The `Gtd-Var:` trailers recorded on the process's FIRST (oldest) commit — an entry commit's fixed `it.vars` overrides, folded into `resolveVars`'s merge (empty when the process's oldest commit carries none, or the process is empty). */
   readonly entryVars: Record<string, string>
+  /**
+   * HEAD's own commit, when its subject parses to a state the ACTIVE
+   * definition still declares as a defined, non-commit state — `undefined`
+   * for an empty repo or a foreign/unparseable HEAD subject (a plain non-gtd
+   * commit, or a state a workflow change has since removed). `empty` is that
+   * entry's own `touched.length === 0` — the "did this turn's commit change
+   * anything" question `stalledAt` needs, read straight off the SAME
+   * `commitHistory` array `trace` is already built from, at zero extra git
+   * calls. Deliberately keyed off HEAD directly rather than `trace`'s last
+   * entry: a commit ENTERING the initial state is the process BOUNDARY
+   * (excluded from `trace` — see this walk's own doc comment), so an attempt
+   * landing at a prompt state that also happens to be the workflow's initial
+   * state would leave `trace` empty while HEAD still carries the turn.
+   */
+  readonly headTurn: { readonly state: StateName; readonly empty: boolean } | undefined
+}
+
+/**
+ * `ProcessRun.headTurn` from an already-fetched `commitHistory` array
+ * (oldest→newest) — HEAD is its last entry. `undefined` for an empty
+ * history, an unparseable/foreign subject, or a subject naming a state the
+ * ACTIVE definition doesn't declare (removed by a workflow change) or that
+ * IS a commit state (never a real rest — see `resolveState`'s own doc
+ * comment on why a commit-state subject is never trusted at face value).
+ */
+const headTurnFrom = (
+  def: WorkflowDefinition,
+  history: ReadonlyArray<{ readonly message: string; readonly touched: ReadonlyArray<string> }>,
+): ProcessRun["headTurn"] => {
+  if (history.length === 0) return undefined
+  const head = history[history.length - 1]!
+  const parsed = parseStateSubject(subjectOf(head.message))
+  if (parsed === undefined) return undefined
+  const stateDef = def.states[parsed.state]
+  if (stateDef === undefined || isCommitState(stateDef)) return undefined
+  return { state: parsed.state, empty: head.touched.length === 0 }
 }
 
 /**
@@ -433,6 +471,7 @@ const computeProcessRun = (
         trace: [],
         costEntries: [],
         entryVars: {},
+        headTurn: undefined,
       }
 
     const initialState = initialStateOf(def)
@@ -456,7 +495,8 @@ const computeProcessRun = (
     const { reviewBase: reviewBaseOverride, vars: entryVars } =
       parseEntryCommitOverrides(processCommits)
     const diffBase = reviewBaseOverride ?? startParentHash
-    return { startHash, startParentHash, diffBase, trace, costEntries, entryVars }
+    const headTurn = headTurnFrom(def, history)
+    return { startHash, startParentHash, diffBase, trace, costEntries, entryVars, headTurn }
   })
 
 /**
@@ -945,6 +985,36 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
     }
   })
 
+/**
+ * Derived stall detection: PURE, no `Effect` — a plain fold over `rest`'s
+ * already-resolved snapshot, restart-proof by construction (any process that
+ * re-resolves the same HEAD reaches the same verdict). `true` iff ALL of:
+ *
+ * - the working tree is clean (a dirty tree is always an in-progress turn,
+ *   never a stall — this is the recovery story: a human fixing the cause out
+ *   of band clears the stall by touching the repo);
+ * - HEAD's own commit already rests AT `rest.state` (`run.headTurn.state ===
+ *   rest.state` — the previous dispatch's attempt landed here) and that
+ *   commit's diff was EMPTY (`run.headTurn.empty`);
+ * - ANOTHER dispatch right now would just repeat the same fruitless attempt
+ *   (`wouldAttempt` — false once a retry cap would redirect it elsewhere
+ *   instead, which is the escalation path OUT of a stall).
+ *
+ * Sticky by design (decision 4): resolving `true` twice in a row is the
+ * correct, restart-proof answer, not a bug — the marker it replaces used to
+ * consume itself on report; this doesn't, because there is no longer any
+ * mutation to gate a "one-shot" report on.
+ */
+export const stalledAt = (rest: Rest): boolean =>
+  rest.changes.length === 0 &&
+  rest.run.headTurn?.state === rest.state &&
+  rest.run.headTurn.empty &&
+  wouldAttempt(
+    rest.stepDef,
+    rest.state,
+    rest.run.trace.map((entry) => entry.state),
+  )
+
 // ── Planning + performing a step ─────────────────────────────────────────────
 
 /** A step's outcome, for the CLI to report. */
@@ -1117,7 +1187,13 @@ const commitDecisionOutcome = (decision: {
  * initial state, it started somewhere other than the empty tree, and nothing
  * pending or already-committed since its start parent survives
  * (`retainsNothing`). Always `false` for a `"squash"` decision (a squash's
- * target is never the initial state by construction). The ONE predicate both
+ * target is never the initial state by construction) and for an ATTEMPT
+ * (`decision.attempt === true`, per decision 5): an agent that did nothing
+ * must never rewind a process — the collapse is for a green re-entry that
+ * retained nothing, not for a fruitless turn, and an attempt landing at the
+ * initial state (a prompt state that also happens to be where the workflow
+ * starts) would otherwise satisfy every OTHER criterion here identically to a
+ * genuine collapse. The ONE predicate both
  * `renderDecision`'s emitted-script branch and `planStep`'s direct `perform`
  * call, so the two can never decide differently about the same run —
  * `program.ts`'s `stepAsActor` asks the same question, through the exported
@@ -1129,7 +1205,7 @@ const collapsesWith = (
   decision: ExecutableDecision,
 ): Effect.Effect<boolean, Error> =>
   Effect.gen(function* () {
-    if (decision.kind === "squash") return false
+    if (decision.kind === "squash" || decision.attempt === true) return false
     const target = parseStateSubject(decision.subject)?.state
     return (
       target === initialStateOf(rest.def) &&
@@ -1285,14 +1361,14 @@ export type StepPlan =
  * A no-op is TERMINAL only at a `script` rest: gtd rendered the script, the
  * driver ran it, it left nothing any pattern claims, and re-running it can't
  * change that — the loop should exit rather than spin (`gtd step --json`'s
- * `settled` flag). A no-op at a `prompt` rest means the external agent was
- * asked to act and didn't (an effector failure, not a terminal state) — that
- * is #167's `stalled`, and firing `settled` there too would preempt its
- * guard. A no-op at a `message` rest is a human gate the loop already halts
- * on (`kind: "message"`), so it needs no signal either. This is one of TWO
- * settled shapes — the other is the initial-state collapse (`collapsesWith`/
- * `collapsesToInitialState`), decided independently by `program.ts`'s
- * `stepAsActor` for a `"commit"`/`"squash"` plan.
+ * `settled` flag). A `prompt` rest can no longer produce a no-op at all (a
+ * clean tree with no `C` row there is an ATTEMPT commit instead — see
+ * `PatternMachine.step`'s doc comment — and `stalledAt` is its own, separately
+ * reported signal). A no-op at a `message` rest is a human gate the loop
+ * already halts on (`kind: "message"`), so it needs no signal either. This is
+ * one of TWO settled shapes — the other is the initial-state collapse
+ * (`collapsesWith`/`collapsesToInitialState`), decided independently by
+ * `program.ts`'s `stepAsActor` for a `"commit"`/`"squash"` plan.
  */
 const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "script"
 
