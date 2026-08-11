@@ -16,6 +16,14 @@ export interface GitReaderOperations {
   /** `git rev-parse --show-toplevel` — the working-tree root; fails outside a repository. */
   readonly topLevel: () => Effect.Effect<string, Error>
   /**
+   * `git rev-parse --absolute-git-dir` — the absolute, PER-WORKTREE git
+   * directory. Not derived from `Cwd.root + "/.git"`: a linked worktree's
+   * `.git` is a FILE pointing at `…/.git/worktrees/<name>`, and per-worktree
+   * isolation is the whole point — two worktrees looping concurrently must
+   * never collide on one file.
+   */
+  readonly gitDir: () => Effect.Effect<string, Error>
+  /**
    * First-parent history from `base..head` (or all commits through `head` if
    * no base), oldest→newest. `head` defaults to the literal `"HEAD"` when
    * omitted — every existing call site (`commitHistory()`,
@@ -99,7 +107,7 @@ export interface GitWriterOperations {
    * path can net an empty commit — neither must throw "nothing to commit".
    * `message` is normally the bare `gtd(<actor>): <state>` subject, but may
    * carry a trailing body (a blank line then a `Gtd-Cost: <n>` trailer when
-   * `gtd step --cost=<n>` recorded one) — `-m` preserves embedded newlines
+   * `gtd land --cost=<n>` recorded one) — `-m` preserves embedded newlines
    * verbatim, and the subject line is untouched.
    */
   readonly commitAllWithPrefix: (message: string) => Effect.Effect<void, Error>
@@ -354,6 +362,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       ),
 
     topLevel: () => exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),
+
+    gitDir: () => exec("git", "rev-parse", "--absolute-git-dir").pipe(Effect.map((s) => s.trim())),
 
     commitHistory: (base?: string, head = "HEAD") => {
       const range = base !== undefined ? `${base}..${head}` : head !== "HEAD" ? head : undefined

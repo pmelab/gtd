@@ -1,8 +1,7 @@
 @inmem
 Feature: gtd --entry <state> — start a brand new process at a declared state
 
-  `gtd step <actor> --entry <state>` (or the subcommand-less short form
-  `gtd --entry <state>`, which defaults actor to `human`) replaces the two
+  `gtd --entry <state>` (always authenticated as `human`) replaces the two
   former named commands `gtd review <commitish>`/`gtd fix` with one generic
   entry mechanism: `<state>` may be ANY declared, non-commit state — not just
   one flagged `entry: true` (that flag only seeds `entries.manual`, the
@@ -24,7 +23,7 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
   Resting at the initial state is required — a process already underway
   refuses. The working tree need not be clean: whatever it carries is CAPTURED
   into the entry commit (`commitAllWithPrefix`), exactly like an ordinary `gtd
-  step`.
+  land`.
 
   Background:
     Given a test project
@@ -40,7 +39,7 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     Then it succeeds
     And the last commit subject is "gtd(human): review-gate.check"
     # The green-baseline gate: a clean tree (tests pass) advances to build.review.reviewing.
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
     When I run gtd next
@@ -114,7 +113,7 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
       """
       a sketch
       """
-    And I run gtd step human
+    And I run gtd land
     And I record the commit count
     When I run gtd with args "--entry review-gate.check"
     Then it fails

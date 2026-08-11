@@ -1,22 +1,14 @@
 @inmem
-Feature: Refusals — out-of-turn and no-match steps commit nothing
+Feature: Refusals — no-match steps commit nothing
 
-  Pins `PatternMachine.step`'s two refusal shapes (see
-  docs/design/pattern-machine-plan.md, decisions 5/6) end to end: a wrong
-  invoker is refused out of turn, and a dirty tree matching none of the
-  awaited state's declared patterns is refused naming those patterns. Either
-  way, a refusal exits non-zero and touches no history — no commit is ever
-  written for a refused step.
-
-  Scenario: out-of-turn refusal names the awaited actor and commits nothing
-    Given a test project
-    And the workflow
-    And I record the commit count
-    When I run gtd step agent
-    Then it fails
-    And stderr contains "out of turn"
-    And stderr contains "awaits human"
-    And the commit count is unchanged
+  Pins `PatternMachine.step`'s no-match refusal end to end (see
+  docs/design/pattern-machine-plan.md, decision 6): a dirty tree matching none
+  of the awaited state's declared patterns is refused naming those patterns.
+  `gtd land` derives who acts from the resolved rest itself (see `Edge.ts`'s
+  `planStep`), so the pure engine's OTHER refusal shape — out-of-turn — is
+  unreachable through it by construction; it stays covered purely at
+  `PatternMachine.test.ts`'s level. A refusal exits non-zero and touches no
+  history — no commit is ever written for a refused step.
 
   Scenario: no-match refusal names the declared patterns and commits nothing
     Given a test project
@@ -47,7 +39,7 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
       """
       Remember the milk.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
     Given I record the commit count
@@ -55,7 +47,7 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
       """
       unrelated pending change
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     And stderr contains "no declared pattern matches"
     And stderr contains "A COMMIT_MSG.md"
@@ -93,13 +85,13 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
   Scenario: "--cost" combined with "--entry" is a usage error
     Given a test project
     And the workflow
-    When I run gtd with args "step human --entry review-gate.check --cost=5"
+    When I run gtd with args "--entry review-gate.check --cost=5"
     Then it fails
-    And stderr contains "is only valid for `gtd step` without --entry"
+    And stderr contains "is only valid for `gtd land`"
 
   Scenario: "--model" combined with "--entry" is a usage error
     Given a test project
     And the workflow
-    When I run gtd with args "step human --entry review-gate.check --cost=5 --model=gpt"
+    When I run gtd with args "--entry review-gate.check --cost=5 --model=gpt"
     Then it fails
-    And stderr contains "is only valid for `gtd step` without --entry"
+    And stderr contains "is only valid for `gtd land`"

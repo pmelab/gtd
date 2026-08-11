@@ -6,7 +6,11 @@
  * nothing but that view). Pure, like `src/GitScript.ts`: no git, no
  * filesystem, no `Effect`. Every input string (a `GitScript.ts` builder's
  * output, a steering mode's already-rendered `format:`/`validate:` command)
- * arrives already rendered — this module only concatenates and wraps.
+ * arrives already rendered — this module only concatenates and wraps: once
+ * for a `gitWrite` step's index-lock retry (`gtd_retry`), and once for a
+ * `command` step's `onFailure` fix prompt (`failurePromptWrapper`), which
+ * prints a ready-to-send instruction plus the command's captured output
+ * ahead of propagating its exit code.
  *
  * Both halves are meant to stand alone: a driver may run either, both, or
  * only `required`, and a person could paste either into a terminal. That's
@@ -16,6 +20,7 @@
  */
 
 import { shellQuote } from "./GitScript.js"
+import { OUTCOME_PREAMBLE } from "./OutcomeScript.js"
 
 export interface EmittedScripts {
   readonly required: string
@@ -47,11 +52,25 @@ export interface EmitPreconditions {
  * `validate:` line, a `gtd check` script) that never touches git's index and
  * must NOT be retry-wrapped — wrapping a non-git command would silently retry
  * on any output that happens to contain the lock wording, e.g. a check whose
- * own diff mentions "index.lock" in prose.
+ * own diff mentions "index.lock" in prose — vs. an `outcome` step (a
+ * `src/OutcomeScript.ts` builder's call), presentation only, never a git
+ * write, rendered verbatim exactly like `command`.
  */
 export type EmitStep =
   | { readonly kind: "gitWrite"; readonly command: string }
-  | { readonly kind: "command"; readonly command: string }
+  | {
+      readonly kind: "command"
+      readonly command: string
+      /**
+       * The prompt text to print, followed by the command's captured
+       * combined output, when this command exits non-zero — the command's
+       * own exit code is then propagated. Omitted for a step that should
+       * fail raw (a `format:` command's own broken-tooling failure, which an
+       * agent can't fix by editing the steering file).
+       */
+      readonly onFailure?: string
+    }
+  | { readonly kind: "outcome"; readonly command: string }
 
 /**
  * The CLI resolves `expectedHead` (and a review window's `expectedHash`) at
@@ -109,6 +128,31 @@ export const reviewWindowAssertion = (ref: string, expectedHash: string): string
 }
 
 /**
+ * Wraps `command` so that a non-zero exit prints `prompt` (the ready-to-send
+ * fix instruction), a blank line, then the command's own captured combined
+ * output, before propagating the command's exit code — rather than letting
+ * that output escape raw. The `{ … }` GROUP (not a bare command
+ * substitution) is what lets a MULTI-LINE `command` be inlined verbatim
+ * inside it; the assignment sits on the left of `||`, so `set -e` never trips
+ * on the failing command itself. Exported (alongside `headAssertion`) solely
+ * so `src/testing/EmittedScriptRecognizer.ts` can re-derive and
+ * string-compare this exact shape.
+ */
+export const failurePromptWrapper = (command: string, prompt: string): string => {
+  const promptQ = shellQuote(prompt)
+  return [
+    `gtd_validate_status=0`,
+    `gtd_validate_out="$( {`,
+    command,
+    `} 2>&1 )" || gtd_validate_status=$?`,
+    `if [ "$gtd_validate_status" -ne 0 ]; then`,
+    `  printf '%s\\n\\n%s\\n' ${promptQ} "$gtd_validate_out"`,
+    `  exit "$gtd_validate_status"`,
+    `fi`,
+  ].join("\n")
+}
+
+/**
  * `gtd_retry` takes ONE already-`shellQuote`d command string and `eval`s it,
  * mirroring `src/Git.ts`'s `withIndexLockRetry`: retry ONLY on the same two
  * substrings `isIndexLockError` matches, with jittered exponential backoff
@@ -148,8 +192,13 @@ const RETRY_HELPER = [
   `}`,
 ].join("\n")
 
-const renderStep = (step: EmitStep): string =>
-  step.kind === "gitWrite" ? `gtd_retry ${shellQuote(step.command)}` : step.command
+const renderStep = (step: EmitStep): string => {
+  if (step.kind === "gitWrite") return `gtd_retry ${shellQuote(step.command)}`
+  if (step.kind === "command" && step.onFailure !== undefined) {
+    return failurePromptWrapper(step.command, step.onFailure)
+  }
+  return step.command
+}
 
 const assembleScript = (
   preconditions: EmitPreconditions,
@@ -172,6 +221,9 @@ const assembleScript = (
   if (steps.some((step) => step.kind === "gitWrite")) {
     sections.push(RETRY_HELPER)
   }
+  if (steps.some((step) => step.kind === "outcome")) {
+    sections.push(OUTCOME_PREAMBLE)
+  }
   sections.push(...steps.map(renderStep))
 
   return sections.join("\n\n")
@@ -193,3 +245,35 @@ export const emitScripts = (
   required: assembleScript(preconditions, required),
   optional: assembleScript(preconditions, optional),
 })
+
+const DID_NOT_RUN_COMMENT =
+  "# gtd emitted this and did NOT run it — pipe it into `bash` to land the turn"
+
+const PRESENTATION_ONLY_COMMENT = "# presentation only — safe to skip"
+
+const PRESENTATION_FAILURE_WARNING =
+  'echo "gtd: presentation-only follow-up failed — continuing" >&2'
+
+/**
+ * A plain-text (no `--json`) write command's single pasteable script: `gtd
+ * land | bash` lands the turn without ever separating `required` from
+ * `optional`. `required` runs verbatim (its own `set -euo pipefail` aborts
+ * before `optional` ever starts if it fails); `optional`, when non-empty, is
+ * wrapped in a subshell whose failure is swallowed — presentation-only, so it
+ * must never turn a landed turn into a non-zero exit. Empty when `required`
+ * is — unreachable in practice today (every caller's `required` is always
+ * non-empty, even a genuine no-op's print-only note), kept as the function's
+ * own total behavior rather than assumed by every caller.
+ */
+export const combinedScript = (required: string, optional: string): string => {
+  if (required.length === 0) return ""
+  if (optional.length === 0) return `${DID_NOT_RUN_COMMENT}\n\n${required}`
+  return [
+    DID_NOT_RUN_COMMENT,
+    "",
+    required,
+    "",
+    PRESENTATION_ONLY_COMMENT,
+    `(\n${optional}\n) || ${PRESENTATION_FAILURE_WARNING}`,
+  ].join("\n")
+}

@@ -22,7 +22,7 @@ export const indexLockError = (): Error =>
     "git add -A failed (exit 128): fatal: Unable to create '/repo/.git/index.lock': File exists.",
   )
 
-const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
+const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations => ({
   hasCommits: () => Effect.succeed(repo.hasCommits()),
 
   lastCommitSubject: (ref?: string) => {
@@ -56,7 +56,15 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
 
   isAncestor: (a: string, b: string) => Effect.succeed(repo.isAncestor(a, b)),
 
-  topLevel: () => Effect.succeed("/repo"),
+  topLevel: () => Effect.succeed(root),
+
+  /**
+   * The fake models a single worktree only (`GitTierCapabilities.linkedWorktrees`
+   * is false for this tier), so this is simply `${root}/.git` — real git's
+   * per-worktree distinction (a linked worktree's own `.git/worktrees/<name>`)
+   * has no in-memory counterpart to model.
+   */
+  gitDir: () => Effect.succeed(`${root}/.git`),
 
   commitHistory: (base?: string, head?: string) => Effect.succeed(repo.commitHistory(base, head)),
 
@@ -108,9 +116,14 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => {
   }
 }
 
-/** The in-memory tier's `GitOperations` — reader + (fault-queue-aware) writer, backed by one `InMemRepo`. */
-export const fakeGitOperations = (repo: InMemRepo): GitOperations => ({
-  ...makeGitReaderOps(repo),
+/**
+ * The in-memory tier's `GitOperations` — reader + (fault-queue-aware) writer,
+ * backed by one `InMemRepo`. `root` (default `/repo`, matching
+ * `GitTiers.ts`'s `IN_MEM_ROOT`) is only consumed by `topLevel`/`gitDir` — no
+ * other operation cares where the fake's worktree "lives".
+ */
+export const fakeGitOperations = (repo: InMemRepo, root = "/repo"): GitOperations => ({
+  ...makeGitReaderOps(repo, root),
   ...makeGitWriterOps(repo),
 })
 

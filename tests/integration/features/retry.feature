@@ -50,25 +50,25 @@ Feature: Retry redirection — a state's entry cap redirects at write time
       """
       go
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → checking"
     Given a file "FEEDBACK.md" with:
       """
       test failed (attempt 1)
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): checking → fixing"
     Given the file "FEEDBACK.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): fixing → checking"
     Given a file "FEEDBACK.md" with:
       """
       test failed (attempt 2)
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): checking → escalate"
 
@@ -114,13 +114,13 @@ Feature: Retry redirection — a state's entry cap redirects at write time
       """
       go
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → checking"
     Given a file "FEEDBACK.md" with:
       """
       test failed
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): checking → escalate"

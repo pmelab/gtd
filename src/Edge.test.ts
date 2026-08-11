@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   currentRest,
   currentRun,
+  memoryResumedFor,
   planEntry,
   planStep,
   renderDecision,
@@ -10,7 +11,9 @@ import {
   resolveRestFrom,
   renderRest,
   restAt,
+  stalledAt,
   UNATTRIBUTED_MODEL,
+  type ResolvedRest,
   type RestRequirements,
 } from "./Edge.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
@@ -23,9 +26,17 @@ import {
   updateRef,
 } from "./GitScript.js"
 import { HISTORY_REF, withHistoryTrailer } from "./RetainedHistory.js"
+import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
 import { fakeGitOperations } from "./testing/GitDoubles.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { testLayers } from "./testing/Layers.js"
+import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
+
+/** Drive a plan's emitted `required` script into the fake — the same recognizer path `tests/integration/support/world.ts` uses. gtd itself never writes git; this is the driver's half of every landing below. */
+const land = (repo: InMemRepo, scripts: { readonly required: string }): void => {
+  const applied = applyEmittedScript(repo, new Map(), scripts.required)
+  if (!applied.ok) throw new Error(applied.error ?? "emitted script failed")
+}
 
 // The review checkout window's saved-head ref — duplicated here for the same
 // reason `Edge.ts` duplicates it from `ReviewWindow.ts` rather than importing
@@ -54,9 +65,6 @@ const provideExit = <A>(
   env: Readonly<Record<string, string | undefined>> = {},
 ): Promise<Exit.Exit<A, Error>> =>
   Effect.runPromiseExit(eff.pipe(Effect.provide(testLayers(repo, { env }))))
-
-const exitMessage = (exit: Exit.Exit<unknown, Error>): string =>
-  Exit.isFailure(exit) ? String(exit.cause) : "(succeeded)"
 
 // ── resolveRestFrom — pure ───────────────────────────────────────────────────
 
@@ -119,6 +127,7 @@ describe("reviewBaseFor", () => {
     trace,
     costEntries: [],
     entryVars: {},
+    headTurn: undefined,
   })
 
   it("falls back to run.diffBase when no in-process commit entered a reviewBase state", () => {
@@ -147,6 +156,147 @@ describe("reviewBaseFor", () => {
   it("respects an overridden diffBase (a Gtd-Review-Base: entry commit) as the fallback", () => {
     const run = runWith("p", "entry-override", [{ state: "building", hash: "h1" }])
     expect(reviewBaseFor(def, run)).toBe("entry-override")
+  })
+})
+
+// ── memoryResumedFor — pure ──────────────────────────────────────────────────
+
+describe("memoryResumedFor", () => {
+  const runWith = (trace: ReadonlyArray<{ state: string; hash: string }>) => ({
+    startHash: trace[0]?.hash ?? "p",
+    startParentHash: "p",
+    diffBase: "p",
+    trace,
+    costEntries: [],
+    entryVars: {},
+    headTurn: undefined,
+  })
+
+  const restAtState = (def: WorkflowDefinition, state: string, actor = "agent"): ResolvedRest => ({
+    def,
+    state,
+    stateDef: def.states[state]!,
+    actor,
+  })
+
+  it("is false at a message rest, regardless of trace (never even looks at scope)", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "idle"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const rest = restAtState(def, "idle", "human")
+    expect(memoryResumedFor(def, { idle: "", build: "" }, rest, runWith([]))).toBe(false)
+  })
+
+  it("the root-scope trap: idle → build's first turn is false, not true", () => {
+    // Without the prompt-content filter, `idle` would count as a "prior rest
+    // in scope" purely because the root scope ("") matches every state.
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "" }
+    const rest = restAtState(def, "build")
+    expect(memoryResumedFor(def, scopes, rest, runWith([{ state: "build", hash: "h1" }]))).toBe(
+      false,
+    )
+  })
+
+  it("prompt-then-return: a second turn at the same prompt state is true", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "" }
+    const rest = restAtState(def, "build")
+    const run = runWith([
+      { state: "build", hash: "h1" },
+      { state: "build", hash: "h2" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
+  })
+
+  it("a script excursion in between doesn't break the run", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "check"]] },
+        check: { actor: "check", script: "c", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "", check: "" }
+    const rest = restAtState(def, "build")
+    const run = runWith([
+      { state: "build", hash: "h1" },
+      { state: "check", hash: "h2" },
+      { state: "build", hash: "h3" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
+  })
+
+  it("a sibling-scope excursion resets the run to false", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "review"]] },
+        review: { actor: "reviewer", prompt: "r", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "build", review: "review" }
+    const rest = restAtState(def, "build")
+    const run = runWith([
+      { state: "build", hash: "h1" },
+      { state: "review", hash: "h2" },
+      { state: "build", hash: "h3" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(false)
+  })
+
+  it("a child-descendant excursion does NOT break the run", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "buildChild"]] },
+        buildChild: { actor: "child", prompt: "bc", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "build", buildChild: "build.child" }
+    const rest = restAtState(def, "build")
+    const run = runWith([
+      { state: "build", hash: "h1" },
+      { state: "buildChild", hash: "h2" },
+      { state: "build", hash: "h3" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
+  })
+
+  it("entries.default itself a prompt state: true once a turn returns to a sibling in its scope", () => {
+    // The pre-trace prefix (`initialStateOf(def)`) is what makes this true —
+    // without it, the very first landed turn would see an empty "prior
+    // rests" slice and wrongly report false.
+    const def: WorkflowDefinition = {
+      states: {
+        build: { actor: "agent", prompt: "b", on: [["* **", "buildRetry"]] },
+        buildRetry: { actor: "agent", prompt: "br", on: [["* **", "buildRetry"]] },
+      },
+      entries: { default: "build", manual: [] },
+    }
+    const scopes = { build: "build", buildRetry: "build" }
+    const rest = restAtState(def, "buildRetry")
+    const run = runWith([{ state: "buildRetry", hash: "h1" }])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
   })
 })
 
@@ -297,6 +447,35 @@ describe("currentRun", () => {
     )
     const run = await provide(currentRun, repo)
     expect(run.entryVars).toEqual({ base: "refs/heads/main", reviewer: "alice" })
+  })
+
+  describe("headTurn", () => {
+    it("fills in with an empty turn's own state and empty: true", async () => {
+      const { repo } = seededTraceRepo()
+      repo.commitAllWithPrefix("gtd(agent): building") // no files touched
+      const run = await provide(currentRun, repo)
+      expect(run.headTurn).toEqual({ state: "building", actor: "agent", empty: true })
+    })
+
+    it("reports empty: false for a turn that actually changed something", async () => {
+      const { repo } = seededTraceRepo()
+      repo.writeFile("NOTES.md", "hi\n")
+      repo.commitAllWithPrefix("gtd(agent): building")
+      const run = await provide(currentRun, repo)
+      expect(run.headTurn).toEqual({ state: "building", actor: "agent", empty: false })
+    })
+
+    it("is undefined for a foreign/unparseable HEAD subject", async () => {
+      const { repo } = seededTraceRepo()
+      const run = await provide(currentRun, repo)
+      expect(run.headTurn).toBeUndefined()
+    })
+
+    it("is undefined for an empty repo", async () => {
+      const repo = new InMemRepo()
+      const run = await provide(currentRun, repo)
+      expect(run.headTurn).toBeUndefined()
+    })
   })
 })
 
@@ -475,7 +654,7 @@ describe("currentRest — var layering: workflow < rc < entry commit < env", () 
   })
 })
 
-// ── planStep — decide, then guard, then perform ──────────────────────────────
+// ── planStep — decide, then guard; a driver lands the emitted script ─────────
 
 const STEP_WORKFLOW = [
   "workflow:",
@@ -495,6 +674,12 @@ const STEP_WORKFLOW = [
   "        working:",
   "          actor: agent",
   "          prompt: work-prompt",
+  "          on:",
+  '            "A PLAN.md": accepted',
+  "        probing:",
+  "          entry: true",
+  "          actor: check",
+  "          script: probe-script",
   "          on:",
   '            "A PLAN.md": accepted',
   "        accepted:",
@@ -531,49 +716,61 @@ const seededStepRepo = (): InMemRepo => {
 }
 
 describe("planStep", () => {
-  it("a refusal (out-of-turn) touches nothing — no perform to even call", async () => {
-    const repo = seededStepRepo()
-    const before = repo.resolveRef("HEAD")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo) // idle awaits human
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("out of turn")
-    expect(repo.resolveRef("HEAD")).toBe(before)
-  })
-
   it("a refusal (no-match on a dirty tree) names the declared patterns", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): working")
     repo.writeFile("OTHER.md", "unrelated\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("refusal")
     expect(plan.kind === "refusal" && plan.message).toContain("A PLAN.md")
   })
 
-  it("a clean tree with no declared C row is a no-op — no write", async () => {
+  it("a clean tree with no declared C row at a prompt rest is now an ATTEMPT commit, not a no-op", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): working")
     const before = repo.resolveRef("HEAD")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
-    expect(plan).toEqual({ kind: "noop", state: "working" })
+    const plan = await provide(planStep(rest), repo)
+    expect(plan.kind).toBe("commit")
+    if (plan.kind !== "commit") throw new Error("expected a commit plan")
+    expect(plan.decision).toEqual({
+      kind: "commit",
+      subject: "gtd(agent): working",
+      actor: "agent",
+      from: "working",
+      to: "working",
+      attempt: true,
+    })
+    expect(repo.resolveRef("HEAD")).toBe(before)
+
+    land(repo, plan.scripts)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
+    expect(repo.resolveRef("HEAD")).not.toBe(before)
+  })
+
+  it("a clean tree with no declared C row at a script rest is settled — the check ran and re-running it can't change that", async () => {
+    const repo = seededStepRepo()
+    repo.commitAllWithPrefix("gtd(check): probing")
+    const before = repo.resolveRef("HEAD")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest), repo)
+    expect(plan).toEqual({ kind: "noop", state: "probing", settled: true })
     expect(repo.resolveRef("HEAD")).toBe(before)
   })
 
-  it("a commit decision is inspectable and writes nothing until perform runs", async () => {
+  it("a commit decision is inspectable and writes nothing until the driver runs the emitted script", async () => {
     const repo = seededStepRepo()
     repo.writeFile("README.md", "edited\n")
     const before = repo.resolveRef("HEAD")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "human"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("commit")
     expect(plan.kind === "commit" && plan.decision.kind).toBe("commit")
     expect(repo.resolveRef("HEAD")).toBe(before)
 
     if (plan.kind !== "commit") throw new Error("expected a commit plan")
-    const outcome = await provide(plan.perform, repo)
-    expect(outcome).toEqual({ kind: "commit", subject: "gtd(human): idle → working" })
+    land(repo, plan.scripts)
     expect(repo.lastCommitSubject()).toBe("gtd(human): idle → working")
   })
 
@@ -582,32 +779,13 @@ describe("planStep", () => {
     repo.commitAllWithPrefix("gtd(human): working")
     repo.writeFile("PLAN.md", "the plan\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("squash")
     if (plan.kind !== "squash") throw new Error("expected a squash plan")
 
-    const outcome = await provide(plan.perform, repo)
-    expect(outcome).toEqual({ kind: "squash", subject: "chore: accepted accepted" })
+    land(repo, plan.scripts)
     expect(repo.lastCommitSubject()).toBe("chore: accepted accepted")
     expect(repo.hasPath("PLAN.md")).toBe(false)
-  })
-
-  it("a failed commit-template render refuses the step during perform, touching nothing", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(human): broken-entry") // irrelevant boundary
-    repo.hardResetTo(repo.resolveRef("HEAD~1")!) // back to a clean boundary at idle
-    repo.commitAllWithPrefix("gtd(agent): broken")
-    repo.writeFile("BROKEN.md", "x\n")
-    const before = repo.resolveRef("HEAD")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
-    expect(plan.kind).toBe("squash")
-    if (plan.kind !== "squash") throw new Error("expected a squash plan")
-
-    const exit = await provideExit(plan.perform, repo)
-    expect(Exit.isFailure(exit)).toBe(true)
-    expect(exitMessage(exit)).toContain('rendering the "brokenAccepted" commit template failed')
-    expect(repo.resolveRef("HEAD")).toBe(before)
   })
 
   it("a green re-entry into the initial state retaining nothing is mixed-reset, not committed", async () => {
@@ -618,21 +796,65 @@ describe("planStep", () => {
       repo,
     )
     if (entryPlan.kind !== "entry") throw new Error("expected an entry plan")
-    await provide(entryPlan.perform, repo)
+    land(repo, entryPlan.scripts)
 
     // Resting at "fixing" with a clean tree: "C": idle, and the entry commit
     // above produced no net diff — retainsNothing is true.
     const rest = await provide(currentRest, repo)
     expect(rest.state).toBe("fixing")
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("commit")
     if (plan.kind !== "commit") throw new Error("expected a commit plan")
 
-    const outcome = await provide(plan.perform, repo)
-    expect(outcome).toEqual({ kind: "reset", state: "idle" })
+    land(repo, plan.scripts)
     // Resolves back at idle, the entry commit rewound rather than piled on.
     const after = await provide(currentRest, repo)
     expect(after.state).toBe("idle")
+    // The collapse branch lands no commit, so it reports itself via a plain
+    // note rather than a commit report — there is no commit to list files for.
+    expect(plan.scripts.required).toContain("gtd_report_note")
+    expect(plan.scripts.required).toContain(
+      "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",
+    )
+  })
+
+  it("an attempt at a prompt state that IS the initial state does not collapse/reset (decision 5)", async () => {
+    // A minimal workflow whose default entry is itself a no-C prompt state —
+    // every criterion `collapsesWith` otherwise checks (target === initial
+    // state, a real prior commit, nothing retained) is satisfied here, so
+    // only the `attempt` flag stops it from wrongly rewinding the attempt.
+    const ATTEMPT_INITIAL_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: working",
+      "      states:",
+      "        working:",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          on:",
+      '            "A DONE.md": done',
+      "        done:",
+      '          commit: "chore: done"',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", ATTEMPT_INITIAL_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const before = repo.resolveRef("HEAD")
+
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("working")
+    const plan = await provide(planStep(rest), repo)
+    expect(plan.kind).toBe("commit")
+    if (plan.kind !== "commit") throw new Error("expected a commit plan")
+    expect(plan.decision).toMatchObject({ attempt: true, from: "working", to: "working" })
+
+    land(repo, plan.scripts)
+    expect(repo.resolveRef("HEAD")).not.toBe(before)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
   })
 })
 
@@ -739,7 +961,7 @@ describe("planEntry", () => {
     expect(plan.kind === "refusal" && plan.message).toContain("is not an ancestor of HEAD")
   })
 
-  it("perform writes an entry commit carrying Gtd-Var: trailers, capturing whatever the tree carries", async () => {
+  it("the emitted script writes an entry commit carrying Gtd-Var: trailers, capturing whatever the tree carries", async () => {
     const repo = seededStepRepo()
     repo.writeFile("NOTES.md", "draft\n")
     const rest = await provide(currentRest, repo)
@@ -755,8 +977,7 @@ describe("planEntry", () => {
     if (plan.kind !== "entry") throw new Error("expected an entry plan")
     expect(plan.subject).toBe("gtd(human): fixing")
 
-    const outcome = await provide(plan.perform, repo)
-    expect(outcome).toEqual({ kind: "entry", state: "fixing", subject: "gtd(human): fixing" })
+    land(repo, plan.scripts)
     expect(repo.lastCommitMessage()).toBe("gtd(human): fixing\n\nGtd-Var: base=custom")
     expect(repo.hasPath("NOTES.md")).toBe(true)
 
@@ -766,14 +987,14 @@ describe("planEntry", () => {
   })
 })
 
-// ── renderDecision + the plan's `scripts` field — render/perform equivalence ─
+// ── renderDecision + the plan's `scripts` field ──────────────────────────────
 
 describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
-  it("a commit decision renders to one commitAll(withCostTrailer(...)) line, byte-identical to what perform commits", async () => {
+  it("a commit decision renders to one commitAll(withCostTrailer(...)) line, and the assembled script carries it", async () => {
     const repo = seededStepRepo()
     repo.writeFile("README.md", "edited\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "human", { cost: 7, model: "haiku" }), repo)
+    const plan = await provide(planStep(rest, { cost: 7, model: "haiku" }), repo)
     if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
       throw new Error("expected a commit plan")
     }
@@ -785,24 +1006,51 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
       renderDecision(git, rest, plan.decision, rest.context, 7, "haiku"),
     )
     const expectedMessage = `${plan.decision.subject}\n\nGtd-Cost: 7 haiku`
-    expect(steps).toEqual([{ kind: "gitWrite", command: commitAll(expectedMessage) }])
+    expect(steps).toEqual([
+      { kind: "gitWrite", command: commitAll(expectedMessage) },
+      // idle -> working: a genuine transition, not a self-loop, so the
+      // trailing outcome names both states rather than the bare subject.
+      { kind: "outcome", command: transitionOutcome("idle", "working") },
+    ])
 
     // The plan's assembled `scripts.required` carries the SAME line, wrapped
     // in the retry helper — proving Part B's assembly agrees with Part A's
     // renderer, not just a hand-built comparison.
     expect(plan.scripts.required).toContain(shellQuote(commitAll(expectedMessage)))
-
-    const outcome = await provide(plan.perform, repo)
-    expect(outcome).toEqual({ kind: "commit", subject: plan.decision.subject })
-    expect(repo.lastCommitMessage()).toBe(expectedMessage)
+    expect(plan.scripts.required).toContain(transitionOutcome("idle", "working"))
   })
 
-  it("a squash decision's assembled script emits retain-history, soft-reset, commit-as-is, and discard-pending in order, with resolved hashes inlined, agreeing with what perform writes", async () => {
+  it("a self-loop commit (from === to) renders a bare commitOutcome, not a transitionOutcome", async () => {
+    const repo = seededStepRepo()
+    repo.commitAllWithPrefix("gtd(agent): working")
+    const rest = await provide(currentRest, repo)
+    const git = fakeGitOperations(repo)
+    // Hand-built rather than decided by `planStep`: `STEP_WORKFLOW` has no
+    // declared self-loop, but `renderDecision` only reads `decision.from`/
+    // `to`/`subject` plus `rest.def`/`rest.run` — a synthetic `StepCommit`
+    // exercises its from === to branch directly.
+    const decision = {
+      kind: "commit" as const,
+      subject: "gtd(agent): working",
+      actor: "agent",
+      from: "working",
+      to: "working",
+    }
+    const steps = await Effect.runPromise(
+      renderDecision(git, rest, decision, rest.context, undefined, undefined),
+    )
+    expect(steps).toEqual([
+      { kind: "gitWrite", command: commitAll(decision.subject) },
+      { kind: "outcome", command: commitOutcome("gtd(agent): working") },
+    ])
+  })
+
+  it("a squash decision's assembled script emits retain-history, soft-reset, commit-as-is, and discard-pending in order, with resolved hashes inlined, and lands the rendered message", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): working")
     repo.writeFile("PLAN.md", "the plan\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     if (plan.kind !== "squash") throw new Error("expected a squash plan")
 
     const tip = repo.resolveRef("HEAD")! // the pre-squash tip both render and perform resolve
@@ -815,36 +1063,36 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     const resetIdx = script.indexOf(shellQuote(softResetTo(startParent)))
     const commitAsIsIdx = script.indexOf(shellQuote(commitAsIs(expectedMessage)))
     const discardIdx = script.indexOf(shellQuote(discardPending()))
+    const outcomeIdx = script.indexOf(commitOutcome("chore: accepted accepted"))
 
     expect(retainIdx).toBeGreaterThan(-1)
     expect(resetIdx).toBeGreaterThan(retainIdx)
     expect(commitAsIsIdx).toBeGreaterThan(resetIdx)
     expect(discardIdx).toBeGreaterThan(commitAsIsIdx)
+    // The trailing outcome names the rendered message's bare subject line —
+    // last, so a file-row read of HEAD sees the commit that just landed.
+    expect(outcomeIdx).toBeGreaterThan(discardIdx)
 
-    const outcome = await provide(plan.perform, repo)
-    expect(outcome).toEqual({ kind: "squash", subject: "chore: accepted accepted" })
+    land(repo, plan.scripts)
     expect(repo.lastCommitMessage()).toBe(expectedMessage)
   })
 
-  it("a commit-template render failure yields an EMPTY script, matching perform's own refusal", async () => {
+  it("a commit-template render failure yields an EMPTY script — nothing to run, nothing touched", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): broken-entry") // irrelevant boundary
     repo.hardResetTo(repo.resolveRef("HEAD~1")!) // back to a clean boundary at idle
     repo.commitAllWithPrefix("gtd(agent): broken")
     repo.writeFile("BROKEN.md", "x\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, "agent"), repo)
+    const plan = await provide(planStep(rest), repo)
     expect(plan.kind).toBe("squash")
     if (plan.kind !== "squash") throw new Error("expected a squash plan")
 
     expect(plan.scripts.required).toBe("")
     expect(plan.scripts.optional).toBe("")
-
-    const exit = await provideExit(plan.perform, repo)
-    expect(Exit.isFailure(exit)).toBe(true)
   })
 
-  it("planEntry's scripts field carries a single commitAll(message) line matching what perform commits", async () => {
+  it("planEntry's scripts field carries a single commitAll(message) line, and landing it writes the entry commit", async () => {
     const repo = seededStepRepo()
     repo.writeFile("NOTES.md", "draft\n")
     const rest = await provide(currentRest, repo)
@@ -860,9 +1108,11 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
 
     const expectedMessage = "gtd(human): fixing\n\nGtd-Var: base=custom"
     expect(plan.scripts.required).toContain(shellQuote(commitAll(expectedMessage)))
+    // The trailing outcome names the BARE subject, never `expectedMessage`
+    // (which carries the `Gtd-Var:` trailer).
+    expect(plan.scripts.required).toContain(commitOutcome("gtd(human): fixing"))
 
-    const outcome = await provide(plan.perform, repo)
-    expect(outcome).toEqual({ kind: "entry", state: "fixing", subject: "gtd(human): fixing" })
+    land(repo, plan.scripts)
     expect(repo.lastCommitMessage()).toBe(expectedMessage)
   })
 })
@@ -910,6 +1160,90 @@ describe("restAt — the review checkout window's saved-head ref as HEAD", () =>
     // exactly as before this package — this path is deliberately untouched.
     const atBoundary = await provide(restAt(boundary), repo)
     expect(atBoundary.state).toBe("idle")
+  })
+})
+
+// ── stalledAt — the derived stall, a pure fold over the resolved rest ───────
+
+describe("stalledAt", () => {
+  it("is true: a clean tree, HEAD is an empty attempt at the resting no-C prompt state", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(agent): building") // clean tree -> empty commit
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("building")
+    expect(stalledAt(rest)).toBe(true)
+  })
+
+  it("is false on a dirty tree", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(agent): building")
+    repo.writeFile("scratch.txt", "x\n")
+    const rest = await provide(currentRest, repo)
+    expect(stalledAt(rest)).toBe(false)
+  })
+
+  it("is false when HEAD's own turn actually changed something", async () => {
+    const { repo } = seededTraceRepo()
+    repo.writeFile("NOTES.md", "hi\n")
+    repo.commitAllWithPrefix("gtd(agent): building")
+    const rest = await provide(currentRest, repo)
+    expect(stalledAt(rest)).toBe(false)
+  })
+
+  it("is false when the resting state declares a C row (a clean step would fire it, not attempt)", async () => {
+    const repo = seededStepRepo() // STEP_WORKFLOW's "fixing": prompt, on: [["C", "idle"]]
+    repo.commitAllWithPrefix("gtd(agent): fixing") // clean tree -> empty commit
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("fixing")
+    expect(stalledAt(rest)).toBe(false)
+  })
+
+  it("is false once a retry cap would redirect the next attempt elsewhere", async () => {
+    // "working" must NOT be the workflow's own initial state here: entering
+    // the initial state is itself a process BOUNDARY (excluded from the
+    // trace — see `computeProcessRun`'s doc comment), which would reset
+    // "working"'s own retry count on every attempt and this scenario could
+    // never reach its cap.
+    const RETRY_STALL_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: idle-message",
+      "          on:",
+      '            "* **": working',
+      "        working:",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          retry:",
+      "            max: 1",
+      "            otherwise: escalate",
+      "          on:",
+      '            "A DONE.md": done',
+      "        escalate:",
+      "          actor: human",
+      "          message: stuck",
+      "          on:",
+      '            "* **": done',
+      "        done:",
+      '          commit: "chore: done"',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", RETRY_STALL_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    // One prior attempt already landed at "working" (max: 1) — the NEXT clean
+    // step is at the cap and would redirect to "escalate" instead of
+    // repeating the attempt.
+    repo.commitAllWithPrefix("gtd(agent): working")
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("working")
+    expect(stalledAt(rest)).toBe(false)
   })
 })
 

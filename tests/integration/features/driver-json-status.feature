@@ -5,9 +5,11 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
   see docs/design/pattern-machine-plan.md §3) for the `script` and `prompt`
   kinds — smoke.feature already pins the `message` kind at `idle` — the
   `edges` list (the resting state's `on` edges as `{pattern, target,
-  describe?}`, also what a `message:` template sees as `it.edges`), and `gtd
+  describe?}`, also what a `message:` template sees as `it.edges`), `gtd
   status`'s pattern-match reporting (plain text and `--json`), which shows
-  which declared `on` pattern (if any) each pending change matches.
+  which declared `on` pattern (if any) each pending change matches, and `gtd
+  step --json`'s `settled` flag — the driver-protocol signal that a `script`
+  rest's no-op is terminal.
 
   Scenario: gtd next --json reports kind "script" for a check-actor state
     Given a test project
@@ -74,6 +76,69 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "\"kind\":\"prompt\""
     And stdout contains "do the work described in NOTE.md"
+
+  Scenario: gtd next --json reports kind "capture" for a message rest with a dirty tree — the human already acted
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"idle\""
+    And stdout contains "\"kind\":\"capture\""
+
+  Scenario: gtd next --json's dispatch block (session/validate) is absent at a script rest, even when a prompt rest nearby would carry it
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "echo hi"
+                on:
+                  "C": idle
+      """
+    And a commit "gtd(human): checking" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"kind\":\"script\""
+    And stdout does not contain "\"session\""
+    And stdout does not contain "\"validate\""
 
   Scenario: gtd status prints which declared pattern each pending change matches
     Given a test project
@@ -567,7 +632,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
                 message: |
                   Decide what to do next.
 
-                  What each change does next (then run `gtd step human`):
+                  What each change does next (then run `gtd land`):
                   <% it.edges.forEach(function (e) { if (e.describe) { %>
                   <%~ "- " + e.describe + "\n" %>
                   <% } }) %>
@@ -588,7 +653,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "What each change does next (then run `gtd step human`):"
+    And stdout contains "What each change does next (then run `gtd land`):"
     And stdout contains "- Change nothing to accept the current state and proceed."
     And stdout contains "- Change any source file to leave feedback and start another round."
     When I run gtd next with "--json"
@@ -628,3 +693,105 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout contains "\"edges\":[{\"pattern\":\"* **\",\"target\":\"idle\"}]"
     And stdout does not contain "\"describe\""
+
+  Scenario: gtd next --json reports the per-worktree loop log path by default (gtd#169)
+    Given a test project
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"log\":\".git/gtd-loop.log\""
+
+  Scenario: gtd next --json reports GTD_LOOP_LOG verbatim when set (gtd#169)
+    Given a test project
+    And an environment variable "GTD_LOOP_LOG" set to "/tmp/run.log"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"log\":\"/tmp/run.log\""
+  Scenario: gtd land --json reports settled at a script rest that matched nothing
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "echo hi"
+                on:
+                  "A OUT.txt": idle
+      """
+    And a commit "gtd(check): checking" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land with "--json"
+    Then it settles
+    And stdout contains "\"settled\":true"
+
+  Scenario: gtd land --json reports settled false at a prompt rest that matched nothing
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "A DONE.md": idle
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land with "--json"
+    Then it succeeds
+    And stdout contains "\"settled\":false"
+
+  Scenario: gtd land --json reports settled for a green re-entry that collapses back to the initial state
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "echo hi"
+                on:
+                  "C": idle
+      """
+    And I record the commit count
+    And an empty commit "gtd(check): checking"
+    When I run gtd land with "--json"
+    Then it settles
+    And stdout contains "\"settled\":true"
+    And the commit count is unchanged
+    And the git log does not contain "gtd("

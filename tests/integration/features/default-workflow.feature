@@ -18,7 +18,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
   validate.feature), so `plan.planning` hands straight to `plan.await-plan` and
   `build.review.reviewing` straight to `build.review.await-review`. The remaining `check`-actor states
   here (`build.health.check`, `build.review.deciding`) are simulated by writing their verdict
-  files directly and running `gtd step check` — @inmem never executes the
+  files directly and running `gtd land` — @inmem never executes the
   scripts themselves.
 
   Scenario: the full simple process — plan, build, check/fix, review with a feedback lap, then full sign-off into the squash finale
@@ -28,12 +28,12 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → plan-gate.check"
 
     # plan-gate.check: green baseline gate — a clean tree (tests pass) -> plan.planning
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 
@@ -43,12 +43,12 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       Build a thing. Implementation plan: add src/thing.ts exporting `thing`,
       named export only.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
 
     # await-plan: accept the plan as-is with a clean step -> build.building
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): plan.await-plan → build.building"
 
@@ -58,7 +58,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       """
       export const thing = 1
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.building → build.health.check"
 
@@ -67,18 +67,18 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       """
       1 test failed
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.fix"
 
     # build.fix: addresses the feedback, deletes it, steps back to build.health.check
     Given the file ".gtd/FEEDBACK.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
 
     # build.health.check (green): a clean step moves on to build.review.reviewing
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
 
@@ -92,7 +92,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
 
       - [ ] ./src/thing.ts#1 — new export
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     # await-review declares `reviewWindow: true` — resolve the true rest via
     # `gtd status` rather than raw HEAD.
@@ -113,7 +113,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
 
       - [x] ./src/thing.ts#1 — new export — also add a doc comment
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
@@ -130,7 +130,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       - [x] ./src/thing.ts#1 — new export — also add a doc comment
       """
     And the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
 
@@ -141,7 +141,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       1. ./src/thing.ts#1 — add a doc comment above the new export
       """
     And the file ".gtd/REVIEW_RAW.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.review.collecting → build.addressing"
 
@@ -153,12 +153,12 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       // The thing.
       export const thing = 1
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.addressing → build.health.check"
 
     # build.health.check (green) -> build.review.reviewing regenerates an incremental REVIEW.md
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
@@ -170,7 +170,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
 
       - [ ] ./src/thing.ts#1 — doc comment added
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the git ref "refs/worktree/gtd/review-head" exists
     When I run gtd status
@@ -188,11 +188,11 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
 
       - [x] ./src/thing.ts#1 — doc comment added
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
     Given the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
 
@@ -204,7 +204,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
 
       Implements the thing export and documents it.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: add thing with a doc comment"
     And the git status is clean
@@ -267,7 +267,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       1 test failed
       """
     Given the file ".gtd/FEEDBACK.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
     And ".gtd/FEEDBACK.md" does not exist
@@ -284,7 +284,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       Build a thing.
       """
     Given the file ".gtd/TODO.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
     And ".gtd/TODO.md" does not exist
@@ -324,7 +324,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       """
       attempt 4 failed
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.health.escalate"
 
@@ -342,7 +342,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       """
     Given I record the commit count
     And the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     And stderr contains "was deleted"
     # Nothing committed, and a refusal emits no script at all — the process
@@ -376,7 +376,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       - [ ] ./src/b.ts#1
       """
     And I record the commit count
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     And stderr contains "still unticked and no comment"
     # Nothing committed — the reviewer stays at the gate.
@@ -416,7 +416,7 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       """
       export const extra = 1
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
@@ -461,34 +461,34 @@ Feature: The bundled unified workflow — simple-flow full-process journeys
       """
       Build a second thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → plan-gate.check"
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a second thing. Plan: add src/thing2.ts exporting `thing2`.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): plan.await-plan → build.building"
     Given a file "src/thing2.ts" with:
       """
       export const thing2 = 1
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.building → build.health.check"
     Given a file ".gtd/FEEDBACK.md" with:
       """
       cycle 2 attempt 1 failed
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.fix"
 

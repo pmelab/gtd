@@ -18,6 +18,7 @@ import {
   stateSubject,
   step,
   validateDefinition,
+  wouldAttempt,
   type PendingChange,
   type StateDef,
   type StateMode,
@@ -786,6 +787,165 @@ describe("step — retry redirection", () => {
   })
 })
 
+// ── Attempt commits ──────────────────────────────────────────────────────────
+
+describe("step — attempt commits (clean tree, no-C prompt state)", () => {
+  it("a clean step at a no-C prompt state decides an attempt commit, self-looping", () => {
+    // "fixing" (retryWorkflow) is a prompt state declaring no "C" row.
+    const decision = step(retryWorkflow, "fixing", "agent", { changes: [], processTrace: [] })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(agent): fixing",
+      actor: "agent",
+      from: "fixing",
+      to: "fixing",
+      attempt: true,
+    })
+  })
+
+  it("a declared C row still wins on a clean tree — never an attempt", () => {
+    // "working" (simpleWorkflow) is a prompt state that DOES declare "C".
+    const decision = step(simpleWorkflow, "working", "agent", { changes: [], processTrace: [] })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(agent): working → idle",
+      actor: "agent",
+      from: "working",
+      to: "idle",
+    })
+  })
+
+  it("a script state with no C row still decides a plain no-op, never an attempt", () => {
+    const workflow: WorkflowDefinition = def(
+      { checking: { actor: "check", script: "npm test", on: [["A x", "checking"]] } },
+      "checking",
+    )
+    const decision = step(workflow, "checking", "check", { changes: [], processTrace: [] })
+    expect(decision).toEqual({ kind: "noop", state: "checking" })
+  })
+
+  it("a message state with no C row still decides a plain no-op, never an attempt", () => {
+    const workflow: WorkflowDefinition = def(
+      { idle: { actor: "human", message: "hi", on: [["A x", "idle"]] } },
+      "idle",
+    )
+    const decision = step(workflow, "idle", "human", { changes: [], processTrace: [] })
+    expect(decision).toEqual({ kind: "noop", state: "idle" })
+  })
+
+  it("a dirty tree matching no pattern still refuses, never an attempt", () => {
+    const noMatchWorkflow: WorkflowDefinition = def(
+      {
+        working: { actor: "agent", prompt: "do it", on: [["A x", "done"]] },
+        done: { commit: "c" },
+      },
+      "working",
+    )
+    const refusal = step(noMatchWorkflow, "working", "agent", {
+      changes: [change("M", "y")],
+      processTrace: [],
+    })
+    expect(refusal).toEqual({
+      kind: "refusal",
+      reason: "no-match",
+      state: "working",
+      patterns: ["A x"],
+    })
+  })
+
+  it("retry: {max, otherwise} on a prompt state attempts under the cap, then redirects at the cap", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        working: {
+          actor: "agent",
+          prompt: "do it",
+          retry: { max: 2, otherwise: "escalate" },
+          on: [["A DONE.md", "done"]],
+        },
+        escalate: { actor: "human", message: "stuck", on: [["* *", "done"]] },
+        done: { commit: "chore: done" },
+      },
+      "working",
+    )
+    // One prior entry into "working" (max: 2) — under the cap, attempts again.
+    const first = step(workflow, "working", "agent", { changes: [], processTrace: ["working"] })
+    expect(first).toEqual({
+      kind: "commit",
+      subject: "gtd(agent): working",
+      actor: "agent",
+      from: "working",
+      to: "working",
+      attempt: true,
+    })
+
+    // Two prior entries — at the cap — redirects to "escalate".
+    const second = step(workflow, "working", "agent", {
+      changes: [],
+      processTrace: ["working", "working"],
+    })
+    expect(second).toEqual({
+      kind: "commit",
+      subject: "gtd(agent): working → escalate",
+      actor: "agent",
+      from: "working",
+      to: "escalate",
+      attempt: true,
+    })
+  })
+
+  it("retry.otherwise naming a commit state yields a squash decision — never an attempt", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        working: {
+          actor: "agent",
+          prompt: "do it",
+          retry: { max: 1, otherwise: "done" },
+          on: [],
+        },
+        done: { commit: "chore: done" },
+      },
+      "working",
+    )
+    const decision = step(workflow, "working", "agent", {
+      changes: [],
+      processTrace: ["working"],
+    })
+    expect(decision).toEqual({ kind: "squash", state: "done", template: "chore: done" })
+  })
+})
+
+describe("wouldAttempt", () => {
+  it("is true exactly when a clean step at `state` would decide a self-looping attempt", () => {
+    expect(wouldAttempt(retryWorkflow, "fixing", [])).toBe(true)
+  })
+
+  it("is false when a declared C row would fire instead", () => {
+    expect(wouldAttempt(simpleWorkflow, "working", [])).toBe(false)
+  })
+
+  it("is false at a script/message state (a clean step there is a plain no-op)", () => {
+    expect(wouldAttempt(retryWorkflow, "checking", ["start", "checking"])).toBe(false)
+  })
+
+  it("is false once a retry cap redirects the attempt elsewhere", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        working: {
+          actor: "agent",
+          prompt: "do it",
+          retry: { max: 2, otherwise: "escalate" },
+          on: [["A DONE.md", "done"]],
+        },
+        escalate: { actor: "human", message: "stuck", on: [["* *", "done"]] },
+        done: { commit: "chore: done" },
+      },
+      "working",
+    )
+    expect(wouldAttempt(workflow, "working", ["working"])).toBe(true)
+    expect(wouldAttempt(workflow, "working", ["working", "working"])).toBe(false)
+  })
+})
+
 // ── Memory scoping primitives ─────────────────────────────────────────────────
 
 describe("inScope — dotted-prefix scope test", () => {
@@ -1488,7 +1648,7 @@ describe("validateDefinition", () => {
 
   it("treats entries.manual as reachable even with no inbound `on`/`retry` edge (seeded as a root)", () => {
     // "fix-check" has no inbound `on`/`retry` edge from the default entry — it
-    // is entered ONLY via `gtd step <actor> --entry fix-check`, so seeding it
+    // is entered ONLY via `gtd --entry fix-check`, so seeding it
     // as a reachability root is what keeps it from being wrongly flagged
     // unreachable.
     const errors = validateDefinition({

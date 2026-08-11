@@ -59,6 +59,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it fails
     And stderr contains ".gtd/REQUIREMENTS.md is not valid"
     And stderr contains "has no question text"
+    And stderr contains "does not pass its own validation script"
 
   Scenario: --json reports the emitted script structurally
     # `--json` is the raw engine response: the resolved state, its file and
@@ -76,6 +77,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And stdout contains "\"mode\":\"qa\""
     And stdout contains "\"file\":\".gtd/REQUIREMENTS.md\""
     And stdout contains "gtd check qa"
+    And stdout contains "does not pass its own validation script"
+    And stdout contains "Fix these format violations in .gtd/REQUIREMENTS.md"
 
   Scenario: a well-formed REVIEW.md at build.review.reviewing validates cleanly
     Given a test project
@@ -146,7 +149,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And stdout contains "run `gtd check qa '.gtd/REQUIREMENTS.md'`"
     And stdout contains "fix every violation"
 
-  Scenario: `gtd next --json` withholds the instruction — the driving loop owns the validate-and-retry step
+  Scenario: `gtd next --json` withholds the self-validation instruction but embeds the validate script
     Given a test project
     And the workflow
     And a commit "gtd(human): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
@@ -156,7 +159,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.product-author\""
-    And stdout does not contain "gtd validate"
+    And stdout does not contain "Before finishing your turn"
+    And the json field "validate" contains "gtd check qa"
 
   Scenario: gtd validate leaves the file untouched when the mode declares no formatter
     # The built-in `qa`/`review` modes VALIDATE only — gtd ships no formatter of
@@ -194,7 +198,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       The human deleted the question text.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     # The step's own required script runs the same validation ahead of its
     # commit, so the refusal is the checker's findings and a non-zero exit —
@@ -214,7 +218,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       Build a thing. Plan: add src/thing.ts exporting `thing`, with a named
       export only.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.product-answer → design.product-author"
 

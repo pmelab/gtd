@@ -10,7 +10,7 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
   `"* .gtd/NEXT.md"` row — a `*` status matches every status including `D`,
   see STATES.md §3). A minimal 4-state custom workflow stands in for the
   fuller example; @inmem simulates the arbiter's script by writing/deleting
-  `.gtd/NEXT.md` directly and running `gtd step check`.
+  `.gtd/NEXT.md` directly and running `gtd land`.
 
   Scenario: the arbiter feeds a two-task queue one task at a time, then closes out once it empties
     Given a test project
@@ -25,7 +25,7 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
             states:
               idle:
                 actor: human
-                message: "write task files under .gtd/tasks/, then run `gtd step human`"
+                message: "write task files under .gtd/tasks/, then run `gtd land`"
                 on:
                   "* **": picking
               picking:
@@ -58,7 +58,7 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
       """
       Task B
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → picking"
 
@@ -67,13 +67,13 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
       """
       .gtd/tasks/01-a.md
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): picking → building"
 
     # building (task 1): implements it, deletes the task file, back to picking
     Given the file ".gtd/tasks/01-a.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): building → picking"
 
@@ -82,20 +82,20 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
       """
       .gtd/tasks/02-b.md
       """
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): picking → building"
 
     # building (task 2): implements it, deletes the task file, back to picking
     Given the file ".gtd/tasks/02-b.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): building → picking"
 
     # picking: the queue is now empty — deleting NEXT.md matches "D .gtd/NEXT.md"
     # (declared before the wildcard row) and closes the process out via "done"
     Given the file ".gtd/NEXT.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "chore: tasks complete"
     And the git status is clean
@@ -113,7 +113,7 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
             states:
               idle:
                 actor: human
-                message: "write task files under .gtd/tasks/, then run `gtd step human`"
+                message: "write task files under .gtd/tasks/, then run `gtd land`"
                 on:
                   "* **": picking
               picking:
@@ -142,12 +142,12 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
       """
       no tasks this time — just a placeholder edit
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → picking"
 
     # picking: .gtd/tasks/ was already empty, so a clean step matches "C" directly
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "chore: tasks complete"
     And the git status is clean

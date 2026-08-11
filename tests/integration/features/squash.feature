@@ -49,17 +49,17 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
       v1
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → drafting"
     Given "DRAFT.md" is modified to:
       """
       v2
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting → revising"
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): revising → working"
     Given a file "COMMIT_MSG.md" with:
@@ -68,7 +68,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
 
       Body text.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: draft workflow"
     And the commit subjects from oldest to newest are:
@@ -78,6 +78,81 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       feat: draft workflow
       """
     And the commit count increased by 1
+    And "DRAFT.md" exists
+    And "COMMIT_MSG.md" does not exist
+
+  Scenario: an attempt commit landed mid-process leaves no trace in the squash
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "draft"
+                on:
+                  "* **": revising
+              revising:
+                actor: human
+                message: "revise or accept"
+                on:
+                  "C": working
+                  "* **": drafting
+              working:
+                actor: agent
+                prompt: "write COMMIT_MSG.md"
+                on:
+                  "A COMMIT_MSG.md": done
+                  "M COMMIT_MSG.md": done
+              done:
+                commit: '<%~ it.read("COMMIT_MSG.md") %>'
+      """
+    And a file "DRAFT.md" with:
+      """
+      v1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → drafting"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting"
+    And the git status is clean
+    Given "DRAFT.md" is modified to:
+      """
+      v2
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting → revising"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): revising → working"
+    Given a file "COMMIT_MSG.md" with:
+      """
+      feat: draft workflow
+
+      Body text.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "feat: draft workflow"
+    And the commit subjects from oldest to newest are:
+      """
+      chore: initial commit
+      chore: add .gtdrc
+      feat: draft workflow
+      """
     And "DRAFT.md" exists
     And "COMMIT_MSG.md" does not exist
 
@@ -117,7 +192,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
 
       Body.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: finish"
     And the git ref "refs/worktree/gtd/history" exists
@@ -162,7 +237,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
       leftover debug notes that should never be committed
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: finish"
     And "SCRATCH.md" does not exist
@@ -203,7 +278,7 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
       feat: never lands
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     And the commit count is unchanged
     And "COMMIT_MSG.md" exists

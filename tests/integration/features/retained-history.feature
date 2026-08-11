@@ -22,19 +22,19 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given the file ".gtd/TODO.md" is deleted
@@ -42,10 +42,10 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       export const thing = 1
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given a file ".gtd/REVIEW.md" with:
@@ -57,7 +57,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       - [ ] ./src/thing.ts#1 — new export
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
     Given ".gtd/REVIEW.md" is modified to:
@@ -69,12 +69,12 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       - [x] ./src/thing.ts#1 — new export
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
     Given the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
 
@@ -84,7 +84,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       Adds src/thing.ts.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: add thing"
     And the git ref "refs/worktree/gtd/history" exists
@@ -118,9 +118,9 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     When I run gtd with args "abandon"
     Then it succeeds
@@ -136,9 +136,9 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 
@@ -161,19 +161,19 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given the file ".gtd/TODO.md" is deleted
@@ -181,10 +181,10 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       export const thing = 1
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given a file ".gtd/REVIEW.md" with:
@@ -196,7 +196,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       - [ ] ./src/thing.ts#1 — new export
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
     Given ".gtd/REVIEW.md" is modified to:
@@ -208,11 +208,11 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       - [x] ./src/thing.ts#1 — new export
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given a file ".gtd/COMMIT_MSG.md" with:
@@ -221,7 +221,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       Adds src/thing.ts.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: add thing"
 
@@ -241,19 +241,19 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       Build the first thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given ".gtd/TODO.md" is modified to:
       """
       Build the first thing. Implementation plan: add src/one.ts.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given the file ".gtd/TODO.md" is deleted
@@ -261,10 +261,10 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       export const one = 1
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given a file ".gtd/REVIEW.md" with:
@@ -276,7 +276,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       - [ ] ./src/one.ts#1 — new export
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
     Given ".gtd/REVIEW.md" is modified to:
@@ -288,18 +288,18 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       - [x] ./src/one.ts#1 — new export
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given a file ".gtd/COMMIT_MSG.md" with:
       """
       feat: cycle one
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: cycle one"
     And the git ref "refs/worktree/gtd/history" exists
@@ -310,19 +310,19 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       Build the second thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given ".gtd/TODO.md" is modified to:
       """
       Build the second thing. Implementation plan: add src/two.ts.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given the file ".gtd/TODO.md" is deleted
@@ -330,10 +330,10 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       export const two = 2
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
 
     Given a file ".gtd/REVIEW.md" with:
@@ -345,7 +345,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       - [ ] ./src/two.ts#1 — new export
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
 
     Given ".gtd/REVIEW.md" is modified to:
@@ -357,11 +357,11 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       - [x] ./src/two.ts#1 — new export
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
 
     Given the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
 
@@ -369,7 +369,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       feat: cycle two
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: cycle two"
     And the git ref "refs/worktree/gtd/history" exists
@@ -398,9 +398,9 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 

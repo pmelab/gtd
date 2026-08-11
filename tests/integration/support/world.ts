@@ -23,20 +23,23 @@ export const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 export type Tier = "live" | "inmem"
 
 /**
- * Mirrors `bin/gtd`'s own `is_write_command`: the tokens whose command no
- * longer performs its git effect itself but PRINTS it as a `required`/
- * `optional` script pair for a driver to run (`step`, `abandon`, `restore`,
- * and the bare `gtd --entry <state>` short form). `--entry`'s long form
- * (`gtd step --entry <state>`) is already covered by the `step` token in
- * front of it. Everything else is a read command with nothing to drive.
+ * The tokens whose command no longer performs its git effect itself but
+ * PRINTS it as a `required`/`optional` script pair for a driver to run
+ * (`land`, `abandon`, `restore`, and the bare `gtd --entry <state>` short
+ * form — the only form `--entry` has: landing and entering are different
+ * verbs, so `gtd land --entry <state>` is a usage error, not a write command
+ * of its own). Everything else is a read command with nothing to drive.
  */
-const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["step", "abandon", "restore", "--entry"])
+const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore", "--entry"])
 
 /** `--entry` takes both spellings (`--entry <state>` and `--entry=<state>`), so the bare short form has to be recognized either way. */
 const isWriteCommand = (args: readonly string[]): boolean => {
   const first = args[0] ?? ""
   return WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--entry=")
 }
+
+/** `gtd land`'s two drivable exit codes — 0 (ordinary) and 3 (SETTLED, still carrying a script to run) — as opposed to a genuine refusal (1), which has nothing to drive. */
+const landExitDrivable = (exitCode: number): boolean => exitCode === 0 || exitCode === 3
 
 /** The one line of a possibly multi-document stdout that parses as a JSON object (`gtd check --json`'s failing shape emits two). */
 const firstJsonObject = (stdout: string): Record<string, unknown> | undefined => {
@@ -66,6 +69,16 @@ const execFailure = (err: unknown): EmittedRun => {
   return {
     exitCode: typeof e.code === "number" ? e.code : 1,
     output: (e.stdout ?? "") + (e.stderr ?? ""),
+  }
+}
+
+/** A rejected `execFile` promise, read back as a `GtdWorld.lastResult` (stdout/stderr kept separate, unlike `execFailure`'s combined `output`). */
+const execFailureResult = (err: unknown): { exitCode: number; stdout: string; stderr: string } => {
+  const e = err as { code?: unknown; stdout?: string; stderr?: string }
+  return {
+    exitCode: typeof e.code === "number" ? e.code : 1,
+    stdout: e.stdout ?? "",
+    stderr: e.stderr ?? "",
   }
 }
 
@@ -131,23 +144,33 @@ export class GtdWorld extends QuickPickleWorld {
     stdout: "",
     stderr: "",
   }
+  /**
+   * The combined output of the `required`/`optional` scripts the last write
+   * command (`land`/`--entry`/`abandon`/`restore`) drove — distinct from
+   * `lastResult.stdout`, which carries gtd's OWN plain-text line, not what a
+   * driven script printed. Only meaningful on the LIVE tier: a script's
+   * outcome lines (`src/OutcomeScript.ts`'s `gtd_report_*` calls) are printed
+   * by real `bash`, which the in-memory tier's `applyEmittedScript` never
+   * runs (see its own module doc comment's "outcome blocks are inert"
+   * decision) — reset to `""` at the start of every `driveWriteCommand` call,
+   * so a scenario never reads a STALE prior command's output.
+   */
+  lastScriptOutput: string = ""
   savedCommitCount: number | undefined = undefined
-  /** Named `memory` keys captured from a prior `gtd next --json`/`gtd status --json` output (`world.lastResult.stdout`), for scenarios that must prove two turns' computed keys are the SAME (session resumed) or DIFFERENT (fresh session) without knowing the exact `<scope>#<hash>` value in advance. */
-  recordedMemoryKeys: Record<string, string | undefined> = {}
-  /** Path to a stub agent script for `gtd-loop` scenarios (@live only). */
+  /** Named JSON fields captured from a prior `gtd next --json`/`gtd status --json` output (`world.lastResult.stdout`) — for scenarios that must prove two turns' values for the SAME field are the SAME (a memory key's scope, a resumed session id) or DIFFERENT (a fresh scope, a freshly minted id) without knowing the exact value in advance. Keyed by the label a scenario names it, not by field — one vocabulary for any `next --json`/`status --json` field. */
+  recordedJsonFields: Record<string, string | undefined> = {}
+  /** Named sets of top-level JSON keys captured from a prior `--json` command's stdout — for a drift guard proving a later document (e.g. `gtd install`'s briefing) still names every field a real command emits. Keyed by the label a scenario names it, same vocabulary as `recordedJsonFields`. */
+  recordedJsonKeys: Record<string, readonly string[]> = {}
+  /** Path to a stub agent script for `readme-driver` scenarios (@live only) — the `claude` shim on the scenario's PATH translates the README driver's own argv into this stub's `$GTD_LOOP_*` env. */
   stubAgentPath: string | undefined = undefined
-  /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (loop logging scenarios, @live only). */
-  gtdLoopLogOverride: string | undefined = undefined
-  /** A stray `$GIT_DIR` value a scenario wants injected into the spawned bin/gtd's env — proving per-worktree state (log, memory marker) stays keyed to the cwd worktree, never the inherited GIT_DIR (@live only). */
-  gitDirOverride: string | undefined = undefined
-  /** A leaked `$GTD_LOOP_LOG` (as the loop driver exports when running the suite as its own check) to seed into the spawned env BEFORE the hermetic GTD_LOOP_* strip — proving the strip neutralises it so the spawned gtd resolves its own log, not the driver's (@live only). */
-  leakedGtdLoopLog: string | undefined = undefined
-  /** Explicit `$NO_COLOR` value a scenario wants exported (loop rendering scenarios, @live only). */
-  noColorOverride: string | undefined = undefined
-  /** Explicit `$GTD_TESTCOMMAND` value a scenario wants exported — overrides the bundled template's `vars.testCommand` for a real `checking`/`fix-precheck` script run (`gtd-loop` @live scenarios only). */
+  /** Explicit `$GTD_TESTCOMMAND` value a scenario wants exported — overrides the bundled template's `vars.testCommand` for a real `checking`/`fix-precheck` script run (@live only). */
   gtdTestCommandOverride: string | undefined = undefined
   /** A scenario-scoped temp dir holding a `gtd` shim (see hooks.ts's `Before`) so a bare `gtd` invoked BY NAME — e.g. a seeded steering-mode `validate:` command (`gtd check <mode> <file>`) — resolves to this build, not a globally-installed gtd. Set by the Before hook, live tier only. */
   pathShimDir: string | undefined = undefined
+  /** A temp dir OUTSIDE the repo holding the README's extracted driver script — proves the paste needs nothing inside the project. Set by "Given the driver pasted from README.md" (`readme-driver.steps.ts`), removed by the After hook alongside `repoDir`. */
+  readmeDriverDir: string | undefined = undefined
+  /** Absolute path to the extracted driver script inside `readmeDriverDir`, chmod'd executable — what "When I run the README driver" spawns. */
+  readmeDriverPath: string | undefined = undefined
 
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_<UPPERCASE-name>` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}
@@ -156,8 +179,9 @@ export class GtdWorld extends QuickPickleWorld {
   scriptedCommands: Map<string, ScriptedCommand> = new Map()
 
   /**
-   * The e2e DRIVER — the test-suite counterpart of `bin/gtd`. gtd's write
-   * commands no longer perform their own git effect: they print a `required`
+   * The e2e DRIVER — the test-suite counterpart of a real driver (the
+   * README's minimal driver, or your own). gtd's write commands no longer
+   * perform their own git effect: they print a `required`
    * (and sometimes `optional`) bash script for a driver to run, and `gtd
    * validate` likewise prints the script that formats-then-validates rather
    * than doing it. Every scenario's assertions are about what those scripts
@@ -167,11 +191,13 @@ export class GtdWorld extends QuickPickleWorld {
    * Invoke the command exactly as the scenario asked (so `lastResult` carries
    * gtd's own wording and exit code verbatim), then drive whatever it
    * emitted. A read command (`next`, `status`, `visualize`, `lsp`, `check`,
-   * `init`) emits nothing and falls straight through.
+   * `init`) emits nothing and falls straight through. Exit 3 (`gtd land`'s
+   * SETTLED signal) still carries a script to run — same as exit 0 — so the
+   * guard below tolerates both; only a genuine refusal (exit 1) skips driving.
    */
   async runGtd(...args: string[]): Promise<void> {
     await this.invokeGtd(...args)
-    if (this.lastResult.exitCode !== 0) return
+    if (!landExitDrivable(this.lastResult.exitCode)) return
     if (isWriteCommand(args)) await this.driveWriteCommand(args)
     else if (args[0] === "validate") await this.driveValidateCommand(args)
   }
@@ -194,6 +220,7 @@ export class GtdWorld extends QuickPickleWorld {
    * now a pure read, so asking twice against an unchanged repo answers
    * identically. Returns `undefined` when the probe itself failed (a refusal
    * the first invocation already reported) — there is nothing to drive then.
+   * Exit 3 (SETTLED) is not a failure — its script must still run.
    */
   private async emittedJson(args: string[]): Promise<Record<string, unknown> | undefined> {
     if (args.includes("--json")) return firstJsonObject(this.lastResult.stdout)
@@ -201,29 +228,32 @@ export class GtdWorld extends QuickPickleWorld {
     await this.invokeGtd(...args, "--json")
     const probe = this.lastResult
     this.lastResult = reported
-    return probe.exitCode === 0 ? firstJsonObject(probe.stdout) : undefined
+    return landExitDrivable(probe.exitCode) ? firstJsonObject(probe.stdout) : undefined
   }
 
   /**
-   * `step`/`--entry`/`abandon`/`restore`: run `required` (the commit, reset,
+   * `land`/`--entry`/`abandon`/`restore`: run `required` (the commit, reset,
    * ref update, review-window close/open — everything that decides what lands
    * in git), then `optional` (presentation only, so a non-zero exit there is
-   * ignored exactly as `bin/gtd` ignores it). gtd's own plain-text line stays
-   * as `lastResult`; only a FAILING required script overrides it, since a
-   * scenario asserting "it succeeds" must not pass when the work never landed.
+   * ignored exactly as the README's minimal driver ignores it). gtd's own
+   * plain-text line stays as `lastResult`; only a FAILING required script
+   * overrides it, since a scenario asserting "it succeeds" must not pass when
+   * the work never landed.
    */
   private async driveWriteCommand(args: string[]): Promise<void> {
+    this.lastScriptOutput = ""
     const json = await this.emittedJson(args)
     if (json === undefined) return
     if (!(await this.runRequiredScript(stringField(json, "required")))) return
     const optional = stringField(json, "optional")
-    if (optional.length > 0) await this.runEmittedScript(optional)
+    if (optional.length > 0) this.lastScriptOutput += (await this.runEmittedScript(optional)).output
   }
 
   /** Runs a write command's `required` half; `false` (with `lastResult` already rewritten to say so) when it failed, so the caller skips `optional`. */
   private async runRequiredScript(required: string): Promise<boolean> {
     if (required.length === 0) return true
     const run = await this.runEmittedScript(required)
+    this.lastScriptOutput += run.output
     if (run.exitCode === 0) return true
     this.lastResult = {
       exitCode: run.exitCode,
@@ -279,13 +309,20 @@ export class GtdWorld extends QuickPickleWorld {
    * The environment every live-tier subprocess gets. Prepends the PATH shim
    * dir (see hooks.ts's Before) so a bare `gtd` invoked BY NAME — by the
    * process spawned here, or by anything IT spawns — resolves to this same
-   * build under test rather than a stray global install.
+   * build under test rather than a stray global install. Applies
+   * `$GTD_TESTCOMMAND` when a scenario set one (readme-driver.steps.ts's
+   * "GTD_TESTCOMMAND is set to"), so both a direct `--entry fix-precheck`
+   * invocation and the required/optional script it emits see the override.
    */
   private spawnEnv(): NodeJS.ProcessEnv {
     const pathEnv = this.pathShimDir
       ? { PATH: `${this.pathShimDir}:${process.env["PATH"] ?? ""}` }
       : {}
-    return { ...process.env, ...pathEnv, NODE_OPTIONS: undefined }
+    const testCommandEnv =
+      this.gtdTestCommandOverride !== undefined
+        ? { GTD_TESTCOMMAND: this.gtdTestCommandOverride }
+        : {}
+    return { ...process.env, ...pathEnv, ...testCommandEnv, NODE_OPTIONS: undefined }
   }
 
   /** Async execFile implementation — used for the live tier. */
@@ -314,6 +351,29 @@ export class GtdWorld extends QuickPickleWorld {
         process.stderr.write(stderr)
       }
       this.lastResult = { exitCode, stdout, stderr }
+    }
+  }
+
+  /**
+   * `@live` only: `gtd land | bash` — the ONE-LINE landing form the whole
+   * package exists for, run as a REAL shell pipe (not this world's own
+   * `driveWriteCommand` machinery) so `set -o pipefail` propagating gtd's own
+   * exit code through the pipe is proven, not assumed. `lastResult.exitCode`
+   * is the pipe's own status (`$?` right after it), so `it settles`/
+   * `it succeeds` read it exactly like any other invocation.
+   */
+  async runGtdLandPiped(): Promise<void> {
+    const pipeline = `set -o pipefail; ${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)} land | bash`
+    try {
+      const { stdout, stderr } = await execFile("bash", ["-c", pipeline], {
+        cwd: this.repoDir,
+        env: this.spawnEnv(),
+        encoding: "utf-8",
+        timeout: 30_000,
+      })
+      this.lastResult = { exitCode: 0, stdout, stderr }
+    } catch (err: unknown) {
+      this.lastResult = execFailureResult(err)
     }
   }
 

@@ -7,10 +7,10 @@ import type { GtdWorld } from "../world.js"
 const execFile = promisify(execFileCb)
 
 // Actually executes a check-actor state's rendered script against the real
-// repo — the piece bin/gtd's own loop driver performs (`bash -c "$content"`,
-// exit code ignored) before capturing the outcome via `gtd step <actor>`. Reads
+// repo — the piece a driver performs (`bash -c "$content"`, exit code
+// ignored) before capturing the outcome via `gtd land`. Reads
 // `content` from the last `gtd next --json` result, so a scenario composes it
-// as: `gtd next --json` -> this step -> `gtd step check`. @live only: the bug
+// as: `gtd next --json` -> this step -> `gtd land`. @live only: the bug
 // class this exists to catch (issue #128) lives in the script's own shell
 // logic, which @inmem never runs (see AGENTS.md, review-feedback-guards.feature).
 When("I execute the printed check script", async (world: GtdWorld) => {
@@ -19,7 +19,7 @@ When("I execute the printed check script", async (world: GtdWorld) => {
   try {
     await execFile("bash", ["-c", content], { cwd: world.repoDir })
   } catch {
-    // Exit code is deliberately ignored, exactly like bin/gtd's own `|| true`
+    // Exit code is deliberately ignored, exactly like a driver's own `|| true`
     // — the script encodes its outcome in the tree, not its exit status.
   }
 })

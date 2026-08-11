@@ -10,6 +10,15 @@
   text — don't hide setup behind abstract step names
 - inline setup logic into step definitions rather than chaining helpers; each
   step maps to one commit
+- README.md's "A complete minimal driver" section is DOC-TESTED, not just prose:
+  `tests/integration/features/readme-driver.feature` extracts its fenced bash
+  block verbatim (`tests/integration/helpers/readme-driver.ts`) and runs it as a
+  real driver. The heading text and the single fence are load-bearing — renaming
+  the heading or splitting the paste across more than one fence fails the
+  extraction, not just a stale doc. The extracted script is spawned with only
+  `$PATH` (a shim dir first) and `$HOME` — any new env dependency the paste
+  grows must be documented in its own Prerequisites section, and is a scenario
+  failure until it is
 
 ## Architecture
 
@@ -30,8 +39,15 @@ description, and must be preserved:
   const data and total functions.
 - **Everything IO-shaped lives at the edge.** `src/Edge.ts` (git/templates),
   `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
-  <<<<<<< HEAD window). A command resolves ONE `Rest` (`Edge.ts`'s
-  `currentRest`/`restAt`) and hands it to `planStep`/`planEntry` —
+  window), `src/StepGuards.ts` (the step-capture guard registry),
+  `src/RepoFiles.ts` (the working-tree/committed content port),
+  `src/CommandRunner.ts` (the subprocess port). There is no driver-scoped
+  git-dir write left at all: `src/Sessions.ts`'s `sessionId`/`resume` are a pure
+  derivation of history (`uuidv5` of the resting state's memory key) and write
+  nothing; no command — `next`, `status`, or `land` — touches the git dir to
+  record that a beat was dispatched. Every write gtd causes happens inside a
+  script it emitted and the driver ran. A command resolves ONE `Rest`
+  (`Edge.ts`'s `currentRest`/`restAt`) and hands it to `planStep`/`planEntry` —
   `src/program.ts` never reaches into `GitService` directly except two narrow
   exceptions: the `abandon`/`restore` hard/mixed resets (recovery commands that
   must work even when a `Rest` would refuse — see `runAbandonCommand`'s own doc
@@ -39,14 +55,7 @@ description, and must be preserved:
   `readFileAtRef` reads (they need the COMMITTED, pre-turn copy of a file, which
   a `Rest` snapshot — taken before the turn lands — doesn't carry). The review
   window and the steering-file gate are deliberately invisible to the pure
-  engine — don't "simplify" them back into it. ======= window),
-  `src/StepGuards.ts` (the step-capture guard registry), `src/RepoFiles.ts` (the
-  working-tree/committed content port), `src/CommandRunner.ts` (the subprocess
-  port). `src/program.ts` calls the edge; it never reaches into `GitService`
-  directly. The review window and the steering-file guard are deliberately
-  invisible to the pure engine — don't "simplify" them back into it.
-
-> > > > > > > extract-step-guards
+  engine — don't "simplify" them back into it.
 
 - **The review window issues no whole-tree index WRITE, and every git index
   write tolerates `index.lock` contention.** gtd shares one worktree index with
@@ -100,12 +109,24 @@ any OTHER name (including `prose`) needs its own `modes:` entry, or
 - **e2e feature files** that assert on the bundled template's shape (they set it
   up with the `Given the workflow` step —
   `tests/integration/features/default-workflow.feature` (simple flow),
-  `unified-advanced-flow.feature` (advanced flow), `gtd-loop.feature`,
+  `unified-advanced-flow.feature` (advanced flow), `readme-driver.feature`,
   `driver-json-status.feature`, `smoke.feature`, `validate.feature`,
   `init.feature`, `review-window.feature`, `initial-state-entry.feature`,
   `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
   every entry), `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
-  (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`)
+  (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
+  `land.feature` (the exit-code contract: 0/3/settled/1),
+  `readme-driver.feature` (its `--entry fix-precheck` collapse scenario asserts
+  on the bundled template's shape too)
+- A workflow change must keep the DRIVER contract true, not just the engine's:
+  every state a process can rest at must resolve to exactly one `kind` a driver
+  already handles (`capture`/`message`/`script`/`prompt`/`stalled`) — there is
+  no sixth kind to add without changing every driver in the world. In practice
+  that means: a new `prompt` state must be able to terminate (a `C` row, a
+  `retry:` cap, or an outcome its `on` rows actually match) or it stalls
+  forever; a new `script` state with no `C` row settles the loop rather than
+  advancing it; and a new `human` state's `on` rows must match whatever edit the
+  human is being asked to make, or their capture beat is a refusal
 
 MACHINES, not individual states, are the unit of conversational identity: a
 machine's own `model:` stamps every one of its `prompt` states, and its memory
@@ -153,15 +174,15 @@ name gtd interprets. Don't add a blessed config key for one.
 Checks are just an ordinary actor's turns at a `script`-content state (the
 bundled template's `build.health.check` state, awaited by the `check` actor) —
 **the engine NEVER executes anything itself**. `gtd next` renders and prints the
-script; the DRIVER (`bin/gtd`, or any loop harness) executes it verbatim via
-`bash`. The only place gtd spawns a subprocess at all is a steering-file mode's
-own `format:`/`validate:` command.
+script; the DRIVER (the README's minimal driver, your own, or any loop harness)
+executes it verbatim via `bash`. The only place gtd spawns a subprocess at all
+is a steering-file mode's own `format:`/`validate:` command.
 
 Mechanics belong in the script; which `on` pattern the resulting diff matches is
 the only thing that decides the outcome. In e2e, simulate a check's outcome by
 writing the output file (e.g. `Given a file "FEEDBACK.md" with:`) and running
-`gtd step check` — `@inmem` scenarios never execute scripts; only `@live`
-scenarios actually run them.
+`gtd land` — `@inmem` scenarios never execute scripts; only `@live` scenarios
+actually run them.
 
 ## CLI design
 
@@ -198,12 +219,18 @@ parser, one envelope. The table is the source of truth, not prose:
   IS the rule. A branch outcome (an approval vs. feedback, a green vs. red
   check) is encoded by which pattern the AUTHORED diff happens to match, not by
   a rule re-deriving it after the fact
-- **No matching pattern on a clean tree = a no-op invocation** (zero commits) —
-  inert empty steps are the DEFAULT; the loop protocol opens each iteration with
-  `gtd step <actor>` before the actor has acted, so a clean-tree step must
-  author nothing unless the state explicitly declares a `C` pattern. When adding
-  a state, decide explicitly whether its clean step is a signal (declare a `C`
-  row) or a no-op (declare none)
+- **No matching pattern on a clean tree = a no-op invocation** (zero commits) at
+  a `script`/`message` rest — inert empty steps are the DEFAULT there. A driver
+  lands a `script`/`message` beat it did dispatch, but a clean tree at one means
+  the actor genuinely produced nothing, so a clean-tree step must author nothing
+  unless the state explicitly declares a `C` pattern. A `prompt` rest is the ONE
+  exception: a clean tree with no `C` row there commits an EMPTY
+  `gtd(<actor>): <state>` ATTEMPT instead of a no-op (`PatternMachine.step`'s
+  `attempt: true`, `StepCommit`'s own doc comment) — a fruitless agent dispatch
+  costs money and must be remembered across restarts (`Edge.ts`'s `stalledAt`),
+  unlike a fruitless check/gate. When adding a state, decide explicitly whether
+  its clean step is a signal (declare a `C` row), an attempt (a `prompt` state's
+  default), or a no-op (a `script`/`message` state declaring no `C` row)
 - A dirty tree matching no declared pattern is a **refusal**, not a no-op —
   distinguish "nothing happened" (clean, no `C` row) from "something happened
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`
@@ -217,4 +244,6 @@ parser, one envelope. The table is the source of truth, not prose:
   condition fires, so e.g. a malformed steering file is never committed (an
   agent's draft or a human's gate edit alike). Each guard is a no-op when it
   doesn't apply to the resting state (see `StepGuard.appliesTo`), and the whole
-  registry is skipped for a squash/no-op decision
+  registry is skipped for a squash/no-op decision, or an ATTEMPT (there is
+  nothing to guard in an empty diff, and a `format:` run must not dirty an
+  attempt and break the empty-diff derivation `stalledAt` relies on)

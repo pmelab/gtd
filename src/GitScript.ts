@@ -1,9 +1,10 @@
 /**
  * Bash-script builders mirroring `GitWriterOperations` (`src/Git.ts`) — one
  * function per writer method, each returning the equivalent bash as a
- * `string` instead of executing it. Scaffolding for a later change that will
- * emit these scripts rather than run git directly through the `Effect`
- * `CommandExecutor`; nothing calls this module yet.
+ * `string` instead of executing it. THE emission path: every git write gtd
+ * decides reaches the repository as one of these strings, assembled by
+ * `src/Emit.ts` and run by an external driver — gtd itself never executes
+ * them.
  *
  * Pure, like `src/PatternMachine.ts`: no git, no filesystem, no `Effect`, no
  * IO of any kind. Every export is a plain, total function of its arguments.

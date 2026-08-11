@@ -248,7 +248,7 @@ export const validateSteeringFile = (
 
 /**
  * Runs `formatSteeringFile` then `validateSteeringFile` in sequence — the
- * ORDER `gtd validate` and the `gtd step` capture gate share (see
+ * ORDER `gtd validate` and the `gtd land` capture gate share (see
  * `src/StepGuards.ts`). `content` is validated VERBATIM, exactly as given: a
  * caller that cares about judging POST-format bytes (every production caller
  * does) must sample `content` after this function's format half has run

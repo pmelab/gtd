@@ -28,7 +28,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
   `build.review.reviewing`, with the review doc pending in the working tree:
   the `chore: init gtd workflow` config commit is the process boundary (the
   diff base) and two `building` commits carry the reviewable code, so
-  `gtd step agent` commits the doc, lands at the gate, and opens the window.
+  `gtd land` commits the doc, lands at the gate, and opens the window.
 
   Background:
     Given a test project
@@ -54,7 +54,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
 
   @inmem
   Scenario: The step that lands at the gate opens the window — HEAD at the base, the diff dirty
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the git ref "refs/worktree/gtd/review-head" exists
     And the git ref "refs/worktree/gtd/review-base" exists
@@ -68,26 +68,26 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
 
   @inmem
   Scenario: Files added since the base stay untracked — never intent-to-add index entries
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     # git's ordinary new-file state, deliberately: an editor's "discard changes"
     # then DELETES the file — the reject-this-file gesture a reviewer means —
     # instead of truncating an intent-to-add entry to zero bytes and leaving a
-    # survivor the next `gtd step human` would commit.
+    # survivor the next `gtd land` would commit.
     And the git status contains "?? src/calc.ts"
     And the git status contains "?? src/other.ts"
     And the git status does not contain "AM src/calc.ts"
 
   @live
   Scenario: Real git agrees — the new file is untracked and keeps its content
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the git status contains "?? src/calc.ts"
     And "src/calc.ts" contains "export const add"
 
   @inmem
   Scenario: The machine never sees the window — status resolves the real state
-    Given I run gtd step agent
+    Given I run gtd land
     When I run gtd status
     Then it succeeds
     # `gtd status` resolved the true rest by reading THROUGH the open window —
@@ -98,9 +98,9 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
 
   @inmem
   Scenario: Deleting the review doc is refused — the window stays open, nothing commits
-    Given I run gtd step agent
+    Given I run gtd land
     And the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step human
+    When I run gtd land
     Then it fails
     And stderr contains "was deleted"
     # A refusal emits no script at all, so the window stays exactly as it was —
@@ -110,7 +110,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
 
   @inmem
   Scenario: Ticking every box with no comment signs off — the window closes and routes to build.review.deciding
-    Given I run gtd step agent
+    Given I run gtd land
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -120,7 +120,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       ## calc
       - [x] ./src/calc.ts#1 — new add function
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     # Every box ticked, no note, no code edit — a clean sign-off hands to the
     # deterministic check, which collapses the process from there.
@@ -129,13 +129,13 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
 
   @inmem
   Scenario: Reviewer code edits are feedback — the window closes and routes to build.review.deciding
-    Given I run gtd step agent
+    Given I run gtd land
     And "src/calc.ts" is modified to:
       """
       export const add = (a: number, b: number) => a + b
       // reviewer: please rename to sum
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     # A code edit is a comment: it routes to the deterministic review check,
     # which turns it into a build + re-review round.
@@ -147,7 +147,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     # Neither command touches git at all now — no close, no re-arm, no reset.
     # The window they resolve through survives both invocations untouched, and
     # the second one still sees exactly what the first did.
-    Given I run gtd step agent
+    Given I run gtd land
     When I run gtd status
     Then it succeeds
     And the git ref "refs/worktree/gtd/review-head" exists

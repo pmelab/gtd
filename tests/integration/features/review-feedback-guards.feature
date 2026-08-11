@@ -21,7 +21,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
     `NOTHING ACTIONABLE` sentinel.
 
   Each check-actor turn (`build.review.deciding`) is simulated by writing its verdict
-  files and running `gtd step check`; @inmem never executes the scripts.
+  files and running `gtd land`; @inmem never executes the scripts.
 
   Background:
     Given a test project
@@ -73,7 +73,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
 
       - [x] ./src/calc.ts#1 — new add function
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
@@ -88,7 +88,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       ## calc
       - [x] ./src/calc.ts#1 — new add function — rename `add` to `sum`
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
@@ -102,7 +102,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       - [x] ./src/calc.ts#1 — new add function — rename `add` to `sum`
       """
     And the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
 
@@ -112,7 +112,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       1. ./src/calc.ts#1 — rename the exported `add` to `sum`
       """
     And the file ".gtd/REVIEW_RAW.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.review.collecting → build.addressing"
 
@@ -122,7 +122,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       export const sum = (a: number, b: number) => a + b
       """
     And the file ".gtd/REVIEW_FEEDBACK.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.addressing → build.health.check"
 
@@ -134,7 +134,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       """
     # The BUG behaviour: delete the instructions without doing the work
     Given the file ".gtd/REVIEW_FEEDBACK.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     And stderr contains "without addressing its instructions"
 
@@ -146,7 +146,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       """
     # A non-actionable round makes no code change; deleting the sentinel is fine
     Given the file ".gtd/REVIEW_FEEDBACK.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.addressing → build.health.check"
 
@@ -161,6 +161,6 @@ Feature: Review feedback — capture, classification, and the no-op guards
       """
     # Silent no-op: consume the raw file, produce no instruction list
     Given the file ".gtd/REVIEW_RAW.md" is deleted
-    When I run gtd step agent
+    When I run gtd land
     Then it fails
     And stderr contains "no declared pattern matches"

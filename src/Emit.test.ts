@@ -1,10 +1,10 @@
 import { execFileSync, execSync } from "node:child_process"
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { REVIEW_HEAD_REF } from "./ReviewWindow.js"
-import { emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
+import { combinedScript, emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
 
 const runBashCheckSyntax = (script: string): number => {
   try {
@@ -103,6 +103,49 @@ describe("emitScripts — both halves populated", () => {
   })
 })
 
+describe("emitScripts — outcome steps", () => {
+  const OUTCOME_MARKER = "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)"
+
+  it("includes the outcome preamble when a step is kind 'outcome'", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "outcome", command: "gtd_report_note 'nothing to do at \"idle\"'" },
+    ])
+    expect(required).toContain(OUTCOME_MARKER)
+    expect(required).toContain("gtd_report_note")
+  })
+
+  it("omits the outcome preamble from a script with no outcome step", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
+    ])
+    expect(required).not.toContain(OUTCOME_MARKER)
+  })
+
+  it("renders an outcome step verbatim, not routed through the retry helper", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "outcome", command: "gtd_report_commit 'gtd(agent): x'" },
+    ])
+    expect(required).toContain("gtd_report_commit 'gtd(agent): x'")
+    expect(required).not.toContain("gtd_retry 'gtd_report_commit")
+  })
+
+  it("both the outcome preamble and the retry helper appear when a script has both kinds of steps", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
+      { kind: "outcome", command: "gtd_report_commit 'gtd(agent): x'" },
+    ])
+    expect(required).toContain("gtd_retry()")
+    expect(required).toContain(OUTCOME_MARKER)
+  })
+
+  it("is syntactically valid bash", () => {
+    const { required } = emitScripts(basePreconditions, [
+      { kind: "outcome", command: "gtd_report_note 'nothing to do at \"idle\"'" },
+    ])
+    expect(runBashCheckSyntax(required)).toBe(0)
+  })
+})
+
 describe("emitScripts — no reviewWindow means no extra ref assertion", () => {
   const steps: ReadonlyArray<EmitStep> = [{ kind: "command", command: "echo hi" }]
   const { required } = emitScripts(basePreconditions, steps)
@@ -142,6 +185,84 @@ describe("emitScripts — unborn HEAD precondition (expectedHead: '')", () => {
 
   it("is syntactically valid bash", () => {
     expect(runBashCheckSyntax(required)).toBe(0)
+  })
+})
+
+describe("emitScripts — a command step with onFailure", () => {
+  const initRepo = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), "emit-onfailure-repo-"))
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], { cwd: dir })
+    return dir
+  }
+  const headOf = (dir: string): string =>
+    execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()
+  const runIn = (dir: string, script: string): { status: number; output: string } => {
+    try {
+      const output = execSync("bash", { input: script, cwd: dir, encoding: "utf8" })
+      return { status: 0, output }
+    } catch (error) {
+      const e = error as { status?: number; stdout?: string }
+      return { status: e.status ?? 1, output: e.stdout ?? "" }
+    }
+  }
+
+  it("is syntactically valid bash", () => {
+    const steps: ReadonlyArray<EmitStep> = [
+      { kind: "command", command: "true", onFailure: "fix it" },
+    ]
+    const { required } = emitScripts(basePreconditions, steps)
+    expect(runBashCheckSyntax(required)).toBe(0)
+  })
+
+  it("a succeeding wrapped command exits 0 and prints nothing of its own", () => {
+    const dir = initRepo()
+    const steps: ReadonlyArray<EmitStep> = [
+      { kind: "command", command: "true", onFailure: "fix it" },
+    ]
+    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { status, output } = runIn(dir, required)
+    expect(status).toBe(0)
+    expect(output).toBe("")
+  })
+
+  it("a failing command prints the instruction, a blank line, then its combined output, and exits with its own code", () => {
+    const dir = initRepo()
+    const steps: ReadonlyArray<EmitStep> = [
+      {
+        kind: "command",
+        command: "echo boom >&2; exit 3",
+        onFailure: "Fix this violation",
+      },
+    ]
+    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { status, output } = runIn(dir, required)
+    expect(status).toBe(3)
+    expect(output).toBe("Fix this violation\n\nboom\n")
+  })
+
+  it("a multi-line inner command round-trips through the { … } group", () => {
+    const dir = initRepo()
+    const steps: ReadonlyArray<EmitStep> = [
+      {
+        kind: "command",
+        command: "echo line1 >&2\necho line2 >&2\nexit 5",
+        onFailure: "Fix multi",
+      },
+    ]
+    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { status, output } = runIn(dir, required)
+    expect(status).toBe(5)
+    expect(output).toBe("Fix multi\n\nline1\nline2\n")
+  })
+
+  it("a command step without onFailure is still emitted verbatim", () => {
+    const steps: ReadonlyArray<EmitStep> = [{ kind: "command", command: "some-command --flag" }]
+    const { required } = emitScripts(basePreconditions, steps)
+    expect(required).toContain("some-command --flag")
+    expect(required).not.toContain("gtd_validate_status")
   })
 })
 
@@ -330,5 +451,51 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     }
     expect(status).not.toBe(0)
     expect(commitCount(dir)).toBe(before)
+  })
+})
+
+describe("combinedScript — the plain-text write commands' single pasteable script", () => {
+  it("is the empty string when required is empty", () => {
+    expect(combinedScript("", "")).toBe("")
+    expect(combinedScript("", "echo optional")).toBe("")
+  })
+
+  it("prepends the leading 'did not run it' comment ahead of required, with no optional block", () => {
+    const script = combinedScript("echo required", "")
+    expect(script.startsWith("# gtd emitted this and did NOT run it")).toBe(true)
+    expect(script).toContain("echo required")
+    expect(script).not.toContain("presentation-only follow-up failed")
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+
+  it("wraps a non-empty optional in a subshell that never fails the whole script", () => {
+    const script = combinedScript("echo required", "echo optional")
+    expect(script.startsWith("# gtd emitted this and did NOT run it")).toBe(true)
+    expect(script).toContain("echo required")
+    expect(script).toContain("(\necho optional\n) || echo")
+    expect(script).toContain("presentation-only follow-up failed — continuing")
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+
+  it("required runs before optional, and a failing required aborts before optional runs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "emit-combined-"))
+    const script = combinedScript("exit 1", "touch optional-ran")
+    let status = 0
+    try {
+      execSync("bash", { input: script, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+    } catch (error) {
+      status = (error as { status?: number }).status ?? 1
+    }
+    expect(status).not.toBe(0)
+    expect(existsSync(join(dir, "optional-ran"))).toBe(false)
+  })
+
+  it("a failing optional is swallowed — the whole script still exits 0", () => {
+    const dir = mkdtempSync(join(tmpdir(), "emit-combined-"))
+    const script = combinedScript("touch required-ran", "exit 1")
+    // stderr piped, not inherited: the optional half's own failure warning is
+    // the point of this case, and must not leak into the test run's output.
+    execSync("bash", { input: script, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+    expect(existsSync(join(dir, "required-ran"))).toBe(true)
   })
 })

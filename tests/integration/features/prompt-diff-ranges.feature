@@ -61,7 +61,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     And I mark the current commit as "review-commit"
     When I run gtd next with "--json"
     And I execute the printed check script
-    And I run gtd step check
+    And I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
     And ".gtd/REVIEW_RAW.md" contains the hash of "review-commit"

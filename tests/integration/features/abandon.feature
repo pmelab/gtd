@@ -22,15 +22,20 @@ Feature: gtd abandon — end the process underway without completing it
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → plan-gate.check"
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
     When I run gtd with args "abandon"
     Then it succeeds
-    And stdout contains "abandoned the process resting at \"plan.planning\""
+    # Plain text prints the pasteable script itself — the rendered "abandoned
+    # the process resting at ..." prose is printed by the script when a driver
+    # RUNS it (script-outcomes.feature's own @live-only coverage), not by gtd
+    # deciding; this only proves the script calls the right outcome function
+    # with the right resting state.
+    And stdout contains "gtd_report_abandoned 'plan.planning'"
     # HEAD is back at the process boundary: the config commit before the process.
     And the last commit subject is "chore: init gtd workflow"
     # The plan the process committed is kept, now as a pending change.
@@ -45,9 +50,9 @@ Feature: gtd abandon — end the process underway without completing it
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     Given I mark the current commit as "tip"
     When I run gtd with args "abandon"
@@ -70,7 +75,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
     When I run gtd with args "--entry review-gate.check --var reviewBase=base"
     Then it succeeds
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
@@ -82,7 +87,7 @@ Feature: gtd abandon — end the process underway without completing it
 
       - [ ] ./src/calc.ts#1 — new export
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     # await-review declares `reviewWindow: true`, so the window is open here.
     And the git ref "refs/worktree/gtd/review-head" exists
@@ -102,7 +107,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     When I run gtd with args "abandon --json"
     Then it succeeds

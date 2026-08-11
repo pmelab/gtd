@@ -1,6 +1,6 @@
 /**
  * The `GitOperations` contract suite: `gitTiers` (Live + InMemory), and
- * `runGitServiceContract`, which exercises every one of the 20 `GitOperations`
+ * `runGitServiceContract`, which exercises every one of the 21 `GitOperations`
  * methods identically against whichever tier it's handed. `src/Git.test.ts`
  * calls `runGitServiceContract` over `gitTiers`; `src/ReviewWindow.test.ts`
  * (package/step 5) parameterizes over the same tiers for the review checkout
@@ -19,7 +19,7 @@ import {
   readFileSync,
   realpathSync,
 } from "node:fs"
-import { join, dirname } from "node:path"
+import { join, dirname, basename } from "node:path"
 import { tmpdir } from "node:os"
 import { execSync, execFileSync } from "node:child_process"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -242,7 +242,7 @@ const makeInMemTier = (initialCommit = true): GitTier => {
     repo.writeFile("readme.txt", "hello")
     repo.commitAllWithPrefix("init: first commit")
   }
-  const gitLayer = gitTestLayer(repo)
+  const gitLayer = gitTestLayer(repo, IN_MEM_ROOT)
 
   const provide = <A>(
     eff: Effect.Effect<A, Error, GitService | ConfigService>,
@@ -332,6 +332,7 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "readRefOption",
   "isAncestor",
   "topLevel",
+  "gitDir",
   "commitHistory",
   "readFileAtRef",
   "changedPaths",
@@ -517,6 +518,12 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       const removeA = result.find((c) => c.message === "chore: remove a")
       expect(addTwo?.touched).toEqual(expect.arrayContaining(["a.txt", "b.txt"]))
       expect(removeA?.touched).toEqual(["a.txt"])
+    })
+
+    it("reports touched: [] for an empty commit — Edge.ts's headTurn.empty depends on this", async () => {
+      await runGit(t, (g) => g.commitAllWithPrefix("gtd(agent): working"))
+      const result = await runGit(t, (g) => g.commitHistory())
+      expect(result[result.length - 1]?.touched).toEqual([])
     })
 
     it("reads through an explicit head ref instead of literal HEAD when given one", async () => {
@@ -719,6 +726,37 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
     it("resolves to this tier's own root", async () => {
       expect(await runGit(t, (g) => g.topLevel())).toBe(t.root)
     })
+  })
+
+  describe("gitDir", () => {
+    it("resolves to an absolute path ending in .git, for the main worktree", async () => {
+      const dir = await runGit(t, (g) => g.gitDir())
+      expect(dir).toBe(join(t.root, ".git"))
+    })
+
+    it.skipIf(!capabilities.linkedWorktrees)(
+      "resolves to a linked worktree's own private .git/worktrees/<name> dir, not the main worktree's",
+      async () => {
+        const siblingDir = `${t.root}-gitdir-sibling`
+        gitExecIn(t.root, "worktree", "add", "-q", "-b", "gitdir-sibling", siblingDir, "HEAD")
+        try {
+          const mainGitDir = await runGit(t, (g) => g.gitDir())
+          const siblingGitDir = await Effect.runPromise(
+            Effect.flatMap(GitService, (g) => g.gitDir()).pipe(
+              Effect.provide(GitService.Live),
+              Effect.provide(Cwd.layer(siblingDir)),
+              Effect.provide(NodeContext.layer),
+            ),
+          )
+          expect(siblingGitDir).not.toBe(mainGitDir)
+          // git names a linked worktree's internal directory after the
+          // worktree PATH's basename, not the `-b` branch name given below.
+          expect(siblingGitDir).toBe(join(mainGitDir, "worktrees", basename(siblingDir)))
+        } finally {
+          rmSync(siblingDir, { recursive: true, force: true })
+        }
+      },
+    )
   })
 
   describe("restoreStagedFrom", () => {

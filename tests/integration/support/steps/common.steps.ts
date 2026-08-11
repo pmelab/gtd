@@ -163,27 +163,31 @@ When("I run gtd with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd(arg)
 })
 
-When("I run gtd step {word}", async (world: GtdWorld, actor: string) => {
-  await world.runGtd("step", actor)
+When("I run gtd land", async (world: GtdWorld) => {
+  await world.runGtd("land")
 })
 
-When("I run gtd step {word} with {string}", async (world: GtdWorld, actor: string, arg: string) => {
-  await world.runGtd("step", actor, arg)
+When("I run gtd land with {string}", async (world: GtdWorld, arg: string) => {
+  await world.runGtd("land", arg)
 })
 
 When(
-  "I run gtd step {word} with {string} and {string}",
-  async (world: GtdWorld, actor: string, arg1: string, arg2: string) => {
-    await world.runGtd("step", actor, arg1, arg2)
+  "I run gtd land with {string} and {string}",
+  async (world: GtdWorld, arg1: string, arg2: string) => {
+    await world.runGtd("land", arg1, arg2)
   },
 )
 
 When(
-  "I run gtd step {word} with {string} and {string} and {string}",
-  async (world: GtdWorld, actor: string, arg1: string, arg2: string, arg3: string) => {
-    await world.runGtd("step", actor, arg1, arg2, arg3)
+  "I run gtd land with {string} and {string} and {string}",
+  async (world: GtdWorld, arg1: string, arg2: string, arg3: string) => {
+    await world.runGtd("land", arg1, arg2, arg3)
   },
 )
+
+When("I run gtd land piped to bash", async (world: GtdWorld) => {
+  await world.runGtdLandPiped()
+})
 
 When("I run gtd next", async (world: GtdWorld) => {
   await world.runGtd("next")
@@ -192,6 +196,13 @@ When("I run gtd next", async (world: GtdWorld) => {
 When("I run gtd next with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd("next", arg)
 })
+
+When(
+  "I run gtd next with {string} and {string}",
+  async (world: GtdWorld, arg1: string, arg2: string) => {
+    await world.runGtd("next", arg1, arg2)
+  },
+)
 
 When("I run gtd status", async (world: GtdWorld) => {
   await world.runGtd("status")
@@ -207,6 +218,17 @@ Then("it succeeds", (world: GtdWorld) => {
   assert.strictEqual(
     world.lastResult.exitCode,
     0,
+    `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
+  )
+})
+
+// `gtd land`'s SETTLED signal — exit 3, nothing owed. Distinct from `it
+// succeeds` (strictly 0): a settled landing's stdout still carries a script a
+// driver must run, but the exit code itself already says "stop, don't spin".
+Then("it settles", (world: GtdWorld) => {
+  assert.strictEqual(
+    world.lastResult.exitCode,
+    3,
     `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
   )
 })
@@ -242,7 +264,9 @@ Then("stdout does not contain {string}", (world: GtdWorld, text: string) => {
 
 // Counts NON-OVERLAPPING occurrences of `text` in stdout — used to prove a
 // transition line was printed exactly once even when the review checkout
-// window rewinds HEAD between beats (see the report_commits monotonic marker).
+// window rewinds HEAD between beats (each transition's own required script
+// prints it exactly once, at the turn that produced it — see
+// src/OutcomeScript.ts).
 Then(
   "stdout contains {string} exactly {int} times",
   (world: GtdWorld, text: string, count: number) => {
@@ -260,6 +284,28 @@ Then(
     )
   },
 )
+
+/**
+ * Asserts on `world.lastScriptOutput` — what the last driven write command's
+ * `required`/`optional` scripts themselves printed (`src/OutcomeScript.ts`'s
+ * `gtd_report_*` calls), distinct from `world.lastResult.stdout` (gtd's own
+ * plain-text line). LIVE tier only: the in-memory tier's `applyEmittedScript`
+ * treats an outcome block as inert and prints nothing (see its own module
+ * doc comment's "outcome blocks are inert" decision), so a scenario tagged
+ * `@inmem` asking this question would silently prove nothing — this fails
+ * loudly instead, naming the tier, rather than passing on an empty string.
+ */
+Then("the emitted script printed {string}", (world: GtdWorld, text: string) => {
+  assert.strictEqual(
+    world.tier,
+    "live",
+    "the emitted script's own stdout is a @live-only observation — the in-memory tier never runs an outcome block, it only recognizes it as inert",
+  )
+  assert.ok(
+    world.lastScriptOutput.includes(text),
+    `Expected the emitted script's output to contain "${text}". Got:\n${world.lastScriptOutput}`,
+  )
+})
 
 Then("stderr matches {string}", (world: GtdWorld, pattern: string) => {
   assert.ok(
@@ -444,39 +490,94 @@ Then("the commit count is unchanged", (world: GtdWorld) => {
   )
 })
 
-// Pulls `.memory` off the most recent `gtd next --json`/`gtd status --json`
-// stdout (`world.lastResult.stdout`) — for scenarios comparing the COMPUTED
-// `<scope>#<hash>` memory key across turns without knowing its exact value.
-const currentMemoryKey = (world: GtdWorld): string | undefined => {
-  const parsed = JSON.parse(world.lastResult.stdout) as { memory?: string }
-  return parsed.memory
+// Pulls an arbitrary field off the most recent `gtd next --json`/
+// `gtd status --json` stdout (`world.lastResult.stdout`) — for scenarios
+// comparing a COMPUTED value (the `<scope>#<hash>` memory key, a minted
+// session id) across turns without knowing its exact value. `field` may be a
+// dot path (e.g. "session.id") to reach into a nested object — the beat
+// document's own dispatch block (`session: {id, resume}`) is the reason this
+// walks rather than doing a single flat lookup.
+const currentJsonField = (world: GtdWorld, field: string): string | undefined => {
+  const value = field
+    .split(".")
+    .reduce<unknown>(
+      (node, segment) =>
+        node !== null && typeof node === "object"
+          ? (node as Record<string, unknown>)[segment]
+          : undefined,
+      JSON.parse(world.lastResult.stdout) as unknown,
+    )
+  return value === undefined ? undefined : String(value)
 }
 
-Then("I record the memory key as {string}", (world: GtdWorld, label: string) => {
-  world.recordedMemoryKeys[label] = currentMemoryKey(world)
+Then(
+  "the json field {string} contains {string}",
+  (world: GtdWorld, field: string, text: string) => {
+    const value = currentJsonField(world, field)
+    assert.notStrictEqual(value, undefined, `no json field "${field}" on this turn`)
+    assert.ok(
+      value!.includes(text),
+      `expected json field "${field}" to contain "${text}". Got:\n${value}`,
+    )
+  },
+)
+
+Then(
+  "I record the json field {string} as {string}",
+  (world: GtdWorld, field: string, label: string) => {
+    world.recordedJsonFields[label] = currentJsonField(world, field)
+  },
+)
+
+Then(
+  "the json field {string} matches the one recorded as {string}",
+  (world: GtdWorld, field: string, label: string) => {
+    const recorded = world.recordedJsonFields[label]
+    assert.notStrictEqual(recorded, undefined, `no json field was ever recorded as "${label}"`)
+    assert.strictEqual(
+      currentJsonField(world, field),
+      recorded,
+      `expected json field "${field}" to match the one recorded as "${label}" (${recorded})`,
+    )
+  },
+)
+
+// The top-level keys of the most recent `--json` command's stdout — for a
+// drift guard proving a later document (`gtd install`'s briefing) still names
+// every field a real command emits, without hand-listing them twice.
+const currentJsonKeys = (world: GtdWorld): readonly string[] =>
+  Object.keys(JSON.parse(world.lastResult.stdout) as Record<string, unknown>)
+
+When("I record the JSON keys of stdout as {string}", (world: GtdWorld, label: string) => {
+  world.recordedJsonKeys[label] = currentJsonKeys(world)
 })
 
-Then("the memory key matches the one recorded as {string}", (world: GtdWorld, label: string) => {
-  const recorded = world.recordedMemoryKeys[label]
-  assert.notStrictEqual(recorded, undefined, `no memory key was ever recorded as "${label}"`)
-  assert.strictEqual(
-    currentMemoryKey(world),
-    recorded,
-    `expected the memory key to match the one recorded as "${label}" (${recorded})`,
-  )
+Then("stdout contains every JSON key recorded as {string}", (world: GtdWorld, label: string) => {
+  const keys = world.recordedJsonKeys[label]
+  assert.notStrictEqual(keys, undefined, `no JSON keys were ever recorded as "${label}"`)
+  for (const key of keys!) {
+    assert.ok(
+      world.lastResult.stdout.includes(key),
+      `Expected stdout to contain JSON key "${key}" (recorded as "${label}"). Got:\n${world.lastResult.stdout}`,
+    )
+  }
 })
 
 Then(
-  "the memory key differs from the one recorded as {string}",
-  (world: GtdWorld, label: string) => {
-    const recorded = world.recordedMemoryKeys[label]
-    assert.notStrictEqual(recorded, undefined, `no memory key was ever recorded as "${label}"`)
-    const current = currentMemoryKey(world)
-    assert.notStrictEqual(current, undefined, "expected a memory key on this turn, got none")
+  "the json field {string} differs from the one recorded as {string}",
+  (world: GtdWorld, field: string, label: string) => {
+    const recorded = world.recordedJsonFields[label]
+    assert.notStrictEqual(recorded, undefined, `no json field was ever recorded as "${label}"`)
+    const current = currentJsonField(world, field)
+    assert.notStrictEqual(
+      current,
+      undefined,
+      `expected json field "${field}" on this turn, got none`,
+    )
     assert.notStrictEqual(
       current,
       recorded,
-      `expected the memory key to differ from the one recorded as "${label}" (${recorded}), got the same value`,
+      `expected json field "${field}" to differ from the one recorded as "${label}" (${recorded}), got the same value`,
     )
   },
 )

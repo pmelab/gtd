@@ -1,7 +1,7 @@
 @inmem
 Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, custom squash
 
-  Minimal smoke coverage for the v3 CLI (`gtd step <actor>` / `gtd next` /
+  Minimal smoke coverage for the v3 CLI (`gtd land` / `gtd next` /
   `gtd status`, see src/Edge.ts and
   docs/design/pattern-machine-plan.md). Proves the rewritten edge/CLI wiring
   end to end: a couple of simple-flow hops on the built-in default workflow, the
@@ -18,28 +18,28 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
       """
       Build a thing.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → plan-gate.check"
     # The green-baseline gate: a clean tree (tests pass) advances to plan.planning.
-    When I run gtd step check
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Developed into a concrete plan.
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): plan.await-plan → build.building"
     Given a file "src/thing.ts" with:
       """
       export const thing = 1
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.building → build.health.check"
 
@@ -83,14 +83,14 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
       """
       Remember the milk.
       """
-    When I run gtd step human
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
     Given a file "COMMIT_MSG.md" with:
       """
       feat: remember the milk
       """
-    When I run gtd step agent
+    When I run gtd land
     Then it succeeds
     And the last commit subject is "feat: remember the milk"
     And "NOTE.md" exists

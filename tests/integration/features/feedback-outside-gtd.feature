@@ -36,6 +36,6 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
       """
     When I run gtd next with "--json"
     And I execute the printed check script
-    And I run gtd step check
+    And I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.fix"

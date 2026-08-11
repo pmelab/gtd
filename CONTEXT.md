@@ -25,9 +25,15 @@ one content kind, and an ordered set of edges out. _Avoid_: node, step, phase
 `check` is the driver executing a `script` state's rendered command; gtd itself
 executes nothing. _Avoid_: role, party, runner
 
-**Driver**: Whatever executes what gtd prints — `bin/gtd`, a loop harness, a CI
-job, or a person reading it aloud. gtd is indifferent to which. _Avoid_:
-harness, runner, client
+**Driver**: Whatever executes what gtd prints — a driver (the README's minimal
+driver, or your own), a loop harness, a CI job, or a person reading it aloud.
+gtd is indifferent to which. _Avoid_: harness, runner, client
+
+**Outcome line**: The human-facing line an emitted script prints for what it
+just landed — a transition, a bare capture, an abandon, a restore. Authored in
+TS (`src/OutcomeScript.ts`), printed by the driver's bash, so it reads the same
+whether a driver runs the script or a person pastes it into a terminal. _Avoid_:
+report, log line
 
 **Content kind**: The one thing a state carries: a `script`, a `prompt`, a
 `message`, or a `commit` template. Which kind it is determines what gtd prints
@@ -44,8 +50,39 @@ session
 **Turn**: What an actor actually did — the work sitting in the tree, captured as
 one commit. _Avoid_: action, move
 
-**Step**: One `gtd step <actor>` invocation. Distinct from a turn: a step may
-capture a turn, refuse, or do nothing at all.
+**Attempt**: A turn that changed nothing, committed anyway — an empty
+`gtd(<actor>): <state>` self-loop at a `prompt` rest declaring no `C` row — so
+the fruitless dispatch is in history rather than invisible. Entries in the
+process trace, so a `retry:` cap on the state counts them like any other entry
+and redirects once the cap is reached.
+
+**Step**: One `gtd land` invocation. Distinct from a turn: a step may capture a
+turn, refuse, or do nothing at all.
+
+**Land**: Recording what an actor did — `gtd land` decides and emits the script;
+the driver running that script is what actually writes to git. The verb for the
+third move of a [beat](#beat). Actorless: which actor a landing is attributed to
+is derived from the resting state, never passed in. _Avoid_: step actor, commit,
+capture the turn
+
+**Beat**: One read of `gtd next --json` and whatever it demands — nothing (a
+`message` or `stalled` beat halts the loop), an immediate land (`capture`), or
+an execution followed by a land (`script`/`prompt`). _Avoid_: iteration, tick,
+cycle
+
+**Beat document**: `gtd next --json`'s output — one self-describing JSON line
+per beat: `kind` (`capture` | `message` | `script` | `prompt` | `stalled`),
+`content`, `log`, and — on a `prompt` beat only — `session` (`{id, resume}`,
+derived) and the embedded `validate` script. The driver's whole read surface.
+_Avoid_: next payload, dispatch document
+
+**Stall**: HEAD is an empty [attempt](#attempt) at the resting `prompt` state,
+the tree is clean, and another dispatch would just repeat it — derived from
+history (`Edge.ts`'s `stalledAt`), not tracked by any marker, so it survives a
+restart and reads the same whether polled, peeked, or dispatched. Sticky until
+something actually changes: the workflow's own `C` edge (a state that may
+legitimately finish with nothing to change should declare one) or a `retry:`
+cap's escalation redirect clears it, never a one-shot report.
 
 **Capture**: Turning a dirty tree into one turn commit, subject
 `gtd(<actor>): <from> → <to>` (collapsing to `gtd(<actor>): <to>` when there is
@@ -63,8 +100,17 @@ optional `describe`/`action` sentences a `message`/`prompt` renders for a human.
 **Refusal**: A step rejected because something happened that nothing recognizes
 — a dirty tree matching no declared pattern, or a guard saying no.
 
-**No-op**: A step that authors nothing, because the tree is clean and the state
-declares no `C` pattern. The default for an actor invoked before it has acted.
+**No-op**: A step at a `script`/`message` rest that authors nothing, because the
+tree is clean and the state declares no `C` pattern. The default for a
+`script`/`message` actor invoked before it has acted — a `prompt` rest's
+equivalent is an [attempt](#attempt), not a no-op.
+
+**Settled**: A step with nothing left to land — a no-op at a `script` rest (the
+check ran, left nothing any pattern claims, and re-running it cannot change
+that), or a rewind back to the initial state retaining nothing. Reported as exit
+3 (and `settled: true` under `--json`) by `gtd land` so a loop exits rather than
+spins. An attempt at a `prompt` rest is not settled but stalled. _Avoid_: done,
+finished, idle
 
 **Gate**: A state whose actor is `human` — the process rests there until a
 person acts. _Avoid_: checkpoint, approval, the bare "the gate"
@@ -95,11 +141,19 @@ outline/actions) survives the override.
 into one message. Ends the process.
 
 **Entry**: A state a process may start at — the `default` one, plus every state
-declaring `entry: true`, reachable as `gtd step <actor> --entry <state>`.
+declaring `entry: true`, reachable as `gtd --entry <state>`.
 
 **Memory scope**: The span of a process over which one conversation persists,
 keyed off a machine's position in the machine tree rather than any per-state
 field. _Avoid_: session, context window, conversation, history
+
+**Session id**: The agent CLI's own conversation handle — DERIVED from a memory
+scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run
+always re-derives the same id (`gtd next --json`'s
+`session.id`/`session.resume`) and a driver can resume the same agent
+conversation across turns in one scope. The one place "session" is the right
+word — the _Avoid_ on **Memory scope** stands: gtd's own span is still a memory
+scope, not a session.
 
 **Review window**: The temporary rewind of HEAD and the index to the review base
 while a process rests at a `reviewWindow: true` state, so a whole process's diff

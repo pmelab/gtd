@@ -45,7 +45,7 @@
  * mode with no built-in format at all (a workflow-only name, or a declared
  * `{}` entry) dispatches to no symbols, no actions, and no diagnostics. Either
  * way the file is still formatted and validated by `gtd validate` and the
- * `gtd step` capture gate — just not live in the editor.
+ * `gtd land` capture gate — just not live in the editor.
  *
  * `gtd.openSteeringFile` (an `executeCommand`) resolves the CURRENT state
  * exactly like the CLI (`resolveRest`/`computeProcessRun`/

@@ -12,7 +12,7 @@ import type { ExecutableDecision, ResolvedRest } from "./Edge.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
 /**
- * The step CAPTURE guards: edge-side conditions that refuse a `gtd step`
+ * The step CAPTURE guards: edge-side conditions that refuse a `gtd land`
  * before it can commit — never engine concerns (`src/PatternMachine.ts`'s
  * `step` never sees any of this; a state's declared `on` pattern is the only
  * thing that decides WHERE a step lands, these guards only decide WHETHER it
@@ -46,7 +46,7 @@ import type { TemplateContext } from "./PatternTemplates.js"
 
 export type GuardRequirements = RepoFiles
 
-/** A guard's verdict: `undefined` allows the step; a string is the refusal reason (the `gtd step <invoker>: ` prefix is added once, by `enforceStepGuards`). */
+/** A guard's verdict: `undefined` allows the step; a string is the refusal reason (the `gtd land: ` prefix is added once, by `enforceStepGuards`). */
 export type Refusal = string | undefined
 
 /** Everything a guard's `check` needs — assembled once per `enforceStepGuards` call, shared by every applicable guard. */
@@ -144,12 +144,13 @@ export const stepGuards: readonly StepGuard[] = [
 ]
 
 /**
- * The `gtd step` capture gate: run every guard the resolved rest's state
+ * The `gtd land` capture gate: run every guard the resolved rest's state
  * applies to against ONE sample of the current committed/working bytes — see
  * the module docstring — and fail with the first refusal's reason, prefixed
- * `gtd step <invoker>: ` (the one place that prefix, and the `cliErrorLine`
- * `/^gtd[: ]/` contract, is satisfied). A no-op for a squash/no-op decision, a
- * state with no `file:`, or a state no guard applies to.
+ * `gtd land: ` (the one place that prefix, and the `cliErrorLine`
+ * `/^gtd[: ]/` contract, is satisfied). A no-op for a squash/no-op decision, an
+ * ATTEMPT commit (`input.attempt` — see its own doc comment), a state with no
+ * `file:`, or a state no guard applies to.
  */
 export const enforceStepGuards = (input: {
   readonly rest: ResolvedRest
@@ -157,11 +158,21 @@ export const enforceStepGuards = (input: {
   /** The state's ALREADY-RENDERED `file:` — `Rest.hints.file`, rendered once when the snapshot was built rather than re-rendered per guard. */
   readonly file: string | undefined
   readonly changes: readonly PendingChange[]
-  readonly invoker: string
   readonly kind: ExecutableDecision["kind"]
+  /**
+   * True for an ATTEMPT commit (`PatternMachine.StepCommit.attempt`) — a
+   * fruitless `prompt`-state dispatch whose diff is EMPTY by construction.
+   * There is nothing for any guard to guard: a deletion/tick/answer check can
+   * only ever read "unchanged", and running a mode's `format:` ahead of the
+   * commit (as an ordinary step's script does) could dirty the tree and turn
+   * an "empty" attempt non-empty, breaking the derivation `stalledAt` relies
+   * on (see `Edge.ts`). Bypasses every guard exactly like a squash/no-op
+   * decision.
+   */
+  readonly attempt: boolean
 }): Effect.Effect<void, Error, GuardRequirements> =>
   Effect.gen(function* () {
-    if (input.kind !== "commit") return
+    if (input.kind !== "commit" || input.attempt) return
     const file = input.file
     if (file === undefined) return
     const applicable = stepGuards.filter((g) => g.appliesTo(input.rest))
@@ -187,7 +198,7 @@ export const enforceStepGuards = (input: {
     for (const g of applicable) {
       const refusal = yield* g.check(ctx)
       if (refusal !== undefined) {
-        return yield* Effect.fail(new Error(`gtd step ${input.invoker}: ${refusal}`))
+        return yield* Effect.fail(new Error(`gtd land: ${refusal}`))
       }
     }
   })

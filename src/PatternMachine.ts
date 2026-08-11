@@ -1,6 +1,6 @@
 /**
- * The v3 "pattern machine": gtd's ground-up rewrite of the state-machine
- * core. This module is the pure engine: definition types, the pattern grammar's
+ * The pattern machine — gtd's state-machine core. This module is the pure
+ * engine: definition types, the pattern grammar's
  * parser/matcher, HEAD resolution, and step decisions (refusals, no-ops,
  * commits, retry redirection, and the commit-state squash decision).
  *
@@ -13,18 +13,17 @@
  * commit states), and an optional `retry` cap. A `WorkflowDefinition`
  * separately declares `entries` — the state names a process may START at
  * (`default`, plus `manual` — every state declaring `entry: true`, enterable
- * via `gtd step <actor> --entry <state>`). A definition
+ * via `gtd --entry <state>`). A definition
  * may also declare `modes:` —
  * named pairs of format/validate shell commands a state's `mode:` can point
  * at (see `ModeDef`); they are inert data here too, rendered and executed
  * only at the edge (`src/SteeringMode.ts`).
  *
  * This module is intentionally pure — no git, no filesystem, no Effect, no
- * IO of any kind. It mirrors the purity discipline documented at the top of
- * `./Subjects.ts` and `./Machine.ts`: every export here is a plain function
- * of its arguments. Rendering templates, executing scripts, walking git
- * history for the process trace, and performing the actual commit/squash
- * are all EDGE concerns for a later phase.
+ * IO of any kind: every export is a plain function of its arguments.
+ * Rendering templates (`src/PatternTemplates.ts`), walking git history for
+ * the process trace (`src/Edge.ts`), and emitting the commit/squash scripts
+ * a driver runs (`src/Edge.ts`/`src/Emit.ts`) are all EDGE concerns.
  *
  * Its one import is `./StateFields.js` — the state-field vocabulary
  * (`Actor`, `StateName`, `ContentKind`, `StateMode`, `OnEdge`, `RetryDef`,
@@ -78,7 +77,7 @@ export {
  * template context plus `it.file` (the rendered steering-file path — see
  * `PatternTemplates.ModeCommandContext`), and both are entirely EDGE concerns:
  * the pure engine never renders or executes either (`src/SteeringMode.ts`
- * does, for `gtd validate` and the `gtd step` capture gate). At least one of
+ * does, for `gtd validate` and the `gtd land` capture gate). At least one of
  * the two must be declared; the halves resolve INDEPENDENTLY, so declaring one
  * leaves the other at whatever the layer beneath provides (a built-in
  * validator, or nothing at all).
@@ -105,7 +104,7 @@ export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
  * is always a value. `manual` is every OTHER state a process may start at:
  * every state that declared `entry: true` in the source config, qualified and
  * sorted by the compiler, empty when the workflow declares none. A manual
- * entry is reached via `gtd step <actor> --entry <state>` (`src/program.ts`)
+ * entry is reached via `gtd --entry <state>` (`src/program.ts`)
  * — a DELIBERATE, distinct starting point from `default` (e.g. a review or a
  * fix process that begins somewhere other than the ordinary rest).
  * `validateDefinition`'s `validateEntries` guarantees `default` and every
@@ -202,7 +201,7 @@ const TRANSITION_SEP = " → "
  * state being ENTERED and `<from>` the state the authored changes were made
  * in, so the subject reads as what this commit DID, not just where the machine
  * is headed. `from` is optional: when it is omitted or equals `to` (a
- * self-loop, or a manual entry like `gtd step <actor> --entry <state>` that
+ * self-loop, or a manual entry like `gtd --entry <state>` that
  * has no meaningful source), the subject collapses to the bare
  * `gtd(<actor>): <to>` form.
  * `resolveState` reads back only `<to>` — the ` → ` prefix is human context.
@@ -465,6 +464,19 @@ export interface StepCommit {
   readonly actor: Actor
   readonly from: StateName
   readonly to: StateName
+  /**
+   * `true` for a fruitless `prompt`-state dispatch: the resting state declared
+   * no `C` row, the tree came back clean, and the state's own actor is the
+   * invoker — so this commit's diff is EMPTY. Landing it anyway (rather than
+   * the old inert no-op) is what makes a stall a pure fold over history (see
+   * `Edge.ts`'s `stalledAt`); the flag rides along so the two places that must
+   * treat an attempt differently from an ordinary self-loop capture — the
+   * initial-state collapse (`Edge.ts`'s `collapsesWith`) and the step-capture
+   * guards (`StepGuards.ts`) — can tell the two apart without re-deriving
+   * "empty diff" themselves. Present (`true`) only when it applies; never
+   * `false`.
+   */
+  readonly attempt?: true
 }
 
 /** The (possibly retry-redirected) target is a commit state: render-then-squash is an edge concern, this only decides it should happen and hands over the verbatim template. */
@@ -575,8 +587,16 @@ export const memoryScopeAt = (
  * effect. Refusals: `invoker` isn't `state`'s declared actor (out-of-turn),
  * or the tree is dirty and no `on` pattern matches (no-match, naming the
  * declared patterns so the CLI can print them). A clean tree with no
- * matching pattern is a no-op (not a refusal) — the loop protocol's clean
- * steps are the default, silent case. A match's target is retry-redirected
+ * matching pattern is a plain no-op at a `script`/`message` rest — the loop
+ * protocol's clean steps are the default, silent case there — but at a
+ * `prompt` rest it is an ATTEMPT instead: the state itself becomes the raw
+ * target, so it falls through the same retry/commit-state tail as a real
+ * match, tagged `attempt: true` on the resulting `"commit"` (never on a
+ * `"squash"`, which a redirect straight into a commit state still produces
+ * unchanged) — see `StepCommit.attempt`'s doc comment for why a fruitless
+ * dispatch is committed at all, and `wouldAttempt` for the "would another
+ * dispatch just repeat this" question a step itself doesn't need to ask. A
+ * match's target (or an attempt's self-target) is retry-redirected
  * (`applyRetry`) before being classified: a commit-state target yields a
  * `"squash"` decision carrying its `commit` template verbatim; anything
  * else yields a `"commit"` decision naming the `gtd(<invoker>): <from> → <to>`
@@ -606,17 +626,32 @@ export const step = (
   const onEdges = stateDef.on ?? []
   const rawTarget = matchOn(onEdges, payload.changes)
 
-  if (rawTarget === undefined) {
-    if (payload.changes.length === 0) return { kind: "noop", state }
-    return {
-      kind: "refusal",
-      reason: "no-match",
-      state,
-      patterns: onEdges.map(([pattern]) => pattern),
+  // A clean tree matching no declared `C` row is a plain no-op at a
+  // `script`/`message` rest (unchanged), but at a `prompt` rest it is an
+  // ATTEMPT: the dispatch cost something and produced nothing, so it must be
+  // remembered across restarts (see `Edge.ts`'s `stalledAt`) rather than
+  // vanish silently. Treating the resting state itself as the raw target and
+  // falling through the ordinary retry/commit-state tail below means
+  // `retry:` on this state counts attempts exactly like any other entry, and
+  // a capped retry redirects an attempt to `otherwise` exactly like it would
+  // redirect a real transition.
+  let target = rawTarget
+  let attempt = false
+  if (target === undefined) {
+    if (payload.changes.length !== 0) {
+      return {
+        kind: "refusal",
+        reason: "no-match",
+        state,
+        patterns: onEdges.map(([pattern]) => pattern),
+      }
     }
+    if (contentKindOf(stateDef) !== "prompt") return { kind: "noop", state }
+    target = state
+    attempt = true
   }
 
-  const finalTarget = applyRetry(def, rawTarget, payload.processTrace)
+  const finalTarget = applyRetry(def, target, payload.processTrace)
   const targetDef = def.states[finalTarget]
   if (targetDef === undefined) {
     throw new Error(`step: "${state}" transitions to undefined state "${finalTarget}"`)
@@ -645,7 +680,31 @@ export const step = (
     actor: invoker,
     from: state,
     to: finalTarget,
+    ...(attempt ? { attempt: true as const } : {}),
   }
+}
+
+/**
+ * Would a clean step (an empty change set) at `state`, invoked by its own
+ * declared actor, record ANOTHER attempt that stays AT `state` — "another
+ * dispatch would just record another attempt" (see `Edge.ts`'s `stalledAt`,
+ * the derived stall's other half). Runs `step` itself rather than
+ * restating its retry-redirect precedence: a capped `retry` that would
+ * redirect the attempt to `otherwise` (or squash it into a commit state)
+ * makes this `false` — a further dispatch would actually escalate, not
+ * repeat the same fruitless turn. `false` for an unknown/commit state, or
+ * any state whose clean step is a signal (`C`) or a plain no-op
+ * (`script`/`message`).
+ */
+export const wouldAttempt = (
+  def: WorkflowDefinition,
+  state: StateName,
+  processTrace: readonly StateName[],
+): boolean => {
+  const stateDef = def.states[state]
+  if (stateDef?.actor === undefined) return false
+  const decision = step(def, state, stateDef.actor, { changes: [], processTrace })
+  return decision.kind === "commit" && decision.attempt === true && decision.to === state
 }
 
 // ── Definition validation ────────────────────────────────────────────────────
@@ -809,8 +868,8 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
  * `retry.otherwise` redirects (a redirect ENTERS its `otherwise` state exactly
  * like an `on` match enters its target — see `applyRetry` — so both are real
  * edges). The roots are `def.entries` — `default` PLUS every state named in
- * `entries.manual`: a manual entry is entered directly (`gtd step <actor>
- * --entry <state>`), so a state reachable only from one of them is
+ * `entries.manual`: a manual entry is entered directly (`gtd --entry
+ * <state>`), so a state reachable only from one of them is
  * legitimately reachable, not dead config (without seeding them, e.g. a
  * manual entry whose only inbound path is `--entry` would be wrongly
  * flagged). Plain BFS; targets naming undefined states are skipped here (they
