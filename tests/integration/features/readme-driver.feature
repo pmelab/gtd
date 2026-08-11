@@ -2,22 +2,21 @@
 Feature: The README's minimal driver — doc-tested against the loop protocol
 
   README.md's "Writing your own driver" section ends in "A complete minimal
-  driver": a ~40-line paste small enough to own outright, and the loop's real
-  delivery channel — most readers copy THAT, not `bin/gtd`. Nothing executes
-  it, so it can rot silently. These scenarios extract the fenced block
-  VERBATIM (see `tests/integration/helpers/readme-driver.ts`) and run it as
-  the driver under test, carrying every protocol behaviour `gtd-loop.feature`
-  proves for `bin/gtd` today — chained turns, the capture beat,
-  settling vs. stalling, the self-validation gate and its fix cap,
-  check-script log redirection, and session continuity across laps. A real
-  `claude` CLI is never invoked: a `claude` shim on $PATH translates the
-  paste's own argv (-p, --session-id, --resume, --model,
-  --dangerously-skip-permissions) into the stub-agent env `bin/gtd`'s
-  scenarios already use, so one stub docstring drives both. The driver is
-  spawned with only $PATH (the shim dir first) and $HOME — no $GTD_* var, no
-  test-harness leak — which is itself the copy-paste-complete proof.
-  Presentation only (heartbeat lines, emoji markers, the 3-row transition
-  cap, `--once`) stays with `bin/gtd` and is not ported here.
+  driver": a ~40-line paste small enough to own outright, and the loop's
+  ONLY shipped driver — gtd itself is a pure planner with nothing to
+  execute. Nothing else runs the paste, so it can rot silently. These
+  scenarios extract the fenced block VERBATIM (see
+  `tests/integration/helpers/readme-driver.ts`) and run it as the driver
+  under test: chained turns, the capture beat, settling vs. stalling, the
+  self-validation gate and its fix cap, check-script log redirection, and
+  session continuity across laps. A real `claude` CLI is never invoked: a
+  `claude` shim on $PATH translates the paste's own argv (-p, --session-id,
+  --resume, --model, --dangerously-skip-permissions) into the stub agent's
+  env. The driver is spawned with only $PATH (the shim dir first) and $HOME —
+  no $GTD_* var, no test-harness leak — which is itself the
+  copy-paste-complete proof. Turn/transition reporting is not asserted here
+  beyond what the emitted scripts print themselves
+  (`src/OutcomeScript.ts`).
 
   Scenario: Chains an agent turn through a check turn and halts back at the human gate
     Given a test project

@@ -37,9 +37,9 @@ import type { CommandRequirements } from "../program.js"
 // ---------------------------------------------------------------------------
 
 const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileSystem => {
-  // `.git/`-rooted paths have no production consumer left through this layer
-  // (`DriverState.ts` reaches the git dir through `node:fs`, not this
-  // `FileSystem` layer) — a stray write under the fake git dir must FAIL
+  // `.git/`-rooted paths have no production consumer through this layer —
+  // gtd keeps no driver-scoped files at all (sessions are derived, stall is
+  // history) — so a stray write under the fake git dir must FAIL
   // rather than silently fall through to the `worktree` store, which would
   // make it surface as a pending change (real git never reports a `.git/**`
   // path as one). See `InMemRepo.ts`'s module doc comment for the same

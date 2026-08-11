@@ -2,7 +2,7 @@
  * The `gtd install` briefing DOCUMENT — string data plus `renderBriefing()`.
  * This module holds no protocol logic and nothing derives behaviour from it;
  * it exists purely so the binary can print, on demand, a complete and
- * self-contained explanation of how to build a gtd loop driver in any shell
+ * self-contained explanation of how to build a gtd driver in any shell
  * or runtime — the self-serve version of README's "Writing your own driver"
  * chapter. `MINIMAL_DRIVER` is pinned equal to that chapter's own fenced
  * bash block by `Install.test.ts`, so the two can never drift.
@@ -62,7 +62,7 @@ const HEADER = (): string =>
   `gtd decides and prints; the driver executes. gtd never runs git, never runs\n` +
   `your agent, and never runs a check script. The one subprocess gtd ever spawns\n` +
   `itself is a steering mode's own format:/validate: command, during a\n` +
-  `step-capture guard.\n`
+  `land-capture guard.\n`
 
 const BEAT_PROTOCOL = `
 ## The beat protocol

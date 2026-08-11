@@ -2,7 +2,7 @@
 Feature: gtd install — the driver-building briefing
 
   `gtd install` prints a complete, self-contained briefing that teaches an
-  agent (or a human) to build a gtd loop driver in any shell or runtime — it
+  agent (or a human) to build a gtd driver in any shell or runtime — it
   writes nothing at all, so "install" means installing knowledge into the
   calling agent's context, not writing files. Its `needs: "none"` (like
   `gtd lsp`) means it runs from any directory, in or out of a repository, and

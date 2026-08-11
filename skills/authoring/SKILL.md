@@ -170,9 +170,10 @@ At `gtd land`, the engine decides:
   `gtd(<actor>): <from> → <target>` (the state stepped from, then the matched
   target) and the machine advances.
 - **No-op** — clean tree AND no `C` row, at a `script`/`message` state: zero
-  commits, exit 0. This is the **default and it is deliberate** — the loop opens
-  each iteration with `gtd land` before the actor has acted, so a clean step
-  must author nothing unless you explicitly declare a `C` row.
+  commits (at a `script` state, `gtd land` exits 3 — SETTLED). This is the
+  **default and it is deliberate** — a driver lands only a beat it acted on, and
+  an act that changed nothing must author nothing unless you explicitly declare
+  a `C` row.
 - **Attempt** — clean tree AND no `C` row, at a `prompt` state: an EMPTY
   `gtd(<actor>): <state>` commit lands instead of a no-op — a fruitless agent
   dispatch costs money and must be remembered across restarts, unlike a
@@ -185,15 +186,15 @@ At `gtd land`, the engine decides:
   `"* **"`).
 
 An attempt is visible in history, not just to a driver: `gtd next --json`
-reports `"stalled": true` whenever HEAD is such an empty attempt at the resting
-state and the tree is clean — on every call, dispatched or not, and sticky until
-something clears it. Two ways to clear a stall, both workflow-authored: if the
-`prompt` state can legitimately finish with nothing to change, declare a `C` row
-on it so that's the intended signal instead; if repeated fruitless dispatches
-should escalate instead (e.g. to a human gate), cap the state with
-`retry: { max, otherwise }` — the Nth attempt redirects to `otherwise` rather
-than repeating forever (arriving at the state already counts as one entry, so
-`max: N` allows N−1 fruitless attempts before redirecting).
+reports `kind: "stalled"` (with a diagnosis as `content`) whenever HEAD is such
+an empty attempt at the resting state and the tree is clean — on every call, and
+sticky until something clears it. Two ways to clear a stall, both
+workflow-authored: if the `prompt` state can legitimately finish with nothing to
+change, declare a `C` row on it so that's the intended signal instead; if
+repeated fruitless dispatches should escalate instead (e.g. to a human gate),
+cap the state with `retry: { max, otherwise }` — the Nth attempt redirects to
+`otherwise` rather than repeating forever (arriving at the state already counts
+as one entry, so `max: N` allows N−1 fruitless attempts before redirecting).
 
 ### `describe` — human-readable routing
 

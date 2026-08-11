@@ -58,7 +58,7 @@ import {
   type StateMode,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { beatDocument, beatKindOf } from "./Beat.js"
+import { beatDocument, beatKindOf, stallDiagnosis } from "./Beat.js"
 import {
   renderModeCommand,
   renderStateTemplate,
@@ -99,7 +99,7 @@ const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
 /**
  * `gtd install`: print the driver-building briefing (`src/Install.ts`'s
  * `renderBriefing()`) — a complete, self-contained explanation of how to
- * build a gtd loop driver in any shell or runtime, emitted by the binary
+ * build a gtd driver in any shell or runtime, emitted by the binary
  * itself so it is always exactly as current as the gtd that prints it.
  * Writes nothing: "install" means installing knowledge into the calling
  * agent's context. Its `needs: "none"` (see `Cli.ts`'s `needsOf`, same as
@@ -337,8 +337,8 @@ interface LandOptions {
  * WITHOUT performing it. `currentRest` → `planStep` decides, authenticating
  * as `rest.actor` (the resolved rest's own declared actor — landing derives
  * who acts, it never takes an actor argument); the step-capture guards
- * (`src/StepGuards.ts`) then refuse before anything is emitted, exactly as
- * before. What used to be `plan.perform` is now assembled by hand into a
+ * (`src/StepGuards.ts`) then refuse before anything is emitted. The decision
+ * is assembled by hand into a
  * `required` script (the review-window CLOSE, when one is open; the resting
  * state's steering-mode format/validate commands, when it declares
  * `file:`+`mode:`; then the commit/squash steps themselves, via
@@ -923,6 +923,13 @@ const runNextCommand = (
     const rendered = yield* renderRest(rest)
     if (json) {
       write(yield* nextBeatOutput(rest, rendered))
+      return
+    }
+    // The plain rendering surfaces a stall the same way the beat document
+    // does — a human peeking at a stalled rest must see the diagnosis, not
+    // the prompt that already went nowhere.
+    if (rendered.kind === "prompt" && rest.changes.length === 0 && stalledAt(rest)) {
+      write(stallDiagnosis(rendered.state, rendered.actor))
       return
     }
     // Advisory only (see `selfValidateInstruction`'s doc comment) — a render

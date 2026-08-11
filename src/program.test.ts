@@ -364,8 +364,8 @@ describe("gtd next --json / gtd status — memory key emission", () => {
   // commit-anchored hash — there is no authored `memory:` state key at all
   // (package 10 removed it outright) — pinned end-to-end for a realistic
   // nested-scope, repeated-entry trace in
-  // tests/integration/features/gtd-loop.feature; these mirror that coverage
-  // at the unit level. This workflow is a single flat "root" machine (no
+  // tests/integration/features/derived-sessions.feature; these mirror that
+  // coverage at the unit level. This workflow is a single flat "root" machine (no
   // sub-machine references), so every one of its states' scope is `""` — the
   // root — displayed as `memoryKeyFor`'s `"root"` fallback name.
 
@@ -639,6 +639,15 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     expect(parsed.content).toBe(stallDiagnosis("working", "agent"))
     expect(parsed).not.toHaveProperty("session")
     expect(parsed).not.toHaveProperty("validate")
+  })
+
+  it("plain gtd next renders the stall diagnosis too — a human peek must not see the prompt that went nowhere", async () => {
+    const repo = seededAt("gtd(human): working")
+    await landAgentStep(repo)
+
+    const { stdout, exitCode } = await run(repo, "next")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe(stallDiagnosis("working", "agent"))
   })
 
   it("stays stalled on a repeat — sticky, unlike the old marker's single-shot report", async () => {

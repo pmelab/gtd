@@ -17,7 +17,7 @@ No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 
 - **Durable & replayable.** The workflow state _is_ your git history — a pure
   fold over commit subjects and the working tree. Kill the session, reboot, come
-  back next week: run `gtd` and it resumes exactly where it stopped.
+  back next week: run the driver and it resumes exactly where it stopped.
 - **Shareable.** Push the branch, and the workflow travels with it — the state
   lives in the commits, so another machine (or another person) picks up exactly
   where you left off.
@@ -43,10 +43,10 @@ No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 npm install -g @pmelab/gtd
 ```
 
-Or run without installing:
+Or run without installing (prefix every `gtd` below with `npx`):
 
 ```bash
-npx @pmelab/gtd
+npx @pmelab/gtd next
 ```
 
 That's it — gtd ships the **unified** workflow as its **built-in default**, so a
@@ -136,27 +136,27 @@ for). The two steering-file entries are chosen by which file you create:
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
 checkbox review of the diff — the prompt never inlines the diff itself; it names
 the commit the changes are based at and the agent runs `git diff` to read the
-range before writing the review. While the process rests at that gate, gtd opens
-a **review checkout window**: HEAD is rewound to the review base with the
-working tree untouched, so the whole reviewable change shows up as ordinary
-uncommitted changes in your editor's normal git integration (and files added
-during the process show up as ordinary untracked files, so discarding one
-deletes it). The window closes on the next gtd invocation. Tick a box as you
-review each hunk (ticking just records "I read this"), and leave a **comment**
-to request changes: a note on a line, an inline `// TODO`-style comment in the
-code, or a direct code edit. Any comment sends a build + re-review round — an
-agent first turns your comments into an explicit instruction list, then a build
-turn implements it (a re-review then covers only the follow-through, and a
-hand-edit is treated as your own fix the agent completes without reverting your
-lines; a comment can't be silently dropped — a build turn that addresses nothing
-is refused). For the simple flow, the build turn that follows through on
-feedback and the turn that drafts the final squash message both resume the same
-session that built the feature in the first place, since the review tail is
-nested inside that build identity rather than sitting beside it. Ticking every
-box with no comment is the sign-off, which collapses the whole process into one
-commit (a **squash finale** whose message an agent drafts). Stepping with a box
-still unticked and no comment is refused (finish reviewing first), as is
-deleting `.gtd/REVIEW.md`.
+range before writing the review. While the process rests at that gate, the
+landing script opens a **review checkout window**: HEAD is rewound to the review
+base with the working tree untouched, so the whole reviewable change shows up as
+ordinary uncommitted changes in your editor's normal git integration (and files
+added during the process show up as ordinary untracked files, so discarding one
+deletes it). The next landing's own script closes the window before it commits.
+Tick a box as you review each hunk (ticking just records "I read this"), and
+leave a **comment** to request changes: a note on a line, an inline
+`// TODO`-style comment in the code, or a direct code edit. Any comment sends a
+build + re-review round — an agent first turns your comments into an explicit
+instruction list, then a build turn implements it (a re-review then covers only
+the follow-through, and a hand-edit is treated as your own fix the agent
+completes without reverting your lines; a comment can't be silently dropped — a
+build turn that addresses nothing is refused). For the simple flow, the build
+turn that follows through on feedback and the turn that drafts the final squash
+message both resume the same session that built the feature in the first place,
+since the review tail is nested inside that build identity rather than sitting
+beside it. Ticking every box with no comment is the sign-off, which collapses
+the whole process into one commit (a **squash finale** whose message an agent
+drafts). Landing with a box still unticked and no comment is refused (finish
+reviewing first), as is deleting `.gtd/REVIEW.md`.
 
 The same review tail also has a direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -268,8 +268,8 @@ Commands:
                    with <mode>/<file> given explicitly. This is what a
                    workflow's emitted validation script invokes as a leaf step
   install          Print a complete, self-contained briefing that teaches an
-                   agent (or a human) to build a gtd loop driver in any shell
-                   or runtime — the self-serve version of README's 'Writing
+                   agent (or a human) to build a gtd driver in any shell or
+                   runtime — the self-serve version of README's 'Writing
                    your own driver'. Writes nothing: this installs knowledge
                    into the calling agent's context, not files on disk. Runs
                    from any directory, in or out of a repository
@@ -300,10 +300,12 @@ errors that exit 1 and print help — gtd decides and prints, full stop; driving
 loop is a driver's job, not a bundled command (see
 [Driving the loop](#driving-the-loop) below). Any other, truly unknown
 subcommand is likewise a usage error: it prints the help text and exits 1
-without touching the repository. Every other (recognized) command must be run
-from the **repository root** — gtd derives the workflow, pending changes, and
-process history relative to cwd, so it refuses with a clear error if invoked
-from a subdirectory.
+without touching the repository. The state commands (`land`, `--entry`,
+`abandon`, `restore`, `next`, `status`, `validate`) must run from the
+**repository root** — gtd derives the workflow, pending changes, and process
+history relative to cwd, so they refuse with a clear error from a subdirectory;
+`lsp`, `init`, `visualize`, `check`, and `install` are standalone and run from
+anywhere (see each command's own help entry).
 
 `--json`, `--cost=<n>`, `--model=<name>` (the latter two only for `gtd land`),
 `--entry <state>` (no other command at all), and `--var <name>=<value>` (with
@@ -330,9 +332,9 @@ state. Plain output prints a `Next: <action-or-pattern> → <target>` line (or
 `{ action?, pattern, target }`, or `null` on no match.
 
 This reports the **declared** route only: a capped `retry` may redirect
-elsewhere at real step time, which `Next:`/`next` does not apply — it previews
-what the declared `on` patterns would match, not a guarantee of where a real
-`gtd land` lands.
+elsewhere when the land is decided, which `Next:`/`next` does not apply — it
+previews what the declared `on` patterns would match, not a guarantee of where a
+real `gtd land` lands.
 
 ### Error envelope
 
@@ -359,14 +361,14 @@ already authored with its own `gtd:`/`gtd <cmd>:` prefix is never doubled.
 gtd itself is not a loop — it decides and prints, full stop; driving a loop is a
 driver's job. The README's minimal driver below (see
 [A complete minimal driver](#a-complete-minimal-driver)) is that driver: save it
-as `~/.local/bin/gtd-loop`, `chmod +x` it, and point it at a repo — it runs the
-loop until it's your turn. It drives the autonomous states (agent turns, check
-runs) and stops at the first non-autonomous one: reaching a human gate it prints
-the gate's message and exits. You act by editing files (answer a plan question,
-tick a review box, fix code) and re-running it — your pending edit arrives as
-the loop's first beat (`kind: "capture"`, landed immediately), so you never run
-`gtd land` by hand; a mid-process restart simply resumes driving from whatever
-beat is actually next.
+as `~/.local/bin/gtd-loop`, `chmod +x` it, and run it from a repository root —
+it takes no arguments and runs the loop until it's your turn. It drives the
+autonomous states (agent turns, check runs) and stops at the first
+non-autonomous one: reaching a human gate it prints the gate's message and
+exits. You act by editing files (answer a plan question, tick a review box, fix
+code) and re-running it — your pending edit arrives as the loop's first beat
+(`kind: "capture"`, landed immediately), so you never run `gtd land` by hand; a
+mid-process restart simply resumes driving from whatever beat is actually next.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around the driver,
@@ -436,8 +438,8 @@ reports `gtd`'s own lifecycle to that status without any herdr-specific
 knowledge in `gtd` itself: `working` while the loop drives, `blocked` when it
 comes to rest on a human (a gate, a stall, a non-zero exit), and `idle`
 (rendered as "done" once the pane's tab is unfocused) when a run ends without
-anything owed. It needs nothing from `gtd` beyond `gtd next --json`'s `.actor`
-field, which the loop's driver already reads at every beat.
+anything owed. It needs nothing from `gtd` beyond `gtd status --json`'s `.actor`
+field — a strictly read-only orientation peek.
 
 Save this as `~/.local/bin/gtdh`, `chmod +x` it, and run `gtdh` in place of
 `gtd-loop` — it's a plain bash file, so it works from fish or any other shell.
@@ -447,7 +449,7 @@ Save this as `~/.local/bin/gtdh`, `chmod +x` it, and run `gtdh` in place of
 # Report gtd's own lifecycle to the herdr pane it runs in: working while the
 # loop drives, blocked when it rests on you, idle (shown as "done") otherwise.
 # Needs nothing from gtd but `gtd status --json`. Outside herdr it is a plain
-# passthrough. Requires `jq` — so does gtd's own loop driver.
+# passthrough. Requires `jq` — so does the README's minimal driver.
 set -uo pipefail
 
 pane="${HERDR_PANE_ID:-}"
@@ -469,7 +471,7 @@ trap 'report blocked; exit 130' INT TERM
 # without it no `claude -p` turn reports a claude SESSION identity for this
 # pane. That is load-bearing, not cosmetic — a pane that owns one rejects every
 # later state report, so the report below would be dropped.
-env -u HERDR_PANE_ID gtd-loop "$@"
+env -u HERDR_PANE_ID gtd-loop
 rc=$?
 
 # Whose turn is it now? `gtd status --json` is a strictly read-only peek —
@@ -691,10 +693,10 @@ non-zero exit means the script's own captured output IS a complete,
 ready-to-send fix prompt (an instruction plus the findings, see `src/Emit.ts`'s
 `failurePromptWrapper`): send it back to the same agent session verbatim, and
 cap how many fix attempts you allow yourself — the driver owns that retry count,
-not gtd. gtd never validates on the driver's behalf at land time either: the
-`gtd land` gate re-runs the same format/validate commands ahead of its own
-commit and refuses independently, so a malformed file is never captured whether
-or not you ran `gtd validate` first.
+not gtd. Landing never TRUSTS that you validated, either: the emitted `land`
+script carries the same format/validate commands ahead of its own commit and
+fails without committing when they fail, so a malformed file is never captured
+whether or not you ran the validate script first.
 
 ### Failure taxonomy and recovery
 
@@ -710,10 +712,10 @@ non-zero-looking exit is not a failure at all:
   partially happened — e.g. a `gtd_retry`-wrapped git write landed but a later
   step in the same script failed.
 
-Recovery is the same in every case: **re-invoke `gtd`.** It re-reads the real
-repository state fresh every time — never a cached plan — and emits whatever
-still needs to happen from there. This works because every emitted script opens
-by asserting its own precondition
+Recovery is the same in every case: **ask gtd again** (`gtd next`, then land).
+It re-reads the real repository state fresh every time — never a cached plan —
+and emits whatever still needs to happen from there. This works because every
+emitted script opens by asserting its own precondition
 (`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = <expected> ] || { ...; exit 1; }`,
 and the same shape for a review window's saved ref — see `src/Emit.ts`'s
 `headAssertion`/`reviewWindowAssertion`), so a script generated against a
@@ -750,7 +752,7 @@ retry/resume logic beyond "if the script failed, ask gtd again."
 ### The normalization-only contract on `format:`
 
 A mode's `format:` command may reformat a steering file — whitespace, wrapping,
-reordering — but must NEVER change what a step-capture guard would decide. gtd's
+reordering — but must NEVER change what a land-capture guard would decide. gtd's
 guards (the review sign-off check, the feedback-progress check, the
 answer-completeness check — `src/StepGuards.ts`) decide ONCE, against whichever
 bytes are on disk at the moment `gtd land` runs, which may be before OR after an
@@ -1044,7 +1046,7 @@ Config-shape problems (unknown keys, wrong types, unreadable file references)
 are collected together; if the shape is clean, the assembled definition is
 additionally run through the engine's own validation. A bad config throws
 **one** error listing every finding, at load time — before anything touches the
-repository — never partially, and never deferred to step time:
+repository — never partially, and never deferred to land time:
 
 ```
 workflow config:
@@ -1068,7 +1070,7 @@ the compiler's job at load time.
 - **Single writer, linear branch.** A process's history is walked via
   **first-parent** commits only.
 - **Test/build artifacts must be gitignored.** This is **load-bearing**, not a
-  style preference: every step decision detects "clean" via
+  style preference: every land decision detects "clean" via
   `git diff --name-status HEAD` (tracked changes) unioned with
   `git ls-files --others --exclude-standard` (untracked files), which silently
   omits anything matched by `.gitignore`. If a `script` state's command (or the
@@ -1078,8 +1080,9 @@ the compiler's job at load time.
   before wiring gtd into a repo.
 - **Repository root invocation.** Every state subcommand must run from the git
   repository root. `--help`/`--version` (and the `help`/`version` subcommands),
-  `lsp`, and `visualize` skip this guard entirely (`visualize` still reads the
-  `.gtdrc` workflow, but needs no git state).
+  `lsp`, `init`, `visualize`, `check`, and `install` skip this guard entirely
+  (`visualize` still reads the `.gtdrc` workflow, but needs no git state; `init`
+  may even run outside a repository to seed a shared parent-dir config).
 - **Linked worktrees are independent.** N `git worktree` worktrees of one
   repository (sharing a single `.git`) each run their own gtd process: state is
   derived from that worktree's own HEAD, and the review checkout window's refs

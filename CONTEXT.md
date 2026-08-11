@@ -65,8 +65,16 @@ third move of a [beat](#beat). Actorless: which actor a landing is attributed to
 is derived from the resting state, never passed in. _Avoid_: step actor, commit,
 capture the turn
 
-**Beat**: One dispatch cycle of the driver loop — resolve a rest, hand its
-content to its actor, then land. _Avoid_: iteration, tick, cycle
+**Beat**: One read of `gtd next --json` and whatever it demands — nothing (a
+`message` or `stalled` beat halts the loop), an immediate land (`capture`), or
+an execution followed by a land (`script`/`prompt`). _Avoid_: iteration, tick,
+cycle
+
+**Beat document**: `gtd next --json`'s output — one self-describing JSON line
+per beat: `kind` (`capture` | `message` | `script` | `prompt` | `stalled`),
+`content`, `log`, and — on a `prompt` beat only — `session` (`{id, resume}`,
+derived) and the embedded `validate` script. The driver's whole read surface.
+_Avoid_: next payload, dispatch document
 
 **Stall**: HEAD is an empty [attempt](#attempt) at the resting `prompt` state,
 the tree is clean, and another dispatch would just repeat it — derived from

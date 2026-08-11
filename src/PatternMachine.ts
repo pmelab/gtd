@@ -1,6 +1,6 @@
 /**
- * The v3 "pattern machine": gtd's ground-up rewrite of the state-machine
- * core. This module is the pure engine: definition types, the pattern grammar's
+ * The pattern machine — gtd's state-machine core. This module is the pure
+ * engine: definition types, the pattern grammar's
  * parser/matcher, HEAD resolution, and step decisions (refusals, no-ops,
  * commits, retry redirection, and the commit-state squash decision).
  *
@@ -20,11 +20,10 @@
  * only at the edge (`src/SteeringMode.ts`).
  *
  * This module is intentionally pure — no git, no filesystem, no Effect, no
- * IO of any kind. It mirrors the purity discipline documented at the top of
- * `./Subjects.ts` and `./Machine.ts`: every export here is a plain function
- * of its arguments. Rendering templates, executing scripts, walking git
- * history for the process trace, and performing the actual commit/squash
- * are all EDGE concerns for a later phase.
+ * IO of any kind: every export is a plain function of its arguments.
+ * Rendering templates (`src/PatternTemplates.ts`), walking git history for
+ * the process trace (`src/Edge.ts`), and emitting the commit/squash scripts
+ * a driver runs (`src/Edge.ts`/`src/Emit.ts`) are all EDGE concerns.
  *
  * Its one import is `./StateFields.js` — the state-field vocabulary
  * (`Actor`, `StateName`, `ContentKind`, `StateMode`, `OnEdge`, `RetryDef`,

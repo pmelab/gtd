@@ -34,7 +34,7 @@ import {
   type TemplateContext,
   type TemplateEdge,
 } from "./PatternTemplates.js"
-import { HISTORY_REF, retainHistory, withHistoryTrailer } from "./RetainedHistory.js"
+import { HISTORY_REF, withHistoryTrailer } from "./RetainedHistory.js"
 import {
   commitAll,
   commitAsIs,
@@ -1058,20 +1058,9 @@ export const stalledAt = (rest: Rest): boolean =>
     rest.run.trace.map((entry) => entry.state),
   )
 
-// ── Planning + performing a step ─────────────────────────────────────────────
+// ── Planning a step ──────────────────────────────────────────────────────────
 
-/** A step's outcome, for the CLI to report. */
-export type StepOutcome =
-  | { readonly kind: "commit"; readonly subject: string }
-  | { readonly kind: "squash"; readonly subject: string }
-  | { readonly kind: "noop"; readonly state: StateName }
-  /** The mixed-reset branch: a process that returned to the initial state retaining nothing was rewound instead of committed. */
-  | { readonly kind: "reset"; readonly state: StateName }
-  /** `planEntry`'s successful commit. */
-  | { readonly kind: "entry"; readonly state: StateName; readonly subject: string }
-
-/** The two `StepDecision` kinds that actually perform IO — `"refusal"` and `"noop"` are handled by `planStep` itself before a `perform` closure is ever built. */
-/** A decision that actually writes git — the two kinds a guard may run before. Exported for `src/StepGuards.ts`. */
+/** A decision whose emitted script writes git — the two kinds a guard may run before. Exported for `src/StepGuards.ts`. */
 export type ExecutableDecision = Extract<StepDecision, { kind: "commit" | "squash" }>
 
 /**
@@ -1129,74 +1118,23 @@ export const contextAt = (
   })
 
 /**
- * Execute a `"commit"`/`"squash"` decision: a `"commit"` decision stages and
- * commits everything pending under the decided subject, with an optional
- * `Gtd-Cost: <cost>[ <model>]` trailer; a `"squash"` decision renders the
- * commit-state template against the PENDING tree — a render failure REFUSES
- * the step, touching nothing — then records the pre-squash tip on the
- * retained-history ref (`retainHistory`, a no-op for an empty process) before
- * soft-resetting to the process's start parent, writes ONE commit with the
- * rendered message plus a `Gtd-History: <hash>` trailer pointing at that tip,
- * and discards everything left pending (the template file included). The
- * whole-process total and per-model breakdown reach the message through
- * `it.processCost`/`it.processCostByModel` in the rendered template.
- */
-const executeDecision = (
-  git: GitOperations,
-  run: ProcessRun,
-  decision: ExecutableDecision,
-  context: TemplateContext,
-  cost: number | undefined,
-  model: string | undefined,
-): Effect.Effect<StepOutcome, Error> =>
-  Effect.gen(function* () {
-    switch (decision.kind) {
-      case "commit": {
-        yield* git.commitAllWithPrefix(withCostTrailer(decision.subject, cost, model))
-        return { kind: "commit", subject: decision.subject }
-      }
-      case "squash": {
-        const message = yield* Effect.try({
-          try: () => renderStateTemplate(decision.template, context),
-          catch: (e) =>
-            new Error(
-              `gtd: rendering the "${decision.state}" commit template failed — nothing was committed: ${
-                e instanceof Error ? e.message : String(e)
-              }`,
-            ),
-        })
-        const tip = yield* git.resolveRef("HEAD")
-        yield* retainHistory(git, tip, run.startParentHash)
-        yield* git.softResetTo(run.startParentHash)
-        yield* git.commitAsIs(withHistoryTrailer(message, tip))
-        yield* git.discardPending()
-        return { kind: "squash", subject: subjectOf(message) }
-      }
-    }
-  })
-
-/**
  * Render a `"commit"`/`"squash"` decision as the `EmitStep`s the external
- * driver would run to produce the SAME git effect `executeDecision` performs
- * directly — same switch, same subjects, same trailers, same ordering. Every
- * git call here is a READ (`git.resolveRef("HEAD")` for the squash branch's
- * pre-squash tip); nothing is written. `planStep`/`planEntry`'s script
- * assembly (`buildStepScripts`) and `Edge.test.ts`'s render/perform
- * equivalence tests are its two callers.
+ * driver runs to produce its git effect — the ONE place a decision becomes
+ * git commands. Every git call here is a READ (`git.resolveRef("HEAD")` for
+ * the squash branch's pre-squash tip); nothing is written — gtd itself never
+ * writes git, only a driven script does.
  *
  * The squash branch renders the commit-state template against the PENDING
- * tree — a render failure fails this Effect exactly like `executeDecision`'s
- * own (same message), touching no git. On success it emits, in order:
- * retain-history (`updateRef(HISTORY_REF, tip)`, OMITTED when `tip ===
- * run.startParentHash` — an empty process retains nothing, mirroring
- * `retainHistory`'s own no-op check, decided here since `tip` is already
- * known), soft-reset to the process start, commit-as-is with the rendered
- * message plus its `Gtd-History:` trailer, discard-pending, then a trailing
- * `commitOutcome` naming the rendered message's bare subject line — the ONE
- * addition with no `executeDecision` counterpart, since `executeDecision`
- * never prints anything itself (only a driven SCRIPT does).
+ * tree — a render failure fails this Effect, touching no git. On success it
+ * emits, in order: retain-history (`updateRef(HISTORY_REF, tip)`, OMITTED
+ * when `tip === run.startParentHash` — an empty process retains nothing,
+ * mirroring `retainHistory`'s no-op check, decided here since `tip` is
+ * already known), soft-reset to the process start, commit-as-is with the
+ * rendered message plus its `Gtd-History:` trailer, discard-pending, then a
+ * trailing `commitOutcome` naming the rendered message's bare subject line —
+ * the script's own report, printed as it runs.
  *
- * The commit branch carries `executeDecision`'s one non-obvious case too: a
+ * The commit branch carries one non-obvious case too: a
  * commit whose target is the workflow's INITIAL state, from a process that
  * retained nothing, is a no-op probe (`gtd --entry fix-precheck` against a
  * green suite is the shipped example) and must leave no trace at all. It
@@ -1242,11 +1180,10 @@ const commitDecisionOutcome = (decision: {
  * retained nothing, not for a fruitless turn, and an attempt landing at the
  * initial state (a prompt state that also happens to be where the workflow
  * starts) would otherwise satisfy every OTHER criterion here identically to a
- * genuine collapse. The ONE predicate both
- * `renderDecision`'s emitted-script branch and `planStep`'s direct `perform`
- * call, so the two can never decide differently about the same run —
- * `program.ts`'s `planLanding` asks the same question, through the exported
- * `collapsesToInitialState` below, at the same moment.
+ * genuine collapse. The ONE predicate `renderDecision`'s emitted-script
+ * branch calls — `program.ts`'s `planLanding` asks the same question,
+ * through the exported `collapsesToInitialState` below, at the same moment,
+ * so the two can never decide differently about the same run.
  */
 const collapsesWith = (
   git: GitOperations,
@@ -1377,9 +1314,10 @@ const buildStepScripts = (
   })
 
 /**
- * Decide + perform a step. Nothing writes git until `perform` runs, so the
- * capture gates (`program.ts`'s `enforce*Gate` family) sit between `planStep`
- * and `plan.perform` by construction rather than by statement order.
+ * Decide a step — WITHOUT performing it. gtd never writes git: the decision
+ * becomes the `scripts` field's emitted bash, and only a driver running that
+ * script writes anything. The capture guards (`src/StepGuards.ts`) sit
+ * between `planStep` and the script's emission by construction.
  */
 export type StepPlan =
   | { readonly kind: "refusal"; readonly message: string }
@@ -1387,16 +1325,9 @@ export type StepPlan =
   | {
       readonly kind: "commit" | "squash"
       readonly state: StateName
-      /** Inspectable — do not hide it behind `perform`. */
+      /** Inspectable — the pure engine's own verdict. */
       readonly decision: StepDecision
-      readonly perform: Effect.Effect<StepOutcome, Error, RestRequirements>
-      /**
-       * The `required`/`optional` bash a driver could run instead of
-       * `perform` — built alongside it by `buildStepScripts`, from the SAME
-       * `renderDecision` output `perform`'s own `executeDecision` mirrors.
-       * Nothing reads this yet; it exists so a later package's cutover has
-       * nothing left to build.
-       */
+      /** The `required`/`optional` bash a driver runs to land this decision — built by `buildStepScripts` from `renderDecision`'s output. */
       readonly scripts: EmittedScripts
     }
 
@@ -1420,16 +1351,11 @@ const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "s
  * `rest.stepDef`/`rest.changes`/`rest.run.trace`, authenticated as
  * `rest.actor` — the state's own declared actor, so out-of-turn is
  * unreachable by construction), and — for a `"commit"`/`"squash"` decision —
- * build the `perform` Effect that actually writes it. `opts.cost`/`opts.model`
- * ride along for the `Gtd-Cost:` trailer and the squash template's folded
- * `it.processCost`/`it.processCostByModel`.
- *
- * `perform` itself, in order: the "returned to the initial state retaining
- * nothing" mixed-reset branch (a green re-entry into the initial state that
- * kept nothing useful is rewound like `gtd abandon` rather than committed),
- * else `executeDecision` — against `rest.context` for a commit (which never
- * reads it) or a freshly built `contextAt` for a squash (which renders a
- * DIFFERENT state's template with the step's cost folded in).
+ * assemble the emitted `scripts` a driver runs to land it (against
+ * `rest.context` for a commit, or a freshly built `contextAt` for a squash,
+ * which renders a DIFFERENT state's template with the step's cost folded
+ * in). `opts.cost`/`opts.model` ride along for the `Gtd-Cost:` trailer and
+ * the squash template's folded `it.processCost`/`it.processCostByModel`.
  */
 export const planStep = (
   rest: Rest,
@@ -1455,22 +1381,6 @@ export const planStep = (
     }
 
     const { cost, model } = opts
-    const perform: Effect.Effect<StepOutcome, Error, RestRequirements> = Effect.gen(function* () {
-      const git = yield* GitService
-      if (decision.kind === "commit") {
-        if (yield* collapsesWith(git, rest, decision)) {
-          const tip = yield* git.resolveRef("HEAD")
-          yield* retainHistory(git, tip, rest.run.startParentHash)
-          yield* git.mixedResetTo(rest.run.startParentHash)
-          return { kind: "reset", state: initialStateOf(rest.def) }
-        }
-        return yield* executeDecision(git, rest.run, decision, rest.context, cost, model)
-      }
-      const context = yield* contextAt(rest, decision.state, rest.actor, cost, model)
-      return yield* executeDecision(git, rest.run, decision, context, cost, model)
-    })
-
-    // Built alongside `perform`, from the same inputs — see `buildStepScripts`.
     const git = yield* GitService
     const scriptContext =
       decision.kind === "commit"
@@ -1478,20 +1388,19 @@ export const planStep = (
         : yield* contextAt(rest, decision.state, rest.actor, cost, model)
     const scripts = yield* buildStepScripts(git, rest, decision, scriptContext, cost, model)
 
-    return { kind: decision.kind, state: rest.state, decision, perform, scripts }
+    return { kind: decision.kind, state: rest.state, decision, scripts }
   })
 
-// ── Planning + performing an entry ───────────────────────────────────────────
+// ── Planning an entry ────────────────────────────────────────────────────────
 
-/** Decide + perform starting a brand-new process. Same refusal/perform vocabulary as `StepPlan`, kept as a separate type: an entry has no `StepDecision`, so folding it into `StepPlan` would force every ordinary `planStep` caller to narrow away a variant that can never occur there. */
+/** Decide starting a brand-new process. Same refusal/scripts vocabulary as `StepPlan`, kept as a separate type: an entry has no `StepDecision`, so folding it into `StepPlan` would force every ordinary `planStep` caller to narrow away a variant that can never occur there. */
 export type EntryPlan =
   | { readonly kind: "refusal"; readonly message: string }
   | {
       readonly kind: "entry"
       readonly state: StateName
       readonly subject: string
-      readonly perform: Effect.Effect<StepOutcome, Error, RestRequirements>
-      /** The `required`/`optional` bash a driver could run instead of `perform` — one `commitAll(message)` line, built alongside it. Nothing reads this yet — see `StepPlan.scripts`. */
+      /** The `required`/`optional` bash a driver runs to write the entry commit — one `commitAll(message)` line plus its outcome report. */
       readonly scripts: EmittedScripts
     }
 
@@ -1613,17 +1522,10 @@ export const planEntry = (
       ...(base !== undefined ? { base } : {}),
       vars: varOverrides,
     })
-    const perform: Effect.Effect<StepOutcome, Error, RestRequirements> = Effect.gen(function* () {
-      const git = yield* GitService
-      yield* git.commitAllWithPrefix(message)
-      return { kind: "entry", state: entryState, subject }
-    })
-
-    // Built alongside `perform` — a single `commitAll(message)` line mirrors
-    // `commitAllWithPrefix` exactly, no template render involved. The trailing
-    // outcome step names the BARE subject (never `message`, which may carry
-    // the `Gtd-Review-Base:`/`Gtd-Var:` trailers) — the same "bare subject"
-    // discipline `renderDecision`'s commit branch applies.
+    // A single `commitAll(message)` line — no template render involved. The
+    // trailing outcome step names the BARE subject (never `message`, which
+    // may carry the `Gtd-Review-Base:`/`Gtd-Var:` trailers) — the same "bare
+    // subject" discipline `renderDecision`'s commit branch applies.
     const scriptsGit = yield* GitService
     const preconditions = yield* buildPreconditions(scriptsGit, rest, entryState)
     const scripts = emitScripts(preconditions, [
@@ -1631,5 +1533,5 @@ export const planEntry = (
       { kind: "outcome", command: commitOutcome(subject) },
     ])
 
-    return { kind: "entry", state: entryState, subject, perform, scripts }
+    return { kind: "entry", state: entryState, subject, scripts }
   })

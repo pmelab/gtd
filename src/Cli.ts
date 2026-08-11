@@ -374,8 +374,8 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: "none",
     details: [
       "Print a complete, self-contained briefing that teaches an",
-      "agent (or a human) to build a gtd loop driver in any shell",
-      "or runtime — the self-serve version of README's 'Writing",
+      "agent (or a human) to build a gtd driver in any shell or",
+      "runtime — the self-serve version of README's 'Writing",
       "your own driver'. Writes nothing: this installs knowledge",
       "into the calling agent's context, not files on disk. Runs",
       "from any directory, in or out of a repository",

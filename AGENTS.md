@@ -109,7 +109,7 @@ any OTHER name (including `prose`) needs its own `modes:` entry, or
 - **e2e feature files** that assert on the bundled template's shape (they set it
   up with the `Given the workflow` step —
   `tests/integration/features/default-workflow.feature` (simple flow),
-  `unified-advanced-flow.feature` (advanced flow), `gtd-loop.feature`,
+  `unified-advanced-flow.feature` (advanced flow), `readme-driver.feature`,
   `driver-json-status.feature`, `smoke.feature`, `validate.feature`,
   `init.feature`, `review-window.feature`, `initial-state-entry.feature`,
   `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
