@@ -8,8 +8,7 @@ import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
-import { DriverState } from "./DriverState.js"
-import { confirmSession, resolveSession } from "./Sessions.js"
+import { resolveSession } from "./Sessions.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
   collapsesToInitialState,
@@ -85,7 +84,6 @@ export type CommandRequirements =
   | RepoFiles
   | CommandRunner
   | EnvVars
-  | DriverState
 
 /**
  * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio. Its
@@ -381,14 +379,6 @@ const stepAsActor = (
 ): Effect.Effect<StepResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    // Promote the resting prompt's session row EARLY — before guards/plan can
-    // refuse — and only IN-TURN (see decision 3, src/Sessions.ts's own doc
-    // comment): a step that then refuses still happened after a real agent
-    // turn, so the session it dispatched should still resume next lap; an
-    // out-of-turn step (a different actor than the one resting) must not
-    // claim a session nobody dispatched. A no-op `confirmSession` call for a
-    // non-prompt rest (`rest.memory` is always `undefined` there).
-    if (invoker === rest.actor) yield* confirmSession(rest.memory)
     const plan = yield* planStep(rest, invoker, stepOptions(opts))
 
     if (plan.kind === "refusal") {
@@ -844,15 +834,15 @@ const fixPromptInstruction = (file: string): string =>
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
-/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content (no mutation, unless `--dispatch` resolves the session and arms/consumes the beat marker — see `Sessions.ts`/`BeatMarker.ts`). */
+/** `gtd next [--json] [--dispatch]`: pure emitter of the resolved rest's rendered content — no mutation at all for the session half (`sessionId`/`resume` are DERIVED, see `Sessions.ts`), `--dispatch` still arms/consumes the beat marker (see `BeatMarker.ts`). */
 /**
  * `gtd next --json`'s single-line object — `log` (the per-worktree loop log
  * path, `src/WorktreeState.ts`'s `loopLogPath`) is UNCONDITIONAL, unlike the
  * optional keys below it: a driver reads it every run, so there is nothing to
  * omit. The optional keys are never `null`-valued, omitted entirely when
  * their source is unset, exactly like `gtd status --json`. `session` (see
- * `runNextCommand`) is only ever passed for a dispatched `prompt` rest —
- * `sessionId`/`resume` are its two keys, present or absent together.
+ * `runNextCommand`) is present for EVERY `prompt` rest, peek or dispatch alike
+ * — `sessionId`/`resume` are its two keys, present or absent together.
  * `stalled` is the one EXCEPTION to "omitted when unset": it's omitted unless
  * `true`, never emitted as `false` (see `runNextCommand`).
  */
@@ -889,35 +879,34 @@ const nextPlainOutput = (
     : base
 }
 
-/** What a dispatched `prompt` beat resolves beyond the rendered rest itself. `session` is `sessionId`/`resume` ready-made; `stalled` is the armed/consumed beat marker's verdict. The undispatched (peek) shape is `NOT_DISPATCHED`. */
+/** What a dispatched `prompt` beat resolves beyond the rendered rest itself: the armed/consumed beat marker's verdict. The undispatched (peek) shape is `NOT_DISPATCHED`. */
 interface DispatchedBeat {
-  readonly session: { readonly sessionId: string; readonly resume: boolean } | undefined
   readonly stalled: boolean
 }
 
-const NOT_DISPATCHED: DispatchedBeat = { session: undefined, stalled: false }
+const NOT_DISPATCHED: DispatchedBeat = { stalled: false }
 
 /**
- * The two driver-scoped writes a dispatched `prompt` beat performs — ONLY
+ * The ONE driver-scoped write a dispatched `prompt` beat performs — ONLY
  * `gtd next --json --dispatch` reaches here (never plain `gtd next --json`,
- * which is polled/peeked): resolving (possibly minting) the prompt session —
- * see src/Sessions.ts's own doc comment — and arming/consuming the beat
- * marker — see `BeatMarker.ts`'s module doc comment. `script`/`message` beats
- * never touch either (decision: only a `prompt` beat's no-change turn is
- * invisible to the machine).
+ * which is polled/peeked): arming/consuming the beat marker (see
+ * `BeatMarker.ts`'s module doc comment). `script`/`message` beats never touch
+ * it (decision: only a `prompt` beat's no-change turn is invisible to the
+ * machine). The session half moved out of here entirely — `resolveSession`
+ * is a pure derivation now, so `runNextCommand` resolves it directly for
+ * EVERY `prompt` rest, not just a dispatched one.
  */
-const resolveDispatchedBeat = (
+const resolveBeatMarker = (
   rest: Rest,
   rendered: RenderedRest,
 ): Effect.Effect<DispatchedBeat, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const session = yield* resolveSession(rendered.memory)
     const stalled = yield* resolveDispatch({
       state: rendered.state,
       content: hashContent(rendered.content),
       head: rest.context.currentCommit,
     })
-    return { session, stalled }
+    return { stalled }
   })
 
 const runNextCommand = (
@@ -942,12 +931,19 @@ const runNextCommand = (
         : undefined
     const beat =
       json && dispatch && rendered.kind === "prompt"
-        ? yield* resolveDispatchedBeat(rest, rendered)
+        ? yield* resolveBeatMarker(rest, rendered)
         : NOT_DISPATCHED
+    // No `--dispatch` gate: `resolveSession` derives the same id for a peek
+    // as it would for a dispatch — nothing is written, so there is nothing to
+    // protect a peek from (see `Sessions.ts`'s module doc comment).
+    const session =
+      json && rendered.kind === "prompt"
+        ? resolveSession(rendered.memory, rendered.memoryResumed)
+        : undefined
     const log = yield* loopLogPath
     write(
       json
-        ? nextJsonOutput(rendered, log, beat.session, beat.stalled)
+        ? nextJsonOutput(rendered, log, session, beat.stalled)
         : nextPlainOutput(rendered, selfValidateCommand),
     )
   })

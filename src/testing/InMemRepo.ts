@@ -44,12 +44,6 @@ export class InMemRepo {
   private worktree: Map<string, string> = new Map()
   private index: Map<string, string> = new Map()
   private pendingFaults: Array<() => Error> = []
-  // `DriverState`'s fake backing store (see `Layers.ts`'s `makeInMemoryDriverState`)
-  // — deliberately its OWN map, never a `worktree` entry: driver-scoped state
-  // (the session table, later the beat marker/log path) must stay invisible to
-  // the pending diff / `gtd status` / `changedPaths`, exactly like the git-dir
-  // file it fakes.
-  private driverState: Map<string, string> = new Map()
   // Separate from `worktree`: real git never reports a `.git/**` path as a
   // pending worktree change, so a marker write under the fake git dir
   // (`BeatMarker.ts`'s `gtd-beat`) must not surface as one either — see
@@ -300,16 +294,6 @@ export class InMemRepo {
       if (name.length > 0) names.add(name)
     }
     return [...names].sort()
-  }
-
-  /** `DriverState`'s fake `read`: `name`'s contents, `undefined` when absent. */
-  readDriverState(name: string): string | undefined {
-    return this.driverState.get(name)
-  }
-
-  /** `DriverState`'s fake `write`: unconditional — the fake has no read-only-dir failure mode to simulate. */
-  writeDriverState(name: string, content: string): void {
-    this.driverState.set(name, content)
   }
 
   // ---------------------------------------------------------------------------

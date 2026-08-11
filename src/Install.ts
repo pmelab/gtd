@@ -38,11 +38,13 @@ while :; do
     script) bash -c "$(jq -r .content <<<"$next")" >>"$log" 2>&1 || true ;;
     prompt)
       sid="$(jq -r '.sessionId // empty' <<<"$next")"
-      [ "$(jq -r '.resume // false' <<<"$next")" = true ] &&
-        sf="--resume $sid" || sf="--session-id $sid"
-      model="$(jq -r '.model // empty' <<<"$next")"
-      claude -p "$(jq -r .content <<<"$next")" $sf \${model:+--model "$model"} \\
-        --dangerously-skip-permissions >>"$log" 2>&1
+      c="$(jq -r .content <<<"$next")" model="$(jq -r '.model // empty' <<<"$next")"
+      agent_turn() { claude -p "$c" "$1" "$sid" \${model:+--model "$model"} \\
+        --dangerously-skip-permissions >>"$log" 2>&1; }
+      if [ "$(jq -r '.resume // false' <<<"$next")" = true ]
+      then agent_turn --resume || agent_turn --session-id
+      else agent_turn --session-id || agent_turn --resume
+      fi
       v="$(gtd validate --json | jq -r '.script // empty')" n=0
       while [ -n "$v" ] && ! out="$(bash -c "$v" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\\n' "$out" >&2; exit 1; }
@@ -65,8 +67,9 @@ const HEADER = (): string =>
 const BEAT_PROTOCOL = `
 ## The beat protocol
 
-\`gtd next --json\` is a read-only PEEK. \`gtd next --json --dispatch\` CLAIMS
-the beat: it mints or resumes the session id and arms the beat marker. Dispatch
+\`gtd next --json\` is a read-only PEEK — \`sessionId\`/\`resume\` are derived,
+never stored, so a peek is exactly as safe as a dispatch. \`gtd next --json
+--dispatch\` additionally CLAIMS the beat: it arms the beat marker. Dispatch
 exactly once per beat.
 
 The \`kind\` field selects what to do:
@@ -86,7 +89,9 @@ Every field below is always present unless marked "when set".
 
 - Always: \`state\`, \`actor\`, \`kind\`, \`content\`, \`log\`
 - When set: \`model\`, \`memory\`, \`label\`, \`file\`, \`mode\`, \`edges\`
-- Only on a DISPATCHED \`prompt\` beat: \`sessionId\` + \`resume\`, together
+- On every \`prompt\` beat, peek or dispatch alike: \`sessionId\` + \`resume\`,
+  together — both are DERIVED (a hash of the resting state's memory scope),
+  never stored, so a plain peek is safe to call as often as you like
 - \`stalled: true\` only when the beat marker refuses — never emitted as
   \`false\`
 
@@ -122,7 +127,10 @@ const DRIVER_OBLIGATIONS = `
 4. Run scripts with their output appended to \`.log\` — gtd never creates or
    truncates that file itself; truncate it once per run. \`$GTD_LOOP_LOG\`
    overrides its path.
-5. Map \`sessionId\`/\`resume\` onto the agent CLI's own session flags.
+5. Map \`sessionId\`/\`resume\` onto the agent CLI's own session flags — try
+   \`resume\`'s hinted flag first and fall back to the other on failure
+   (\`resume\` is a hint, not a contract: nothing is stored, so a crashed prior
+   turn or an expired agent session recovers by itself).
 6. After a \`prompt\` beat, run \`gtd validate --json\`'s \`.script\` and
    re-prompt its output verbatim on failure — the DRIVER owns the retry cap,
    not gtd.

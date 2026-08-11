@@ -546,6 +546,43 @@ const memoryKeyFor = (
   return `${scope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`
 }
 
+/**
+ * True iff a `prompt` rest in the CURRENT unbroken scope-run has already been
+ * passed — the derivation `src/Sessions.ts`'s `resolveSession` takes its
+ * `resume` flag from. `false` for any non-`prompt` rest, or when `rest.state`
+ * resolves no scope at all (mirrors `memoryKeyFor`'s own two escape hatches).
+ *
+ * Computed over the process's rests, oldest→newest, with the process's own
+ * starting state (`initialStateOf(def)`) prefixed: `run.trace`'s last entry is
+ * already the current rest (a `Rest` is a snapshot of a fully-resolved state,
+ * never an in-flight turn), so prefixing the ONE state before the trace began
+ * is all that's missing. The prefix matters for a workflow whose
+ * `entries.default` IS a prompt state — without it, the very first turn there
+ * would have no predecessor to look back at.
+ *
+ * The root scope (`scope === ""`) matches every state, so a workflow like
+ * `idle → working` puts `idle` inside `working`'s scope-run — the very first
+ * agent beat of a process would otherwise claim `resume: true` for an id
+ * nobody ever created. Filtering the "prior rests" slice down to `prompt`-kind
+ * states (not merely non-empty) closes that hole: a message state like `idle`
+ * never counts as a prior conversation turn.
+ */
+export const memoryResumedFor = (
+  def: WorkflowDefinition,
+  scopes: Readonly<Record<StateName, string>>,
+  rest: ResolvedRest,
+  run: ProcessRun,
+): boolean => {
+  if (contentKindOf(rest.stateDef) !== "prompt") return false
+  const rests = [initialStateOf(def), ...run.trace.map((entry) => entry.state)]
+  const resolved = memoryScopeAt(scopes, rest.state, rests)
+  if (resolved === undefined) return false
+  const { entryIndex } = resolved
+  return rests
+    .slice(Math.max(entryIndex, 0), rests.length - 1)
+    .some((state) => contentKindOf(def.states[state]!) === "prompt")
+}
+
 // ── Variables (`it.vars`) ────────────────────────────────────────────────────
 
 const PREFIX = "GTD_"
@@ -763,6 +800,8 @@ export interface Rest extends ResolvedRest {
   readonly stepDef: WorkflowDefinition
   readonly changes: readonly PendingChange[]
   readonly memory: string | undefined
+  /** `memoryResumedFor`'s verdict — `false` for a non-`prompt` rest or one whose scope doesn't resolve, exactly like `memory` but never `undefined` (there is always an answer, even when there is no key to answer about). */
+  readonly memoryResumed: boolean
   readonly hints: RestHints
   readonly context: TemplateContext
 }
@@ -843,9 +882,10 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       hasCommits,
     )
     const memory = memoryKeyFor(config.stateScopes, resolved, run)
+    const memoryResumed = memoryResumedFor(def, config.stateScopes, resolved, run)
     const hints = yield* renderHints(resolved.stateDef, context)
 
-    return { ...resolved, run, vars, on, stepDef, changes, memory, hints, context }
+    return { ...resolved, run, vars, on, stepDef, changes, memory, memoryResumed, hints, context }
   })
 
 /** THE call. No parens, no options — an Effect value, like `openReviewWindow`. */
@@ -860,6 +900,8 @@ export interface RenderedRest extends RestHints {
   readonly content: string
   /** The resolved rest's COMPUTED memory key (`memoryKeyFor`) — a commit-anchored `<scope>#<hash7>` string, omitted (not `undefined`-valued) for a non-`prompt` rest or when no scope resolves, same discipline as the `RestHints` fields. Not sourced from the state's own (still-accepted, but now unread) `memory:` declaration. */
   readonly memory?: string
+  /** `rest.memoryResumed`, verbatim — ALWAYS present (unlike `memory`, this is not a hint a driver can treat as absent-when-inapplicable; `false` is itself the answer for a non-`prompt` rest). */
+  readonly memoryResumed: boolean
   /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges` (see `toTemplateEdges`). Always present (an empty array at a commit state); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
   readonly edges: readonly TemplateEdge[]
 }
@@ -938,6 +980,7 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
       content,
       ...rest.hints,
       ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
+      memoryResumed: rest.memoryResumed,
       // `rest.context.edges` is the resting state's `on` edges, already
       // rendered against `it.vars` — not re-derived from `rest.stateDef.on`
       // here, which would be the unrendered literal.

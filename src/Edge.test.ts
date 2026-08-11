@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   currentRest,
   currentRun,
+  memoryResumedFor,
   planEntry,
   planStep,
   renderDecision,
@@ -11,6 +12,7 @@ import {
   renderRest,
   restAt,
   UNATTRIBUTED_MODEL,
+  type ResolvedRest,
   type RestRequirements,
 } from "./Edge.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
@@ -148,6 +150,146 @@ describe("reviewBaseFor", () => {
   it("respects an overridden diffBase (a Gtd-Review-Base: entry commit) as the fallback", () => {
     const run = runWith("p", "entry-override", [{ state: "building", hash: "h1" }])
     expect(reviewBaseFor(def, run)).toBe("entry-override")
+  })
+})
+
+// ── memoryResumedFor — pure ──────────────────────────────────────────────────
+
+describe("memoryResumedFor", () => {
+  const runWith = (trace: ReadonlyArray<{ state: string; hash: string }>) => ({
+    startHash: trace[0]?.hash ?? "p",
+    startParentHash: "p",
+    diffBase: "p",
+    trace,
+    costEntries: [],
+    entryVars: {},
+  })
+
+  const restAtState = (def: WorkflowDefinition, state: string, actor = "agent"): ResolvedRest => ({
+    def,
+    state,
+    stateDef: def.states[state]!,
+    actor,
+  })
+
+  it("is false at a message rest, regardless of trace (never even looks at scope)", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "idle"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const rest = restAtState(def, "idle", "human")
+    expect(memoryResumedFor(def, { idle: "", build: "" }, rest, runWith([]))).toBe(false)
+  })
+
+  it("the root-scope trap: idle → build's first turn is false, not true", () => {
+    // Without the prompt-content filter, `idle` would count as a "prior rest
+    // in scope" purely because the root scope ("") matches every state.
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "" }
+    const rest = restAtState(def, "build")
+    expect(memoryResumedFor(def, scopes, rest, runWith([{ state: "build", hash: "h1" }]))).toBe(
+      false,
+    )
+  })
+
+  it("prompt-then-return: a second turn at the same prompt state is true", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "" }
+    const rest = restAtState(def, "build")
+    const run = runWith([
+      { state: "build", hash: "h1" },
+      { state: "build", hash: "h2" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
+  })
+
+  it("a script excursion in between doesn't break the run", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "check"]] },
+        check: { actor: "check", script: "c", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "", check: "" }
+    const rest = restAtState(def, "build")
+    const run = runWith([
+      { state: "build", hash: "h1" },
+      { state: "check", hash: "h2" },
+      { state: "build", hash: "h3" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
+  })
+
+  it("a sibling-scope excursion resets the run to false", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "review"]] },
+        review: { actor: "reviewer", prompt: "r", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "build", review: "review" }
+    const rest = restAtState(def, "build")
+    const run = runWith([
+      { state: "build", hash: "h1" },
+      { state: "review", hash: "h2" },
+      { state: "build", hash: "h3" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(false)
+  })
+
+  it("a child-descendant excursion does NOT break the run", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "i", on: [["* **", "build"]] },
+        build: { actor: "agent", prompt: "b", on: [["* **", "buildChild"]] },
+        buildChild: { actor: "child", prompt: "bc", on: [["* **", "build"]] },
+      },
+      entries: { default: "idle", manual: [] },
+    }
+    const scopes = { idle: "", build: "build", buildChild: "build.child" }
+    const rest = restAtState(def, "build")
+    const run = runWith([
+      { state: "build", hash: "h1" },
+      { state: "buildChild", hash: "h2" },
+      { state: "build", hash: "h3" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
+  })
+
+  it("entries.default itself a prompt state: true once a turn returns to a sibling in its scope", () => {
+    // The pre-trace prefix (`initialStateOf(def)`) is what makes this true —
+    // without it, the very first landed turn would see an empty "prior
+    // rests" slice and wrongly report false.
+    const def: WorkflowDefinition = {
+      states: {
+        build: { actor: "agent", prompt: "b", on: [["* **", "buildRetry"]] },
+        buildRetry: { actor: "agent", prompt: "br", on: [["* **", "buildRetry"]] },
+      },
+      entries: { default: "build", manual: [] },
+    }
+    const scopes = { build: "build", buildRetry: "build" }
+    const rest = restAtState(def, "buildRetry")
+    const run = runWith([{ state: "buildRetry", hash: "h1" }])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
   })
 })
 

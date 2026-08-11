@@ -1,15 +1,14 @@
 @inmem
-Feature: The per-scope session table — gtd next --json --dispatch mints/resumes sessionId+resume
+Feature: Derived sessions — sessionId is UUIDv5(memory key), never stored
 
-  `gtd next --json --dispatch` (only the dispatched form; plain
-  `gtd next [--json]`/`gtd status --json` stay read-only peeks — see
-  src/Sessions.ts's own doc comment) resolves a `sessionId` + `resume` pair at
-  every `prompt` rest, backed by a per-scope table in the git dir
-  (`src/DriverState.ts`/`src/Sessions.ts`). A row starts `"fresh"` (minted by
-  a dispatch, not yet safe to resume) and is promoted to `"used"` only once
-  `gtd step <actor>` confirms the dispatch for that same actor — so
-  dispatching more than once per beat (a crashed driver relaunching, a custom
-  loop) can never resume an id nobody dispatched.
+  `gtd next --json` (peek OR `--dispatch` — both derive the exact same
+  answer, since nothing is written; see src/Sessions.ts's own doc comment)
+  resolves a `sessionId`/`resume` pair at every `prompt` rest by hashing the
+  resting state's memory key (`<scope>#<anchor7>`, src/Edge.ts's
+  `memoryKeyFor`) into a UUIDv5. There is no per-scope table anymore: the
+  same scope-run always re-derives the same id, and `resume` is `true` iff a
+  prior `prompt` rest already landed a turn commit within that same
+  scope-run (src/Edge.ts's `memoryResumedFor`).
 
   Background:
     Given a test project
@@ -27,7 +26,12 @@ Feature: The per-scope session table — gtd next --json --dispatch mints/resume
                 actor: check
                 script: "echo verify"
                 on:
-                  "C": $onDone
+                  "C": ask
+              ask:
+                actor: reviewer
+                prompt: "confirm before returning"
+                on:
+                  "* **": $onDone
           root:
             entry: idle
             states:
@@ -40,14 +44,16 @@ Feature: The per-scope session table — gtd next --json --dispatch mints/resume
                 actor: agent
                 prompt: "do the work"
                 on:
+                  "M NOTE.md": working
                   "A CHECKFILE.md": checking
+                  "M CHECKFILE.md": checking
               checking:
                 machine: child
                 with:
                   onDone: working
       """
 
-  Scenario: a prompt rest mints a fresh sessionId with resume:false, and a step confirms it so the next lap resumes it
+  Scenario: the same scope-run derives the same id across laps; resume flips false → true once a turn commit lands
     Given a file "NOTE.md" with:
       """
       start
@@ -62,8 +68,13 @@ Feature: The per-scope session table — gtd next --json --dispatch mints/resume
     And stdout contains "\"resume\":false"
     And I record the json field "sessionId" as "s1"
 
+    Given a file "NOTE.md" with:
+      """
+      the agent did some work
+      """
     When I run gtd step agent
     Then it succeeds
+    And the last commit subject is "gtd(agent): working"
 
     When I run gtd next with "--json" and "--dispatch"
     Then it succeeds
@@ -71,62 +82,47 @@ Feature: The per-scope session table — gtd next --json --dispatch mints/resume
     And the json field "sessionId" matches the one recorded as "s1"
     And stdout contains "\"resume\":true"
 
-  Scenario: a plain --json peek omits sessionId/resume even at a prompt rest
+  Scenario: two --dispatch next calls with no step in between derive the SAME id, both resume:false
     Given a file "NOTE.md" with:
       """
       start
       """
     When I run gtd step human
     Then it succeeds
+
+    When I run gtd next with "--json" and "--dispatch"
+    Then it succeeds
+    And stdout contains "\"resume\":false"
+    And I record the json field "sessionId" as "first dispatch"
+
+    When I run gtd next with "--json" and "--dispatch"
+    Then it succeeds
+    And stdout contains "\"resume\":false"
+    And the json field "sessionId" matches the one recorded as "first dispatch"
+
+  Scenario: a plain --json peek derives the SAME sessionId/resume a --dispatch call would; gtd status --json still omits both
+    Given a file "NOTE.md" with:
+      """
+      start
+      """
+    When I run gtd step human
+    Then it succeeds
+
+    When I run gtd next with "--json" and "--dispatch"
+    Then it succeeds
+    And stdout contains "\"resume\":false"
+    And I record the json field "sessionId" as "dispatched"
 
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
-    And stdout does not contain "\"sessionId\""
-    And stdout does not contain "\"resume\""
-
-  Scenario: two dispatches with no step in between mint DIFFERENT ids, both resume:false
-    Given a file "NOTE.md" with:
-      """
-      start
-      """
-    When I run gtd step human
-    Then it succeeds
-
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
+    And the json field "sessionId" matches the one recorded as "dispatched"
     And stdout contains "\"resume\":false"
-    And I record the json field "sessionId" as "first peek"
-
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And stdout contains "\"resume\":false"
-    And the json field "sessionId" differs from the one recorded as "first peek"
-
-  Scenario: gtd status --json between beats changes nothing
-    Given a file "NOTE.md" with:
-      """
-      start
-      """
-    When I run gtd step human
-    Then it succeeds
-
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And stdout contains "\"resume\":false"
-    And I record the json field "sessionId" as "beat"
-
-    When I run gtd step agent
-    Then it succeeds
 
     When I run gtd status with "--json"
     Then it succeeds
     And stdout does not contain "\"sessionId\""
-
-    When I run gtd next with "--json" and "--dispatch"
-    Then it succeeds
-    And the json field "sessionId" matches the one recorded as "beat"
-    And stdout contains "\"resume\":true"
+    And stdout does not contain "\"resume\""
 
   Scenario: a message rest and a script rest emit neither sessionId nor resume
     When I run gtd next with "--json" and "--dispatch"
@@ -155,7 +151,7 @@ Feature: The per-scope session table — gtd next --json --dispatch mints/resume
     And stdout does not contain "\"sessionId\""
     And stdout does not contain "\"resume\""
 
-  Scenario: a nested child machine's own excursion doesn't disturb the parent's resumable session
+  Scenario: a nested child machine prompt gets a DIFFERENT id from the parent; on return the parent's id is unchanged with resume:true
     Given a file "NOTE.md" with:
       """
       start
@@ -185,10 +181,73 @@ Feature: The per-scope session table — gtd next --json --dispatch mints/resume
 
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking.verify → working"
+    And the last commit subject is "gtd(check): checking.verify → checking.ask"
+
+    When I run gtd next with "--json" and "--dispatch"
+    Then it succeeds
+    And stdout contains "\"state\":\"checking.ask\""
+    And stdout contains "\"resume\":false"
+    And the json field "sessionId" differs from the one recorded as "the outer session"
+    And I record the json field "sessionId" as "the child session"
+
+    Given a file "REVIEW.md" with:
+      """
+      looks good
+      """
+    When I run gtd step reviewer
+    Then it succeeds
+    And the last commit subject is "gtd(reviewer): checking.ask → working"
 
     When I run gtd next with "--json" and "--dispatch"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And the json field "sessionId" matches the one recorded as "the outer session"
     And stdout contains "\"resume\":true"
+
+  Scenario: re-entering the child machine a second time derives a DIFFERENT child id — a new scope entry anchors to a new commit
+    Given a file "NOTE.md" with:
+      """
+      start
+      """
+    When I run gtd step human
+    Then it succeeds
+
+    Given a file "CHECKFILE.md" with:
+      """
+      ready
+      """
+    When I run gtd step agent
+    Then it succeeds
+
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): checking.verify → checking.ask"
+
+    When I run gtd next with "--json" and "--dispatch"
+    Then it succeeds
+    And I record the json field "sessionId" as "the first child session"
+
+    Given a file "REVIEW.md" with:
+      """
+      looks good
+      """
+    When I run gtd step reviewer
+    Then it succeeds
+    And the last commit subject is "gtd(reviewer): checking.ask → working"
+
+    Given a file "CHECKFILE.md" with:
+      """
+      ready again
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): working → checking.verify"
+
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): checking.verify → checking.ask"
+
+    When I run gtd next with "--json" and "--dispatch"
+    Then it succeeds
+    And stdout contains "\"state\":\"checking.ask\""
+    And the json field "sessionId" differs from the one recorded as "the first child session"

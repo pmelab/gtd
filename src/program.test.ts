@@ -486,7 +486,7 @@ describe("gtd next --json / gtd status — memory key emission", () => {
 
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-  it("gtd next --json --dispatch mints a fresh sessionId for a prompt rest, resume: false", async () => {
+  it("gtd next --json --dispatch derives a sessionId for a prompt rest, resume: false on the fresh scope-run", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
     const { stdout, exitCode } = await run(repo, "next", "--json", "--dispatch")
     expect(exitCode).toBe(0)
@@ -495,14 +495,75 @@ describe("gtd next --json / gtd status — memory key emission", () => {
     expect(parsed.resume).toBe(false)
   })
 
-  it("gtd next --json --dispatch resumes the SAME sessionId once a step has confirmed it", async () => {
+  it("two --dispatch next calls back-to-back, with no step in between, yield the SAME id and resume — nothing is written, so a peek can never poison a beat", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
     const first = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
       string,
       unknown
     >
-    const { exitCode: stepExit } = await run(repo, "step", "agent")
-    expect(stepExit).toBe(0)
+    const second = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
+      string,
+      unknown
+    >
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(first.resume).toBe(false)
+    expect(second.resume).toBe(false)
+  })
+
+  // A separate 3-state workflow — working (prompt) → check (script) → working
+  // — mirroring the bundled template's own `implement → check → implement`
+  // shape: unlike `workflowPrompt` (whose only round trip is THROUGH the
+  // initial state, itself a fresh process boundary — see
+  // `computeProcessRun`'s doc comment — and would wrongly reset the run), a
+  // script excursion that never touches the initial state keeps the SAME
+  // scope-run throughout, so this is what actually exercises "a turn commit
+  // lands and resume flips true" rather than "a new process began".
+  const workflowPromptThenCheck = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a process",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: do the work described in NOTE.md",
+    "          on:",
+    '            "* **": check',
+    "        check:",
+    "          actor: check",
+    "          script: echo hi",
+    "          on:",
+    '            "* **": working',
+    "",
+  ].join("\n")
+
+  it("resume flips false → true once a turn commit lands back at the same prompt state, id unchanged", async () => {
+    const repo = seededRepoAt(workflowPromptThenCheck, "gtd(human): working")
+    const first = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
+      string,
+      unknown
+    >
+    expect(first.resume).toBe(false)
+
+    const applyStep = async (actor: string): Promise<void> => {
+      const { stdout, exitCode } = await run(repo, "step", actor, "--json")
+      expect(exitCode).toBe(0)
+      const { required } = JSON.parse(stdout) as { required: string }
+      expect(applyEmittedScript(repo, new Map(), required).ok).toBe(true)
+    }
+
+    repo.writeFile("NOTE.md", "the agent did the work\n")
+    await applyStep("agent")
+    repo.writeFile("FEEDBACK.md", "check ran\n")
+    await applyStep("check")
+
     const second = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
       string,
       unknown
@@ -511,35 +572,23 @@ describe("gtd next --json / gtd status — memory key emission", () => {
     expect(second.resume).toBe(true)
   })
 
-  it("two dispatched next calls with no step in between mint DIFFERENT ids, both resume: false", async () => {
+  it("a plain --json peek (no --dispatch) emits the SAME sessionId/resume a --dispatch call would — nothing is written either way", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const first = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
-      string,
-      unknown
-    >
-    const second = JSON.parse((await run(repo, "next", "--json", "--dispatch")).stdout) as Record<
-      string,
-      unknown
-    >
-    expect(first.sessionId).not.toBe(second.sessionId)
-    expect(first.resume).toBe(false)
-    expect(second.resume).toBe(false)
+    const dispatched = JSON.parse(
+      (await run(repo, "next", "--json", "--dispatch")).stdout,
+    ) as Record<string, unknown>
+    const peek = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    expect(peek.sessionId).toBe(dispatched.sessionId)
+    expect(peek.resume).toBe(dispatched.resume)
   })
 
-  it("gtd status --json omits sessionId/resume even at a prompt rest", async () => {
+  it("gtd status --json omits sessionId/resume even at a prompt rest — status is the inspection surface, next is the driver surface", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
     const { stdout, exitCode } = await run(repo, "status", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("sessionId")
     expect(parsed).not.toHaveProperty("resume")
-  })
-
-  it("plain gtd next --json (no --dispatch) omits sessionId/resume even at a prompt rest", async () => {
-    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const peek = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
-    expect(peek).not.toHaveProperty("sessionId")
-    expect(peek).not.toHaveProperty("resume")
   })
 
   it("gtd next --json omits sessionId/resume for a non-prompt rest", async () => {

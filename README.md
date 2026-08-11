@@ -83,17 +83,17 @@ The loop is one beat, repeated: run `gtd next --json --dispatch` and dispatch on
 means the driver runs `content` itself, then steps its actor; `"prompt"` means
 feed `content` to your agent — using the accompanying `sessionId`/`resume` to
 continue or start that agent conversation (see "Driving the loop" below) — then
-run `gtd step <actor>` once it's done, which is also what confirms `sessionId`
-as safe to resume on the next lap. gtd itself never executes anything — the
+run `gtd step <actor>` once it's done. gtd itself never executes anything — the
 driver owns running scripts. Plain `gtd next --json` (no `--dispatch`) stays
-strictly mutation-free, safe to poll or peek at any time; `--dispatch`
-additionally claims the beat is being handed to an executor, resolving the
-session and arming a per-worktree marker (`<git dir>/gtd-beat`) so a `prompt`
-beat that repeats verbatim — same state, same rendered content, same HEAD,
-meaning the agent's last turn changed nothing — reports `"stalled": true` (and
-consumes the marker) instead of being re-dispatched forever. The fix for a
-repeated stall is either a better prompt, or — if the state can legitimately
-finish with nothing to change — declaring a `C` (clean-tree) pattern on it.
+strictly mutation-free, safe to poll or peek at any time — `sessionId`/`resume`
+are DERIVED, never stored, so a peek gets the exact same answer a dispatch
+would; `--dispatch` additionally claims the beat is being handed to an executor,
+arming a per-worktree marker (`<git dir>/gtd-beat`) so a `prompt` beat that
+repeats verbatim — same state, same rendered content, same HEAD, meaning the
+agent's last turn changed nothing — reports `"stalled": true` (and consumes the
+marker) instead of being re-dispatched forever. The fix for a repeated stall is
+either a better prompt, or — if the state can legitimately finish with nothing
+to change — declaring a `C` (clean-tree) pattern on it.
 
 An `on` edge may also carry a short imperative `action` (e.g. `Accept plan`)
 alongside its existing `describe` sentence — a human-facing name for the choice
@@ -408,24 +408,30 @@ resumes an implementer's session, and vice versa** — a reviewer machine and th
 implementer machine it reviews are always different instances with different
 scopes.
 
-`gtd` itself owns this as a per-scope **session table** — one
-`<key> <session_id> fresh|used` row per scope — persisted at
-`$gitdir/gtd-loop-memory` (the git dir, never the working tree, so `gtd status`
-and the pending diff never see it), not a single "last" value: this is what lets
-a scope's session survive an excursion into a child machine's own agent turn
-(the child writes its own row; the parent's row is untouched). Only
-`gtd next --json --dispatch` ever mints or resumes an id — plain
-`gtd next [--json]` and `gtd status --json` stay strictly read-only peeks, so
-peeking (a driver's own opening peek, a status poll, a curious human) can never
-poison a beat with an id nobody dispatched: a row starts `fresh` and only
-becomes resumable once `gtd step <actor>` confirms the dispatch for that same
-actor. The dispatched `next --json --dispatch` reports the resolved id as
-`sessionId` plus whether it is being resumed as `resume`, and a driver maps both
-straight onto the agent CLI's own session flags — the README's minimal driver
-passes them as `--session-id <id>`/`--resume <id>` to `claude -p`. If the
-remembered session no longer exists (retention expired, `~/.claude/projects`
-wiped, a machine change), there is no more automatic recovery — delete
-`$(git rev-parse --git-dir)/gtd-loop-memory` and restart the loop.
+`gtd` itself stores NOTHING to make this work: `sessionId` is
+`UUIDv5(<fixed gtd namespace>, <memory key>)` — a deterministic hash of the
+computed `<scope>#<hash7>` key above — so the same scope-run always re-derives
+the exact same id, and there is no table, no file, no write to keep in sync.
+`resume` is `true` iff a prior `prompt` turn already landed within that same
+scope-run. Because nothing is written, `gtd next --json` (a peek) and
+`gtd next --json --dispatch` derive IDENTICAL `sessionId`/`resume` values — a
+driver's own opening peek, a status poll, a curious human running
+`gtd next --json` twice in a row can never poison anything, since there is
+nothing to poison. The per-scope survival story (a child machine's own excursion
+doesn't disturb the parent's session) falls out of the key itself, not out of a
+per-scope row: the parent's anchor commit is unaffected by whatever the child
+scope does in between. A driver maps `sessionId`/`resume` straight onto the
+agent CLI's own session flags — the README's minimal driver passes them as
+`--session-id <id>`/`--resume <id>` to `claude -p`, but treats `resume` as a
+HINT rather than a contract: it tries the flag `resume` points at first and
+falls back to the other on failure. That fallback is what recovers BOTH
+mismatches that used to need manual intervention — a crashed prior turn that
+minted an id but landed no commit (so the next lap re-derives the SAME id with
+`resume: false`, and `--session-id` on an already-used id fails, so the driver
+falls back to `--resume`), and the inverse (`resume: true`, but the remembered
+session is gone — retention expired, `~/.claude/projects` wiped — so `--resume`
+fails and the driver falls back to `--session-id`). There is no file to delete
+and nothing to restart.
 
 ### Terminal-multiplexer status: a herdr wrapper
 
@@ -628,11 +634,13 @@ while :; do
     script) bash -c "$(jq -r .content <<<"$next")" >>"$log" 2>&1 || true ;;
     prompt)
       sid="$(jq -r '.sessionId // empty' <<<"$next")"
-      [ "$(jq -r '.resume // false' <<<"$next")" = true ] &&
-        sf="--resume $sid" || sf="--session-id $sid"
-      model="$(jq -r '.model // empty' <<<"$next")"
-      claude -p "$(jq -r .content <<<"$next")" $sf ${model:+--model "$model"} \
-        --dangerously-skip-permissions >>"$log" 2>&1
+      c="$(jq -r .content <<<"$next")" model="$(jq -r '.model // empty' <<<"$next")"
+      agent_turn() { claude -p "$c" "$1" "$sid" ${model:+--model "$model"} \
+        --dangerously-skip-permissions >>"$log" 2>&1; }
+      if [ "$(jq -r '.resume // false' <<<"$next")" = true ]
+      then agent_turn --resume || agent_turn --session-id
+      else agent_turn --session-id || agent_turn --resume
+      fi
       v="$(gtd validate --json | jq -r '.script // empty')" n=0
       while [ -n "$v" ] && ! out="$(bash -c "$v" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\n' "$out" >&2; exit 1; }
@@ -649,10 +657,12 @@ Line by line it is the protocol described above: the unconditional
 `--if-resting` opening capture; one dispatched `next` per beat (`.stalled`
 guarding against a spinning agent); `message` halts, `script` runs in the
 driver, `prompt` goes to the agent with gtd's own `sessionId`/`resume` mapped
-onto the agent's session flags; the validate script's output re-prompted
-verbatim on failure (the driver owns only the retry cap); and every landed turn
-executed — and reported — by the emitted scripts themselves, with `.settled`
-ending a run that has nothing left to do.
+onto the agent's session flags — trying `resume`'s hinted flag first and falling
+back to the other on failure, since `sessionId` is derived, not remembered (see
+[Driving the loop](#driving-the-loop) below); the validate script's output
+re-prompted verbatim on failure (the driver owns only the retry cap); and every
+landed turn executed — and reported — by the emitted scripts themselves, with
+`.settled` ending a run that has nothing left to do.
 
 ### The self-validation gate
 
@@ -848,8 +858,8 @@ workflow:
 
 There is no `memory:` key anywhere in this shape — a state's memory scope is
 never authored, only computed from its position in the machine tree (see
-[Driving the loop](#driving-the-loop) above for the key format and the driver's
-per-scope session table).
+[Driving the loop](#driving-the-loop) above for the key format and how it
+derives a driver's session id).
 
 The top-level `entry:` key (naming the root machine, `entry.default`) and a
 state's own `entry: true` flag are the same word at two different levels, by
