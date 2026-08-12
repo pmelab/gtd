@@ -354,9 +354,16 @@ describe("answer-completeness guard", () => {
 
 // ── enforceStepGuards runner ─────────────────────────────────────────────────
 
-const repoFilesFrom = (files: Record<string, string>): RepoFilesOps => ({
+const repoFilesFrom = (
+  files: Record<string, string>,
+  committedByRef: Record<string, Record<string, string>> = {},
+): RepoFilesOps => ({
   working: (path) => files[path],
-  committed: () => Effect.succeed(undefined),
+  // Keyed by the REF the guard asked for ("HEAD" when it passed none): the
+  // review window's saved head is a different ref, and which of the two a
+  // guard reads its "before this step" copy at is exactly what the
+  // open-window scenarios below pin.
+  committed: (path, ref = "HEAD") => Effect.succeed(committedByRef[ref]?.[path]),
 })
 
 describe("enforceStepGuards", () => {
@@ -387,6 +394,7 @@ describe("enforceStepGuards", () => {
         file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
+        windowHead: undefined,
         kind: "squash",
         attempt: false,
       }).pipe(
@@ -406,6 +414,7 @@ describe("enforceStepGuards", () => {
         file: noFile.stateDef.file,
         context: templateContext,
         changes: [],
+        windowHead: undefined,
         kind: "commit",
         attempt: false,
       }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
@@ -421,6 +430,7 @@ describe("enforceStepGuards", () => {
         file: noGuard.stateDef.file,
         context: templateContext,
         changes: [],
+        windowHead: undefined,
         kind: "commit",
         attempt: false,
       }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
@@ -435,6 +445,7 @@ describe("enforceStepGuards", () => {
         file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
+        windowHead: undefined,
         kind: "commit",
         attempt: false,
       }).pipe(
@@ -456,6 +467,84 @@ describe("enforceStepGuards", () => {
       "feedback-progress",
       "answer-completeness",
     ])
+  })
+
+  // While the review checkout window is open, real HEAD sits at the REVIEW
+  // BASE — the review doc the process itself wrote does not exist there. The
+  // pre-turn copy every guard compares against therefore has to be read at the
+  // window's SAVED HEAD (`Rest.windowHead`), or `original` comes back empty,
+  // the sign-off guard sees "the doc differs beyond a checkbox flip", takes the
+  // it-is-a-comment branch, and the unticked count is never reached.
+  describe("with a review checkout window open", () => {
+    const WINDOW_HEAD = "refs/worktree/gtd/review-head"
+    const reviewState = rest("await-review", {
+      actor: "human",
+      message: "review",
+      file: "REVIEW.md",
+      mode: "review",
+      reviewWindow: true,
+    })
+    // A real review doc: `untickedFiles` only counts file pointers inside a
+    // chunk heading, so the header/base/chunk shape is load-bearing here.
+    const doc = (a: string, b: string): string =>
+      [
+        "# Review: abc1234",
+        "<!-- base: abc1234def5678901234567890123456789abcd -->",
+        "",
+        "## Chunk",
+        "",
+        `- [${a}] ./src/a.ts#1 — first hunk`,
+        `- [${b}] ./src/b.ts#1 — second hunk`,
+        "",
+      ].join("\n")
+    const agentsDoc = doc(" ", " ")
+    const oneTicked = doc("x", " ")
+    const allTicked = doc("x", "x")
+
+    const runGuards = (worktreeDoc: string, windowHead: string | undefined) =>
+      Effect.runPromiseExit(
+        enforceStepGuards({
+          rest: reviewState,
+          file: reviewState.stateDef.file,
+          context: templateContext,
+          changes: [{ path: "REVIEW.md", status: "M" }],
+          windowHead,
+          kind: "commit",
+          attempt: false,
+        }).pipe(
+          Effect.provide(
+            Layer.succeed(
+              RepoFiles,
+              // The doc exists at the window's saved head and NOT at real HEAD
+              // (the review base) — the window's whole shape, in one double.
+              repoFilesFrom(
+                { "REVIEW.md": worktreeDoc },
+                { [WINDOW_HEAD]: { "REVIEW.md": agentsDoc } },
+              ),
+            ),
+          ),
+        ),
+      )
+
+    it("refuses a tick-only pass that still leaves a box unticked", async () => {
+      const exit = await runGuards(oneTicked, WINDOW_HEAD)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(String(exit.cause)).toContain("still unticked and no comment")
+      }
+    })
+
+    it("allows the same pass once every box is ticked — a sign-off", async () => {
+      const exit = await runGuards(allTicked, WINDOW_HEAD)
+      expect(Exit.isSuccess(exit)).toBe(true)
+    })
+
+    it("reading real HEAD instead is what made the gate inert — the unticked pass would pass", async () => {
+      // Pins the regression itself: with no saved head to read, the pre-turn
+      // copy is absent, every tick reads as a note, and nothing is enforced.
+      const exit = await runGuards(oneTicked, undefined)
+      expect(Exit.isSuccess(exit)).toBe(true)
+    })
   })
 
   it("reads the CURRENT working tree as-is — no in-process formatting happens here", async () => {
@@ -480,6 +569,7 @@ describe("enforceStepGuards", () => {
         file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
+        windowHead: undefined,
         kind: "commit",
         attempt: false,
       }).pipe(
