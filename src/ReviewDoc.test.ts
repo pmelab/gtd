@@ -149,6 +149,77 @@ describe("parseReviewDoc", () => {
       "REVIEW.md has no '##' chunks",
     ])
   })
+
+  it("keeps a hyphenated path whole and its #line, instead of splitting at the first hyphen", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add budget alerts",
+      "",
+      "- [ ] ./src/server/email/budget-threshold.ts#31 — non-obvious import: uses the shared mailer",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.errors).toEqual([])
+    expect(result.changesets[0]?.files).toEqual([
+      {
+        path: "./src/server/email/budget-threshold.ts",
+        line: 31,
+        checked: false,
+        note: "non-obvious import: uses the shared mailer",
+        sourceLine: 5,
+      },
+    ])
+  })
+
+  it("splits a single-dash note after a hyphenated path at the space, not the hyphen", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./a-b/c-d.ts#7 - note",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files).toEqual([
+      { path: "./a-b/c-d.ts", line: 7, checked: false, note: "note", sourceLine: 5 },
+    ])
+  })
+
+  it("keeps a # not followed by digits in the path, with no line parsed", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./a#b.ts",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files).toEqual([
+      { path: "./a#b.ts", checked: false, sourceLine: 5 },
+    ])
+  })
+
+  it("still refuses a bare box, a non-./ path, and a ./ with nothing after it", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [] ./x.ts",
+      "- [ ] src/no-dot-slash.ts",
+      "- [ ] ./#31",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files).toEqual([])
+  })
 })
 
 const reviewDoc = [
@@ -174,6 +245,21 @@ describe("untickedFiles", () => {
   it("returns an empty array when every pointer is ticked", () => {
     const allChecked = reviewDoc.replace("- [ ] ./src/calc.ts#1", "- [x] ./src/calc.ts#1")
     expect(untickedFiles(allChecked).filter((f) => f.path === "./src/calc.ts")).toEqual([])
+  })
+
+  it("reports a hyphenated path whole, not truncated at its first hyphen", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add budget alerts",
+      "",
+      "- [ ] ./src/server/email/budget-threshold.ts#31",
+      "",
+    ].join("\n")
+    expect(untickedFiles(content).map((f) => f.path)).toEqual([
+      "./src/server/email/budget-threshold.ts",
+    ])
   })
 })
 
@@ -201,6 +287,26 @@ describe("toggleFilePointer", () => {
 
   it("returns undefined for a line that isn't a file pointer", () => {
     expect(toggleFilePointer(reviewDoc, 3)).toBeUndefined()
+  })
+
+  it("flips only the box on a hyphenated pointer line, round-tripping the rest", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/server/email/budget-threshold.ts#31 — non-obvious import",
+      "",
+    ].join("\n")
+    const line = content.split("\n")[5]!
+    const edit = toggleFilePointer(content, 5)
+    expect(edit).toBeDefined()
+    const patched =
+      line.slice(0, edit!.range.start.character) +
+      edit!.newText +
+      line.slice(edit!.range.end.character)
+    expect(patched).toBe("- [x] ./src/server/email/budget-threshold.ts#31 — non-obvious import")
   })
 })
 
@@ -270,5 +376,20 @@ describe("REVIEW_FORMAT", () => {
 
   it("pointerAt returns undefined when the line is not a hunk pointer", () => {
     expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, 3)).toBeUndefined() // "## Add calculator"
+  })
+
+  it("pointerAt on a hyphenated hunk line returns the full path, not a truncated prefix", () => {
+    const doc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add budget alerts",
+      "",
+      "- [ ] ./src/server/email/budget-threshold.ts#31 — non-obvious import",
+    ].join("\n")
+    expect(REVIEW_FORMAT.pointerAt?.(doc, 5)).toEqual({
+      path: "./src/server/email/budget-threshold.ts",
+      line: 30,
+    })
   })
 })
