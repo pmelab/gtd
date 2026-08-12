@@ -772,6 +772,41 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
           { path: "NOTE.md", status: "A" },
         ])
       })
+
+      // "Different bytes" has to mean what GIT means by it. Under
+      // `text=auto` the committed blob is normalized to LF while the working
+      // tree legitimately holds CRLF, so a RAW byte comparison calls an
+      // untouched file modified — and a spurious `M` on the review doc is a
+      // spurious "the human edited something real" (`StepGuards`'s
+      // `hasCodeChange`), which walks the sign-off guard straight past its
+      // unticked-box check. The fake has no filters at all, so it answers
+      // "unchanged" by construction; this pins real git to the same answer.
+      it("omits an untracked path that only differs by a clean filter's normalization", async () => {
+        t.seed.writeFile(".gitattributes", "* text=auto\n")
+        t.seed.commit("chore: normalize line endings", {})
+        const base = t.observe.resolveRef("HEAD")
+        // Committed through `git add`, so the blob is normalized to LF while
+        // the file on disk keeps its CRLF bytes.
+        t.seed.writeFile("REVIEW.md", "- [ ] one\r\n- [ ] two\r\n")
+        t.seed.commit("gtd(agent): reviewing", {})
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.mixedReset(base)
+        expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([])
+      })
+
+      it("still reports a real edit to such a path as M", async () => {
+        t.seed.writeFile(".gitattributes", "* text=auto\n")
+        t.seed.commit("chore: normalize line endings", {})
+        const base = t.observe.resolveRef("HEAD")
+        t.seed.writeFile("REVIEW.md", "- [ ] one\r\n- [ ] two\r\n")
+        t.seed.commit("gtd(agent): reviewing", {})
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.mixedReset(base)
+        t.seed.writeFile("REVIEW.md", "- [x] one\r\n- [ ] two\r\n")
+        expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([
+          { path: "REVIEW.md", status: "M" },
+        ])
+      })
     })
   })
 

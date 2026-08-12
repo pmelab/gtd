@@ -229,16 +229,26 @@ const blobsAtRef = (
   )
 
 /**
- * `git hash-object` each path's CURRENT bytes → `path → object id` (git prints
- * one id per path, in argument order). An empty map when hashing fails at all
- * (an unreadable file): every candidate then reads as "differs", which is the
- * safe direction — a file that EXISTS must never be reported deleted.
+ * `git hash-object` every path's CURRENT bytes in ONE call → `path → object id`
+ * (git prints one id per path, in argument order). An empty map when the call
+ * fails at all (an unreadable file): every candidate then reads as "differs",
+ * which is the safe direction — a file that EXISTS must never be reported
+ * deleted.
  *
- * Deliberately no `--path`, so clean filters/`core.autocrlf` are NOT applied.
- * In a repo that rewrites content on checkout an unmodified file can therefore
- * read as `M`; that is a cosmetic over-report of a change that did happen to
- * the bytes on disk, never a phantom deletion, and no pattern gains a `D` it
- * should not have.
+ * These ids are directly comparable with the ones `git ls-tree` reports because
+ * hash-object applies the repo's own CLEAN FILTERS, looking each file's
+ * attributes up from its own path — so in a `text=auto`/`core.autocrlf` repo an
+ * untouched CRLF working-tree file hashes to the same LF-normalized blob git
+ * stored, and is correctly read as unchanged. Never add `--no-filters` (nor
+ * `--path=<other>`) here: that would report every such file `M`, i.e. a
+ * spurious "the human edited something real" (`StepGuards`'s `hasCodeChange`),
+ * which walks the review-signoff guard past its unticked-box check, plus a
+ * spurious change for any `on` pattern to match. Both tiers of the
+ * `changedPaths` contract pin this (`src/testing/GitTiers.ts`).
+ *
+ * A symlink is the one residual inexactness: hash-object reads through it, so it
+ * hashes the target's content rather than the link text git stores, and reads as
+ * `M`. Still never `D`.
  */
 const hashObjects = (
   exec: GitExec,
@@ -274,6 +284,14 @@ const hashObjects = (
  * from the worktree rather than the index, this is the same tree-vs-worktree
  * comparison the in-memory double has always done (`InMemRepo`'s
  * `changedPathsWorktree`) — production used to disagree with it here.
+ *
+ * "Different bytes" is decided the way GIT decides it — `hashObjects` hashes
+ * through the repo's own clean filters, so a `text=auto` repo's untouched CRLF
+ * file matches the LF blob it was stored as. Over-reporting `M` for an untouched
+ * file would not be cosmetic: it is a spurious "the human edited something real"
+ * (`StepGuards`'s `hasCodeChange`), which sends the review-signoff guard down
+ * its it-is-a-comment branch and past the unticked-box check, plus a spurious
+ * change for any `on` pattern to match.
  */
 const classifyUntracked = (
   exec: GitExec,
