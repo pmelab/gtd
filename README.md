@@ -143,22 +143,28 @@ landing script opens a **review checkout window**: HEAD is rewound to the review
 base with the working tree untouched, so the whole reviewable change shows up as
 ordinary uncommitted changes in your editor's normal git integration (and files
 added during the process show up as ordinary untracked files, so discarding one
-deletes it). The next landing's own script closes the window before it commits.
-Tick a box as you review each hunk (ticking just records "I read this"), and
-leave a **comment** to request changes: a note on a line, an inline
-`// TODO`-style comment in the code, or a direct code edit. Any comment sends a
-build + re-review round — an agent first turns your comments into an explicit
-instruction list, then a build turn implements it (a re-review then covers only
-the follow-through, and a hand-edit is treated as your own fix the agent
-completes without reverting your lines; a comment can't be silently dropped — a
-build turn that addresses nothing is refused). For the simple flow, the build
-turn that follows through on feedback and the turn that drafts the final squash
-message both resume the same session that built the feature in the first place,
-since the review tail is nested inside that build identity rather than sitting
-beside it. Ticking every box with no comment is the sign-off, which collapses
-the whole process into one commit (a **squash finale** whose message an agent
-drafts). Landing with a box still unticked and no comment is refused (finish
-reviewing first), as is deleting `.gtd/REVIEW.md`.
+deletes it — an untracked file you leave alone is not a pending change, and only
+actually removing it from disk counts as a deletion). The next landing's own
+script closes the window before it commits. Tick a box as you review each hunk
+(ticking just records "I read this"), and leave a **comment** to request
+changes: a note on a line, an inline `// TODO`-style comment in the code, or a
+direct code edit. Any comment sends a build + re-review round — an agent first
+turns your comments into an explicit instruction list, then a build turn
+implements it (a re-review then covers only the follow-through, and a hand-edit
+is treated as your own fix the agent completes without reverting your lines; a
+comment can't be silently dropped — a build turn that addresses nothing is
+refused). For the simple flow, the build turn that follows through on feedback
+and the turn that drafts the final squash message both resume the same session
+that built the feature in the first place, since the review tail is nested
+inside that build identity rather than sitting beside it. Ticking every box with
+no comment is the sign-off, which collapses the whole process into one commit (a
+**squash finale** whose message an agent drafts). Landing with a box still
+unticked and no comment is refused (finish reviewing first), as is deleting
+`.gtd/REVIEW.md`. Both refusals hold wherever the review doc lives: repointing
+`reviewFile` out of `.gtd/` (say to `REVIEW.md` at the repo root) changes
+nothing about them — your own edit to the review doc is never mistaken for a
+code comment, and the doc's pre-turn copy is read at the review window's saved
+head rather than at the rewound `HEAD`.
 
 The same review tail also has a direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -793,6 +799,13 @@ normalizes `[ ]`/`[x]` checkboxes before comparing). If you plug in your own
 — ticking a box, stripping a paragraph — makes the guard's decision and the
 file's actual content disagree, and gtd will not catch that for you.
 
+One case never runs your `format:` (or `validate:`) at all: a step whose diff
+DELETES the state's own `file:`. Deleting it is a legitimate outcome — a review
+sign-off's whole diff is the review doc's deletion — and there is nothing left
+to format. Emitting the command anyway would make such a step unlandable, since
+`format:` is the first line of a `set -euo pipefail` script and a formatter like
+`prettier --write` exits non-zero on a path that is not there.
+
 ### Built-in steering formats are ordinary modes
 
 `qa` and `review` are gtd's two built-in steering-file formats (parsed and
@@ -1098,12 +1111,14 @@ the compiler's job at load time.
 - **Test/build artifacts must be gitignored.** This is **load-bearing**, not a
   style preference: every land decision detects "clean" via
   `git diff --name-status HEAD` (tracked changes) unioned with
-  `git ls-files --others --exclude-standard` (untracked files), which silently
-  omits anything matched by `.gitignore`. If a `script` state's command (or the
-  build it triggers) writes output — a `dist/`, a coverage report, a log file —
-  into the working tree, the tree never goes clean after a green run, and the
-  check's `"C"` pattern never fires. Gitignore every path your scripts write
-  before wiring gtd into a repo.
+  `git ls-files --others --exclude-standard` (untracked files, classified by
+  content against the base — one that is already there with the same bytes is
+  not a change, and a file that exists on disk is never reported as a deletion,
+  however the index sees it), which silently omits anything matched by
+  `.gitignore`. If a `script` state's command (or the build it triggers) writes
+  output — a `dist/`, a coverage report, a log file — into the working tree, the
+  tree never goes clean after a green run, and the check's `"C"` pattern never
+  fires. Gitignore every path your scripts write before wiring gtd into a repo.
 - **Repository root invocation.** Every state subcommand must run from the git
   repository root. `--help`/`--version` (and the `help`/`version` subcommands),
   `lsp`, `init`, `visualize`, `check`, and `install` skip this guard entirely

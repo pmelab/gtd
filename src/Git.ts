@@ -78,11 +78,21 @@ export interface GitReaderOperations {
    * which is precisely the deletion the review sign-off guard must catch.
    * Passing the window's saved head restores the pre-window meaning.
    *
-   * When `base` is given, an untracked path that already EXISTS at `base` is
-   * not an addition and is dropped — with the window open, every file added
-   * since the review base is untracked (the index sits at that base) while
-   * being perfectly present at the saved head. With no `base`, untracked
-   * means untracked and no filtering is paid for.
+   * An untracked path is classified by CONTENT against `base`, not by the
+   * index: absent there → `A`, present with different bytes → `M`, present
+   * with identical bytes → no entry (see `classifyUntracked`). "Untracked"
+   * does not mean "new" — with the window open, every file the reviewed range
+   * added is untracked (the index sits at the review base) while being
+   * perfectly present at the saved head. Reporting the index's view instead
+   * would report each of them DELETED (`git diff --name-status <base>`
+   * compares `base` to the INDEX) though the file sits right there on disk —
+   * a phantom deletion that made the review sign-off guard refuse every
+   * sign-off in a repo whose `reviewFile` is not under `.gtd/` (the one
+   * directory the window pins back into the index).
+   *
+   * A REAL deletion (the reviewer removed the file from disk) still reports
+   * `D`: it is not in the untracked list, so the tracked diff's own `D`
+   * stands. That is the deletion the sign-off guard must catch.
    */
   readonly changedPaths: (
     base?: string,
@@ -182,6 +192,105 @@ const parseNameStatus = (out: string): Array<{ path: string; status: string }> =
   }
   return result
 }
+
+/** Split a `-z` git output into its entries, dropping the trailing empty one. */
+const splitNul = (out: string): Array<string> => out.split("\0").filter((s) => s.length > 0)
+
+/** A `git exec` bound to one repo root — `makeGitImpl`'s own local `exec`, named so the module-level helpers below can take it. */
+type GitExec = (...args: [string, ...Array<string>]) => Effect.Effect<string, Error>
+
+/**
+ * `git ls-tree` the given paths at `ref` → `path → blob object id`; a path
+ * absent from the map does not exist at `ref`. Pathspec-limited, so the cost
+ * tracks the candidate list rather than the size of the tree. An unresolvable
+ * `ref` (an empty repo has no `HEAD`) yields an empty map — every candidate
+ * then reads as "not at `ref`", exactly the pre-`base` behaviour.
+ */
+const blobsAtRef = (
+  exec: GitExec,
+  ref: string,
+  paths: ReadonlyArray<string>,
+): Effect.Effect<Map<string, string>, Error> =>
+  exec("git", "ls-tree", "-r", "-z", ref, "--", ...paths).pipe(
+    Effect.catchIf(
+      (e) => !isIndexLockError(e),
+      () => Effect.succeed(""),
+    ),
+    Effect.map((out) => {
+      const blobs = new Map<string, string>()
+      for (const entry of splitNul(out)) {
+        const tab = entry.indexOf("\t")
+        if (tab === -1) continue
+        const [, type, oid] = entry.slice(0, tab).split(" ")
+        if (type === "blob" && oid !== undefined) blobs.set(entry.slice(tab + 1), oid)
+      }
+      return blobs
+    }),
+  )
+
+/**
+ * `git hash-object` each path's CURRENT bytes → `path → object id` (git prints
+ * one id per path, in argument order). An empty map when hashing fails at all
+ * (an unreadable file): every candidate then reads as "differs", which is the
+ * safe direction — a file that EXISTS must never be reported deleted.
+ *
+ * Deliberately no `--path`, so clean filters/`core.autocrlf` are NOT applied.
+ * In a repo that rewrites content on checkout an unmodified file can therefore
+ * read as `M`; that is a cosmetic over-report of a change that did happen to
+ * the bytes on disk, never a phantom deletion, and no pattern gains a `D` it
+ * should not have.
+ */
+const hashObjects = (
+  exec: GitExec,
+  paths: ReadonlyArray<string>,
+): Effect.Effect<Map<string, string>, Error> =>
+  exec("git", "hash-object", "--", ...paths).pipe(
+    Effect.map(
+      (out) =>
+        new Map(
+          out
+            .trim()
+            .split("\n")
+            .map((oid, i) => [paths[i] ?? "", oid.trim()] as const),
+        ),
+    ),
+    Effect.catchIf(
+      (e) => !isIndexLockError(e),
+      () => Effect.succeed(new Map<string, string>()),
+    ),
+  )
+
+/**
+ * Classify every untracked path against `ref`'s tree, by CONTENT:
+ *
+ * - not at `ref` → `A`, an ordinary untracked addition
+ * - at `ref` with different bytes → `M`
+ * - at `ref` with identical bytes → no entry at all
+ *
+ * The last two exist because "untracked" does not mean "new": the review
+ * checkout window's `git reset --mixed <base>` moves the index to the review
+ * base, so every file the reviewed range ADDED is untracked while being
+ * perfectly present (and usually unchanged) at the window's saved head. Read
+ * from the worktree rather than the index, this is the same tree-vs-worktree
+ * comparison the in-memory double has always done (`InMemRepo`'s
+ * `changedPathsWorktree`) — production used to disagree with it here.
+ */
+const classifyUntracked = (
+  exec: GitExec,
+  ref: string,
+  untrackedPaths: ReadonlyArray<string>,
+): Effect.Effect<Array<{ path: string; status: string }>, Error> =>
+  Effect.gen(function* () {
+    const atRef = yield* blobsAtRef(exec, ref, untrackedPaths)
+    const candidates = untrackedPaths.filter((path) => atRef.has(path))
+    const onDisk =
+      candidates.length === 0 ? new Map<string, string>() : yield* hashObjects(exec, candidates)
+    return untrackedPaths.flatMap((path) => {
+      const at = atRef.get(path)
+      if (at === undefined) return [{ path, status: "A" }]
+      return onDisk.get(path) === at ? [] : [{ path, status: "M" }]
+    })
+  })
 
 /**
  * True when `error` is git's `index.lock` contention failure — another process
@@ -301,10 +410,11 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 
     changedPaths: (base?: string) =>
       Effect.gen(function* () {
+        const ref = base ?? "HEAD"
         // Only the empty-repo case (no HEAD) is tolerated here — an
         // `index.lock` failure must propagate so the port-level retry
         // (`withIndexLockRetries`) sees it, not this catch.
-        const nameStatusOut = yield* exec("git", "diff", "--name-status", base ?? "HEAD").pipe(
+        const nameStatusOut = yield* exec("git", "diff", "--name-status", ref).pipe(
           Effect.catchIf(
             (e) => !isIndexLockError(e),
             () => Effect.succeed(""),
@@ -313,23 +423,24 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         const trackedPaths = parseNameStatus(nameStatusOut)
 
         const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard", "-z")
-        const untrackedAll = untrackedRaw
-          .split("\0")
-          .filter((s) => s.length > 0)
-          .map((path) => ({ path, status: "A" }))
-        const atBase =
-          base === undefined
-            ? new Set<string>()
-            : new Set(
-                (yield* exec("git", "ls-tree", "-r", "--name-only", "-z", base))
-                  .split("\0")
-                  .filter((s) => s.length > 0),
-              )
-        const untracked = untrackedAll.filter((entry) => !atBase.has(entry.path))
+        const untrackedPaths = splitNul(untrackedRaw)
+        // Nothing untracked: the index-based diff above already IS the answer,
+        // and the two classification reads below are not paid for at all.
+        if (untrackedPaths.length === 0) return trackedPaths
 
+        const untrackedChanges = yield* classifyUntracked(exec, ref, untrackedPaths)
+
+        // The untracked classification OVERRIDES the tracked diff for its own
+        // paths: `git diff --name-status <ref>` compares `ref` to the INDEX, so
+        // a path the index no longer carries reports `D` even while sitting
+        // right there on disk — a phantom deletion, not a real one.
+        const untrackedSet = new Set(untrackedPaths)
         const seen = new Set<string>()
         const all: Array<{ path: string; status: string }> = []
-        for (const entry of [...trackedPaths, ...untracked]) {
+        for (const entry of [
+          ...trackedPaths.filter((e) => !untrackedSet.has(e.path)),
+          ...untrackedChanges,
+        ]) {
           if (!seen.has(entry.path)) {
             seen.add(entry.path)
             all.push(entry)

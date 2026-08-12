@@ -257,6 +257,20 @@ export const decideOpenWindow = (
  * Idempotent under re-entry: `updateRef`/`mixedResetTo` re-pointing at the
  * same target is a no-op, and `restoreStagedFrom` re-pinning an already-pinned
  * path is a no-op.
+ *
+ * `".gtd"` stays a LITERAL, deliberately, rather than being derived from the
+ * workflow's own `stateDir`/`file:` declarations. The pin exists to keep gtd's
+ * PLUMBING out of the reviewer's editor, and `.gtd/` is the conventional
+ * directory it lives in — including the parts no state declares (a check
+ * script's temp output), which a `file:`-derived list would miss. A steering
+ * file a workflow repoints outside it (`vars: { reviewFile: REVIEW.md }`)
+ * simply stays untracked in the window, which is harmless: `changedPaths`
+ * classifies untracked paths by content (`src/Git.ts`), so an unedited one is
+ * not a pending change and never a phantom deletion. Making the list dynamic
+ * would also cost the in-memory tier its trust property — the recognizer
+ * (`src/testing/EmittedScriptRecognizer.ts`'s `recognizeReviewWindowOpen`)
+ * re-derives this exact string and compares, which only works while the paths
+ * are fixed. Don't trade that for cosmetics.
  */
 export const buildOpenWindowScript = (decision: {
   readonly base: string

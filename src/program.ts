@@ -45,7 +45,7 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
-import { enforceStepGuards } from "./StepGuards.js"
+import { deletesFile, enforceStepGuards } from "./StepGuards.js"
 import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
 import { resolveSteeringMode, renderSteeringCommands, unknownModeMessage } from "./SteeringMode.js"
 import {
@@ -218,6 +218,16 @@ const headPreconditions = (currentCommit: string): EmitPreconditions => ({
  * of gtd running it in process (see `src/StepGuards.ts`'s shrunk registry).
  * Empty for a state declaring no `file:`+`mode:` pair; an unknown mode name
  * is a refusal, exactly as it was when gtd ran the commands itself.
+ *
+ * Also empty when the step DELETES that file (`deletesFile`). A deletion is a
+ * legitimate outcome at some states — `build.review.deciding`'s sign-off diff
+ * is a bare REVIEW.md deletion — and there is nothing left to format or
+ * validate either way. Emitting the mode's `format:` anyway made the step
+ * UNLANDABLE for any formatter that treats a missing path as an error
+ * (`prettier --write` exits non-zero with "No files matching the pattern were
+ * found"): it is the first command in a `set -euo pipefail` script, so it
+ * aborted the whole thing — window close, commit and all — before anything
+ * could land, and a driver saw only a non-zero exit.
  */
 const steeringModeSteps = (
   rest: Rest,
@@ -226,6 +236,7 @@ const steeringModeSteps = (
     const file = rest.hints.file
     const mode = rest.stateDef.mode
     if (file === undefined || mode === undefined) return []
+    if (deletesFile(rest.changes, file)) return []
     const resolved = resolveSteeringMode(rest.def, mode)
     if (resolved === undefined) {
       return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
@@ -284,8 +295,10 @@ const previewSubject = (
  * (decision 6): there is nothing to format/validate in an empty diff, and a
  * `format:` command running ahead of the commit could dirty the tree and
  * turn an "empty" attempt non-empty, breaking the derivation `stalledAt`
- * relies on (`Edge.ts`). The review-window close still runs regardless —
- * committing with a window open would land the attempt on the review base.
+ * relies on (`Edge.ts`). It is skipped for a step that DELETES the state's
+ * own `file:` too — see `steeringModeSteps`. The review-window close still
+ * runs regardless — committing with a window open would land the attempt on
+ * the review base.
  */
 const buildRequiredScript = (
   rest: Rest,
@@ -402,6 +415,7 @@ const planLanding = (
       context: rest.context,
       file: rest.hints.file,
       changes: rest.changes,
+      windowHead: rest.windowHead,
       kind: decision.kind,
       attempt: isAttemptDecision(decision),
     })

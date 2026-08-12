@@ -71,6 +71,21 @@ description, and must be preserved:
   `GitOperations` and hand it straight to `Layer.succeed` — go through
   `withIndexLockRetries`.
 
+- **Because the window un-tracks things, `changedPaths` answers by CONTENT, not
+  by the index: a path that EXISTS in the working tree is never reported `D`.**
+  The window's `git reset --mixed` leaves every file the reviewed range added
+  untracked-but-present, and `git diff --name-status <base>` compares `base` to
+  the INDEX — so the index view calls each of them deleted. That phantom `D`
+  made the review-signoff guard refuse every sign-off in a repo whose
+  `reviewFile` sits outside `.gtd/` (the one directory the window pins back into
+  the index). `src/Git.ts`'s `classifyUntracked` therefore classifies each
+  untracked path against the base tree by blob id: absent → `A`, different →
+  `M`, identical → no change. Don't "simplify" it back to the index's answer.
+  The in-memory double has always compared the base tree to the worktree
+  directly, so only the Live tier of `runGitServiceContract`'s `changedPaths`
+  base-case group can fail on this — and an @inmem e2e scenario cannot (hence
+  `@live` `review-window-untracked.feature`).
+
 ### Testing
 
 `src/testing/` is the in-memory git/config/filesystem test seam
@@ -237,13 +252,31 @@ parser, one envelope. The table is the source of truth, not prose:
   map
 - **Step-capture guards (edge, not engine):** `enforceStepGuards` in
   `src/StepGuards.ts` runs a registry of guards before a normal commit lands —
-  the steering-file guard first formats a state's `file:`+`mode:` file in place
-  and validates it per its `mode:` (over `src/SteeringMode.ts`), then the
-  review-signoff, feedback-progress, and answer-completeness guards each check
-  their own state-flavor condition. Any guard REFUSES the step when its
-  condition fires, so e.g. a malformed steering file is never committed (an
-  agent's draft or a human's gate edit alike). Each guard is a no-op when it
-  doesn't apply to the resting state (see `StepGuard.appliesTo`), and the whole
-  registry is skipped for a squash/no-op decision, or an ATTEMPT (there is
-  nothing to guard in an empty diff, and a `format:` run must not dirty an
-  attempt and break the empty-diff derivation `stalledAt` relies on)
+  the review-signoff, feedback-progress, and answer-completeness guards each
+  check their own state-flavor condition. A state's `file:`+`mode:` formatting
+  and validation is NOT a guard any more: `program.ts`'s `steeringModeSteps`
+  emits the mode's own `format:`/`validate:` commands (over
+  `src/SteeringMode.ts`) into the step script for the driver to run, ahead of
+  the commit. Any guard REFUSES the step when its condition fires, so e.g. a
+  malformed steering file is never committed (an agent's draft or a human's gate
+  edit alike). Each guard is a no-op when it doesn't apply to the resting state
+  (see `StepGuard.appliesTo`), and the whole registry is skipped for a
+  squash/no-op decision, or an ATTEMPT (there is nothing to guard in an empty
+  diff, and a `format:` run must not dirty an attempt and break the empty-diff
+  derivation `stalledAt` relies on). The emitted format/validate pair is skipped
+  for an attempt for the same reason, AND for a step whose diff DELETES that
+  `file:` (`deletesFile`, shared with the guards): deleting it is a legitimate
+  outcome — a review sign-off's whole diff is the review doc's deletion — and a
+  `format:` like `prettier --write` exits non-zero on a missing path, which
+  aborted the whole `set -euo pipefail` script before the commit and made the
+  step unlandable
+- **Two properties of a guard's INPUTS, each of which makes a guard silently
+  INERT rather than loudly wrong when broken:** the pre-turn copy of a `file:`
+  is read at `Rest.windowHead` — the open review window's saved head — never at
+  real `HEAD`, which the window has rewound to the review base, where a file the
+  process itself wrote does not exist yet; and `hasCodeChange` ("the human
+  edited something real") excludes the state's OWN `file:` by exact path, not
+  merely everything under `.gtd/`. A `reviewFile` repointed to the repo root is
+  still a steering file — the same assumption issue #128 broke in `deciding`'s
+  check script. With either one wrong, the review sign-off guard takes its
+  it-is-a-comment branch on every pass and the unticked-box check is unreachable

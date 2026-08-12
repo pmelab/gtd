@@ -192,7 +192,12 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         mkdirSync(dirname(join(root, path)), { recursive: true })
         writeFileSync(join(root, path), content)
       },
-      deleteFile: (path) => gitExec("rm", "-f", path),
+      // A plain unlink, NOT `git rm` — the index is left exactly as it stood,
+      // which is the only way to model a reviewer deleting a file the review
+      // window left untracked (`git rm` refuses an untracked pathspec), and
+      // matches what the in-memory tier's worktree-only delete has always
+      // done. Callers that want the deletion staged say `stageAll()`.
+      deleteFile: (path) => rmSync(join(root, path), { force: true }),
       commitDeletion: (path, message) => {
         gitExec("rm", path)
         gitExec(`commit -m "${message}"`)
@@ -719,6 +724,54 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
 
     it("returns [] on a clean tree", async () => {
       expect(await runGit(t, (g) => g.changedPaths())).toEqual([])
+    })
+
+    // The review checkout window's own shape: `git reset --mixed <base>` drops
+    // every path the reviewed range ADDED out of the index, leaving it
+    // untracked but present on disk. An index-based answer calls each of those
+    // a deletion (`git diff --name-status <base>` compares base to the INDEX),
+    // which made the review sign-off guard refuse every sign-off whose
+    // `reviewFile` the window does not pin back. The port answers by CONTENT
+    // instead — these four cases are that contract.
+    describe("with a base, over paths the index no longer carries", () => {
+      /** Commit `REVIEW.md` on top of a seed commit, then rewind the index to that seed — the window's own state. Returns the saved head the window would measure against. */
+      const openWindowOver = (content: string): string => {
+        t.seed.commit("chore: seed", { "kept.txt": "seed" })
+        const base = t.observe.resolveRef("HEAD")
+        t.seed.commit("gtd(agent): reviewing", { "REVIEW.md": content })
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.mixedReset(base)
+        return head
+      }
+
+      it("omits an untracked path whose bytes match the base — present and unchanged is not a change", async () => {
+        const head = openWindowOver("- [ ] one\n")
+        expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([])
+      })
+
+      it("reports an untracked path edited since the base as M, never D", async () => {
+        const head = openWindowOver("- [ ] one\n")
+        t.seed.writeFile("REVIEW.md", "- [x] one\n")
+        expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([
+          { path: "REVIEW.md", status: "M" },
+        ])
+      })
+
+      it("reports an untracked path REMOVED from disk as D — the deletion the sign-off guard must catch", async () => {
+        const head = openWindowOver("- [ ] one\n")
+        t.seed.deleteFile("REVIEW.md")
+        expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([
+          { path: "REVIEW.md", status: "D" },
+        ])
+      })
+
+      it("still reports a genuinely new untracked path as A", async () => {
+        const head = openWindowOver("- [ ] one\n")
+        t.seed.writeFile("NOTE.md", "a reviewer's note\n")
+        expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([
+          { path: "NOTE.md", status: "A" },
+        ])
+      })
     })
   })
 

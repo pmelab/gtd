@@ -57,10 +57,34 @@ export interface GuardContext {
   readonly changes: readonly PendingChange[]
   /** True when this step's changes delete `file`. */
   readonly fileDeleted: boolean
-  /** True when this step touches a path outside `.gtd/`. */
+  /**
+   * True when this step touches a path that is neither gtd plumbing (`.gtd/`)
+   * nor the state's OWN `file:` — i.e. the human edited something real, which
+   * every guard here reads as "a comment"/"the work was done".
+   *
+   * Excluding `file` by exact path is load-bearing for a state whose `file:` is
+   * repointed OUTSIDE `.gtd/` (an ordinary `vars:` override, e.g. `REVIEW.md`
+   * at the repo root): the reviewer's own edit to the review doc would
+   * otherwise count as a code edit, so the sign-off guard took the
+   * it-is-a-comment branch on every pass and its unticked check was
+   * unreachable. Same shape as the bug in `deciding`'s check script (issue
+   * #128), which also assumed every steering file lives under `.gtd/`.
+   */
   readonly hasCodeChange: boolean
   readonly template: TemplateContext
-  /** `file`'s contents at HEAD (before this step), `undefined` if absent there. Cached — evaluated once per `enforceStepGuards` call. */
+  /**
+   * `file`'s contents at the PRE-TURN head (before this step), `undefined` if
+   * absent there. Cached — evaluated once per `enforceStepGuards` call.
+   *
+   * That head is real `HEAD` normally, but the review checkout window's saved
+   * head (`Rest.windowHead`) while a window is open: the window has rewound
+   * real HEAD to the review base, where a file the process itself added does
+   * not exist yet. Reading `HEAD` there made `original` empty for every review
+   * doc, so the sign-off guard's "only checkbox flips" comparison always found
+   * a difference, took the it's-a-comment branch, and never reached the
+   * unticked count — the tick-completeness gate was inert for exactly the
+   * situation it exists for.
+   */
   readonly head: Effect.Effect<string | undefined, Error>
   /** `file`'s CURRENT working-tree contents — whatever is on disk right now, pre- or post- an external driver's own `format:` run. Cached. */
   readonly worktree: Effect.Effect<string | undefined, Error>
@@ -73,6 +97,17 @@ export interface StepGuard {
   /** Decide allow (`undefined`) or refuse (a reason string). */
   readonly check: (ctx: GuardContext) => Effect.Effect<Refusal, Error, GuardRequirements>
 }
+
+/**
+ * True when `changes` deletes `file` — the one question BOTH this registry's
+ * `GuardContext.fileDeleted` and `program.ts`'s `steeringModeSteps` ask about a
+ * state's `file:`, so they ask it in exactly one place. A deletion is a
+ * legitimate step outcome at some states (a review sign-off's bare REVIEW.md
+ * deletion) and a refusal at others (see `reviewSignoffGuard`), but either way
+ * there is no file left to format or validate.
+ */
+export const deletesFile = (changes: readonly PendingChange[], file: string): boolean =>
+  changes.some((c) => c.path === file && c.status === "D")
 
 /** Normalize every markdown checkbox to a single placeholder so a pure `[ ]`→`[x]` tick is invisible to a text comparison; any surviving difference is a human note. */
 const normalizeCheckboxes = (content: string): string => content.replace(/\[[ xX]\]/g, "[_]")
@@ -158,6 +193,8 @@ export const enforceStepGuards = (input: {
   /** The state's ALREADY-RENDERED `file:` — `Rest.hints.file`, rendered once when the snapshot was built rather than re-rendered per guard. */
   readonly file: string | undefined
   readonly changes: readonly PendingChange[]
+  /** `Rest.windowHead` — the open review window's saved head, the ref `head` reads `file` at. `undefined` (real `HEAD`) when no window is open. */
+  readonly windowHead: string | undefined
   readonly kind: ExecutableDecision["kind"]
   /**
    * True for an ATTEMPT commit (`PatternMachine.StepCommit.attempt`) — a
@@ -178,8 +215,8 @@ export const enforceStepGuards = (input: {
     const applicable = stepGuards.filter((g) => g.appliesTo(input.rest))
     if (applicable.length === 0) return
 
-    const fileDeleted = input.changes.some((c) => c.path === file && c.status === "D")
-    const hasCodeChange = input.changes.some((c) => !c.path.startsWith(".gtd/"))
+    const fileDeleted = deletesFile(input.changes, file)
+    const hasCodeChange = input.changes.some((c) => !c.path.startsWith(".gtd/") && c.path !== file)
 
     const base = {
       rest: input.rest,
@@ -191,7 +228,7 @@ export const enforceStepGuards = (input: {
     }
 
     const files = yield* RepoFiles
-    const head = yield* Effect.cached(files.committed(file))
+    const head = yield* Effect.cached(files.committed(file, input.windowHead))
     const worktree = yield* Effect.cached(Effect.try(() => files.working(file)))
     const ctx: GuardContext = { ...base, head, worktree }
 

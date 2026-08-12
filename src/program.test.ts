@@ -1436,3 +1436,70 @@ describe("gtd land --json — the settled signal", () => {
     expect(parsed.required).toContain("git commit")
   })
 })
+
+describe("a step that DELETES its state's own steering file", () => {
+  // The `format:`/`validate:` pair a state's `mode:` declares is emitted into
+  // the step script ahead of the commit. When the step's own diff is that
+  // file's DELETION — a legitimate outcome, e.g. the bundled template's review
+  // sign-off, whose whole diff is a bare REVIEW.md deletion — there is nothing
+  // left to format, and emitting the command anyway made the step UNLANDABLE:
+  // it is the script's first command under `set -euo pipefail`, and a real
+  // formatter (`prettier --write`) exits non-zero on a path that is not there.
+
+  const NOTES_WORKFLOW = [
+    "workflow:",
+    "  modes:",
+    "    notes:",
+    "      format: fmt-notes <%= it.file %>",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": drafting',
+    "        drafting:",
+    "          actor: agent",
+    "          prompt: write the notes",
+    "          file: NOTES.md",
+    "          mode: notes",
+    "          on:",
+    '            "D NOTES.md": idle',
+    '            "* **": drafting',
+    "",
+  ].join("\n")
+
+  const restingAtDrafting = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", NOTES_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("NOTES.md", "# notes\n\nfirst draft\n")
+    repo.commitAllWithPrefix("gtd(agent): drafting")
+    return repo
+  }
+
+  it("emits no format command, and still lands the commit", async () => {
+    const repo = restingAtDrafting()
+    repo.deleteFile("NOTES.md")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(0)
+    const { required } = JSON.parse(stdout) as { required: string }
+    expect(required).not.toContain("fmt-notes")
+    // And the emitted script is what actually performs the step.
+    expect(applyEmittedScript(repo, new Map(), required).ok).toBe(true)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting → idle")
+  })
+
+  it("still emits it when the same step MODIFIES that file — the skip is the deletion, not the state", async () => {
+    const repo = restingAtDrafting()
+    repo.writeFile("NOTES.md", "# notes\n\nsecond draft\n")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(0)
+    const { required } = JSON.parse(stdout) as { required: string }
+    expect(required).toContain("fmt-notes NOTES.md")
+  })
+})

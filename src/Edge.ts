@@ -841,6 +841,21 @@ export interface Rest extends ResolvedRest {
   /** `def` with `on` patched onto the resting state — what `PatternMachine.step` must be fed. The one deliberate exception to this module's two-caller rule (see the module doc comment). */
   readonly stepDef: WorkflowDefinition
   readonly changes: readonly PendingChange[]
+  /**
+   * The open review checkout window's SAVED HEAD (`REVIEW_HEAD_REF`), when one
+   * is open — the commit this snapshot's state, trace and `changes` were all
+   * resolved against, because real git HEAD is rewound to the review base while
+   * the window is open. `undefined` when no window is open (then real `HEAD` is
+   * that commit) or when the rest was resolved at an explicit `ref`.
+   *
+   * Carried on the snapshot rather than re-read per caller: it is the PRE-TURN
+   * head, so anything that needs a file's committed, pre-turn copy — the step
+   * guards' own `readFileAtRef` reads (`src/StepGuards.ts`) — must resolve it
+   * here, not at `HEAD`. Reading `HEAD` under an open window reports every file
+   * the process itself added as absent, which silently turned the review
+   * sign-off's tick-completeness check into a no-op.
+   */
+  readonly windowHead: string | undefined
   readonly memory: string | undefined
   /** `memoryResumedFor`'s verdict — `false` for a non-`prompt` rest or one whose scope doesn't resolve, exactly like `memory` but never `undefined` (there is always an answer, even when there is no key to answer about). */
   readonly memoryResumed: boolean
@@ -927,7 +942,19 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const memoryResumed = memoryResumedFor(def, config.stateScopes, resolved, run)
     const hints = yield* renderHints(resolved.stateDef, context)
 
-    return { ...resolved, run, vars, on, stepDef, changes, memory, memoryResumed, hints, context }
+    return {
+      ...resolved,
+      run,
+      vars,
+      on,
+      stepDef,
+      changes,
+      windowHead,
+      memory,
+      memoryResumed,
+      hints,
+      context,
+    }
   })
 
 /** THE call. No parens, no options — an Effect value, like `openReviewWindow`. */
