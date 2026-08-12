@@ -20,6 +20,12 @@
  * line), the `<!-- base: <hash> -->` comment, and at least one `##` chunk
  * with a non-empty title and at least one `- [ ]` / `- [x]` file pointer.
  *
+ * A file pointer's path is ONE whitespace-delimited `./`-relative token — an
+ * optional `#<line>` suffix of that same token, then an optional
+ * whitespace-separated note. A hyphen (or em/en dash) in a filename is part of
+ * the path, never a note separator: the note separator is only recognized
+ * after whitespace has already split the note from the path.
+ *
  * **The format's single source of truth.** This module is the EXECUTABLE SPEC
  * of that format — its own unit tests (`ReviewDoc.test.ts`) are the format's
  * spec tests. Both consumers of the format run THIS parser, so there is no
@@ -64,7 +70,12 @@ export interface ReviewDoc {
 const HEADER_RE = /^#\s+Review:\s*(\S+)\s*$/
 const BASE_COMMENT_RE = /^<!--\s*base:\s*(\S+)\s*-->$/
 const CHUNK_HEADING_RE = /^##\s+(.+)$/
-const FILE_POINTER_RE = /^-\s*\[([ xX])\]\s*(\.\/\S+?)(?:#(\d+))?(?:\s*[—-]+\s*(.*))?$/
+/** One `- [ ]`/`- [x]` pointer line: the box, the whitespace-delimited pointer token, and the rest of the line. */
+const FILE_POINTER_RE = /^-\s*\[([ xX])\]\s*(\S+)(?:\s+(.*))?$/
+/** A pointer token's trailing `#<line>` (greedy, so a `#` inside the path stays in it). */
+const POINTER_LINE_RE = /^(.*)#(\d+)$/
+/** The optional dash a trailing note may lead with — em dash, en dash, or hyphens. */
+const NOTE_SEPARATOR_RE = /^[—–-]+\s*/
 
 /** The `# Review: <hash>` header, required as the document's first non-blank line. */
 const parseHeader = (lines: readonly string[]): string | undefined => {
@@ -85,11 +96,17 @@ const parseBaseComment = (lines: readonly string[]): string | undefined => {
 const parseFilePointer = (line: string, sourceLine: number): ReviewFile | undefined => {
   const match = FILE_POINTER_RE.exec(line)
   if (!match) return undefined
+  const token = match[2]!
+  if (!token.startsWith("./")) return undefined
+  const lineMatch = POINTER_LINE_RE.exec(token)
+  const path = lineMatch ? lineMatch[1]! : token
+  if (path.length <= 2) return undefined // `./` with nothing after it is not a path
+  const note = (match[3] ?? "").replace(NOTE_SEPARATOR_RE, "").trim()
   return {
     checked: match[1] !== " ",
-    path: match[2]!,
-    ...(match[3] !== undefined ? { line: Number(match[3]) } : {}),
-    ...(match[4] && match[4].trim().length > 0 ? { note: match[4].trim() } : {}),
+    path,
+    ...(lineMatch ? { line: Number(lineMatch[2]) } : {}),
+    ...(note.length > 0 ? { note } : {}),
     sourceLine,
   }
 }
@@ -206,13 +223,12 @@ export const toggleFilePointer = (content: string, line: number): SteeringEdit |
   if (raw === undefined) return undefined
   const leading = raw.length - raw.trimStart().length
   const trimmed = raw.slice(leading)
-  const match = FILE_POINTER_RE.exec(trimmed)
-  if (!match) return undefined
-  const bracketContent = match[0].indexOf("[") + 1
-  const character = leading + bracketContent
+  const pointer = parseFilePointer(trimmed, line)
+  if (pointer === undefined) return undefined
+  const character = leading + trimmed.indexOf("[") + 1
   return {
     range: { start: { line, character }, end: { line, character: character + 1 } },
-    newText: match[1] === " " ? "x" : " ",
+    newText: pointer.checked ? " " : "x",
   }
 }
 

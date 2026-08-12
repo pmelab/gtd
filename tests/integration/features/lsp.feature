@@ -14,8 +14,10 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   hand-authored current state and asking the client to show its steering
   file (`window/showDocument`). A final scenario proves go-to-definition: a
   `textDocument/definition` on a `.gtd/REVIEW.md` hunk pointer line returns a
-  `Location` in the referenced file at its `#line` (basename fallback). One
-  more scenario proves a `qa`-mode code action is offered from a wrapped
+  `Location` in the referenced file at its `#line` (basename fallback). A
+  further scenario pins the fix for a hunk pointer whose path contains
+  hyphens: it must jump to the full file, not a truncated directory prefix.
+  One more scenario proves a `qa`-mode code action is offered from a wrapped
   option's continuation line, not just its own `- [ ]` line (see
   `QuestionOption.endLine` in src/OpenQuestions.ts). Real subprocess I/O
   (spawn + stdio JSON-RPC framing), so this runs @live.
@@ -191,6 +193,26 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     Then the LSP response has no error
     And the LSP response result points to "src/calc.ts" at line 4
+
+  Scenario: a definition on a hunk whose path contains hyphens jumps to the file, not a parent folder
+    # Regression: the pointer regex's non-greedy path group split the path at
+    # its first hyphen and called the remainder a note, so the jump landed on
+    # ./src/server/email/budget (a DIRECTORY) at line 0.
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests a definition at line 5 in ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add budget alerts
+
+      - [ ] ./src/server/email/budget-threshold.ts#31 — non-obvious import
+      """
+    Then the LSP response has no error
+    And the LSP response result points to "src/server/email/budget-threshold.ts" at line 30
 
   Scenario: a code action is offered on a wrapped option's continuation line, not just its checkbox line
     Given a test project

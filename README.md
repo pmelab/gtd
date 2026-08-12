@@ -1142,7 +1142,9 @@ the compiler's job at load time.
 per `review`-mode chunk that still has an unchecked hunk (an outline of the
 packages left to review) plus check/uncheck actions over those chunks,
 go-to-definition from a `review`-mode hunk line into the file it points at (at
-its `#line`), symbols over a `qa`-mode file's open questions plus "pick this
+its `#line` — a hunk's path is a single whitespace-delimited `./`-relative
+token, so a hyphen in a filename stays part of the path, never a note
+separator), symbols over a `qa`-mode file's open questions plus "pick this
 option"/"uncheck this option" code actions on each option — offered anywhere on
 the option's list item, including any wrapped continuation lines, not just its
 own `- [ ]` line — diagnostics for both (live as you edit), and a
