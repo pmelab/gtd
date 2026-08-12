@@ -10,7 +10,7 @@ export default defineConfig({
         plugins: [rawMd()],
         test: {
           name: "unit",
-          include: ["src/**/*.test.ts"],
+          include: ["src/**/*.test.ts", "tests/tooling/*.test.ts"],
           exclude: ["**/*.integration.test.ts"],
           testTimeout: 30_000,
           hookTimeout: 30_000,
