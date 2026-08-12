@@ -133,7 +133,13 @@ for). The two steering-file entries are chosen by which file you create:
   per-package test loop, and a per-package **agentic review** that verifies the
   package against its spec. All three phases share one machine identity, so the
   agent never re-explores the codebase from scratch between them, and the
-  human's answers carry forward into decomposition.
+  human's answers carry forward into decomposition. A package whose work already
+  landed (an earlier package's fix turn pulled it in) is not a dead end: the
+  build turn records per-criterion evidence in `.gtd/SATISFIED.md` instead of
+  implementing anything, and the package still goes through the checks and the
+  spec review before closing out. If a queue item ever _does_ dead-end (a build
+  turn that authors nothing stalls), the supported recovery is to write that
+  same file yourself and `gtd land` — no hand-authored state commit.
 
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
 checkbox review of the diff — the prompt never inlines the diff itself; it names

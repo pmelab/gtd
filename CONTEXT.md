@@ -204,8 +204,12 @@ look, and a box a reviewer ticks.
 file, carrying candidate answers as checkboxes plus a free-text slot. It becomes
 an **answered question** by moving under `## Answered Questions` as prose.
 
-**Package**: One independently buildable slice of an advanced-flow
-decomposition.
+**Package**: One independently buildable and independently greenable slice of an
+advanced-flow decomposition.
+
+**Satisfied package**: A package whose acceptance criteria are already met
+before its build turn runs — recorded as evidence in `.gtd/SATISFIED.md` rather
+than implemented, and reviewed and closed out like any other.
 
 **Feedback**: What a human or a check writes back to send work around again — a
 review's requested changes, or a failing suite's output.

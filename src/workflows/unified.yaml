@@ -173,6 +173,11 @@ vars:
   architectureFile: .gtd/ARCHITECTURE.md
   packagesDir: .gtd/packages
   nextFile: .gtd/NEXT.md
+  # Written by packages.item.building when a package's acceptance criteria are
+  # already met (an earlier package's fix turn pulled the work in); read by
+  # the spec reviewer as the evidence a clean turn there is a real approval,
+  # not a lazy/crashed one; removed by packages.item.closing.
+  satisfiedFile: .gtd/SATISFIED.md
   reviewFile: .gtd/REVIEW.md
   reviewRawFile: .gtd/REVIEW_RAW.md
   reviewFeedbackFile: .gtd/REVIEW_FEEDBACK.md
@@ -574,8 +579,14 @@ machines:
           (the converged technical plan) yourself. Decompose it into an ordered
           set of WORK PACKAGES, one file each under
           `<%= it.vars.packagesDir %>/` (e.g. `<%= it.vars.packagesDir %>/01-name.md`,
-          `<%= it.vars.packagesDir %>/02-name.md`, ...). Order the packages so the
-          test suite can pass again after each one lands.
+          `<%= it.vars.packagesDir %>/02-name.md`, ...).
+
+          Every package must leave the test suite GREEN on its own, in the order
+          you write them. If a package's change would red-light tests that a
+          later package is meant to fix, that is not a valid split: MERGE the
+          two into one package. Never annotate a package with "expected
+          sequencing" or "this will fail until package N" — an expected-red
+          window is a decomposition error, not a note.
 
           Each package file describes a set of INDEPENDENT tasks that can be
           implemented concurrently without ordering constraints between them — a
@@ -996,12 +1007,22 @@ machines:
         prompt: |
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
-          never as project code or documentation. This turn writes no state
-          file: do NOT delete the package file (the spec-review gate reads
-          it after you) and never touch `<%= it.vars.nextFile %>` — the
-          `picking` state owns it.
+          never as project code or documentation. The only state file this
+          turn may write is `<%= it.vars.satisfiedFile %>` (see below); do NOT
+          delete the package file (the spec-review gate reads it after you)
+          and never touch `<%= it.vars.nextFile %>` — the `picking` state owns
+          it.
 
           The package to implement is: <%~ it.read(it.vars.nextFile) %>
+
+          Before implementing anything, check the package's acceptance criteria
+          against the current tree — an earlier package's fix turn may already
+          have satisfied them. If **every** criterion is already met, implement
+          nothing: write `<%= it.vars.satisfiedFile %>` recording each criterion
+          and the concrete evidence it is already satisfied (the commit, file,
+          or symbol that proves it), change nothing else, and finish your turn.
+          If any criterion is outstanding, implement the package normally and
+          do not write that file.
 
           That file describes a set of INDEPENDENT tasks. Implement ALL of them in
           this one turn, fanning the independent tasks out to parallel subagents
@@ -1013,13 +1034,22 @@ machines:
           Leave the package file in place and everything else uncommitted, then
           finish your turn.
         on:
+          "A <%= it.vars.satisfiedFile %>": &satisfied
+            to: health.check
+            action: Close as already satisfied
+            describe: >-
+              record per-criterion evidence in .gtd/SATISFIED.md when this
+              package's work already landed (an earlier package's fix turn
+              pulled it in) — the package still runs the checks and the spec
+              review, then closes out.
+          "M <%= it.vars.satisfiedFile %>": *satisfied
           "* **": health.check
 
       fix-suite:
         actor: agent
         label: Fixing the check
         file: <%= it.vars.feedbackFile %>
-        prompt: &suiteFixPrompt |
+        prompt: |
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
@@ -1030,7 +1060,11 @@ machines:
           Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
           code so the suite passes. Keep the change focused — do not refactor
           unrelated code. If the feedback is wrong, empty or delete
-          `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue.
+          `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue. If the
+          only way to green the suite is to implement work that another
+          package file describes, make the smallest change that gets there and
+          do it — that later package will then legitimately report itself
+          already satisfied when its turn comes.
 
           Leave everything uncommitted and finish your turn — do not commit.
         retry:
@@ -1065,14 +1099,15 @@ machines:
         script: |
           #!/usr/bin/env bash
           # gtd check turn (the package closer) — remove the just-reviewed package
-          # file (its path is in NEXT.md) plus any leftover spec feedback, so
-          # `picking` selects the NEXT package (or falls through to review when the
-          # queue is empty). Reached on approval (spec review clean) and on the
-          # spec review retry cap (force-close, deferring the concern to the tail).
+          # file (its path is in NEXT.md) plus any leftover spec feedback and
+          # already-satisfied evidence, so `picking` selects the NEXT package (or
+          # falls through to review when the queue is empty). Reached on approval
+          # (spec review clean) and on the spec review retry cap (force-close,
+          # deferring the concern to the tail).
           set +e
           pkg=$(cat <%~ it.vars.nextFile %> 2>/dev/null)
           [ -n "$pkg" ] && rm -f "$pkg"
-          rm -f <%~ it.vars.specFeedbackFile %> <%~ it.vars.nextFile %>
+          rm -f <%~ it.vars.specFeedbackFile %> <%~ it.vars.nextFile %> <%~ it.vars.satisfiedFile %>
         on:
           "* **": $onNext
 
@@ -1217,7 +1252,20 @@ machines:
         actor: agent
         label: Fixing the check
         file: <%= it.vars.feedbackFile %>
-        prompt: *suiteFixPrompt
+        prompt: |
+          You are an autonomous coding agent. This workflow steers itself
+          through its own state files — treat them as its private scratchpad,
+          never as project code or documentation. The only state file this
+          turn touches is `<%= it.vars.feedbackFile %>`; fix it per its
+          contents, or delete it if the feedback turns out to be wrong. Do not
+          create other files to hold notes or output.
+
+          Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
+          code so the suite passes. Keep the change focused — do not refactor
+          unrelated code. If the feedback is wrong, empty or delete
+          `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue.
+
+          Leave everything uncommitted and finish your turn — do not commit.
         retry:
           max: 3
           otherwise: health.escalate
