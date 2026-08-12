@@ -244,6 +244,110 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     Then it succeeds
     And stdout contains "heads up: work is starting"
 
+  Scenario: Accepts a gate by inaction on the opening beat, driving on past it
+    # `await` routes its "C" (clean-tree) pattern onward, so changing nothing
+    # there IS the decision "accept the plan". The machine already rests there
+    # with a clean tree, so the driver's opening beat is `kind: "message"` —
+    # indistinguishable from a gate nobody has read. Re-running the driver is
+    # what makes it the human's: the opening beat lands, "C" matches, and the
+    # run drives on to the finale instead of reprinting the gate forever.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": planning
+              planning:
+                actor: agent
+                prompt: "Write PLAN.md describing the build."
+                on:
+                  "* **": await
+              await:
+                actor: human
+                message: "read PLAN.md — accept it by changing nothing, or edit it to revise"
+                on:
+                  "C": done
+                  "* **": planning
+              done:
+                commit: "chore: planned"
+      """
+    And a commit "gtd(agent): await" that adds "PLAN.md" with:
+      """
+      Build a calculator.
+      """
+    And the driver pasted from README.md
+    When I run the README driver
+    Then it succeeds
+    And the git log contains "chore: planned"
+    And stdout does not contain "read PLAN.md"
+
+  Scenario: Shows the same gate instead of accepting it when the run itself produced it
+    # The regression guard for the scenario above. Here the run STARTS at the
+    # opening `idle` capture and reaches `await` on its third beat — a gate the
+    # driver just produced and the human has not read. Landing it would accept
+    # a plan nobody reviewed, collapsing the gate entirely, so the driver must
+    # print it and stop. Same workflow, same gate, opposite outcome: the only
+    # difference is which beat reaches it.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": planning
+              planning:
+                actor: agent
+                prompt: "Write PLAN.md describing the build."
+                on:
+                  "* **": await
+              await:
+                actor: human
+                message: "read PLAN.md — accept it by changing nothing, or edit it to revise"
+                on:
+                  "C": done
+                  "* **": planning
+              done:
+                commit: "chore: planned"
+      """
+    And a file "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Write PLAN.md"*)
+          echo "step one: build it" > PLAN.md
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And the driver pasted from README.md
+    When I run the README driver
+    Then it succeeds
+    And stdout contains "read PLAN.md"
+    And the git log does not contain "chore: planned"
+
   Scenario: Settles instead of looping forever when a script rest makes no progress
     Given a test project
     And a gtd config file at ".gtdrc" with:

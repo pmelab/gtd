@@ -28,13 +28,17 @@ gtd_land() {
   return 0
 }
 
+beat=1
 while :; do
   next="$(gtd next --json)" || exit 1
   kind="$(jq -r .kind <<<"$next")"
   log="$(jq -r .log <<<"$next")"
   case "$kind" in
     stalled) jq -r .content <<<"$next" >&2; exit 1 ;;
-    message) jq -r .content <<<"$next"; exit 0 ;;
+    # you re-ran us resting here: you either edited something or accepted by
+    # editing nothing, so land the opening beat either way. Later beats are
+    # gates we just produced and you have not read yet — hand off.
+    message) [ "$beat" = 1 ] || { jq -r .content <<<"$next"; exit 0; } ;;
     capture) ;; # the human already acted — just land it
     script) bash -c "$(jq -r .content <<<"$next")" >>"$log" 2>&1 || true ;;
     prompt)
@@ -54,6 +58,7 @@ while :; do
       done ;;
   esac
   gtd_land || exit 1
+  beat=$((beat + 1))
 done`
 
 const HEADER = (): string =>
@@ -83,7 +88,12 @@ The \`kind\` field selects what to do:
 
 - \`stalled\` — print \`.content\` (a diagnosis) to stderr and exit non-zero.
   Terminal: another dispatch would just repeat the same fruitless turn.
-- \`message\` — print \`.content\` and exit 0. This is a human gate.
+- \`message\` — print \`.content\` and exit 0. This is a human gate. EXCEPT on
+  the run's opening beat: the human invoked you while resting there, so land
+  it instead of printing. Some gates route a \`"C"\` (clean-tree) pattern
+  onward, making "change nothing" a real decision that looks identical to a
+  gate nobody has read yet; landing an opening beat at a gate without one is
+  a benign no-op, and it prints on the next beat.
 - \`capture\` — a human gate the human already acted on (the tree is dirty).
   Land it immediately, no display needed.
 - \`script\` — run \`bash -c .content\`, appending its output to \`.log\`, and
@@ -152,7 +162,9 @@ const DRIVER_OBLIGATIONS = `
    no opening move: a human's pending edit arrives as a \`kind: "capture"\`
    beat, which you land immediately without executing anything.
 2. A \`kind: "stalled"\` beat halts the driver with a non-zero exit; a
-   \`kind: "message"\` beat prints \`content\` and exits 0.
+   \`kind: "message"\` beat prints \`content\` and exits 0, unless it is the
+   run's opening beat — land that one, since the human's re-invocation while
+   resting there is itself their decision.
 3. Run scripts with their output appended to \`.log\` — gtd never creates or
    truncates that file itself; truncate it once per run. \`$GTD_LOOP_LOG\`
    overrides its path.

@@ -79,25 +79,27 @@ carrying one piece of content (a script, a prompt, a message, or a squash commit
 template), with an ordered set of change-patterns routing to the next state.
 
 The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
-`"message"` means it's a human's move (stop and hand off); `"capture"` means a
-human gate the human already acted on (land it immediately); `"script"` means
-the driver runs `content` itself, then lands it; `"prompt"` means feed `content`
-to your agent — using the accompanying `session.id`/`session.resume` to continue
-or start that agent conversation (see "Driving the loop" below) — then run
-`gtd land` once it's done. gtd itself never executes anything — the driver owns
-running scripts. Every `gtd next` call is strictly mutation-free, safe to poll
-or peek at any time: `session.id`/`session.resume` are DERIVED, never stored, so
-looking is free — nothing distinguishes a peek from a dispatch, and there is no
-separate claiming form at all. A `prompt` beat whose turn changes nothing still
-lands: `gtd land` commits an EMPTY `gtd(<actor>): <state>` attempt instead of
-silently doing nothing, so the fruitless dispatch is visible in history rather
-than invisible. `"kind": "stalled"` is derived from that history — HEAD is an
-empty attempt at the resting state and the tree is clean — so every
-`gtd next --json` call reports it, and it stays reported on a repeat (there's no
-marker to consume) until something actually changes. The fix for a repeated
-stall is either a better prompt, a `retry:` cap on the state that redirects to
-an escalation state after N fruitless attempts, or — if the state can
-legitimately finish with nothing to change — declaring a `C` (clean-tree)
+`"message"` means it's a human's move (stop and hand off, unless it's the run's
+opening beat, which the human triggered by re-running the driver: land that one,
+since changing nothing is itself a declared outcome at some gates); `"capture"`
+means a human gate the human already acted on (land it immediately); `"script"`
+means the driver runs `content` itself, then lands it; `"prompt"` means feed
+`content` to your agent — using the accompanying `session.id`/`session.resume`
+to continue or start that agent conversation (see "Driving the loop" below) —
+then run `gtd land` once it's done. gtd itself never executes anything — the
+driver owns running scripts. Every `gtd next` call is strictly mutation-free,
+safe to poll or peek at any time: `session.id`/`session.resume` are DERIVED,
+never stored, so looking is free — nothing distinguishes a peek from a dispatch,
+and there is no separate claiming form at all. A `prompt` beat whose turn
+changes nothing still lands: `gtd land` commits an EMPTY `gtd(<actor>): <state>`
+attempt instead of silently doing nothing, so the fruitless dispatch is visible
+in history rather than invisible. `"kind": "stalled"` is derived from that
+history — HEAD is an empty attempt at the resting state and the tree is clean —
+so every `gtd next --json` call reports it, and it stays reported on a repeat
+(there's no marker to consume) until something actually changes. The fix for a
+repeated stall is either a better prompt, a `retry:` cap on the state that
+redirects to an escalation state after N fruitless attempts, or — if the state
+can legitimately finish with nothing to change — declaring a `C` (clean-tree)
 pattern on it.
 
 An `on` edge may also carry a short imperative `action` (e.g. `Accept plan`)
@@ -367,8 +369,19 @@ autonomous states (agent turns, check runs) and stops at the first
 non-autonomous one: reaching a human gate it prints the gate's message and
 exits. You act by editing files (answer a plan question, tick a review box, fix
 code) and re-running it — your pending edit arrives as the loop's first beat
-(`kind: "capture"`, landed immediately), so you never run `gtd land` by hand; a
-mid-process restart simply resumes driving from whatever beat is actually next.
+(`kind: "capture"`, landed immediately), so you never run `gtd land` by hand.
+
+Some gates accept by INACTION instead: the bundled template's `plan.await-plan`
+routes its `"C"` (clean-tree) pattern onward, so changing nothing there means
+"accept the plan". That reaches the driver as `kind: "message"`, which no
+inspection can tell apart from a gate you have not read yet — so the driver
+treats its OPENING beat as yours either way and lands it: you re-ran it while
+resting there, and that invocation IS the decision. Every later beat halts as
+usual, because a gate the driver produced mid-run is one you have not seen.
+Landing an opening beat at a gate with no `"C"` pattern is harmless — a benign
+no-op (see `gtd land`'s exit codes below) — and the gate then prints on the next
+beat. A mid-process restart simply resumes driving from whatever beat is
+actually next.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around the driver,
@@ -642,13 +655,17 @@ gtd_land() {
   return 0
 }
 
+beat=1
 while :; do
   next="$(gtd next --json)" || exit 1
   kind="$(jq -r .kind <<<"$next")"
   log="$(jq -r .log <<<"$next")"
   case "$kind" in
     stalled) jq -r .content <<<"$next" >&2; exit 1 ;;
-    message) jq -r .content <<<"$next"; exit 0 ;;
+    # you re-ran us resting here: you either edited something or accepted by
+    # editing nothing, so land the opening beat either way. Later beats are
+    # gates we just produced and you have not read yet — hand off.
+    message) [ "$beat" = 1 ] || { jq -r .content <<<"$next"; exit 0; } ;;
     capture) ;; # the human already acted — just land it
     script) bash -c "$(jq -r .content <<<"$next")" >>"$log" 2>&1 || true ;;
     prompt)
@@ -668,6 +685,7 @@ while :; do
       done ;;
   esac
   gtd_land || exit 1
+  beat=$((beat + 1))
 done
 ```
 
@@ -675,11 +693,15 @@ Line by line it is the protocol described above: no opening move at all — a
 human's pending edit arrives as the `capture` beat, and a stray `gtd land`
 outside a beat you acted on would author an empty attempt at a clean prompt rest
 on purpose; one `gtd next --json` beat document read per loop (`kind: "stalled"`
-guarding against a spinning agent); `message` halts, `capture` lands a human's
-already-made edit outright, `script` runs in the driver, `prompt` goes to the
-agent with the document's own `session.id`/`session.resume` mapped onto the
-agent's session flags — trying `resume`'s hinted flag first and falling back to
-the other on failure, since `session.id` is derived, not remembered (see
+guarding against a spinning agent); `message` halts unless it is the opening
+beat, which the human's own re-invocation authored and which therefore lands
+like any other decision (see [Driving the loop](#driving-the-loop) above — this
+is the one place the driver, not gtd, decides, because "has the human read this
+gate" is run-scoped knowledge gtd deliberately does not keep); `capture` lands a
+human's already-made edit outright, `script` runs in the driver, `prompt` goes
+to the agent with the document's own `session.id`/`session.resume` mapped onto
+the agent's session flags — trying `resume`'s hinted flag first and falling back
+to the other on failure, since `session.id` is derived, not remembered (see
 [Driving the loop](#driving-the-loop) above) — and its embedded `.validate`
 script's output re-prompted verbatim on failure (the driver owns only the retry
 cap); and every landed turn executed — and reported — by the emitted scripts
