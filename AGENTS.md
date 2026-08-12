@@ -20,6 +20,19 @@
   grows must be documented in its own Prerequisites section, and is a scenario
   failure until it is
 
+### Task graph and caching
+
+`npm test` runs through Turborepo (`turbo.json`), not a serial `&&` chain — each
+check is a task with its own `inputs`, so it's cached (skipped when its inputs
+are unchanged since the last green run) and run in parallel with the others. Two
+rules a future change must not break: adding a check means adding all three of a
+`package.json` script, a `turbo.json` task with an explicit `inputs` array, and
+that task's name to the `test` script's task list — a task missing any of the
+three fails `tests/tooling/turbo.test.ts`. And under-declared `inputs` cache a
+stale green: the canonical example is `README.md` in both e2e tasks' `inputs`,
+because `tests/integration/features/readme-driver.feature` runs it as executable
+code — omitting it would let a broken doc pass on a cached result.
+
 ## Architecture
 
 `CONTEXT.md` is the glossary — the domain language this repo uses (process,

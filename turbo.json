@@ -1,0 +1,58 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "stream",
+  "globalDependencies": ["package.json", "package-lock.json", "tsconfig.json", "mise.toml"],
+  "globalPassThroughEnv": ["CI", "TMPDIR", "TERM", "FORCE_COLOR"],
+  "tasks": {
+    "build": {
+      "inputs": ["src/**", "scripts/**", "tsdown.config.ts"],
+      "outputs": ["dist/**", "schema.json"]
+    },
+    "format:check": {
+      "outputs": []
+    },
+    "lint": {
+      "inputs": ["src/**", "tests/**", "scripts/**", "dev/**", "*.ts", "*.mjs", ".oxlintrc.json"],
+      "outputs": []
+    },
+    "typecheck": {
+      "inputs": ["src/**", "tests/**", "*.ts"],
+      "outputs": []
+    },
+    "deadcode": {
+      "inputs": ["src/**", "tests/**", "*.ts", ".fallowrc.json"],
+      "outputs": []
+    },
+    "test:unit": {
+      "inputs": [
+        "src/**",
+        "tests/tooling/**",
+        "tests/vitest.*.ts",
+        "vitest.config.ts",
+        "turbo.json"
+      ],
+      "outputs": []
+    },
+    "test:e2e:inmem": {
+      "inputs": [
+        "src/**",
+        "tests/integration/**",
+        "tests/vitest.*.ts",
+        "vitest.config.ts",
+        "README.md"
+      ],
+      "outputs": []
+    },
+    "test:e2e:live": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "src/**",
+        "tests/integration/**",
+        "tests/vitest.*.ts",
+        "vitest.config.ts",
+        "README.md"
+      ],
+      "outputs": []
+    }
+  }
+}
