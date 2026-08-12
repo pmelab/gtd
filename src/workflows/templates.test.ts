@@ -173,6 +173,33 @@ describe("the bundled unified workflow template", () => {
       expect(MODES_SUGGESTION.review).not.toHaveProperty("validate")
     })
   })
+
+  it("packages.item.building declares an escape hatch for a package whose work already landed (issue #152)", () => {
+    // A package whose acceptance criteria are already met (an earlier
+    // package's fix turn pulled the work in) must have a legal, non-empty way
+    // to say so, rather than dead-ending in an empty attempt + stall.
+    const { definition } = compileTemplate()
+    const building = definition.states["packages.item.building"]!
+    const edges = building.on ?? []
+    const satisfiedAdd = edges.find(([pattern]) => pattern.includes("A "))
+    const satisfiedMod = edges.find(([pattern]) => pattern.includes("M "))
+    expect(satisfiedAdd?.[1]).toBe("packages.item.health.check")
+    expect(satisfiedAdd?.[3]).toBeTruthy() // action
+    expect(satisfiedMod?.[1]).toBe(satisfiedAdd?.[1])
+  })
+
+  it("packages.item.closing's script sweeps the satisfied-evidence file, and healthGate.check's shared sweep does not", () => {
+    // closing is the single owner of that cleanup: sweeping it earlier (in the
+    // shared healthGate.check) would delete the evidence before spec.review
+    // reads it.
+    const { definition } = compileTemplate()
+    const closing = definition.states["packages.item.closing"]!
+    expect(closing.script).toContain("it.vars.satisfiedFile")
+    const buildHealthCheck = definition.states["build.health.check"]!
+    const packagesHealthCheck = definition.states["packages.item.health.check"]!
+    expect(buildHealthCheck.script).not.toContain("it.vars.satisfiedFile")
+    expect(packagesHealthCheck.script).not.toContain("it.vars.satisfiedFile")
+  })
 })
 
 describe("the bundled template's machine boundaries line up with conversational identity (package 08)", () => {

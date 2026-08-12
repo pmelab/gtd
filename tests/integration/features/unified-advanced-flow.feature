@@ -25,6 +25,15 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
   simulated by writing their verdict files directly and running
   `gtd land` — @inmem never executes the scripts themselves.
 
+  A package whose work already landed (an earlier package's fix turn pulled it
+  in) is not a dead end: at packages.item.building the agent records
+  per-criterion evidence in `.gtd/SATISFIED.md` instead of implementing
+  anything, and the package still runs the checks and the spec review before
+  closing out (issue #152). If a build turn authors nothing at all instead, the
+  turn lands an empty attempt and `gtd next` reports the queue as stalled — the
+  supported recovery is a human writing that same `.gtd/SATISFIED.md` file and
+  running `gtd land`, no hand-authored state commit.
+
   Scenario: idle forks on the entry file — REQUIREMENTS.md starts the advanced flow gate
     Given a test project
     And the workflow
@@ -283,6 +292,184 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
     When I run gtd status
     Then it succeeds
     And stdout contains "State: build.review.await-review"
+
+  Scenario: a package whose work already landed closes out via .gtd/SATISFIED.md
+    Given a test project
+    And the workflow
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build a widget.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → spec-gate.check"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): spec-gate.check → design.product-author"
+
+    Given ".gtd/REQUIREMENTS.md" is modified to:
+      """
+      Build a widget. Product plan: it exposes a `widget()` factory.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): design.product-author → design.product-answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.product-answer → design.technical-author"
+
+    Given the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: src/widget.ts with a factory function.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): design.technical-author → design.technical-answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.technical-answer → design.decompose"
+
+    Given the file ".gtd/ARCHITECTURE.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget factory. Independent tasks:
+      - [ ] add src/widget.ts
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): design.decompose → packages.picking"
+
+    Given a file ".gtd/NEXT.md" with:
+      """
+      .gtd/packages/01-widget.md
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
+
+    # packages.item.building: an earlier package's fix turn already implemented
+    # the widget factory — the agent records evidence instead of implementing
+    # anything
+    Given a file ".gtd/SATISFIED.md" with:
+      """
+      - [x] add src/widget.ts — already present, see commit
+        "gtd(agent): design.decompose → packages.picking"
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+
+    # packages.item.health.check (green) -> packages.item.spec.review
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
+
+    # packages.item.spec.review (clean = approval — the reviewer's own range is
+    # process-wide, so it can see the earlier package's commit that satisfied
+    # this spec) -> packages.item.closing
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
+
+    # packages.item.closing: removes the package file, NEXT.md, and the
+    # satisfied evidence -> packages.picking
+    Given the file ".gtd/packages/01-widget.md" is deleted
+    And the file ".gtd/NEXT.md" is deleted
+    And the file ".gtd/SATISFIED.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.item.closing → packages.picking"
+
+    # packages.picking: the queue is now empty — a clean step closes out to the
+    # shared review tail
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.picking → build.review.reviewing"
+
+  Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
+    Given a test project
+    And the workflow
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build a widget.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → spec-gate.check"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): spec-gate.check → design.product-author"
+
+    Given ".gtd/REQUIREMENTS.md" is modified to:
+      """
+      Build a widget. Product plan: it exposes a `widget()` factory.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): design.product-author → design.product-answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.product-answer → design.technical-author"
+
+    Given the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: src/widget.ts with a factory function.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): design.technical-author → design.technical-answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.technical-answer → design.decompose"
+
+    Given the file ".gtd/ARCHITECTURE.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget factory. Independent tasks:
+      - [ ] add src/widget.ts
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): design.decompose → packages.picking"
+
+    Given a file ".gtd/NEXT.md" with:
+      """
+      .gtd/packages/01-widget.md
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
+
+    # packages.item.building: the agent's turn changes nothing (the issue's
+    # regression case) — a clean tree at a prompt rest with no "C" row lands an
+    # empty attempt instead of implementing anything
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.building"
+    And the git status is clean
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"kind\":\"stalled\""
+    And the json field "content" contains "stalled at \"packages.item.building\""
+
+    # the supported recovery: a human writes the satisfied evidence themselves
+    # and runs gtd land — no hand-authored state commit
+    Given a file ".gtd/SATISFIED.md" with:
+      """
+      - [x] add src/widget.ts — already present, see commit
+        "gtd(agent): design.decompose → packages.picking"
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
 
   Scenario: a custom two-level nested machine reference resolves $param bindings and qualified names across both levels
     Given a test project
