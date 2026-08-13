@@ -289,8 +289,9 @@ export const steeringFileOutcome = (
  * Everything protocol-independent `SteeringLanguageService` needs from its
  * environment, so the service is testable against a fake — no real IO, no
  * `vscode-languageserver` connection. `steeringMapFor`/`gitTopLevel`/
- * `currentSteeringFile` may REJECT (a bad `.gtdrc`, no git repo, an unresolvable
- * process state); the service catches every rejection itself and degrades
+ * `currentSteeringFile` may REJECT (a bad `.gtdrc`, no git repo, a repository
+ * with no commits, an unresolvable process state); the service catches every
+ * rejection itself and degrades
  * gracefully (see `makeSteeringLanguageService`), so an `LspEnv` implementation
  * needn't defend against its own failures.
  */

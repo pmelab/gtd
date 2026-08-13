@@ -1397,11 +1397,7 @@ machines:
       # no guard at all. Names the reverted commit via `it.currentCommit`
       # (they're the same commit here), NOT a bare `HEAD` — pinning the
       # render-time hash keeps the script correct even if a driver runs it
-      # late. `git revert` refuses a ROOT commit (no parent to revert
-      # against) — which happens when a process starts in a repository with
-      # no commits at all (see empty-repository.feature); the script falls
-      # back to resetting against git's well-known empty-tree hash there,
-      # since there is no real parent commit to name instead.
+      # late.
       unwind:
         actor: check
         label: Unwinding your input
@@ -1412,19 +1408,9 @@ machines:
           set +e
           # Hoist the commit hash once, at the TOP: Eta's autoTrim eats the
           # newline after an interpolation tag, so no tag may be the last
-          # token on a line — it would glue the next line's `else` onto it
-          # and silently fold the whole else-branch into the then-branch.
-          # Below this point everything is plain bash.
+          # token on a line.
           commit="<%~ it.currentCommit %>"
-          if git rev-parse --verify -q "$commit^" >/dev/null; then
-            git revert --no-commit "$commit"
-          else
-            # A ROOT entry commit (the process started in a repo with no
-            # commits at all) has no parent for `git revert` to diff against
-            # — reset to the empty tree instead, removing everything the
-            # entry commit added.
-            git read-tree -u --reset 4b825dc642cb6eb9a060e54bf8d69288fbee4904
-          fi
+          git revert --no-commit "$commit"
         on:
           "* **": start-gate
 

@@ -59,26 +59,23 @@ import { COLLAPSED_TEXT, commitOutcome, noteOutcome, transitionOutcome } from ".
  * (`src/ReviewWindow.ts` opens/closes around every command; a `Rest` resolved
  * before that bracket runs would resolve against the wrong HEAD).
  *
- * `currentRest`/`restAt` resolve the following stages, in order, threading a
- * single `hasCommits()` read through every stage that needs it (today's three
- * separate calls collapse to one):
+ * `currentRest`/`restAt` resolve the following stages, in order:
  *
  *  1. `config.load`
- *  2. `hasCommits()`
- *  3. `lastCommitSubject(ref)` when there are commits
- *  4. the pure `resolveRestFrom(def, headSubject)` → `ResolvedRest`, or the
+ *  2. `lastCommitSubject(ref)`
+ *  3. the pure `resolveRestFrom(def, headSubject)` → `ResolvedRest`, or the
  *     renamed-state refusal
- *  5. `commitHistory()` → `ProcessRun`
- *  6. `vars` — the four-layer merge (workflow < rc < entry commit < env)
- *  7. `on` — the resting state's `on` edges, rendered against `vars` (Eta
+ *  4. `commitHistory()` → `ProcessRun`
+ *  5. `vars` — the four-layer merge (workflow < rc < entry commit < env)
+ *  6. `on` — the resting state's `on` edges, rendered against `vars` (Eta
  *     templates; `vars` must precede this)
- *  8. `stepDef` — `def` with `on` patched onto the resting state, the shape
+ *  7. `stepDef` — `def` with `on` patched onto the resting state, the shape
  *     `PatternMachine.step` must be fed
- *  9. `reviewBase` — the pure `reviewBaseFor(def, run)`
- * 10. `changes` — `changedPaths()`
- * 11. `context` — the full `TemplateContext` (`on` and `reviewBase` both feed
+ *  8. `reviewBase` — the pure `reviewBaseFor(def, run)`
+ *  9. `changes` — `changedPaths()`
+ * 10. `context` — the full `TemplateContext` (`on` and `reviewBase` both feed
  *     it — `it.edges` derives from `on`)
- * 12. `memory`, then `hints` (`model`/`label`/`file` rendered against
+ * 11. `memory`, then `hints` (`model`/`label`/`file` rendered against
  *     `context`; `mode` passed through verbatim)
  *
  * Two module rules, enforced on this file itself: a private helper with only
@@ -284,8 +281,7 @@ type RestResolution =
 
 /**
  * Resolve a HEAD commit's subject against the active workflow definition —
- * PURE: no git, no Effect. `headSubject` is `""` when the repo has no commits
- * yet (the caller supplies it, already read).
+ * PURE: no git, no Effect.
  *
  * A HEAD subject that DOES parse as a `gtd(actor): state` commit, but whose
  * named state the CURRENT workflow definition doesn't declare AT ALL, is
@@ -378,8 +374,8 @@ export interface ProcessRun {
   /**
    * HEAD's own commit, when its subject parses to a state the ACTIVE
    * definition still declares as a defined, non-commit state — `undefined`
-   * for an empty repo or a foreign/unparseable HEAD subject (a plain non-gtd
-   * commit, or a state a workflow change has since removed). `empty` is that
+   * for a foreign/unparseable HEAD subject (a plain non-gtd commit, or a
+   * state a workflow change has since removed). `empty` is that
    * entry's own `touched.length === 0` — the "did this turn's commit change
    * anything" question `stalledAt` needs, read straight off the SAME
    * `commitHistory` array `trace` is already built from, at zero extra git
@@ -448,8 +444,7 @@ const parseEntryCommitOverrides = (
  * (`trace: []`, `startHash`/`startParentHash` both HEAD's own hash) — the
  * same shape a fresh rest at a squashed boundary has always had.
  *
- * `hasCommits` is supplied by the caller (already read once — see the module
- * doc comment's stage ordering) rather than re-read here. `head` — a resolved
+ * `head` — a resolved
  * hash, never a symbolic ref — overrides the literal `HEAD` the walk would
  * otherwise end at: `restAt`'s window-aware branch passes the review
  * checkout window's saved-head hash here while the window is open, so the
@@ -461,21 +456,9 @@ const parseEntryCommitOverrides = (
 const computeProcessRun = (
   git: GitOperations,
   def: WorkflowDefinition,
-  hasCommits: boolean,
   head?: string,
 ): Effect.Effect<ProcessRun, Error> =>
   Effect.gen(function* () {
-    if (!hasCommits)
-      return {
-        startHash: "",
-        startParentHash: EMPTY_TREE,
-        diffBase: EMPTY_TREE,
-        trace: [],
-        costEntries: [],
-        entryVars: {},
-        headTurn: undefined,
-      }
-
     const initialState = initialStateOf(def)
     const history = yield* git.commitHistory(undefined, head) // oldest -> newest, full first-parent history
     let i = history.length - 1
@@ -518,9 +501,8 @@ export const currentRun: Effect.Effect<ProcessRun, Error, GitService | ConfigSer
   function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const hasCommits = yield* git.hasCommits()
     const windowHead = Option.getOrUndefined(yield* git.readRefOption(REVIEW_HEAD_REF))
-    return yield* computeProcessRun(git, config.workflow, hasCommits, windowHead)
+    return yield* computeProcessRun(git, config.workflow, windowHead)
   },
 )
 
@@ -742,9 +724,7 @@ const withRenderedOn = (
  * breakdown including the squashing step) — `0`/absent for the pure emitters
  * (`gtd next`/`gtd status`), where no step is being performed. No diff is ever
  * computed here — `it.reviewBase`/`it.retainedBase` are bases a template tells
- * the agent to `git diff` itself. `hasCommits` is supplied by the caller
- * (already read once — see the module doc comment's stage ordering) rather
- * than re-read here.
+ * the agent to `git diff` itself.
  */
 const buildTemplateContext = (
   git: GitOperations,
@@ -757,15 +737,12 @@ const buildTemplateContext = (
   currentCost: number,
   currentModel: string | undefined,
   reviewBase: string,
-  hasCommits: boolean,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
-    const currentCommit = hasCommits ? yield* git.resolveRef("HEAD") : ""
-    const previousCommit = hasCommits
-      ? yield* git
-          .resolveRef("HEAD~1")
-          .pipe(Effect.catchAll(() => Effect.succeed(run.startParentHash)))
-      : ""
+    const currentCommit = yield* git.resolveRef("HEAD")
+    const previousCommit = yield* git
+      .resolveRef("HEAD~1")
+      .pipe(Effect.catchAll(() => Effect.succeed(run.startParentHash)))
     // Fold the in-flight step's own cost into the committed entries so a squash
     // template (rendered against the pending tree) counts the squashing step too.
     const stepEntry =
@@ -876,7 +853,7 @@ const omitUndefined = <T extends Record<string, unknown>>(
  * Resolve `Rest` at an arbitrary ref (`gtd visualize` reading the review
  * window's saved head via `REVIEW_HEAD_REF`, or `undefined` for HEAD itself —
  * see `currentRest`). Assembles every stage documented in the module doc
- * comment, threading one `hasCommits()` read through stages 3/5/11.
+ * comment.
  *
  * Window-aware ONLY at `ref === undefined` (`currentRest`'s own case): when
  * the review checkout window's saved-head ref (`REVIEW_HEAD_REF`) resolves,
@@ -900,20 +877,18 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const envVars = yield* EnvVars
     const def = config.workflow
 
-    const hasCommits = yield* git.hasCommits()
-
     let windowHead: string | undefined
     if (ref === undefined) {
       windowHead = Option.getOrUndefined(yield* git.readRefOption(REVIEW_HEAD_REF))
     }
     const effectiveRef = windowHead ?? ref
 
-    const headSubject = hasCommits ? yield* git.lastCommitSubject(effectiveRef) : ""
+    const headSubject = yield* git.lastCommitSubject(effectiveRef)
     const resolution = resolveRestFrom(def, headSubject)
     if (!resolution.ok) return yield* Effect.fail(resolution.error)
     const resolved = resolution.rest
 
-    const run = yield* computeProcessRun(git, def, hasCommits, windowHead)
+    const run = yield* computeProcessRun(git, def, windowHead)
     const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
     const on = yield* renderOnEdgesOrFail(resolved.stateDef.on, vars)
     const stepDef = withRenderedOn(def, resolved.state, on)
@@ -936,7 +911,6 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       0,
       undefined,
       reviewBase,
-      hasCommits,
     )
     const memory = memoryKeyFor(config.stateScopes, resolved, run)
     const memoryResumed = memoryResumedFor(def, config.stateScopes, resolved, run)
@@ -1137,7 +1111,6 @@ export const contextAt = (
       targetState === rest.state
         ? rest.on
         : yield* renderOnEdgesOrFail(rest.def.states[targetState]?.on, rest.vars)
-    const hasCommits = yield* git.hasCommits()
     return yield* buildTemplateContext(
       git,
       templateRead(files),
@@ -1149,7 +1122,6 @@ export const contextAt = (
       cost ?? 0,
       model,
       reviewBaseFor(rest.def, rest.run),
-      hasCommits,
     )
   })
 
@@ -1301,9 +1273,8 @@ export const renderDecision = (
 /**
  * The `EmitPreconditions` a step's/entry's assembled scripts assert against:
  * `expectedHead` is the resolved HEAD hash the `Rest` snapshot was already
- * taken at — `rest.context.currentCommit`, passed straight through, `""`
- * included (its own convention for "no commits yet", which `headAssertion`
- * now understands natively). When `targetState` declares `reviewWindow: true`
+ * taken at — `rest.context.currentCommit`, passed straight through. When
+ * `targetState` declares `reviewWindow: true`
  * AND a window is currently open (`REVIEW_HEAD_REF` resolves), the script also
  * pins the window's saved-head hash — a later run whose window has since
  * closed or moved must re-decide rather than trust a stale script. No window,

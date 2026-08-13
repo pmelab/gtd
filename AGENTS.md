@@ -59,14 +59,14 @@ description, and must be preserved:
   derivation of history (`uuidv5` of the resting state's memory key) and write
   nothing; no command — `next`, `status`, or `land` — touches the git dir to
   record that a beat was dispatched. Every write gtd causes happens inside a
-  script it emitted and the driver ran — including the one script that moves
-  HEAD, `start-gate.check`'s own baseline checkout (below): that's still the
-  driver running an emitted script, not a command reaching into git itself. A
-  command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`) and hands it
-  to `planStep`/`planEntry` — `src/program.ts` never reaches into `GitService`
-  directly except two narrow exceptions: the `abandon`/`restore` hard/mixed
-  resets (recovery commands that must work even when a `Rest` would refuse — see
-  `runAbandonCommand`'s own doc comment), and the review sign-off/
+  script it emitted and the driver ran — the review window's own
+  `git reset --mixed` open and close, and the squash finale's soft reset: those
+  are the driver running an emitted script, not a command reaching into git
+  itself. A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`) and
+  hands it to `planStep`/`planEntry` — `src/program.ts` never reaches into
+  `GitService` directly except two narrow exceptions: the `abandon`/`restore`
+  hard/mixed resets (recovery commands that must work even when a `Rest` would
+  refuse — see `runAbandonCommand`'s own doc comment), and the review sign-off/
   feedback-progress gates' own `readFileAtRef` reads (they need the COMMITTED,
   pre-turn copy of a file, which a `Rest` snapshot — taken before the turn lands
   — doesn't carry). The review window and the steering-file gate are
@@ -258,6 +258,10 @@ parser, one envelope. The table is the source of truth, not prose:
   agent-event stream in the CLI. Do not re-add `--verbose`/`--debug` (or any
   output-mode flag) without wiring it to a real, tested concern; the flags must
   never exist only in the help text
+- A command's preconditions live in `src/program.ts`'s `needsOf` table, not
+  scattered `if`s: `needs: "state"` means a repository root **and** at least one
+  commit, both enforced once in `runCommand` ahead of dispatch — no rest
+  resolver downstream carries its own commitless branch
 
 ## Step capture
 

@@ -470,12 +470,6 @@ describe("currentRun", () => {
       const run = await provide(currentRun, repo)
       expect(run.headTurn).toBeUndefined()
     })
-
-    it("is undefined for an empty repo", async () => {
-      const repo = new InMemRepo()
-      const run = await provide(currentRun, repo)
-      expect(run.headTurn).toBeUndefined()
-    })
   })
 })
 

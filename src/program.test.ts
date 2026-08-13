@@ -10,15 +10,16 @@
  * like the `@inmem` e2e tier (`tests/integration/support/inmem/cliIo.ts`).
  */
 
-import { Effect } from "effect"
+import { Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
-import { runCli } from "./Cli.js"
+import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"
-import { computeNextMatch } from "./program.js"
+import { computeNextMatch, needsOf, runCommand } from "./program.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { renderInitConfig } from "./workflows/templates.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { makeCapturingCliIo } from "./testing/cliIo.js"
+import { testLayers } from "./testing/Layers.js"
 import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
 import { commitAll, shellQuote } from "./GitScript.js"
 import { HISTORY_REF } from "./RetainedHistory.js"
@@ -1690,5 +1691,81 @@ describe("a step that DELETES its state's own steering file", () => {
     expect(exitCode).toBe(0)
     const { required } = JSON.parse(stdout) as { required: string }
     expect(required).toContain("fmt-notes NOTES.md")
+  })
+})
+
+describe("runCommand — refuses in a repository with no commits", () => {
+  // A minimal, type-checked `Command` for every kind — `Record<Command["kind"],
+  // Command>` means a future kind added to `Cli.ts`'s `Command` union fails
+  // this file's typecheck until it gets an entry here, so `stateKinds` below
+  // (derived from `needsOf`, not hand-copied) picks up a new "state" kind
+  // automatically rather than silently skipping it.
+  const commandFor: Record<Command["kind"], Command> = {
+    lsp: { kind: "lsp" },
+    init: { kind: "init" },
+    visualize: { kind: "visualize", port: 4000, open: false },
+    land: { kind: "land" },
+    entry: { kind: "entry", actor: "human", state: "idle", vars: {}, label: "" },
+    abandon: { kind: "abandon" },
+    restore: { kind: "restore" },
+    next: { kind: "next" },
+    status: { kind: "status" },
+    validate: { kind: "validate" },
+    check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
+    install: { kind: "install" },
+  }
+
+  const stateKinds = (Object.keys(commandFor) as Command["kind"][]).filter(
+    (kind) => needsOf(kind) === "state",
+  )
+
+  const NO_COMMITS_MESSAGE =
+    "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+
+  it("derives exactly the seven non-standalone kinds — a canary for the table-driven cases below", () => {
+    expect(stateKinds.sort()).toEqual(
+      ["abandon", "entry", "land", "next", "restore", "status", "validate"].sort(),
+    )
+  })
+
+  it.each(stateKinds)(
+    "%s refuses with the pinned message, creates no commit, and writes no script",
+    async (kind) => {
+      const repo = new InMemRepo()
+      const before = repo.commitHistory().length
+      const written: string[] = []
+      const write = (chunk: string) => {
+        written.push(chunk)
+      }
+
+      const exit = await Effect.runPromiseExit(
+        runCommand(commandFor[kind], false, write).pipe(Effect.provide(testLayers(repo))),
+      )
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(String(exit.cause)).toContain(NO_COMMITS_MESSAGE)
+      }
+      expect(repo.hasCommits()).toBe(false)
+      expect(repo.commitHistory()).toHaveLength(before)
+      expect(written).toEqual([])
+    },
+  )
+
+  it("a repository with a commit passes the guard and dispatches normally", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.commitAllWithPrefix("chore: init gtd workflow")
+    const written: string[] = []
+    const write = (chunk: string) => {
+      written.push(chunk)
+    }
+
+    const exit = await Effect.runPromiseExit(
+      runCommand({ kind: "status" }, false, write).pipe(Effect.provide(testLayers(repo))),
+    )
+
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(written.length).toBeGreaterThan(0)
   })
 })

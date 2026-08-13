@@ -465,13 +465,21 @@ export class GtdWorld extends QuickPickleWorld {
     if (this.repo !== undefined) {
       return this.repo.commitHistory().length
     }
-    return parseInt(
-      execSync("git rev-list --count HEAD", {
-        cwd: this.repoDir,
-        encoding: "utf-8",
-      }).trim(),
-      10,
-    )
+    // An unborn HEAD (a `git init`'d repository with no commits yet) makes
+    // `git rev-list --count HEAD` fail outright rather than print "0" — treat
+    // that failure as zero commits rather than letting it throw.
+    try {
+      return parseInt(
+        execSync("git rev-list --count HEAD", {
+          cwd: this.repoDir,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        }).trim(),
+        10,
+      )
+    } catch {
+      return 0
+    }
   }
 
   /** Porcelain status with untracked files listed individually. */

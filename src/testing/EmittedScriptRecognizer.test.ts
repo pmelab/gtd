@@ -386,30 +386,6 @@ describe("applyEmittedScript — src/Emit.ts's real head assertion", () => {
     expect(repo.resolveRef("HEAD")).toBe(actualHead)
     expect(repo.lastCommitMessage()).toBe("chore: first")
   })
-
-  it("an unborn HEAD (expectedHead '') matches a repo with no commits yet", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-
-    const script = [headAssertion(""), commitAll("gtd(agent): first")].join("\n\n")
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result).toEqual({ ok: true })
-    expect(repo.lastCommitMessage()).toBe("gtd(agent): first")
-  })
-
-  it("an unborn-HEAD assertion fails against a repo that already has commits", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
-
-    const script = [headAssertion(""), commitAll("gtd(agent): should never land")].join("\n\n")
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain("repository changed")
-    expect(repo.lastCommitMessage()).toBe("chore: first")
-  })
 })
 
 describe("applyEmittedScript — src/Emit.ts's review-window-ref assertion", () => {
@@ -454,14 +430,19 @@ describe("applyEmittedScript — src/Emit.ts's review-window-ref assertion", () 
 describe("applyEmittedScript — a realistic src/Emit.ts-assembled script (gtd_retry-wrapped)", () => {
   it("commitAll wrapped in gtd_retry applies exactly like commitAllWithPrefix", () => {
     const repo = new InMemRepo()
+    repo.writeFile("base.txt", "0")
+    repo.commitAllWithPrefix("chore: first")
+    const head = repo.resolveRef("HEAD")!
     repo.writeFile("a.txt", "1")
     const twin = new InMemRepo()
+    twin.writeFile("base.txt", "0")
+    twin.commitAllWithPrefix("chore: first")
     twin.writeFile("a.txt", "1")
 
     const steps: readonly EmitStep[] = [
       { kind: "gitWrite", command: commitAll("gtd(agent): building") },
     ]
-    const { required } = emitScripts({ expectedHead: "" }, steps)
+    const { required } = emitScripts({ expectedHead: head }, steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
     twin.commitAllWithPrefix("gtd(agent): building")
 
@@ -634,15 +615,20 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
 
   it("a realistic assembled script — commitAll's gitWrite plus a trailing outcome step — applies exactly like commitAllWithPrefix, the outcome step contributing nothing", () => {
     const repo = new InMemRepo()
+    repo.writeFile("base.txt", "0")
+    repo.commitAllWithPrefix("chore: first")
+    const head = repo.resolveRef("HEAD")!
     repo.writeFile("a.txt", "1")
     const twin = new InMemRepo()
+    twin.writeFile("base.txt", "0")
+    twin.commitAllWithPrefix("chore: first")
     twin.writeFile("a.txt", "1")
 
     const steps: readonly EmitStep[] = [
       { kind: "gitWrite", command: commitAll("gtd(agent): building") },
       { kind: "outcome", command: commitOutcome("gtd(agent): building") },
     ]
-    const { required } = emitScripts({ expectedHead: "" }, steps)
+    const { required } = emitScripts({ expectedHead: head }, steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
     twin.commitAllWithPrefix("gtd(agent): building")
 

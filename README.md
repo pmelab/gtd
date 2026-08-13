@@ -72,6 +72,13 @@ directory (not a git repo) to seed a shared config a nested repo picks up. To
 customize the machine itself, add a `workflow:` key (there is no default
 fallback to merge over — a `workflow:` is the whole definition).
 
+gtd requires a repository with **at least one commit** before any state command
+(`land`, `--entry`, `next`, `status`, `abandon`, `restore`, `validate`) will run
+— there is no workflow state to derive from an empty history. Committing the
+`.gtdrc.json` above (or anything else) satisfies this by construction;
+`gtd init`, `gtd install`, `gtd lsp`, `gtd visualize`, and `gtd check` are
+unaffected since none of them derive workflow state.
+
 ## How it works
 
 gtd is a small **pattern machine**: named states, each awaiting one actor and
@@ -785,17 +792,14 @@ emitted script opens by asserting its own precondition
 and the same shape for a review window's saved ref — see `src/Emit.ts`'s
 `headAssertion`/`reviewWindowAssertion`), so a script generated against a
 repository state that has since moved refuses loudly instead of corrupting
-anything. In a repository with no commits yet, `<expected>` is the empty string
-— the deciding read's own convention for "no commits yet" — so the first
-workflow commit is allowed to land instead of being blocked by an unborn `HEAD`.
-**Emitted scripts are re-runnable**: this is the single most important property
-for a driver's recovery logic. Re-running a script that already fully applied is
-a no-op (its git writes are `--allow-empty` commits, idempotent ref updates, and
-tolerant staged-restore calls), and re-running one that only partially applied
-resumes correctly, because the precondition either still holds (nothing landed
-yet — safe to retry verbatim) or gtd's next invocation reads the new real state
-and emits a fresh script for what remains. A driver never needs its own
-retry/resume logic beyond "if the script failed, ask gtd again."
+anything. **Emitted scripts are re-runnable**: this is the single most important
+property for a driver's recovery logic. Re-running a script that already fully
+applied is a no-op (its git writes are `--allow-empty` commits, idempotent ref
+updates, and tolerant staged-restore calls), and re-running one that only
+partially applied resumes correctly, because the precondition either still holds
+(nothing landed yet — safe to retry verbatim) or gtd's next invocation reads the
+new real state and emits a fresh script for what remains. A driver never needs
+its own retry/resume logic beyond "if the script failed, ask gtd again."
 
 ### Prerequisites
 
