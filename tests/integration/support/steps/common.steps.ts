@@ -126,6 +126,22 @@ Given("the working tree is committed", (world: GtdWorld) => {
   }
 })
 
+// Like the step above, but under a caller-supplied subject — for building a
+// SINGLE commit out of several preceding working-tree edits (a file write plus
+// a deletion, say) that each need to land together, e.g. simulating a real
+// gtd turn's own multi-path commit.
+Given("the working tree is committed as {string}", (world: GtdWorld, message: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.commitAllWithPrefix(message)
+  } else {
+    execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-q", "-m", message], {
+      cwd: world.repoDir,
+      stdio: "pipe",
+    })
+  }
+})
+
 // Bookmarks the CURRENT commit under a name a later step can reference as a
 // `<commitish>` (e.g. `gtd review <name>`) — a repo-local ref, exactly like
 // `git branch <name>` (real git) or a plain named ref (in-memory). Composable

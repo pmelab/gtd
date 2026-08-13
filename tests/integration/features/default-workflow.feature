@@ -22,12 +22,13 @@ Feature: The bundled unified workflow — one flow, end to end
   `packages.item.closing`, `build.health.check`, `build.review.deciding`) is
   simulated on the `@inmem` scenarios below by writing its verdict file
   directly and running `gtd land` — `@inmem` never executes the scripts
-  themselves. The one scenario that actually needs the real shell script
-  (`design.gate.check`'s HEAD-stamping mechanic) is tagged `@live` and runs it
-  for real via "I execute the printed check script".
+  themselves. Two scenarios actually need the real shell script
+  (`design.gate.check`'s HEAD-stamping mechanic, and `re-unwind`'s scoped
+  revert) and are tagged `@live`, running it for real via "I execute the
+  printed check script".
 
   @inmem
-  Scenario: an ordinary code change starts the process — triage, both gates skip when question-free, one package built/fixed/reviewed, then a review feedback round into the squash finale
+  Scenario: an ordinary code change starts the process — triage, both gates skip when question-free, one package built/fixed/reviewed, then a clean review sign-off into the squash finale
     Given a test project
     And the workflow
     # No steering file anywhere — a plain source edit is the whole start diff.
@@ -194,7 +195,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And stdout contains "State: build.review.await-review"
 
-    # await-review: a COMMENT is feedback — a note added to the line
+    # await-review: tick every box, leave no comment -> sign-off
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -202,77 +203,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
       ## Add greeter.ts
 
-      - [x] ./src/greeter.ts#1 — new export — also add a doc comment
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
-
-    # build.review.deciding: captures the raw material, removes REVIEW.md
-    Given a file ".gtd/REVIEW_RAW.md" with:
-      """
-      Raw review material captured for classification.
-
-      ## Notes the human added to REVIEW.md this round
-
-      - [x] ./src/greeter.ts#1 — new export — also add a doc comment
-      """
-    And the file ".gtd/REVIEW.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
-
-    # build.review.collecting: turns it into instructions -> build.addressing
-    Given a file ".gtd/REVIEW_FEEDBACK.md" with:
-      """
-      1. ./src/greeter.ts#1 — add a doc comment above the new export
-      """
-    And the file ".gtd/REVIEW_RAW.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.collecting → build.addressing"
-
-    # build.addressing: implements it, deletes the feedback file -> health.check
-    Given the file ".gtd/REVIEW_FEEDBACK.md" is deleted
-    And "src/greeter.ts" is modified to:
-      """
-      // Greets the world.
-      export const greet = () => "hi"
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.addressing → build.health.check"
-
-    # build.health.check (green) -> build.review.reviewing regenerates an
-    # INCREMENTAL REVIEW.md
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: def5678
-      <!-- base: def5678901234567890123456789012345678abc -->
-
-      ## Doc comment
-
-      - [ ] ./src/greeter.ts#1 — doc comment added
-      """
-    When I run gtd land
-    Then it succeeds
-    And the git ref "refs/worktree/gtd/review-head" exists
-    When I run gtd status
-    Then it succeeds
-    And stdout contains "State: build.review.await-review"
-
-    # await-review: tick every box, leave no comment -> sign-off
-    Given ".gtd/REVIEW.md" is modified to:
-      """
-      # Review: def5678
-      <!-- base: def5678901234567890123456789012345678abc -->
-
-      ## Doc comment
-
-      - [x] ./src/greeter.ts#1 — doc comment added
+      - [x] ./src/greeter.ts#1 — new export
       """
     When I run gtd land
     Then it succeeds
@@ -286,13 +217,13 @@ Feature: The bundled unified workflow — one flow, end to end
     # `done` collapses the whole process into a single commit
     Given a file ".gtd/COMMIT_MSG.md" with:
       """
-      feat: add greeting export with a doc comment
+      feat: add greeting export
 
-      Implements the greet export and documents it.
+      Implements the greet export.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "feat: add greeting export with a doc comment"
+    And the last commit subject is "feat: add greeting export"
     And the git status is clean
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/ARCHITECTURE.md" does not exist
@@ -300,6 +231,212 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/REVIEW.md" does not exist
     And ".gtd/COMMIT_MSG.md" does not exist
     And "src/greeter.ts" exists
+
+  @inmem
+  Scenario: an actionable review round loops back through re-unwind — the human's hand-edit is out of the tree by the time triage runs
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1 — new add function
+      """
+    # await-review: a hand-edit to real code is feedback
+    Given a file "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      // TODO: also export a sum() alias
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+
+    # build.review.deciding: CAPTURES the raw material (never interprets it),
+    # removes REVIEW.md
+    Given a file ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+
+      Commit: deadbeef
+      """
+    And the file ".gtd/REVIEW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
+
+    # build.review.collecting: JUDGES the round actionable — a hand-edit to
+    # real code — and CLASSIFIES it straight into REQUIREMENTS.md (never an
+    # instruction list for a builder), then consumes the raw capture -> the
+    # root's own re-unwind
+    Given a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Export a sum alias
+
+      TECHNICAL — the review hand-edited `src/calc.ts` with a
+      `// TODO: also export a sum() alias` comment; add a `sum` export
+      alongside `add`.
+      """
+    And the file ".gtd/REVIEW_RAW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.review.collecting → re-unwind"
+    And ".gtd/REVIEW_RAW.md" does not exist
+
+    # re-unwind: simulate the scoped `git apply -R` — @inmem never executes
+    # scripts — by reverting the human's hand-edited line ourselves. The
+    # human's intent survives only in their own "await-review → deciding"
+    # commit, for design.triage to read from history.
+    Given "src/calc.ts" is modified to:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): re-unwind → design.triage"
+    And "src/calc.ts" does not contain "TODO"
+    And ".gtd/REQUIREMENTS.md" exists
+
+  @inmem
+  Scenario: a non-actionable review round (an approving remark, no code edit) short-circuits straight to sign-off
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1 — new add function
+      """
+    # await-review: a note is still feedback-shaped from deciding's own
+    # point of view (any REVIEW.md edit beyond a tick), even though it's just
+    # an approving remark
+    Given ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## calc
+      - [x] ./src/calc.ts#1 — new add function — nice work, looks great
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+
+    Given a file ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+
+      Commit: deadbeef
+      """
+    And the file ".gtd/REVIEW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
+
+    # build.review.collecting: JUDGES the round NON-actionable (only an
+    # approving remark) — CONSUMES the raw capture (deletes it, the only
+    # change this turn) -> straight to sign-off, no design lap for nothing,
+    # and nothing left over to leak into the finale
+    Given the file ".gtd/REVIEW_RAW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.review.collecting → build.squashing"
+    And ".gtd/REVIEW_RAW.md" does not exist
+    And ".gtd/REQUIREMENTS.md" does not exist
+
+    # build.squashing: the agent writes the one-commit message; entering
+    # `done` collapses the whole process into a single commit — the consumed
+    # raw capture must not resurface here, the exact leak Task 3's own
+    # criterion warns about
+    Given a file ".gtd/COMMIT_MSG.md" with:
+      """
+      chore: human review
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "chore: human review"
+    And the git status is clean
+    And ".gtd/REVIEW_RAW.md" does not exist
+    And ".gtd/COMMIT_MSG.md" does not exist
+
+  @live
+  Scenario: re-unwind actually reverts a hand-edited code line, never resurrects the review file, and leaves the state dir alone
+    Given a test project
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And the working tree is committed as "gtd(agent): build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+      - [ ] ./src/thing.ts#1
+      """
+    And the working tree is committed as "gtd(check): build.review.reviewing → build.review.await-review"
+    Given "src/thing.ts" is modified to:
+      """
+      export const thing = 1
+      // TODO: also export doubled
+      """
+    And the file ".gtd/REVIEW.md" is deleted
+    And a file ".gtd/marker.md" with:
+      """
+      keep this — under stateDir, must survive the revert
+      """
+    And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
+    And an empty commit "gtd(agent): build.review.collecting → re-unwind"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And I execute the printed check script
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): re-unwind → design.triage"
+    And "src/thing.ts" does not contain "TODO"
+    And ".gtd/REVIEW.md" does not exist
+    And ".gtd/marker.md" exists
+
+  @live
+  Scenario: re-unwind on a note-only review round applies no patch (an empty patch is not a valid git apply input) and the C row still advances to design.triage
+    Given a test project
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And the working tree is committed as "gtd(agent): build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+      - [ ] ./src/thing.ts#1
+      """
+    And the working tree is committed as "gtd(check): build.review.reviewing → build.review.await-review"
+    Given ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+      - [x] ./src/thing.ts#1 — looks great, nice work
+      """
+    And the file ".gtd/REVIEW.md" is deleted
+    And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
+    And an empty commit "gtd(agent): build.review.collecting → re-unwind"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And I execute the printed check script
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): re-unwind → design.triage"
+    And the git status is clean
 
   @inmem
   Scenario: writing the bundled sketch file alone starts a process — idle's file: hint is the same nested path its edge pattern already covers
@@ -717,15 +854,15 @@ Feature: The bundled unified workflow — one flow, end to end
       ## A
       - [ ] ./fileA.ts#1
       """
-    And a commit "gtd(human): build.review.deciding" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+    And a commit "gtd(human): build.review.deciding" that adds ".gtd/REVIEW_RAW.md" with:
       """
       Feedback:
       - [ ] ./fileA.ts#1 — also add B
       """
     And I mark the current commit as "review-round-1"
-    And a commit "gtd(check): build.addressing" that adds ".gtd/marker.md" with:
+    And a commit "gtd(agent): build.review.collecting" that adds ".gtd/marker.md" with:
       """
-      entering build.addressing
+      entering re-unwind
       """
     And a commit "gtd(agent): build.health.check" that adds "fileB.ts" with:
       """
@@ -745,7 +882,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a green check run that also cleans up leftover feedback moves on to reviewing with no residue (D .gtd/FEEDBACK.md)
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.addressing" that adds "src/thing.ts" with:
+    And a commit "gtd(agent): build.fix" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """

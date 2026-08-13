@@ -220,15 +220,17 @@ const headPreconditions = (currentCommit: string): EmitPreconditions => ({
  * Empty for a state declaring no `file:`+`mode:` pair; an unknown mode name
  * is a refusal, exactly as it was when gtd ran the commands itself.
  *
- * Also empty when the step DELETES that file (`deletesFile`). A deletion is a
- * legitimate outcome at some states — `build.review.deciding`'s sign-off diff
- * is a bare REVIEW.md deletion — and there is nothing left to format or
- * validate either way. Emitting the mode's `format:` anyway made the step
- * UNLANDABLE for any formatter that treats a missing path as an error
- * (`prettier --write` exits non-zero with "No files matching the pattern were
- * found"): it is the first command in a `set -euo pipefail` script, so it
- * aborted the whole thing — window close, commit and all — before anything
- * could land, and a driver saw only a non-zero exit.
+ * Also empty when the step DELETES that file (`deletesFile`), or when the
+ * file is simply ABSENT from the working tree (never written at all — the
+ * step's diff touched something else entirely). A deletion is a legitimate
+ * outcome at some states — `build.review.deciding`'s sign-off diff is a bare
+ * REVIEW.md deletion — and either way (deleted or never created) there is
+ * nothing left to format or validate. Emitting the mode's `format:` anyway
+ * made the step UNLANDABLE for any formatter that treats a missing path as an
+ * error (`prettier --write` exits non-zero with "No files matching the
+ * pattern were found"): it is the first command in a `set -euo pipefail`
+ * script, so it aborted the whole thing — window close, commit and all —
+ * before anything could land, and a driver saw only a non-zero exit.
  */
 const steeringModeSteps = (
   rest: Rest,
@@ -238,6 +240,8 @@ const steeringModeSteps = (
     const mode = rest.stateDef.mode
     if (file === undefined || mode === undefined) return []
     if (deletesFile(rest.changes, file)) return []
+    const files = yield* RepoFiles
+    if (files.working(file) === undefined) return []
     const resolved = resolveSteeringMode(rest.def, mode)
     if (resolved === undefined) {
       return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))

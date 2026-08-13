@@ -104,7 +104,11 @@ export interface StepGuard {
  * state's `file:`, so they ask it in exactly one place. A deletion is a
  * legitimate step outcome at some states (a review sign-off's bare REVIEW.md
  * deletion) and a refusal at others (see `reviewSignoffGuard`), but either way
- * there is no file left to format or validate.
+ * there is no file left to format or validate. `steeringModeSteps` widens this
+ * same "nothing to format" idea one step further, to a file that was never
+ * written at all (not deleted this step, just absent) — that's a separate
+ * `RepoFiles.working` check there, not a change to this function or to
+ * `fileDeleted`'s semantics here.
  */
 export const deletesFile = (changes: readonly PendingChange[], file: string): boolean =>
   changes.some((c) => c.path === file && c.status === "D")

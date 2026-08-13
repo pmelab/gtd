@@ -185,30 +185,37 @@ alone is not a pending change, and only actually removing it from disk counts as
 a deletion). The next landing's own script closes the window before it commits.
 Tick a box as you review each hunk (ticking just records "I read this"), and
 leave a **comment** to request changes: a note on a line, an inline
-`// TODO`-style comment in the code, or a direct code edit. Any comment sends a
-build + re-review round — an agent first turns your comments into an explicit
-instruction list, then a build turn implements it (a re-review then covers only
-the follow-through, and a hand-edit is treated as your own fix the agent
-completes without reverting your lines; a comment can't be silently dropped — a
-build turn that addresses nothing is refused). The build turn that follows
-through on feedback and the turn that drafts the final squash message both
-resume the same session that built the feature in the first place, since the
-review tail is nested inside that build identity rather than sitting beside it.
-Ticking every box with no comment is the sign-off, which collapses the whole
-process into one commit (a **squash finale** whose message an agent drafts).
-Landing with a box still unticked and no comment is refused (finish reviewing
-first), as is deleting `.gtd/REVIEW.md`. Both refusals hold wherever the review
-doc lives: repointing `reviewFile` out of `.gtd/` (say to `REVIEW.md` at the
-repo root) changes nothing about them — your own edit to the review doc is never
-mistaken for a code comment, and the doc's pre-turn copy is read at the review
-window's saved head rather than at the rewound `HEAD`.
+`// TODO`-style comment in the code, or a direct code edit. A comment sends a
+FULL development lap, not a quick fix-and-re-review: an agent first judges
+whether your comment is actually actionable (a genuinely approving remark with
+no code edit short-circuits straight to sign-off instead), and an actionable
+round is re-planned from scratch through triage, architecture, and the package
+queue again — a hand-edit you made during review is treated as a **sketch**, the
+same as any other change that starts a process, not a fix the agent builds on:
+it is reverted out of the tree first, and your intent survives only in your own
+review-round commit for triage to read. There is no baseline check on the way
+back into planning. Only the turn that drafts the final squash message resumes
+the session that built the feature in the first place (the review tail is nested
+inside that build identity rather than sitting beside it) — an actionable round
+leaves that identity entirely, so it starts a fresh session like any other
+process. Ticking every box with no comment is the sign-off, which collapses the
+whole process into one commit (a **squash finale** whose message an agent
+drafts). Landing with a box still unticked and no comment is refused (finish
+reviewing first), as is deleting `.gtd/REVIEW.md`. Both refusals hold wherever
+the review doc lives: repointing `reviewFile` out of `.gtd/` (say to `REVIEW.md`
+at the repo root) changes nothing about them — your own edit to the review doc
+is never mistaken for a code comment, and the doc's pre-turn copy is read at the
+review window's saved head rather than at the rewound `HEAD`.
 
 A second entry, the same review tail's own direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
-process reviewing `<commitish>..HEAD` with no build of its own, e.g. a
-colleague's PR branch (`review-gate.check`'s `reviewBase:` is a template bound
-to the `reviewBase` var, so supplying it via `--var` fixes the whole process's
-diff base to that commitish). Its squash keeps and describes only the fixes made
+process reviewing `<commitish>..HEAD` with no build of its own on a clean
+sign-off, e.g. a colleague's PR branch (`review-gate.check`'s `reviewBase:` is a
+template bound to the `reviewBase` var, so supplying it via `--var` fixes the
+whole process's diff base to that commitish) — though an actionable round on
+this entry runs the same full triage → gates → architecture → package-queue lap
+as any other, same as `re-unwind` re-plans a build process's own review
+feedback. A clean sign-off's squash keeps and describes only the fixes made
 _during_ the review (not the reviewed changeset); a clean sign-off with no fixes
 becomes an empty `chore: human review` commit. A third entry,
 `gtd --entry fix-precheck`, starts from a clean `idle` and goes straight into
@@ -460,11 +467,15 @@ started FROM. Entering a **descendant** scope (e.g. dipping from `build` into
 a nested child machine, then back to the parent, still resumes the SAME parent
 conversation; entering a **sibling or unrelated** scope does start a fresh one.
 The bundled template's `build.review` (the human review tail) is a worked
-example: it is nested INSIDE `build` (the builder's own machine) precisely
-because that descendant relationship is what lets `build.addressing` and
-`build.squashing` resume the session that built the feature across a full review
-round-trip, instead of a root-level sibling breaking that run on every pass
-through the tail. Two instances of the same reusable machine (e.g.
+example: it is nested INSIDE `build` (the builder's own machine) so that a
+`gtd --entry fix-precheck` run — `build.fix` -> `build.health.check` ->
+`build.review.*` -> `build.squashing` — stays inside one subtree, letting
+`build.squashing` resume the SAME session that made the fixes instead of a
+root-level sibling forcing it to re-derive the range from scratch on every pass
+through the tail. (An actionable review round breaks the run on purpose instead
+— it leaves `build` entirely through a root-level `re-unwind` state and a full
+re-plan, since a hand-edit made during review is a sketch to reconsider, not a
+fix to build on.) Two instances of the same reusable machine (e.g.
 `build.health` and `packages.item.health`, both instantiating `healthGate`) get
 different scopes and so never share a key, even though they're the "same shaped"
 machine. One consequence is a structural guarantee: **a reviewer's turn never
@@ -992,7 +1003,12 @@ Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
 - **`it.startCommit`** — the process's diff base (the commit the current process
   started from, or the base a `--var reviewBase=<commitish>` entry resolved to).
 - **`it.reviewBase`** — the previous review round's boundary, falling back to
-  `it.startCommit` on a first review.
+  `it.startCommit` on a first review. In the bundled template, an actionable
+  round's NEXT review therefore covers the revert of the human's own lines
+  (`re-unwind`) followed by the whole lap that re-derives and re-implements them
+  — the net diff is the final implementation, the right thing to review, but no
+  longer the tiny "just the fixes" delta a quick fix-and-re-review would have
+  shown.
 - **`it.retainedBase`** — the process's trace/retry boundary, what a squash
   actually keeps (never moved by a review entry's fixed base).
 - **`it.currentCommit`** / **`it.previousCommit`** — HEAD's hash and its parent,
@@ -1094,6 +1110,16 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > process resting at one of the old names can no longer be resumed;
 > `gtd abandon` it (or finish it on the pre-upgrade workflow version) before
 > upgrading.
+
+> **Upgrading a `workflow:` that still references `build.addressing`?** That
+> state is REMOVED, not renamed — the implementer's own follow-through on review
+> feedback is gone outright, since an actionable review round is now re-planned
+> from scratch through a new root-level `re-unwind` state (reverting the human's
+> hand-edit) instead of being built upon. A non-actionable round (an approving
+> remark with no code edit) short-circuits straight to `build.squashing` instead
+> of spending a lap on nothing. As with every rename above, an in-flight process
+> resting at `build.addressing` can no longer be resumed after upgrading;
+> `gtd abandon` it (or finish it on the pre-upgrade workflow version) first.
 
 ### Variables
 

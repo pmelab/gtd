@@ -1692,6 +1692,27 @@ describe("a step that DELETES its state's own steering file", () => {
     const { required } = JSON.parse(stdout) as { required: string }
     expect(required).toContain("fmt-notes NOTES.md")
   })
+
+  it("emits no format command when the file was never written at all — not deleted this step, genuinely absent since the process started", async () => {
+    // NOTES.md never touches disk here: `drafting` is reached by a step whose
+    // diff is some OTHER file entirely (still matched by the catch-all
+    // `"* **": drafting` row, so the step still lands). `deletesFile` can't see
+    // this case — NOTES.md is absent from `changes`, not present as a `D` row
+    // — which is exactly why `steeringModeSteps` needs its own
+    // `RepoFiles.working` check alongside it.
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", NOTES_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("OTHER.md", "unrelated\n")
+    repo.commitAllWithPrefix("gtd(agent): drafting")
+    repo.writeFile("OTHER.md", "unrelated, again\n")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(0)
+    const { required } = JSON.parse(stdout) as { required: string }
+    expect(required).not.toContain("fmt-notes")
+    expect(applyEmittedScript(repo, new Map(), required).ok).toBe(true)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting")
+  })
 })
 
 describe("runCommand — refuses in a repository with no commits", () => {

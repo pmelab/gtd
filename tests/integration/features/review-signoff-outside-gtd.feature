@@ -9,7 +9,7 @@ Feature: Review sign-off reaches build.squashing even when reviewFile lives outs
   override, e.g. `REVIEW.md`) survived the filter as a "hand-edited code
   file" — misclassifying every clean sign-off as feedback and looping forever
   (build.review.reviewing -> build.review.await-review -> build.review.deciding -> build.review.collecting ->
-  build.addressing -> build.health.check -> build.review.reviewing -> ...). The fix additionally
+  re-unwind -> design.triage -> ... -> build.review.reviewing -> ...). The fix additionally
   excludes the state's own `reviewFile` by exact path.
 
   This scenario actually EXECUTES the rendered script (`I execute the printed

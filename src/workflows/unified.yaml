@@ -78,10 +78,11 @@
 #                               `buildTail` (`build.review.*`: reviewing →
 #                               await-review → deciding → collecting) — see
 #                               "Why humanReview is nested, not a root sibling"
-#                               below. ▸ planner — the implementer's OWN
-#                               follow-through on feedback is a coder action,
-#                               not a reviewer one, so it lives in
-#                               `build.addressing` instead.
+#                               below. ▸ planner — `collecting` only judges
+#                               whether the round is actionable; there is no
+#                               coder-identity follow-through inside this
+#                               machine any more (see the root's own
+#                               `re-unwind` state).
 #   * specReview (encap)      — the per-package agentic review, a SINGLE
 #                               state (`packages.item.spec.review`) — a
 #                               machine whose entire job is to be a separate
@@ -98,8 +99,8 @@
 #                               closing), plus its own `health` and `spec`
 #                               children. ▸ coder.
 #   * buildTail (encap)       — the process's build identity (`build.*`:
-#                               squashing, addressing, fix), plus its own
-#                               `health` child AND its own `review` child
+#                               squashing, fix), plus its own `health` child
+#                               AND its own `review` child
 #                               (humanReview, above). No monolithic "build the
 #                               whole plan" state any more — every package is
 #                               built inside `packages.item`, and the queue
@@ -110,15 +111,26 @@
 # `humanReview` sits UNDER `buildTail` (`build.review`) rather than beside it
 # at the root, because a machine's memory scope is its dotted instance path
 # (see src/PatternMachine.ts's `memoryScopeAt`): entering a DESCENDANT scope
-# never breaks the parent's unbroken run, but entering a sibling does. The
-# review tail sits between the two coder turns that most need continuity —
-# `build.addressing` (follows through on review feedback) and `build.squashing`
-# (drafts the finale from the range this process built) — so hoisting it back
-# to a root sibling would force both of those turns to re-derive the feature
-# from scratch on every pass through the tail, instead of resuming the session
-# that built it. The reviewer itself is unaffected either way: `build.review.*`
-# is its own scope regardless of where it's nested, so it never resumes the
-# builder's session.
+# never breaks the parent's unbroken run, but entering a sibling does. On the
+# ORDINARY path (packages -> build.review -> squashing) that buys nothing —
+# `build`'s own scope has no prior turn to resume, since every package is
+# built inside `packages.item` instead. The one concrete case where it
+# matters is `gtd --entry fix-precheck`: a red suite drops into `build.fix`,
+# which opens `build`'s own scope, and the whole run from there —
+# `build.fix` -> `build.health.check` -> `build.review.*` -> `build.squashing`
+# — stays inside that one subtree, so `build.squashing` drafts the finale
+# from the SAME session that made the fixes, instead of a root-level sibling
+# forcing it to re-derive the range from scratch on every pass through the
+# tail. That one benefit is worth keeping over hoisting `humanReview` back to
+# a root sibling, which would otherwise be a repo-wide rename with no
+# behavioural gain. (The OTHER coder turn a feedback round used to resume —
+# the implementer's own follow-through on review feedback — is retired
+# outright: a hand-edit made during review is now re-planned from scratch via
+# the root's own `re-unwind` state, never built upon, so there is no
+# continuity to preserve on that path any more.)
+# The reviewer itself is unaffected either way: `build.review.*` is its own
+# scope regardless of where it's nested, so it never resumes the builder's
+# session.
 #
 # ── One flow: triage into concerns, then packages, then the shared tail ────
 #
@@ -175,32 +187,45 @@
 # All entries converge at `build.review.reviewing` -> `build.review.await-review`.
 # Ticking a REVIEW.md box means only "I reviewed this hunk"; a COMMENT (not an
 # unticked box) is what asks for changes. Every human step at
-# `build.review.await-review` goes to `build.review.deciding`, which inspects
-# the step and routes:
-#   * no comment (every box ticked, no REVIEW.md note, no code edit) -> the diff
-#     is a bare REVIEW.md deletion -> build.squashing -> done (the ONLY path
-#     to the finale — the whole process collapses into one commit).
-#   * any comment — a note in REVIEW.md OR a hand-edit to code — ->
-#     build.review.deciding writes REVIEW_FEEDBACK.md -> build.review.collecting
-#     implements it (completing any code the human hand-edited, never
-#     reverting their lines) -> build.addressing (a coder action, not a
-#     reviewer one — see "Why humanReview is nested" above) -> back through
-#     `build.health.check` (the shared health pair, bound via the
-#     `$onFeedback`/local `review` reference) -> build.review.reviewing
-#     regenerates an INCREMENTAL REVIEW.md (build.review.deciding carries
-#     `reviewBase: true`, so each feedback round's review + checkout window
-#     covers only `last-review..HEAD`, i.e. the agent's follow-through, not the
-#     human's own edit) -> await-review, looping until sign-off.
+# `build.review.await-review` goes to `build.review.deciding`, which CAPTURES
+# the raw material (never interprets it) and routes on the step's shape —
+# THREE edges out of the review tail, not one:
+#   * the SIGN-OFF edge: no comment at all (every box ticked, no REVIEW.md
+#     note, no code edit) -> the diff is a bare REVIEW.md deletion ->
+#     build.squashing -> done (the whole process collapses into one commit).
+#   * the NON-ACTIONABLE edge: some comment exists, but `build.review.collecting`
+#     judges it non-actionable (the human left only an approving remark, e.g. a
+#     compliment with no code edit and no substantive note) -> CONSUMES the raw
+#     capture (deletes it, the only change this turn) -> straight to
+#     build.squashing too, WITHOUT spending a design lap producing nothing, and
+#     with nothing left over to leak into the finale. The outcome is encoded by
+#     which paths `collecting`'s own diff touches, never by a sentinel a file
+#     pattern can't tell apart from real content — and never by a CLEAN turn
+#     either, which stays the ordinary fruitless-dispatch attempt (no `C` row
+#     here), not a verdict.
+#   * the ACTIONABLE edge: `collecting` judges the round actionable (a note in
+#     REVIEW.md, or a hand-edit to code) -> marks the raw capture (a real
+#     edit) -> the root's own `re-unwind` state reverts the human's
+#     review-round commit out of the working tree, scoped to real code (never
+#     the review file, already gone, and never `stateDir`) -> `design.triage`
+#     re-derives the work from that history as intent only — the human's
+#     hand-edit is a SKETCH to be re-planned, never built upon. This is a full
+#     development lap (triage -> gate -> architecture -> gate -> packages ->
+#     build.review again), not a quick fix-and-re-review; there is no
+#     baseline check on the way back in (`re-unwind` is not an entry, so
+#     `entryGate` never runs on this path).
 # Two dead ends never commit: the review-signoff guard (src/StepGuards.ts)
 # REFUSES a step that leaves a box unticked with no comment (finish reviewing
 # first) and a deleted REVIEW.md (restore it and tick the boxes).
 #
 # The shared health pair (`build.health.check`/`.escalate`, plus its own
-# `build.fix`) serves the feedback loop — its green edge targets
-# `build.review.reviewing`. The per-package loop keeps its OWN health pair
-# (`packages.item.health.check`/`.escalate`, plus `packages.item.fix-suite`)
-# because its green edge targets the per-package `packages.item.spec.review`
-# gate instead.
+# `build.fix`) no longer serves a feedback loop at all — with the implementer's
+# own coder-identity follow-through retired, the only edge into it is
+# `gtd --entry fix-precheck`'s red branch; they are not dead code, just
+# reachable from one place instead of two. The
+# per-package loop keeps its OWN health pair (`packages.item.health.check`/
+# `.escalate`, plus `packages.item.fix-suite`) because its green edge targets
+# the per-package `packages.item.spec.review` gate instead.
 #
 # Every `on` pattern's path below is written as the matching var's Eta
 # template (e.g. `"A <%= it.vars.feedbackFile %>"`), not a literal `.gtd/...`
@@ -232,7 +257,6 @@ vars:
   satisfiedFile: .gtd/SATISFIED.md
   reviewFile: .gtd/REVIEW.md
   reviewRawFile: .gtd/REVIEW_RAW.md
-  reviewFeedbackFile: .gtd/REVIEW_FEEDBACK.md
   feedbackFile: .gtd/FEEDBACK.md
   specFeedbackFile: .gtd/SPEC_FEEDBACK.md
   commitMsgFile: .gtd/COMMIT_MSG.md
@@ -347,10 +371,10 @@ machines:
       check:
         actor: check
         label: $checkLabel
-        # This script ALSO sweeps spent steering files (`reviewRawFile`,
-        # `reviewFeedbackFile`) — a mechanic `entryGate.check` must NOT run,
-        # since it executes before planning, while a fresh sketch legitimately
-        # still exists.
+        # This script ALSO sweeps the spent raw review capture
+        # (`reviewRawFile`) — a mechanic `entryGate.check` must NOT run, since
+        # it executes before planning, while a fresh sketch legitimately still
+        # exists.
         script: |
           #!/usr/bin/env bash
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
@@ -363,13 +387,14 @@ machines:
           # the script. Below this point everything is plain bash.
           feedback="<%~ it.vars.feedbackFile %>"
           mkdir -p "$(dirname "$feedback")"
-          # Sweep steering files spent by the states that led here: the raw
-          # review capture (review.collecting) and the feedback instructions
-          # (build.addressing) — each `rm -f` is a no-op when the file is
-          # already gone or never existed on this path.
+          # Sweep the raw review capture — no path from `deciding`/`collecting`
+          # reaches this gate any more (its only inbound edge is
+          # `gtd --entry fix-precheck`'s red branch); this is a leftover
+          # sweeper for a capture an earlier, abandoned process may have left
+          # committed on that path. A no-op when it is already gone or never
+          # existed.
           reviewRaw="<%~ it.vars.reviewRawFile %>"
-          reviewFeedback="<%~ it.vars.reviewFeedbackFile %>"
-          rm -f "$reviewRaw" "$reviewFeedback"
+          rm -f "$reviewRaw"
           <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
@@ -493,6 +518,19 @@ machines:
   # concerns and resolves the PRODUCT ones' open questions — one machine
   # identity across the whole back-and-forth, so the agent explores the
   # codebase once and the human's answer rationale survives every return lap.
+  # `triage`'s prompt reads THREE laps off the requirements file's own
+  # content, never off which edge landed here (the resting state is the same
+  # either way): FIRST (the file is absent), RETURN (a ticked/answered
+  # question waiting to be folded), and REVIEW LOOP-BACK (concerns already
+  # present, nothing ticked-but-unfolded — `re-unwind` put them there, not an
+  # answer). The loop-back lap also runs the suite itself and files any
+  # breakage it finds as its own FIRST concern: `re-unwind` sits between
+  # `build.review.deciding` and here with no `entryGate` in between, so a red
+  # the revert causes is otherwise ambient. Left for
+  # `packages.item.health.check` to trip over instead, it would spend one of
+  # `packages.item.fix-suite`'s retry cap — process-pooled across every
+  # package, the same pattern `specReview.review`'s own retry comment
+  # documents — on breakage the package itself never caused.
   # ▸ planner identity — `model:` declared once here, stamped onto `triage`
   # (its only prompt state; `gate.answer` is a human turn and carries no
   # prompt).
@@ -506,6 +544,11 @@ machines:
         label: Triaging the change
         file: <%= it.vars.requirementsFile %>
         mode: qa
+        # An agent that deletes the assembled review input without folding it
+        # in is the original "captured then discarded" bug, now against THIS
+        # state's own file — the retired `build.addressing` state was the
+        # guard's only user before this restructure; this is its new one.
+        requireProgress: true
         prompt: |
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
@@ -575,6 +618,39 @@ machines:
           product concern as accepted and surface no new questions unless
           something is genuinely still blocking. Omit `## Open Questions`
           entirely once there are none left.
+
+          On a REVIEW LOOP-BACK lap, `<%= it.vars.requirementsFile %>`
+          already holds concerns and none of them have a ticked-but-unfolded
+          answer waiting — that shape means a completed REVIEW ROUND put
+          this material here, not a question you asked. Develop those
+          existing concerns further with whatever the round raised; never
+          rediscover or regroup them from a cold read the way the FIRST lap
+          does.
+
+          The human's own edit from that review round has been reverted out
+          of the working tree the same way the entry commit is — read it
+          from history, never the working tree: run
+          `git show <%= it.reviewBase %>` to see it. (On a FIRST lap that
+          same hash IS the process's own diff base, `<%= it.startCommit %>`,
+          so this branch does not apply: `<%= it.vars.requirementsFile %>`
+          does not exist yet for a review round to have happened against.)
+
+          Whatever this round touches, every decision already settled under
+          `## Answered Questions` stays settled on this lap too — never
+          re-open one. A genuinely open PRODUCT point in the round's own
+          material may still raise a fresh question under
+          `## Open Questions`: the product gate sits on this path exactly as
+          it does on a first lap, and will ask it.
+
+          Before grouping anything on this lap, run
+          `<%= it.vars.testCommand %>` yourself as part of reading the
+          situation: a review loop-back runs no green-baseline gate between
+          the revert above and this turn, so the tree may already be RED —
+          reverting the human's edit can undo a fix that edit had put in. If
+          the suite is red, make that breakage the FIRST concern in your
+          ordered list, ahead of everything else — every later concern's
+          "leaves the suite green on its own" property assumes the suite
+          already started green.
 
           Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your
           turn.
@@ -726,9 +802,13 @@ machines:
 
   # ── ENCAPSULATION: the shared review tail ──────────────────────────────────
   # ▸ planner identity — `model:` declared once here, stamped onto `reviewing`
-  # and `collecting` (its only prompt states). The implementer's OWN
-  # follow-through on feedback is a coder action, not a reviewer one — it
-  # lives in `build.addressing` (`$onFeedback`), not inside this machine.
+  # and `collecting` (its only prompt states). `collecting` JUDGES whether a
+  # round is actionable and, when it is, CLASSIFIES it straight into
+  # `requirementsFile` as ordered, PRODUCT/TECHNICAL concerns — the same
+  # artifact `design.triage` develops — never an instruction list, and never a
+  # build. An actionable round still leaves this machine entirely (the root's
+  # own `re-unwind`, then `design.triage` folds the concerns in cold), so
+  # there is no coder-identity follow-through inside this machine any more.
   humanReview:
     model: <%= it.vars.plannerModel %>
     entry: reviewing
@@ -803,10 +883,14 @@ machines:
             `<%= it.vars.reviewFile %>`, no code edit — to collapse the process into
             one commit (**build.squashing**).
           - **Request changes** — leave a comment: a note on a
-            `<%= it.vars.reviewFile %>` line, or a direct code edit — to send it to a
-            build + re-review round (**review.deciding** → **build.addressing**). A
-            code edit counts as your own fix: the agent completes the follow-through
-            it implies and never reverts your lines.
+            `<%= it.vars.reviewFile %>` line, or a direct code edit — to send a FULL
+            development lap (**review.deciding** → **review.collecting** →
+            re-triage). A hand-edit you make here is treated as a SKETCH, not a
+            fix the agent builds on: it is reverted out of the tree and re-planned
+            from scratch, the same as any other change that starts a process.
+            There is no baseline check on the way back into planning — only a
+            genuinely non-actionable comment (an approving remark with no code
+            edit) skips the lap and signs off straight away.
 
           Stepping with a box still unticked and no comment is refused (finish
           reviewing first); so is deleting `<%= it.vars.reviewFile %>`.
@@ -835,8 +919,8 @@ machines:
           # reviewFile (which is var-configurable and may live outside `.gtd/`, e.g.
           # a root-level REVIEW.md — issue #128). Otherwise it is a clean sign-off.
           # This turn only CAPTURES the raw material into REVIEW_RAW.md (the
-          # `collecting` agent then turns it into instructions); it does NOT
-          # interpret it. Either way, remove REVIEW.md; what the resulting diff
+          # `collecting` agent then judges whether it's actionable); it does
+          # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
           # MEANS is decided by this state's own `on` rules — the A/M REVIEW_RAW.md
           # rows are declared BEFORE the D REVIEW.md row so a feedback round (which
           # also deletes REVIEW.md) is captured as feedback, not mistaken for a
@@ -863,7 +947,7 @@ machines:
                | grep -v "^$stateDir/" | grep -vxF "$reviewFile" | grep -q . \
              || [ "$before" != "$after" ]; then
             {
-              echo "Raw review material captured for classification. The human reviewed the changes and left the feedback below; a downstream agent turns it into an instruction list. This file is machine-captured input, not instructions — it names a commit, never inlined content."
+              echo "Raw review material captured for classification. The human reviewed the changes and left the feedback below; a downstream agent judges whether it's actionable. This file is machine-captured input, not instructions — it names a commit, never inlined content."
               echo
               echo "Commit: $head"
               echo "The human's notes are in $reviewFile at this commit; their hand edits,"
@@ -876,18 +960,44 @@ machines:
           "M <%= it.vars.reviewRawFile %>": collecting
           "D <%= it.vars.reviewFile %>": $onSignoff
 
+      # Judges actionability and, when actionable, classifies straight into
+      # `requirementsFile` — an ordered, PRODUCT/TECHNICAL concern list, never
+      # an instruction list for a builder (the actionable path re-plans from
+      # history via `re-unwind` + `design.triage`; it never builds on the
+      # human's own edit). The outcome is encoded by which paths ITS OWN diff
+      # touches, never by a sentinel: writing `requirementsFile` (`A`/`M`) IS
+      # the actionable case — row ORDER matters, since an actionable round's
+      # diff is `A requirementsFile` + `D reviewRawFile` together, so the
+      # requirements rows must be declared first or every round would
+      # short-circuit to sign-off. CONSUMING `reviewRawFile` alone (deleting
+      # it, the only change this turn) is the non-actionable short-circuit —
+      # the same trick `deciding` already uses, one state earlier; it reuses
+      # `$onSignoff` (already bound to `build.squashing`) rather than a new
+      # param, because the short-circuit IS a sign-off. Declaring no `C` row
+      # and no `* **` row is deliberate: a clean turn here is a fruitless
+      # dispatch (a crash, a refusal, a context-limit cutoff), never a
+      # verdict, so it falls through to the ordinary `prompt`-state default
+      # instead — an empty ATTEMPT commit, remembered as a stall
+      # (`Edge.ts`'s `stalledAt`) rather than silently misread as "the human's
+      # feedback was non-actionable" — and a dirty tree matching neither row
+      # is a REFUSAL (you classify, you do not build). `requirementsFile`
+      # survives `re-unwind` (it lives under `stateDir`, excluded from its own
+      # revert pathspec) for `design.triage` to fold in cold; a consumed
+      # `reviewRawFile` with no requirements written is gone before
+      # `build.squashing` ever runs, so nothing leaks into the finale.
       collecting:
         actor: agent
         label: Collecting your feedback
-        file: <%= it.vars.reviewFeedbackFile %>
+        file: <%= it.vars.requirementsFile %>
+        mode: qa
         prompt: |
-          You are an autonomous coding agent turning raw review feedback into an
-          explicit instruction list for a builder. This workflow steers itself
-          through its own state files — treat them as its private scratchpad,
-          never as project code or documentation. The only state files this
-          turn touches are `<%= it.vars.reviewRawFile %>` (read it, then
-          delete it) and `<%= it.vars.reviewFeedbackFile %>` (write it) — do
-          NOT change any other file, you classify, you do not build.
+          You are an autonomous coding agent judging and classifying a round
+          of review feedback. This workflow steers itself through its own
+          state files — treat them as its private scratchpad, never as
+          project code or documentation. The only state files this turn
+          touches are `<%= it.vars.requirementsFile %>` and
+          `<%= it.vars.reviewRawFile %>`, which it deletes — do NOT change any
+          other file: you classify, you do not build.
 
           The raw review material is: <%~ it.read(it.vars.reviewRawFile) %>
 
@@ -895,41 +1005,50 @@ machines:
           conversation, work from what you already reviewed; otherwise read that
           commit's diff yourself before classifying anything.
 
-          Classify every piece of it into `<%= it.vars.reviewFeedbackFile %>` as a
-          flat, numbered instruction list. Each item is `N. ./path/to/file.ts#line —
-          <imperative>`. Apply these rules exactly:
+          The round is ACTIONABLE if any of the following is true:
 
-          1. NOTES the human added to REVIEW.md — each note is a MANDATORY change,
-             regardless of whether its checkbox is ticked (ticking means only "I read
-             this hunk", never sign-off). Anchor each to the `./path#line` its review
-             item names (or the chunk it sits under). Emit it as a concrete
-             imperative.
-          2. Every COMMENT the human ADDED this round (a `+` line that is a code
-             comment, in the hand-edited files) is a MANDATORY instruction the human
-             is giving the builder — even a plain-prose one, even if its box is
-             ticked. Emit an imperative to satisfy it and note that the comment line
-             itself must be REMOVED once addressed. If a comment turns out to describe
-             behaviour the code already has, the instruction is still "confirm the
-             code matches and remove the comment line".
-          3. Every NON-comment code line the human hand-edited is an already-committed
-             INTENT, NOT a do-then-delete item. Emit an instruction that names those
-             files and says: their lines are final — complete ONLY the follow-through
-             they imply (callers, tests, types, docs) and NEVER revert or rewrite
-             them. Do not turn their own edit into a task.
+          1. The human left a NOTE on `<%= it.vars.reviewFile %>` — a note is
+             anything beyond a checkbox flip, regardless of whether the box
+             itself is ticked (ticking means only "I read this hunk", never
+             sign-off). A note is a MANDATORY concern below, whether or not
+             its box is ticked.
+          2. The human ADDED a code comment this round (a `+` line that is a
+             comment, in a hand-edited file) — even a plain-prose one. That
+             comment is an INSTRUCTION: describe it as a concern below, and
+             note that the comment line itself is transient — it must not
+             survive the lap that satisfies it.
+          3. The human hand-edited any non-comment code this round. That code
+             is no longer an already-committed intent to build on top of — it
+             is a SKETCH, like the entry commit's own diff: describe what it
+             was reaching for under the concern it belongs to, and expect the
+             lap that follows to re-derive it from scratch. Never say the
+             human's lines are final or that they must survive unchanged.
 
-          Split each hand-edited hunk per line: comment `+` lines follow rule 2, the
-          surrounding real code follows rule 3.
+          The round is NOT actionable only when none of the above holds — the
+          human left nothing but an approving remark (a compliment, a "looks
+          good", or similar) with no code edit and no substantive note. Never
+          invent actionability to justify a lap, and never dismiss a real note
+          or edit as approval.
 
-          If — and only if — nothing in the raw material is actionable (e.g. the human
-          left only an approving remark), write `<%= it.vars.reviewFeedbackFile %>`
-          containing exactly one line: `NOTHING ACTIONABLE — <one-sentence reason>`.
-          Never invent work to satisfy a non-actionable remark.
+          If the round is ACTIONABLE: write `<%= it.vars.requirementsFile %>`
+          with an ORDERED list of CONCERNS, each classified PRODUCT (a
+          user-facing/requirements decision) or TECHNICAL (an implementation
+          decision) — the same shape `design.triage` builds, one
+          `## <heading>` per concern, in the order you'd want them built. Fold
+          every note, comment, and hand-edit from this round in under the
+          concern it belongs to, per the rules above. Raise NO open
+          questions here — write no `## Open Questions` section;
+          `design.triage` owns that, one phase later. Then delete
+          `<%= it.vars.reviewRawFile %>` and finish your turn.
 
-          Delete `<%= it.vars.reviewRawFile %>`, leave everything else uncommitted,
-          and finish your turn.
+          If the round is NOT actionable: delete
+          `<%= it.vars.reviewRawFile %>` and finish your turn, writing nothing
+          to `<%= it.vars.requirementsFile %>` — consuming the capture with no
+          other change IS the sign-off.
         on:
-          "A <%= it.vars.reviewFeedbackFile %>": $onFeedback
-          "M <%= it.vars.reviewFeedbackFile %>": $onFeedback
+          "A <%= it.vars.requirementsFile %>": $onFeedback
+          "M <%= it.vars.requirementsFile %>": $onFeedback
+          "D <%= it.vars.reviewRawFile %>": $onSignoff
 
   # ── ENCAPSULATION: the per-package agentic review ──────────────────────────
   # A single state: a machine whose entire job is to be a separate MIND from
@@ -1017,11 +1136,18 @@ machines:
           # requirementsFile is consumed by architecture.author, architectureFile
           # by architecture.decompose, and questionsFile by whichever gate ran
           # last — all three are gone by the time the package queue starts.
-          # No-op if already removed.
+          # reviewRawFile is swept here too: the review loop-back
+          # (re-unwind) excludes stateDir from its revert, so an actionable
+          # feedback round's MARKED raw capture (see humanReview's own
+          # `collecting` state) rides through design and architecture
+          # untouched — this is the ONLY sweeper on that path
+          # before the queue (and eventually the squash finale) would
+          # otherwise pick it up as stray content. No-op if already removed.
           requirements="<%~ it.vars.requirementsFile %>"
           architecture="<%~ it.vars.architectureFile %>"
           questions="<%~ it.vars.questionsFile %>"
-          rm -f "$requirements" "$architecture" "$questions"
+          reviewRaw="<%~ it.vars.reviewRawFile %>"
+          rm -f "$requirements" "$architecture" "$questions" "$reviewRaw"
           next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
           if [ -n "$next" ]; then
             mkdir -p "$(dirname "$nextFile")"
@@ -1187,18 +1313,20 @@ machines:
           onFix: fix-spec
 
   # ── ENCAPSULATION: the process's build identity ─────────────────────────────
-  # ▸ coder identity — `model:` declared once here, stamped onto `squashing`,
-  # `addressing`, and `fix` (its own prompt states). There is no monolithic
-  # "build the whole plan" state any more — every package is built inside
-  # `packages.item`, and the queue drains straight into `build.review`.
-  # `addressing` is the implementer's OWN follow-through on review feedback
-  # (a coder action) — reached via `$onFeedback`, bound at its own `review:`
-  # reference below, not nested inside the (planner-only) `humanReview`
-  # machine. `humanReview` is nested HERE (not at the root) so the review
-  # tail's run stays inside the builder's own scope — see the header comment.
+  # ▸ coder identity — `model:` declared once here, stamped onto `squashing`
+  # and `fix` (its own prompt states). There is no monolithic "build the whole
+  # plan" state any more — every package is built inside `packages.item`, and
+  # the queue drains straight into `build.review`. There is no coder-identity
+  # follow-through on review feedback here any more — an actionable round
+  # leaves this machine entirely, via `$onFeedback` bound at the root's own
+  # `build:` reference to the root-local `re-unwind` state (see the header
+  # comment's "Why humanReview is nested" section for why the review tail
+  # still stays nested here even so). `humanReview` is nested HERE (not at the
+  # root) so `build.squashing` — the one coder turn a sign-off still resumes —
+  # stays inside the builder's own scope.
   buildTail:
     model: <%= it.vars.coderModel %>
-    params: [onDone]
+    params: [onDone, onFeedback]
     # Nothing resolves this machine BARE (every reference into it names a
     # specific descendant, e.g. `build.review` / `build.fix`) — but a machine
     # must still declare an `entry:` local per its own grammar, so this names
@@ -1243,46 +1371,6 @@ machines:
           "A <%= it.vars.commitMsgFile %>": $onDone
           "M <%= it.vars.commitMsgFile %>": $onDone
 
-      addressing:
-        actor: agent
-        label: Addressing your feedback
-        file: <%= it.vars.reviewFeedbackFile %>
-        # Refuse a work-free turn: a step whose only pending change is deleting the
-        # instructions file (the original "captured then discarded" bug). The
-        # feedback-progress guard (`src/StepGuards.ts`) reads this flag and
-        # exempts a `NOTHING ACTIONABLE` sentinel (a non-actionable review round,
-        # which legitimately makes no code change). The pure engine carries it inert.
-        requireProgress: true
-        prompt: |
-          You are an autonomous coding agent addressing review feedback. This
-          workflow steers itself through its own state files — treat them as
-          its private scratchpad, never as project code or documentation. The
-          only state file this turn touches is
-          `<%= it.vars.reviewFeedbackFile %>`; address it, then delete it. Do
-          not create other files to hold notes or output.
-
-          The instructions to implement are: <%~ it.read(it.vars.reviewFeedbackFile) %>
-
-          This is a flat instruction list, not a diff — execute every item exactly as
-          written, no Q&A, no re-planning, using TDD discipline:
-
-          - An item that says the human's own lines are final: build ON TOP of them to
-            complete only the follow-through it names (callers, tests, types, docs).
-            NEVER revert or rewrite the lines they already committed.
-          - An item derived from a human comment: satisfy it AND delete that comment
-            line from the code (the human's review comments are transient — none of
-            them survive this round).
-
-          If the file's sole content is a `NOTHING ACTIONABLE` line, make no code
-          change; just delete the instructions file.
-
-          Delete `<%= it.vars.reviewFeedbackFile %>` once every item is addressed.
-          Leave everything else uncommitted and finish your turn. Deleting the
-          instructions file WITHOUT making the changes it asks for is refused — the
-          feedback must actually be addressed.
-        on:
-          "* **": health.check
-
       fix:
         actor: agent
         label: Fixing the check
@@ -1320,15 +1408,17 @@ machines:
           checkLabel: Running checks
           escalateLabel: Escalating to a human
 
-      # The shared review tail, nested HERE (not at the root) so its run stays
-      # inside the builder's own scope across the feedback round-trip — see
-      # the header comment. Sign-off -> squashing; feedback -> addressing (the
-      # implementer's own coder-identity follow-through, not a reviewer action).
+      # The shared review tail, nested HERE (not at the root) so `squashing`
+      # stays inside the builder's own scope on sign-off — see the header
+      # comment. Sign-off -> squashing; feedback -> $onFeedback, bound at the
+      # root's own `build:` reference to `re-unwind` (a root-local, not a
+      # descendant of this machine — the review tail's own scope ends here on
+      # the actionable path).
       review:
         machine: humanReview
         with:
           onSignoff: squashing
-          onFeedback: addressing
+          onFeedback: $onFeedback
 
   # The root machine — the whole one-flow tree described in this file's
   # header comment. WIRING ONLY: no identity of its own, just the shared
@@ -1427,6 +1517,73 @@ machines:
         on:
           "* **": start-gate
 
+      # ── Re-unwind: revert an actionable review round's hand-edit before ────
+      # re-planning starts. A SECOND unwind-shaped state, not a second inbound
+      # edge on `unwind` above: `unwind`'s own doc comment turns on it having
+      # exactly one inbound edge (from `idle`), which is why it carries no
+      # idempotence guard — adding a second caller there would break that
+      # invariant. Names the reverted commit via `it.reviewBase`, never
+      # `it.currentCommit` (by now that names the assembly turn's own commit)
+      # and never a bare `HEAD`: `reviewBaseFor` walks the process trace
+      # backwards for the last commit that ENTERED a `reviewBase: true` state
+      # — `build.review.deciding` is the template's only one — which is
+      # exactly the human's own `await-review -> deciding` commit, the same
+      # hash the next review round's incremental base already uses.
+      #
+      # SCOPED, not wholesale: `deciding` already `rm -f`'d the review file,
+      # so a plain `git revert --no-commit` would resurrect it (and conflict
+      # on it). Instead this renders that ONE commit's diff with `stateDir`
+      # and `reviewFile` excluded from the pathspec (the review file by exact
+      # path, since it is var-configurable and may sit at the repo root —
+      # issue #128) and reverse-applies it — conflict-free by construction,
+      # since nothing between that commit and now touches a code path. A
+      # note-only round's patch is EMPTY, and `git apply` on empty input FAILS
+      # ("No valid patches in input"), hence the `-s` guard rather than
+      # `--allow-empty` (which would impose git >= 2.35). The apply is
+      # worktree-only, no `--index`: the emitted step script's own
+      # `git add -A && git commit` stages it, and `changedPaths` answers by
+      # CONTENT, so an unstaged revert is still the pending diff the pattern
+      # matches — one fewer index write in a worktree gtd shares with the
+      # editor's SCM. The patch file lives under `stateDir` (excluded from its
+      # own pathspec, the same precedent as the check scripts' own
+      # `.check-output`) and is removed before the step lands.
+      #
+      # Both `on` rows target the SAME place (`design`) because either shape
+      # is a legitimate outcome here, never a stall: a hand-edited round's
+      # patch is non-empty, so the revert leaves a dirty tree (the `"* **"`
+      # row); a note-only round's patch is empty, so nothing to apply leaves
+      # a CLEAN tree — and a clean tree at a `script` state with no `C` row
+      # would otherwise be a silent no-op that never advances. Declaring `C`
+      # here makes that the expected, terminating case instead.
+      re-unwind:
+        actor: check
+        label: Re-unwinding your review edit
+        script: |
+          #!/usr/bin/env bash
+          # gtd check turn — revert the human's own review edit out of the
+          # working tree, scoped to real code: stateDir and reviewFile
+          # (var-configurable, may live at the repo root — issue #128) are
+          # excluded, because the review file is already gone by this point
+          # and reverting it would resurrect it. The human's intent survives
+          # in their own commit for the triage phase to read. Conflict-free
+          # by construction: nothing between that commit and now touches a
+          # code path.
+          set +e
+          commit="<%~ it.reviewBase %>"
+          stateDir="<%~ it.vars.stateDir %>"
+          reviewFile="<%~ it.vars.reviewFile %>"
+          patch="$stateDir/.re-unwind.patch"
+          mkdir -p "$stateDir"
+          git diff --binary "$commit^" "$commit" -- . \
+            ":(exclude)$stateDir" ":(exclude)$reviewFile" > "$patch"
+          if [ -s "$patch" ]; then
+            git apply -R "$patch" || echo "re-unwind: could not revert $commit" >&2
+          fi
+          rm -f "$patch"
+        on:
+          "* **": design # a code hand-edit was reverted
+          "C": design # note-only round: nothing to revert
+
       # ── Green-baseline gate: the single start entry. ───────────────────────
       # Runs on the tree AFTER `unwind`, so this is now just the ordinary
       # green-baseline check `review-gate`/`fix-precheck` also run — no
@@ -1497,3 +1654,4 @@ machines:
         machine: buildTail
         with:
           onDone: done
+          onFeedback: re-unwind
