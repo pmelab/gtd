@@ -240,7 +240,16 @@ route on them too — a repointed path var actually reroutes the machine, not ju
 the templates that read/write the file. A separate `stateDir` var (default
 `.gtd`) names only where the check scripts keep their own scratch/bookkeeping,
 independent of the per-file vars — relocate one steering file without touching
-it.
+it. The workflow declares its plumbing directory once, at the top level of the
+`workflow:` value (`stateDir: <%= it.vars.stateDir %>` in the bundled template),
+rendered from that same `stateDir` var — this is what the engine itself reads to
+tell gtd's own bookkeeping apart from your code (e.g. the review window's revert
+pathspec, the step guards' code-vs-plumbing check), not just a value the
+templates happen to share. The rendered value is constrained: it must name a
+directory inside the repository — not the repo root, not an absolute path, and
+not a path that escapes the repository via `..` — or the next `gtd next`/
+`gtd status`/`gtd land` fails loudly with that message, rather than silently
+excluding the whole tree from the review window's revert.
 
 To inspect or change the machine itself, see [Configuration](#configuration) —
 the workflow is just `.gtdrc` config.
@@ -933,6 +942,7 @@ workflow:
     <name>:
       format: <shell command> # both optional — {} is the format-only tier
       validate: <shell command>
+  stateDir: <string> # optional, an Eta template naming where this workflow keeps its own plumbing (default ".gtd") — the definition-level declaration the engine reads, distinct from the `vars.stateDir` var the bundled template renders it from
   entry:
     default: <machine name> # which machine is the ROOT instance
   machines:
@@ -978,7 +988,11 @@ derives a driver's session id).
 The top-level `entry:` key (naming the root machine, `entry.default`) and a
 state's own `entry: true` flag are the same word at two different levels, by
 design: one selects the workflow's root machine, the other opts one state in as
-an extra manual entry point.
+an extra manual entry point. The top-level `stateDir:` key and the
+`vars.stateDir` var it renders from are the same call: the definition-level
+declaration is what the engine reads (e.g. to tell gtd's own plumbing apart from
+your code), while the var is the knob you actually override — repointing
+`vars.stateDir` moves both.
 
 A workflow is authored as a TREE of reusable, parameterized machines — a
 gate/loop written once and instantiated several times with different `with:`

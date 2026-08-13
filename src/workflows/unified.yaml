@@ -232,11 +232,20 @@
 # path — repointing a var reroutes the machine along with every template that
 # reads/writes it (see the README's "Variables" section).
 
+# The definition-level declaration `stateDirOf` (src/PatternMachine.ts) reads —
+# a DIFFERENT thing from the `vars.stateDir` below despite sharing a name
+# (see that var's own comment). Rendered from it here so the two stay in
+# lockstep: relocating the var relocates what the engine treats as plumbing.
+stateDir: <%= it.vars.stateDir %>
+
 vars:
   testCommand: npm test
   # Where gtd keeps its own scratch/bookkeeping (the check scripts' temp output
   # file, review-deciding's state-file exclusion). Independent of the per-file
-  # vars below — relocating a file wholesale means setting both.
+  # vars below — relocating a file wholesale means setting both. An ordinary
+  # var — the knob a user overrides — distinct from the top-level `stateDir:`
+  # declaration above, which renders its value from this one; that is why the
+  # two share a name.
   stateDir: .gtd
   requirementsFile: .gtd/REQUIREMENTS.md
   architectureFile: .gtd/ARCHITECTURE.md
@@ -295,20 +304,20 @@ machines:
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
           # green run cleans it up. The `on` rules decide what that means.
           set +e
-          mkdir -p "<%~ it.vars.stateDir %>"
+          mkdir -p "<%~ it.stateDir %>"
           # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
           # newline after an interpolation tag, so no tag may be the last token on
           # a line — it would glue the next line's `else`/`fi` onto it and break
           # the script. Below this point everything is plain bash.
           feedback="<%~ it.vars.feedbackFile %>"
           mkdir -p "$(dirname "$feedback")"
-          <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
+          <%~ it.vars.testCommand %> > <%~ it.stateDir %>/.check-output 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
-            if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
-              mv <%~ it.vars.stateDir %>/.check-output "$feedback"
+            if [ -s <%~ it.stateDir %>/.check-output ]; then
+              mv <%~ it.stateDir %>/.check-output "$feedback"
             else
-              rm -f <%~ it.vars.stateDir %>/.check-output
+              rm -f <%~ it.stateDir %>/.check-output
               printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
             fi
             # A repeat identical failure would otherwise leave FEEDBACK.md
@@ -318,7 +327,7 @@ machines:
             # as an M/A edit and takes the red edge.
             printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
           else
-            rm -f <%~ it.vars.stateDir %>/.check-output
+            rm -f <%~ it.stateDir %>/.check-output
             rm -f "$feedback"
           fi
         # `entry: true` on the shared local marks both `entryGate` instances
@@ -376,7 +385,7 @@ machines:
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
           # green run cleans it up. The `on` rules decide what that means.
           set +e
-          mkdir -p "<%~ it.vars.stateDir %>"
+          mkdir -p "<%~ it.stateDir %>"
           # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
           # after an interpolation tag, so no tag may be the last token on a
           # line — it would glue the next line's `else`/`fi` onto it and break
@@ -391,13 +400,13 @@ machines:
           # existed.
           reviewRaw="<%~ it.vars.reviewRawFile %>"
           rm -f "$reviewRaw"
-          <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
+          <%~ it.vars.testCommand %> > <%~ it.stateDir %>/.check-output 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
-            if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
-              mv <%~ it.vars.stateDir %>/.check-output "$feedback"
+            if [ -s <%~ it.stateDir %>/.check-output ]; then
+              mv <%~ it.stateDir %>/.check-output "$feedback"
             else
-              rm -f <%~ it.vars.stateDir %>/.check-output
+              rm -f <%~ it.stateDir %>/.check-output
               printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
             fi
             # A repeat identical failure would otherwise leave FEEDBACK.md
@@ -407,7 +416,7 @@ machines:
             # as an M/A edit and takes the red edge.
             printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
           else
-            rm -f <%~ it.vars.stateDir %>/.check-output
+            rm -f <%~ it.stateDir %>/.check-output
             rm -f "$feedback"
           fi
         on:
@@ -463,7 +472,7 @@ machines:
           # deletes requirementsFile in the same turn it writes
           # architectureFile, so exactly one of the two exists here.
           set +e
-          mkdir -p "<%~ it.vars.stateDir %>"
+          mkdir -p "<%~ it.stateDir %>"
           # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
           # after an interpolation tag, so no tag may be the last token on a
           # line — it would glue the next line's `else`/`fi` onto it and break
@@ -905,9 +914,13 @@ machines:
           # refuses an incomplete step, so `deciding` is entered exactly once per
           # round — nothing commits in between). It is FEEDBACK when the human left
           # a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]" tick) OR a
-          # hand-edit to any file this round other than `.gtd/` or the state's own
-          # reviewFile (which is var-configurable and may live outside `.gtd/`, e.g.
-          # a root-level REVIEW.md — issue #128). Otherwise it is a clean sign-off.
+          # hand-edit to any file this round outside the declared stateDir or the
+          # state's own reviewFile (which is var-configurable and may live outside
+          # stateDir, e.g. a root-level REVIEW.md — issue #128). Otherwise it is a
+          # clean sign-off. This pathspec's plumbing-directory exclusion (stateDir,
+          # never a literal `.gtd/`) is the same declaration `src/StepGuards.ts`'s
+          # `isCodePath`/`hasCodeChange` re-derive for their own code-vs-plumbing
+          # test — keep the two together when either changes.
           # This turn only CAPTURES the raw material into REVIEW_RAW.md (the
           # `collecting` agent then judges whether it's actionable); it does
           # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
@@ -920,7 +933,7 @@ machines:
           # an interpolation tag, so no tag may be the last token on a line — it
           # would glue the next line onto it and break the script. Below this point
           # everything is plain bash.
-          stateDir="<%~ it.vars.stateDir %>"
+          stateDir="<%~ it.stateDir %>"
           reviewFile="<%~ it.vars.reviewFile %>"
           reviewRawFile="<%~ it.vars.reviewRawFile %>"
           head=$(git rev-parse HEAD)
@@ -1581,9 +1594,13 @@ machines:
           # a drifted worktree, or a binary path: the `requireRevert`
           # step-capture guard (src/StepGuards.ts) catches that by
           # re-checking the tree itself before this step is allowed to land.
+          # The guard's own residue scoping (`isCodePath`) re-derives the same
+          # stateDir/reviewFile exemption this pathspec renders, from the same
+          # declaration (never a literal `.gtd/`) — keep the two together
+          # when either changes.
           set +e
           commit="<%~ it.reviewBase %>"
-          stateDir="<%~ it.vars.stateDir %>"
+          stateDir="<%~ it.stateDir %>"
           reviewFile="<%~ it.vars.reviewFile %>"
           patch="$stateDir/.re-unwind.patch"
           mkdir -p "$stateDir"

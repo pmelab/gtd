@@ -20,6 +20,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   },
   vars: { greeting: "hi" },
   edges: [],
+  stateDir: ".gtd",
   ...overrides,
 })
 
@@ -165,6 +166,7 @@ describe("varsOnlyContext", () => {
     expect(ctx.processCost).toBe(0)
     expect(ctx.processCostByModel).toEqual([])
     expect(ctx.edges).toEqual([])
+    expect(ctx.stateDir).toBe("")
   })
 
   it("accepts an optional state name", () => {

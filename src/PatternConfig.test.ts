@@ -219,6 +219,7 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       },
       vars: {},
       edges: [],
+      stateDir: ".gtd",
     }
     const rendered = await Effect.runPromise(
       renderSteeringCommands(resolved!, ".gtd/TODO.md", context),
@@ -333,6 +334,25 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       "/config-dir",
     )
     expect(definition.states["a"]!.mode).toBe("adr")
+  })
+
+  it("compiles a declared `stateDir:` onto the definition, verbatim", () => {
+    const { definition } = compileWorkflowConfig(
+      { ...draftCheckRevise, stateDir: "<%= it.vars.stateDir %>" },
+      "/config-dir",
+    )
+    expect(definition.stateDir).toBe("<%= it.vars.stateDir %>")
+  })
+
+  it("leaves `stateDir` undefined when the workflow declares none", () => {
+    const { definition } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
+    expect(definition.stateDir).toBeUndefined()
+  })
+
+  it("rejects a non-string `stateDir:` value", () => {
+    expect(() =>
+      compileWorkflowConfig({ ...draftCheckRevise, stateDir: ["nope"] }, "/config-dir"),
+    ).toThrowError(/"stateDir" must be a string, got array/)
   })
 })
 

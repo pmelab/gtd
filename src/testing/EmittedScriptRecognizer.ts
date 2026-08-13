@@ -376,7 +376,11 @@ const recognizeReviewWindowClose = (repo: InMemRepo, block: string): BlockOutcom
  * discipline as `recognizeReviewWindowClose`; the fourth part
  * (`restoreStagedFrom`) needs no separate extraction since
  * `buildOpenWindowScript` hard-codes its ref/paths (`REVIEW_HEAD_REF`,
- * `[".gtd"]`) — the whole-string comparison verifies it for free.
+ * `[".gtd"]`) — the whole-string comparison verifies it for free. That
+ * `[".gtd"]` stays a literal deliberately (`buildOpenWindowScript`'s own doc
+ * comment argues the case) — this recognizer's whole-string comparison is
+ * exactly why: it only works while the path stays fixed, so making it
+ * dynamic would cost this recognizer its trust property.
  */
 const recognizeReviewWindowOpen = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const parts = block.split(" &&\n")

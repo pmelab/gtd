@@ -25,6 +25,7 @@ const templateContext: TemplateContext = {
   },
   vars: {},
   edges: [],
+  stateDir: ".gtd",
 }
 
 const rest = (
@@ -543,6 +544,73 @@ describe("require-revert guard", () => {
     if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
   })
 
+  it("allows a review round touching a relocated plumbing directory — today: permanent refusal", async () => {
+    // The reported deadlock's shape: `stateDir` relocated to `workflow-state`.
+    // A revert script that deliberately keeps `workflow-state/` untouched
+    // leaves that path differing from `base` forever; scoping residue by the
+    // DECLARED directory (not a literal `.gtd/`) exempts it correctly.
+    const repo = new InMemRepo()
+    repo.writeFile("src/thing.ts", "export const thing = 1\n")
+    repo.writeFile("workflow-state/notes.md", "before\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile("workflow-state/notes.md", "after\n")
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+    // The revert script deliberately keeps `workflow-state/` as-is — it still
+    // differs from `base`, but it is plumbing, not residue.
+
+    const exit = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        file: reUnwindState.stateDef.file!,
+        template: {
+          ...templateContext,
+          reviewBase: rb,
+          startCommit: base,
+          stateDir: "workflow-state",
+        },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
+  })
+
+  it("still refuses on real code residue alongside a relocated plumbing directory, naming ONLY the code path", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("src/thing.ts", "export const thing = 1\n")
+    repo.writeFile("workflow-state/notes.md", "before\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile("workflow-state/notes.md", "after\n")
+    repo.writeFile("src/thing.ts", "export const thing = 1\n// TODO: also export doubled\n")
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+    // The revert script never touches `workflow-state/` (plumbing) but the
+    // failed `git apply -R` left `src/thing.ts` (real code) as residue.
+
+    const exit = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        file: reUnwindState.stateDef.file!,
+        template: {
+          ...templateContext,
+          reviewBase: rb,
+          startCommit: base,
+          stateDir: "workflow-state",
+        },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value).toContain("src/thing.ts")
+      expect(exit.value).not.toContain("workflow-state")
+      expect(exit.value).toContain(`git checkout ${rb}~1 -- 'src/thing.ts'`)
+    }
+  })
+
   it("allows when the human's commit touched nothing", async () => {
     const repo = new InMemRepo()
     repo.writeFile("src/thing.ts", "export const thing = 1\n")
@@ -800,6 +868,45 @@ describe("enforceStepGuards", () => {
       const exit = await runGuards(oneTicked, undefined)
       expect(Exit.isSuccess(exit)).toBe(true)
     })
+  })
+
+  it("a plumbing-only edit under a relocated stateDir is not a code change — the unticked-box check stays reachable", async () => {
+    const reviewState = rest("await-review", {
+      actor: "human",
+      message: "review",
+      file: ".gtd/REVIEW.md",
+      mode: "review",
+      reviewWindow: true,
+    })
+    const twoUnticked = "## C\n- [ ] ./a.ts#1\n- [ ] ./b.ts#1\n"
+    const exit = await Effect.runPromiseExit(
+      enforceStepGuards({
+        rest: reviewState,
+        file: reviewState.stateDef.file,
+        context: { ...templateContext, stateDir: "workflow-state" },
+        changes: [{ path: "workflow-state/notes.md", status: "M" }],
+        windowHead: undefined,
+        kind: "commit",
+        attempt: false,
+      }).pipe(
+        Effect.provide(
+          Layer.merge(
+            unusedGitService,
+            Layer.succeed(
+              RepoFiles,
+              repoFilesFrom(
+                { ".gtd/REVIEW.md": twoUnticked },
+                { HEAD: { ".gtd/REVIEW.md": twoUnticked } },
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("still unticked and no comment")
+    }
   })
 
   it("reads the CURRENT working tree as-is — no in-process formatting happens here", async () => {

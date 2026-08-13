@@ -313,16 +313,22 @@ parser, one envelope. The table is the source of truth, not prose:
   is read at `Rest.windowHead` — the open review window's saved head — never at
   real `HEAD`, which the window has rewound to the review base, where a file the
   process itself wrote does not exist yet; and `hasCodeChange` ("the human
-  edited something real") excludes the state's OWN `file:` by exact path, not
-  merely everything under `.gtd/`. A `reviewFile` repointed to the repo root is
-  still a steering file — the same assumption issue #128 broke in `deciding`'s
-  check script. With either one wrong, the review sign-off guard takes its
-  it-is-a-comment branch on every pass and the unticked-box check is unreachable
+  edited something real") excludes the state's OWN `file:` by exact path, and
+  gtd's own plumbing by the DECLARED directory read off `it.stateDir`
+  (`src/StepGuards.ts`'s `isCodePath`/`isPlumbingPath`), never a literal `.gtd/`
+  prefix check. A `reviewFile` repointed to the repo root is still a steering
+  file — the same assumption issue #128 broke in `deciding`'s check script — and
+  a plumbing directory relocated via `vars.stateDir` is still plumbing. With
+  either exemption wrong, the review sign-off guard takes its it-is-a-comment
+  branch on every pass and the unticked-box check is unreachable
 - The require-revert guard's own version of the same INPUTS risk: it compares
   the current tree against `reviewBase~1` intersected with the human's own
   review-round commit's touched paths, and it exempts the state's own `file:` by
-  exact path (never merely a `.gtd/` prefix). Get the comparison direction wrong
-  (matching against `reviewBase` instead of its parent) and the guard is INERT —
-  it allows every un-reverted tree; get the exemption wrong (a `.gtd/`-prefix
-  check instead of the exact path, on a `reviewFile` repointed to the repo root)
-  and it REFUSES every note-only round forever
+  exact path and gtd's own plumbing by the same declared `it.stateDir` directory
+  (never a literal `.gtd/` prefix). Get the comparison direction wrong (matching
+  against `reviewBase` instead of its parent) and the guard is INERT — it allows
+  every un-reverted tree; get either exemption wrong (a `.gtd/`-prefix check
+  instead of the exact path on a `reviewFile` repointed to the repo root, or a
+  literal `.gtd/` instead of the declared `stateDir` on a relocated plumbing
+  directory) and it REFUSES every note-only round, or every round that touches
+  the relocated directory, forever

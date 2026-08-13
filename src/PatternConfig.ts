@@ -31,6 +31,7 @@ import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
  *   <name>:
  *     format: <shell command>    # at least one of format/validate
  *     validate: <shell command>
+ * stateDir: <string>?   # optional — an Eta template naming where this workflow keeps its own plumbing; defaults to ".gtd" (see PatternMachine.stateDirOf)
  * entry:
  *   default: <machine name>     # which machine is the ROOT instance
  * machines:
@@ -91,6 +92,21 @@ import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
  * override either half per name, and `src/SteeringFormats.ts`'s
  * `isSeededValidateCommand` lets the edge (`src/SteeringMode.ts`) tell gtd's
  * own seeding apart from a genuine user override.
+ *
+ * ## `stateDir:` — where this workflow keeps its own plumbing
+ *
+ * A sibling `stateDir:` key INSIDE the `workflow:` value declares the raw Eta
+ * template source for gtd's own scratch/bookkeeping directory (see
+ * `PatternMachine.WorkflowDefinition.stateDir`/`stateDirOf`) — a
+ * DEFINITION-level declaration, not a var, because the value must reach
+ * `enforceStepGuards`'s `hasCodeChange` (`src/StepGuards.ts`), computed once
+ * per call before any one guard runs, rather than any guard reaching into
+ * `it.vars` itself (a blessed-config-key shape this repo forbids). Absent
+ * compiles to `undefined`, so `stateDirOf`'s `.gtd` default applies — a
+ * workflow declaring nothing behaves exactly as before this key existed. The
+ * bundled template renders this from its own ordinary `vars.stateDir` (the
+ * knob a user actually overrides) — this compiler never renders it itself,
+ * the same discipline as a state's own `file:`.
  *
  * ## File references
  *
@@ -243,10 +259,34 @@ export const mergeModes = (
   return merged
 }
 
+/**
+ * Compile the `stateDir:` key — the raw Eta template source for where this
+ * workflow keeps its own plumbing (see `PatternMachine.WorkflowDefinition.stateDir`).
+ * An absent key compiles to `undefined` — the definition then carries none,
+ * and `stateDirOf`'s `.gtd` default applies. A non-string value pushes one
+ * load error and drops the value, never guessed at. Never rendered here —
+ * the pure engine carries the string verbatim, the same discipline as a
+ * state's own `file:`.
+ */
+const compileStateDir = (raw: unknown, errors: string[]): string | undefined => {
+  if (raw === undefined) return undefined
+  if (typeof raw !== "string") {
+    errors.push(`"stateDir" must be a string, got ${describeType(raw)}`)
+    return undefined
+  }
+  return raw
+}
+
 /** Every state property a flattened state may carry — `STATE_FIELDS`'s own key set, in table order. */
 const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set(Object.keys(STATE_FIELDS))
 
-const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
+const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set([
+  "entry",
+  "machines",
+  "vars",
+  "modes",
+  "stateDir",
+])
 const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set(["params", "entry", "states", "model"])
 const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with"])
 
@@ -985,6 +1025,7 @@ export const compileWorkflowConfig = (
   // `mergeModes` is `undefined` only when BOTH arguments are — `seeded` never
   // is, so this merge (and the one layering `rcModes` over it) always resolves.
   const modes = mergeModes(mergeModes(seeded, compileModesMap(raw.modes, errors)), rcModes)!
+  const stateDir = compileStateDir(raw.stateDir, errors)
   validateMachinesShape(raw.machines, errors)
 
   const flattened = flattenMachines(raw, errors)
@@ -1016,7 +1057,12 @@ export const compileWorkflowConfig = (
   // in an unrelated state). De-duplicate identical messages (both passes can
   // independently notice the same problem).
   const entries = { default: flattened.entries.default, manual }
-  const definition: WorkflowDefinition = { states, entries, modes }
+  const definition: WorkflowDefinition = {
+    states,
+    entries,
+    modes,
+    ...(stateDir !== undefined ? { stateDir } : {}),
+  }
 
   assertScopesCoverStates(Object.keys(states), flattened.scopes, errors)
 
