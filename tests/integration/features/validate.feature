@@ -18,17 +18,13 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   dedicated state, the producing agent self-validates before finishing, so a
   human gate is only ever handed a well-formed file.
 
-  In the bundled template the ADVANCED flow uses the `qa` mode
-  (`.gtd/REQUIREMENTS.md` at design.product-author, `.gtd/ARCHITECTURE.md` at
-  design.technical-author). The SIMPLE flow's `.gtd/TODO.md` iterates on a free-form plan
-  under the format-only `prose` mode: it validates cleanly regardless of
-  content (there is no validator to fail), but still formats on a declared
-  `format:` command — formatting.feature covers that.
+  In the bundled template the `qa` mode governs `.gtd/REQUIREMENTS.md` at
+  design.triage and `.gtd/ARCHITECTURE.md` at architecture.author.
 
-  Scenario: a well-formed REQUIREMENTS.md at design.product-author validates cleanly
+  Scenario: a well-formed REQUIREMENTS.md at design.triage validates cleanly
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`.
 
@@ -42,10 +38,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains ".gtd/REQUIREMENTS.md: valid"
 
-  Scenario: a malformed REQUIREMENTS.md at design.product-author fails with the parser's finding
+  Scenario: a malformed REQUIREMENTS.md at design.triage fails with the parser's finding
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
 
@@ -68,7 +64,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # command's, which is why `validate` itself always succeeds now.
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: add src/thing.ts.
       """
@@ -119,25 +115,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
 
-  Scenario: the simple flow's TODO.md is `prose`-moded — there is nothing to emit
-    # The SIMPLE flow iterates on a free-form plan; planning declares `file:`
-    # + `mode: prose`, an EMPTY modes: entry — no `format:`, no `validate:`.
-    # A mode with no commands emits no script at all, which is exactly the
-    # "nothing to validate" case: any content is acceptable.
-    Given a test project
-    And the workflow
-    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
-      """
-      Build a thing. Plan: add src/thing.ts exporting `thing`.
-      """
-    When I run gtd with args "validate"
-    Then it succeeds
-    And stdout contains "nothing to validate at \"plan.planning\""
-
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
@@ -152,13 +133,13 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: `gtd next --json` withholds the self-validation instruction but embeds the validate script
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"design.product-author\""
+    And stdout contains "\"state\":\"design.triage\""
     And stdout does not contain "Before finishing your turn"
     And the json field "validate" contains "gtd check qa"
 
@@ -169,7 +150,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # formatting.feature).
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. This is a deliberately long single prose line that clearly exceeds the eighty character print width, and nothing rewraps it.
       """
@@ -178,13 +159,13 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And the git status is clean
 
   Scenario: the step gate runs format + validate after a human edits the steering file — a malformed edit is refused
-    # A human answers at product-answer but leaves a `### ` question heading
-    # with no question text. Stepping runs the same gate the producing agent
-    # gets, so the malformed edit is refused and nothing is committed — the
-    # evaluation happens after a human edit too.
+    # A human answers at design.gate.answer but leaves a `### ` question
+    # heading with no question text. Stepping runs the same gate the producing
+    # agent gets, so the malformed edit is refused and nothing is committed —
+    # the evaluation happens after a human edit too.
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.product-answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(human): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: do it.
       """
@@ -204,12 +185,12 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # commit, so the refusal is the checker's findings and a non-zero exit —
     # nothing is committed.
     And stderr contains "has no question text"
-    And the last commit subject is "gtd(human): design.product-answer"
+    And the last commit subject is "gtd(human): design.gate.answer"
 
-  Scenario: the step gate captures a human's valid edit (routing it back to design.product-author)
+  Scenario: the step gate captures a human's valid edit (routing it back to design.triage)
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.product-answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(human): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
@@ -220,7 +201,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.product-answer → design.product-author"
+    And the last commit subject is "gtd(human): design.gate.answer → design.triage"
 
   Scenario: a state-level "model:" is rejected at load time — a machine's own model is the only way to declare one
     # A state's `model:` moved to the machine that owns it back in the

@@ -74,7 +74,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     And the last commit subject is "gtd(human): fix-precheck"
 
   Scenario: refuses when a gtd process is already underway
-    Given a file ".gtd/TODO.md" with:
+    Given a file "NOTE.md" with:
       """
       a sketch
       """

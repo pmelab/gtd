@@ -13,21 +13,21 @@ Feature: gtd in a repository with no commits yet
   @live
   Scenario: the first gtd land lands in a repository with no commits
     Given a git repository with no commits
-    And a file ".gtd/TODO.md" with:
+    And a file "src/thing.ts" with:
       """
-      build a thing
+      export const thing = 1
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-gate.check"
+    And the last commit subject is "gtd(human): idle → unwind"
 
   @inmem
   Scenario: the first gtd land lands in a repository with no commits (scripted)
     Given a git repository with no commits
-    And a file ".gtd/TODO.md" with:
+    And a file "src/thing.ts" with:
       """
-      build a thing
+      export const thing = 1
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-gate.check"
+    And the last commit subject is "gtd(human): idle → unwind"

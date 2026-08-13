@@ -6,8 +6,8 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
   the `build.review.reviewing` and `build.squashing` prompt sites lives with their own
   flows (`default-workflow.feature`'s incremental-review scenario, `entry.feature`'s
   first-review scenario, `squash.feature`); this file covers the two sites
-  nothing else exercises: `packages.item.spec.review` (the advanced flow's
-  per-package prompt) and `build.review.deciding`'s captured manifest — see
+  nothing else exercises: `packages.item.spec.review` (the per-package build's
+  own review prompt) and `build.review.deciding`'s captured manifest — see
   `src/workflows/unified.yaml` and `src/PatternTemplates.ts`.
 
   Background:
@@ -15,7 +15,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     And the workflow
 
   @inmem
-  Scenario: packages.item.spec.review (advanced flow) prints the process base hash, never a rendered diff
+  Scenario: packages.item.spec.review prints the process base hash, never a rendered diff
     Given a commit "feat: add architecture" that adds "src/db.ts" with:
       """
       export const db = {}

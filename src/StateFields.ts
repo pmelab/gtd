@@ -401,9 +401,9 @@ const STATE_FIELDS = {
    * Optional. When `true`, a step at this state is REFUSED unless every OPEN
    * question in its `qa`-mode `file:` is answered — EXACTLY ONE checkbox ticked
    * per question (and, when the ticked one is the trailing free-text slot, its
-   * text is non-empty). This is what makes the advanced flow's answer gates
-   * (`product-answer`/`technical-answer`) require a decision on every
-   * question before looping back or advancing. Like the review sign-off gate,
+   * text is non-empty). This is what makes the bundled template's answer gates
+   * (`design.gate.answer`/`architecture.gate.answer`) require a decision on
+   * every question before looping back or advancing. Like the review sign-off gate,
    * the PURE engine never reads it: the check lives at the edge
    * (the answer-completeness guard in `src/StepGuards.ts`, over
    * `src/OpenQuestions.ts`), and only acts when the state also declares

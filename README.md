@@ -21,9 +21,10 @@ No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 - **Shareable.** Push the branch, and the workflow travels with it — the state
   lives in the commits, so another machine (or another person) picks up exactly
   where you left off.
-- **Files, not chat.** Plans live in `.gtd/TODO.md`. Request changes by editing
-  it, approve by leaving the tree clean — all in your own editor. There is no
-  chat UI to lose.
+- **Files, not chat.** Plans live in `.gtd/` steering files (`REQUIREMENTS.md`,
+  `ARCHITECTURE.md`, the package files under `.gtd/packages/`). Request changes
+  by editing them, approve by leaving the tree clean — all in your own editor.
+  There is no chat UI to lose.
 - **Harness agnostic.** gtd emits prompts to stdout (or JSON). Claude Code, a
   bash loop, a CI job, or you reading it out loud — the workflow doesn't care
   who executes it.
@@ -61,15 +62,14 @@ gtd init
 This writes a minimal `.gtdrc.json` seeding the one variable most projects
 change — the test command (`vars.testCommand`, defaulting to `npm test`) — plus
 a top-level `modes:` block suggesting **Prettier** as the steering-file
-formatter (`npx prettier --write` for the built-in `qa`/`review`/`prose` modes —
-format only, so gtd still validates the `qa`/`review` ones; `prose`, used by the
-simple flow's plan file, has no validator to begin with); edit or drop either
-freely (point `testCommand` at your suite, swap Prettier for dprint or a script,
-delete a key). It writes **no** `workflow:` key — the machine is built in — so
-review and commit the file before your first `gtd land`. `gtd init` takes no
-argument and refuses to clobber an existing config; it may also run in a plain
-parent directory (not a git repo) to seed a shared config a nested repo picks
-up. To customize the machine itself, add a `workflow:` key (there is no default
+formatter (`npx prettier --write` for the built-in `qa`/`review` modes — format
+only, so gtd still validates them); edit or drop either freely (point
+`testCommand` at your suite, swap Prettier for dprint or a script, delete a
+key). It writes **no** `workflow:` key — the machine is built in — so review and
+commit the file before your first `gtd land`. `gtd init` takes no argument and
+refuses to clobber an existing config; it may also run in a plain parent
+directory (not a git repo) to seed a shared config a nested repo picks up. To
+customize the machine itself, add a `workflow:` key (there is no default
 fallback to merge over — a `workflow:` is the whole definition).
 
 ## How it works
@@ -110,76 +110,96 @@ together: the `action` leads when the edge declares one, with the raw pattern
 (and `describe`) still shown alongside it, so a human choosing between routes
 reads intent first, glob second.
 
-The unified workflow has **entry points behind a green-baseline gate, into one
-shared tail**. Every entry first runs your test suite and only starts once it's
-green — you never build (or review) on top of a red baseline; a red run halts
-and tells you to repair it first (that's what `gtd --entry fix-precheck` is
-for). The two steering-file entries are chosen by which file you create:
+**Your input is a spec, not the work.** The unified workflow treats ANY change
+to the tree — a hand-edit to real code, a scratch note in some file, anything at
+all — as a sketch to be finished, never as work to be preserved: there is no
+fork on which steering file you happen to create, and `idle` has exactly one
+outgoing edge, into `unwind`. `unwind` reverts that whole diff back out of your
+working tree (`git revert --no-commit` against the commit it just landed in)
+before planning ever starts — your tree is back to exactly what it was, and your
+intent doesn't disappear, it survives in history for `design.triage` to read.
 
-- Create **`.gtd/TODO.md`** with a short sketch to start the **simple** flow: an
-  agent develops your sketch into a concrete plan — deciding open points itself
-  rather than asking questions — and hands it back for you to accept as-is or
-  edit. Editing sends it round again; accepting builds the plan in one turn and
-  runs your tests (looping on failures) — the check run also mechanically sweeps
-  `.gtd/TODO.md` and other spent steering files, so a plan that's left in place
-  by mistake never leaks into the review diff or the final squash.
-- Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: one design
-  conversation across product then technical Q&A (`.gtd/REQUIREMENTS.md` →
-  `.gtd/ARCHITECTURE.md`) and decomposition — each open question offers a couple
-  of candidate answers plus a `- [ ] _your answer_` slot, and you tick exactly
-  one per question (the gate won't let a phase advance while any question is
-  unanswered) — then decomposition into work **packages** (each a set of
-  independent tasks a single build turn fans out to parallel subagents), a
-  per-package test loop, and a per-package **agentic review** that verifies the
-  package against its spec. All three phases share one machine identity, so the
-  agent never re-explores the codebase from scratch between them, and the
-  human's answers carry forward into decomposition. A package whose work already
-  landed (an earlier package's fix turn pulled it in) is not a dead end: the
-  build turn records per-criterion evidence in `.gtd/SATISFIED.md` instead of
-  implementing anything, and the package still goes through the checks and the
-  spec review before closing out. If a queue item ever _does_ dead-end (a build
-  turn that authors nothing stalls), the supported recovery is to write that
-  same file yourself and `gtd land` — no hand-authored state commit.
+From there, `start-gate.check` runs your test suite on the tree as it now stands
+— which, thanks to the unwind, is simply your repo's own baseline. The rule is
+the plain one: the baseline must be green. A red run halts the process and tells
+you to repair it first (that's what `gtd --entry fix-precheck` is for);
+`review-gate` follows the same rule.
 
-Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
-checkbox review of the diff — the prompt never inlines the diff itself; it names
-the commit the changes are based at and the agent runs `git diff` to read the
-range before writing the review. While the process rests at that gate, the
-landing script opens a **review checkout window**: HEAD is rewound to the review
-base with the working tree untouched, so the whole reviewable change shows up as
-ordinary uncommitted changes in your editor's normal git integration (and files
-added during the process show up as ordinary untracked files, so discarding one
-deletes it — an untracked file you leave alone is not a pending change, and only
-actually removing it from disk counts as a deletion). The next landing's own
-script closes the window before it commits. Tick a box as you review each hunk
-(ticking just records "I read this"), and leave a **comment** to request
-changes: a note on a line, an inline `// TODO`-style comment in the code, or a
-direct code edit. Any comment sends a build + re-review round — an agent first
-turns your comments into an explicit instruction list, then a build turn
-implements it (a re-review then covers only the follow-through, and a hand-edit
-is treated as your own fix the agent completes without reverting your lines; a
-comment can't be silently dropped — a build turn that addresses nothing is
-refused). For the simple flow, the build turn that follows through on feedback
-and the turn that drafts the final squash message both resume the same session
-that built the feature in the first place, since the review tail is nested
-inside that build identity rather than sitting beside it. Ticking every box with
-no comment is the sign-off, which collapses the whole process into one commit (a
-**squash finale** whose message an agent drafts). Landing with a box still
-unticked and no comment is refused (finish reviewing first), as is deleting
-`.gtd/REVIEW.md`. Both refusals hold wherever the review doc lives: repointing
-`reviewFile` out of `.gtd/` (say to `REVIEW.md` at the repo root) changes
-nothing about them — your own edit to the review doc is never mistaken for a
-code comment, and the doc's pre-turn copy is read at the review window's saved
-head rather than at the rewound `HEAD`.
+Once past the gate, `design.triage` reads the diff that started the process
+itself — the prompt never inlines it; it finds the entry commit (the one
+`unwind` reverted) and runs `git show` against it — and groups that diff into an
+ORDERED list of **concerns**, each one able to leave the test suite green on its
+own, classifying each as **product** (a user-facing/requirements decision) or
+**technical** (an implementation decision). It raises open questions for the
+product concerns only, in `.gtd/REQUIREMENTS.md`, folding EVERYTHING the entry
+commit added into those concerns — a scratch sketch and a hand-edited code
+change alike, since the unwind already reverted both; nothing is left to delete.
+A shared check+answer gate then probes `.gtd/REQUIREMENTS.md` for unanswered
+questions: each open question offers a couple of candidate answers plus a
+`- [ ] _your answer_` slot, and you tick exactly one per question (the gate
+won't let the phase advance while any question is unanswered) — but a phase
+whose document has no open questions skips that human stop entirely and falls
+straight through.
 
-The same review tail also has a direct entry point —
+Once the product questions are settled, `architecture.author` picks up as a
+**cold reader** — a separate machine with its own memory scope, so it does not
+resume the triage conversation but reads `.gtd/REQUIREMENTS.md` in full — and
+develops the _how_ for each settled concern, raising only technical open
+questions in `.gtd/ARCHITECTURE.md` (routed through that same shared
+check+answer gate shape, again skipping the human stop when nothing is open),
+deleting `.gtd/REQUIREMENTS.md` once its content is folded in. Once those are
+settled, `architecture.decompose` is a purely mechanical write-out — **one
+package file per concern**, in the settled order, with no merge/split judgement
+of its own (that already happened in triage's grouping) — handing off to the
+per-package build queue: each package (a set of independent tasks a single build
+turn fans out to parallel subagents) runs its own test loop and a per-package
+**agentic review** that verifies it against its own spec. A package whose work
+already landed (an earlier package's fix turn pulled it in) is not a dead end:
+the build turn records per-criterion evidence in `.gtd/SATISFIED.md` instead of
+implementing anything, and the package still goes through the checks and the
+spec review before closing out. If a queue item ever _does_ dead-end (a build
+turn that authors nothing stalls), the supported recovery is to write that same
+file yourself and `gtd land` — no hand-authored state commit.
+
+The process converges on that same shared tail: an agent hands you a
+`.gtd/REVIEW.md` checkbox review of the diff — the prompt never inlines the diff
+itself; it names the commit the changes are based at and the agent runs
+`git diff` to read the range before writing the review. While the process rests
+at that gate, the landing script opens a **review checkout window**: HEAD is
+rewound to the review base with the working tree untouched, so the whole
+reviewable change shows up as ordinary uncommitted changes in your editor's
+normal git integration (and files added during the process show up as ordinary
+untracked files, so discarding one deletes it — an untracked file you leave
+alone is not a pending change, and only actually removing it from disk counts as
+a deletion). The next landing's own script closes the window before it commits.
+Tick a box as you review each hunk (ticking just records "I read this"), and
+leave a **comment** to request changes: a note on a line, an inline
+`// TODO`-style comment in the code, or a direct code edit. Any comment sends a
+build + re-review round — an agent first turns your comments into an explicit
+instruction list, then a build turn implements it (a re-review then covers only
+the follow-through, and a hand-edit is treated as your own fix the agent
+completes without reverting your lines; a comment can't be silently dropped — a
+build turn that addresses nothing is refused). The build turn that follows
+through on feedback and the turn that drafts the final squash message both
+resume the same session that built the feature in the first place, since the
+review tail is nested inside that build identity rather than sitting beside it.
+Ticking every box with no comment is the sign-off, which collapses the whole
+process into one commit (a **squash finale** whose message an agent drafts).
+Landing with a box still unticked and no comment is refused (finish reviewing
+first), as is deleting `.gtd/REVIEW.md`. Both refusals hold wherever the review
+doc lives: repointing `reviewFile` out of `.gtd/` (say to `REVIEW.md` at the
+repo root) changes nothing about them — your own edit to the review doc is never
+mistaken for a code comment, and the doc's pre-turn copy is read at the review
+window's saved head rather than at the rewound `HEAD`.
+
+A second entry, the same review tail's own direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
 process reviewing `<commitish>..HEAD` with no build of its own, e.g. a
 colleague's PR branch (`review-gate.check`'s `reviewBase:` is a template bound
 to the `reviewBase` var, so supplying it via `--var` fixes the whole process's
 diff base to that commitish). Its squash keeps and describes only the fixes made
 _during_ the review (not the reviewed changeset); a clean sign-off with no fixes
-becomes an empty `chore: human review` commit. A fourth entry,
+becomes an empty `chore: human review` commit. A third entry,
 `gtd --entry fix-precheck`, starts from a clean `idle` and goes straight into
 repairing a red baseline — repair, review, and squash into one commit. If the
 suite is already green there is nothing to fix, and the log is left untouched —
@@ -191,10 +211,11 @@ no commit is left behind.
 _extra_ reachability root (and drives a badge in `gtd visualize`) for a state
 that would otherwise be unreachable from the ordinary `idle` rest —
 `review-gate.check` and `fix-precheck` need it for exactly that reason, while
-`plan-gate.check`/`spec-gate.check` carry it too (the bundled template dedups
-the three `entryGate` instances into one shared machine, so flagging the shared
-state flags all three) even though `idle` already reaches them the ordinary way.
-`entry: true` is not a precondition for `--entry` to target a state.
+`start-gate.check` carries it too (the bundled template dedups its two
+`entryGate` instances — `start-gate` and `review-gate` — into one shared
+machine, so flagging the shared state flags both) even though `idle` already
+reaches it the ordinary way. `entry: true` is not a precondition for `--entry`
+to target a state.
 
 Every agent state routes its model through two `vars` tiers — `plannerModel`
 (heavier planning and review) and `coderModel` (the coding turns) — so you can
@@ -280,7 +301,9 @@ Commands:
                    non-zero when there are any. Resolves no workflow state and
                    reads no config — standalone, runnable from any directory
                    with <mode>/<file> given explicitly. This is what a
-                   workflow's emitted validation script invokes as a leaf step
+                   workflow's emitted validation script invokes as a leaf step.
+                   --open-questions runs the qa unanswered-questions predicate
+                   instead (see --help)
   install          Print a complete, self-contained briefing that teaches an
                    agent (or a human) to build a gtd driver in any shell or
                    runtime — the self-serve version of README's 'Writing
@@ -303,6 +326,10 @@ Options:
                    (with --entry; repeatable) supply a fixed it.vars
                    override for the new process; the name must already be
                    declared by the workflow's own vars: or the .gtdrc vars:
+  --open-questions (gtd check only) ignore <mode>'s structural findings and
+                   instead run the qa open-questions predicate over <file>,
+                   printing each unanswered question one per line and exiting
+                   non-zero when any remain
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -383,17 +410,17 @@ exits. You act by editing files (answer a plan question, tick a review box, fix
 code) and re-running it — your pending edit arrives as the loop's first beat
 (`kind: "capture"`, landed immediately), so you never run `gtd land` by hand.
 
-Some gates accept by INACTION instead: the bundled template's `plan.await-plan`
-routes its `"C"` (clean-tree) pattern onward, so changing nothing there means
-"accept the plan". That reaches the driver as `kind: "message"`, which no
-inspection can tell apart from a gate you have not read yet — so the driver
-treats its OPENING beat as yours either way and lands it: you re-ran it while
-resting there, and that invocation IS the decision. Every later beat halts as
-usual, because a gate the driver produced mid-run is one you have not seen.
-Landing an opening beat at a gate with no `"C"` pattern is harmless — a benign
-no-op (see `gtd land`'s exit codes below) — and the gate then prints on the next
-beat. A mid-process restart simply resumes driving from whatever beat is
-actually next.
+Some gates could accept by INACTION instead: a workflow may declare a `"C"`
+(clean-tree) pattern on a human-actor state that routes onward, so changing
+nothing there means "accept as-is" rather than nothing happening. That reaches
+the driver as `kind: "message"` either way, which no inspection can tell apart
+from a gate you have not read yet — so the driver treats its OPENING beat as
+yours regardless and lands it: you re-ran it while resting there, and that
+invocation IS the decision. Every later beat halts as usual, because a gate the
+driver produced mid-run is one you have not seen. Landing an opening beat at a
+gate with no `"C"` pattern is harmless — a benign no-op (see `gtd land`'s exit
+codes below) — and the gate then prints on the next beat. A mid-process restart
+simply resumes driving from whatever beat is actually next.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around the driver,
@@ -1037,6 +1064,24 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > discard it and start over (or finish the process on the pre-upgrade workflow
 > version first).
 
+> **Upgrading a `workflow:` from the old two-flow (`.gtd/TODO.md` vs.
+> `.gtd/REQUIREMENTS.md`) shape?** The bundled template collapsed that fork into
+> one flow: `idle` now has a single outgoing edge — any change at all starts the
+> process, never a fork on which steering file you create — and
+> `plan-gate.check`/`spec-gate.check` merged into one shared `start-gate.check`.
+> The old plan-iteration machine's `plan.planning`/`plan.await-plan` states and
+> its monolithic `build.building` state are gone outright; every concern now
+> goes through the same per-package build queue instead. Renamed:
+> `design.product-author` → `design.triage`, `design.product-answer` →
+> `design.gate.answer`, `design.technical-author` → `architecture.author`,
+> `design.technical-answer` → `architecture.gate.answer`, `design.decompose` →
+> `architecture.decompose` (architecture is now its own sibling machine with its
+> own memory scope, not nested under `design`). The `todoFile` var and the
+> `prose` mode are both gone — there is no more free-form plan file. As with
+> every rename above, an in-flight process resting at one of the old names can
+> no longer be resumed; `gtd abandon` it (or finish it on the pre-upgrade
+> workflow version) before upgrading.
+
 ### Variables
 
 Every template — `script`/`prompt`/`message`/`commit`, a machine's own `model:`,
@@ -1160,10 +1205,10 @@ itself, so you bring your own formatter and your own checkers. Overriding one of
 actions — those come from the FORMAT (the name), independent of who validates —
 but `gtd lsp` never runs a shell command per keystroke, so live diagnostics
 become one `Information` notice pointing at `gtd validate` instead of the
-built-in findings. Any OTHER mode name — `prose` (used by the simple flow's plan
-file), or a project's own declared name — has no built-in format, so it gets no
-live editor support at all: `gtd validate`'s emitted script and the `gtd land`
-gate still format and validate it like any other mode.
+built-in findings. Any OTHER mode name — a project's own declared name (e.g.
+`prose`, for a free-form note) — has no built-in format, so it gets no live
+editor support at all: `gtd validate`'s emitted script and the `gtd land` gate
+still format and validate it like any other mode.
 
 ## Development
 

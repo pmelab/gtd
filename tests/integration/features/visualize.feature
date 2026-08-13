@@ -28,7 +28,7 @@ Feature: gtd visualize — an interactive diagram of the active workflow
     And stdout contains "packageItem"
 
   Scenario: --json labels an identity-bearing group with its machine's model
-    # `build` (simpleBuild) and `packages.item` (packageItem) each declare a
+    # `build` (buildTail) and `packages.item` (packageItem) each declare a
     # machine-level `model:` (▸ coder) — every one of a group's own prompt
     # states is stamped with that SAME value (src/Machines.ts's
     # `resolveInstanceModel`), so `VizGroup.model` (package 04) surfaces it
@@ -40,13 +40,13 @@ Feature: gtd visualize — an interactive diagram of the active workflow
     And stdout matches "\"name\": \"packages\.item\",[^}]*\"model\": \"<%= it\.vars\.coderModel %>\""
 
   Scenario: --json omits the model entirely for an identity-free gate/queue group
-    # `plan-gate` (entryGate) and `packages` (packageLoop) declare no
+    # `start-gate` (entryGate) and `packages` (packageLoop) declare no
     # machine-level `model:` — they are infrastructure, not a persona — so
     # their groups carry no `model` key at all (never a blank/null one).
     Given a test project
     When I run gtd with args "visualize --json"
     Then it succeeds
-    And stdout matches "\"name\": \"plan-gate\",\s*\"machine\": \"entryGate\",\s*\"states\": \[[^\]]*\],\s*\"depth\": 0\s*\}"
+    And stdout matches "\"name\": \"start-gate\",\s*\"machine\": \"entryGate\",\s*\"states\": \[[^\]]*\],\s*\"depth\": 0\s*\}"
     And stdout matches "\"name\": \"packages\",\s*\"machine\": \"packageLoop\",\s*\"states\": \[[^\]]*\],\s*\"depth\": 0\s*\}"
 
   Scenario: an unknown option is rejected (no server is started)

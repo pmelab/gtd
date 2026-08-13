@@ -59,16 +59,19 @@ description, and must be preserved:
   derivation of history (`uuidv5` of the resting state's memory key) and write
   nothing; no command — `next`, `status`, or `land` — touches the git dir to
   record that a beat was dispatched. Every write gtd causes happens inside a
-  script it emitted and the driver ran. A command resolves ONE `Rest`
-  (`Edge.ts`'s `currentRest`/`restAt`) and hands it to `planStep`/`planEntry` —
-  `src/program.ts` never reaches into `GitService` directly except two narrow
-  exceptions: the `abandon`/`restore` hard/mixed resets (recovery commands that
-  must work even when a `Rest` would refuse — see `runAbandonCommand`'s own doc
-  comment), and the review sign-off/ feedback-progress gates' own
-  `readFileAtRef` reads (they need the COMMITTED, pre-turn copy of a file, which
-  a `Rest` snapshot — taken before the turn lands — doesn't carry). The review
-  window and the steering-file gate are deliberately invisible to the pure
-  engine — don't "simplify" them back into it.
+  script it emitted and the driver ran — including the one script that moves
+  HEAD, `start-gate.check`'s own baseline checkout (below): that's still the
+  driver running an emitted script, not a command reaching into git itself. A
+  command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`) and hands it
+  to `planStep`/`planEntry` — `src/program.ts` never reaches into `GitService`
+  directly except two narrow exceptions: the `abandon`/`restore` hard/mixed
+  resets (recovery commands that must work even when a `Rest` would refuse — see
+  `runAbandonCommand`'s own doc comment), and the review sign-off/
+  feedback-progress gates' own `readFileAtRef` reads (they need the COMMITTED,
+  pre-turn copy of a file, which a `Rest` snapshot — taken before the turn lands
+  — doesn't carry). The review window and the steering-file gate are
+  deliberately invisible to the pure engine — don't "simplify" them back into
+  it.
 
 - **The review window issues no whole-tree index WRITE, and every git index
   write tolerates `index.lock` contention.** gtd shares one worktree index with
@@ -104,6 +107,17 @@ description, and must be preserved:
   and an @inmem e2e scenario cannot (hence `@live`
   `review-window-untracked.feature`).
 
+- **No emitted script moves HEAD.** `unified.yaml`'s `unwind` state reverts the
+  entry commit's diff (`git revert --no-commit`) before planning ever starts, so
+  by the time `start-gate.check` runs, the working tree already IS the baseline
+  — one plain suite run there is the baseline verdict, the same rule
+  `review-gate`/`fix-precheck` already followed. There is no second suite run,
+  no detached checkout, no branch-restore trap, and no `SIGKILL` recovery story
+  to document, because nothing ever leaves the branch. The untracked environment
+  (`node_modules`, `.env`, build caches) is preserved for free the same way it
+  always was — those paths were never in the entry commit to begin with, so
+  reverting that commit doesn't touch them.
+
 ### Testing
 
 `src/testing/` is the in-memory git/config/filesystem test seam
@@ -138,19 +152,20 @@ any OTHER name (including `prose`) needs its own `modes:` entry, or
 
 - **`src/workflows/templates.test.ts`** — the invariants the compiled template
   must keep (one `entry.default`, one review window, one review/fix entry, the
-  two entry-file forks)
+  single `idle` edge into `start-gate.check`, the two `questionGate` instances,
+  the `design`/`architecture` scope split)
 - **e2e feature files** that assert on the bundled template's shape (they set it
   up with the `Given the workflow` step —
-  `tests/integration/features/default-workflow.feature` (simple flow),
-  `unified-advanced-flow.feature` (advanced flow), `readme-driver.feature`,
-  `driver-json-status.feature`, `smoke.feature`, `validate.feature`,
-  `init.feature`, `review-window.feature`, `initial-state-entry.feature`,
-  `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
-  every entry), `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
-  (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
-  `land.feature` (the exit-code contract: 0/3/settled/1),
-  `readme-driver.feature` (its `--entry fix-precheck` collapse scenario asserts
-  on the bundled template's shape too)
+  `tests/integration/features/default-workflow.feature`,
+  `readme-driver.feature`, `driver-json-status.feature`, `smoke.feature`,
+  `validate.feature`, `init.feature`, `review-window.feature`,
+  `initial-state-entry.feature`, `templates-vars.feature`, `entry-gate.feature`
+  (the green-baseline gate on every entry), `fix-entry.feature`
+  (`--entry fix-precheck`), `entry.feature` (`--entry <state>`),
+  `entry-vars.feature`, `prompt-diff-ranges.feature`, `land.feature` (the
+  exit-code contract: 0/3/settled/1; `readme-driver.feature`'s own
+  `--entry fix-precheck` collapse scenario asserts on the bundled template's
+  shape too)
 - A workflow change must keep the DRIVER contract true, not just the engine's:
   every state a process can rest at must resolve to exactly one `kind` a driver
   already handles (`capture`/`message`/`script`/`prompt`/`stalled`) — there is
@@ -191,10 +206,11 @@ pair, or `{}`) — no gtd change at all. Only the two built-in VALIDATORS
 seeds both of their names as empty `modes:` entries into every compiled
 definition, so a workflow gets their validation without declaring them itself.
 An empty `modes:` entry (`{}`) is the FORMAT-ONLY tier any workflow can use for
-a name with no gtd-side schema — the bundled template declares
-`modes: { prose: {} }` itself, for the simple flow's free-form plan file. gtd
-ships no formatter at all (there is no `gtd format` subcommand and no bundled
-prettier — a project plugs its own into a mode's `format:`).
+a name with no gtd-side schema — e.g. a workflow could declare
+`modes: { prose: {} }` for a free-form steering file it wants no in-process
+validation for. gtd ships no formatter at all (there is no `gtd format`
+subcommand and no bundled prettier — a project plugs its own into a mode's
+`format:`).
 
 ### Variables
 

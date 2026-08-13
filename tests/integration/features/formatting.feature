@@ -148,66 +148,66 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     When I commit with message "review: test formatting"
     Then ".gtd/REVIEW.md" has no lines longer than 80 characters
 
-  Scenario: prettier plugged into the bundled default's plan mode via a top-level modes: key formats the agent-authored plan at plan.planning
+  Scenario: prettier plugged into the bundled default's qa mode via a top-level modes: key formats the agent-authored requirements at design.triage
     # No `workflow:` re-declaration: the bundled default already gives
-    # `plan.planning`/`plan.await-plan` `mode: prose` (see unified.yaml); a top-level
-    # `modes:` key alone is enough to plug a formatter into it.
+    # `design.triage` `mode: qa` (see unified.yaml); a top-level `modes:` key
+    # alone is enough to plug a formatter into it.
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
       """
       modes:
-        prose:
+        qa:
           format: "npx prettier --write <%= it.file %>"
       """
-    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
-      This is a deliberately long single prose line for the plan file that clearly exceeds the eighty character print width.
+      This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
-    And ".gtd/TODO.md" has no lines longer than 80 characters
+    And the last commit subject is "gtd(agent): design.triage → design.gate.check"
+    And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
 
-  Scenario: prettier plugged into the bundled default's plan mode formats the human-edited plan at plan.await-plan
+  Scenario: prettier plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
       """
       modes:
-        prose:
+        qa:
           format: "npx prettier --write <%= it.file %>"
       """
-    And a commit "gtd(agent): plan.await-plan" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(agent): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       A plan.
       """
-    And ".gtd/TODO.md" is modified to:
+    And ".gtd/REQUIREMENTS.md" is modified to:
       """
       A plan. This edited line is deliberately far longer than eighty characters so the formatter has to rewrap it before the turn is captured.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): plan.await-plan → plan.planning"
-    And ".gtd/TODO.md" has no lines longer than 80 characters
+    And the last commit subject is "gtd(human): design.gate.answer → design.triage"
+    And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
 
-  Scenario: gtd validate formats the plan file and reports it valid — prose has no validator to fail
+  Scenario: gtd validate formats the requirements file at design.triage and reports it valid — plain prose with no Open Questions passes the qa validator trivially
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
       """
       modes:
-        prose:
+        qa:
           format: "npx prettier --write <%= it.file %>"
       """
-    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
-      This is a deliberately long single prose line for the plan file that clearly exceeds the eighty character print width.
+      This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains ".gtd/TODO.md: valid"
-    And ".gtd/TODO.md" has no lines longer than 80 characters
+    And stdout contains ".gtd/REQUIREMENTS.md: valid"
+    And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
 
   Scenario: Pre-commit hook does not modify other markdown files
     Given a test project

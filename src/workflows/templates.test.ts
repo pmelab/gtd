@@ -24,9 +24,9 @@ describe("the bundled unified workflow template", () => {
     expect(definition.states[definition.entries.default]).toBeDefined()
   })
 
-  it("declares its own `modes.prose` entry, plus the built-in registry's `qa`/`review` seeded with their validate command", () => {
+  it("declares no `prose` mode, plus the built-in registry's `qa`/`review` seeded with their validate command", () => {
     const { definition } = compileTemplate()
-    expect(definition.modes?.["prose"]).toEqual({})
+    expect(definition.modes?.["prose"]).toBeUndefined()
     expect(definition.modes?.["qa"]).toEqual({ validate: seededValidateCommand("qa") })
     expect(definition.modes?.["review"]).toEqual({ validate: seededValidateCommand("review") })
   })
@@ -58,57 +58,85 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("forks the initial state on the two entry files, each into its green-baseline gate", () => {
-    // idle routes `.gtd/REQUIREMENTS.md` to the advanced flow's start gate and
-    // everything else (e.g. `.gtd/TODO.md`) to the simple flow's start gate —
-    // the REQUIREMENTS row is declared first so it wins. Each gate runs the
-    // suite before proceeding to planning/product Q&A.
+  it("the initial state has exactly one outgoing edge, into unwind — no filename fork", () => {
     const { definition } = compileTemplate()
     const idle = definition.states.idle!
     const targets = (idle.on ?? []).map(([, to]) => to)
-    expect(targets).toContain("spec-gate.check")
-    expect(targets).toContain("plan-gate.check")
-    // The gates proceed to the planning states once green.
-    expect((definition.states["plan-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
-      "plan.planning",
+    expect(targets).toEqual(["unwind"])
+    // unwind has exactly one inbound edge (idle's) and one outbound edge,
+    // into the single start gate — the single inbound edge is what makes an
+    // idempotence guard unnecessary there (see unified.yaml's own comment).
+    const inbound = Object.entries(definition.states).flatMap(([from, s]) =>
+      (s.on ?? []).filter(([, to]) => to === "unwind").map(() => from),
     )
-    expect((definition.states["spec-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
-      "design.product-author",
+    expect(inbound).toEqual(["idle"])
+    const unwindTargets = (definition.states.unwind!.on ?? []).map(([, to]) => to)
+    expect(unwindTargets).toEqual(["start-gate.check"])
+    // The gate proceeds to triage once green.
+    expect((definition.states["start-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
+      "design.triage",
     )
   })
 
-  it("declares exactly the four qualified entryGate/fix-precheck states as manual entries", () => {
-    // All three `entryGate` instances (plan-gate/spec-gate/review-gate)
-    // declare `entry: true` on their shared `check` local — the dedup means
-    // marking one marks all three, even though only `review-gate.check`
-    // actually needs the reachability root — plus `fix-precheck`'s own.
+  it("declares exactly the three qualified entryGate/fix-precheck states as manual entries", () => {
+    // Both `entryGate` instances (start-gate/review-gate) declare `entry:
+    // true` on their shared `check` local — the dedup means marking one
+    // marks both, even though only `review-gate.check` actually needs the
+    // reachability root — plus `fix-precheck`'s own.
     const { definition } = compileTemplate()
     const { default: def, manual } = definition.entries
     expect(def).toBeTruthy()
-    expect(manual).toEqual([
-      "fix-precheck",
-      "plan-gate.check",
-      "review-gate.check",
-      "spec-gate.check",
-    ])
-    expect(new Set([def, ...manual]).size).toBe(5)
+    expect(manual).toEqual(["fix-precheck", "review-gate.check", "start-gate.check"])
+    expect(new Set([def, ...manual]).size).toBe(4)
     expect(definition.states[def]).toBeDefined()
     for (const state of manual) expect(definition.states[state]).toBeDefined()
   })
 
-  it("compiles exactly one template-form reviewBase, and no truthy reviewBase on plan-gate/spec-gate", () => {
+  it("compiles exactly one template-form reviewBase, and no truthy reviewBase on start-gate", () => {
     // `review-gate.check` fixes the whole process's diff base to a
     // manually-supplied commitish (a template string, via its `$reviewBase`
-    // binding). `plan-gate.check`/`spec-gate.check` bind the same param to
-    // the literal empty string, which compiles away to "field absent".
+    // binding). `start-gate.check` binds the same param to the literal empty
+    // string, which compiles away to "field absent".
     const { definition } = compileTemplate()
     const states = definition.states
     const templateReviewBase = Object.entries(states).filter(
       ([, s]) => typeof s.reviewBase === "string",
     )
     expect(templateReviewBase.map(([name]) => name)).toEqual(["review-gate.check"])
-    expect(states["plan-gate.check"]!.reviewBase).toBeUndefined()
-    expect(states["spec-gate.check"]!.reviewBase).toBeUndefined()
+    expect(states["start-gate.check"]!.reviewBase).toBeUndefined()
+  })
+
+  it("declares exactly two questionGate instances, each `check` with the mandatory C row and each `answer` with no C row", () => {
+    const { definition } = compileTemplate()
+    // Pinned by COUNT (mirrors the entryGate manual-entries pin above) — a
+    // third `.gate.check` added later without updating this test would
+    // otherwise pass silently.
+    const gateChecks = Object.keys(definition.states)
+      .filter((name) => name.endsWith(".gate.check"))
+      .sort()
+    expect(gateChecks).toEqual(["architecture.gate.check", "design.gate.check"])
+    for (const prefix of ["design.gate", "architecture.gate"]) {
+      const check = definition.states[`${prefix}.check`]!
+      const answer = definition.states[`${prefix}.answer`]!
+      const checkPatterns = (check.on ?? []).map(([pattern]) => pattern)
+      expect(checkPatterns, prefix).toContain("C")
+      expect(answer.answerGate).toBe(true)
+      expect(answer.mode).toBe("qa")
+      expect(answer.file).toBeTruthy()
+      const answerPatterns = (answer.on ?? []).map(([pattern]) => pattern)
+      expect(answerPatterns, prefix).not.toContain("C")
+    }
+  })
+
+  it("no state, script, or var references the deleted todoFile", () => {
+    expect(unifiedYaml).not.toMatch(/todoFile/)
+  })
+
+  it("no state declares `mode: prose`", () => {
+    const { definition } = compileTemplate()
+    for (const [name, state] of Object.entries(definition.states)) {
+      expect(state.mode, `state "${name}"`).not.toBe("prose")
+    }
   })
 
   it("exposes the compiled default as the built-in fallback (definition + its own vars)", () => {
@@ -166,11 +194,12 @@ describe("the bundled unified workflow template", () => {
       expect(parsed.vars.testCommand).toBe("npm test")
     })
 
-    it("seeds a format-only Prettier suggestion for qa/review (gtd still validates)", () => {
+    it("seeds a format-only Prettier suggestion for qa/review (gtd still validates), and no prose entry", () => {
       expect(MODES_SUGGESTION.qa.format).toContain("prettier")
       expect(MODES_SUGGESTION.review.format).toContain("prettier")
       expect(MODES_SUGGESTION.qa).not.toHaveProperty("validate")
       expect(MODES_SUGGESTION.review).not.toHaveProperty("validate")
+      expect(MODES_SUGGESTION).not.toHaveProperty("prose")
     })
   })
 
@@ -202,7 +231,7 @@ describe("the bundled unified workflow template", () => {
   })
 })
 
-describe("the bundled template's machine boundaries line up with conversational identity (package 08)", () => {
+describe("the bundled template's machine boundaries line up with conversational identity (package 08/02)", () => {
   // These invariants are about the RAW `machines:` source, not the compiled
   // (flattened) definition — the compiler STAMPS a machine-level `model:`
   // onto every one of its own `prompt` states (src/Machines.ts's
@@ -257,7 +286,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     }
   })
 
-  it("the identity table holds: design/plan/build/packages.item/packages.item.spec/build.review are each exactly one of {planner, coder}, matching the tree", () => {
+  it("the identity table holds: design/architecture/build/packages.item/packages.item.spec/build.review are each exactly one of {planner, coder}, matching the tree", () => {
     const { tree } = compileTemplate()
     // Instance path (e.g. "packages.item") -> the machine it instantiates.
     const machineAt: Record<string, string> = {}
@@ -276,14 +305,14 @@ describe("the bundled template's machine boundaries line up with conversational 
     }
 
     expect(identityOf("design")).toBe("planner")
-    expect(identityOf("plan")).toBe("planner")
+    expect(identityOf("architecture")).toBe("planner")
     expect(identityOf("build")).toBe("coder")
     expect(identityOf("packages.item")).toBe("coder")
     expect(identityOf("packages.item.spec")).toBe("planner")
     expect(identityOf("build.review")).toBe("planner")
   })
 
-  it("packages, build.health, packages.item.health, plan-gate, spec-gate, and review-gate have no model — they are identity-free gate/queue machines", () => {
+  it("packages, build.health, packages.item.health, start-gate, review-gate, design.gate, and architecture.gate have no model — they are identity-free gate/queue machines", () => {
     const { tree } = compileTemplate()
     const machineAt: Record<string, string> = {}
     const walk = (node: MachineNode): void => {
@@ -296,9 +325,10 @@ describe("the bundled template's machine boundaries line up with conversational 
       "packages",
       "build.health",
       "packages.item.health",
-      "plan-gate",
-      "spec-gate",
+      "start-gate",
       "review-gate",
+      "design.gate",
+      "architecture.gate",
     ]) {
       expect(raw.machines[machineAt[instancePath]!]?.model, instancePath).toBeUndefined()
     }
@@ -306,37 +336,43 @@ describe("the bundled template's machine boundaries line up with conversational 
 
   it("`build.review` is nested inside `build`'s own scope, so the review round-trip never breaks the builder's session", () => {
     // The load-bearing point of this restructure: humanReview is instantiated
-    // as a descendant of simpleBuild (not a root sibling), so a full round of
-    // build -> health -> review -> feedback stays within one memoryScopeAt
-    // run. A future refactor that hoists the review tail back to the root
-    // would silently undo this — pin it here.
+    // as a descendant of buildTail (not a root sibling), so a full round of
+    // health -> review -> feedback stays within one memoryScopeAt run. A
+    // future refactor that hoists the review tail back to the root would
+    // silently undo this — pin it here.
     const { scopes } = compileTemplate()
     expect(scopes["build.review.reviewing"]).toMatch(/^build\./)
-    for (const state of ["addressing", "building", "fix", "squashing"]) {
+    for (const state of ["addressing", "fix", "squashing"]) {
       expect(scopes[`build.${state}`]).toBe("build")
     }
+  })
+
+  it("design and architecture are sibling machines with distinct memory scopes, each declaring the planner model once at machine level", () => {
+    const { scopes } = compileTemplate()
+    expect(scopes["design.triage"]).toBe("design")
+    expect(scopes["architecture.author"]).toBe("architecture")
+    expect(scopes["design.triage"]).not.toBe(scopes["architecture.author"])
+    expect(raw.machines["designPlan"]!.model).toBeTruthy()
+    expect(raw.machines["archPlan"]!.model).toBeTruthy()
   })
 
   it("no machine contains BOTH a review-content prompt state AND an implementer-content prompt state — the planner/coder identities never overlap within one machine", () => {
     // Planner machines: every one of their OWN prompt states is a
     // plan-development/review action, never a write-code one.
-    expect(ownPromptStates("advancedPlan")).toEqual([
-      "decompose",
-      "product-author",
-      "technical-author",
-    ])
-    expect(ownPromptStates("planLoop")).toEqual(["planning"])
+    expect(ownPromptStates("designPlan")).toEqual(["triage"])
+    expect(ownPromptStates("archPlan")).toEqual(["author", "decompose"])
     expect(ownPromptStates("humanReview")).toEqual(["collecting", "reviewing"])
     expect(ownPromptStates("specReview")).toEqual(["review"])
 
     // Coder machines: every one of their OWN prompt states is a
     // write/fix-code action, never a plan-development/review one.
     expect(ownPromptStates("packageItem")).toEqual(["building", "fix-spec", "fix-suite"])
-    expect(ownPromptStates("simpleBuild")).toEqual(["addressing", "building", "fix", "squashing"])
+    expect(ownPromptStates("buildTail")).toEqual(["addressing", "fix", "squashing"])
 
     // Identity-free gate/queue machines own no prompt state at all.
     expect(ownPromptStates("entryGate")).toEqual([])
     expect(ownPromptStates("healthGate")).toEqual([])
+    expect(ownPromptStates("questionGate")).toEqual([])
     expect(ownPromptStates("packageLoop")).toEqual([])
   })
 })

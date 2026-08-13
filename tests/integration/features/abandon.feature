@@ -18,16 +18,16 @@ Feature: gtd abandon — end the process underway without completing it
     And the workflow
 
   Scenario: abandons a process mid-flight — HEAD back at the process boundary, the work kept as pending changes
-    Given a file ".gtd/TODO.md" with:
+    Given a file "NOTE.md" with:
       """
       Build a thing.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-gate.check"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
+    And the last commit subject is "gtd(human): idle → unwind"
+    # Abandon here, still resting AT unwind, before its own script lands: past
+    # that point the sketch survives only in retained history, never as a
+    # pending edit again — unwind's whole job is removing it from the tree.
     When I run gtd with args "abandon"
     Then it succeeds
     # Plain text prints the pasteable script itself — the rendered "abandoned
@@ -35,23 +35,26 @@ Feature: gtd abandon — end the process underway without completing it
     # RUNS it (script-outcomes.feature's own @live-only coverage), not by gtd
     # deciding; this only proves the script calls the right outcome function
     # with the right resting state.
-    And stdout contains "gtd_report_abandoned 'plan.planning'"
+    And stdout contains "gtd_report_abandoned 'unwind'"
     # HEAD is back at the process boundary: the config commit before the process.
     And the last commit subject is "chore: init gtd workflow"
     # The plan the process committed is kept, now as a pending change.
-    And the git status contains ".gtd/TODO.md"
-    And ".gtd/TODO.md" contains "Build a thing."
+    And the git status contains "NOTE.md"
+    And "NOTE.md" contains "Build a thing."
     When I run gtd status
     Then it succeeds
     And stdout contains "State: idle"
 
   Scenario: retains the abandoned tip on the retained-history ref
-    Given a file ".gtd/TODO.md" with:
+    Given a file "NOTE.md" with:
       """
       Build a thing.
       """
     When I run gtd land
     Then it succeeds
+    # unwind: simulate the `git revert --no-commit` — @inmem never executes
+    # scripts — by reverting the working tree to the start commit ourselves.
+    Given the file "NOTE.md" is deleted
     When I run gtd land
     Then it succeeds
     Given I mark the current commit as "tip"
@@ -103,7 +106,7 @@ Feature: gtd abandon — end the process underway without completing it
     And the git status does not contain "src/calc.ts"
 
   Scenario: --json reports the abandoned process and the state it returned to
-    Given a file ".gtd/TODO.md" with:
+    Given a file "NOTE.md" with:
       """
       Build a thing.
       """
@@ -112,7 +115,7 @@ Feature: gtd abandon — end the process underway without completing it
     When I run gtd with args "abandon --json"
     Then it succeeds
     And stdout contains "\"abandoned\":true"
-    And stdout contains "\"from\":\"plan-gate.check\""
+    And stdout contains "\"from\":\"unwind\""
     And stdout contains "\"state\":\"idle\""
 
   Scenario: --json reports the no-op too, without an error envelope

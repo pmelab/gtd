@@ -12,6 +12,14 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
   nothing to check); an unrecognized <mode> is a usage error naming the modes
   that do exist.
 
+  `--open-questions` (mode "qa" only) replaces that structural check with
+  OpenQuestions.ts's `unansweredQuestions` predicate — the SAME one
+  StepGuards.ts's answer-completeness guard enforces at land — printing each
+  unanswered question's heading and exiting non-zero when any remain. Unlike
+  the structural path, a missing (or unreadable) file is itself a non-zero
+  exit naming the path, not "nothing to check": a workflow's gate script must
+  stop and show the human rather than silently pass.
+
   @inmem
   Scenario: a well-formed qa file validates cleanly and exits 0 silently
     Given a file "NOTES.md" with:
@@ -122,6 +130,64 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     When I run gtd with args "check qa MISSING.md --json"
     Then it succeeds
     And stdout contains "{\"valid\":true,\"errors\":[]}"
+
+  @inmem
+  Scenario: --open-questions fails and names the unanswered question's heading
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      - [ ] SQLite — zero-config, file-based
+      - [ ] Postgres — for concurrent writers
+      - [ ] _your answer_
+      """
+    When I run gtd with args "check qa NOTES.md --open-questions"
+    Then it fails
+    And stdout contains "Which storage backend?"
+
+  @inmem
+  Scenario: --open-questions succeeds silently once exactly one option is ticked
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      - [x] SQLite — zero-config, file-based
+      - [ ] Postgres — for concurrent writers
+      - [ ] _your answer_
+      """
+    When I run gtd with args "check qa NOTES.md --open-questions"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
+  Scenario: --open-questions succeeds silently over a file with an Answered Questions section only
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Answered Questions
+
+      ### Which storage backend?
+
+      SQLite — zero-config, file-based.
+      """
+    When I run gtd with args "check qa NOTES.md --open-questions"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
+  Scenario: --open-questions on a missing file fails and names the path — unlike the no-flag path's silent exit 0
+    When I run gtd with args "check qa MISSING.md --open-questions"
+    Then it fails
+    And stderr contains "MISSING.md"
 
   @live
   Scenario: gtd check runs standalone outside any git repository

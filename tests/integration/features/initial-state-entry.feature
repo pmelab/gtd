@@ -25,7 +25,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
   Scenario: an old v1/v2-style "gtd: <label>" subject resolves to the initial state
     Given a test project
     And the workflow
-    And a commit "gtd: build" that adds ".gtd/TODO.md" with:
+    And a commit "gtd: build" that adds "NOTE.md" with:
       """
       old two-namespace boundary commit
       """
@@ -36,7 +36,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
   Scenario: a subject naming a state the workflow doesn't declare AT ALL refuses, pointing at `gtd abandon`
     Given a test project
     And the workflow
-    And a commit "gtd(human): frobnicate" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): frobnicate" that adds "NOTE.md" with:
       """
       a plan
       """
@@ -48,7 +48,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
   Scenario: a subject naming an actor the workflow doesn't declare resolves to the initial state
     Given a test project
     And the workflow
-    And a commit "gtd(nobody): plan.planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(nobody): design.triage" that adds "NOTE.md" with:
       """
       a plan
       """
