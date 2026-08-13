@@ -14,6 +14,8 @@ import {
   memoryScopeAt,
   parseStateSubject,
   resolveState,
+  stateDirError,
+  stateDirOf,
   stateSubject,
   step,
   wouldAttempt,
@@ -67,15 +69,18 @@ import { COLLAPSED_TEXT, commitOutcome, noteOutcome, transitionOutcome } from ".
  *     renamed-state refusal
  *  4. `commitHistory()` → `ProcessRun`
  *  5. `vars` — the four-layer merge (workflow < rc < entry commit < env)
- *  6. `on` — the resting state's `on` edges, rendered against `vars` (Eta
+ *  6. `stateDir` — `def`'s declared plumbing directory (`stateDirOf`),
+ *     rendered against `vars` ONLY (Eta template; `vars` must precede this,
+ *     same ordering problem `on`'s render below has)
+ *  7. `on` — the resting state's `on` edges, rendered against `vars` (Eta
  *     templates; `vars` must precede this)
- *  7. `stepDef` — `def` with `on` patched onto the resting state, the shape
+ *  8. `stepDef` — `def` with `on` patched onto the resting state, the shape
  *     `PatternMachine.step` must be fed
- *  8. `reviewBase` — the pure `reviewBaseFor(def, run)`
- *  9. `changes` — `changedPaths()`
- * 10. `context` — the full `TemplateContext` (`on` and `reviewBase` both feed
- *     it — `it.edges` derives from `on`)
- * 11. `memory`, then `hints` (`model`/`label`/`file` rendered against
+ *  9. `reviewBase` — the pure `reviewBaseFor(def, run)`
+ * 10. `changes` — `changedPaths()`
+ * 11. `context` — the full `TemplateContext` (`on`, `stateDir` and
+ *     `reviewBase` all feed it — `it.edges` derives from `on`)
+ * 12. `memory`, then `hints` (`model`/`label`/`file` rendered against
  *     `context`; `mode` passed through verbatim)
  *
  * Two module rules, enforced on this file itself: a private helper with only
@@ -693,6 +698,47 @@ const renderOnEdgesOrFail = (
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
+/** Strip a trailing `/` and a leading `./` so every reader compares the same canonical string, no matter how the declaration was spelled. */
+const normalizeStateDir = (raw: string): string => raw.replace(/^\.\//, "").replace(/\/+$/, "")
+
+/**
+ * Render `def`'s declared plumbing directory (`PatternMachine.stateDirOf`)
+ * against `vars` ONLY (`varsOnlyContext`) — same restriction `renderOnEdges`
+ * uses, which is what breaks the circularity of a context field whose own
+ * value comes from a template rendered against that context: a declaration
+ * that references `it.stateDir` itself sees the empty stub there and renders
+ * empty rather than recursing. Normalized ONCE here (`normalizeStateDir`), so
+ * every guard and script downstream compares/renders a canonical string.
+ * Throws whatever Eta throws on a malformed template; the caller turns that
+ * into a step refusal / command error, exactly like a content render
+ * failure.
+ */
+const renderStateDir = (def: WorkflowDefinition, vars: Record<string, string>): string =>
+  normalizeStateDir(renderStateTemplate(stateDirOf(def), varsOnlyContext(vars)))
+
+/**
+ * `renderStateDir`, surfacing a malformed template as a plain `Error` (see
+ * `renderOnEdgesOrFail`), THEN running `PatternMachine.stateDirError` on the
+ * rendered, normalized result and failing with its message when it fires.
+ * This is the one enforcement site for the value rule (see
+ * `PatternMachine.stateDirError`'s doc comment for why load time can't own
+ * it) — every caller of `currentRest`/`restAt` (`gtd next`/`status`/`land`
+ * alike) sees the same failure before the value reaches any consumer.
+ */
+const renderStateDirOrFail = (
+  def: WorkflowDefinition,
+  vars: Record<string, string>,
+): Effect.Effect<string, Error> =>
+  Effect.try({
+    try: () => renderStateDir(def, vars),
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  }).pipe(
+    Effect.flatMap((stateDir) => {
+      const error = stateDirError(stateDir)
+      return error === undefined ? Effect.succeed(stateDir) : Effect.fail(new Error(error))
+    }),
+  )
+
 /**
  * A shallow clone of `def` whose `state`'s `on` is replaced by
  * `renderedOnEdges` — used to feed `PatternMachine.step`, which matches only
@@ -724,7 +770,9 @@ const withRenderedOn = (
  * breakdown including the squashing step) — `0`/absent for the pure emitters
  * (`gtd next`/`gtd status`), where no step is being performed. No diff is ever
  * computed here — `it.reviewBase`/`it.retainedBase` are bases a template tells
- * the agent to `git diff` itself.
+ * the agent to `git diff` itself. `stateDir` is ALREADY RENDERED and
+ * normalized by the caller (`renderStateDir`) — this function only carries it
+ * onto `it.stateDir`, same discipline as `edges`.
  */
 const buildTemplateContext = (
   git: GitOperations,
@@ -737,6 +785,7 @@ const buildTemplateContext = (
   currentCost: number,
   currentModel: string | undefined,
   reviewBase: string,
+  stateDir: string,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
     const currentCommit = yield* git.resolveRef("HEAD")
@@ -763,6 +812,7 @@ const buildTemplateContext = (
       read,
       vars,
       edges: toTemplateEdges(edges),
+      stateDir,
     }
   })
 
@@ -890,6 +940,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
 
     const run = yield* computeProcessRun(git, def, windowHead)
     const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
+    const stateDir = yield* renderStateDirOrFail(def, vars)
     const on = yield* renderOnEdgesOrFail(resolved.stateDef.on, vars)
     const stepDef = withRenderedOn(def, resolved.state, on)
     const reviewBase = reviewBaseFor(def, run)
@@ -911,6 +962,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       0,
       undefined,
       reviewBase,
+      stateDir,
     )
     const memory = memoryKeyFor(config.stateScopes, resolved, run)
     const memoryResumed = memoryResumedFor(def, config.stateScopes, resolved, run)
@@ -1094,7 +1146,9 @@ const formatStepRefusal = (refusal: StepRefusal): string =>
  * `TemplateContext` at all), and it is NOT interchangeable with `rest.context`:
  * that one is pinned to the resting state and carries `cost: 0`, so rendering
  * `it.processCost` against it silently omits the squashing step's own
- * `--cost`. Exported for `program.ts`'s `planLanding`, which assembles the
+ * `--cost`. `stateDir` is definition-level and vars-only, so it never varies
+ * by target state — reused verbatim from `rest.context.stateDir` rather than
+ * re-rendered. Exported for `program.ts`'s `planLanding`, which assembles the
  * same script by hand and must pick the same context.
  */
 export const contextAt = (
@@ -1122,6 +1176,7 @@ export const contextAt = (
       cost ?? 0,
       model,
       reviewBaseFor(rest.def, rest.run),
+      rest.context.stateDir,
     )
   })
 

@@ -98,6 +98,46 @@ export interface ModeDef {
 export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
   Object.keys(def.modes ?? {})
 
+/** The engine's own default for `WorkflowDefinition.stateDir` — see `stateDirOf`. The one place `.gtd` is spelled as the engine's default. */
+export const DEFAULT_STATE_DIR = ".gtd"
+
+/**
+ * `def`'s declared plumbing directory — the raw Eta template source a
+ * workflow carried on `stateDir:`, or `DEFAULT_STATE_DIR` when it declared
+ * none (so a workflow declaring nothing, and every hand-built test fixture
+ * that skipped the compiler, behaves exactly as before this key existed).
+ * Rendering the template is an edge concern, exactly like `entryBaseTemplateOf`
+ * — this module only carries and defaults the raw string.
+ */
+export const stateDirOf = (def: WorkflowDefinition): string => def.stateDir ?? DEFAULT_STATE_DIR
+
+/**
+ * The one place the engine interprets a `stateDir` VALUE (never the var
+ * NAME) — pure and total, so both the edge (on the rendered, normalized
+ * value, before any consumer sees it — see `src/Edge.ts`'s
+ * `renderStateDirOrFail`) and a test can call it directly. Returns the
+ * error message when `value` cannot name a usable plumbing directory,
+ * `undefined` when it can.
+ *
+ * Rejects, in this order: blank/whitespace-only; the repo root (`.`, `./`,
+ * `/`, or empty once a leading `./` and trailing `/` are stripped); an
+ * absolute path (a leading `/` after that stripping); any `..` segment (an
+ * escape). Deliberately does its own stripping rather than requiring an
+ * already-normalized `value` — a caller may hand it either the raw
+ * declaration or the edge's normalized form and get the same verdict,
+ * which is what lets a unit test exercise `"./"` directly.
+ */
+export const stateDirError = (value: string): string | undefined => {
+  const invalid = (): string =>
+    `"stateDir": must name a directory inside the repository, not the repo root, an absolute path, or a path outside it (got ${JSON.stringify(value)})`
+  if (value.trim() === "") return invalid()
+  const stripped = value.replace(/^\.\//, "").replace(/\/+$/, "")
+  if (stripped === "" || stripped === ".") return invalid()
+  if (stripped.startsWith("/")) return invalid()
+  if (stripped.split("/").includes("..")) return invalid()
+  return undefined
+}
+
 /**
  * The state names a process may START at. `default` is where an ordinary
  * "no active process" rest resumes (see `initialStateOf`) — required, so there
@@ -137,6 +177,25 @@ export interface WorkflowDefinition {
    * entries.
    */
   readonly modes?: Readonly<Record<StateMode, ModeDef>>
+  /**
+   * The raw Eta template source for where this workflow keeps its own
+   * plumbing (gtd's scratch/bookkeeping directory, e.g. the review window's
+   * revert pathspec and the step guards' code-vs-plumbing test) — carried
+   * verbatim, exactly as authored, never rendered here (the same discipline
+   * as a state's own `file:`). Absent when the workflow declared no
+   * `stateDir:`; see `stateDirOf` for the defaulted accessor.
+   *
+   * This is a DIFFERENT thing from `it.vars.stateDir`, on purpose, despite
+   * sharing a name: `stateDir:` here is the definition-level declaration the
+   * engine reads (so the value can reach `enforceStepGuards`'s
+   * once-per-call `hasCodeChange`, rather than any one guard reaching into
+   * `it.vars` itself — a blessed-config-key the engine forbids); `vars.stateDir`
+   * is an ordinary workflow var, the knob a user overrides, that the bundled
+   * template happens to render this declaration from. Same call as the
+   * per-state `entry:` flag sharing a name with the top-level `entry:`
+   * machine key.
+   */
+  readonly stateDir?: string
 }
 
 /** Which content kind a state declares, or `undefined` if none (a validation error). */
@@ -824,6 +883,22 @@ const validateKnownMode = (def: WorkflowDefinition, name: string, state: StateDe
 }
 
 /**
+ * `stateDir`, when DECLARED, must be non-blank — the same
+ * blank/whitespace-only check `validateReviewBaseTemplate` runs for a string
+ * `reviewBase` template. Deliberately checks nothing else: `stateDirError`'s
+ * repo-root/absolute/escape rules apply to the RENDERED value, which this
+ * load-time pass can't see (the bundled declaration is itself a template,
+ * e.g. `<%= it.vars.stateDir %>`, whose var can arrive at runtime via a
+ * `GTD_STATEDIR` override no load-time check could ever observe — see
+ * `renderStateDirOrFail` in `src/Edge.ts` for the one site that does own
+ * that rule).
+ */
+const validateStateDir = (def: WorkflowDefinition): string[] =>
+  def.stateDir !== undefined && def.stateDir.trim() === ""
+    ? [`"stateDir" template must not be blank`]
+    : []
+
+/**
  * When `reviewBase` is a STRING (the template form — see `StateDef.reviewBase`),
  * its source must be non-blank: a literal `reviewBase: ""` (or whitespace-only)
  * is an authoring error, distinct from the runtime concern of the RENDERED
@@ -965,7 +1040,9 @@ const validateState = (
  * `entries.manual` itself (see `validateEntries`); every state declares
  * exactly one content kind; commit states carry no `actor` and no `on`;
  * non-commit states carry an `actor`; every `modes:` entry declares at least
- * one non-blank `format`/`validate` command; every state is reachable from an
+ * one non-blank `format`/`validate` command; a DECLARED `stateDir` template is
+ * non-blank (`validateStateDir` — the value-shape rule, `stateDirError`, is a
+ * runtime/edge concern, not checked here); every state is reachable from an
  * entry root (`def.entries` — `default` plus every `entries.manual` state) by
  * walking `on` targets and `retry.otherwise` redirects (checked only when
  * `validateEntries` itself found no problem — see `validateReachability`).
@@ -989,6 +1066,7 @@ export const validateDefinition = (def: WorkflowDefinition): readonly string[] =
   return [
     ...entriesErrors,
     ...validateModes(def),
+    ...validateStateDir(def),
     ...names.flatMap((name) => validateState(def, name, names)),
     ...(entriesErrors.length === 0 ? validateReachability(def, names) : []),
   ]

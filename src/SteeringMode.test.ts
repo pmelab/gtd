@@ -45,6 +45,7 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
   },
   vars,
   edges: [],
+  stateDir: ".gtd",
 })
 
 const commandsDef = (modes: NonNullable<WorkflowDefinition["modes"]>): WorkflowDefinition => ({

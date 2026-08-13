@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml"
 import { describe, expect, it } from "vitest"
-import { validateDefinition } from "../PatternMachine.js"
+import { stateDirError, validateDefinition } from "../PatternMachine.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 import type { MachineNode } from "../Machines.js"
 import {
@@ -22,6 +22,15 @@ describe("the bundled unified workflow template", () => {
     expect(validateDefinition(definition)).toEqual([])
     expect(definition.entries.default).toBeTruthy()
     expect(definition.states[definition.entries.default]).toBeDefined()
+  })
+
+  it("declares a `stateDir` that renders from its own `stateDir` var", () => {
+    const { definition } = compileTemplate()
+    expect(definition.stateDir).toBe("<%= it.vars.stateDir %>")
+    expect(defaultWorkflowVars.stateDir).toBe(".gtd")
+    // The declaration's own template only ever substitutes the var verbatim,
+    // so the var's default value IS the rendered result `stateDirError` sees.
+    expect(stateDirError(defaultWorkflowVars.stateDir!)).toBeUndefined()
   })
 
   it("declares no `prose` mode, plus the built-in registry's `qa`/`review` seeded with their validate command", () => {

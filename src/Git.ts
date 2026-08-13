@@ -157,6 +157,15 @@ export interface GitWriterOperations {
    * leaving HEAD and the working tree untouched. Tolerant when no path matches.
    * Pins `.gtd/` plumbing back to the real head while the review window is open
    * so it stays out of the surfaced diff.
+   *
+   * The one caller (`src/ReviewWindow.ts`'s `buildOpenWindowScript`) passes the
+   * LITERAL `[".gtd"]`, deliberately, rather than the workflow's declared
+   * `stateDir` — this pin is an editor-visibility concern, covering paths no
+   * declaration names (a check script's temp output), and
+   * `src/testing/EmittedScriptRecognizer.ts`'s `recognizeReviewWindowOpen`
+   * re-derives this exact string to verify the emitted script, which only
+   * works while the path stays fixed. See `buildOpenWindowScript`'s own doc
+   * comment for the full reasoning; keep the two in sync if either changes.
    */
   readonly restoreStagedFrom: (
     source: string,

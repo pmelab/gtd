@@ -64,12 +64,13 @@ export interface GuardContext {
   /** True when this step's changes delete `file`. */
   readonly fileDeleted: boolean
   /**
-   * True when this step touches a path that is neither gtd plumbing (`.gtd/`)
-   * nor the state's OWN `file:` — i.e. the human edited something real, which
+   * True when this step touches a path that is neither gtd plumbing (the
+   * DECLARED directory at `template.stateDir`, never a literal `.gtd/`) nor
+   * the state's OWN `file:` — i.e. the human edited something real, which
    * every guard here reads as "a comment"/"the work was done".
    *
    * Excluding `file` by exact path is load-bearing for a state whose `file:` is
-   * repointed OUTSIDE `.gtd/` (an ordinary `vars:` override, e.g. `REVIEW.md`
+   * repointed OUTSIDE `stateDir` (an ordinary `vars:` override, e.g. `REVIEW.md`
    * at the repo root): the reviewer's own edit to the review doc would
    * otherwise count as a code edit, so the sign-off guard took the
    * it-is-a-comment branch on every pass and its unticked check was
@@ -120,15 +121,26 @@ export const deletesFile = (changes: readonly PendingChange[], file: string): bo
   changes.some((c) => c.path === file && c.status === "D")
 
 /**
- * True when `path` is a real code path — outside `.gtd/` plumbing and not the
- * state's own `file:`, excluded by EXACT path (never merely a `.gtd/` prefix
- * check, since `file:` is var-configurable to live outside `.gtd/` — issue
- * #128). The one "did a human touch something real" predicate shared by
- * `enforceStepGuards`'s own `hasCodeChange` and the require-revert guard's
- * residue scoping, so the rule is declared exactly once.
+ * True when `path` sits inside the declared plumbing directory `dir` (carries
+ * no trailing slash) — an exact match on the bare directory path itself, or
+ * prefixed by `dir + "/"` (the separator is appended here, not assumed to be
+ * part of `dir`). A naive `path.startsWith(dir)` would also swallow a sibling
+ * `<dir>-backup/` next to the declared directory.
  */
-const isCodePath = (path: string, file: string): boolean =>
-  !path.startsWith(".gtd/") && path !== file
+const isPlumbingPath = (path: string, dir: string): boolean =>
+  path === dir || path.startsWith(`${dir}/`)
+
+/**
+ * True when `path` is a real code path — outside the DECLARED plumbing
+ * directory (`stateDir`, never a literal `.gtd/`) and not the state's own
+ * `file:`, excluded by EXACT path (never merely a prefix check, since `file:`
+ * is var-configurable to live outside `stateDir` — issue #128). The one "did
+ * a human touch something real" predicate shared by `enforceStepGuards`'s own
+ * `hasCodeChange` and the require-revert guard's residue scoping, so the rule
+ * is declared exactly once.
+ */
+const isCodePath = (path: string, file: string, stateDir: string): boolean =>
+  !isPlumbingPath(path, stateDir) && path !== file
 
 /** Normalize every markdown checkbox to a single placeholder so a pure `[ ]`→`[x]` tick is invisible to a text comparison; any surviving difference is a human note. */
 const normalizeCheckboxes = (content: string): string => content.replace(/\[[ xX]\]/g, "[_]")
@@ -210,9 +222,12 @@ const answerCompletenessGuard: StepGuard = {
  *   base-tree-vs-worktree by content, so the fake and a real repo answer
  *   alike. A false positive here is a refusal (loud); a false negative would
  *   be silence.
- * - **Exempting the review file by exact path**, not by `.gtd/` prefix: with
- *   `reviewFile` at the repo root the human's commit's deletion of it is a
- *   `D` in `changedPaths(base)`, which would refuse every note-only round.
+ * - **Exempting the review file by exact path**, not by a `stateDir` prefix:
+ *   with `reviewFile` at the repo root the human's commit's deletion of it is
+ *   a `D` in `changedPaths(base)`, which would refuse every note-only round.
+ *   Plumbing itself is exempted by the DECLARED `stateDir` directory
+ *   (`isCodePath`), never a literal `.gtd/` — a review-round commit touching
+ *   a relocated plumbing directory is real plumbing, not residue.
  */
 const requireRevertGuard: StepGuard = {
   name: "require-revert",
@@ -226,7 +241,7 @@ const requireRevertGuard: StepGuard = {
       const git = yield* GitService
       const base = `${rb}~1`
       const touched = (yield* git.commitHistory(base, rb))[0]?.touched ?? []
-      const scoped = touched.filter((path) => isCodePath(path, ctx.file))
+      const scoped = touched.filter((path) => isCodePath(path, ctx.file, ctx.template.stateDir))
       if (scoped.length === 0) return undefined
       const residue = (yield* git.changedPaths(base))
         .filter((c) => scoped.includes(c.path))
@@ -283,7 +298,9 @@ export const enforceStepGuards = (input: {
     if (applicable.length === 0) return
 
     const fileDeleted = deletesFile(input.changes, file)
-    const hasCodeChange = input.changes.some((c) => isCodePath(c.path, file))
+    const hasCodeChange = input.changes.some((c) =>
+      isCodePath(c.path, file, input.context.stateDir),
+    )
 
     const base = {
       rest: input.rest,

@@ -178,16 +178,24 @@ const entryJsonSchema = {
   },
 } as const
 
+/** The `stateDir:` value inside `workflow:` — where this workflow keeps its own plumbing directory. */
+const stateDirJsonSchema = {
+  type: "string",
+  description:
+    "An Eta template naming where this workflow keeps its own scratch/bookkeeping directory (the review window's revert pathspec, the step guards' code-vs-plumbing test). Defaults to \".gtd\" when absent. The rendered value must name a directory inside the repository: not the repo root, not an absolute path, not a path that escapes the repo. Distinct from the ordinary `vars.stateDir` workflow var of the same name one level down — this is the definition-level declaration the engine reads; the var is the knob a user overrides, which the bundled template renders this declaration from.",
+} as const
+
 /** The whole `workflow:` value — see `PatternConfig.ts`'s module docstring for the authoritative schema. */
 const workflowJsonSchema = {
   type: "object",
   description:
-    "The whole machine definition: a tree of named machines rooted at entry.default (plus the workflow's own vars: defaults and modes: steering-file modes). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory (a modes: command never is — it is a shell command).",
+    "The whole machine definition: a tree of named machines rooted at entry.default (plus the workflow's own vars: defaults, modes: steering-file modes, and stateDir: plumbing-directory declaration). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory (a modes: command never is — it is a shell command).",
   additionalProperties: false,
   required: ["entry", "machines"],
   properties: {
     vars: varsJsonSchema,
     modes: modesJsonSchema,
+    stateDir: stateDirJsonSchema,
     entry: entryJsonSchema,
     machines: {
       type: "object",
