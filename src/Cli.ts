@@ -70,10 +70,13 @@ export type CliPlan =
 /**
  * What a command kind needs before it may run. `pure`/`removed` never reach
  * `io.layers()` at all (they resolve to `output`/`usage` plans, never a
- * `Command`). `state` marks the six kinds that share the repo-root guard and
- * the review-window bracket (`needsOf(kind) === "state"`); `none`/`fs`/
- * `config` merely document each standalone handler's own annotated `R` — see
- * `standaloneKinds()`.
+ * `Command`). `state` marks the seven kinds (`land`, `entry`, `abandon`,
+ * `restore`, `next`, `status`, `validate`) that share the repo-root guard, the
+ * at-least-one-commit guard, and the review-window bracket
+ * (`needsOf(kind) === "state"`) — a repository with no commits has no HEAD to
+ * derive workflow state from, so both guards must pass before dispatch;
+ * `none`/`fs`/`config` merely document each standalone handler's own
+ * annotated `R` — see `standaloneKinds()`.
  *
  * `needsOf`/`standaloneKinds` themselves live in `program.ts` (re-exported
  * here) — `program.ts`'s `runCommand` is their one runtime caller, and this

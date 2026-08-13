@@ -102,13 +102,11 @@ export type EmitStep =
 export const headAssertion = (expectedHead: string): string => {
   const q = shellQuote(expectedHead)
   const probe = `[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = ${q} ] || `
-  return expectedHead === ""
-    ? probe +
-        `{ printf 'gtd: repository changed since this script was generated ` +
-        `(expected a repository with no commits yet) — re-run gtd\\n' >&2; exit 1; }`
-    : probe +
-        `{ printf 'gtd: repository changed since this script was generated ` +
-        `(expected HEAD %s) — re-run gtd\\n' ${q} >&2; exit 1; }`
+  return (
+    probe +
+    `{ printf 'gtd: repository changed since this script was generated ` +
+    `(expected HEAD %s) — re-run gtd\\n' ${q} >&2; exit 1; }`
+  )
 }
 
 /**

@@ -208,7 +208,7 @@ const EXIT_SETTLED = 3
 // their doc comments on the same tradeoff.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-/** The `EmitPreconditions` every script this file assembles asserts against: the resolved HEAD hash the snapshot driving it was taken at — `""` when the repo has no commits yet, `headAssertion`'s own convention for that case. */
+/** The `EmitPreconditions` every script this file assembles asserts against: the resolved HEAD hash the snapshot driving it was taken at. */
 const headPreconditions = (currentCommit: string): EmitPreconditions => ({
   expectedHead: currentCommit,
 })
@@ -1470,6 +1470,29 @@ const assertRunningFromRepoRoot = (
   })
 
 /**
+ * A command that derives workflow state needs not just a repository root
+ * (`assertRunningFromRepoRoot`) but at least one commit to derive that state
+ * FROM — a commitless repository has no HEAD to resolve a `Rest` at, and the
+ * sketch lookup that later depends on a resolvable base commit would otherwise
+ * fail silently, well past the point where a script has already been emitted.
+ * `git.hasCommits()` is already on the `GitOperations` port and already
+ * contract-tested against both the real-git and in-memory tiers
+ * (`src/testing/GitTiers.ts`'s `hasCommits` group) — this is a single read of
+ * it, plus the failure.
+ */
+const assertRepositoryHasCommits = (git: GitOperations): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    const hasCommits = yield* git.hasCommits()
+    if (!hasCommits) {
+      return yield* Effect.fail(
+        new Error(
+          "gtd requires a repository with at least one commit — make an initial commit, then run gtd again",
+        ),
+      )
+    }
+  })
+
+/**
  * `gtd init` writes only a `.gtdrc.json` (+ prompt files) — it derives no state,
  * so unlike the state commands it need not sit in a git repository at all. It
  * may run EITHER at a repository root OR in a directory outside any repository —
@@ -1510,6 +1533,10 @@ const assertInitLocation = (
  * `Cli.ts` already has a real (value) dependency on this module for
  * `runCommand` itself — a value import running the other way would make the
  * two modules circular.
+ *
+ * `"state"` means the kind derives workflow state, so it needs a repository
+ * root AND at least one commit to derive that state from — both guards run in
+ * `runCommand`, below, before dispatch.
  */
 export const needsOf = (kind: Command["kind"]): Needs => {
   switch (kind) {
@@ -1602,12 +1629,18 @@ const dispatchCommand = (
 /**
  * The one entry point `Cli.ts`'s `runCli` calls for a resolved `Command`:
  * dispatches to the matching `run*Command` handler (see `dispatchCommand`),
- * wrapped in the repo-root guard exactly when `needsOf(command.kind) ===
- * "state"` — `lsp`/`init`/`visualize`/`check` (the `standaloneKinds`) run
- * bare. `Cli.ts` has already validated every field on `command` (arity, flag
- * scope, decoding), so nothing here re-parses argv. Returns the exit code
- * `Cli.ts`'s `runCli` should use — `0` for every command except a `land` that
- * settles (`EXIT_SETTLED`).
+ * wrapped in the repo-root-and-commit guard exactly when
+ * `needsOf(command.kind) === "state"` — `lsp`/`init`/`visualize`/`check` (the
+ * `standaloneKinds`) run bare. `Cli.ts` has already validated every field on
+ * `command` (arity, flag scope, decoding), so nothing here re-parses argv.
+ * Returns the exit code `Cli.ts`'s `runCli` should use — `0` for every
+ * command except a `land` that settles (`EXIT_SETTLED`).
+ *
+ * The guard is two checks, in order: `assertRunningFromRepoRoot` (running from
+ * the wrong directory is the more fundamental misuse, and its message is about
+ * WHERE you are), then `assertRepositoryHasCommits` (a repository with no
+ * commits has no HEAD to derive workflow state from). Both run before
+ * `dispatch`, so a refusal writes nothing and emits no script by construction.
  *
  * No review-window close/open bracket runs here any more: every state-command
  * handler (see `planLanding`) now decides for itself, off `ReviewWindow.ts`'s
@@ -1626,6 +1659,7 @@ export const runCommand = (
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
+    yield* assertRepositoryHasCommits(git)
     return yield* dispatch
   })
 }
