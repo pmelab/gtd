@@ -49,7 +49,12 @@ export type Command =
   | { readonly kind: "next" }
   | { readonly kind: "status" }
   | { readonly kind: "validate" }
-  | { readonly kind: "check"; readonly mode: string; readonly file: string }
+  | {
+      readonly kind: "check"
+      readonly mode: string
+      readonly file: string
+      readonly openQuestions?: boolean
+    }
   | { readonly kind: "install" }
 
 export type CliPlan =
@@ -217,6 +222,21 @@ const FLAGS: readonly FlagRow[] = [
       "declared by the workflow's own vars: or the .gtdrc vars:",
     ],
   },
+  {
+    name: "--open-questions",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "check",
+    decode: () => Either.right(true),
+    scopeError: "gtd: --open-questions is only valid for `gtd check`",
+    valueHint: "",
+    help: [
+      "(gtd check only) ignore <mode>'s structural findings and",
+      "instead run the qa open-questions predicate over <file>,",
+      "printing each unanswered question one per line and exiting",
+      "non-zero when any remain",
+    ],
+  },
 ]
 
 const flagByToken = (token: string): FlagRow | undefined => {
@@ -365,7 +385,9 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "non-zero when there are any. Resolves no workflow state and",
       "reads no config — standalone, runnable from any directory",
       "with <mode>/<file> given explicitly. This is what a",
-      "workflow's emitted validation script invokes as a leaf step",
+      "workflow's emitted validation script invokes as a leaf step.",
+      "--open-questions runs the qa unanswered-questions predicate",
+      "instead (see --help)",
     ],
   },
   {
@@ -733,6 +755,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--cost"?: number
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
+    readonly "--open-questions"?: boolean
   }
 
   const json = present.has("--json")
@@ -767,7 +790,14 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (kind === "check") {
     return {
       kind: "command",
-      command: { kind: "check", mode: restPositionals[0]!, file: restPositionals[1]! },
+      command: {
+        kind: "check",
+        mode: restPositionals[0]!,
+        file: restPositionals[1]!,
+        ...(bag["--open-questions"] !== undefined
+          ? { openQuestions: bag["--open-questions"] }
+          : {}),
+      },
       json,
     }
   }

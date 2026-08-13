@@ -5,8 +5,8 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   docs/design/steering-file-loops.md §5): the server starts over stdio, the
   `initialize` handshake succeeds and advertises the document-symbol/code-
   action capabilities, and a `textDocument/documentSymbol` request against an
-  unmapped `.gtd/TODO.md` fixture yields NO symbols (the `TODO.md` → qa basename
-  fallback was removed — TODO.md is now a free-form plan file). Two further
+  unmapped `.gtd/TODO.md` fixture yields NO symbols (there is no `TODO.md` → qa
+  basename fallback — no bundled state writes there at all). Two further
   scenarios prove the config-driven half (see
   docs/design/state-file-association.md §3): documentSymbol served for a
   CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:` pair, and
@@ -29,10 +29,10 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP response result has a "codeActionProvider" capability
 
   Scenario: with no config, .gtd/TODO.md is NOT dispatched by basename — it yields no symbols
-    # The `TODO.md` → qa basename fallback was removed: the bundled template's
-    # simple flow iterates on a free-form plan there, not a qa-format file. With
-    # no `.gtdrc` mapping it, documentSymbol returns nothing. (Config-driven qa
-    # dispatch over any file — including TODO.md — is covered below.)
+    # There is no `TODO.md` → qa basename fallback: no bundled state writes
+    # there at all. With no `.gtdrc` mapping it, documentSymbol returns
+    # nothing. (Config-driven qa dispatch over any file — including TODO.md —
+    # is covered below.)
     Given a test project
     And an LSP server started in the test project
     When the LSP client sends an initialize request

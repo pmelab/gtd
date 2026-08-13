@@ -151,7 +151,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     Then it succeeds
     And stdout does not contain "hello"
 
-  Scenario: the simple workflow's "build.health.check" script renders "npm test" from its own declared default
+  Scenario: the bundled workflow's "build.health.check" script renders "npm test" from its own declared default
     Given a test project
     And the workflow
     And a commit "gtd(agent): build.health.check" that adds "src/thing.ts" with:
@@ -215,7 +215,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And stdout contains "echo overridden"
     And stdout does not contain "npm test >"
 
-  Scenario: a "GTD_TESTCOMMAND" environment variable overrides the simple workflow's own testCommand
+  Scenario: a "GTD_TESTCOMMAND" environment variable overrides the bundled workflow's own testCommand
     Given a test project
     And the workflow
     And a commit "gtd(agent): build.health.check" that adds "src/thing.ts" with:
@@ -296,34 +296,34 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     When I run gtd next
     Then it fails
 
-  Scenario: the simple template resolves a planner-tier state's model from "vars.plannerModel"
+  Scenario: the bundled template resolves a planner-tier state's model from "vars.plannerModel"
     Given a test project
     And the workflow
-    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(check): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       a sketch
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"plan.planning\""
+    And stdout contains "\"state\":\"design.triage\""
     And stdout contains "\"model\":\"smart\""
 
-  Scenario: the simple template resolves a coder-tier state's model from "vars.coderModel"
+  Scenario: the bundled template resolves a coder-tier state's model from "vars.coderModel"
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.building" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(check): packages.item.building" that adds ".gtd/NEXT.md" with:
       """
       the plan
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"build.building\""
+    And stdout contains "\"state\":\"packages.item.building\""
     And stdout contains "\"model\":\"base\""
 
   Scenario: a "GTD_PLANNERMODEL" override repoints every planner-tier state at once
     Given a test project
     And the workflow
-    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(check): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       a sketch
       """

@@ -174,18 +174,31 @@ data, not a key gtd interprets.
 These terms belong to the one workflow gtd ships, not to the engine. Replace the
 workflow and they go with it.
 
-**Flow**: One path through the bundled workflow, chosen by which steering file
-you create at `idle`.
+**Unwind**: The beat (`unwind`) that reverts the entry commit's diff — the
+change that started the process, whether a hand-edit to real code or a scratch
+note — back out of the working tree, leaving it identical to the process's start
+commit. The input's intent isn't lost: it survives in history for
+`design.triage` to read.
 
-**Simple flow**: A sketch in `.gtd/TODO.md` becomes a plan, a build, and a
-review.
+**Concern**: One ordered, independently greenable unit of work `design.triage`
+groups the process's start diff into — the unit `architecture.decompose` later
+turns 1:1 into a package.
 
-**Advanced flow**: Product requirements in `.gtd/REQUIREMENTS.md` go through
-product then technical Q&A, decompose into packages, and build in parallel with
-per-package review.
+**Product concern** / **Technical concern**: A concern's classification — a
+product concern is a user-facing/requirements decision, raised (if it has an
+open point) by `design.triage`; a technical concern is an implementation
+decision, raised by `architecture.author`.
 
-**Plan**: The concrete implementation plan an agent develops from a sketch, and
-the file it lives in.
+**Triage**: `design.triage`'s own job — reading the diff that started the
+process (never rendered into its prompt) and grouping/classifying it into
+concerns.
+
+**Question gate**: The shared check/answer pair (`design.gate`/
+`architecture.gate`) that rests the process at a human answer gate only while
+its phase's steering file (`.gtd/REQUIREMENTS.md` or `.gtd/ARCHITECTURE.md`) has
+an unanswered open question — a question-free phase skips the human stop
+entirely. Its presence is signaled by the `.gtd/QUESTIONS.md` marker file,
+stamped or removed by the gate's own check script and never read for content.
 
 **Green baseline**: The test run every entry opens with, proving the suite was
 already green before gtd changed anything — so a later red run is attributable.
@@ -204,8 +217,8 @@ look, and a box a reviewer ticks.
 file, carrying candidate answers as checkboxes plus a free-text slot. It becomes
 an **answered question** by moving under `## Answered Questions` as prose.
 
-**Package**: One independently buildable and independently greenable slice of an
-advanced-flow decomposition.
+**Package**: One independently buildable and independently greenable slice a
+concern turns into — `architecture.decompose`'s output, one file per concern.
 
 **Satisfied package**: A package whose acceptance criteria are already met
 before its build turn runs — recorded as evidence in `.gtd/SATISFIED.md` rather

@@ -46,6 +46,7 @@ import {
   type VizModel,
 } from "./Visualize.js"
 import { deletesFile, enforceStepGuards } from "./StepGuards.js"
+import { unansweredQuestions } from "./OpenQuestions.js"
 import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
 import { resolveSteeringMode, renderSteeringCommands, unknownModeMessage } from "./SteeringMode.js"
 import {
@@ -1049,10 +1050,20 @@ const runValidateCommand = (
  * `{valid,errors}`"): the alternative was piping a `--json` failure through a
  * NEW exit-code channel bypassing `Cli.ts`'s shared envelope entirely, which
  * every other command's `--json` failure goes through today.
+ *
+ * `--open-questions` (`openQuestions: true`) replaces this whole
+ * structural-findings path with `runOpenQuestionsCheckCommand`, below — but
+ * only after the SAME unknown-mode validation runs (a typo'd mode must still
+ * fail loudly, not silently pass an answered-looking document), and only for
+ * `mode === "qa"` (the only mode the open-questions predicate means anything
+ * for; `<mode>` stays a required positional because the arity table always
+ * takes two, but `"review"` there is a distinct, equally wrong, silent
+ * mismatch this rejects explicitly rather than accepting).
  */
 const runCheckCommand = (
   mode: string,
   file: string,
+  openQuestions: boolean,
   json: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> =>
@@ -1064,6 +1075,15 @@ const runCheckCommand = (
           `gtd check: unknown mode "${mode}" — known modes: ${builtInModeNames().join(", ")}`,
         ),
       )
+    }
+
+    if (openQuestions) {
+      if (mode !== "qa") {
+        return yield* Effect.fail(
+          new Error(`gtd check: --open-questions only applies to mode "qa" — got "${mode}"`),
+        )
+      }
+      return yield* runOpenQuestionsCheckCommand(file, json, write)
     }
 
     const fs = yield* FileSystem.FileSystem
@@ -1087,6 +1107,55 @@ const runCheckCommand = (
       new Error(
         `gtd check: ${file} is not valid under mode "${mode}" (${errors.length} finding(s))`,
       ),
+    )
+  })
+
+/**
+ * `gtd check <mode> <file> --open-questions`: read `<file>` and run
+ * `OpenQuestions.ts`'s `unansweredQuestions` — the SAME predicate
+ * `StepGuards.ts`'s answer-completeness guard enforces at land — printing one
+ * unanswered question per line and exiting non-zero when any remain. Sharing
+ * the one function makes a workflow's own gate script (this) and the land-time
+ * guard (`answerCompletenessGuard`) two views of the same decision: no
+ * reachable state can skip the gate while a land would still be refused, or
+ * enter the gate while every land would already pass.
+ *
+ * A missing or unreadable file is a non-zero exit carrying a message, mirrored
+ * from `gtd check`'s general "stop and show the human" convention — unlike the
+ * structural path above, which treats an absent file as "nothing to report".
+ * `--json` mirrors the structural branch's own shape exactly (each unanswered
+ * question's text as an `errors` entry): `{valid:true,errors:[]}` on none
+ * remaining, else `{valid:false,errors:[...]}` written before the Effect
+ * fails — the SAME line-delimited-JSON tension `runCheckCommand`'s own doc
+ * comment spells out, not a second shape a `--json` consumer has to learn.
+ */
+const runOpenQuestionsCheckCommand = (
+  file: string,
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
+    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
+    if (!present) {
+      return yield* Effect.fail(new Error(`gtd check: ${file} does not exist`))
+    }
+    const content = yield* fs.readFileString(file).pipe(Effect.mapError(toError))
+
+    const errors = unansweredQuestions(content).map((q) => q.question)
+    if (errors.length === 0) {
+      if (json) write(JSON.stringify({ valid: true, errors: [] }) + "\n")
+      return
+    }
+
+    if (json) {
+      write(JSON.stringify({ valid: false, errors }) + "\n")
+    } else {
+      write(errors.join("\n") + "\n")
+    }
+    return yield* Effect.fail(
+      new Error(`gtd check: ${errors.length} open question(s) unanswered in ${file}`),
     )
   })
 
@@ -1493,7 +1562,13 @@ const dispatchVoidCommand = (
     case "validate":
       return runValidateCommand(json, write)
     case "check":
-      return runCheckCommand(command.mode, command.file, json, write)
+      return runCheckCommand(
+        command.mode,
+        command.file,
+        command.openQuestions ?? false,
+        json,
+        write,
+      )
     case "install":
       return runInstallCommand(json, write)
   }

@@ -779,8 +779,8 @@ const validateActorShape = (name: string, state: StateDef): string[] => {
  * present, may not be blank (a whitespace-only shell command would run and
  * "succeed", silently disabling the gate). An empty entry (`{}`) is legal — the
  * FORMAT-ONLY tier any workflow can use for a name with no gtd-side schema
- * (`src/workflows/unified.yaml`'s `modes: { prose: {} }`, or a project's own
- * `modes: { adr: {} }` before it plugs in any command at all). The compiler
+ * (e.g. a project's own `modes: { adr: {} }` before it plugs in any command
+ * at all). The compiler
  * (`src/PatternConfig.ts`) enforces the TYPES; these are the semantic rules,
  * collected alongside every other finding.
  */

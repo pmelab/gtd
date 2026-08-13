@@ -1,47 +1,81 @@
 @inmem
-Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, custom squash
+Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, custom squash
 
   Minimal smoke coverage for the v3 CLI (`gtd land` / `gtd next` /
   `gtd status`, see src/Edge.ts and
   docs/design/pattern-machine-plan.md). Proves the rewritten edge/CLI wiring
-  end to end: a couple of simple-flow hops on the built-in default workflow, the
-  `gtd next --json` contract, and a custom `.gtdrc` `workflow:`
-  squashing through a `commit:` state. Comprehensive coverage (every
-  simple-workflow state, retry/escalation, the full check/fix/review tail,
-  both refusal shapes) has its own dedicated feature files — see
-  refusals.feature, default-workflow.feature, retry.feature, squash.feature.
+  end to end: a handful of hops on the built-in default workflow's one flow,
+  the `gtd next --json` contract, and a custom `.gtdrc` `workflow:` squashing
+  through a `commit:` state. Comprehensive coverage (every state, retry/
+  escalation, the full check/fix/review tail, both refusal shapes) has its own
+  dedicated feature files — see refusals.feature, default-workflow.feature,
+  retry.feature, squash.feature.
 
-  Scenario: the simple workflow's happy path advances idle -> plan-gate.check -> plan.planning -> plan.await-plan -> build.building -> build.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.check -> architecture.author -> architecture.gate.check -> architecture.decompose -> packages.picking -> packages.item.building -> packages.item.health.check
     Given a test project
     And the workflow
-    And a file ".gtd/TODO.md" with:
+    And a file "src/feature.ts" with:
       """
-      Build a thing.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-gate.check"
-    # The green-baseline gate: a clean tree (tests pass) advances to plan.planning.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
-    Given ".gtd/TODO.md" is modified to:
-      """
-      Build a thing. Developed into a concrete plan.
+      export const feature = 1
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
+    And the last commit subject is "gtd(human): idle → unwind"
+    # unwind: simulate the `git revert --no-commit` — @inmem never executes
+    # scripts — by reverting the working tree to the start commit ourselves.
+    Given the file "src/feature.ts" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): plan.await-plan → build.building"
-    Given a file "src/thing.ts" with:
+    And the last commit subject is "gtd(check): unwind → start-gate.check"
+    # The green-baseline gate: a clean tree (tests pass) advances to design.triage.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.check → design.triage"
+    Given a file ".gtd/REQUIREMENTS.md" with:
       """
-      export const thing = 1
+      Add a feature. No open questions.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.building → build.health.check"
+    And the last commit subject is "gtd(agent): design.triage → design.gate.check"
+    # No open questions recorded -> the human gate is skipped entirely.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): design.gate.check → architecture.author"
+    Given the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan for the feature. No open questions.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): architecture.author → architecture.gate.check"
+    # No open questions recorded -> the human gate is skipped entirely.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): architecture.gate.check → architecture.decompose"
+    Given the file ".gtd/ARCHITECTURE.md" is deleted
+    And a file ".gtd/packages/01-feature.md" with:
+      """
+      Package: add the feature.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): architecture.decompose → packages.picking"
+    Given a file ".gtd/NEXT.md" with:
+      """
+      .gtd/packages/01-feature.md
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
+    Given a file "src/feature-impl.ts" with:
+      """
+      export const featureImpl = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project

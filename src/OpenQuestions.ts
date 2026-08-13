@@ -1,11 +1,10 @@
 /**
- * Pure parser/validator for the "open questions" structure the ADVANCED flow's
- * steering files (`.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`) follow in the
- * unified template's `product-qa`/`technical-qa` Q&A loops (see
- * `src/workflows/unified.yaml`) —
- * and for any custom workflow that reuses the same file/format. (The SIMPLE
- * flow's `.gtd/TODO.md` plan loop no longer uses this format — it iterates on a
- * plan directly, with no `qa` mode.)
+ * Pure parser/validator for the "open questions" structure the bundled
+ * template's steering files (`.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`)
+ * follow across `design.triage`/`design.gate.answer` (product questions) and
+ * `architecture.author`/`architecture.gate.answer` (technical questions) —
+ * see `src/workflows/unified.yaml` — and for any custom workflow that reuses
+ * the same file/format.
  *
  * Format: free-form prose, plus an OPTIONAL `## Open Questions` section (near
  * the top) and an OPTIONAL `## Answered Questions` section (at the bottom).
@@ -16,7 +15,7 @@
  * (omitted = zero questions of that status, not an error).
  *
  * An OPEN question's body carries a checkbox list of candidate answers — the
- * advanced flow's agent writes two options plus a trailing free-text slot
+ * producing agent writes two options plus a trailing free-text slot
  * (`- [ ] _your answer_`, see `FREE_TEXT_PLACEHOLDER`), and the human ticks
  * exactly one. This module parses those options (`OpenQuestion.options`) and
  * derives whether the question is answered (`OpenQuestion.answered`) — the two
@@ -31,7 +30,7 @@
  *
  * A question is answered/accepted by MOVING its `###` block from
  * `## Open Questions` down into `## Answered Questions` — the agent does this on
- * the next `product-qa`/`technical-qa` lap (a human leaving a suggestion untouched IS acceptance;
+ * the next `design.triage`/`architecture.author` lap (a human leaving a suggestion untouched IS acceptance;
  * an edit IS the answer — either way the whole batch resolves). Nothing here
  * enforces the move or the section order; that is the producing agent's prompt
  * contract, and this parser only reports the resulting status.

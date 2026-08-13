@@ -1168,6 +1168,195 @@ describe("gtd check <mode> <file>", () => {
   })
 })
 
+describe("gtd check <mode> <file> --open-questions", () => {
+  // Shares the exact `unansweredQuestions` predicate the answer-completeness
+  // step guard (`StepGuards.test.ts`) enforces at land — this is the leaf
+  // command a workflow's own gate script calls to answer the same question
+  // in-process, ahead of time.
+
+  const docWithUnanswered = [
+    "# Plan",
+    "",
+    "## Open Questions",
+    "",
+    "### Which operations?",
+    "",
+    "- [ ] add and subtract",
+    "- [ ] _your answer_",
+    "",
+    "### What is the target platform?",
+    "",
+    "- [x] web only",
+    "- [ ] _your answer_",
+    "",
+  ].join("\n")
+
+  const docFullyAnswered = [
+    "# Plan",
+    "",
+    "## Open Questions",
+    "",
+    "### What is the target platform?",
+    "",
+    "- [x] web only",
+    "- [ ] _your answer_",
+    "",
+  ].join("\n")
+
+  const docNoOpenQuestionsSection = [
+    "# Plan",
+    "",
+    "## Answered Questions",
+    "",
+    "### What is the target platform?",
+    "",
+    "web only.",
+    "",
+  ].join("\n")
+
+  const docNeitherSection = ["# Plan", "", "Just some prose, no questions at all.", ""].join("\n")
+
+  const docFreeTextAnswered = [
+    "# Plan",
+    "",
+    "## Open Questions",
+    "",
+    "### Which operations?",
+    "",
+    "- [ ] add and subtract",
+    "- [x] multiply only",
+    "",
+  ].join("\n")
+
+  const bareRepo = (): InMemRepo => new InMemRepo()
+
+  it("lists each unanswered question and exits non-zero", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", docWithUnanswered)
+    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
+    expect(exitCode).not.toBe(0)
+    expect(stdout.trim().split("\n")).toEqual(["Which operations?"])
+  })
+
+  it("exits 0 with no output when every open question has a ticked box", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", docFullyAnswered)
+    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("exits 0 with no output when the '## Open Questions' section is absent (an '## Answered Questions' section only)", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", docNoOpenQuestionsSection)
+    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("exits 0 with no output for a document with neither section at all", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", docNeitherSection)
+    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("a question answered via the free-text slot with the human's own text counts as answered", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", docFreeTextAnswered)
+    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("a missing file exits non-zero with a message, not a silent zero", async () => {
+    const repo = bareRepo()
+    const { stderr, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain(".gtd/TODO.md")
+  })
+
+  it("an existing-but-unreadable path (a directory at that name) exits non-zero with a message", async () => {
+    // The in-memory fake has no real file descriptors/permissions, so
+    // "unreadable" is simulated the one way it can be: a path that EXISTS
+    // (`hasPath` sees the nested file) but has no content of its own
+    // (`readFile` returns undefined for a directory), exactly like `gtd
+    // check`'s existing `steeringFormatFor` path already treats a directory —
+    // `readFileString` fails with ENOENT rather than returning a string.
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md/nested.txt", "not actually the file")
+    const { stderr, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain(".gtd/TODO.md")
+  })
+
+  it("check without the flag is unchanged: an absent file still exits 0 with no output", async () => {
+    const repo = bareRepo()
+    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("--json reports {valid: false, errors} listing each unanswered question, still exiting non-zero", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", docWithUnanswered)
+    const { stdout, exitCode } = await run(
+      repo,
+      "check",
+      "qa",
+      "--open-questions",
+      ".gtd/TODO.md",
+      "--json",
+    )
+    expect(exitCode).not.toBe(0)
+    expect(JSON.parse(stdout.trim().split("\n")[0]!)).toEqual({
+      valid: false,
+      errors: ["Which operations?"],
+    })
+  })
+
+  it("--json reports {valid: true, errors: []} when every open question has a ticked box", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", docFullyAnswered)
+    const { stdout, exitCode } = await run(
+      repo,
+      "check",
+      "qa",
+      "--open-questions",
+      ".gtd/TODO.md",
+      "--json",
+    )
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout.trim())).toEqual({ valid: true, errors: [] })
+  })
+
+  it("an unknown mode still fails with the usual unknown-mode usage error, even with --open-questions", async () => {
+    const repo = bareRepo()
+    repo.writeFile(".gtd/TODO.md", docFullyAnswered)
+    const { stderr, exitCode } = await run(
+      repo,
+      "check",
+      "bogus",
+      "--open-questions",
+      ".gtd/TODO.md",
+    )
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain('unknown mode "bogus"')
+    expect(stderr).toContain("qa")
+    expect(stderr).toContain("review")
+  })
+
+  it("a known but non-qa mode (e.g. review) refuses --open-questions instead of silently running the qa predicate", async () => {
+    const repo = bareRepo()
+    repo.writeFile("REVIEW.md", docWithUnanswered)
+    const { stderr, exitCode } = await run(repo, "check", "review", "--open-questions", "REVIEW.md")
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("--open-questions")
+    expect(stderr).toContain('"review"')
+  })
+})
+
 describe("computeNextMatch", () => {
   // Pure unit coverage — mirrors `PatternMachine.step`'s own `matchOn`
   // first-match-wins semantics, but over the WHOLE change list at once

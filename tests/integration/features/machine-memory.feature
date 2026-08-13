@@ -15,34 +15,34 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   REAL bundled machine tree (`src/workflows/unified.yaml`) — not a synthetic
   `.gtdrc`, since the whole point is the SHAPE of the actual shipped machines.
 
-  Scenario: memory is retained across a machine's own laps — design.product-author resumes across a design.product-answer turn in between
+  Scenario: memory is retained across a machine's own laps — design.triage resumes across a design.gate.answer turn in between
     Given a test project
     And the workflow
-    And a commit "gtd(check): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(check): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"design.product-author\""
+    And stdout contains "\"state\":\"design.triage\""
     And I record the json field "memory" as "first lap"
 
-    Given a commit "gtd(agent): design.product-answer" that adds "src/marker-1.txt" with:
+    Given a commit "gtd(agent): design.gate.answer" that adds "src/marker-1.txt" with:
       """
-      the agent's design.product-author turn, routing to design.product-answer
+      the agent's design.triage turn, routing to design.gate.answer
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"design.product-answer\""
+    And stdout contains "\"state\":\"design.gate.answer\""
     And stdout does not contain "\"memory\""
 
-    Given a commit "gtd(human): design.product-author" that adds "src/marker-2.txt" with:
+    Given a commit "gtd(human): design.triage" that adds "src/marker-2.txt" with:
       """
-      the human's design.product-answer turn, sending it back for another lap
+      the human's design.gate.answer turn, sending it back for another lap
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"design.product-author\""
+    And stdout contains "\"state\":\"design.triage\""
     And the json field "memory" matches the one recorded as "first lap"
 
   Scenario: memory is retained across an excursion into a child machine's own check (and its escalate) — build.fix resumes across build.health.check/.escalate
@@ -207,13 +207,13 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # SEPARATE scope, so it gets its own key — see the next scenario.
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.building" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(check): build.fix" that adds ".gtd/FEEDBACK.md" with:
       """
-      Build a widget.
+      test failed: widget() returns undefined
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"build.building\""
+    And stdout contains "\"state\":\"build.fix\""
     And I record the json field "memory" as "the builder's turn"
 
     Given a commit "gtd(agent): build.health.check" that adds "src/widget.ts" with:
@@ -325,9 +325,9 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # over the same feature are therefore always reviewed with fresh eyes.
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.building" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(check): build.fix" that adds ".gtd/FEEDBACK.md" with:
       """
-      Build a widget.
+      test failed: widget() returns undefined
       """
     Given a commit "gtd(agent): build.health.check" that adds "src/widget.ts" with:
       """
@@ -377,62 +377,57 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.review.reviewing\""
     And the json field "memory" differs from the one recorded as "round 1's reviewer turn"
 
-  Scenario: one design conversation spans both Q&A phases and decomposition — design.technical-author and design.decompose resume design.product-author's session
-    # advancedPlan is one planner identity across all five of its own states —
-    # a single codebase exploration instead of three, and the human's answer
-    # rationale survives from product into technical and into decomposition.
+  Scenario: architecture is a separate memory scope from design, but its own Q&A and decomposition share one session
+    # design (designPlan) and architecture (archPlan) are sibling machines with
+    # their own memory scope each — a deliberate handover, not one fused
+    # conversation, since the technical phase reads the requirements file cold
+    # rather than resuming design's own session. Within architecture's own
+    # scope, though, the human's answer rationale survives from the Q&A turn
+    # into decomposition, exactly as design's own laps resume each other.
     Given a test project
     And the workflow
-    And a commit "gtd(check): design.product-author" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(check): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"design.product-author\""
-    And I record the json field "memory" as "the design conversation's first turn"
+    And stdout contains "\"state\":\"design.triage\""
+    And I record the json field "memory" as "the design conversation's turn"
 
-    Given a commit "gtd(agent): design.product-answer" that adds "src/marker-1.txt" with:
+    Given a commit "gtd(check): architecture.author" that adds ".gtd/ARCHITECTURE.md" with:
       """
-      the agent's product-author turn, routing to product-answer
+      Technical plan for the widget.
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"design.product-answer\""
+    And stdout contains "\"state\":\"architecture.author\""
+    And the json field "memory" differs from the one recorded as "the design conversation's turn"
+    And I record the json field "memory" as "the architecture conversation's first turn"
+
+    Given a commit "gtd(agent): architecture.gate.answer" that adds "src/marker-1.txt" with:
+      """
+      the agent's architecture.author turn, routing to architecture.gate.answer
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"architecture.gate.answer\""
     And stdout does not contain "\"memory\""
 
-    Given a commit "gtd(human): design.technical-author" that adds "src/marker-2.txt" with:
-      """
-      the human accepted the product plan with no open questions left
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"design.technical-author\""
-    And the json field "memory" matches the one recorded as "the design conversation's first turn"
-
-    Given a commit "gtd(agent): design.technical-answer" that adds "src/marker-3.txt" with:
-      """
-      the agent's technical-author turn, routing to technical-answer
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"design.technical-answer\""
-    And stdout does not contain "\"memory\""
-
-    Given a commit "gtd(human): design.decompose" that adds "src/marker-4.txt" with:
+    Given a commit "gtd(human): architecture.decompose" that adds "src/marker-2.txt" with:
       """
       the human accepted the technical plan with no open questions left
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"design.decompose\""
-    And the json field "memory" matches the one recorded as "the design conversation's first turn"
+    And stdout contains "\"state\":\"architecture.decompose\""
+    And the json field "memory" matches the one recorded as "the architecture conversation's first turn"
 
-  Scenario: the advanced flow gets a fresh builder session at the shared tail, distinct from any package's own session
-    # The per-package build queue (packages.*) closes out into the SAME shared
-    # tail the simple flow uses (build.review.* -> build.squashing) — that
-    # tail opens a fresh `build#...` session there, never resuming any
-    # package's own `packages.item#...` session.
+  Scenario: the per-package build queue gets a fresh builder session at the shared tail, distinct from any package's own session
+    # The per-package build queue (packages.*) closes out into the shared tail
+    # (build.review.* -> build.squashing) — that tail opens a fresh
+    # `build#...` session there, never resuming any package's own
+    # `packages.item#...` session.
     Given a test project
     And the workflow
     And a commit "gtd(check): packages.picking" that adds ".gtd/NEXT.md" with:

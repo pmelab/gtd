@@ -22,7 +22,16 @@ import {
   type CommandRequirements,
 } from "./Cli.js"
 
-const FLAG_NAMES = ["--json", "--port", "--no-open", "--cost", "--model", "--entry", "--var"]
+const FLAG_NAMES = [
+  "--json",
+  "--port",
+  "--no-open",
+  "--cost",
+  "--model",
+  "--entry",
+  "--var",
+  "--open-questions",
+]
 
 describe("parseArgv — unknown options", () => {
   it("any `--` token not in the flag table forces kind === 'usage' (property)", () => {
@@ -331,6 +340,38 @@ describe("parseArgv — gtd check <mode> <file>", () => {
   })
 })
 
+describe("parseArgv — gtd check --open-questions", () => {
+  it("parses to a check command carrying openQuestions: true", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "qa", ".gtd/TODO.md", "--open-questions"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({
+        kind: "check",
+        mode: "qa",
+        file: ".gtd/TODO.md",
+        openQuestions: true,
+      })
+    }
+  })
+
+  it("omits openQuestions entirely when the flag is absent (unchanged shape)", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "qa", ".gtd/TODO.md"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "check", mode: "qa", file: ".gtd/TODO.md" })
+      expect("openQuestions" in plan.command).toBe(false)
+    }
+  })
+
+  it("--open-questions on any other command is a usage error carrying its own scopeError", () => {
+    const plan = parseArgv(["node", "gtd.js", "land", "--open-questions"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toBe("gtd: --open-questions is only valid for `gtd check`")
+    }
+  })
+})
+
 describe("parseArgv — help/version short-circuits", () => {
   it("--help produces an output plan", () => {
     expect(parseArgv(["node", "gtd.js", "--help"]).kind).toBe("output")
@@ -484,6 +525,7 @@ describe("renderHelp", () => {
     expect(help).toContain("--no-open")
     expect(help).toContain("--cost")
     expect(help).toContain("--model")
+    expect(help).toContain("--open-questions")
     expect(help).toContain("--version, -v")
     expect(help).toContain("--help, -h")
     expect(help).not.toContain("review <commitish>")

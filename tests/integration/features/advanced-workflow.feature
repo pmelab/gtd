@@ -1,8 +1,9 @@
 @inmem
-Feature: The advanced example's picking arbiter — a per-task queue loop via a custom workflow
+Feature: A picking-arbiter example — a per-task queue loop via a custom workflow
 
   Coverage for the deterministic queue-arbiter shape carried by the bundled
-  unified template's advanced flow (its `picking` state — see STATES.md §10):
+  unified template's per-package build queue (its `packages.picking` state —
+  see STATES.md §10):
   a `script` state (`picking`) that
   takes the first task file under `.gtd/tasks/` into `.gtd/NEXT.md`, or
   removes `.gtd/NEXT.md` once the queue is empty, with an order-sensitive `on`

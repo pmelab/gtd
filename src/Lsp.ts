@@ -31,9 +31,9 @@
  * config at all) falls back to today's basename dispatch (`REVIEW.md` →
  * `review`, via `resolveBuiltInMode`), so the server still works standalone
  * with no `.gtdrc` in sight. (`.gtd/TODO.md` is NOT dispatched by basename —
- * the bundled template's simple flow iterates on a free-form plan there, not a
- * `qa`-format file; a custom workflow that wants qa validation on TODO.md
- * declares it with `file:`+`mode: qa`, which the config-driven map covers.)
+ * no bundled state writes there at all; a custom workflow that wants qa
+ * validation on TODO.md declares it with `file:`+`mode: qa`, which the
+ * config-driven map covers.)
  *
  * A mode's `validate:` command displacing a built-in format's own parser (a
  * `modes: { qa: { validate: "…" } }` override) still gets outline + actions —
@@ -174,7 +174,7 @@ export const diagnosticsFor = (
 
 // ── Config-driven path→mode dispatch (pure) ─────────────────────────────────
 
-/** The basename dispatch this server has always had — the fallback for any path the active workflow's `file:` map doesn't cover (or when no config resolves at all). `TODO.md` is intentionally NOT mapped: the bundled template's simple flow now iterates on a free-form plan there, not a `qa`-format file. */
+/** The basename dispatch this server has always had — the fallback for any path the active workflow's `file:` map doesn't cover (or when no config resolves at all). `TODO.md` is intentionally NOT mapped: no bundled state writes there at all. */
 export const basenameFallbackMode = (name: string): ResolvedMode | undefined =>
   name === "REVIEW.md" ? resolveBuiltInMode("review") : undefined
 

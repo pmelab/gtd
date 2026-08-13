@@ -10,9 +10,9 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
   workflow's own `vars:` (or `.gtdrc` `vars:`).
 
   The bundled unified template declares `entries.manual` as exactly
-  `["fix-precheck", "plan-gate.check", "review-gate.check",
-  "spec-gate.check"]`, but only `review-gate.check` and `fix-precheck` are
-  meant to actually be entered this way in practice. `review-gate.check`
+  `["fix-precheck", "review-gate.check", "start-gate.check"]`, but only
+  `review-gate.check` and `fix-precheck` are meant to actually be entered this
+  way in practice. `review-gate.check`
   declares a template-form `reviewBase: "<%= it.vars.reviewBase %>"` — entering
   it FIXES the whole process's diff base to whatever `--var
   reviewBase=<commitish>` renders to; the default empty string renders blank,
@@ -109,7 +109,7 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     And stderr contains "is not an enterable state"
 
   Scenario: refuses when a gtd process is already underway
-    Given a file ".gtd/TODO.md" with:
+    Given a file "NOTE.md" with:
       """
       a sketch
       """
