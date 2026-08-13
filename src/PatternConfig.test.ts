@@ -743,6 +743,31 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(definition.states.b!.requireProgress).toBe(true)
   })
 
+  it("compiles a requireRevert boolean onto the StateDef", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "a",
+            states: {
+              a: { actor: "human", message: "hi", on: { "* *": "b" } },
+              b: {
+                actor: "check",
+                script: "s",
+                file: ".gtd/REVIEW.md",
+                requireRevert: true,
+                on: { C: "a" },
+              },
+            },
+          },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states.b!.requireRevert).toBe(true)
+  })
+
   it("compiles a state's own `entry: true` into `entries.manual` (empty when none declared)", () => {
     const shape = (withEntry: boolean) => ({
       entry: { default: "root" },

@@ -1624,6 +1624,45 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "b": a commit state cannot declare "requireProgress"')
   })
 
+  it("accepts a non-commit state declaring `requireRevert` with a `file`", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: {
+          actor: "check",
+          script: "s",
+          file: ".gtd/REVIEW.md",
+          requireRevert: true,
+          on: [["C", "a"]],
+        },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects `requireRevert` without a `file`", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { actor: "check", script: "s", requireRevert: true, on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toContain('state "b": "requireRevert" requires "file"')
+  })
+
+  it("rejects a commit state that declares `requireRevert`", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { commit: "chore: b", requireRevert: true },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "requireRevert"')
+  })
+
   it("accepts entries.manual naming a distinct, non-commit script/check state", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: ["b"] },

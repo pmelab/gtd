@@ -200,10 +200,13 @@ export class InMemRepo {
     // Reverse to oldest→newest
     chain.reverse()
 
-    // Filter to base..HEAD range if base given
+    // Filter to base..HEAD range if base given — resolved through `resolveRef`
+    // so a `<hash>~N`/`HEAD~N` base (not just an already-resolved hash) walks
+    // the same range a real `git log <base>..<head>` would.
     let filtered = chain
     if (base !== undefined) {
-      const baseIdx = chain.findIndex((c) => c.hash === base)
+      const resolvedBase = this.resolveRef(base)
+      const baseIdx = resolvedBase === null ? -1 : chain.findIndex((c) => c.hash === resolvedBase)
       if (baseIdx === -1) {
         // base not in chain — no commits in range
         return []

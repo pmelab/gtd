@@ -177,6 +177,10 @@ export const isRequireProgressState = (def: WorkflowDefinition, state: StateName
 export const isAnswerGateState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.answerGate === true
 
+/** True when a step at `state` must be refused unless the human's review-round paths have actually been reverted from the working tree (see `StateDef.requireRevert`). Safe for an unknown state name (returns `false`). */
+export const isRequireRevertState = (def: WorkflowDefinition, state: StateName): boolean =>
+  def.states[state]?.requireRevert === true
+
 /**
  * Every declared state that is NOT a commit state, sorted (plain string
  * sort). This is intentionally ALL non-commit states, not just ones that

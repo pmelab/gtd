@@ -1522,18 +1522,26 @@ machines:
       # on it). Instead this renders that ONE commit's diff with `stateDir`
       # and `reviewFile` excluded from the pathspec (the review file by exact
       # path, since it is var-configurable and may sit at the repo root —
-      # issue #128) and reverse-applies it — conflict-free by construction,
-      # since nothing between that commit and now touches a code path. A
-      # note-only round's patch is EMPTY, and `git apply` on empty input FAILS
-      # ("No valid patches in input"), hence the `-s` guard rather than
-      # `--allow-empty` (which would impose git >= 2.35). The apply is
-      # worktree-only, no `--index`: the emitted step script's own
-      # `git add -A && git commit` stages it, and `changedPaths` answers by
-      # CONTENT, so an unstaged revert is still the pending diff the pattern
-      # matches — one fewer index write in a worktree gtd shares with the
-      # editor's SCM. The patch file lives under `stateDir` (excluded from its
-      # own pathspec, the same precedent as the check scripts' own
-      # `.check-output`) and is removed before the step lands.
+      # issue #128) and reverse-applies it. The apply is EXPECTED to succeed —
+      # nothing between that commit and now touches a code path — but it can
+      # still FAIL: a clean-filter round-trip, a drifted worktree, or a binary
+      # path can all make `git apply -R` a no-op on an otherwise-clean tree,
+      # indistinguishable from a legitimate note-only round. `requireRevert`
+      # (below) is what catches that: its step-capture guard
+      # (`src/StepGuards.ts`) re-establishes the fact from the tree itself —
+      # comparing the human's own commit's paths against the review base's
+      # parent — and refuses the step while residue remains, rather than
+      # trusting the script's swallowed exit code. A note-only round's patch
+      # is EMPTY, and `git apply` on empty input FAILS ("No valid patches in
+      # input"), hence the `-s` guard rather than `--allow-empty` (which would
+      # impose git >= 2.35). The apply is worktree-only, no `--index`: the
+      # emitted step script's own `git add -A && git commit` stages it, and
+      # `changedPaths` answers by CONTENT, so an unstaged revert is still the
+      # pending diff the pattern matches — one fewer index write in a
+      # worktree gtd shares with the editor's SCM. The patch file lives under
+      # `stateDir` (excluded from its own pathspec, the same precedent as the
+      # check scripts' own `.check-output`) and is removed before the step
+      # lands.
       #
       # Both `on` rows target the SAME place (`design`) because either shape
       # is a legitimate outcome here, never a stall: a hand-edited round's
@@ -1542,9 +1550,24 @@ machines:
       # a CLEAN tree — and a clean tree at a `script` state with no `C` row
       # would otherwise be a silent no-op that never advances. Declaring `C`
       # here makes that the expected, terminating case instead.
+      #
+      # `file: <%= it.vars.reviewFile %>` + `requireRevert: true` exist ONLY
+      # to give the require-revert guard the path it must exempt from residue
+      # (the engine blesses no variable names, so the guard reads `Rest.hints.
+      # file`, never `it.vars.reviewFile` itself) — the review file is already
+      # gone two commits earlier, so this state never renders it. The accepted
+      # presentational cost: `gtd next --json`/`gtd status --json` carry that
+      # already-deleted path as this state's `file:` hint, and the visualizer
+      # labels `re-unwind` with it too. Bounded — `Lsp.ts`'s `buildSteeringMap`
+      # skips a mode-less state, so `re-unwind` contributes no path→mode entry
+      # and raises no "already mapped by an earlier state" warning against
+      # `await-review`/`deciding`, which declare the same rendered path with
+      # `mode: review`.
       re-unwind:
         actor: check
         label: Re-unwinding your review edit
+        file: <%= it.vars.reviewFile %>
+        requireRevert: true
         script: |
           #!/usr/bin/env bash
           # gtd check turn — revert the human's own review edit out of the
@@ -1552,9 +1575,12 @@ machines:
           # (var-configurable, may live at the repo root — issue #128) are
           # excluded, because the review file is already gone by this point
           # and reverting it would resurrect it. The human's intent survives
-          # in their own commit for the triage phase to read. Conflict-free
-          # by construction: nothing between that commit and now touches a
-          # code path.
+          # in their own commit for the triage phase to read. The apply is
+          # EXPECTED to succeed — nothing between that commit and now touches
+          # a code path — but it can still fail on a clean-filter round-trip,
+          # a drifted worktree, or a binary path: the `requireRevert`
+          # step-capture guard (src/StepGuards.ts) catches that by
+          # re-checking the tree itself before this step is allowed to land.
           set +e
           commit="<%~ it.reviewBase %>"
           stateDir="<%~ it.vars.stateDir %>"

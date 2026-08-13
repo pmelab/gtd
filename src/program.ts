@@ -411,10 +411,11 @@ const planLanding = (
     }
 
     // Step-capture guards (edge, not engine — see src/StepGuards.ts): the
-    // review-signoff, feedback-progress and answer-completeness guards, in
-    // registry order, each able to refuse before anything is emitted. `file`
-    // is the rest's already-rendered `file:` hint — rendered once when the
-    // snapshot was built, not re-rendered per guard.
+    // review-signoff, feedback-progress, answer-completeness and
+    // require-revert guards, in registry order, each able to refuse before
+    // anything is emitted. `file` is the rest's already-rendered `file:`
+    // hint — rendered once when the snapshot was built, not re-rendered per
+    // guard.
     yield* enforceStepGuards({
       rest,
       context: rest.context,

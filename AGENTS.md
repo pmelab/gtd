@@ -289,25 +289,25 @@ parser, one envelope. The table is the source of truth, not prose:
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`
   map
 - **Step-capture guards (edge, not engine):** `enforceStepGuards` in
-  `src/StepGuards.ts` runs a registry of guards before a normal commit lands —
-  the review-signoff, feedback-progress, and answer-completeness guards each
-  check their own state-flavor condition. A state's `file:`+`mode:` formatting
-  and validation is NOT a guard any more: `program.ts`'s `steeringModeSteps`
-  emits the mode's own `format:`/`validate:` commands (over
-  `src/SteeringMode.ts`) into the step script for the driver to run, ahead of
-  the commit. Any guard REFUSES the step when its condition fires, so e.g. a
-  malformed steering file is never committed (an agent's draft or a human's gate
-  edit alike). Each guard is a no-op when it doesn't apply to the resting state
-  (see `StepGuard.appliesTo`), and the whole registry is skipped for a
-  squash/no-op decision, or an ATTEMPT (there is nothing to guard in an empty
-  diff, and a `format:` run must not dirty an attempt and break the empty-diff
-  derivation `stalledAt` relies on). The emitted format/validate pair is skipped
-  for an attempt for the same reason, AND for a step whose diff DELETES that
-  `file:` (`deletesFile`, shared with the guards): deleting it is a legitimate
-  outcome — a review sign-off's whole diff is the review doc's deletion — and a
-  `format:` like `prettier --write` exits non-zero on a missing path, which
-  aborted the whole `set -euo pipefail` script before the commit and made the
-  step unlandable
+  `src/StepGuards.ts` runs a registry of four guards before a normal commit
+  lands — the review-signoff, feedback-progress, answer-completeness, and
+  require-revert guards each check their own state-flavor condition. A state's
+  `file:`+`mode:` formatting and validation is NOT a guard any more:
+  `program.ts`'s `steeringModeSteps` emits the mode's own `format:`/`validate:`
+  commands (over `src/SteeringMode.ts`) into the step script for the driver to
+  run, ahead of the commit. Any guard REFUSES the step when its condition fires,
+  so e.g. a malformed steering file is never committed (an agent's draft or a
+  human's gate edit alike). Each guard is a no-op when it doesn't apply to the
+  resting state (see `StepGuard.appliesTo`), and the whole registry is skipped
+  for a squash/no-op decision, or an ATTEMPT (there is nothing to guard in an
+  empty diff, and a `format:` run must not dirty an attempt and break the
+  empty-diff derivation `stalledAt` relies on). The emitted format/validate pair
+  is skipped for an attempt for the same reason, AND for a step whose diff
+  DELETES that `file:` (`deletesFile`, shared with the guards): deleting it is a
+  legitimate outcome — a review sign-off's whole diff is the review doc's
+  deletion — and a `format:` like `prettier --write` exits non-zero on a missing
+  path, which aborted the whole `set -euo pipefail` script before the commit and
+  made the step unlandable
 - **Two properties of a guard's INPUTS, each of which makes a guard silently
   INERT rather than loudly wrong when broken:** the pre-turn copy of a `file:`
   is read at `Rest.windowHead` — the open review window's saved head — never at
@@ -318,3 +318,11 @@ parser, one envelope. The table is the source of truth, not prose:
   still a steering file — the same assumption issue #128 broke in `deciding`'s
   check script. With either one wrong, the review sign-off guard takes its
   it-is-a-comment branch on every pass and the unticked-box check is unreachable
+- The require-revert guard's own version of the same INPUTS risk: it compares
+  the current tree against `reviewBase~1` intersected with the human's own
+  review-round commit's touched paths, and it exempts the state's own `file:` by
+  exact path (never merely a `.gtd/` prefix). Get the comparison direction wrong
+  (matching against `reviewBase` instead of its parent) and the guard is INERT —
+  it allows every un-reverted tree; get the exemption wrong (a `.gtd/`-prefix
+  check instead of the exact path, on a `reviewFile` repointed to the repo root)
+  and it REFUSES every note-only round forever
