@@ -841,18 +841,19 @@ its own retry/resume logic beyond "if the script failed, ask gtd again."
 A mode's `format:` command may reformat a steering file — whitespace, wrapping,
 reordering — but must NEVER change what a land-capture guard would decide. gtd's
 guards (the review sign-off check, the feedback-progress check, the
-answer-completeness check — `src/StepGuards.ts`) decide ONCE, against whichever
-bytes are on disk at the moment `gtd land` runs, which may be before OR after an
-emitted script's own `format:` line has run (the script runs `format:` then
-`validate:` then the commit — see `src/SteeringMode.ts`'s
-`renderSteeringCommands` — but gtd's decision and the driver's script execution
-are different processes at different times, so there's no guaranteed ordering
-between "gtd decided" and "the script formatted"). That's only safe because
-every built-in guard judges content, not incidental formatting (e.g. it
-normalizes `[ ]`/`[x]` checkboxes before comparing). If you plug in your own
-`format:` command, the same rule binds it: a formatter that also changes meaning
-— ticking a box, stripping a paragraph — makes the guard's decision and the
-file's actual content disagree, and gtd will not catch that for you.
+answer-completeness check, the require-revert check — `src/StepGuards.ts`)
+decide ONCE, against whichever bytes are on disk at the moment `gtd land` runs,
+which may be before OR after an emitted script's own `format:` line has run (the
+script runs `format:` then `validate:` then the commit — see
+`src/SteeringMode.ts`'s `renderSteeringCommands` — but gtd's decision and the
+driver's script execution are different processes at different times, so there's
+no guaranteed ordering between "gtd decided" and "the script formatted"). That's
+only safe because every built-in guard judges content, not incidental formatting
+(e.g. it normalizes `[ ]`/`[x]` checkboxes before comparing). If you plug in
+your own `format:` command, the same rule binds it: a formatter that also
+changes meaning — ticking a box, stripping a paragraph — makes the guard's
+decision and the file's actual content disagree, and gtd will not catch that for
+you.
 
 One case never runs your `format:` (or `validate:`) at all: a step whose diff
 DELETES the state's own `file:`. Deleting it is a legitimate outcome — a review
@@ -971,6 +972,7 @@ workflow:
           # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
           requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
           answerGate: true # optional, requires "file" — refuse a turn until every open question in the (qa-mode) `file:` is answered
+          requireRevert: true # optional, requires "file" — refuse a turn until the human's review-round paths actually match the review base's parent
           entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared, non-commit state is a valid target)
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```

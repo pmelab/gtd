@@ -421,6 +421,31 @@ const STATE_FIELDS = {
   },
 
   /**
+   * Optional. When `true`, a step at this state is REFUSED unless the paths
+   * the human's own review-round commit touched have actually been reverted
+   * out of the working tree — a `git apply -R` that silently applied nothing
+   * (atomic without `--reject`/`-3`, so a failed patch leaves the tree
+   * byte-for-byte unchanged) must not be mistaken for the note-only round its
+   * `C` row also serves. Like the other guarded flags, the PURE engine never
+   * reads it: the check lives at the edge (the require-revert guard in
+   * `src/StepGuards.ts`), which re-establishes the fact from the tree itself
+   * rather than trusting any signal the script left behind — idempotent, so a
+   * script-revert, a hand-revert, or nothing-to-revert all answer alike.
+   * Requires a `file:` (the state's own steering file, exempted by exact path
+   * from the paths the guard considers residue); forbidden on a commit state
+   * (never at rest — see `validateDefinition`).
+   */
+  requireRevert: {
+    kind: "flag",
+    surface: "def",
+    authored: "state",
+    commit: "forbidden",
+    requires: "file",
+    viz: "flag",
+    doc: "When true, a step at this state is refused unless the paths the human's own review-round commit touched have actually been reverted out of the working tree — re-established from the tree itself, never from the script's own exit code. Requires a `file:`. Forbidden on a commit state.",
+  },
+
+  /**
    * Authoring-only: an EXTRA reachability root (`WorkflowEntries.manual`),
    * enterable via `gtd --entry <this state's qualified name>`.
    * Never lands on the compiled `StateDef` — `compileState` validates its

@@ -286,17 +286,86 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/REVIEW_RAW.md" does not exist
 
     # re-unwind: simulate the scoped `git apply -R` — @inmem never executes
-    # scripts — by reverting the human's hand-edited line ourselves. The
-    # human's intent survives only in their own "await-review → deciding"
-    # commit, for design.triage to read from history.
-    Given "src/calc.ts" is modified to:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
+    # scripts — by reverting the human's hand-edit ourselves. The human's own
+    # commit ADDED src/calc.ts, so a real reverse-apply of it DELETES the
+    # file, not merely rewrites its content. The human's intent survives only
+    # in their own "await-review → deciding" commit, for design.triage to
+    # read from history.
+    Given the file "src/calc.ts" is deleted
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): re-unwind → design.triage"
-    And "src/calc.ts" does not contain "TODO"
+    And "src/calc.ts" does not exist
+    And ".gtd/REQUIREMENTS.md" exists
+
+  @inmem
+  Scenario: re-unwind refuses to land while the human's review-round paths are still un-reverted, then a hand-revert recovers
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1 — new add function
+      """
+    # await-review: a hand-edit to real code is feedback
+    Given a file "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      // TODO: also export a sum() alias
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+
+    Given a file ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+
+      Commit: deadbeef
+      """
+    And the file ".gtd/REVIEW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
+
+    Given a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Export a sum alias
+
+      TECHNICAL — the review hand-edited `src/calc.ts` with a
+      `// TODO: also export a sum() alias` comment; add a `sum` export
+      alongside `add`.
+      """
+    And the file ".gtd/REVIEW_RAW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.review.collecting → re-unwind"
+
+    # re-unwind: `git apply -R` failed and applied nothing — the tree is still
+    # byte-for-byte the human's hand-edit, the exact shape a failed apply
+    # leaves (an @inmem scenario never executes the check script, which makes
+    # this the correct way to simulate that failure). The require-revert
+    # guard refuses: `src/calc.ts` still differs from the review base's
+    # parent (it didn't exist there at all).
+    When I run gtd land
+    Then it fails
+    And stderr contains "gtd land:"
+    And stderr contains "src/calc.ts"
+    And the last commit subject is "gtd(agent): build.review.collecting → re-unwind"
+
+    # Recovery: the human (or a re-run of the script) hand-reverts the path —
+    # the guard re-establishes the fact from the tree itself, so it does not
+    # care how the revert happened. The process advances exactly as the clean
+    # case does — the property a marker-file design could not have offered,
+    # since a marker would stay wedged from the first, refused attempt.
+    Given the file "src/calc.ts" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): re-unwind → design.triage"
+    And "src/calc.ts" does not exist
     And ".gtd/REQUIREMENTS.md" exists
 
   @inmem
@@ -437,6 +506,52 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): re-unwind → design.triage"
     And the git status is clean
+
+  @live
+  Scenario: a genuinely failing `git apply -R` is refused, not silently swallowed
+    Given a test project
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And the working tree is committed as "gtd(agent): build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+      - [ ] ./src/thing.ts#1
+      """
+    And the working tree is committed as "gtd(check): build.review.reviewing → build.review.await-review"
+    Given "src/thing.ts" is modified to:
+      """
+      export const thing = 1
+      // TODO: also export doubled
+      """
+    And the file ".gtd/REVIEW.md" is deleted
+    And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
+    # The collecting → re-unwind commit ALSO rewrites the exact line the
+    # human's own commit touched — a rewrite with no shared context, so the
+    # reverse-apply of the human's patch has nothing to match. This is the
+    # "atomic patch applies nothing" failure the require-revert guard exists
+    # to catch: `git apply -R` exits non-zero, the script's own
+    # `|| echo … >&2` swallows that into exit 0, and the tree is left clean —
+    # indistinguishable from a legitimate note-only round without the guard.
+    Given "src/thing.ts" is modified to:
+      """
+      export const thing = 1
+      // TODO: something else entirely landed here first
+      """
+    And the working tree is committed as "gtd(agent): build.review.collecting → re-unwind"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And I execute the printed check script
+    When I run gtd land
+    Then it fails
+    And stderr contains "gtd land:"
+    And stderr contains "src/thing.ts"
+    And the last commit subject is "gtd(agent): build.review.collecting → re-unwind"
 
   @inmem
   Scenario: writing the bundled sketch file alone starts a process — idle's file: hint is the same nested path its edge pattern already covers

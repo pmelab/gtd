@@ -515,6 +515,14 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       expect(result[0]?.message).toBe("feat: third")
     })
 
+    it("resolves a `<head>~1` base — never just an already-resolved hash — to exactly the head commit", async () => {
+      t.seed.commit("feat: second", { "b.txt": "b" })
+      const head = t.observe.resolveRef("HEAD")
+      const result = await runGit(t, (g) => g.commitHistory(`${head}~1`, head))
+      expect(result.length).toBe(1)
+      expect(result[0]?.message).toBe("feat: second")
+    })
+
     it("reports the paths each commit's name-status diff touched, without extra subprocesses", async () => {
       t.seed.commit("feat: add two files", { "a.txt": "a", "b.txt": "b" })
       t.seed.commitDeletion("a.txt", "chore: remove a")

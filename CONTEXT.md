@@ -116,8 +116,9 @@ finished, idle
 person acts. _Avoid_: checkpoint, approval, the bare "the gate"
 
 **Guard**: An edge-side condition that refuses a step before anything is
-captured (the steering-file, answer-completeness, and green-baseline guards).
-The opposite of a gate: a gate waits for someone, a guard turns them away.
+captured (the steering-file, answer-completeness, require-revert, and
+green-baseline guards). The opposite of a gate: a gate waits for someone, a
+guard turns them away.
 
 **Steering file**: A file a state declares via `file:` + `mode:` — how a human
 or an agent steers the process by editing prose rather than talking to it.

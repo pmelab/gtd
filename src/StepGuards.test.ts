@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
 import { enforceStepGuards, stepGuards, type GuardContext } from "./StepGuards.js"
 import { RepoFiles, type RepoFilesOps } from "./RepoFiles.js"
+import { InMemRepo } from "./testing/InMemRepo.js"
+import { gitTestLayer } from "./testing/Layers.js"
 import type { ResolvedRest } from "./Edge.js"
 import type { PendingChange, StateDef, WorkflowDefinition } from "./PatternMachine.js"
 import type { TemplateContext } from "./PatternTemplates.js"
@@ -352,6 +354,212 @@ describe("answer-completeness guard", () => {
   })
 })
 
+// ── require-revert ───────────────────────────────────────────────────────────
+
+describe("require-revert guard", () => {
+  const reUnwindState = rest("re-unwind", {
+    actor: "check",
+    script: "revert",
+    file: ".gtd/REVIEW.md",
+    requireRevert: true,
+  })
+
+  // `check`'s declared type is every guard's shared `GuardRequirements`
+  // (`RepoFiles | GitService`), even though this guard's own body only ever
+  // reaches for `GitService` — an unused `RepoFiles` stub satisfies the type.
+  const unusedRepoFiles = Layer.succeed(RepoFiles, {
+    working: () => undefined,
+    committed: () => Effect.succeed(undefined),
+  } satisfies RepoFilesOps)
+
+  const runCheck = (context: GuardContext, repo: InMemRepo) =>
+    Effect.runPromiseExit(
+      guard("require-revert")
+        .check(context)
+        .pipe(Effect.provide(Layer.merge(gitTestLayer(repo), unusedRepoFiles))),
+    )
+
+  it("applies only to a requireRevert state", () => {
+    expect(guard("require-revert").appliesTo(reUnwindState)).toBe(true)
+    expect(
+      guard("require-revert").appliesTo(rest("drafting", { actor: "agent", prompt: "write" })),
+    ).toBe(false)
+  })
+
+  it("refuses when residue remains — a failed apply that reverted nothing", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("src/thing.ts", "export const thing = 1\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile("src/thing.ts", "export const thing = 1\n// TODO: also export doubled\n")
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+    // The failed `git apply -R`: the tree is still clean, byte-for-byte the
+    // human's hand-edit, indistinguishable from a legitimate note-only round.
+
+    const exit = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        file: reUnwindState.stateDef.file!,
+        template: { ...templateContext, reviewBase: rb, startCommit: base },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value).toContain("src/thing.ts")
+      expect(exit.value).toContain(`git checkout ${rb}~1`)
+    }
+  })
+
+  it("joins a two-path residue with a comma in the prose but a plain space in the recovery command — a comma there would break the pathspec", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("src/a.ts", "export const a = 1\n")
+    repo.writeFile("src/b.ts", "export const b = 1\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile("src/a.ts", "export const a = 1\n// TODO: a\n")
+    repo.writeFile("src/b.ts", "export const b = 1\n// TODO: b\n")
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+    // Neither failed apply reverted — both paths are still residue.
+
+    const exit = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        file: reUnwindState.stateDef.file!,
+        template: { ...templateContext, reviewBase: rb, startCommit: base },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value).toContain("src/a.ts, src/b.ts")
+      expect(exit.value).toContain(`git checkout ${rb}~1 -- src/a.ts src/b.ts`)
+    }
+  })
+
+  it("allows after a successful revert — the human's paths match `base`", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("src/thing.ts", "export const thing = 1\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile("src/thing.ts", "export const thing = 1\n// TODO: also export doubled\n")
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+    // The script's `git apply -R` (or a hand-revert) actually took.
+    repo.writeFile("src/thing.ts", "export const thing = 1\n")
+
+    const exit = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        file: reUnwindState.stateDef.file!,
+        template: { ...templateContext, reviewBase: rb, startCommit: base },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
+  })
+
+  it("allows a note-only round — the human's commit touched only the review file", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("src/thing.ts", "export const thing = 1\n")
+    repo.writeFile(".gtd/REVIEW.md", "- [ ] ./src/thing.ts#1\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile(".gtd/REVIEW.md", "- [x] ./src/thing.ts#1 — looks great\n")
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+
+    const exit = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        file: reUnwindState.stateDef.file!,
+        template: { ...templateContext, reviewBase: rb, startCommit: base },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
+  })
+
+  it("allows a note-only round when `reviewFile` is repointed to the repo root — exempted by EXACT path, not by a `.gtd/` prefix check", async () => {
+    // issue #128's shape: a `reviewFile` outside `.gtd/`. If the exemption
+    // regressed to a `.gtd/`-prefix check, `REVIEW.md` would no longer be
+    // excluded from `touched`, `scoped` would be non-empty, and this note-only
+    // round would be wrongly refused.
+    const rootState = rest("re-unwind", {
+      actor: "check",
+      script: "revert",
+      file: "REVIEW.md",
+      requireRevert: true,
+    })
+    const repo = new InMemRepo()
+    repo.writeFile("src/thing.ts", "export const thing = 1\n")
+    repo.writeFile("REVIEW.md", "- [ ] ./src/thing.ts#1\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile("REVIEW.md", "- [x] ./src/thing.ts#1 — looks great\n")
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+
+    const exit = await runCheck(
+      ctx({
+        rest: rootState,
+        file: rootState.stateDef.file!,
+        template: { ...templateContext, reviewBase: rb, startCommit: base },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
+  })
+
+  it("allows when the human's commit touched nothing", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("src/thing.ts", "export const thing = 1\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+
+    const exit = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        file: reUnwindState.stateDef.file!,
+        template: { ...templateContext, reviewBase: rb, startCommit: base },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
+  })
+
+  it("refuses on an unidentifiable reviewBase (blank, or equal to startCommit)", async () => {
+    const repo = new InMemRepo()
+    const blank = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        template: { ...templateContext, reviewBase: "", startCommit: "" },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(blank)).toBe(true)
+    if (Exit.isSuccess(blank)) expect(blank.value).toContain("no identifiable review round")
+
+    const noRound = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        template: { ...templateContext, reviewBase: "abc123", startCommit: "abc123" },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(noRound)).toBe(true)
+    if (Exit.isSuccess(noRound)) expect(noRound.value).toContain("no identifiable review round")
+  })
+})
+
 // ── enforceStepGuards runner ─────────────────────────────────────────────────
 
 const repoFilesFrom = (
@@ -365,6 +573,12 @@ const repoFilesFrom = (
   // open-window scenarios below pin.
   committed: (path, ref = "HEAD") => Effect.succeed(committedByRef[ref]?.[path]),
 })
+
+// `enforceStepGuards`'s declared requirement is the shared `GuardRequirements`
+// (`RepoFiles | GitService`) even when the resting state applies no
+// `requireRevert` guard — an unused `GitService` layer satisfies the type for
+// every test below that never actually reaches for git.
+const unusedGitService = gitTestLayer(new InMemRepo())
 
 describe("enforceStepGuards", () => {
   const answerState = rest("product-answer", {
@@ -399,7 +613,10 @@ describe("enforceStepGuards", () => {
         attempt: false,
       }).pipe(
         Effect.provide(
-          Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
+          Layer.merge(
+            unusedGitService,
+            Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
+          ),
         ),
       ),
     )
@@ -417,7 +634,9 @@ describe("enforceStepGuards", () => {
         windowHead: undefined,
         kind: "commit",
         attempt: false,
-      }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
+      }).pipe(
+        Effect.provide(Layer.merge(unusedGitService, Layer.succeed(RepoFiles, repoFilesFrom({})))),
+      ),
     )
     expect(Exit.isSuccess(exit)).toBe(true)
   })
@@ -433,7 +652,9 @@ describe("enforceStepGuards", () => {
         windowHead: undefined,
         kind: "commit",
         attempt: false,
-      }).pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesFrom({})))),
+      }).pipe(
+        Effect.provide(Layer.merge(unusedGitService, Layer.succeed(RepoFiles, repoFilesFrom({})))),
+      ),
     )
     expect(Exit.isSuccess(exit)).toBe(true)
   })
@@ -450,7 +671,10 @@ describe("enforceStepGuards", () => {
         attempt: false,
       }).pipe(
         Effect.provide(
-          Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
+          Layer.merge(
+            unusedGitService,
+            Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
+          ),
         ),
       ),
     )
@@ -461,11 +685,12 @@ describe("enforceStepGuards", () => {
     }
   })
 
-  it("runs guards in registry order — review-signoff, feedback-progress, answer-completeness", () => {
+  it("runs guards in registry order — review-signoff, feedback-progress, answer-completeness, require-revert", () => {
     expect(stepGuards.map((g) => g.name)).toEqual([
       "review-signoff",
       "feedback-progress",
       "answer-completeness",
+      "require-revert",
     ])
   })
 
@@ -513,13 +738,16 @@ describe("enforceStepGuards", () => {
           attempt: false,
         }).pipe(
           Effect.provide(
-            Layer.succeed(
-              RepoFiles,
-              // The doc exists at the window's saved head and NOT at real HEAD
-              // (the review base) — the window's whole shape, in one double.
-              repoFilesFrom(
-                { "REVIEW.md": worktreeDoc },
-                { [WINDOW_HEAD]: { "REVIEW.md": agentsDoc } },
+            Layer.merge(
+              unusedGitService,
+              Layer.succeed(
+                RepoFiles,
+                // The doc exists at the window's saved head and NOT at real HEAD
+                // (the review base) — the window's whole shape, in one double.
+                repoFilesFrom(
+                  { "REVIEW.md": worktreeDoc },
+                  { [WINDOW_HEAD]: { "REVIEW.md": agentsDoc } },
+                ),
               ),
             ),
           ),
@@ -574,7 +802,10 @@ describe("enforceStepGuards", () => {
         attempt: false,
       }).pipe(
         Effect.provide(
-          Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": answeredDoc })),
+          Layer.merge(
+            unusedGitService,
+            Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": answeredDoc })),
+          ),
         ),
       ),
     )

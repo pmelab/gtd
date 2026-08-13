@@ -1,9 +1,11 @@
 import { Effect } from "effect"
 import { RepoFiles } from "./RepoFiles.js"
+import { GitService } from "./Git.js"
 import {
   isAnswerGateState,
   isReviewWindowState,
   isRequireProgressState,
+  isRequireRevertState,
   type PendingChange,
 } from "./PatternMachine.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
@@ -25,6 +27,9 @@ import type { TemplateContext } from "./PatternTemplates.js"
  *   instructions file without doing (or explicitly declining) the work.
  * - **answer-completeness** — at an `answerGate` `mode: qa` state, refuse
  *   while any open question is unanswered.
+ * - **require-revert** — at a `requireRevert` state, refuse while the human's
+ *   review-round commit's own paths still differ from the review base's
+ *   parent, i.e. a `git apply -R` (or hand-revert) that hasn't actually taken.
  *
  * `enforceStepGuards` samples the committed/working bytes ONCE (cached), then
  * runs every applicable guard's `check` (reads) against that one sample.
@@ -44,7 +49,7 @@ import type { TemplateContext } from "./PatternTemplates.js"
  * runs as part of the step script."
  */
 
-export type GuardRequirements = RepoFiles
+export type GuardRequirements = RepoFiles | GitService
 
 /** A guard's verdict: `undefined` allows the step; a string is the refusal reason (the `gtd land: ` prefix is added once, by `enforceStepGuards`). */
 export type Refusal = string | undefined
@@ -113,6 +118,17 @@ export interface StepGuard {
 export const deletesFile = (changes: readonly PendingChange[], file: string): boolean =>
   changes.some((c) => c.path === file && c.status === "D")
 
+/**
+ * True when `path` is a real code path — outside `.gtd/` plumbing and not the
+ * state's own `file:`, excluded by EXACT path (never merely a `.gtd/` prefix
+ * check, since `file:` is var-configurable to live outside `.gtd/` — issue
+ * #128). The one "did a human touch something real" predicate shared by
+ * `enforceStepGuards`'s own `hasCodeChange` and the require-revert guard's
+ * residue scoping, so the rule is declared exactly once.
+ */
+const isCodePath = (path: string, file: string): boolean =>
+  !path.startsWith(".gtd/") && path !== file
+
 /** Normalize every markdown checkbox to a single placeholder so a pure `[ ]`→`[x]` tick is invisible to a text comparison; any surviving difference is a human note. */
 const normalizeCheckboxes = (content: string): string => content.replace(/\[[ xX]\]/g, "[_]")
 
@@ -175,11 +191,58 @@ const answerCompletenessGuard: StepGuard = {
     }),
 }
 
-/** The three step-capture guards, in EVALUATION order — message precedence when two would fire is observable, so this order is the contract (matches the old hand-copied call order, minus the now-removed steering-file guard). */
+/**
+ * The require-revert guard's three properties, each the difference between a
+ * real guard and an inert or permanently-refusing one:
+ *
+ * - **Scoped to the human's commit's own paths**, not "everything
+ *   non-steering": `build.review.collecting` writes `requirementsFile`
+ *   between `reviewBase` and `re-unwind`, and that file is var-configurable
+ *   to the repo ROOT — so an unscoped "any non-`.gtd/` difference vs `base`"
+ *   test refuses every single round.
+ * - **Comparison direction**: the paths must MATCH `base` (the review base's
+ *   parent), never merely differ from `reviewBase`. "Does the human's version
+ *   survive?" is the inert form — on a `text=auto` repo a committed-blob-vs-
+ *   worktree byte comparison never matches, so the guard would allow
+ *   everything. `changedPaths` borrows git's own filter-correct hashing
+ *   (`git hash-object` WITH clean filters) and both git tiers implement it as
+ *   base-tree-vs-worktree by content, so the fake and a real repo answer
+ *   alike. A false positive here is a refusal (loud); a false negative would
+ *   be silence.
+ * - **Exempting the review file by exact path**, not by `.gtd/` prefix: with
+ *   `reviewFile` at the repo root the human's commit's deletion of it is a
+ *   `D` in `changedPaths(base)`, which would refuse every note-only round.
+ */
+const requireRevertGuard: StepGuard = {
+  name: "require-revert",
+  appliesTo: (rest) => isRequireRevertState(rest.def, rest.state),
+  check: (ctx) =>
+    Effect.gen(function* () {
+      const rb = ctx.template.reviewBase
+      if (rb === "" || rb === ctx.template.startCommit) {
+        return `"${ctx.rest.state}" has no identifiable review round to check (reviewBase is unset) — the revert cannot be established.`
+      }
+      const git = yield* GitService
+      const base = `${rb}~1`
+      const touched = (yield* git.commitHistory(base, rb))[0]?.touched ?? []
+      const scoped = touched.filter((path) => isCodePath(path, ctx.file))
+      if (scoped.length === 0) return undefined
+      const residue = (yield* git.changedPaths(base))
+        .filter((c) => scoped.includes(c.path))
+        .map((c) => c.path)
+      if (residue.length === 0) return undefined
+      const prose = residue.join(", ")
+      const pathspec = residue.join(" ")
+      return `${prose} still differ from ${base} at "${ctx.rest.state}" — the revert did not take. Run \`git checkout ${base} -- ${pathspec}\`, then \`gtd land\` again.`
+    }),
+}
+
+/** The four step-capture guards, in EVALUATION order — message precedence when two would fire is observable, so this order is the contract (matches the old hand-copied call order, minus the now-removed steering-file guard). */
 export const stepGuards: readonly StepGuard[] = [
   reviewSignoffGuard,
   feedbackProgressGuard,
   answerCompletenessGuard,
+  requireRevertGuard,
 ]
 
 /**
@@ -220,7 +283,7 @@ export const enforceStepGuards = (input: {
     if (applicable.length === 0) return
 
     const fileDeleted = deletesFile(input.changes, file)
-    const hasCodeChange = input.changes.some((c) => !c.path.startsWith(".gtd/") && c.path !== file)
+    const hasCodeChange = input.changes.some((c) => isCodePath(c.path, file))
 
     const base = {
       rest: input.rest,
