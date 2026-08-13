@@ -20,6 +20,9 @@
  */
 export const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
+/** Turns a path list into a shell pathspec: every path quoted via `shellQuote`, space-joined. */
+export const pathspec = (paths: ReadonlyArray<string>): string => paths.map(shellQuote).join(" ")
+
 /**
  * `--allow-empty` mirrors `commitAllWithPrefix`/`commitAsIs`'s load-bearing
  * use in `src/Git.ts`: gtd's workflow commits may be empty on purpose. The
@@ -96,7 +99,7 @@ export const deleteRef = (ref: string): string => `git update-ref -d ${shellQuot
  */
 export const restoreStagedFrom = (source: string, paths: ReadonlyArray<string>): string => {
   if (paths.length === 0) return ""
-  const pathArgs = paths.map(shellQuote).join(" ")
+  const pathArgs = pathspec(paths)
   return [
     `if ! out=$(git restore --staged --source=${shellQuote(source)} -- ${pathArgs} 2>&1); then`,
     `  case "$out" in`,
