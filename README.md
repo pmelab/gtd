@@ -121,10 +121,14 @@ reads intent first, glob second.
 to the tree — a hand-edit to real code, a scratch note in some file, anything at
 all — as a sketch to be finished, never as work to be preserved: there is no
 fork on which steering file you happen to create, and `idle` has exactly one
-outgoing edge, into `unwind`. `unwind` reverts that whole diff back out of your
-working tree (`git revert --no-commit` against the commit it just landed in)
-before planning ever starts — your tree is back to exactly what it was, and your
-intent doesn't disappear, it survives in history for `design.triage` to read.
+outgoing edge, into `unwind`. `.gtd/TODO.md` (the `todoFile` var) is a good
+default place to start sketching when you'd rather write a note than touch code
+— despite living beside the workflow's own state files, that sketch is your
+input for `design.triage` to fold in, never gtd bookkeeping to preserve or
+ignore. `unwind` reverts that whole diff back out of your working tree
+(`git revert --no-commit` against the commit it just landed in) before planning
+ever starts — your tree is back to exactly what it was, and your intent doesn't
+disappear, it survives in history for `design.triage` to read.
 
 From there, `start-gate.check` runs your test suite on the tree as it now stands
 — which, thanks to the unwind, is simply your repo's own baseline. The rule is
@@ -227,11 +231,14 @@ to target a state.
 Every agent state routes its model through two `vars` tiers — `plannerModel`
 (heavier planning and review) and `coderModel` (the coding turns) — so you can
 repoint the models globally in one place (a `vars:` edit or a `GTD_PLANNERMODEL`
-override) instead of per state. Steering-file path vars (`feedbackFile`,
-`reviewFile`, …) work the same way, and propagate to the `on` patterns that
-route on them too — a repointed path var actually reroutes the machine, not just
-the templates that read/write the file. A separate `stateDir` var (default
-`.gtd`) names only where the check scripts keep their own scratch/bookkeeping,
+override) instead of per state. Steering-file path vars (`todoFile`,
+`feedbackFile`, `reviewFile`, …) work the same way, and propagate to the `on`
+patterns that route on them too — a repointed path var actually reroutes the
+machine, not just the templates that read/write the file. `todoFile` (default
+`.gtd/TODO.md`, `idle`'s own `file:` hint) is the one exception: it's the only
+per-file var gtd never writes and never reads, since it names your own sketch
+pad, not a file any state produces. A separate `stateDir` var (default `.gtd`)
+names only where the check scripts keep their own scratch/bookkeeping,
 independent of the per-file vars — relocate one steering file without touching
 it.
 
@@ -1080,11 +1087,13 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > `design.gate.answer`, `design.technical-author` → `architecture.author`,
 > `design.technical-answer` → `architecture.gate.answer`, `design.decompose` →
 > `architecture.decompose` (architecture is now its own sibling machine with its
-> own memory scope, not nested under `design`). The `todoFile` var and the
-> `prose` mode are both gone — there is no more free-form plan file. As with
-> every rename above, an in-flight process resting at one of the old names can
-> no longer be resumed; `gtd abandon` it (or finish it on the pre-upgrade
-> workflow version) before upgrading.
+> own memory scope, not nested under `design`). The `prose` mode is gone and
+> there is no more free-form _plan_ file — `todoFile` itself came back later
+> with a different job: `idle`'s own mode-less `file:` hint, gtd's sketch pad
+> that no state writes or reads. As with every rename above, an in-flight
+> process resting at one of the old names can no longer be resumed;
+> `gtd abandon` it (or finish it on the pre-upgrade workflow version) before
+> upgrading.
 
 ### Variables
 
@@ -1197,7 +1206,14 @@ separator), symbols over a `qa`-mode file's open questions plus "pick this
 option"/"uncheck this option" code actions on each option — offered anywhere on
 the option's list item, including any wrapped continuation lines, not just its
 own `- [ ]` line — diagnostics for both (live as you edit), and a
-`gtd.openSteeringFile` command that jumps to the current state's steering file.
+`gtd.openSteeringFile` command that jumps to the current state's steering file —
+including `idle`, whose `todoFile` hint gives the one keybinding an answer even
+before a process has started. The command only names that path — it never
+stat-checks or creates it — so on a repo that has never run gtd, `.gtd/` may not
+exist yet and editors differ on opening a file whose parent directory is missing
+(an empty buffer that creates it on save vs. refusing the path outright); this
+bites only the very first sketch in a fresh repo, since the workflow's own check
+scripts create the state directory on the first `gtd next`/`gtd land`.
 
 It is config-driven via each state's `file:`/`mode:`, and falls back to basename
 dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and `review` are
