@@ -1,53 +1,54 @@
 @inmem
-Feature: Review feedback — capture, classification, and the no-op guards
+Feature: Review feedback — capture, classification, and the loop-back guards
 
   The review feedback lap of the bundled unified workflow (see STATES.md §10).
   A human comment at `await-review` routes to `build.review.deciding`, which CAPTURES
-  the raw material into `.gtd/REVIEW_RAW.md` (never interprets it). The new
-  `build.review.collecting` agent turns that raw material into an explicit
-  instruction list in `.gtd/REVIEW_FEEDBACK.md`; `build.addressing` then
-  IMPLEMENTS the list and deletes it.
+  the raw material into `.gtd/REVIEW_RAW.md` (never interprets it). The
+  `build.review.collecting` agent then JUDGES whether the round is
+  actionable — it never builds; when it IS actionable it CLASSIFIES the
+  round straight into `.gtd/REQUIREMENTS.md` as ordered, PRODUCT/TECHNICAL
+  concerns (never an instruction list for a builder), and the round is
+  re-planned from scratch via the root's own `re-unwind` state, which hands
+  the assembled `.gtd/REQUIREMENTS.md` off to `design.triage` to fold in (see
+  default-workflow.feature).
 
-  Two no-op guards keep review feedback from silently evaporating (the bug this
-  flow fixes — feedback captured, then deleted on the next turn without being
-  addressed):
+  Consuming the raw capture with nothing else, and writing no
+  `.gtd/REQUIREMENTS.md`, IS a legal outcome now — the non-actionable
+  sign-off short-circuit (`"D reviewRawFile": $onSignoff`), the same trick
+  `deciding` already uses one state earlier. What `collecting` still refuses
+  is a dirty tree that touches something OTHER than `.gtd/REQUIREMENTS.md` /
+  `.gtd/REVIEW_RAW.md` while leaving neither of the declared rows matched: no
+  `A`/`M` on `.gtd/REQUIREMENTS.md` and no `D` on `.gtd/REVIEW_RAW.md`, and no
+  `"* **"` catch-all declared to excuse it — that is "you classify, you do
+  not build" enforced structurally, not by content-sniffing.
 
-  - `build.review.collecting` declares no edge for "raw consumed, nothing written",
-    so a silent no-op (delete REVIEW_RAW.md, write no instructions) matches no
-    pattern and is REFUSED by the pure engine.
-  - `build.addressing` declares `requireProgress: true`, so the
-    feedback-progress guard (`src/StepGuards.ts`) REFUSES a turn whose only
-    change is deleting the instructions file — unless it held a
-    `NOTHING ACTIONABLE` sentinel.
+  `design.triage` declares `requireProgress: true` on that same
+  `.gtd/REQUIREMENTS.md` file: an agent that deletes the assembled review
+  input on a loop-back lap without folding it in is exactly the "captured
+  then discarded" bug the capture/classify split above already guards
+  against, one phase earlier — the feedback-progress guard
+  (`src/StepGuards.ts`) refuses that turn unless the deleted content is the
+  `NOTHING ACTIONABLE` sentinel. No bundled state writes that sentinel any
+  more, so its exemption is pinned here against a minimal custom workflow
+  instead.
 
   Each check-actor turn (`build.review.deciding`) is simulated by writing its verdict
   files and running `gtd land`; @inmem never executes the scripts.
 
-  Background:
+  Scenario: a note-like unchecked line outside a file pointer no longer blocks sign-off
     Given a test project
     And the workflow
     And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-      - [ ] ./src/calc.ts#1 — new add function
-      """
-
-  Scenario: a note-like unchecked line outside a file pointer no longer blocks sign-off
     # The committed REVIEW.md already carries a non-`./`-prefixed "- [ ]" note,
     # untouched by the human's edit below. Only the real file pointer is
     # ticked, with no other comment — this used to be refused (the old raw
     # regex counted the note's box too); now `untickedFiles` counts only
     # recognized `./`-prefixed hunk pointers inside `##` chunks, so it signs
     # off cleanly.
-    Given a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -77,7 +78,22 @@ Feature: Review feedback — capture, classification, and the no-op guards
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
-  Scenario: a note flows through capture and classification into a build
+  Scenario: a note flows through capture, and collecting classifies it into REQUIREMENTS.md — re-unwind re-plans it, never builds on it
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1 — new add function
+      """
     # await-review: the human leaves a note (a change beyond a tick) → feedback
     Given ".gtd/REVIEW.md" is modified to:
       """
@@ -106,52 +122,32 @@ Feature: Review feedback — capture, classification, and the no-op guards
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
 
-    # build.review.collecting: raw material → instruction list, deletes the raw file
-    Given a file ".gtd/REVIEW_FEEDBACK.md" with:
+    # build.review.collecting: JUDGES the round actionable — CLASSIFIES it
+    # straight into REQUIREMENTS.md (never an instruction list) and consumes
+    # the raw capture -> re-unwind, which reverts the human's own commit and
+    # hands off to design.triage to re-derive the work from history, never
+    # building on top of it here
+    Given a file ".gtd/REQUIREMENTS.md" with:
       """
-      1. ./src/calc.ts#1 — rename the exported `add` to `sum`
+      ## Rename `add` to `sum`
+
+      PRODUCT — the review left a note on ./src/calc.ts#1 asking to rename
+      the `add` export to `sum`.
       """
     And the file ".gtd/REVIEW_RAW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.collecting → build.addressing"
+    And the last commit subject is "gtd(agent): build.review.collecting → re-unwind"
+    And ".gtd/REVIEW_RAW.md" does not exist
 
-    # build.addressing: implements the instruction and deletes the file
-    Given "src/calc.ts" is modified to:
+  Scenario: build.review.collecting refuses touching anything other than the raw capture
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
       """
-      export const sum = (a: number, b: number) => a + b
+      export const add = (a: number, b: number) => a + b
       """
-    And the file ".gtd/REVIEW_FEEDBACK.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.addressing → build.health.check"
-
-  Scenario: build.addressing refuses a work-free turn that just deletes the instructions
-    Given an empty commit "gtd(human): build.review.await-review → build.review.deciding"
-    And a commit "gtd(agent): build.review.collecting → build.addressing" that adds ".gtd/REVIEW_FEEDBACK.md" with:
-      """
-      1. ./src/calc.ts#1 — rename the exported `add` to `sum`
-      """
-    # The BUG behaviour: delete the instructions without doing the work
-    Given the file ".gtd/REVIEW_FEEDBACK.md" is deleted
-    When I run gtd land
-    Then it fails
-    And stderr contains "without addressing its instructions"
-
-  Scenario: build.addressing allows deleting a NOTHING ACTIONABLE sentinel with no code change
-    Given an empty commit "gtd(human): build.review.await-review → build.review.deciding"
-    And a commit "gtd(agent): build.review.collecting → build.addressing" that adds ".gtd/REVIEW_FEEDBACK.md" with:
-      """
-      NOTHING ACTIONABLE — the human left only an approving remark.
-      """
-    # A non-actionable round makes no code change; deleting the sentinel is fine
-    Given the file ".gtd/REVIEW_FEEDBACK.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.addressing → build.health.check"
-
-  Scenario: build.review.collecting refuses a silent no-op — raw consumed, nothing written
-    Given a commit "gtd(check): build.review.deciding → build.review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
+    And a commit "gtd(check): build.review.deciding → build.review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
       """
       Raw review material captured for classification.
 
@@ -159,8 +155,94 @@ Feature: Review feedback — capture, classification, and the no-op guards
 
       - [x] ./src/calc.ts#1 — rename `add` to `sum`
       """
-    # Silent no-op: consume the raw file, produce no instruction list
-    Given the file ".gtd/REVIEW_RAW.md" is deleted
+    # Neither a write (A/M) on REQUIREMENTS.md nor a consume (D) on the raw
+    # capture — the raw capture is left exactly as committed, while some OTHER
+    # file is touched instead. No declared row recognizes this shape: not a
+    # classification, just a refusal.
+    Given "src/calc.ts" is modified to:
+      """
+      export const sum = (a: number, b: number) => a + b
+      """
     When I run gtd land
     Then it fails
     And stderr contains "no declared pattern matches"
+
+  Scenario: design.triage refuses deleting the assembled requirements file on a loop-back lap without addressing it
+    Given a test project
+    And the workflow
+    # Simulates resting at design.triage on a REVIEW LOOP-BACK lap: an earlier
+    # actionable round's `build.review.collecting` already classified the
+    # feedback straight into REQUIREMENTS.md, and re-unwind already handed off
+    # here.
+    And a commit "gtd(check): re-unwind → design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Rename `add` to `sum`
+
+      PRODUCT — the review left a note on ./src/calc.ts#1 asking to rename
+      the `add` export to `sum`.
+      """
+    Given the file ".gtd/REQUIREMENTS.md" is deleted
+    When I run gtd land
+    Then it fails
+    And stderr contains "without addressing its instructions"
+
+  Scenario: the refusal still respects a requirementsFile repointed outside .gtd/ (issue #128's exact-path exclusion)
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      vars:
+        requirementsFile: REQUIREMENTS.md
+      """
+    And a commit "gtd(check): re-unwind → design.triage" that adds "REQUIREMENTS.md" with:
+      """
+      ## Rename `add` to `sum`
+
+      PRODUCT — the review left a note on ./src/calc.ts#1 asking to rename
+      the `add` export to `sum`.
+      """
+    Given the file "REQUIREMENTS.md" is deleted
+    When I run gtd land
+    Then it fails
+    And stderr contains "without addressing its instructions"
+
+  Scenario: a NOTHING ACTIONABLE sentinel is the one exemption, pinned against a minimal custom workflow since no bundled state writes it any more
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write .gtd/FEEDBACK.md, then run `gtd land`"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                file: .gtd/FEEDBACK.md
+                requireProgress: true
+                prompt: "address .gtd/FEEDBACK.md, then delete it"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: feedback addressed"
+      """
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      NOTHING ACTIONABLE — the human left only an approving remark.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → drafting"
+
+    # drafting: the only pending change deletes .gtd/FEEDBACK.md, but its
+    # deleted content IS the sentinel — the one content that exempts a
+    # requireProgress state's file from the guard.
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "chore: feedback addressed"

@@ -199,12 +199,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout matches "\"memory\":\"packages\.item\.spec#[0-9a-f]{7}\""
     And stdout does not contain "\"memory\":\"packages.item#"
 
-  Scenario: the builder's session survives the review round-trip — build.addressing and build.squashing resume the session that built the feature
-    # humanReview is nested INSIDE simpleBuild (`build.review`), not a root
-    # sibling — a descendant scope doesn't break the parent's run, so the
-    # whole round trip through the review tail never breaks build's own
-    # unbroken run. The reviewer itself (build.review.reviewing) is a
-    # SEPARATE scope, so it gets its own key — see the next scenario.
+  Scenario: the builder's session survives a clean sign-off — build.fix and build.squashing resume the session that built the feature
+    # humanReview is nested INSIDE buildTail (`build.review`), not a root
+    # sibling — a descendant scope doesn't break the parent's run, so dipping
+    # into the review tail's own scope and back out to `build.squashing` on
+    # sign-off never breaks build's own unbroken run. The reviewer itself
+    # (build.review.reviewing) is a SEPARATE scope, so it gets its own key —
+    # see the next scenario. (An ACTIONABLE round is a different story: it
+    # leaves this machine entirely via the root's own `re-unwind`, which
+    # breaks the builder's run on purpose — see default-workflow.feature's
+    # own re-unwind scenarios.)
     Given a test project
     And the workflow
     And a commit "gtd(check): build.fix" that adds ".gtd/FEEDBACK.md" with:
@@ -250,58 +254,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     Given a commit "gtd(human): build.review.deciding" that adds "src/marker-2.txt" with:
       """
-      the human's await-review turn, leaving a comment
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.review.deciding\""
-
-    Given a commit "gtd(check): build.review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
-      """
-      Raw review material captured for classification.
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.review.collecting\""
-
-    Given a commit "gtd(agent): build.addressing" that adds ".gtd/REVIEW_FEEDBACK.md" with:
-      """
-      1. ./src/widget.ts#1 — add a doc comment above the export
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.addressing\""
-    And the json field "memory" matches the one recorded as "the builder's turn"
-
-    Given a commit "gtd(agent): build.health.check" that adds "src/widget.ts" with:
-      """
-      // The widget.
-      export const widget = () => 1
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.health.check\""
-
-    Given a commit "gtd(check): build.review.reviewing" that adds "src/marker-3.txt" with:
-      """
-      the second check turn, routing to build.review.reviewing again
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.review.reviewing\""
-
-    Given a commit "gtd(agent): build.review.await-review" that adds ".gtd/REVIEW.md" with:
-      """
-      # Review: def5678
-      <!-- base: def5678901234567890123456789012345678abc -->
-
-      ## Doc comment
-
-      - [ ] ./src/widget.ts#1 — doc comment added
-      """
-    Given a commit "gtd(human): build.review.deciding" that adds "src/marker-4.txt" with:
-      """
-      the human's second await-review turn, ticking every box with no comment
+      the human's await-review turn, ticking every box with no comment
       """
     When I run gtd next with "--json"
     Then it succeeds
@@ -319,10 +272,13 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   Scenario: a fresh reviewer session per round — the sibling break at build.health.check gives each review round a new mind
     # build.review.reviewing's own scope ("build.review") is a descendant of
     # "build", so it never breaks the BUILDER's run (previous scenario) — but
-    # the reviewer's OWN run breaks every round, because getting back to
-    # build.review.reviewing always passes back through build.health.check, a
-    # SIBLING of build.review, not a descendant of it. Two rounds of review
-    # over the same feature are therefore always reviewed with fresh eyes.
+    # the reviewer's OWN run breaks every round it's re-entered through a
+    # sibling or an unrelated scope. An actionable feedback round breaks it
+    # even more decisively than before: getting back to
+    # build.review.reviewing now passes all the way out through the root's
+    # own `re-unwind` and a full design/architecture/packages lap, none of
+    # which are descendants of `build.review`. Two rounds of review over the
+    # same feature are therefore always reviewed with fresh eyes.
     Given a test project
     And the workflow
     And a commit "gtd(check): build.fix" that adds ".gtd/FEEDBACK.md" with:
@@ -355,15 +311,27 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Raw review material captured for classification.
       """
-    Given a commit "gtd(check): build.review.collecting" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+    Given a commit "gtd(agent): build.review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
       """
-      1. ./src/widget.ts#1 — add a doc comment above the export
+      Raw review material captured for classification.
+
+      Judged actionable — a later phase re-derives the work from this commit.
       """
-    Given a commit "gtd(agent): build.addressing" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+    Given a commit "gtd(check): re-unwind" that adds "src/marker-revert.txt" with:
       """
-      NOTHING ACTIONABLE — already addressed
+      the re-unwind turn, reverting the human's edit
       """
-    Given a commit "gtd(agent): build.health.check" that adds "src/widget.ts" with:
+    Given a commit "gtd(agent): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Doc comment
+
+      Add a doc comment above the widget export.
+      """
+    Given a commit "gtd(check): architecture.author" that adds ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: add a doc comment to src/widget.ts.
+      """
+    Given a commit "gtd(agent): packages.item.building" that adds "src/widget.ts" with:
       """
       // The widget.
       export const widget = () => 1
@@ -376,6 +344,168 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
     And the json field "memory" differs from the one recorded as "round 1's reviewer turn"
+
+  Scenario: an actionable loop-back round breaks build's OWN run too — the post-loop-back squash turn never resumes the pre-loop-back builder
+    # `build.fix`/`build.squashing` share scope "build" — a plain descendant
+    # dip into "build.review" never breaks it (see "the builder's session
+    # survives a clean sign-off"), but the re-unwind/design/architecture/
+    # packages rows an ACTIONABLE round takes are none of them descendants of
+    # "build" either. So the SAME break that gives the reviewer a fresh mind
+    # each round (previous scenario) also breaks the builder's own run: by the
+    # time the loop-back's own package lands and the round is signed off,
+    # build.squashing resumes a scope anchored at THIS pass's own
+    # build.review.reviewing turn, never the original build.fix turn from
+    # before the round-trip.
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): build.fix" that adds ".gtd/FEEDBACK.md" with:
+      """
+      test failed: widget() returns undefined
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"build.fix\""
+    And I record the json field "memory" as "the pre-loop-back builder's turn"
+
+    Given a commit "gtd(agent): build.health.check" that adds "src/widget.ts" with:
+      """
+      export const widget = () => undefined
+      """
+    Given a commit "gtd(check): build.review.reviewing" that adds "src/marker-1.txt" with:
+      """
+      the check turn, routing to build.review.reviewing
+      """
+    Given a commit "gtd(agent): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add widget.ts
+
+      - [ ] ./src/widget.ts#1 — new export
+      """
+    Given a commit "gtd(human): build.review.deciding" that adds ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+      """
+    Given a commit "gtd(agent): build.review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+
+      Judged actionable — a later phase re-derives the work from this commit.
+      """
+    Given a commit "gtd(check): re-unwind" that adds "src/marker-revert.txt" with:
+      """
+      the re-unwind turn, reverting the human's edit
+      """
+    Given a commit "gtd(agent): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Doc comment
+
+      Add a doc comment above the widget export.
+      """
+    Given a commit "gtd(check): architecture.author" that adds ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: add a doc comment to src/widget.ts.
+      """
+    Given a commit "gtd(agent): packages.item.building" that adds "src/widget.ts" with:
+      """
+      // The widget.
+      export const widget = () => 1
+      """
+    Given a commit "gtd(check): build.review.reviewing" that adds "src/marker-3.txt" with:
+      """
+      the second check turn, routing to build.review.reviewing again
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"build.review.reviewing\""
+    And the json field "memory" differs from the one recorded as "the pre-loop-back builder's turn"
+
+    Given a commit "gtd(agent): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add widget.ts
+
+      - [ ] ./src/widget.ts#1 — new export
+      """
+    Given a commit "gtd(human): build.review.deciding" that adds "src/marker-2.txt" with:
+      """
+      the human's await-review turn, ticking every box with no comment
+      """
+    # deciding's clean sign-off short-circuits straight to build.squashing —
+    # simulated the same way the sibling scenarios above simulate it.
+    Given a commit "gtd(check): build.squashing" that adds ".gtd/COMMIT_MSG.md" with:
+      """
+      feat: add a doc comment to widget.ts
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"build.squashing\""
+    And the json field "memory" differs from the one recorded as "the pre-loop-back builder's turn"
+
+  Scenario: gtd --entry fix-precheck is the one path where build.fix and build.squashing DO share a key — the concrete benefit that justifies keeping the review tail nested
+    # The nesting's whole remaining point: on this entry, build.fix opens
+    # build's own scope directly (no packages/design/architecture lap ever
+    # runs), and every state from there to build.squashing —
+    # build.fix -> build.health.check -> build.review.* -> build.squashing —
+    # stays inside that one subtree, so the squash message is drafted by the
+    # SAME session that made the fixes.
+    Given a test project
+    And the workflow
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    And the last commit subject is "gtd(human): fix-precheck"
+
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): fix-precheck → build.fix"
+
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"build.fix\""
+    And I record the json field "memory" as "the fix-precheck path's fix turn"
+
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/repair.ts" with:
+      """
+      export const repaired = true
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.fix → build.health.check"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
+
+    Given a commit "gtd(agent): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Repair
+
+      - [ ] ./src/repair.ts#1 — new export
+      """
+    Given a commit "gtd(human): build.review.deciding" that adds "src/marker.txt" with:
+      """
+      the human's await-review turn, ticking every box with no comment
+      """
+    Given a commit "gtd(check): build.squashing" that adds ".gtd/COMMIT_MSG.md" with:
+      """
+      fix: repair the failing test
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"build.squashing\""
+    And the json field "memory" matches the one recorded as "the fix-precheck path's fix turn"
 
   Scenario: architecture is a separate memory scope from design, but its own Q&A and decomposition share one session
     # design (designPlan) and architecture (archPlan) are sibling machines with

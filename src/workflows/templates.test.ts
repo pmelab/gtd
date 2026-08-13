@@ -342,7 +342,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     // silently undo this — pin it here.
     const { scopes } = compileTemplate()
     expect(scopes["build.review.reviewing"]).toMatch(/^build\./)
-    for (const state of ["addressing", "fix", "squashing"]) {
+    for (const state of ["fix", "squashing"]) {
       expect(scopes[`build.${state}`]).toBe("build")
     }
   })
@@ -367,7 +367,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     // Coder machines: every one of their OWN prompt states is a
     // write/fix-code action, never a plan-development/review one.
     expect(ownPromptStates("packageItem")).toEqual(["building", "fix-spec", "fix-suite"])
-    expect(ownPromptStates("buildTail")).toEqual(["addressing", "fix", "squashing"])
+    expect(ownPromptStates("buildTail")).toEqual(["fix", "squashing"])
 
     // Identity-free gate/queue machines own no prompt state at all.
     expect(ownPromptStates("entryGate")).toEqual([])
