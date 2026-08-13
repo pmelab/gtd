@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import { RepoFiles } from "./RepoFiles.js"
 import { GitService } from "./Git.js"
+import { pathspec } from "./GitScript.js"
 import {
   isAnswerGateState,
   isReviewWindowState,
@@ -232,8 +233,7 @@ const requireRevertGuard: StepGuard = {
         .map((c) => c.path)
       if (residue.length === 0) return undefined
       const prose = residue.join(", ")
-      const pathspec = residue.join(" ")
-      return `${prose} still differ from ${base} at "${ctx.rest.state}" — the revert did not take. Run \`git checkout ${base} -- ${pathspec}\`, then \`gtd land\` again.`
+      return `${prose} still differ from ${base} at "${ctx.rest.state}" — the revert did not take. Run \`git checkout ${base} -- ${pathspec(residue)}\`, then \`gtd land\` again.`
     }),
 }
 

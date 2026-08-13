@@ -412,7 +412,7 @@ describe("require-revert guard", () => {
     }
   })
 
-  it("joins a two-path residue with a comma in the prose but a plain space in the recovery command — a comma there would break the pathspec", async () => {
+  it("joins a two-path residue with a comma in the prose but a quoted pathspec in the recovery command — the pathspec quotes every path", async () => {
     const repo = new InMemRepo()
     repo.writeFile("src/a.ts", "export const a = 1\n")
     repo.writeFile("src/b.ts", "export const b = 1\n")
@@ -435,7 +435,34 @@ describe("require-revert guard", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
     if (Exit.isSuccess(exit)) {
       expect(exit.value).toContain("src/a.ts, src/b.ts")
-      expect(exit.value).toContain(`git checkout ${rb}~1 -- src/a.ts src/b.ts`)
+      expect(exit.value).toContain(`git checkout ${rb}~1 -- 'src/a.ts' 'src/b.ts'`)
+    }
+  })
+
+  it("quotes residue paths containing whitespace or shell metacharacters in the recovery command", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("src/my file.ts", "export const a = 1\n")
+    repo.writeFile("src/a;b.ts", "export const b = 1\n")
+    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile("src/my file.ts", "export const a = 1\n// TODO: a\n")
+    repo.writeFile("src/a;b.ts", "export const b = 1\n// TODO: b\n")
+    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
+    const rb = repo.resolveRef("HEAD")!
+    // Neither failed apply reverted — both paths are still residue.
+
+    const exit = await runCheck(
+      ctx({
+        rest: reUnwindState,
+        file: reUnwindState.stateDef.file!,
+        template: { ...templateContext, reviewBase: rb, startCommit: base },
+      }),
+      repo,
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value).toContain("src/a;b.ts, src/my file.ts")
+      expect(exit.value).toContain(`git checkout ${rb}~1 -- 'src/a;b.ts' 'src/my file.ts'`)
     }
   })
 

@@ -11,6 +11,7 @@ import {
   discardPending,
   hardResetTo,
   mixedResetTo,
+  pathspec,
   restoreStagedFrom,
   shellQuote,
   softResetTo,
@@ -205,6 +206,16 @@ describe("restoreStagedFrom", () => {
     const { binDir } = withFakeGit(`echo "Another git process seems to be running" >&2; exit 128`)
     const result = runWithFakeGit(restoreStagedFrom("HEAD", [".gtd/TODO.md"]), binDir)
     expect(result.status).not.toBe(0)
+  })
+})
+
+describe("pathspec", () => {
+  it("quotes every path and space-joins them", () => {
+    expect(pathspec(["src/a.ts", "src/b.ts"])).toBe("'src/a.ts' 'src/b.ts'")
+  })
+
+  it("returns an empty string for an empty list", () => {
+    expect(pathspec([])).toBe("")
   })
 })
 
