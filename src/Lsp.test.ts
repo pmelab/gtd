@@ -1,4 +1,4 @@
-import type { Effect } from "effect"
+import { Effect } from "effect"
 import { describe, expect, it, vi } from "vitest"
 import {
   basenameFallbackMode,
@@ -8,6 +8,7 @@ import {
   diagnosticsFor,
   externalValidatorNotice,
   makeSteeringLanguageService,
+  resolveSteeringFile,
   resolvedModeForDocument,
   resolveWorkspaceRoot,
   startLspServer,
@@ -26,6 +27,8 @@ import { resolveBuiltInMode, resolveSteeringMode } from "./SteeringMode.js"
 import { QA_FORMAT } from "./OpenQuestions.js"
 import { REVIEW_FORMAT } from "./ReviewDoc.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
+import { InMemRepo } from "./testing/InMemRepo.js"
+import { testLayers } from "./testing/Layers.js"
 
 describe("basenameFallbackMode", () => {
   it("maps REVIEW.md to the built-in `review` mode, and anything else (including TODO.md) to undefined", () => {
@@ -576,6 +579,27 @@ describe("bindSteeringServer", () => {
     bindSteeringServer(connection, documents, service)
     expect(documents.listen).toHaveBeenCalledWith(connection)
     expect(connection.listen).toHaveBeenCalled()
+  })
+})
+
+describe("resolveSteeringFile", () => {
+  it("resolves idle's .gtd/TODO.md with no stat — gtd names the path, never checks it exists", async () => {
+    // No `.gtdrc` at all — the bundled/built-in template applies, whose
+    // `idle` state resolves `file:` to `.gtd/TODO.md` (its `todoFile` var,
+    // src/workflows/unified.yaml). One commit, nothing under `.gtd/` — the
+    // repo-relative path resolves purely from the workflow + state, never by
+    // stat-ing the worktree for it.
+    const repo = new InMemRepo()
+    repo.writeFile("README.md", "hello")
+    repo.commitAllWithPrefix("chore: initial commit")
+
+    const resolved = await Effect.runPromise(
+      resolveSteeringFile.pipe(Effect.provide(testLayers(repo))),
+    )
+
+    expect(resolved.state).toBe("idle")
+    expect(resolved.file).toBe(".gtd/TODO.md")
+    expect(repo.hasPath(".gtd/TODO.md")).toBe(false)
   })
 })
 

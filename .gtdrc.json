@@ -2,6 +2,7 @@
   "$schema": "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json",
   "vars": {
     "testCommand": "npm test",
+    "todoFile": "TODO.md",
     "requirementsFile": "REQS.md",
     "architectureFile": "ARCH.md",
     "reviewFile": "REVIEW.md"

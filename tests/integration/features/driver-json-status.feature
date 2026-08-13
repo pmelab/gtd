@@ -616,6 +616,17 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout does not contain "\"file\""
     And stdout does not contain "\"mode\""
 
+  Scenario: the bundled template's idle rest carries the todoFile hint in gtd next --json and gtd status --json
+    Given a test project
+    And the workflow
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"idle\""
+    And stdout contains "\"file\":\".gtd/TODO.md\""
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout contains "\"file\":\".gtd/TODO.md\""
+
   Scenario: a human gate's message renders its `on` edge descriptions as a route list, and gtd next --json carries the same edges
     Given a test project
     And a gtd config file at ".gtdrc" with:

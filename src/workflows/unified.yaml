@@ -213,6 +213,10 @@ vars:
   # file, review-deciding's state-file exclusion). Independent of the per-file
   # vars below — relocating a file wholesale means setting both.
   stateDir: .gtd
+  # The only per-file var gtd never writes and never reads — the human's own
+  # sketch pad, named so the one "open steering file" keybinding has an
+  # answer at `idle` too.
+  todoFile: .gtd/TODO.md
   requirementsFile: .gtd/REQUIREMENTS.md
   architectureFile: .gtd/ARCHITECTURE.md
   # Stamped (never authored, never read for its content) by design.gate.check
@@ -508,6 +512,12 @@ machines:
           never as project code or documentation. The only state file this
           turn touches is `<%= it.vars.requirementsFile %>`; develop it. Do
           not create other files to hold notes or output.
+
+          `<%= it.vars.todoFile %>` is the likely home of the sketch that
+          started this process. Despite living beside this workflow's own
+          state files, it is the HUMAN'S INPUT — the sketch to be folded into
+          the concerns below like any other part of the start diff. It is
+          never a state file to preserve, and never gtd bookkeeping to ignore.
 
           This process started at commit `<%= it.startCommit %>`. The change
           that started it was reverted out of the working tree by the
@@ -1330,6 +1340,7 @@ machines:
       idle:
         actor: human
         label: Idle
+        file: <%= it.vars.todoFile %>
         # Every human-gate `message:` below closes with the same rendered "What
         # each change does next" list, built from `it.edges` (the resting state's
         # own `on` edges — each edge's `describe:` is the single source of truth).
@@ -1337,12 +1348,14 @@ machines:
           No active gtd process.
 
           To start one, make ANY change — a hand-edit to real code, a scratch
-          note, anything at all. gtd treats it as a SKETCH, not finished work:
-          the very next beat unwinds it out of your working tree (its intent
-          survives in history, for the triage phase to read), then checks the
-          test baseline is green, then triages the reverted diff into ordered,
-          classified concerns: product questions, then technical questions,
-          then one package per concern, built and reviewed in parallel.
+          note, anything at all. <%= it.vars.todoFile %> is a good default
+          place to start sketching. gtd treats it as a SKETCH, not finished
+          work: the very next beat unwinds it out of your working tree (its
+          intent survives in history, for the triage phase to read), then
+          checks the test baseline is green, then triages the reverted diff
+          into ordered, classified concerns: product questions, then
+          technical questions, then one package per concern, built and
+          reviewed in parallel.
 
           What each change does next (then run `gtd land`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>

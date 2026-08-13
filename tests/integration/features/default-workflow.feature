@@ -302,6 +302,21 @@ Feature: The bundled unified workflow — one flow, end to end
     And "src/greeter.ts" exists
 
   @inmem
+  Scenario: writing the bundled sketch file alone starts a process — idle's file: hint is the same nested path its edge pattern already covers
+    Given a test project
+    And the workflow
+    # idle's edge pattern is "* **" — a lone `*` never crosses a `/`, so only
+    # the "**" half reaches into ".gtd/" at all. A future narrowing to "* *"
+    # would leave this sketch unmatched and idle would refuse it.
+    And a file ".gtd/TODO.md" with:
+      """
+      - [ ] sketch: add a greeter
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → unwind"
+
+  @inmem
   Scenario: the design gate refuses an unanswered open question, then ticking loops back to triage
     Given a test project
     And the workflow
