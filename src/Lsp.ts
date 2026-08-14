@@ -31,9 +31,12 @@
  * config at all) falls back to today's basename dispatch (`REVIEW.md` →
  * `review`, via `resolveBuiltInMode`), so the server still works standalone
  * with no `.gtdrc` in sight. (`.gtd/TODO.md` is NOT dispatched by basename —
- * no bundled state writes there at all; a custom workflow that wants qa
- * validation on TODO.md declares it with `file:`+`mode: qa`, which the
- * config-driven map covers.)
+ * the bundled `idle` state NAMES it via `file:` but declares no `mode:`,
+ * deliberately: there is no format for a free-form sketch, so neither the
+ * config-driven map nor this basename fallback dispatches it, and it gets no
+ * outline, no code actions, and no live diagnostics. A custom workflow that
+ * wants qa validation on TODO.md declares it with `file:`+`mode: qa`, which
+ * the config-driven map covers.)
  *
  * A mode's `validate:` command displacing a built-in format's own parser (a
  * `modes: { qa: { validate: "…" } }` override) still gets outline + actions —
@@ -90,7 +93,7 @@ import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { RepoFiles } from "./RepoFiles.js"
-import { currentRest } from "./Edge.js"
+import { currentRest, type RestRequirements } from "./Edge.js"
 import type { StateMode, WorkflowDefinition } from "./PatternMachine.js"
 import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
 import {
@@ -174,7 +177,7 @@ export const diagnosticsFor = (
 
 // ── Config-driven path→mode dispatch (pure) ─────────────────────────────────
 
-/** The basename dispatch this server has always had — the fallback for any path the active workflow's `file:` map doesn't cover (or when no config resolves at all). `TODO.md` is intentionally NOT mapped: no bundled state writes there at all. */
+/** The basename dispatch this server has always had — the fallback for any path the active workflow's `file:` map doesn't cover (or when no config resolves at all). `TODO.md` is intentionally NOT mapped: the bundled `idle` state names it via `file:` but declares no `mode:` (there is no format for a free-form sketch), so no dispatch path — config-driven or basename — covers it. */
 export const basenameFallbackMode = (name: string): ResolvedMode | undefined =>
   name === "REVIEW.md" ? resolveBuiltInMode("review") : undefined
 
@@ -577,24 +580,18 @@ const runtimeFor = (root: string): RootRuntime => {
 /**
  * Resolve the CURRENT state/actor and its `file:` (rendered), exactly like
  * the CLI (`currentRest` — the same `src/Edge.ts` entry point `gtd status`/
- * `gtd next` use), scoped to `root`. `file` is `undefined` when the resolved
- * state declares none — see `steeringFileOutcome` for what that means to the
- * command.
+ * `gtd next` use). `file` is `undefined` when the resolved state declares
+ * none — see `steeringFileOutcome` for what that means to the command. Carries
+ * its requirements (`RestRequirements`, the same four services `layersForRoot`
+ * merges) rather than providing them itself — the caller runs it through
+ * `runtimeFor(root)`, the memoised runtime, instead of building fresh layers
+ * per call.
  */
-const resolveSteeringFile = (
-  root: string,
-): Effect.Effect<{ readonly state: string; readonly file: string | undefined }, Error> =>
-  currentRest.pipe(
-    Effect.map((rest) => ({ state: rest.state, file: rest.hints.file })),
-    Effect.provide(
-      Layer.mergeAll(
-        gitLayerForRoot(root),
-        configLayerForRoot(root),
-        repoFilesLayerForRoot(root),
-        EnvVars.Live,
-      ),
-    ),
-  )
+export const resolveSteeringFile: Effect.Effect<
+  { readonly state: string; readonly file: string | undefined },
+  Error,
+  RestRequirements
+> = currentRest.pipe(Effect.map((rest) => ({ state: rest.state, file: rest.hints.file })))
 
 /**
  * The Node adapter: the only place `LspEnv`'s Effects/layers get built and
@@ -618,7 +615,7 @@ const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => ({
   gitTopLevel: (dir) =>
     runtimeFor(dir).runPromise(Effect.flatMap(GitService, (git) => git.topLevel())),
 
-  currentSteeringFile: (root) => Effect.runPromise(resolveSteeringFile(root)),
+  currentSteeringFile: (root) => runtimeFor(root).runPromise(resolveSteeringFile),
 })
 
 /**

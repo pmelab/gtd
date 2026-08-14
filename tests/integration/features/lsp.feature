@@ -4,9 +4,10 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   Minimal protocol-level smoke for `gtd lsp` (see src/Lsp.ts and
   docs/design/steering-file-loops.md §5): the server starts over stdio, the
   `initialize` handshake succeeds and advertises the document-symbol/code-
-  action capabilities, and a `textDocument/documentSymbol` request against an
-  unmapped `.gtd/TODO.md` fixture yields NO symbols (there is no `TODO.md` → qa
-  basename fallback — no bundled state writes there at all). Two further
+  action capabilities, and a `textDocument/documentSymbol` request against a
+  `.gtd/TODO.md` fixture yields NO symbols (there is no `TODO.md` → qa
+  basename fallback — the bundled `idle` names that exact path as its `file:`
+  but declares no `mode:`, so nothing dispatches over it). Two further
   scenarios prove the config-driven half (see
   docs/design/state-file-association.md §3): documentSymbol served for a
   CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:` pair, and
@@ -31,10 +32,11 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP response result has a "codeActionProvider" capability
 
   Scenario: with no config, .gtd/TODO.md is NOT dispatched by basename — it yields no symbols
-    # There is no `TODO.md` → qa basename fallback: no bundled state writes
-    # there at all. With no `.gtdrc` mapping it, documentSymbol returns
-    # nothing. (Config-driven qa dispatch over any file — including TODO.md —
-    # is covered below.)
+    # There is no `TODO.md` → qa basename fallback: the bundled `idle` maps
+    # this exact path via its own `file:`, but declares no `mode:`, so nothing
+    # dispatches over it. With no `.gtdrc` mapping it either, documentSymbol
+    # returns nothing. (Config-driven qa dispatch over any file — including
+    # TODO.md — is covered below.)
     Given a test project
     And an LSP server started in the test project
     When the LSP client sends an initialize request

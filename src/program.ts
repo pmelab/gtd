@@ -972,8 +972,10 @@ const runNextCommand = (
  * `mode:` selecting how) — the SAME commands `gtd land`'s capture guard now
  * embeds ahead of its own commit (see `planLanding`), rendered here for a
  * human or agent to run directly. gtd itself reads no file and executes
- * nothing: a state with no `file:`/`mode:`, or a file absent from the working
- * tree, has nothing to validate (`script: ""`, exit 0 either way) — the
+ * nothing: a state with no `file:`/`mode:` (or, like the bundled `idle`, a
+ * `file:` with no `mode:` — a mode-less sketch has no format to run), or a
+ * file absent from the working tree, has nothing to validate (`script: ""`,
+ * exit 0 either way) — the
  * verdict now lives in the emitted script's own future exit code, not this
  * command's, so this never fails on a bad file. `RepoFiles`/`FileSystem` is
  * used only to check the file's PRESENCE, never to read or judge its content.

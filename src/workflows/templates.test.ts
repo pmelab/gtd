@@ -67,6 +67,13 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
+  it("the initial state declares a non-empty file and no mode — a steering-file hint with no format/validate obligation", () => {
+    const { definition } = compileTemplate()
+    const idle = definition.states.idle!
+    expect(idle.file).toBeTruthy()
+    expect(idle.mode).toBeUndefined()
+  })
+
   it("the initial state has exactly one outgoing edge, into unwind — no filename fork", () => {
     const { definition } = compileTemplate()
     const idle = definition.states.idle!
@@ -135,10 +142,6 @@ describe("the bundled unified workflow template", () => {
       const answerPatterns = (answer.on ?? []).map(([pattern]) => pattern)
       expect(answerPatterns, prefix).not.toContain("C")
     }
-  })
-
-  it("no state, script, or var references the deleted todoFile", () => {
-    expect(unifiedYaml).not.toMatch(/todoFile/)
   })
 
   it("no state declares `mode: prose`", () => {

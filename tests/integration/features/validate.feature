@@ -108,12 +108,21 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And stderr contains ".gtd/REVIEW.md is not valid"
     And stderr contains "# Review: <hash>"
 
-  Scenario: a state with no file:/mode: has nothing to validate
+  Scenario: a state with a file: but no mode: has nothing to validate
     Given a test project
     And the workflow
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
+
+  Scenario: a state with a file: but no mode: pins the file in --json output
+    Given a test project
+    And the workflow
+    When I run gtd with args "validate --json"
+    Then it succeeds
+    And stdout contains "\"state\":\"idle\""
+    And stdout contains "\"file\":\".gtd/TODO.md\""
+    And stdout contains "\"script\":\"\""
 
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
