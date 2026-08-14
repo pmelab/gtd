@@ -334,9 +334,16 @@ parser, one envelope. The table is the source of truth, not prose:
   the relocated directory, forever. `it.stateDir` is canonical BY VALIDATION —
   `src/Edge.ts`'s `renderStateDirOrFail` refuses a non-canonical spelling before
   any guard ever sees it — so this comparison, like every other consumer, must
-  never re-normalize the value itself. The `deciding` script's own
-  plumbing/reviewFile exclusion (`src/workflows/unified.yaml`) is a LITERAL path
-  test agreeing with `isCodePath`/`isPlumbingPath` — the script's own two
-  pathspecs use git's `:(exclude,literal)` magic rather than a glob or grep (the
-  step guards themselves are plain string comparisons, not pathspecs), alongside
-  the same "never a literal `.gtd/`" rule above
+  never re-normalize the value itself. BOTH scripts that render those two values
+  into a pathspec (`src/workflows/unified.yaml`'s `deciding` hand-edit test and
+  `re-unwind`'s scoped `git diff`/`git apply -R`) are a LITERAL path test
+  agreeing with `isCodePath`/`isPlumbingPath` — every one of their four
+  pathspecs uses git's `:(exclude,literal)` magic rather than a glob, a bare
+  `:(exclude)` (whose default magic is glob-ish — `*` even crosses `/`), or a
+  grep (the step guards themselves are plain string comparisons, not pathspecs),
+  alongside the same "never a literal `.gtd/`" rule above. Nothing validates a
+  metacharacter out of either value, so a non-literal pathspec drops a real
+  edited path out of `re-unwind`'s patch and the require-revert guard then
+  refuses that land forever
+  (`tests/integration/features/deciding-path-literal.feature` covers both
+  scripts)
