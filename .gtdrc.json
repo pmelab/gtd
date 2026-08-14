@@ -1,18 +1,14 @@
 {
   "$schema": "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json",
   "vars": {
-    "testCommand": "npm test",
-    "todoFile": "TODO.md",
-    "requirementsFile": "REQS.md",
-    "architectureFile": "ARCH.md",
-    "reviewFile": "REVIEW.md"
+    "testCommand": "npm test"
   },
   "modes": {
     "qa": {
-      "format": "npx prettier --write <%= it.file %>"
+      "format": "npx oxfmt --write <%= it.file %>"
     },
     "review": {
-      "format": "npx prettier --write <%= it.file %>"
+      "format": "npx oxfmt --write <%= it.file %>"
     }
   }
 }
