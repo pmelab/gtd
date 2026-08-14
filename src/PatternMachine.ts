@@ -112,6 +112,20 @@ export const DEFAULT_STATE_DIR = ".gtd"
 export const stateDirOf = (def: WorkflowDefinition): string => def.stateDir ?? DEFAULT_STATE_DIR
 
 /**
+ * The leading-`./` + trailing-`/` strip shared by `stateDirError` and
+ * `src/Edge.ts`'s `renderStateDir` — the one tolerated rewrite of a
+ * `stateDir` declaration, covering the two conventional spellings a
+ * hand-written template or `.gtdrc` value commonly carries. Exported as one
+ * function rather than duplicated at the edge so the two call sites can never
+ * drift into tolerating different affixes. Anything beyond these two is a
+ * spelling `stateDirError` rejects rather than rewrites — the strip is
+ * tolerance, not full canonicalization; it does not touch an internal `.` or
+ * empty segment.
+ */
+export const canonicalStateDir = (value: string): string =>
+  value.replace(/^\.\//, "").replace(/\/+$/, "")
+
+/**
  * The one place the engine interprets a `stateDir` VALUE (never the var
  * NAME) — pure and total, so both the edge (on the rendered, normalized
  * value, before any consumer sees it — see `src/Edge.ts`'s
@@ -122,19 +136,33 @@ export const stateDirOf = (def: WorkflowDefinition): string => def.stateDir ?? D
  * Rejects, in this order: blank/whitespace-only; the repo root (`.`, `./`,
  * `/`, or empty once a leading `./` and trailing `/` are stripped); an
  * absolute path (a leading `/` after that stripping); any `..` segment (an
- * escape). Deliberately does its own stripping rather than requiring an
+ * escape); any other `.` or empty path segment (a non-canonical spelling —
+ * `a/./state`, `a//state`, `a/.` — rejected rather than silently
+ * canonicalized, since every downstream consumer compares `it.stateDir`
+ * rather than re-normalizing it). The `..` escape check runs BEFORE the
+ * segment-canonicality check so a value carrying BOTH is always reported as
+ * an escape, never as a spelling to rewrite — `a/.././state` (segments `a`,
+ * `..`, `.`, `state`) would, under the reverse order, suggest the canonical
+ * spelling `"a/../state"`, a rewrite that still escapes the repo. `..` is
+ * deliberately not in the canonicality predicate — it is an escape, not a
+ * spelling. Deliberately does its own stripping rather than requiring an
  * already-normalized `value` — a caller may hand it either the raw
- * declaration or the edge's normalized form and get the same verdict,
- * which is what lets a unit test exercise `"./"` directly.
+ * declaration or the edge's normalized form and get the same verdict, which
+ * is what lets a unit test exercise `"./"` directly.
  */
 export const stateDirError = (value: string): string | undefined => {
   const invalid = (): string =>
     `"stateDir": must name a directory inside the repository, not the repo root, an absolute path, or a path outside it (got ${JSON.stringify(value)})`
   if (value.trim() === "") return invalid()
-  const stripped = value.replace(/^\.\//, "").replace(/\/+$/, "")
+  const stripped = canonicalStateDir(value)
   if (stripped === "" || stripped === ".") return invalid()
   if (stripped.startsWith("/")) return invalid()
-  if (stripped.split("/").includes("..")) return invalid()
+  const segments = stripped.split("/")
+  if (segments.includes("..")) return invalid()
+  if (segments.some((segment) => segment === "." || segment === "")) {
+    const canonical = segments.filter((segment) => segment !== "." && segment !== "").join("/")
+    return `"stateDir": ${JSON.stringify(stripped)} is not a canonical path — write it as ${JSON.stringify(canonical)}`
+  }
   return undefined
 }
 

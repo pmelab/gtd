@@ -664,6 +664,19 @@ describe("currentRest — it.stateDir", () => {
       )
     }
   })
+
+  it("a declaration rendering to a non-canonical spelling fails the command naming the canonical spelling", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", workflowWith("<%= it.vars.stateDir %>", "a/./state"))
+    repo.commitAllWithPrefix("chore: add non-canonical-plumbing workflow")
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(Cause.pretty(exit.cause)).toContain(
+        '"stateDir": "a/./state" is not a canonical path — write it as "a/state"',
+      )
+    }
+  })
 })
 
 describe("currentRest — var layering: workflow < rc < entry commit < env", () => {

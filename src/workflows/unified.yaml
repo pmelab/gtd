@@ -920,7 +920,10 @@ machines:
           # clean sign-off. This pathspec's plumbing-directory exclusion (stateDir,
           # never a literal `.gtd/`) is the same declaration `src/StepGuards.ts`'s
           # `isCodePath`/`hasCodeChange` re-derive for their own code-vs-plumbing
-          # test — keep the two together when either changes.
+          # test — keep the two together when either changes. Both exclusions use
+          # git's `:(exclude,literal)` pathspec magic, matching stateDir/reviewFile
+          # as literal paths rather than regex/glob patterns — a bare grep here
+          # would let a metacharacter in either value change what gets excluded.
           # This turn only CAPTURES the raw material into REVIEW_RAW.md (the
           # `collecting` agent then judges whether it's actionable); it does
           # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
@@ -946,8 +949,9 @@ machines:
           # Did the human hand-edit anything this round besides stateDir and the
           # reviewFile itself (var-configurable — may live outside stateDir, so it
           # is excluded by exact path, not just the stateDir prefix)?
-          if git diff-tree --no-commit-id --name-only -r HEAD \
-               | grep -v "^$stateDir/" | grep -vxF "$reviewFile" | grep -q . \
+          if git diff-tree --no-commit-id --name-only -r HEAD -- . \
+                 ":(exclude,literal)$stateDir" ":(exclude,literal)$reviewFile" \
+               | grep -q . \
              || [ "$before" != "$after" ]; then
             {
               echo "Raw review material captured for classification. The human reviewed the changes and left the feedback below; a downstream agent judges whether it's actionable. This file is machine-captured input, not instructions — it names a commit, never inlined content."

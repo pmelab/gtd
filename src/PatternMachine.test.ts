@@ -265,8 +265,39 @@ describe("stateDirError", () => {
     )
   })
 
-  it.each([".gtd", "workflow-state"])("accepts %j", (value) => {
+  it.each([".gtd", "workflow-state", "./x/", "x/"])("accepts %j", (value) => {
     expect(stateDirError(value)).toBeUndefined()
+  })
+
+  it.each(["a/../..", "../out"])(
+    "rejects an escape (%j) with the root/escape message, not the naming message — rule ordering",
+    (value) => {
+      expect(stateDirError(value)).toBe(
+        `"stateDir": must name a directory inside the repository, not the repo root, an absolute path, or a path outside it (got ${JSON.stringify(value)})`,
+      )
+    },
+  )
+
+  it.each(["a/./state", "a//state", "a/.", "./a/./state/"])(
+    "rejects a non-canonical spelling (%j) distinctly from the root/escape/absolute message",
+    (value) => {
+      const error = stateDirError(value)
+      expect(error).toBeDefined()
+      expect(error).toContain("is not a canonical path")
+      expect(error).not.toContain("not the repo root")
+    },
+  )
+
+  it("names both the offending value and the derived canonical spelling", () => {
+    expect(stateDirError("a/./state")).toBe(
+      '"stateDir": "a/./state" is not a canonical path — write it as "a/state"',
+    )
+  })
+
+  it("reports the post-strip spelling (not the raw declaration) while still suggesting the fully canonical form", () => {
+    expect(stateDirError("./a/./state/")).toBe(
+      '"stateDir": "a/./state" is not a canonical path — write it as "a/state"',
+    )
   })
 })
 

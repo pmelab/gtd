@@ -247,9 +247,11 @@ tell gtd's own bookkeeping apart from your code (e.g. the review window's revert
 pathspec, the step guards' code-vs-plumbing check), not just a value the
 templates happen to share. The rendered value is constrained: it must name a
 directory inside the repository — not the repo root, not an absolute path, and
-not a path that escapes the repository via `..` — or the next `gtd next`/
-`gtd status`/`gtd land` fails loudly with that message, rather than silently
-excluding the whole tree from the review window's revert.
+not a path that escapes the repository via `..` — and it must be spelled
+canonically: no `.` and no empty path segments (`a/./state` or `a//state` are
+rejected, not rewritten), though a leading `./` and a trailing `/` are accepted
+— or the next `gtd next`/`gtd status`/`gtd land` fails loudly with that message,
+rather than silently excluding the whole tree from the review window's revert.
 
 To inspect or change the machine itself, see [Configuration](#configuration) —
 the workflow is just `.gtdrc` config.
