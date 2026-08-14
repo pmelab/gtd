@@ -4,6 +4,7 @@ import { ConfigService } from "./Config.js"
 import { RepoFiles, templateRead } from "./RepoFiles.js"
 import { EnvVars } from "./EnvVars.js"
 import {
+  canonicalStateDir,
   contentKindOf,
   enterableStates,
   entryBaseTemplateOf,
@@ -698,32 +699,35 @@ const renderOnEdgesOrFail = (
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-/** Strip a trailing `/` and a leading `./` so every reader compares the same canonical string, no matter how the declaration was spelled. */
-const normalizeStateDir = (raw: string): string => raw.replace(/^\.\//, "").replace(/\/+$/, "")
-
 /**
  * Render `def`'s declared plumbing directory (`PatternMachine.stateDirOf`)
  * against `vars` ONLY (`varsOnlyContext`) — same restriction `renderOnEdges`
  * uses, which is what breaks the circularity of a context field whose own
  * value comes from a template rendered against that context: a declaration
  * that references `it.stateDir` itself sees the empty stub there and renders
- * empty rather than recursing. Normalized ONCE here (`normalizeStateDir`), so
- * every guard and script downstream compares/renders a canonical string.
- * Throws whatever Eta throws on a malformed template; the caller turns that
- * into a step refusal / command error, exactly like a content render
+ * empty rather than recursing. Stripped ONCE here
+ * (`PatternMachine.canonicalStateDir`) — tolerance for a leading `./` and a
+ * trailing `/`, NOT full canonicalization; it does not make every downstream
+ * reader see a canonical string on its own. `renderStateDirOrFail` is what
+ * makes that guarantee true, by refusing anything the strip didn't already
+ * fix. Throws whatever Eta throws on a malformed template; the caller turns
+ * that into a step refusal / command error, exactly like a content render
  * failure.
  */
 const renderStateDir = (def: WorkflowDefinition, vars: Record<string, string>): string =>
-  normalizeStateDir(renderStateTemplate(stateDirOf(def), varsOnlyContext(vars)))
+  canonicalStateDir(renderStateTemplate(stateDirOf(def), varsOnlyContext(vars)))
 
 /**
  * `renderStateDir`, surfacing a malformed template as a plain `Error` (see
  * `renderOnEdgesOrFail`), THEN running `PatternMachine.stateDirError` on the
- * rendered, normalized result and failing with its message when it fires.
- * This is the one enforcement site for the value rule (see
+ * rendered, stripped result and failing with its message when it fires. This
+ * is the one ENFORCEMENT site for the value rule (see
  * `PatternMachine.stateDirError`'s doc comment for why load time can't own
- * it) — every caller of `currentRest`/`restAt` (`gtd next`/`status`/`land`
- * alike) sees the same failure before the value reaches any consumer.
+ * it): a non-canonical spelling that survives `renderStateDir`'s tolerance
+ * strip is a config error naming the canonical form, never something this
+ * function or any downstream consumer repairs — every caller of
+ * `currentRest`/`restAt` (`gtd next`/`status`/`land` alike) sees the same
+ * failure before the value reaches any consumer.
  */
 const renderStateDirOrFail = (
   def: WorkflowDefinition,

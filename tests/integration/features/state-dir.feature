@@ -77,3 +77,15 @@ Feature: The require-revert guard exempts a relocated plumbing directory (it.sta
     Then it succeeds
     And the last commit subject is "gtd(check): re-unwind → design.triage"
     And "workflow-state/notes.md" exists
+
+  Scenario: a non-canonical vars.stateDir fails the command, naming the canonical spelling
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      vars:
+        stateDir: a/./state
+      """
+    When I run gtd status
+    Then it fails
+    And stderr contains "is not a canonical path"
+    And stderr contains "a/state"

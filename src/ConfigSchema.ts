@@ -182,7 +182,7 @@ const entryJsonSchema = {
 const stateDirJsonSchema = {
   type: "string",
   description:
-    "An Eta template naming where this workflow keeps its own scratch/bookkeeping directory (the review window's revert pathspec, the step guards' code-vs-plumbing test). Defaults to \".gtd\" when absent. The rendered value must name a directory inside the repository: not the repo root, not an absolute path, not a path that escapes the repo. Distinct from the ordinary `vars.stateDir` workflow var of the same name one level down — this is the definition-level declaration the engine reads; the var is the knob a user overrides, which the bundled template renders this declaration from.",
+    "An Eta template naming where this workflow keeps its own scratch/bookkeeping directory (the review window's revert pathspec, the step guards' code-vs-plumbing test). Defaults to \".gtd\" when absent. The rendered value must name a directory inside the repository: not the repo root, not an absolute path, not a path that escapes the repo via `..`. It must also be spelled canonically — no `.` and no empty path segments (e.g. `a/./state` or `a//state` are rejected, not rewritten) — though a leading `./` and a trailing `/` are accepted. Distinct from the ordinary `vars.stateDir` workflow var of the same name one level down — this is the definition-level declaration the engine reads; the var is the knob a user overrides, which the bundled template renders this declaration from.",
 } as const
 
 /** The whole `workflow:` value — see `PatternConfig.ts`'s module docstring for the authoritative schema. */

@@ -331,4 +331,12 @@ parser, one envelope. The table is the source of truth, not prose:
   instead of the exact path on a `reviewFile` repointed to the repo root, or a
   literal `.gtd/` instead of the declared `stateDir` on a relocated plumbing
   directory) and it REFUSES every note-only round, or every round that touches
-  the relocated directory, forever
+  the relocated directory, forever. `it.stateDir` is canonical BY VALIDATION —
+  `src/Edge.ts`'s `renderStateDirOrFail` refuses a non-canonical spelling before
+  any guard ever sees it — so this comparison, like every other consumer, must
+  never re-normalize the value itself. The `deciding` script's own
+  plumbing/reviewFile exclusion (`src/workflows/unified.yaml`) is a LITERAL path
+  test agreeing with `isCodePath`/`isPlumbingPath` — the script's own two
+  pathspecs use git's `:(exclude,literal)` magic rather than a glob or grep (the
+  step guards themselves are plain string comparisons, not pathspecs), alongside
+  the same "never a literal `.gtd/`" rule above
