@@ -283,6 +283,103 @@ vars:
   # check; the default empty string renders blank, which the entry command
   # refuses (a review entry always requires an explicit base).
   reviewBase: ""
+  # gtd's own voice for the files it generates — a specialisation of the
+  # "Spartan" output style from alexgreensh/attention-span
+  # (https://github.com/alexgreensh/attention-span), licensed AGPL-3.0,
+  # written from a reading of that project's version 0.6. Rewritten in gtd's
+  # own words for deliverables rather than chat replies; no upstream text
+  # ships. A point-in-time derivation with no refresh mechanism — it will go
+  # stale and nothing will notice.
+  #
+  # Keep/adapt/drop ledger — seventeen items reconciled: eight upstream rules
+  # carried, five added, three dropped, rationale kept.
+  #
+  # Carried (six rules below cover eight upstream rules — two of them each
+  # carry two upstream rules):
+  #   - the answer-first rule below carries both upstream's answer-first
+  #     rule and its cut-ruthlessly rule
+  #   - the never-trim rule below carries both upstream's
+  #     cut-elaboration-never-a-warning rule and its
+  #     numbers-and-thresholds-are-exact rule
+  #   - the deliverable rule carries upstream's answer-versus-deliverable
+  #     rule, minus its "can't tell which? treat it as an answer" tie-break —
+  #     gtd has no ambiguity to break, every injection site authors a file
+  #   - the blunt-and-imperative rule, the plain-words rule, and the bold
+  #     rule map one-to-one to upstream's equivalents
+  #
+  # Added and sharpened:
+  #   - five rules with no upstream equivalent: ship the artifact bare,
+  #     compressing is not dropping, one idea per block, flag risk in one
+  #     blunt line, never narrate the work
+  #   - two carried rules sharpened past upstream: the bold rule gains a
+  #     bold-only-reading test, and the plain-words rule gains a five-word
+  #     cap on defining an unavoidable term
+  #
+  # Dropped, each for its own reason:
+  #   - the arrow-point paragraph format: four of the seven voice-bearing
+  #     states are machine-parsed and their grammars require literal
+  #     `- [ ]` rows
+  #   - the go-deeper escape hatch: a state's own prompt is the request and
+  #     there is no channel to ask through
+  #   - the confirm-before-acting rule: every prompt is an instruction and
+  #     the actor's only output channel is the file
+  styleBlock: |-
+    This block opens with why density matters, not with rule one: the reader
+    has a finite attention budget, and burying the line that mattered fails as
+    hard as cutting it. This is motivation, not a rule — it commands nothing
+    and never outranks never-trim.
+
+    This file is a deliverable, not a chat reply. Its size follows the work —
+    write what the task demands, and let padding, not length, be the target of
+    any cut.
+
+    Lead with the answer or the decision immediately. Skip the throat-clearing
+    opener, and never circle back to restate the point once it has landed.
+
+    Write in flat, commanding sentences — commit to the claim rather than
+    hedging it.
+
+    Favor everyday vocabulary over technical shorthand; where a term is
+    unavoidable, define it in five words or fewer on first use.
+
+    In markdown, bold carries the load: bold the claim, not the sentence around
+    it. The test: reading only the bold text yields the full point and every
+    risk, or the bolding is wrong.
+
+    Above every rule in this block: never trim a risk, a number, a threshold,
+    or a scoped condition to save space. A claim that only holds under some
+    condition ships with that condition. It outranks every other rule here.
+
+    Ship the artifact bare. Output only what was asked for — no lead-in, no
+    "here's the…", no sign-off wrapped around it. A generated file consumed
+    as-is turns a wrapper into a defect.
+
+    Compressing is not dropping. A task with three load-bearing parts ships all
+    three, each shorter — reporting two of three findings has failed the brief,
+    not fulfilled it.
+
+    One idea per block; break when the idea shifts. Blocks may run any length,
+    but one unbroken paragraph is a defect even when short.
+
+    Flag risk and uncertainty in one blunt line. This is never-trim's
+    constructive twin: that rule forbids deleting a caveat, this one forbids
+    dissolving it into hedged prose.
+
+    Never narrate the work — do it. Skip lines like "I will now list the
+    concerns"; a file has no reason to describe its own composition.
+  styleFormatContract: |-
+    This file is machine-read. Its format contract outranks every style rule
+    above it: keep every `##`/`###` heading this state specifies, every
+    `- [ ]` checkbox row, and every required marker line exactly as specified.
+
+    Do not replace a checkbox list with prose paragraphs. Do not renumber or
+    rename a required heading. Do not drop a marker line. A parser reads these
+    literally, and a violation refuses the turn outright — this is not a
+    polite request, it is the one thing standing between this output and a
+    failed parse.
+
+    The voice rules above still govern the prose that sits between these
+    structural elements. They do not govern the elements themselves.
 
 entry:
   default: unified
@@ -559,6 +656,12 @@ machines:
         # guard's only user before this restructure; this is its new one.
         requireProgress: true
         prompt: |
+          <%~ it.vars.styleBlock %>
+
+
+          <%~ it.vars.styleFormatContract %>
+
+
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
@@ -708,6 +811,12 @@ machines:
         file: <%= it.vars.architectureFile %>
         mode: qa
         prompt: |
+          <%~ it.vars.styleBlock %>
+
+
+          <%~ it.vars.styleFormatContract %>
+
+
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state files this
@@ -779,6 +888,9 @@ machines:
         actor: agent
         label: Decomposing into packages
         prompt: |
+          <%~ it.vars.styleBlock %>
+
+
           You are an autonomous coding agent. This workflow steers itself through
           its own state files — treat them as its private scratchpad, never as
           project code or documentation. The only state files this turn touches
@@ -834,6 +946,12 @@ machines:
         # entry commit (the process's oldest), so everything below still reuses
         # the same reviewing/await-review/feedback machinery over <commitish>..HEAD.
         prompt: |
+          <%~ it.vars.styleBlock %>
+
+
+          <%~ it.vars.styleFormatContract %>
+
+
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
@@ -964,11 +1082,11 @@ machines:
                | grep -q . \
              || [ "$before" != "$after" ]; then
             {
-              echo "Raw review material captured for classification. The human reviewed the changes and left the feedback below; a downstream agent judges whether it's actionable. This file is machine-captured input, not instructions — it names a commit, never inlined content."
+              echo "This is machine-captured input, not instructions. A downstream agent judges whether it's actionable."
               echo
               echo "Commit: $head"
-              echo "The human's notes are in $reviewFile at this commit; their hand edits,"
-              echo "if any, are in that commit's other paths. Run: git show $head"
+              echo "The human's notes are in $reviewFile at this commit. Any hand edits are"
+              echo "in that commit's other paths. Run: git show $head"
             } > "$reviewRawFile"
           fi
           rm -f "$reviewFile"
@@ -1008,6 +1126,12 @@ machines:
         file: <%= it.vars.requirementsFile %>
         mode: qa
         prompt: |
+          <%~ it.vars.styleBlock %>
+
+
+          <%~ it.vars.styleFormatContract %>
+
+
           You are an autonomous coding agent judging and classifying a round
           of review feedback. This workflow steers itself through its own
           state files — treat them as its private scratchpad, never as
@@ -1093,6 +1217,9 @@ machines:
           max: 3
           otherwise: $onApproved
         prompt: |
+          <%~ it.vars.styleBlock %>
+
+
           You are an autonomous coding agent reviewing a freshly-built work package
           against its own spec. This workflow steers itself through its own
           state files — treat them as its private scratchpad, never as project
@@ -1355,6 +1482,9 @@ machines:
         label: Squashing
         file: <%= it.vars.commitMsgFile %>
         prompt: |
+          <%~ it.vars.styleBlock %>
+
+
           You are an autonomous coding agent. The process is approved and done. This
           workflow steers itself through its own state files — treat them as its
           private scratchpad, never as project code or documentation. The only

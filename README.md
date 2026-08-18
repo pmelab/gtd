@@ -150,7 +150,11 @@ questions: each open question offers a couple of candidate answers plus a
 `- [ ] _your answer_` slot, and you tick exactly one per question (the gate
 won't let the phase advance while any question is unanswered) — but a phase
 whose document has no open questions skips that human stop entirely and falls
-straight through.
+straight through. If a question's options ever come out as prose instead of
+`- [ ]` rows, there is no checkbox for the gate to see, so it stays permanently
+unanswered; un-wedge it yourself: hand-write the `- [ ]` rows and tick one,
+delete that question, or delete the whole `## Open Questions` section to accept
+the plan as-is.
 
 Once the product questions are settled, `architecture.author` picks up as a
 **cold reader** — a separate machine with its own memory scope, so it does not
@@ -194,18 +198,22 @@ queue again — a hand-edit you made during review is treated as a **sketch**, t
 same as any other change that starts a process, not a fix the agent builds on:
 it is reverted out of the tree first, and your intent survives only in your own
 review-round commit for triage to read. There is no baseline check on the way
-back into planning. Only the turn that drafts the final squash message resumes
-the session that built the feature in the first place (the review tail is nested
-inside that build identity rather than sitting beside it) — an actionable round
-leaves that identity entirely, so it starts a fresh session like any other
-process. Ticking every box with no comment is the sign-off, which collapses the
-whole process into one commit (a **squash finale** whose message an agent
-drafts). Landing with a box still unticked and no comment is refused (finish
-reviewing first), as is deleting `.gtd/REVIEW.md`. Both refusals hold wherever
-the review doc lives: repointing `reviewFile` out of `.gtd/` (say to `REVIEW.md`
-at the repo root) changes nothing about them — your own edit to the review doc
-is never mistaken for a code comment, and the doc's pre-turn copy is read at the
-review window's saved head rather than at the rewound `HEAD`.
+back into planning. If a styled `.gtd/REVIEW.md` ever comes out malformed (a
+paragraph where a `- [ ] ./path#line` row belongs), `gtd check review` refuses
+the step before it commits: the file stays exactly as written in the working
+tree, unlanded, and re-running the same prompt is the recovery — nothing is
+lost. Only the turn that drafts the final squash message resumes the session
+that built the feature in the first place (the review tail is nested inside that
+build identity rather than sitting beside it) — an actionable round leaves that
+identity entirely, so it starts a fresh session like any other process. Ticking
+every box with no comment is the sign-off, which collapses the whole process
+into one commit (a **squash finale** whose message an agent drafts). Landing
+with a box still unticked and no comment is refused (finish reviewing first), as
+is deleting `.gtd/REVIEW.md`. Both refusals hold wherever the review doc lives:
+repointing `reviewFile` out of `.gtd/` (say to `REVIEW.md` at the repo root)
+changes nothing about them — your own edit to the review doc is never mistaken
+for a code comment, and the doc's pre-turn copy is read at the review window's
+saved head rather than at the rewound `HEAD`.
 
 A second entry, the same review tail's own direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -1177,6 +1185,52 @@ vars:
 # highest precedence — beats both the workflow default and the .gtdrc value above
 GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
+
+#### The voice
+
+gtd ships its own writing voice for the files it generates — the default, not an
+opt-in. It is a specialisation of the "Spartan" output style from
+[alexgreensh/attention-span](https://github.com/alexgreensh/attention-span)
+(AGPL-3.0), written from a reading of that project's version `0.6`: gtd's own
+prose stating the same density discipline, rewritten for deliverables (files
+that run as long as the work needs) rather than chat replies. No upstream text
+ships in gtd's bundle. This is a point-in-time derivation with no refresh
+mechanism — it will silently go stale as upstream moves on, and nothing in gtd
+will notice.
+
+It is two independently-overridable variables, each an ordinary `vars:` entry
+that can be overridden or blanked through the same layers as any other (a
+top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
+`GTD_STYLEFORMATCONTRACT` environment variable):
+
+- **`styleBlock`** — the voice itself, injected at all seven prompt states that
+  generate content, not just three: the free-prose ones — the `packagesDir`
+  package files (`architecture.decompose`), `specFeedbackFile`
+  (`packages.item.spec.review`), and `commitMsgFile` (`build.squashing`) — plus
+  the four machine-parsed states named in the next bullet. Blanking
+  `GTD_STYLEBLOCK` strips the voice from all seven, including the machine-parsed
+  ones, not only the free-prose three. In short: why density matters before any
+  rule, answer-first with no preamble or restatement, blunt and imperative,
+  plain words, bold carries the load, ship the artifact bare, compressing is not
+  dropping, one idea per block, flag risk in one blunt line, never narrate the
+  work — and never-trim outranks every other rule in the set.
+- **`styleFormatContract`** — the structural override for machine-parsed files:
+  the format contract (headings, checkbox rows, marker lines) outranks the
+  voice, and a violation refuses the turn. It renders at the top of the prompt,
+  ahead of the role sentence and well before any state-specific format-contract
+  text — `styleBlock` first, then `styleFormatContract`, at the four prompt
+  states whose output a parser reads: the two `qa`-mode steering files
+  (`requirementsFile` at `design.triage`, `architectureFile` at
+  `architecture.author`) and the `review`-mode one (`reviewFile` at
+  `build.review.reviewing`), plus `requirementsFile` again at
+  `build.review.collecting`, which classifies a review round straight into it.
+
+Three more generated files carry no injected voice, because a script — not an
+agent — writes them: `feedbackFile` (verbatim test-suite output plus a HEAD
+stamp — the tool's content, not gtd's prose), `nextFile` (a bare path, no prose
+to style), and `reviewRawFile` (gtd's own prose, hand-tightened in the voice
+directly in `build.review.deciding`'s script rather than templated in through
+either variable).
 
 ### Lookup and precedence
 

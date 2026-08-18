@@ -482,3 +482,94 @@ describe("QA_FORMAT", () => {
     expect(QA_FORMAT.pointerAt).toBeUndefined()
   })
 })
+
+describe("voice styling (styled qa exemplar)", () => {
+  // Voice check (src/workflows/unified.yaml's styleBlock): blunt, imperative
+  // sentences, bold carrying the actual claim, no throat-clearing preamble.
+  // This proves the parser cares only about the heading/checkbox grammar,
+  // never the prose register wrapped around it.
+  const styledUnticked = [
+    "# Requirements",
+    "",
+    "**Ship rate limiting on the public API before the next release.** Every",
+    "unauthenticated endpoint gets a token-bucket limiter; every authenticated",
+    "endpoint gets a higher ceiling keyed by account. No endpoint ships without",
+    "one.",
+    "",
+    "## Open Questions",
+    "",
+    "### What is the limiter's time window?",
+    "",
+    "**A fixed window undercounts bursts at its boundary.** Pick the algorithm",
+    "now — retrofitting it once clients depend on the numbers costs a",
+    "migration, not a config change.",
+    "",
+    "- [ ] Fixed window, reset every 60 seconds",
+    "- [ ] Sliding window log, no reset boundary",
+    "- [ ] _your answer_",
+    "",
+    "### Where does the limiter store its counters?",
+    "",
+    "**Redis is the default. Don't reach for anything heavier.** A single",
+    "shared store keeps every API instance's count consistent under one",
+    "config.",
+    "",
+    "- [ ] Redis, one shared instance",
+    "- [ ] In-process memory, per instance",
+    "- [ ] _your answer_",
+    "",
+  ].join("\n")
+
+  it("parses with zero validation errors", () => {
+    expect(QA_FORMAT.validate(styledUnticked)).toEqual([])
+  })
+
+  it("each open question parses exactly three options and is unanswered before ticking", () => {
+    const { questions } = parseOpenQuestions(styledUnticked)
+    expect(questions).toHaveLength(2)
+    for (const question of questions) {
+      expect(question.options).toHaveLength(3)
+      expect(question.answered).toBe(false)
+    }
+  })
+
+  it("is answered once exactly one option is ticked, and leaves the other question untouched", () => {
+    const ticked = styledUnticked.replace(
+      "- [ ] Sliding window log, no reset boundary",
+      "- [x] Sliding window log, no reset boundary",
+    )
+    const { questions } = parseOpenQuestions(ticked)
+    expect(questions[0]!.answered).toBe(true)
+    expect(questions[1]!.answered).toBe(false)
+  })
+
+  // Separate, smaller exemplar: the free-text slot is ticked but the agent's
+  // placeholder text survives untouched — the placeholder normalisation must
+  // still fire regardless of the voice applied around it.
+  const styledFreeTextTicked = [
+    "# Requirements",
+    "",
+    "**Ship rate limiting on the public API before the next release.** No",
+    "endpoint ships without a limiter in front of it.",
+    "",
+    "## Open Questions",
+    "",
+    "### What is the limiter's time window?",
+    "",
+    "**A fixed window undercounts bursts at its boundary.** Pick the algorithm",
+    "now, not after clients depend on the numbers.",
+    "",
+    "- [ ] Fixed window, reset every 60 seconds",
+    "- [ ] Sliding window log, no reset boundary",
+    "- [x] _your answer_",
+    "",
+  ].join("\n")
+
+  it("stays unanswered when the free-text slot is ticked but left as the unfilled placeholder", () => {
+    expect(QA_FORMAT.validate(styledFreeTextTicked)).toEqual([])
+    const { questions } = parseOpenQuestions(styledFreeTextTicked)
+    expect(questions).toHaveLength(1)
+    expect(questions[0]!.options).toHaveLength(3)
+    expect(questions[0]!.answered).toBe(false)
+  })
+})

@@ -393,3 +393,54 @@ describe("REVIEW_FORMAT", () => {
     })
   })
 })
+
+describe("voice styling (styled review exemplar)", () => {
+  // Voice check (src/workflows/unified.yaml's styleBlock): blunt, imperative
+  // sentences, bold carrying the actual claim, no throat-clearing preamble.
+  // This proves the parser cares only about the header/marker/heading/pointer
+  // grammar, never the prose register wrapped around it.
+  const styledReview = [
+    "# Review: 9f3a21c",
+    "",
+    "<!-- base: 9f3a21cf8b4d5e6a7b8c9d0e1f2a3b4c5d6e7f80 -->",
+    "",
+    "## Add token-bucket limiter",
+    "",
+    "**The bucket refills at a fixed rate; it never bursts past its cap.**",
+    "This is the only algorithm change in the batch — everything else below",
+    "is wiring.",
+    "",
+    "- [ ] ./src/RateLimiter.ts#12 — refill math, check the rounding direction",
+    "- [ ] ./src/RateLimiter.ts#48 — cap enforcement on a burst request",
+    "",
+    "## Wire the limiter into the API gateway",
+    "",
+    "**Every unauthenticated route resolves a limiter before its handler runs.**",
+    "Authenticated routes keep a separate, higher-ceiling bucket keyed by",
+    "account id.",
+    "",
+    "- [ ] ./src/Gateway.ts#101",
+    "- [ ] ./src/Gateway.ts#134 — account-keyed bucket lookup",
+    "",
+  ].join("\n")
+
+  it("parses with zero validation errors", () => {
+    expect(REVIEW_FORMAT.validate(styledReview)).toEqual([])
+  })
+
+  it("recognizes every chunk heading and file-pointer row", () => {
+    const { changesets } = parseReviewDoc(styledReview)
+    expect(changesets.map((c) => c.title)).toEqual([
+      "Add token-bucket limiter",
+      "Wire the limiter into the API gateway",
+    ])
+    expect(changesets[0]!.files.map((f) => [f.path, f.line])).toEqual([
+      ["./src/RateLimiter.ts", 12],
+      ["./src/RateLimiter.ts", 48],
+    ])
+    expect(changesets[1]!.files.map((f) => [f.path, f.line])).toEqual([
+      ["./src/Gateway.ts", 101],
+      ["./src/Gateway.ts", 134],
+    ])
+  })
+})

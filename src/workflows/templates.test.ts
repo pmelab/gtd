@@ -16,6 +16,21 @@ import {
 } from "./templates.js"
 import unifiedYaml from "./unified.yaml"
 
+/** State names (sorted) whose script/prompt/message/commit contains `needle`. */
+function statesReferencing(
+  definition: ReturnType<typeof compileTemplate>["definition"],
+  needle: string,
+): string[] {
+  const contentsOf = (state: (typeof definition.states)[string]): string[] =>
+    [state.script, state.prompt, state.message, state.commit].filter(
+      (c): c is string => c !== undefined,
+    )
+  return Object.entries(definition.states)
+    .filter(([, state]) => contentsOf(state).some((c) => c.includes(needle)))
+    .map(([name]) => name)
+    .sort()
+}
+
 describe("the bundled unified workflow template", () => {
   it("compiles with no validation findings and exactly one initial state", () => {
     const { definition } = compileTemplate()
@@ -227,6 +242,90 @@ describe("the bundled unified workflow template", () => {
     expect(satisfiedAdd?.[1]).toBe("packages.item.health.check")
     expect(satisfiedAdd?.[3]).toBeTruthy() // action
     expect(satisfiedMod?.[1]).toBe(satisfiedAdd?.[1])
+  })
+
+  // The three unstructured-file authoring prompts (package 02) — voice only,
+  // no structural override, since nothing parses their output.
+  const PROSE_PROMPTS = ["architecture.decompose", "packages.item.spec.review", "build.squashing"]
+
+  // The four machine-parsed prompts (package 03) — the only states that
+  // interpolate both a `file:` and a `mode:` of `qa`/`review` — get BOTH the
+  // voice and the structural override that outranks it.
+  const PARSED_PROMPTS = [
+    "design.triage",
+    "architecture.author",
+    "build.review.collecting",
+    "build.review.reviewing",
+  ]
+
+  it("declares the styleBlock/styleFormatContract voice variables, non-empty, styleFormatContract on-message (package 01)", () => {
+    // Settled shape: two independently-overridable vars, one for the free
+    // prose sites and one for the machine-parsed override — see
+    // .gtd/packages/01-style-vars-and-attribution.md.
+    const { vars } = compileTemplate()
+    expect(vars.styleBlock).toBeTruthy()
+    expect(vars.styleFormatContract).toBeTruthy()
+
+    // The structural override names its consequence, not a polite ask.
+    expect(vars.styleFormatContract).toMatch(/checkbox/)
+    expect(vars.styleFormatContract).toMatch(/##.*###.*heading/)
+    expect(vars.styleFormatContract).toMatch(/renumber or\s+rename/)
+    expect(vars.styleFormatContract).toMatch(/refuses the turn|refused/)
+
+    // Attribution: upstream name, URL, licence, and the version derived from.
+    expect(unifiedYaml).toMatch(/attention-span/)
+    expect(unifiedYaml).toMatch(/https:\/\/github\.com\/alexgreensh\/attention-span/)
+    expect(unifiedYaml).toMatch(/AGPL-3\.0/)
+    expect(unifiedYaml).toMatch(/version 0\.6|v0\.6/)
+  })
+
+  it("pins the seven voice-bearing prompts by name and count, so an eighth site added later fails loudly (package 02, 03)", () => {
+    expect([...PROSE_PROMPTS, ...PARSED_PROMPTS].sort()).toEqual(
+      [
+        "architecture.decompose",
+        "packages.item.spec.review",
+        "build.squashing",
+        "design.triage",
+        "architecture.author",
+        "build.review.collecting",
+        "build.review.reviewing",
+      ].sort(),
+    )
+  })
+
+  it("wires styleBlock into exactly the seven voice-bearing prompts and nowhere else (package 02, 03)", () => {
+    const { definition } = compileTemplate()
+    expect(statesReferencing(definition, "styleBlock")).toEqual(
+      [...PROSE_PROMPTS, ...PARSED_PROMPTS].sort(),
+    )
+  })
+
+  it("wires styleFormatContract into exactly the four machine-parsed prompts and nowhere else (package 03)", () => {
+    const { definition } = compileTemplate()
+    expect(statesReferencing(definition, "styleFormatContract")).toEqual([...PARSED_PROMPTS].sort())
+  })
+
+  it("every voice-bearing prompt uses the raw (unescaped) styleBlock tag form (package 02, 03)", () => {
+    // The value carries backticks/quotes/markup the escaping tag form would mangle.
+    const { definition } = compileTemplate()
+    for (const name of [...PROSE_PROMPTS, ...PARSED_PROMPTS]) {
+      expect(definition.states[name]?.prompt, `state "${name}"`).toMatch(
+        /<%~\s*it\.vars\.styleBlock\s*%>/,
+      )
+    }
+  })
+
+  it("each machine-parsed prompt puts the raw styleFormatContract tag after styleBlock, so the override sits closest to the state's own contract (package 03)", () => {
+    const { definition } = compileTemplate()
+    for (const name of PARSED_PROMPTS) {
+      const prompt = definition.states[name]?.prompt ?? ""
+      expect(prompt, `state "${name}"`).toMatch(/<%~\s*it\.vars\.styleFormatContract\s*%>/)
+      const blockIndex = prompt.search(/<%~\s*it\.vars\.styleBlock\s*%>/)
+      const contractIndex = prompt.search(/<%~\s*it\.vars\.styleFormatContract\s*%>/)
+      expect(blockIndex, `state "${name}" styleBlock precedes styleFormatContract`).toBeLessThan(
+        contractIndex,
+      )
+    }
   })
 
   it("packages.item.closing's script sweeps the satisfied-evidence file, and healthGate.check's shared sweep does not", () => {
