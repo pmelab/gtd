@@ -1,0 +1,11 @@
+# SC2016 ("Expressions don't expand in single quotes, use double quotes for
+# that") fires throughout gtd's own emitted scripts by design, not by bug:
+# src/Emit.ts's `gtd_retry` (and src/GitScript.ts's `shellQuote`-produced
+# commands it wraps) deliberately single-quote a whole command string so it
+# expands only later, inside `eval`, never at the call site — and
+# src/OutcomeScript.ts's printf format strings intentionally hold literal
+# backticks/`%s` text meant for the shell that reads the PRINTED output, not
+# this one. Disabling it here keeps `lint:sh`'s `shellcheck -s sh` gate
+# meaningful for real portability bugs instead of drowning in this one
+# structural false positive.
+disable=SC2016

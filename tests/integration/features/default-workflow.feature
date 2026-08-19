@@ -467,7 +467,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
     And an empty commit "gtd(agent): build.review.collecting → re-unwind"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -506,7 +506,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the file ".gtd/REVIEW.md" is deleted
     And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
     And an empty commit "gtd(agent): build.review.collecting → re-unwind"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -551,7 +551,7 @@ Feature: The bundled unified workflow — one flow, end to end
       // TODO: something else entirely landed here first
       """
     And the working tree is committed as "gtd(agent): build.review.collecting → re-unwind"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -725,7 +725,7 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -770,7 +770,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # Round 2 of the check: HEAD has advanced since round 1's committed
     # marker, so the fresh stamp must differ and land at the gate again —
     # never fall through to architecture.author.
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -940,7 +940,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.building"
     And the git status is clean
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"kind\":\"stalled\""
     And the json field "content" contains "stalled at \"packages.item.building\""
@@ -1220,7 +1220,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       Build a thing.
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
     And stdout matches "\"memory\":\"design#[0-9a-f]{7}\""
@@ -1228,7 +1228,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       Technical plan: src/thing.ts.
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.author\""
     And stdout matches "\"memory\":\"architecture#[0-9a-f]{7}\""
@@ -1240,7 +1240,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
     And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
@@ -1248,7 +1248,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       a failing test
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And stdout matches "\"memory\":\"build#[0-9a-f]{7}\""
@@ -1256,7 +1256,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing2 = 2
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
     And stdout matches "\"memory\":\"build\.review#[0-9a-f]{7}\""

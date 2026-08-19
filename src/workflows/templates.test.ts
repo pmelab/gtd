@@ -340,6 +340,35 @@ describe("the bundled unified workflow template", () => {
     expect(buildHealthCheck.script).not.toContain("it.vars.satisfiedFile")
     expect(packagesHealthCheck.script).not.toContain("it.vars.satisfiedFile")
   })
+
+  it("every script-content state is POSIX sh, not bash — the driver runs it via `sh -c`", () => {
+    // The shebang line is inert (the driver runs the script through whatever
+    // shell it invokes, never by exec-ing the script itself), but it is also
+    // documentation of what syntax the body may use — so it must say `sh`,
+    // and the body must actually stay POSIX. Iterate every script-content
+    // state generically (not just today's known six-turned-eight blocks) so a
+    // future workflow change that adds a new script state and accidentally
+    // reintroduces a bashism fails here automatically.
+    const { definition } = compileTemplate()
+    const scriptStates = Object.entries(definition.states).filter(
+      (entry): entry is [string, { script: string }] => entry[1].script !== undefined,
+    )
+    expect(scriptStates.length).toBeGreaterThan(0)
+    const bashisms = [
+      /\blocal\s+\w/, // `local` declarations (not POSIX sh)
+      /\$'/, // ANSI-C quoting
+      /<\(|>\(/, // process substitution
+      /<<</, // herestrings
+      /(^|\s)\[\[\s/m, // bash `[[ ... ]]` test syntax (not a sed/regex bracket class)
+      /\$RANDOM\b/,
+    ]
+    for (const [name, state] of scriptStates) {
+      expect(state.script.startsWith("#!/usr/bin/env sh\n"), `state "${name}"`).toBe(true)
+      for (const pattern of bashisms) {
+        expect(state.script, `state "${name}" matches ${pattern}`).not.toMatch(pattern)
+      }
+    }
+  })
 })
 
 describe("the bundled template's machine boundaries line up with conversational identity (package 08/02)", () => {

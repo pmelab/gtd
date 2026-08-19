@@ -1,5 +1,7 @@
 import { Effect } from "effect"
+import { GtdError } from "./Commentary.js"
 import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
+import { EnvVars } from "./EnvVars.js"
 import { isSeededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
 import type { SteeringFinding, SteeringFormat } from "./SteeringFormat.js"
 import { knownModes, type StateMode, type WorkflowDefinition } from "./PatternMachine.js"
@@ -162,6 +164,23 @@ const errorText = (e: unknown): string => (e instanceof Error ? e.message : Stri
 const exitText = (status: number | null): string =>
   status === null ? "a signal" : `status ${status}`
 
+/**
+ * `127` is bash's own convention for "command not found" — the ONE
+ * observable "missing binary" site in gtd: a steering mode's `format:`/
+ * `validate:` command, the only place gtd itself spawns a subprocess (a
+ * workflow `script:` is run by the driver, never by gtd — see the module
+ * doc comment above). The resolved `$PATH` bash searched is the remediation
+ * detail (`Commentary.ts`'s `GtdError`).
+ */
+const MISSING_BINARY_STATUS = 127
+
+const missingBinaryError = (
+  mode: StateMode,
+  key: "format" | "validate",
+  path: string | undefined,
+): GtdError =>
+  new GtdError(`mode "${mode}": "${key}" command not found`, [`$PATH: ${path ?? "(unset)"}`])
+
 /** Render one command template, turning an Eta failure into a named error rather than executing anything. */
 const renderCommand = (
   mode: StateMode,
@@ -200,13 +219,17 @@ export const formatSteeringFile = (
   resolved: ResolvedMode,
   file: string,
   context: TemplateContext,
-): Effect.Effect<void, Error, CommandRunner> =>
+): Effect.Effect<void, Error, CommandRunner | EnvVars> =>
   Effect.gen(function* () {
     const command = resolved.formatCommand
     if (command === undefined) return
     const rendered = yield* renderCommand(resolved.mode, "format", command, file, context)
     const runner = yield* CommandRunner
     const outcome = yield* runner.bash(rendered)
+    if (outcome.status === MISSING_BINARY_STATUS) {
+      const envVars = yield* EnvVars
+      return yield* Effect.fail(missingBinaryError(resolved.mode, "format", envVars.all["PATH"]))
+    }
     if (outcome.status !== 0) {
       return yield* Effect.fail(
         new Error(
@@ -231,7 +254,7 @@ export const validateSteeringFile = (
   file: string,
   content: string,
   context: TemplateContext,
-): Effect.Effect<readonly SteeringFinding[], Error, CommandRunner> =>
+): Effect.Effect<readonly SteeringFinding[], Error, CommandRunner | EnvVars> =>
   Effect.gen(function* () {
     const validator = resolved.validate
     if (validator === undefined) return []
@@ -247,6 +270,10 @@ export const validateSteeringFile = (
     )
     const runner = yield* CommandRunner
     const outcome = yield* runner.bash(rendered)
+    if (outcome.status === MISSING_BINARY_STATUS) {
+      const envVars = yield* EnvVars
+      return yield* Effect.fail(missingBinaryError(resolved.mode, "validate", envVars.all["PATH"]))
+    }
     return outcome.status === 0 ? [] : findingsFrom(resolved.mode, outcome)
   })
 
@@ -266,7 +293,7 @@ export const formatAndValidateSteeringFile = (
   file: string,
   content: string,
   context: TemplateContext,
-): Effect.Effect<readonly SteeringFinding[], Error, CommandRunner> =>
+): Effect.Effect<readonly SteeringFinding[], Error, CommandRunner | EnvVars> =>
   Effect.gen(function* () {
     yield* formatSteeringFile(resolved, file, context)
     return yield* validateSteeringFile(resolved, file, content, context)

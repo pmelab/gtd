@@ -8,11 +8,11 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import * as fc from "fast-check"
 import { Effect, Layer } from "effect"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
-  cliErrorLine,
   needsOf,
   nodeCliIo,
+  normalizeTrailingNewline,
   parseArgv,
   renderHelp,
   runCli,
@@ -21,6 +21,10 @@ import {
   type Command,
   type CommandRequirements,
 } from "./Cli.js"
+import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
+import { InMemRepo } from "./testing/InMemRepo.js"
+import { testLayers } from "./testing/Layers.js"
+import { renderInitConfig } from "./workflows/templates.js"
 
 const FLAG_NAMES = [
   "--json",
@@ -31,6 +35,7 @@ const FLAG_NAMES = [
   "--entry",
   "--var",
   "--open-questions",
+  "--verbose",
 ]
 
 describe("parseArgv — unknown options", () => {
@@ -47,7 +52,8 @@ describe("parseArgv — unknown options", () => {
           const bogus = "--totally-bogus-flag"
           const argv = ["node", "gtd.js", ...words, bogus]
           if (argv.includes("--help") || argv.includes("-h")) return
-          if (argv.includes("--version") || argv.includes("-v")) return
+          if (argv.includes("--version") || argv.includes("-V")) return
+          if (argv.includes("-v")) return
           if (FLAG_NAMES.some((f) => argv.includes(f))) return
           const plan = parseArgv(argv)
           expect(plan.kind).toBe("usage")
@@ -94,10 +100,31 @@ describe("parseArgv — scope", () => {
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
   })
 
-  it("--json on lsp is rejected", () => {
-    const plan = parseArgv(["node", "gtd.js", "lsp", "--json"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toBe("gtd lsp does not accept --json")
+  it("--json is in scope for status alone — every other command usage-errors on it", () => {
+    const ok = parseArgv(["node", "gtd.js", "status", "--json"])
+    expect(ok.kind).toBe("command")
+    if (ok.kind === "command") expect(ok.json).toBe(true)
+
+    for (const args of [
+      ["lsp", "--json"],
+      ["next", "--json"],
+      ["land", "--json"],
+      ["validate", "--json"],
+      ["check", "qa", "TODO.md", "--json"],
+      ["init", "--json"],
+      ["visualize", "--json"],
+      ["install", "--json"],
+      ["abandon", "--json"],
+      ["restore", "--json"],
+      ["--entry", "some-state", "--json"],
+    ]) {
+      const plan = parseArgv(["node", "gtd.js", ...args])
+      expect(plan.kind).toBe("usage")
+      if (plan.kind === "usage") {
+        expect(plan.message).toContain("only valid for `gtd status`")
+        expect(plan.message).toContain("gtd install")
+      }
+    }
   })
 
   it("--port on land is rejected", () => {
@@ -163,14 +190,18 @@ describe("parseArgv — scope", () => {
 })
 
 describe("parseArgv — gtd next", () => {
-  it("parses to a bare next command, --json or not — there is no separate claiming form any more", () => {
-    for (const args of [["next"], ["next", "--json"]]) {
-      const plan = parseArgv(["node", "gtd.js", ...args])
-      expect(plan.kind).toBe("command")
-      if (plan.kind === "command") {
-        expect(plan.command).toEqual({ kind: "next" })
-      }
+  it("parses to a bare next command — there is no separate claiming form any more", () => {
+    const plan = parseArgv(["node", "gtd.js", "next"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "next" })
     }
+  })
+
+  it("gtd next --json is now a usage error — next is plain text only", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd status`")
   })
 })
 
@@ -205,16 +236,21 @@ describe("parseArgv — flag orthogonality", () => {
 })
 
 describe("parseArgv — bare/unknown command under --json", () => {
-  it("bare gtd --json is a usage error with json:true and no full usage block on stdout", () => {
+  // With no command resolved, `kind` is `undefined` — `--json`'s scope
+  // (`kind === "status"`) is violated just like any other scoped flag used
+  // standalone (e.g. `--var` with no `--entry`), so its scope error takes
+  // priority over "missing command"/"unknown command" here — no new special
+  // case for `--json` at an unresolved kind.
+  it("bare gtd --json is a usage error with json:true, naming --json's own scope error", () => {
     const plan = parseArgv(["node", "gtd.js", "--json"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
       expect(plan.json).toBe(true)
-      expect(plan.message).toContain("missing command")
+      expect(plan.message).toContain("only valid for `gtd status`")
     }
   })
 
-  it("bare gtd's missing-command message points at the README's minimal driver, not a bundled loop", () => {
+  it("bare gtd's missing-command message (no --json) points at the README's minimal driver, not a bundled loop", () => {
     const plan = parseArgv(["node", "gtd.js"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
@@ -225,11 +261,20 @@ describe("parseArgv — bare/unknown command under --json", () => {
     }
   })
 
-  it("an unknown command under --json carries json:true and names the subcommand", () => {
+  it("an unknown command under --json carries json:true, naming --json's own scope error over the subcommand", () => {
     const plan = parseArgv(["node", "gtd.js", "bogus", "--json"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
       expect(plan.json).toBe(true)
+      expect(plan.message).toContain("only valid for `gtd status`")
+    }
+  })
+
+  it("an unknown command without --json still names the subcommand", () => {
+    const plan = parseArgv(["node", "gtd.js", "bogus"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.json).toBe(false)
       expect(plan.message).toContain("bogus")
     }
   })
@@ -302,10 +347,10 @@ describe("parseArgv — gtd check <mode> <file>", () => {
     }
   })
 
-  it("--json is in scope for check", () => {
+  it("--json is out of scope for check — status is the only structured surface", () => {
     const plan = parseArgv(["node", "gtd.js", "check", "review", "REVIEW.md", "--json"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") expect(plan.json).toBe(true)
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd status`")
   })
 
   it("missing both arguments is a usage error naming mode and file", () => {
@@ -399,6 +444,55 @@ describe("parseArgv — help/version short-circuits", () => {
     const plan = parseArgv(["node", "gtd.js", "bogus", "--help"])
     expect(plan.kind).toBe("output")
   })
+
+  it("-V short-circuits to the version output, exactly like --version", () => {
+    const a = parseArgv(["node", "gtd.js", "-V"])
+    const b = parseArgv(["node", "gtd.js", "--version"])
+    expect(a).toEqual(b)
+  })
+})
+
+describe("parseArgv — --verbose / -v (the -v/-V swap)", () => {
+  it("bare `gtd -v` no longer prints a version — it is the missing-command usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "-v"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("missing command")
+  })
+
+  it("-v resolves to --verbose: `gtd -v status` carries verbose: true", () => {
+    const plan = parseArgv(["node", "gtd.js", "-v", "status"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "status" })
+      expect(plan.verbose).toBe(true)
+    }
+  })
+
+  it("--verbose is equivalent to -v", () => {
+    const a = parseArgv(["node", "gtd.js", "status", "--verbose"])
+    const b = parseArgv(["node", "gtd.js", "status", "-v"])
+    expect(a).toEqual(b)
+  })
+
+  it("every other command's plan carries verbose: false when the flag is absent", () => {
+    const plan = parseArgv(["node", "gtd.js", "next"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") expect(plan.verbose).toBe(false)
+  })
+
+  it("--verbose is valid alongside every command kind — never a scope violation", () => {
+    for (const args of [
+      ["land", "--verbose"],
+      ["status", "--verbose", "--json"],
+      ["check", "qa", "TODO.md", "--verbose"],
+      ["--entry", "some-state", "--verbose"],
+      ["visualize", "--verbose"],
+    ]) {
+      const plan = parseArgv(["node", "gtd.js", ...args])
+      expect(plan.kind).toBe("command")
+      if (plan.kind === "command") expect(plan.verbose).toBe(true)
+    }
+  })
 })
 
 describe("parseArgv — removed subcommands", () => {
@@ -457,10 +551,10 @@ describe("parseArgv — gtd install", () => {
     }
   })
 
-  it("--json is in scope for install", () => {
+  it("--json is out of scope for install — the briefing is plain text only", () => {
     const plan = parseArgv(["node", "gtd.js", "install", "--json"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") expect(plan.json).toBe(true)
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd status`")
   })
 
   it("gtd install extra is a usage error (install takes no argument)", () => {
@@ -526,11 +620,11 @@ describe("renderHelp", () => {
     expect(help).toContain("--cost")
     expect(help).toContain("--model")
     expect(help).toContain("--open-questions")
-    expect(help).toContain("--version, -v")
+    expect(help).toContain("--verbose")
+    expect(help).toContain("--version, -V")
     expect(help).toContain("--help, -h")
     expect(help).not.toContain("review <commitish>")
     expect(help).not.toContain("format <file>")
-    expect(help).not.toContain("--verbose")
     expect(help).not.toContain("--debug")
     expect(help).not.toContain("bin/gtd")
     expect(help).not.toContain("(no command), loop")
@@ -552,25 +646,22 @@ describe("renderHelp", () => {
     expect(match).not.toBeNull()
     expect(match![1] + "\n").toBe(renderHelp())
   })
-})
 
-describe("cliErrorLine", () => {
-  it("prefixes a bare message with 'gtd: '", () => {
-    expect(cliErrorLine(new Error("boom"))).toBe("gtd: boom")
-  })
-
-  it("does not double-prefix a message that already starts with 'gtd:'", () => {
-    expect(cliErrorLine(new Error("gtd: already prefixed"))).toBe("gtd: already prefixed")
-  })
-
-  it("does not double-prefix a message that already starts with 'gtd '", () => {
-    expect(cliErrorLine(new Error("gtd land: out of turn"))).toBe("gtd land: out of turn")
-  })
-
-  it("stringifies a non-Error thrown value", () => {
-    expect(cliErrorLine("just a string")).toBe("gtd: just a string")
+  it("the README's Exit codes table, pinned beside the rendered help output, is exactly ExitCodes.ts's closed set", () => {
+    const readme = readFileSync(resolve(import.meta.dirname, "../README.md"), "utf8")
+    const match = readme.match(/### Exit codes\n\n[^\n]*\n[^\n]*\n\n((?:\|.*\n)+)/)
+    expect(match).not.toBeNull()
+    const table = match![1] ?? ""
+    const codes = [...table.matchAll(/\|\s*(\d+)(?:\s*\/\s*(\d+))?\s*\|/g)].flatMap(([, a, b]) =>
+      b !== undefined ? [Number(a), Number(b)] : [Number(a)],
+    )
+    expect(new Set(codes)).toEqual(EXIT_CODES)
   })
 })
+
+// `cliErrorLine`'s own unit tests moved to `Commentary.test.ts` as
+// `renderFailure` — same behavior for a plain `Error`, plus new coverage for
+// a `GtdError`'s multi-line detail.
 
 // ---------------------------------------------------------------------------
 // Runtime tier — through runCli with a capturing CliIo
@@ -584,7 +675,7 @@ interface Captured {
 }
 
 const capturingIo = (
-  layers: () => Layer.Layer<CommandRequirements>,
+  layers: (verbose: boolean) => Layer.Layer<CommandRequirements>,
 ): { io: CliIo; captured: () => Captured } => {
   let stdout = ""
   let stderr = ""
@@ -600,9 +691,9 @@ const capturingIo = (
     exit: (code) => {
       exitCode = code
     },
-    layers: () => {
+    layers: (verbose) => {
       layersBuilt++
-      return layers()
+      return layers(verbose)
     },
   }
   return { io, captured: () => ({ stdout, stderr, exitCode, layersBuilt }) }
@@ -640,28 +731,122 @@ describe("runCli — layers() is never invoked for output/usage plans", () => {
 })
 
 describe("runCli — exit codes", () => {
-  it("output plan: exit is never called (success)", async () => {
+  it("output plan: exit is never called (success) — --help and --version still exit 0", async () => {
     const { io, captured } = capturingIo(throwingLayers)
     await Effect.runPromise(runCli(["node", "gtd.js", "--version"], io))
     expect(captured().exitCode).toBeUndefined()
+    const { io: helpIo, captured: helpCaptured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "--help"], helpIo))
+    expect(helpCaptured().exitCode).toBeUndefined()
   })
 
-  it("usage plan: exit(1)", async () => {
+  it("usage plan: exit(EXIT_USAGE_ERROR) — an unknown/missing/malformed invocation, never EXIT_RUNTIME_ERROR", async () => {
     const { io, captured } = capturingIo(throwingLayers)
     await Effect.runPromise(runCli(["node", "gtd.js", "bogus"], io))
-    expect(captured().exitCode).toBe(1)
+    expect(captured().exitCode).toBe(EXIT_USAGE_ERROR)
+  })
+
+  it("a command failure that is NOT a usage error still exits EXIT_RUNTIME_ERROR", async () => {
+    // `throwingLayers` fails as soon as anything actually needs the layer —
+    // unlike a usage error (never builds one), a resolved command always
+    // does, so this exercises `report`'s own exit code, not `usagePlan`'s.
+    const { io, captured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "next"], io))
+    expect(captured().exitCode).toBe(EXIT_RUNTIME_ERROR)
   })
 })
 
 describe("runCli — --json envelopes", () => {
-  it("a usage error under --json writes the envelope on stdout and one gtd: line on stderr", async () => {
+  it("a usage error under --json writes the envelope on stderr, leaving stdout byte-empty", async () => {
     const { io, captured } = capturingIo(throwingLayers)
     await Effect.runPromise(runCli(["node", "gtd.js", "bogus", "--json"], io))
     const { stdout, stderr } = captured()
-    const parsed = JSON.parse(stdout) as { state: string; prompt: string }
+    expect(stdout).toBe("")
+    const [envelopeLine] = stderr.split("\n")
+    const parsed = JSON.parse(envelopeLine!) as { state: string; prompt: string }
     expect(parsed.state).toBe("error")
-    expect(stderr).toMatch(/^gtd: [^\n]*\n$/)
+    expect(stderr).toMatch(/gtd: [^\n]*\n$/)
     expect(stderr).not.toContain("gtd: gtd:")
+  })
+
+  it("a runtime error under --json writes the envelope on stderr, leaving stdout byte-empty", async () => {
+    const { io, captured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "status", "--json"], io))
+    const { stdout, stderr } = captured()
+    expect(stdout).toBe("")
+    const [envelopeLine] = stderr.split("\n")
+    const parsed = JSON.parse(envelopeLine!) as { state: string; prompt: string }
+    expect(parsed.state).toBe("error")
+  })
+})
+
+describe("runCli — stdout stays byte-empty on every failing surface", () => {
+  // The all-or-nothing half `ArtifactOut` buys structurally: a handler may
+  // write through `out` and still fail — `bufferedArtifactOut`'s buffer is
+  // simply never flushed, so `io.stdout` is never called at all. One
+  // scenario per failure surface `Cli.ts`/`program.ts` can produce.
+
+  it("usage error: stdout is byte-empty, the message lands on stderr", async () => {
+    const { io, captured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "bogus"], io))
+    const { stdout, stderr } = captured()
+    expect(stdout).toBe("")
+    expect(stderr).toContain("unknown command")
+  })
+
+  it("refusal: a real command's own typed Effect.fail leaves stdout byte-empty", async () => {
+    const repo = new InMemRepo() // no commits yet — assertRepositoryHasCommits refuses
+    const { io, captured } = capturingIo(() => testLayers(repo))
+    await Effect.runPromise(runCli(["node", "gtd.js", "next"], io))
+    const { stdout, stderr, exitCode } = captured()
+    expect(exitCode).toBe(EXIT_RUNTIME_ERROR)
+    expect(stdout).toBe("")
+    expect(stderr).toContain("gtd requires a repository with at least one commit")
+  })
+
+  it("runtime error: a handler's own Effect.fail (not the shared repo-root/commit guard) leaves stdout byte-empty", async () => {
+    // `gtd check` needs neither a repository nor a commit (`needsOf("check")
+    // === "fs"`) — this exercises a plain `FileSystem`-only failure inside
+    // the handler itself, distinct from the "refusal" test above (which fails
+    // in the shared guard, before any handler runs at all).
+    const repo = new InMemRepo()
+    repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
+    const { io, captured } = capturingIo(() => testLayers(repo))
+    await Effect.runPromise(runCli(["node", "gtd.js", "check", "qa", ".gtd/TODO.md"], io))
+    const { stdout, stderr, exitCode } = captured()
+    expect(exitCode).toBe(EXIT_RUNTIME_ERROR)
+    expect(stdout).toBe("")
+    expect(stderr).toContain("has no question text")
+  })
+
+  it("defect: an unchecked throw building the layer still leaves stdout byte-empty", async () => {
+    const { io, captured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "next"], io))
+    const { stdout, stderr, exitCode } = captured()
+    expect(exitCode).toBe(EXIT_RUNTIME_ERROR)
+    expect(stdout).toBe("")
+    expect(stderr).toContain("layers() must not be called")
+  })
+
+  it("unit: a failing command's collected buffer is never handed to io.stdout", async () => {
+    // Same failure as the "runtime error" case above, observed directly
+    // through `io.stdout` itself (a raw call-recording array, not just the
+    // captured string) — `runCli`'s `bufferedArtifactOut` only ever calls
+    // `io.stdout` from the success branch's `flush()`, so a failing run must
+    // produce zero calls, not merely an empty joined string.
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.commitAllWithPrefix("chore: init gtd workflow")
+    repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
+    const stdoutCalls: string[] = []
+    const io: CliIo = {
+      stdout: (chunk) => stdoutCalls.push(chunk),
+      stderr: () => {},
+      exit: () => {},
+      layers: () => testLayers(repo),
+    }
+    await Effect.runPromise(runCli(["node", "gtd.js", "check", "qa", ".gtd/TODO.md"], io))
+    expect(stdoutCalls).toEqual([])
   })
 })
 
@@ -671,6 +856,70 @@ describe("nodeCliIo", () => {
     expect(typeof nodeCliIo.stderr).toBe("function")
     expect(typeof nodeCliIo.exit).toBe("function")
     expect(typeof nodeCliIo.layers).toBe("function")
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("stdout writes through process.stdout.write with a completion callback, even when the write is queued (backpressure)", () => {
+    const write = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((_chunk: unknown, cb?: unknown) => {
+        if (typeof cb === "function") cb()
+        return false // the queued-data case
+      })
+    nodeCliIo.stdout("a large chunk")
+    expect(write).toHaveBeenCalledTimes(1)
+    const [chunk, cb] = write.mock.calls[0]!
+    expect(chunk).toBe("a large chunk")
+    expect(typeof cb).toBe("function")
+  })
+
+  it("exit sets process.exitCode rather than calling process.exit — an undrained stdout.write must not be torn down", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit must never be called on the normal path")
+    })
+    const before = process.exitCode
+    try {
+      nodeCliIo.exit(10)
+      expect(process.exitCode).toBe(10)
+      expect(exit).not.toHaveBeenCalled()
+    } finally {
+      process.exitCode = before
+    }
+  })
+})
+
+describe("normalizeTrailingNewline", () => {
+  it("leaves a byte-empty artifact byte-empty", () => {
+    expect(normalizeTrailingNewline("")).toBe("")
+  })
+
+  it("appends exactly one trailing newline to a non-empty artifact with none", () => {
+    expect(normalizeTrailingNewline("no newline yet")).toBe("no newline yet\n")
+  })
+
+  it("collapses several trailing newlines to exactly one", () => {
+    expect(normalizeTrailingNewline("content\n\n\n\n")).toBe("content\n")
+  })
+
+  it("leaves an artifact already ending in exactly one newline unchanged", () => {
+    expect(normalizeTrailingNewline("content\n")).toBe("content\n")
+  })
+})
+
+describe("runCli — flush normalizes the artifact's trailing newline", () => {
+  it("a plain-text write command's script (no trailing newline) reaches io.stdout with exactly one", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gitignore", "node_modules\n")
+    repo.commitAllWithPrefix("chore: initial commit")
+    const { io, captured } = capturingIo(() => testLayers(repo))
+    await Effect.runPromise(runCli(["node", "gtd.js", "land"], io))
+    const { stdout } = captured()
+    expect(stdout.length).toBeGreaterThan(0)
+    expect(stdout.endsWith("\n")).toBe(true)
+    expect(stdout.endsWith("\n\n")).toBe(false)
   })
 })
 

@@ -1,17 +1,24 @@
 @inmem
-Feature: Driver protocol — gtd next --json content kinds, gtd status pattern matches
+Feature: Driver protocol — gtd status --json content kinds and pattern matches
 
-  Pins the `gtd next --json` contract (`{state, actor, kind, content, edges}`,
-  see docs/design/pattern-machine-plan.md §3) for the `script` and `prompt`
-  kinds — smoke.feature already pins the `message` kind at `idle` — the
-  `edges` list (the resting state's `on` edges as `{pattern, target,
-  describe?}`, also what a `message:` template sees as `it.edges`), `gtd
+  Pins the `gtd status --json` contract (`{state, actor, kind, content,
+  edges}`, see docs/design/pattern-machine-plan.md §3) for the `script` and
+  `prompt` kinds — smoke.feature already pins the `message` kind at `idle` —
+  the `edges` list (the resting state's `on` edges as `{pattern, target,
+  describe?}`, also what a `message:` template sees as `it.edges`), and `gtd
   status`'s pattern-match reporting (plain text and `--json`), which shows
-  which declared `on` pattern (if any) each pending change matches, and `gtd
-  step --json`'s `settled` flag — the driver-protocol signal that a `script`
-  rest's no-op is terminal.
+  which declared `on` pattern (if any) each pending change matches.
+  `gtd status --json` is now the ONLY structured surface gtd has — it absorbed
+  every field the old `gtd next --json` used to carry — so every scenario
+  below that used to read `gtd next --json` reads `gtd status --json`
+  instead. `gtd land`'s own "settled" signal (a `script` rest's no-op, or a
+  collapse back to the initial state, is terminal) is no longer a JSON field
+  either — it lives in the exit code alone (0 means settled, per
+  `src/program.ts`'s `postLandExitCode`) and in the emitted script's own
+  content (a genuine no-op prints "nothing to do" with no `git commit`; a
+  collapse prints a rewind with no `git commit` either).
 
-  Scenario: gtd next --json reports kind "script" for a check-actor state
+  Scenario: gtd status --json reports kind "script" for a check-actor state
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -37,14 +44,14 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking\""
     And stdout contains "\"actor\":\"check\""
     And stdout contains "\"kind\":\"script\""
     And stdout contains "echo hi"
 
-  Scenario: gtd next --json reports kind "prompt" for an agent-actor state
+  Scenario: gtd status --json reports kind "prompt" for an agent-actor state
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -70,14 +77,14 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "\"kind\":\"prompt\""
     And stdout contains "do the work described in NOTE.md"
 
-  Scenario: gtd next --json reports kind "capture" for a message rest with a dirty tree — the human already acted
+  Scenario: gtd status --json reports kind "capture" for a message rest with a dirty tree — the human already acted
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -103,12 +110,12 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""
     And stdout contains "\"kind\":\"capture\""
 
-  Scenario: gtd next --json's dispatch block (session/validate) is absent at a script rest, even when a prompt rest nearby would carry it
+  Scenario: gtd status --json's dispatch block (session/validate) is absent at a script rest, even when a prompt rest nearby would carry it
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -134,7 +141,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"kind\":\"script\""
     And stdout does not contain "\"session\""
@@ -269,7 +276,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout contains "\"next\":null"
 
-  Scenario: gtd next --json carries the owning machine's model hint, and gtd status shows it too
+  Scenario: gtd status --json carries the owning machine's model hint, in plain text too
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -296,19 +303,16 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"working\""
-    And stdout contains "\"model\":\"smart\""
     When I run gtd status
     Then it succeeds
     And stdout contains "State: working"
     And stdout contains "Model: smart"
     When I run gtd status with "--json"
     Then it succeeds
+    And stdout contains "\"state\":\"working\""
     And stdout contains "\"model\":\"smart\""
 
-  Scenario: gtd next --json and gtd status --json omit "model" entirely when the owning machine declares none
+  Scenario: gtd status --json omits "model" entirely when the owning machine declares none
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -334,18 +338,15 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"working\""
-    And stdout does not contain "\"model\""
     When I run gtd status
     Then it succeeds
     And stdout does not contain "Model:"
     When I run gtd status with "--json"
     Then it succeeds
+    And stdout contains "\"state\":\"working\""
     And stdout does not contain "\"model\""
 
-  Scenario: gtd next --json computes a commit-anchored memory key from the resting prompt state's scope, and gtd status shows it too
+  Scenario: gtd status --json computes a commit-anchored memory key from the resting prompt state's scope, and plain gtd status shows it too
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -371,19 +372,16 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"working\""
-    And stdout matches "\"memory\":\"root#[0-9a-f]{7}\""
     When I run gtd status
     Then it succeeds
     And stdout contains "State: working"
     And stdout matches "Memory: root#[0-9a-f]{7}"
     When I run gtd status with "--json"
     Then it succeeds
+    And stdout contains "\"state\":\"working\""
     And stdout matches "\"memory\":\"root#[0-9a-f]{7}\""
 
-  Scenario: gtd next --json and gtd status --json omit "memory" entirely for a non-prompt state — the computed key only ever applies to a prompt turn
+  Scenario: gtd status --json omits "memory" entirely for a non-prompt state — the computed key only ever applies to a prompt turn
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -405,18 +403,15 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
                 on:
                   "* **": idle
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"idle\""
-    And stdout does not contain "\"memory\""
     When I run gtd status
     Then it succeeds
     And stdout does not contain "Memory:"
     When I run gtd status with "--json"
     Then it succeeds
+    And stdout contains "\"state\":\"idle\""
     And stdout does not contain "\"memory\""
 
-  Scenario: gtd next --json carries the state's declared label, and gtd status shows it too
+  Scenario: gtd status --json carries the state's declared label, and plain gtd status shows it too
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -443,19 +438,16 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"working\""
-    And stdout contains "\"label\":\"Doing the work\""
     When I run gtd status
     Then it succeeds
     And stdout contains "State: working"
     And stdout contains "Label: Doing the work"
     When I run gtd status with "--json"
     Then it succeeds
+    And stdout contains "\"state\":\"working\""
     And stdout contains "\"label\":\"Doing the work\""
 
-  Scenario: gtd next --json and gtd status --json omit "label" entirely when the state declares none
+  Scenario: gtd status --json omits "label" entirely when the state declares none
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -481,15 +473,12 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"working\""
-    And stdout does not contain "\"label\""
     When I run gtd status
     Then it succeeds
     And stdout does not contain "Label:"
     When I run gtd status with "--json"
     Then it succeeds
+    And stdout contains "\"state\":\"working\""
     And stdout does not contain "\"label\""
 
   Scenario: gtd status --json reports the same pattern matches structurally
@@ -534,7 +523,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout contains "\"pattern\":\"A DONE.md\""
     And stdout contains "\"pattern\":null"
 
-  Scenario: gtd next --json and gtd status --json carry the state's declared file/mode, and plain gtd status shows both
+  Scenario: gtd status --json carries the state's declared file/mode, and plain gtd status shows both
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -562,11 +551,6 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"working\""
-    And stdout contains "\"file\":\".gtd/PLAN.md\""
-    And stdout contains "\"mode\":\"qa\""
     When I run gtd status
     Then it succeeds
     And stdout contains "State: working"
@@ -574,10 +558,11 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout contains "Mode: qa"
     When I run gtd status with "--json"
     Then it succeeds
+    And stdout contains "\"state\":\"working\""
     And stdout contains "\"file\":\".gtd/PLAN.md\""
     And stdout contains "\"mode\":\"qa\""
 
-  Scenario: gtd next --json and gtd status --json omit "file"/"mode" entirely when the state declares neither
+  Scenario: gtd status --json omits "file"/"mode" entirely when the state declares neither
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -603,10 +588,6 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout does not contain "\"file\""
-    And stdout does not contain "\"mode\""
     When I run gtd status
     Then it succeeds
     And stdout does not contain "File:"
@@ -616,18 +597,15 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout does not contain "\"file\""
     And stdout does not contain "\"mode\""
 
-  Scenario: the bundled template's idle rest carries the todoFile hint in gtd next --json and gtd status --json
+  Scenario: the bundled template's idle rest carries the todoFile hint in gtd status --json
     Given a test project
     And the workflow
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""
     And stdout contains "\"file\":\".gtd/TODO.md\""
-    When I run gtd status with "--json"
-    Then it succeeds
-    And stdout contains "\"file\":\".gtd/TODO.md\""
 
-  Scenario: a human gate's message renders its `on` edge descriptions as a route list, and gtd next --json carries the same edges
+  Scenario: a human gate's message renders its `on` edge descriptions as a route list, and gtd status --json carries the same edges
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -667,14 +645,14 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout contains "What each change does next (then run `gtd land`):"
     And stdout contains "- Change nothing to accept the current state and proceed."
     And stdout contains "- Change any source file to leave feedback and start another round."
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"pattern\":\"C\""
     And stdout contains "\"target\":\"accept\""
     And stdout contains "\"describe\":\"Change nothing to accept the current state and proceed.\""
     And stdout contains "\"target\":\"revise\""
 
-  Scenario: a string-form `on` edge emits an edge with no describe, and gtd next --json omits "edges" for a commit-only-target state with none
+  Scenario: a string-form `on` edge emits an edge with no describe, and gtd status --json omits "edges" for a commit-only-target state with none
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -700,24 +678,25 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"edges\":[{\"pattern\":\"* **\",\"target\":\"idle\"}]"
     And stdout does not contain "\"describe\""
 
-  Scenario: gtd next --json reports the per-worktree loop log path by default (gtd#169)
+  Scenario: gtd status --json reports the per-worktree loop log path by default (gtd#169)
     Given a test project
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"log\":\".git/gtd-loop.log\""
 
-  Scenario: gtd next --json reports GTD_LOOP_LOG verbatim when set (gtd#169)
+  Scenario: gtd status --json reports GTD_LOOP_LOG verbatim when set (gtd#169)
     Given a test project
     And an environment variable "GTD_LOOP_LOG" set to "/tmp/run.log"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"log\":\"/tmp/run.log\""
-  Scenario: gtd land --json reports settled at a script rest that matched nothing
+
+  Scenario: gtd land settles at a script rest that matched nothing — a print-only script, no git commit
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -743,11 +722,12 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd land with "--json"
+    When I run gtd land
     Then it settles
-    And stdout contains "\"settled\":true"
+    And stdout contains "nothing to do"
+    And stdout does not contain "git commit"
 
-  Scenario: gtd land --json reports settled false at a prompt rest that matched nothing
+  Scenario: gtd land is not settled at a prompt rest that matched nothing — that's an attempt, not a terminal state
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -773,11 +753,13 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
       a note
       """
-    When I run gtd land with "--json"
-    Then it succeeds
-    And stdout contains "\"settled\":false"
+    When I run gtd land
+    # Exit 10, never 0 — `postLandExitCode` only ever reports 0 when settled
+    # (or the target is the initial state, neither of which applies here), so
+    # this alone already proves NOT settled without needing a JSON field.
+    Then it awaits the agent
 
-  Scenario: gtd land --json reports settled for a green re-entry that collapses back to the initial state
+  Scenario: gtd land settles for a green re-entry that collapses back to the initial state — no commit lands
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -801,8 +783,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
       """
     And I record the commit count
     And an empty commit "gtd(check): checking"
-    When I run gtd land with "--json"
+    When I run gtd land
     Then it settles
-    And stdout contains "\"settled\":true"
     And the commit count is unchanged
     And the git log does not contain "gtd("

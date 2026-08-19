@@ -1,12 +1,12 @@
 @inmem
-Feature: gtd next --json — attempt commits and the derived stall
+Feature: gtd status --json — attempt commits and the derived stall
 
   A no-change agent turn is now VISIBLE: a `prompt` beat whose step lands a
   clean tree and declares no `C` row commits an empty `gtd(<actor>): <state>`
   attempt instead of the old silent no-op. `kind: "stalled"` is derived from
   that history — HEAD is an empty attempt at the resting state, the tree is
   clean, and another dispatch would just repeat it (see `Edge.ts`'s
-  `stalledAt`) — a pure read `gtd next --json` reports on EVERY call, peeked
+  `stalledAt`) — a pure read `gtd status --json` reports on EVERY call, peeked
   any number of times, sticky until the workflow's own `C` row or `retry:`
   escalation clears it.
 
@@ -47,7 +47,7 @@ Feature: gtd next --json — attempt commits and the derived stall
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
     And the git status is clean
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"kind\":\"stalled\""
 
@@ -59,7 +59,7 @@ Feature: gtd next --json — attempt commits and the derived stall
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"kind\":\"stalled\""
     And the json field "content" contains "stalled at \"working\""
@@ -71,7 +71,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       Build a calculator.
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout does not contain "stalled"
 
@@ -109,7 +109,7 @@ Feature: gtd next --json — attempt commits and the derived stall
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → checking"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout does not contain "stalled"
 
@@ -158,7 +158,7 @@ Feature: gtd next --json — attempt commits and the derived stall
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → escalate"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout does not contain "stalled"
 
@@ -174,7 +174,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       not yet committed
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout does not contain "stalled"
 
@@ -212,7 +212,7 @@ Feature: gtd next --json — attempt commits and the derived stall
     Then it settles
     And stdout contains "nothing to do at \"checking\""
     And the last commit subject is "gtd(agent): checking"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout does not contain "stalled"
 
@@ -221,6 +221,6 @@ Feature: gtd next --json — attempt commits and the derived stall
     Then it succeeds
     And stdout contains "nothing to do at \"idle\""
     And the last commit subject is "chore: add .gtdrc"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout does not contain "stalled"

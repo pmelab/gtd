@@ -53,7 +53,14 @@ import {
   softResetTo,
   updateRef,
 } from "../GitScript.js"
-import { failurePromptWrapper, headAssertion, reviewWindowAssertion } from "../Emit.js"
+import {
+  DID_NOT_RUN_COMMENT,
+  failurePromptWrapper,
+  headAssertion,
+  PRESENTATION_FAILURE_WARNING,
+  PRESENTATION_ONLY_COMMENT,
+  reviewWindowAssertion,
+} from "../Emit.js"
 import { OUTCOME_PREAMBLE } from "../OutcomeScript.js"
 import {
   buildCloseWindowScript,
@@ -502,6 +509,48 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
   return { kind: "noop" }
 }
 
+/**
+ * `Emit.ts`'s `combinedScript` leading comment — `gtd land`/`gtd --entry`'s
+ * whole plain-text artifact now opens with this line ahead of the required
+ * script, so recognizing it (as a no-op, like the retry-helper function
+ * definition) is a hard prerequisite for the `@inmem` tier staying green once
+ * `world.ts` runs a command's WHOLE stdout as one script.
+ */
+const recognizeDidNotRunComment = (block: string): BlockOutcome | undefined =>
+  block === DID_NOT_RUN_COMMENT ? { kind: "noop" } : undefined
+
+/**
+ * `Emit.ts`'s `combinedScript` optional-half wrapper: `PRESENTATION_ONLY_COMMENT`
+ * immediately followed (no blank line) by `(\n<optional>\n) || <warning>` —
+ * kept as ONE block by `splitBlocks`'s subshell-depth tracking, even though
+ * `<optional>` itself may carry blank lines. Recurses into
+ * `applyEmittedScript` on the unwrapped inner script and ALWAYS reports
+ * `noop` regardless of the inner result — mirroring bash's own `( … ) ||
+ * <warning>` semantics, where the subshell's exit status is swallowed and
+ * must never fail the outer script.
+ */
+const PRESENTATION_SUBSHELL_PREFIX = `${PRESENTATION_ONLY_COMMENT}\n(\n`
+const PRESENTATION_SUBSHELL_SUFFIX = `\n) || ${PRESENTATION_FAILURE_WARNING}`
+
+const recognizePresentationSubshell = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+  block: string,
+): BlockOutcome | undefined => {
+  if (
+    !block.startsWith(PRESENTATION_SUBSHELL_PREFIX) ||
+    !block.endsWith(PRESENTATION_SUBSHELL_SUFFIX)
+  ) {
+    return undefined
+  }
+  const inner = block.slice(
+    PRESENTATION_SUBSHELL_PREFIX.length,
+    block.length - PRESENTATION_SUBSHELL_SUFFIX.length,
+  )
+  applyEmittedScript(repo, commands, inner)
+  return { kind: "noop" }
+}
+
 /** Anything left over must be an EXACT hit in the scripted-command table — mirrors `makeScriptedCommandRunner`'s two `kind`s (`Layers.ts`). */
 const recognizeScriptedCommand = (
   repo: InMemRepo,
@@ -552,18 +601,38 @@ const trackQuoteState = (line: string, quoted: boolean): boolean => {
   return inQuote
 }
 
+/**
+ * `Emit.ts`'s `combinedScript` wraps the optional half in a bare `(\n...\n) ||
+ * <warning>` — a literal `(` line opens it, a `) || ...` line closes it — and
+ * the optional script it wraps is itself a multi-section `assembleScript`
+ * output with its OWN blank-line-separated sections inside. `splitBlocks`
+ * below needs this depth (alongside quote state) to keep blank lines inside
+ * an open subshell from splitting it apart before `recognizePresentationSubshell`
+ * ever sees the whole thing. Safe to key on a bare `(`/`)` line specifically
+ * because no other emitted shape in this closed vocabulary ever produces one.
+ */
+const nextSubshellDepth = (trimmedLine: string, depth: number): number => {
+  if (trimmedLine === "(") return depth + 1
+  if (depth > 0 && trimmedLine.startsWith(")")) return depth - 1
+  return depth
+}
+
+/** Splits `script` into blocks on blank lines, tracking quote state (`trackQuoteState`) and subshell depth (`nextSubshellDepth`) so neither a quoted blank line nor one inside an open subshell splits a block apart. */
 const splitBlocks = (script: string): readonly string[] => {
   const blocks: string[] = []
   let current = ""
   let quoted = false
+  let subshellDepth = 0
   for (const line of script.trim().split("\n")) {
-    if (!quoted && line.trim().length === 0) {
+    const trimmedLine = line.trim()
+    if (!quoted && subshellDepth === 0 && trimmedLine.length === 0) {
       if (current.trim().length > 0) blocks.push(current.trim())
       current = ""
       continue
     }
     current += (current.length > 0 ? "\n" : "") + line
     quoted = trackQuoteState(line, quoted)
+    if (!quoted) subshellDepth = nextSubshellDepth(trimmedLine, subshellDepth)
   }
   if (current.trim().length > 0) blocks.push(current.trim())
   return blocks
@@ -585,6 +654,7 @@ export const applyEmittedScript = (
   for (const block of blocks) {
     const outcome =
       recognizeSetFlags(block) ??
+      recognizeDidNotRunComment(block) ??
       recognizePrecondition(repo, block) ??
       recognizeHeadAssertion(repo, block) ??
       recognizeReviewWindowRefAssertion(repo, block) ??
@@ -594,6 +664,7 @@ export const applyEmittedScript = (
       recognizeReviewWindowOpen(repo, block) ??
       recognizeRetryWrappedGitWrite(repo, block) ??
       recognizeFailurePromptWrapper(repo, commands, block) ??
+      recognizePresentationSubshell(repo, commands, block) ??
       recognizeGtdCheck(repo, block) ??
       recognizeOutcomePreamble(block) ??
       recognizeOutcomeCall(block) ??

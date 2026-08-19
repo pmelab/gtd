@@ -159,33 +159,46 @@ export const failurePromptWrapper = (command: string, prompt: string): string =>
  * is captured combined (`2>&1`) so the discrimination can inspect it exactly
  * like `commitAllowEmpty`/`restoreStagedFrom` in `src/GitScript.ts` do for
  * their own single-shot retries — this is the same technique, generalized
- * into a loop. `awk` (not bash, which has no fractional `sleep` builtin)
- * turns the millisecond backoff into the fractional-second argument `sleep`
- * needs; `-v` passes the values in rather than interpolating them into the
- * awk program text, so a variable's value can never be mistaken for awk
- * syntax.
+ * into a loop. `awk` (not the shell, which has no fractional `sleep` builtin
+ * and, under POSIX `sh`/`dash`, no `$RANDOM` either) turns the millisecond
+ * backoff into the fractional-second argument `sleep` needs AND derives the
+ * jitter itself — a deterministic hash of the attempt counter and the current
+ * delay (`(attempt * 2654435761) % ms`), so no external entropy source or
+ * second `awk`/`date` call is needed; `-v` passes the values in rather than
+ * interpolating them into the awk program text, so a variable's value can
+ * never be mistaken for awk syntax. POSIX `sh` has no `local`, so every
+ * variable here is `gtd_`-prefixed to avoid colliding with anything else in
+ * an assembled script, and each is `unset` right before every `return` so
+ * nothing leaks into the rest of the script.
  */
 const RETRY_HELPER = [
   `gtd_retry() {`,
-  `  local cmd=$1 attempt=1 delay_ms=10 out total_ms jitter_ms`,
+  `  gtd_cmd=$1`,
+  `  gtd_attempt=1`,
+  `  gtd_delay_ms=10`,
   `  while true; do`,
-  `    if out=$(eval "$cmd" 2>&1); then`,
-  `      [ -n "$out" ] && printf '%s\\n' "$out"`,
+  `    if gtd_out=$(eval "$gtd_cmd" 2>&1); then`,
+  `      [ -n "$gtd_out" ] && printf '%s\\n' "$gtd_out"`,
+  `      unset gtd_cmd gtd_attempt gtd_delay_ms gtd_out gtd_total_ms`,
   `      return 0`,
   `    fi`,
-  `    case "$out" in`,
+  `    case "$gtd_out" in`,
   `      *"index.lock"*|*"Another git process seems to be running"*) ;;`,
-  `      *) printf '%s\\n' "$out" >&2; return 1 ;;`,
+  `      *)`,
+  `        printf '%s\\n' "$gtd_out" >&2`,
+  `        unset gtd_cmd gtd_attempt gtd_delay_ms gtd_out gtd_total_ms`,
+  `        return 1`,
+  `        ;;`,
   `    esac`,
-  `    if [ "$attempt" -ge 6 ]; then`,
-  `      printf '%s\\n' "$out" >&2`,
+  `    if [ "$gtd_attempt" -ge 6 ]; then`,
+  `      printf '%s\\n' "$gtd_out" >&2`,
+  `      unset gtd_cmd gtd_attempt gtd_delay_ms gtd_out gtd_total_ms`,
   `      return 1`,
   `    fi`,
-  `    jitter_ms=$(( RANDOM % delay_ms + 1 ))`,
-  `    total_ms=$(( delay_ms + jitter_ms ))`,
-  `    sleep "$(awk -v ms="$total_ms" 'BEGIN { printf "%.3f", ms / 1000 }')"`,
-  `    delay_ms=$(( delay_ms * 2 ))`,
-  `    attempt=$(( attempt + 1 ))`,
+  `    gtd_total_ms=$(awk -v attempt="$gtd_attempt" -v ms="$gtd_delay_ms" 'BEGIN { jitter = (attempt * 2654435761) % ms + 1; printf "%.3f", (ms + jitter) / 1000 }')`,
+  `    sleep "$gtd_total_ms"`,
+  `    gtd_delay_ms=$(( gtd_delay_ms * 2 ))`,
+  `    gtd_attempt=$(( gtd_attempt + 1 ))`,
   `  done`,
   `}`,
 ].join("\n")
@@ -204,7 +217,7 @@ const assembleScript = (
 ): string => {
   if (steps.length === 0) return ""
 
-  const sections: Array<string> = ["set -euo pipefail"]
+  const sections: Array<string> = ["set -eu"]
   if (preconditions.expectedHead !== undefined) {
     sections.push(headAssertion(preconditions.expectedHead))
   }
@@ -244,18 +257,29 @@ export const emitScripts = (
   optional: assembleScript(preconditions, optional),
 })
 
-const DID_NOT_RUN_COMMENT =
-  "# gtd emitted this and did NOT run it — pipe it into `bash` to land the turn"
+/**
+ * `gtd`'s own comment lines around the combined script, and the presentation
+ * follow-up's swallowed-failure warning — exported (alongside `combinedScript`
+ * itself) so `src/testing/EmittedScriptRecognizer.ts` can recognize them by
+ * exact string comparison, the same "call the real builder, never hand-copy
+ * its template" discipline every other constant here follows. The warning
+ * prints via `printf`, not `echo`: `printf`'s format string is never subject
+ * to a shell's own backslash-escape quirks across `sh`/`bash`/`dash`, so this
+ * is the same portability reasoning every other emitted diagnostic already
+ * uses (see `headAssertion`/`reviewWindowAssertion`).
+ */
+export const DID_NOT_RUN_COMMENT =
+  "# gtd emitted this and did NOT run it — pipe it into `sh` to land the turn"
 
-const PRESENTATION_ONLY_COMMENT = "# presentation only — safe to skip"
+export const PRESENTATION_ONLY_COMMENT = "# presentation only — safe to skip"
 
-const PRESENTATION_FAILURE_WARNING =
-  'echo "gtd: presentation-only follow-up failed — continuing" >&2'
+export const PRESENTATION_FAILURE_WARNING =
+  "printf 'gtd: presentation-only follow-up failed — continuing\\n' >&2"
 
 /**
  * A plain-text (no `--json`) write command's single pasteable script: `gtd
- * land | bash` lands the turn without ever separating `required` from
- * `optional`. `required` runs verbatim (its own `set -euo pipefail` aborts
+ * land | sh` lands the turn without ever separating `required` from
+ * `optional`. `required` runs verbatim (its own `set -eu` aborts
  * before `optional` ever starts if it fails); `optional`, when non-empty, is
  * wrapped in a subshell whose failure is swallowed — presentation-only, so it
  * must never turn a landed turn into a non-zero exit. Empty when `required`

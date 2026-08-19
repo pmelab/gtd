@@ -1,7 +1,8 @@
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either, Option, Runtime } from "effect"
-import type { Command, Needs } from "./Cli.js"
+import type { ArtifactOut, Command, Needs } from "./Cli.js"
+import { Narrator } from "./Commentary.js"
 import { configPresentAt, ConfigService } from "./Config.js"
 import { renderInitScaffold } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
@@ -34,6 +35,7 @@ import {
   decideCloseWindow,
   decideOpenWindow,
   REVIEW_HEAD_REF,
+  type OpenWindowDecision,
 } from "./ReviewWindow.js"
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
@@ -51,6 +53,7 @@ import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./St
 import type { SteeringFinding } from "./SteeringFormat.js"
 import { resolveSteeringMode, renderSteeringCommands, unknownModeMessage } from "./SteeringMode.js"
 import {
+  contentKindOf,
   initialStateOf,
   matchesPattern,
   parsePattern,
@@ -58,15 +61,19 @@ import {
   type OnEdge,
   type PendingChange,
   type StateMode,
+  type StateName,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { beatDocument, beatKindOf, stallDiagnosis } from "./Beat.js"
 import {
-  renderModeCommand,
-  renderStateTemplate,
-  type TemplateContext,
-  type TemplateEdge,
-} from "./PatternTemplates.js"
+  beatDocument,
+  beatKindOf,
+  stallDiagnosis,
+  type BeatKind,
+  type NextMatch,
+  type StatusChange,
+} from "./Beat.js"
+import { EXIT_OK, ownerCodeOf, restExitCode } from "./ExitCodes.js"
+import { renderModeCommand, renderStateTemplate, type TemplateContext } from "./PatternTemplates.js"
 import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
 import { combinedScript, emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
 import {
@@ -87,6 +94,7 @@ export type CommandRequirements =
   | RepoFiles
   | CommandRunner
   | EnvVars
+  | Narrator
 
 /**
  * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio. Its
@@ -108,19 +116,13 @@ const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
  * `gtd lsp`) means it skips the repo-root guard entirely — it resolves no
  * workflow state and reads no config, so it runs from any directory, in or
  * out of a repository. `--json` and extra arguments are already rejected by
- * `Cli.ts` before a `Command` value ever reaches here (`--json` itself is
- * accepted, wrapping the same text under a `briefing` key).
+ * `Cli.ts` before a `Command` value ever reaches here — `--json` is gtd
+ * status's own surface alone now, so `install` prints plain text only.
  */
-const runInstallCommand = (json: boolean, write: (chunk: string) => void): Effect.Effect<void> =>
+const runInstallCommand = (out: ArtifactOut): Effect.Effect<void> =>
   Effect.sync(() => {
     const briefing = renderBriefing()
-    write(
-      json
-        ? JSON.stringify({ briefing }) + "\n"
-        : briefing.endsWith("\n")
-          ? briefing
-          : briefing + "\n",
-    )
+    out.write(briefing.endsWith("\n") ? briefing : briefing + "\n")
   })
 
 /**
@@ -142,8 +144,7 @@ const runInstallCommand = (json: boolean, write: (chunk: string) => void): Effec
  * capture).
  */
 const runInitCommand = (
-  json: boolean,
-  write: (chunk: string) => void,
+  out: ArtifactOut,
 ): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | Cwd> =>
   Effect.gen(function* () {
     const git = yield* GitService
@@ -160,23 +161,19 @@ const runInitCommand = (
     yield* fs
       .writeFileString(join(root, ".gtdrc.json"), scaffold.config)
       .pipe(Effect.mapError(toError))
-    if (json) {
-      write(JSON.stringify({ written: ".gtdrc.json", inRepo }) + "\n")
-    } else {
-      const wrote =
-        `Wrote .gtdrc.json seeding the default variables (the test command) and a\n` +
-        `Prettier formatting suggestion. gtd runs its built-in workflow by default — add\n` +
-        `a workflow: key only if you want to customize the machine itself.\n\n`
-      const nextSteps = inRepo
-        ? `Review and commit it before starting: an uncommitted .gtdrc.json counts as a\n` +
-          `pending change, so the initial state would capture it on the first landing. Once\n` +
-          `committed, run \`gtd land\` to begin.\n`
-        : `This directory is not a git repository, so there is nothing to commit here. The\n` +
-          `config applies to any gtd repository nested below it — gtd discovers it by\n` +
-          `walking up from the repository root. Run \`gtd land\` from such a repo to\n` +
-          `begin.\n`
-      write(wrote + nextSteps)
-    }
+    const wrote =
+      `Wrote .gtdrc.json seeding the default variables (the test command) and a\n` +
+      `Prettier formatting suggestion. gtd runs its built-in workflow by default — add\n` +
+      `a workflow: key only if you want to customize the machine itself.\n\n`
+    const nextSteps = inRepo
+      ? `Review and commit it before starting: an uncommitted .gtdrc.json counts as a\n` +
+        `pending change, so the initial state would capture it on the first landing. Once\n` +
+        `committed, run \`gtd land\` to begin.\n`
+      : `This directory is not a git repository, so there is nothing to commit here. The\n` +
+        `config applies to any gtd repository nested below it — gtd discovers it by\n` +
+        `walking up from the repository root. Run \`gtd land\` from such a repo to\n` +
+        `begin.\n`
+    out.write(wrote + nextSteps)
   })
 
 /** `planLanding`'s result — a preview of what `gtd land` WOULD do, plus the `required`/`optional` bash the external driver runs to actually do it (see the module doc comment: `land` is a pure read/emitter, never a git write itself). */
@@ -192,15 +189,44 @@ interface LandResult {
    * no-op at a `script` rest (`Edge.ts`'s `noOpSettles`), or a decision that
    * collapses back to the workflow's initial state retaining nothing
    * (`Edge.ts`'s `collapsesToInitialState` — a green re-entry rewound like
-   * `gtd abandon` instead of committed). The terminal, benign signal a driver
-   * should treat as exit 3 (`EXIT_SETTLED`) rather than spin. False for every
-   * other outcome (exit 0).
+   * `gtd abandon` instead of committed). Nothing owed, but stdout still
+   * carries a script a piping driver must run — see `exitCode`.
    */
   readonly settled: boolean
+  /** `gtd land`'s own exit code — see `postLandExitCode`'s doc comment. */
+  readonly exitCode: number
 }
 
-/** `gtd land`'s exit code for the two SETTLED shapes (`LandResult.settled`) — nothing owed, but stdout still carries a script a piping driver must run. Every other successful landing exits 0. */
-const EXIT_SETTLED = 3
+/**
+ * `gtd land`'s exit code, computed from the POST-land rest — never the
+ * resolved one `runLandCommand` started from — in precedence order:
+ *
+ * 1. `settled` (either terminal shape above) → `EXIT_OK`, replacing the old
+ *    exit 3.
+ * 2. Otherwise the state landing WILL rest at: a commit decision's own
+ *    target (`decision.to`, never a commit state — entering one squashes
+ *    instead), or the workflow's initial state for a squash decision (a
+ *    squash's rendered subject doesn't parse back into any declared state,
+ *    so `resolveState`'s unrecognized-subject rule resolves it there).
+ * 3. That state being the initial state → `EXIT_OK`; the process completed.
+ * 4. Otherwise `ownerCodeOf` of that state's content kind.
+ *
+ * The post-land tree is clean by construction (the required script commits
+ * everything, and an optional review-window re-open leaves files untracked
+ * but byte-identical), so this never computes a `dirty`/`stalled` beat kind
+ * itself — see `restBeatKind` for the rest of the vocabulary this reuses.
+ *
+ * Known, bounded imprecision: a clean-tree land at a `prompt` rest writes an
+ * empty attempt and reports `EXIT_AGENT_TURN`, while the FOLLOWING `gtd
+ * status` reports `stalled` and `EXIT_HUMAN_TURN` — two different rests, not
+ * a bug (see README).
+ */
+const postLandExitCode = (rest: Rest, targetState: StateName, settled: boolean): number => {
+  if (settled) return EXIT_OK
+  if (targetState === initialStateOf(rest.def)) return EXIT_OK
+  const targetKind = contentKindOf(rest.def.states[targetState]!) as Exclude<ContentKind, "commit">
+  return ownerCodeOf(targetKind)
+}
 
 // git's empty-tree object — the abandon command's first-commit guard uses
 // this to recognize a process that starts at the repository's very first
@@ -253,7 +279,11 @@ const steeringModeSteps = (
 
 /**
  * The `optional` half: re-open the review checkout window when the step lands
- * at a `reviewWindow: true` state, `""` otherwise.
+ * at a `reviewWindow: true` state, `""` otherwise. Takes the already-decided
+ * `OpenWindowDecision` (`planLanding` computes it via `decideOpenWindow` and
+ * narrates it before calling this) rather than deciding itself — narration
+ * belongs at the caller who already has an `Effect`/`Narrator` in scope, not
+ * inside `ReviewWindow.ts`'s pure decision function.
  *
  * `"HEAD"` is deliberately the literal string, not a resolved hash — git
  * resolves it at the moment this script runs, which is after the required
@@ -262,15 +292,39 @@ const steeringModeSteps = (
  * `expectedHead` precondition: the HEAD it will see is a hash that does not
  * exist yet at decide time (see `EmitPreconditions`).
  */
-const openWindowScript = (rest: Rest, targetState: string): string => {
-  const decision = decideOpenWindow(rest.def, targetState, rest.run, "HEAD")
+const openWindowScript = (decision: OpenWindowDecision): string => {
   if (!decision.shouldOpen) return ""
   return emitScripts(
     {},
     [],
-    [{ kind: "gitWrite", command: buildOpenWindowScript({ base: decision.base, head: "HEAD" }) }],
+    [
+      {
+        kind: "gitWrite",
+        command: buildOpenWindowScript({ base: decision.base, head: decision.head }),
+      },
+    ],
   ).optional
 }
+
+/**
+ * `decideOpenWindow`'s result, narrated at the one caller with an `Effect`/
+ * `Narrator` in scope — split out of `planLanding` so that function's own
+ * complexity stays low; `decideOpenWindow` itself stays pure (see
+ * `ReviewWindow.ts`'s own doc comment on the pure/edge split).
+ */
+const decideAndNarrateOpenWindow = (
+  rest: Rest,
+  targetState: string,
+): Effect.Effect<OpenWindowDecision, never, Narrator> =>
+  Effect.gen(function* () {
+    const decision = decideOpenWindow(rest.def, targetState, rest.run, "HEAD")
+    yield* (yield* Narrator).narrate(
+      decision.shouldOpen
+        ? `review-window: open (base ${decision.base.slice(0, 7)})`
+        : "review-window: no-op",
+    )
+    return decision
+  })
 
 /** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag both `enforceStepGuards` and `buildRequiredScript` bypass their own steps for (see each call site). */
 const isAttemptDecision = (decision: ExecutableDecision): boolean =>
@@ -319,6 +373,9 @@ const buildRequiredScript = (
     // run) — a genuine refusal, exactly like the old `closeReviewWindow`
     // failing, propagates as-is.
     const closeDecision = yield* decideCloseWindow
+    yield* (yield* Narrator).narrate(
+      closeDecision.shouldClose ? "review-window: close" : "review-window: no-op",
+    )
     // A squash renders its commit template at the TARGET commit state with
     // this step's own `--cost`/`--model` folded in (`contextAt`) — not against
     // `rest.context`, which is pinned to the resting state and carries
@@ -385,7 +442,9 @@ const planLanding = (
     }
     if (plan.kind === "noop") {
       // A no-op still prints its own outcome ("nothing to do at …") via the
-      // emitted script.
+      // emitted script. Nothing changed, so the post-land rest IS the
+      // resolved one — `plan.state` (same as `rest.state`) feeds
+      // `postLandExitCode` directly.
       return {
         state: plan.state,
         subject: null,
@@ -395,6 +454,7 @@ const planLanding = (
           .required,
         optional: "",
         settled: plan.settled,
+        exitCode: postLandExitCode(rest, plan.state, plan.settled),
       }
     }
 
@@ -427,37 +487,26 @@ const planLanding = (
     })
 
     const targetState = decision.kind === "commit" ? decision.to : decision.state
+    // The state landing will actually REST at, for the exit code alone
+    // (`postLandExitCode`) — distinct from `targetState` above, which names
+    // the squash's own commit-state key (what `reviewWindow:` is declared
+    // on), not where the process resumes: a squash's rendered subject never
+    // parses back into a declared state, so it always resolves to the
+    // workflow's initial state (see `postLandExitCode`'s doc comment).
+    const restingState = decision.kind === "commit" ? decision.to : initialStateOf(rest.def)
+    const settled = yield* collapsesToInitialState(rest, decision)
+    const openDecision = yield* decideAndNarrateOpenWindow(rest, targetState)
     return {
       state: rest.state,
       subject: yield* previewSubject(decision, rest),
       cost: opts.cost ?? null,
       model: opts.model ?? null,
       required: yield* buildRequiredScript(rest, decision, opts.cost, opts.model),
-      optional: openWindowScript(rest, targetState),
-      settled: yield* collapsesToInitialState(rest, decision),
+      optional: openWindowScript(openDecision),
+      settled,
+      exitCode: postLandExitCode(rest, restingState, settled),
     }
   })
-
-/** Renders `planLanding`'s result for `gtd land`. Plain text prints the combined script exactly as before (its own outcome rendering, including a genuine no-op's "nothing to do at …" note and the initial-state collapse's `COLLAPSED_TEXT` note, is already baked in — see `renderDecision`'s collapse branch); `--json` additionally carries `required`/`optional`/`script`/`settled`. */
-const reportLanding = (result: LandResult, json: boolean, write: (chunk: string) => void): void => {
-  const script = combinedScript(result.required, result.optional)
-  if (json) {
-    write(
-      JSON.stringify({
-        state: result.state,
-        subject: result.subject,
-        ...(result.cost !== null ? { cost: result.cost } : {}),
-        ...(result.model !== null ? { model: result.model } : {}),
-        script,
-        required: result.required,
-        optional: result.optional,
-        settled: result.settled,
-      }) + "\n",
-    )
-  } else {
-    write(script)
-  }
-}
 
 /**
  * `gtd land [--cost=<n>] [--model=<name>]`: land whatever the tree now shows
@@ -468,20 +517,26 @@ const reportLanding = (result: LandResult, json: boolean, write: (chunk: string)
  * kind (see `runEntryCommand`) before `runCommand` ever dispatches here, so a
  * `land` `Command` is always the ordinary pattern-matched landing.
  *
- * Returns the exit code `runCommand`/`Cli.ts`'s `runCli` should use: `0` for
- * an ordinary landing, `EXIT_SETTLED` (3) when `result.settled` — nothing
- * owed, but stdout still carries a script a piping driver must run (see
- * `EXIT_SETTLED`'s own doc comment).
+ * Prints ONLY the combined script (`Emit.ts`'s `combinedScript`) — its own
+ * outcome rendering, including a genuine no-op's "nothing to do at …" note and
+ * the initial-state collapse's `COLLAPSED_TEXT` note, is already baked in (see
+ * `renderDecision`'s collapse branch). `required`/`optional` never reach the
+ * caller separately any more — `--json` was land's only other consumer of
+ * them, and it no longer exists (see AGENTS.md's "one structured surface"
+ * decision).
+ *
+ * Returns `result.exitCode` — see `postLandExitCode`'s doc comment for the
+ * whole precedence order, including the settled shapes that now report
+ * `EXIT_OK` where they used to report the old exit 3.
  */
 const runLandCommand = (
   opts: LandOptions,
-  json: boolean,
-  write: (chunk: string) => void,
+  out: ArtifactOut,
 ): Effect.Effect<number, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const result = yield* planLanding(opts)
-    reportLanding(result, json, write)
-    return result.settled ? EXIT_SETTLED : 0
+    out.write(combinedScript(result.required, result.optional))
+    return result.exitCode
   })
 
 /**
@@ -521,11 +576,9 @@ const runEntryCommand = (
   actor: string,
   entryState: string,
   varOverrides: Record<string, string>,
-  json: boolean,
-  write: (chunk: string) => void,
+  out: ArtifactOut,
   commandLabel: string,
 ): Effect.Effect<void, Error, CommandRequirements> =>
-  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const rest = yield* currentRest
     const plan = yield* planEntry(rest, actor, {
@@ -543,21 +596,7 @@ const runEntryCommand = (
     // its own to validate ahead of the commit (that gate applies to the NEXT
     // step away from the entered state, once its actor has produced
     // something, not to entering it).
-    // No `settled` key here: an entry can never be a no-op (it always writes a
-    // fresh commit), so a driver reading `.settled // false` off this JSON
-    // already gets the right answer without this command naming the field.
-    if (json) {
-      write(
-        JSON.stringify({
-          state: plan.state,
-          subject: plan.subject,
-          required: plan.scripts.required,
-          optional: plan.scripts.optional,
-        }) + "\n",
-      )
-    } else {
-      write(combinedScript(plan.scripts.required, plan.scripts.optional))
-    }
+    out.write(combinedScript(plan.scripts.required, plan.scripts.optional))
   })
 
 /**
@@ -599,10 +638,7 @@ const runEntryCommand = (
  * the external driver to run, built from `src/GitScript.ts`'s pure
  * `updateRef`/`mixedResetTo` — narrowing the exception further still.
  */
-const runAbandonCommand = (
-  json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<void, Error, CommandRequirements> =>
+const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
@@ -613,11 +649,7 @@ const runAbandonCommand = (
       const required = emitScripts({}, [
         { kind: "outcome", command: abandonNoopOutcome(initial) },
       ]).required
-      if (json) {
-        write(JSON.stringify({ state: initial, abandoned: false, required, optional: "" }) + "\n")
-      } else {
-        write(combinedScript(required, ""))
-      }
+      out.write(combinedScript(required, ""))
       return
     }
     const restState = run.trace[run.trace.length - 1]!.state
@@ -658,21 +690,7 @@ const runAbandonCommand = (
     // — that is what `git rev-parse HEAD` will actually report when the
     // script runs, before its own close step moves it.
     const required = emitScripts(headPreconditions(yield* git.resolveRef("HEAD")), steps).required
-
-    if (json) {
-      write(
-        JSON.stringify({
-          state: initial,
-          abandoned: true,
-          from: restState,
-          head: run.startParentHash,
-          required,
-          optional: "",
-        }) + "\n",
-      )
-    } else {
-      write(combinedScript(required, ""))
-    }
+    out.write(combinedScript(required, ""))
   })
 
 /**
@@ -690,10 +708,7 @@ const runAbandonCommand = (
  * reset, then clearing the retained-history ref) is emitted as a `required`
  * script instead of performed here.
  */
-const runRestoreCommand = (
-  json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<void, Error, CommandRequirements> =>
+const runRestoreCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
 
@@ -739,21 +754,7 @@ const runRestoreCommand = (
       { kind: "outcome", command: restoredOutcome(tip, after.state) },
     ]
     const required = emitScripts(headPreconditions(headHash), steps).required
-
-    if (json) {
-      write(
-        JSON.stringify({
-          state: after.state,
-          restored: true,
-          to: tip,
-          from: before.state,
-          required,
-          optional: "",
-        }) + "\n",
-      )
-    } else {
-      write(combinedScript(required, ""))
-    }
+    out.write(combinedScript(required, ""))
   })
 
 /**
@@ -883,74 +884,56 @@ const nextPlainOutput = (
 }
 
 /**
- * `gtd next --json`'s output: the whole BEAT DOCUMENT (`src/Beat.ts`'s
- * `beatDocument`) for the resolved rest — one self-describing, POLLABLE line.
- * `stalledAt` (a pure read off history) and the dirty-tree test both feed
- * `beatKindOf`, which picks the driver-facing `kind`; the dispatch block
- * (`session`/`validate`) is resolved only when `kind === "prompt"`, since
- * `beatDocument` drops it at every other kind regardless. Nothing is written
- * by any of this — `resolveSession` derives the same id for a peek as it
- * would for a dispatch, and `resolveValidateScript` only READS the file/mode
- * it inspects — so there is nothing left for a separate claiming form to
- * protect (see `runNextCommand` below).
+ * The driver-facing `BeatKind` for a currently-resolved rest — `Beat.ts`'s
+ * `beatKindOf` fed the rest's own content kind, dirty-tree test, and
+ * `stalledAt` verdict. The ONE computation `gtd status --json`'s beat document
+ * (`gatherStatusView`, below), `next`/`status`'s own exit code, and `land`'s
+ * "known imprecision" doc comment all point back to — so the three surfaces
+ * can never independently drift on what a given rest's kind is.
  */
-const nextBeatOutput = (
-  rest: Rest,
-  rendered: RenderedRest,
-): Effect.Effect<string, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const kind = beatKindOf({
-      contentKind: rendered.kind as Exclude<ContentKind, "commit">,
-      dirty: rest.changes.length > 0,
-      stalled: stalledAt(rest),
-    })
-    const session =
-      kind === "prompt" ? resolveSession(rendered.memory, rendered.memoryResumed) : undefined
-    const resolvedValidate =
-      kind === "prompt"
-        ? yield* resolveValidateScript(rest).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-        : undefined
-    const validate =
-      resolvedValidate !== undefined && resolvedValidate.script.length > 0
-        ? resolvedValidate.script
-        : undefined
-
-    return beatDocument({
-      rendered,
-      kind,
-      log: yield* loopLogPath,
-      ...(session !== undefined
-        ? { session: { id: session.sessionId, resume: session.resume } }
-        : {}),
-      ...(validate !== undefined ? { validate } : {}),
-    })
+const restBeatKind = (rest: Rest): BeatKind =>
+  beatKindOf({
+    contentKind: contentKindOf(rest.stateDef) as Exclude<ContentKind, "commit">,
+    dirty: rest.changes.length > 0,
+    stalled: stalledAt(rest),
   })
 
 /**
- * `gtd next`: pure emitter of the resolved rest's rendered content — no
- * mutation at all. Plain-text output is the human rendering, unchanged: the
- * rendered content plus (when resolvable) the self-validation instruction;
- * `--json` hands off to `nextBeatOutput` above. Nothing is written either
- * way, so a peek and a would-be dispatch are the same call — there is no
- * separate claiming form any more.
+ * `0` from `next`/`status` means exactly one thing: the machine is IDLE —
+ * resting at the workflow's initial state with a clean tree. Get this wrong
+ * in either direction and a driver loop breaks in a way no unit test sees:
+ * map clean idle to 20 and a driver that just landed a squash immediately
+ * starts a fresh process; map a non-initial clean `message` gate to 0 and a
+ * driver stops at every human gate instead of reporting it (see
+ * `ExitCodes.ts`'s `restExitCode`, which this feeds).
  */
-const runNextCommand = (
-  json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<void, Error, CommandRequirements> =>
+const restIsIdle = (rest: Rest): boolean =>
+  rest.state === initialStateOf(rest.def) && rest.changes.length === 0
+
+/** `next`/`status`'s own exit code — `ExitCodes.ts`'s `restExitCode` fed this rest's beat kind and idleness, never its state name. */
+const restExitCodeOf = (rest: Rest): number => restExitCode(restBeatKind(rest), restIsIdle(rest))
+
+/**
+ * `gtd next`: pure emitter of the resolved rest's rendered content — no
+ * mutation at all, plain text only (the structured beat document moved to
+ * `gtd status --json` — see `gatherStatusView`, below, and AGENTS.md's "one
+ * structured surface" decision). Nothing is written, so a peek and a
+ * would-be dispatch are the same call — there is no separate claiming form.
+ *
+ * Returns the same `restExitCodeOf` every branch below resolves against — the
+ * caller (`dispatchCommand`) uses it as the process exit code.
+ */
+const runNextCommand = (out: ArtifactOut): Effect.Effect<number, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
     const rendered = yield* renderRest(rest)
-    if (json) {
-      write(yield* nextBeatOutput(rest, rendered))
-      return
-    }
+    const exitCode = restExitCodeOf(rest)
     // The plain rendering surfaces a stall the same way the beat document
     // does — a human peeking at a stalled rest must see the diagnosis, not
     // the prompt that already went nowhere.
     if (rendered.kind === "prompt" && rest.changes.length === 0 && stalledAt(rest)) {
-      write(stallDiagnosis(rendered.state, rendered.actor))
-      return
+      out.write(stallDiagnosis(rendered.state, rendered.actor))
+      return exitCode
     }
     // Advisory only (see `selfValidateInstruction`'s doc comment) — a render
     // failure here must not fail `gtd next` itself, so it degrades to omitting
@@ -963,69 +946,40 @@ const runNextCommand = (
           rest.context,
         ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
       : undefined
-    write(nextPlainOutput(rendered, selfValidateCommand))
+    out.write(nextPlainOutput(rendered, selfValidateCommand))
+    return exitCode
   })
 
 /**
- * `gtd validate [--json]`: emit the script that would format (in place) then
- * validate the steering file the resolved rest declares (`file:` rendered,
- * `mode:` selecting how) — the SAME commands `gtd land`'s capture guard now
- * embeds ahead of its own commit (see `planLanding`), rendered here for a
- * human or agent to run directly. gtd itself reads no file and executes
- * nothing: a state with no `file:`/`mode:` (or, like the bundled `idle`, a
- * `file:` with no `mode:` — a mode-less sketch has no format to run), or a
- * file absent from the working tree, has nothing to validate (`script: ""`,
- * exit 0 either way) — the
- * verdict now lives in the emitted script's own future exit code, not this
- * command's, so this never fails on a bad file. `RepoFiles`/`FileSystem` is
- * used only to check the file's PRESENCE, never to read or judge its content.
- * When the resolved mode's validate half is a `command` (never a `"builtin"`
- * validator, which renders no shell command at all), the LAST rendered
- * command carries `onFailure: fixPromptInstruction(file)` (`Emit.ts`'s
- * `failurePromptWrapper`) — so a non-zero exit from the script prints the
- * COMPLETE ready-to-send fix prompt (instruction + findings) rather than bare
- * findings, letting a driver treat the script's captured output as opaque
- * prompt text (see the README's minimal driver).
+ * `gtd validate`: emit the script that would format (in place) then validate
+ * the steering file the resolved rest declares (`file:` rendered, `mode:`
+ * selecting how) — the SAME commands `gtd land`'s capture guard now embeds
+ * ahead of its own commit (see `planLanding`), rendered here for a human or
+ * agent to run directly. gtd itself reads no file and executes nothing: a
+ * state with no `file:`/`mode:` (or, like the bundled `idle`, a `file:` with
+ * no `mode:` — a mode-less sketch has no format to run), or a file absent
+ * from the working tree, has nothing to validate (prints "nothing to
+ * validate", exit 0 either way) — the verdict now lives in the emitted
+ * script's own future exit code, not this command's, so this never fails on a
+ * bad file. `RepoFiles`/`FileSystem` is used only to check the file's
+ * PRESENCE, never to read or judge its content. When the resolved mode's
+ * validate half is a `command` (never a `"builtin"` validator, which renders
+ * no shell command at all), the LAST rendered command carries `onFailure:
+ * fixPromptInstruction(file)` (`Emit.ts`'s `failurePromptWrapper`) — so a
+ * non-zero exit from the script prints the COMPLETE ready-to-send fix prompt
+ * (instruction + findings) rather than bare findings, letting a driver treat
+ * the script's captured output as opaque prompt text (see the README's
+ * minimal driver).
  */
-const runValidateCommand = (
-  json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<void, Error, CommandRequirements> =>
+const runValidateCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const file = rest.hints.file
-    const mode = rest.stateDef.mode
-
-    const emitNothingToValidate = (): void => {
-      if (json) {
-        write(
-          JSON.stringify({
-            state: rest.state,
-            ...(file !== undefined ? { file } : {}),
-            ...(mode !== undefined ? { mode } : {}),
-            script: "",
-          }) + "\n",
-        )
-      } else {
-        write(`nothing to validate at "${rest.state}"\n`)
-      }
-    }
-
     const resolved = yield* resolveValidateScript(rest)
-    if (resolved === undefined) {
-      emitNothingToValidate()
-      return
-    }
-
-    if (json) {
-      write(JSON.stringify({ state: rest.state, ...resolved }) + "\n")
-    } else {
-      write(
-        resolved.script.length > 0
-          ? `${resolved.script}\n`
-          : `nothing to validate at "${rest.state}"\n`,
-      )
-    }
+    out.write(
+      resolved !== undefined && resolved.script.length > 0
+        ? `${resolved.script}\n`
+        : `nothing to validate at "${rest.state}"\n`,
+    )
   })
 
 /**
@@ -1042,21 +996,14 @@ const runValidateCommand = (
  *
  * An absent file mirrors `gtd validate`'s own absent-file behavior: exit 0,
  * no output in plain mode, `{valid: true, errors: []}` under `--json`. A
- * clean parse is the same shape. A non-clean parse writes `--json`'s
- * `{valid: false, errors}` body (or each finding, one per line, in plain
- * mode) BEFORE failing the Effect. In PLAIN mode the failure then carries only
- * a summary message, landing on stderr alone (`cliErrorLine`'s line) — the
- * findings are already on stdout. Under `--json`, `Cli.ts`'s single envelope
- * writer (`report`) ALSO puts its own `{state:"error",prompt}` object on
- * stdout for any failing Effect, so a `--json` invocation with findings emits
- * stdout as two newline-delimited JSON documents — this handler's own
- * `{valid,errors}` body first, then the generic error envelope — rather than
- * one; a consumer must read line-delimited JSON, not `JSON.parse(stdout)`
- * whole. Kept as the pragmatic resolution of a real tension in this command's
- * two governing requirements ("exits non-zero" and "`--json` reports
- * `{valid,errors}`"): the alternative was piping a `--json` failure through a
- * NEW exit-code channel bypassing `Cli.ts`'s shared envelope entirely, which
- * every other command's `--json` failure goes through today.
+ * clean parse is the same shape — both written through `out`, the buffered
+ * `ArtifactOut` `Cli.ts` flushes once the command succeeds. A non-clean parse
+ * writes NOTHING through `out`: the whole all-or-nothing point of that buffer
+ * is that a failing command's stdout stays byte-empty, so the findings
+ * instead ride the FAILING Effect's own message (one per line, joined) —
+ * `Cli.ts`'s shared `report`/`renderFailure` machinery puts that on stderr
+ * (plain text always; also folded into the `--json` envelope's `prompt`
+ * field), the same single path every other refusal already goes through.
  *
  * `--open-questions` (`openQuestions: true`) replaces this whole
  * structural-findings path with `runOpenQuestionsCheckCommand`, below — but
@@ -1075,8 +1022,6 @@ const runCheckCommand = (
   mode: string,
   file: string,
   openQuestions: boolean,
-  json: boolean,
-  write: (chunk: string) => void,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const format = steeringFormatFor(mode)
@@ -1094,7 +1039,7 @@ const runCheckCommand = (
           new Error(`gtd check: --open-questions only applies to mode "qa" — got "${mode}"`),
         )
       }
-      return yield* runOpenQuestionsCheckCommand(file, json, write)
+      return yield* runOpenQuestionsCheckCommand(file)
     }
 
     const fs = yield* FileSystem.FileSystem
@@ -1106,19 +1051,12 @@ const runCheckCommand = (
           .map((finding) => formatFinding(file, finding))
       : []
 
-    if (errors.length === 0) {
-      if (json) write(JSON.stringify({ valid: true, errors: [] }) + "\n")
-      return
-    }
+    if (errors.length === 0) return
 
-    if (json) {
-      write(JSON.stringify({ valid: false, errors }) + "\n")
-    } else {
-      write(errors.join("\n") + "\n")
-    }
     return yield* Effect.fail(
       new Error(
-        `gtd check: ${file} is not valid under mode "${mode}" (${errors.length} finding(s))`,
+        `gtd check: ${file} is not valid under mode "${mode}" (${errors.length} finding(s)):\n` +
+          errors.join("\n"),
       ),
     )
   })
@@ -1136,16 +1074,13 @@ const runCheckCommand = (
  * A missing or unreadable file is a non-zero exit carrying a message, mirrored
  * from `gtd check`'s general "stop and show the human" convention — unlike the
  * structural path above, which treats an absent file as "nothing to report".
- * `--json` mirrors the structural branch's own shape exactly (each unanswered
- * question's text as an `errors` entry): `{valid:true,errors:[]}` on none
- * remaining, else `{valid:false,errors:[...]}` written before the Effect
- * fails — the SAME line-delimited-JSON tension `runCheckCommand`'s own doc
- * comment spells out, not a second shape a `--json` consumer has to learn.
+ * Writes nothing on success (mirroring `runCheckCommand`'s own silent
+ * success); on failure each unanswered question is folded into the failing
+ * Effect's own message instead, which `Cli.ts`'s shared `report`/`renderFailure`
+ * puts on stderr.
  */
 const runOpenQuestionsCheckCommand = (
   file: string,
-  json: boolean,
-  write: (chunk: string) => void,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -1157,27 +1092,14 @@ const runOpenQuestionsCheckCommand = (
     const content = yield* fs.readFileString(file).pipe(Effect.mapError(toError))
 
     const errors = unansweredQuestions(content).map((q) => q.question)
-    if (errors.length === 0) {
-      if (json) write(JSON.stringify({ valid: true, errors: [] }) + "\n")
-      return
-    }
+    if (errors.length === 0) return
 
-    if (json) {
-      write(JSON.stringify({ valid: false, errors }) + "\n")
-    } else {
-      write(errors.join("\n") + "\n")
-    }
     return yield* Effect.fail(
-      new Error(`gtd check: ${errors.length} open question(s) unanswered in ${file}`),
+      new Error(
+        `gtd check: ${errors.length} open question(s) unanswered in ${file}:\n` + errors.join("\n"),
+      ),
     )
   })
-
-/** One pending change's status/path plus whichever declared `on` pattern (if any) matches it, for `gtd status`. */
-interface StatusChange {
-  readonly status: string
-  readonly path: string
-  readonly pattern: string | null
-}
 
 /** Which declared `on` pattern (if any) each pending change matches — the pure computation `gtd status` reports (both plain and `--json`). `onEdges` is ALREADY RENDERED against `it.vars` (`renderOnEdges`) — the reported pattern is the one a real `gtd land` would match against. */
 const computeStatusChanges = (
@@ -1191,13 +1113,6 @@ const computeStatusChanges = (
     })
     return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
   })
-
-/** The first declared `on` edge that WOULD fire for `gtd next`/`gtd land` right now, for `gtd status` to preview. */
-interface NextMatch {
-  readonly action: string | undefined
-  readonly pattern: string
-  readonly target: string
-}
 
 /**
  * First declared `on` edge (in declaration order) whose pattern matches the
@@ -1241,7 +1156,7 @@ const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] 
   return lines
 }
 
-/** Builds `{[key]: value}` for each entry whose value isn't `undefined` — the shared "omit absent optional fields" shape behind both `writeStatusJson` and `writeStatusPlain`. */
+/** Builds `{[key]: value}` for each entry whose value isn't `undefined` — the shared "omit absent optional fields" shape `writeStatusPlain` uses. */
 const definedFields = (
   entries: readonly (readonly [string, unknown])[],
 ): Record<string, unknown> => {
@@ -1250,15 +1165,7 @@ const definedFields = (
   return result
 }
 
-/** `gtd status --json`'s `next` key — `null` on no match, else the matched edge's pattern/target plus its `action` when declared. */
-const nextField = (
-  next: NextMatch | null,
-): { action?: string; pattern: string; target: string } | null =>
-  next === null
-    ? null
-    : { ...definedFields([["action", next.action]]), pattern: next.pattern, target: next.target }
-
-/** `gtd status`'s `Next:` line — the plain-text counterpart to `nextField`. */
+/** `gtd status`'s `Next:` line — the plain-text counterpart to `Beat.ts`'s `nextField`. */
 const nextStatusLine = (next: NextMatch | null): string =>
   next === null
     ? "Next: (no match — nothing would happen)"
@@ -1273,44 +1180,9 @@ const pendingStatusLines = (statusChanges: readonly StatusChange[]): string[] =>
         ...statusChanges.map((c) => `  ${c.status} ${c.path} -> ${c.pattern ?? "(no match)"}`),
       ]
 
-/** `gtd status --json`'s emission — `{state, actor, changes, next, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. `edges` is `rest.context.edges` — the resting state's `on` edges already rendered against `it.vars`, so the emitted `edges[].pattern` carries the same rendered path as `changes[].pattern`. `next` is ALWAYS present (an object, or `null` on no match) — the headline conclusion, never omit-vs-null, same as `changes`. */
-const writeStatusJson = (
-  write: (chunk: string) => void,
-  rest: Rest,
-  statusChanges: readonly StatusChange[],
-  edges: readonly TemplateEdge[],
-  next: NextMatch | null,
-  model: string | undefined,
-  memory: string | undefined,
-  label: string | undefined,
-  file: string | undefined,
-  cost: number,
-  costByModel: readonly ModelCost[],
-): void => {
-  const hasCost = cost > 0
-  write(
-    JSON.stringify({
-      state: rest.state,
-      actor: rest.actor,
-      changes: statusChanges,
-      next: nextField(next),
-      ...definedFields([
-        ["model", model],
-        ["memory", memory],
-        ["label", label],
-        ["file", file],
-        ["mode", rest.stateDef.mode],
-        ["cost", hasCost ? cost : undefined],
-        ["costByModel", hasCost ? costByModel : undefined],
-        ["edges", edges.length > 0 ? edges : undefined],
-      ]),
-    }) + "\n",
-  )
-}
-
-/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Label:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:`/`Next:` lines. */
+/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Label:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:`/`Next:` lines. Untouched by the `--json` merge (see AGENTS.md) — this is the one rendering `gtd status --json` does NOT absorb. */
 const writeStatusPlain = (
-  write: (chunk: string) => void,
+  out: ArtifactOut,
   rest: Rest,
   statusChanges: readonly StatusChange[],
   next: NextMatch | null,
@@ -1336,35 +1208,91 @@ const writeStatusPlain = (
     ...pendingStatusLines(statusChanges),
     nextStatusLine(next),
   ]
-  write(lines.join("\n") + "\n")
+  out.write(lines.join("\n") + "\n")
 }
 
-/** `gtd status`: pure dry-run reporter — the resolved state/actor, and which declared pattern (if any) each pending change matches. */
+/**
+ * Everything `gtd status --json`'s beat document needs beyond the resolved
+ * rest itself — the SAME `kind`/session/validate-script/log-path gathering
+ * `gtd next --json` used to do on its own, now the one place both `gtd
+ * status`'s plain and JSON renderings read from, so the two can never
+ * describe different rests (see AGENTS.md's "status --json" decision).
+ */
+interface StatusView {
+  readonly kind: BeatKind
+  readonly log: string
+  readonly session?: { readonly id: string; readonly resume: boolean }
+  readonly validate?: string
+}
+
+const gatherStatusView = (
+  rest: Rest,
+  rendered: RenderedRest,
+): Effect.Effect<StatusView, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const kind = restBeatKind(rest)
+    const session =
+      kind === "prompt" ? resolveSession(rendered.memory, rendered.memoryResumed) : undefined
+    const resolvedValidate =
+      kind === "prompt"
+        ? yield* resolveValidateScript(rest).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+        : undefined
+    const validate =
+      resolvedValidate !== undefined && resolvedValidate.script.length > 0
+        ? resolvedValidate.script
+        : undefined
+    return {
+      kind,
+      log: yield* loopLogPath,
+      ...(session !== undefined
+        ? { session: { id: session.sessionId, resume: session.resume } }
+        : {}),
+      ...(validate !== undefined ? { validate } : {}),
+    }
+  })
+
+/**
+ * `gtd status`: pure dry-run reporter — the resolved state/actor, and which
+ * declared pattern (if any) each pending change matches. `--json` emits the
+ * one structured surface gtd has: `Beat.ts`'s `beatDocument`, absorbing what
+ * used to be `gtd next --json`'s beat fields (`kind`/`content`/`session`/
+ * `model`/`validate`/`log`) alongside `changes`/`next`/`cost`/`costByModel`.
+ * Returns the same `restExitCodeOf` `runNextCommand` derives for the same
+ * rest — see `restBeatKind`'s doc comment.
+ */
 const runStatusCommand = (
   json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<void, Error, CommandRequirements> =>
+  out: ArtifactOut,
+): Effect.Effect<number, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
+    const rendered = yield* renderRest(rest)
+    const view = yield* gatherStatusView(rest, rendered)
     const statusChanges = computeStatusChanges(rest.on, rest.changes)
+    const narrator = yield* Narrator
+    for (const change of statusChanges) {
+      yield* narrator.narrate(
+        `pending: ${change.status} ${change.path} -> ${change.pattern ?? "(no match)"}`,
+      )
+    }
     const next = computeNextMatch(rest.on, rest.changes)
     if (json) {
-      writeStatusJson(
-        write,
-        rest,
-        statusChanges,
-        rest.context.edges,
-        next,
-        rest.hints.model,
-        rest.memory,
-        rest.hints.label,
-        rest.hints.file,
-        rest.context.processCost,
-        rest.context.processCostByModel,
+      out.write(
+        beatDocument({
+          rendered,
+          kind: view.kind,
+          log: view.log,
+          ...(view.session !== undefined ? { session: view.session } : {}),
+          ...(view.validate !== undefined ? { validate: view.validate } : {}),
+          changes: statusChanges,
+          next,
+          cost: rest.context.processCost,
+          costByModel: rest.context.processCostByModel,
+        }),
       )
     } else {
       writeStatusPlain(
-        write,
+        out,
         rest,
         statusChanges,
         next,
@@ -1376,6 +1304,7 @@ const runStatusCommand = (
         rest.context.processCostByModel,
       )
     }
+    return restExitCodeOf(rest)
   })
 
 /**
@@ -1406,15 +1335,14 @@ const computeCurrentState = (
  * review-window bracket — it reads the config but never touches git, HEAD, or
  * the review window ITSELF (though its `/state.json` route best-effort reads
  * git state per request, see `computeCurrentState`). `--port`/`--no-open` are
- * already parsed by `Cli.ts`. `--json` prints the model and exits without
- * starting a server (the testable path; live state is a server-only concern,
- * so `--json`'s shape is unchanged).
+ * already parsed by `Cli.ts`. The running-server line below (`gtd visualize
+ * running at ${url} …`) is now the ONLY machine-readable way to learn which
+ * port `--port 0` picked — `--json` no longer exists here (see AGENTS.md).
  */
 const runVisualizeCommand = (
   port: number,
   open: boolean,
-  json: boolean,
-  write: (chunk: string) => void,
+  out: ArtifactOut,
 ): Effect.Effect<void, Error, RestRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
@@ -1428,16 +1356,16 @@ const runVisualizeCommand = (
       config.stateScopes,
     )
 
-    if (json) {
-      write(JSON.stringify(model, null, 2) + "\n")
-      return
-    }
-
     const runtime = yield* Effect.runtime<RestRequirements>()
     const resolveCurrent = () =>
       Runtime.runPromise(runtime)(computeCurrentState(model).pipe(Effect.either)).then((result) => {
         if (Either.isLeft(result)) {
-          write(`gtd visualize: current-state panel unavailable — ${result.left.message}\n`)
+          // `runCli`'s one flush-on-success never fires for this blocking
+          // command (it's only reached on Ctrl-C, via the interrupted-only
+          // path that skips flush entirely) — this diagnostic flushes itself,
+          // exactly like the URL line below.
+          out.write(`gtd visualize: current-state panel unavailable — ${result.left.message}\n`)
+          out.flush()
           return null
         }
         return result.right
@@ -1450,7 +1378,11 @@ const runVisualizeCommand = (
           `gtd visualize: could not start server: ${e instanceof Error ? e.message : String(e)}`,
         ),
     })
-    write(`gtd visualize running at ${url} — Ctrl-C to stop\n`)
+    out.write(`gtd visualize running at ${url} — Ctrl-C to stop\n`)
+    // The one command that must flush before it returns: it blocks on
+    // `Effect.never` next, so `runCli`'s flush-on-success would never fire
+    // and the URL would never reach stdout.
+    out.flush()
     if (open) openInBrowser(url)
     // Block until the process is interrupted (Ctrl-C); always close the server.
     yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => server.close())))
@@ -1575,68 +1507,66 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "install",
 ]
 
-/** Dispatches to the named `run*Command` handler for every `Command.kind` EXCEPT `"land"` (which alone returns a non-zero exit code — see `dispatchCommand`) — the counterpart of `Cli.ts`'s `parseArgv`, which has already validated every field a handler receives. */
+/** Dispatches to the named `run*Command` handler for every `Command.kind` EXCEPT `"land"`, `"next"` and `"status"` (the three kinds whose own resolved rest decides the exit code — see `dispatchCommand`) — the counterpart of `Cli.ts`'s `parseArgv`, which has already validated every field a handler receives. None of these kinds ever carries `--json`: `Cli.ts`'s flag scope pins it to `"status"` alone, so no handler here takes a `json` parameter any more. */
 // fallow-ignore-next-line complexity
 const dispatchVoidCommand = (
-  command: Exclude<Command, { kind: "land" }>,
-  json: boolean,
-  write: (chunk: string) => void,
+  command: Exclude<Command, { kind: "land" | "next" | "status" }>,
+  out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> => {
   switch (command.kind) {
     case "lsp":
       return runLspCommand()
     case "init":
-      return runInitCommand(json, write)
+      return runInitCommand(out)
     case "visualize":
-      return runVisualizeCommand(command.port, command.open, json, write)
+      return runVisualizeCommand(command.port, command.open, out)
     case "entry":
-      return runEntryCommand(command.actor, command.state, command.vars, json, write, command.label)
+      return runEntryCommand(command.actor, command.state, command.vars, out, command.label)
     case "abandon":
-      return runAbandonCommand(json, write)
+      return runAbandonCommand(out)
     case "restore":
-      return runRestoreCommand(json, write)
-    case "next":
-      return runNextCommand(json, write)
-    case "status":
-      return runStatusCommand(json, write)
+      return runRestoreCommand(out)
     case "validate":
-      return runValidateCommand(json, write)
+      return runValidateCommand(out)
     case "check":
-      return runCheckCommand(
-        command.mode,
-        command.file,
-        command.openQuestions ?? false,
-        json,
-        write,
-      )
+      return runCheckCommand(command.mode, command.file, command.openQuestions ?? false)
     case "install":
-      return runInstallCommand(json, write)
+      return runInstallCommand(out)
   }
 }
 
 /**
- * Dispatches every `Command` to its exit code — `"land"` alone can return
- * non-zero (`EXIT_SETTLED`, via `runLandCommand`); every other kind always
- * succeeds at `0` (`dispatchVoidCommand`, piped through `Effect.as(0)`).
- * Splitting the exhaustive switch out to `dispatchVoidCommand` keeps this
- * function's own branching to the one kind that actually varies.
+ * Dispatches every `Command` to its exit code. `"land"`, `"next"` and
+ * `"status"` each derive theirs from the resolved rest (`ExitCodes.ts`'s
+ * `restExitCode`/`ownerCodeOf` — see each handler's own doc comment); every
+ * other kind always succeeds at `EXIT_OK` (`dispatchVoidCommand`, piped
+ * through `Effect.as`). Splitting the exhaustive switch out to
+ * `dispatchVoidCommand` keeps this function's own branching to the kinds that
+ * actually vary. `json` reaches only `runStatusCommand` — `Cli.ts` guarantees
+ * it is `false` for every other kind (the flag's whole scope is `"status"`),
+ * so no other handler needs to see it.
  */
 const dispatchCommand = (
   command: Command,
   json: boolean,
-  write: (chunk: string) => void,
+  out: ArtifactOut,
 ): Effect.Effect<number, Error, CommandRequirements> => {
-  if (command.kind === "land") {
-    return runLandCommand(
-      {
-        ...(command.cost !== undefined ? { cost: command.cost } : {}),
-        ...(command.model !== undefined ? { model: command.model } : {}),
-      },
-      json,
-      write,
-    )
+  switch (command.kind) {
+    case "land":
+      return runLandCommand(
+        {
+          ...(command.cost !== undefined ? { cost: command.cost } : {}),
+          ...(command.model !== undefined ? { model: command.model } : {}),
+        },
+        out,
+      )
+    case "next":
+      return runNextCommand(out)
+    case "status":
+      return runStatusCommand(json, out)
+    default:
+      return dispatchVoidCommand(command, out).pipe(Effect.as(EXIT_OK))
   }
-  return dispatchVoidCommand(command, json, write).pipe(Effect.as(0))
 }
 
 /**
@@ -1646,8 +1576,9 @@ const dispatchCommand = (
  * `needsOf(command.kind) === "state"` — `lsp`/`init`/`visualize`/`check` (the
  * `standaloneKinds`) run bare. `Cli.ts` has already validated every field on
  * `command` (arity, flag scope, decoding), so nothing here re-parses argv.
- * Returns the exit code `Cli.ts`'s `runCli` should use — `0` for every
- * command except a `land` that settles (`EXIT_SETTLED`).
+ * Returns the exit code `Cli.ts`'s `runCli` should use — `EXIT_OK` for every
+ * command except `land`/`next`/`status`, each of which derives its own from
+ * the resolved (or, for `land`, post-land) rest (see `ExitCodes.ts`).
  *
  * The guard is two checks, in order: `assertRunningFromRepoRoot` (running from
  * the wrong directory is the more fundamental misuse, and its message is about
@@ -1664,9 +1595,9 @@ const dispatchCommand = (
 export const runCommand = (
   command: Command,
   json: boolean,
-  write: (chunk: string) => void,
+  out: ArtifactOut,
 ): Effect.Effect<number, Error, CommandRequirements> => {
-  const dispatch = dispatchCommand(command, json, write)
+  const dispatch = dispatchCommand(command, json, out)
   if (needsOf(command.kind) !== "state") return dispatch
   return Effect.gen(function* () {
     const git = yield* GitService

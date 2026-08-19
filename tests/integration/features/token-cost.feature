@@ -51,7 +51,10 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     And the last commit subject is "gtd(agent): building → reviewing"
     And the last commit body contains "Gtd-Cost: 1450"
 
-  Scenario: gtd land --json echoes the recorded cost
+  Scenario: gtd land --cost records the cost, observable on the commit trailer, in plain text
+    # No more --json here (land is plain-text only now, see AGENTS.md) — the
+    # recorded cost is observable on the landed commit's own trailer, exactly
+    # like this file's first scenario.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -81,10 +84,10 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
       export const x = 1
       """
-    When I run gtd land with "--cost=1450" and "--json"
+    When I run gtd land with "--cost=1450"
     Then it succeeds
-    And stdout contains "\"subject\":\"gtd(agent): building → idle\""
-    And stdout contains "\"cost\":1450"
+    And the last commit subject is "gtd(agent): building → idle"
+    And the last commit body contains "Gtd-Cost: 1450"
 
   Scenario: gtd status shows the running process cost, accumulated across turns
     Given a test project
@@ -285,7 +288,10 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     And the last commit subject is "gtd(agent): building → reviewing"
     And the last commit body contains "Gtd-Cost: 1450 claude-opus-4-8"
 
-  Scenario: gtd land --json echoes both the recorded cost and model
+  Scenario: gtd land --cost --model records both, observable on the commit trailer, in plain text
+    # No more --json here (land is plain-text only now, see AGENTS.md) — both
+    # values land on the same Gtd-Cost trailer this file's earlier
+    # "records the model alongside the cost" scenario already asserts on.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -315,10 +321,9 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
       export const x = 1
       """
-    When I run gtd land with "--cost=1450" and "--model=opus" and "--json"
+    When I run gtd land with "--cost=1450" and "--model=opus"
     Then it succeeds
-    And stdout contains "\"cost\":1450"
-    And stdout contains "\"model\":\"opus\""
+    And the last commit body contains "Gtd-Cost: 1450 opus"
 
   Scenario: gtd status shows the per-model breakdown under the running total
     Given a test project

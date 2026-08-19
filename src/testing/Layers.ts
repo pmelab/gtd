@@ -14,6 +14,7 @@
 import { FileSystem } from "@effect/platform"
 import { SystemError, type PlatformError } from "@effect/platform/Error"
 import { Effect, Layer, Option } from "effect"
+import { Narrator } from "../Commentary.js"
 import { GitService, withIndexLockRetries } from "../Git.js"
 import {
   ConfigService,
@@ -301,6 +302,16 @@ export interface TestWorldOptions {
   readonly root?: string
   /** Canned `bash` outcomes for the scripted `CommandRunner` — see `ScriptedCommand`. */
   readonly commands?: ReadonlyMap<string, ScriptedCommand>
+  /**
+   * Captures every narrated line — absent (the default) means the
+   * `Narrator` this builds is a no-op, exactly like a real invocation with no
+   * `--verbose`. A test asserting on narration passes its own sink here and
+   * gets every line regardless of `verbose` (see `verbose` below) — a direct
+   * Effect test has no `--verbose` flag of its own to gate on.
+   */
+  readonly narrate?: (line: string) => void
+  /** Gates `narrate` above — defaults to `true` (fires whenever a sink is given) since these tests aren't exercising `Cli.ts`'s own `--verbose` gate. `src/testing/cliIo.ts` overrides this with the real decoded flag. */
+  readonly verbose?: boolean
 }
 
 /** The fine-grained `GitService` layer alone — for unit tests that need only git. `root` (default `/repo`) is only consumed by `topLevel`/`gitDir` — see `fakeGitOperations`. */
@@ -324,5 +335,6 @@ export function testLayers(
     makeInMemoryRepoFiles(repo),
     makeScriptedCommandRunner(repo, opts.commands ?? new Map()),
     EnvVars.layer(opts.env ?? {}),
+    Narrator.layer(opts.narrate ?? (() => {}), opts.verbose ?? true),
   )
 }

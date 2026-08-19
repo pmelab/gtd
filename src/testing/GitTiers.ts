@@ -25,6 +25,7 @@ import { execSync, execFileSync } from "node:child_process"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
+import { Narrator } from "../Commentary.js"
 import { GitService, type GitOperations } from "../Git.js"
 import {
   commitAll,
@@ -86,13 +87,13 @@ export interface GitTier {
   readonly name: "Live" | "InMemory"
   readonly root: string
   readonly capabilities: GitTierCapabilities
-  /** Provide `GitService` (retry-wrapped, exactly as production wires it) + `ConfigService` (defaulting to the bundled template; pass `workflow` for a custom one — see `ReviewWindow.test.ts`). */
+  /** Provide `GitService` (retry-wrapped, exactly as production wires it) + `ConfigService` (defaulting to the bundled template; pass `workflow` for a custom one — see `ReviewWindow.test.ts`) + a no-op `Narrator`. */
   readonly provide: <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService>,
+    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
     workflow?: WorkflowDefinition,
   ) => Promise<A>
   readonly provideExit: <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService>,
+    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
     workflow?: WorkflowDefinition,
   ) => Promise<Exit.Exit<A, Error>>
   /** A second, commit-less repo of the same tier — for the empty-repo edge cases (`commitHistory`, `hasCommits`). */
@@ -114,6 +115,9 @@ const configLayerFor = (workflow: WorkflowDefinition): Layer.Layer<ConfigService
       stateScopes: defaultStateScopes,
     }),
   })
+
+/** No-op — these tests assert on git/config behavior, not narration (see `Commentary.test.ts`/`Config.test.ts` for that). */
+const noopNarratorLayer = Narrator.layer(() => {}, false)
 
 // ---------------------------------------------------------------------------
 // Live tier
@@ -139,7 +143,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
   }
 
   const provide = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService>,
+    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
     workflow: WorkflowDefinition = defaultWorkflowDefinition,
   ): Promise<A> =>
     Effect.runPromise(
@@ -148,11 +152,12 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         Effect.provide(configLayerFor(workflow)),
         Effect.provide(Cwd.layer(root)),
         Effect.provide(NodeContext.layer),
+        Effect.provide(noopNarratorLayer),
       ),
     )
 
   const provideExit = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService>,
+    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
     workflow: WorkflowDefinition = defaultWorkflowDefinition,
   ): Promise<Exit.Exit<A, Error>> =>
     Effect.runPromiseExit(
@@ -161,6 +166,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         Effect.provide(configLayerFor(workflow)),
         Effect.provide(Cwd.layer(root)),
         Effect.provide(NodeContext.layer),
+        Effect.provide(noopNarratorLayer),
       ),
     )
 
@@ -250,17 +256,27 @@ const makeInMemTier = (initialCommit = true): GitTier => {
   const gitLayer = gitTestLayer(repo, IN_MEM_ROOT)
 
   const provide = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService>,
+    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
     workflow: WorkflowDefinition = defaultWorkflowDefinition,
   ): Promise<A> =>
-    Effect.runPromise(eff.pipe(Effect.provide(gitLayer), Effect.provide(configLayerFor(workflow))))
+    Effect.runPromise(
+      eff.pipe(
+        Effect.provide(gitLayer),
+        Effect.provide(configLayerFor(workflow)),
+        Effect.provide(noopNarratorLayer),
+      ),
+    )
 
   const provideExit = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService>,
+    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
     workflow: WorkflowDefinition = defaultWorkflowDefinition,
   ): Promise<Exit.Exit<A, Error>> =>
     Effect.runPromiseExit(
-      eff.pipe(Effect.provide(gitLayer), Effect.provide(configLayerFor(workflow))),
+      eff.pipe(
+        Effect.provide(gitLayer),
+        Effect.provide(configLayerFor(workflow)),
+        Effect.provide(noopNarratorLayer),
+      ),
     )
 
   return {
@@ -354,6 +370,20 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
 ])
 
 /**
+ * Filenames real `git diff --name-status` would mangle (or misparse) without
+ * `-z`: an embedded newline splits a `\n`-joined parser into two bogus
+ * entries, a double quote and non-ASCII byte trigger git's C-quoting of the
+ * path. `InMemRepo` needs none of this — it returns paths verbatim as plain
+ * JS strings — which is exactly why running these through both tiers is the
+ * point: only the Live tier's parser can regress here.
+ */
+const PATHOLOGICAL_PATHS: ReadonlyArray<{ label: string; path: string }> = [
+  { label: "an embedded newline", path: "weird\nname.txt" },
+  { label: "a double quote", path: 'weird"name.txt' },
+  { label: "a non-ASCII UTF-8 byte", path: "café.txt" },
+]
+
+/**
  * Exercise all 20 `GitOperations` methods identically against `makeTier()` —
  * called once per tier by `src/Git.test.ts`. A capability-gated group
  * (`t.capabilities.X`) is skipped, not faked, on a tier that can't support it.
@@ -412,6 +442,29 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
     it("fails for an unreachable ref", async () => {
       const result = await runGitExit(t, (g) => g.changedPathsSince("totally-invalid-ref-xyz"))
       expect(Exit.isFailure(result)).toBe(true)
+    })
+
+    for (const { label, path } of PATHOLOGICAL_PATHS) {
+      it(`reports an added path containing ${label}, verbatim`, async () => {
+        const base = t.observe.resolveRef("HEAD")
+        t.seed.commit("feat: add pathological file", { [path]: "content" })
+        const changed = await runGit(t, (g) => g.changedPathsSince(base))
+        expect(changed).toEqual([{ path, status: "A" }])
+      })
+    }
+
+    it("expands a rename into a deletion of the old path and an addition of the new one", async () => {
+      t.seed.commit("chore: seed old", { "old.txt": "same content unique-marker\n" })
+      const base = t.observe.resolveRef("HEAD")
+      t.seed.deleteFile("old.txt")
+      t.seed.writeFile("new.txt", "same content unique-marker\n")
+      t.seed.stageAll()
+      t.seed.commit("feat: rename old to new", {})
+      const changed = await runGit(t, (g) => g.changedPathsSince(base))
+      expect([...changed].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+        { path: "new.txt", status: "A" },
+        { path: "old.txt", status: "D" },
+      ])
     })
   })
 
@@ -506,6 +559,20 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       expect(result[3]?.removedErrors).toBe(false)
     })
 
+    it("sets removedErrors=true for a deletion of the namespaced state-dir ERRORS.md", async () => {
+      t.seed.commit("gtd: test-failed", { ".gtd/ERRORS.md": "some errors" })
+      t.seed.commitDeletion(".gtd/ERRORS.md", "gtd: building")
+      const result = await runGit(t, (g) => g.commitHistory())
+      expect(result[result.length - 1]?.removedErrors).toBe(true)
+    })
+
+    it("leaves removedErrors=false for a deletion of a path merely ending in ERRORS.md", async () => {
+      t.seed.commit("chore: seed", { "sub/ERRORS.md": "some errors" })
+      t.seed.commitDeletion("sub/ERRORS.md", "chore: remove")
+      const result = await runGit(t, (g) => g.commitHistory())
+      expect(result[result.length - 1]?.removedErrors).toBe(false)
+    })
+
     it("limits to base..HEAD range when base is provided", async () => {
       t.seed.commit("feat: second", { "b.txt": "b" })
       const base = t.observe.resolveRef("HEAD")
@@ -548,6 +615,25 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       t.seed.commit("feat: third", { "c.txt": "c" })
       const result = await runGit(t, (g) => g.commitHistory(undefined, earlierHead))
       expect(result.map((c) => c.message)).toEqual(["init: first commit", "feat: second"])
+    })
+
+    for (const { label, path } of PATHOLOGICAL_PATHS) {
+      it(`reports a touched path containing ${label}, verbatim`, async () => {
+        t.seed.commit("feat: add pathological file", { [path]: "content" })
+        const result = await runGit(t, (g) => g.commitHistory())
+        expect(result[result.length - 1]?.touched).toEqual([path])
+      })
+    }
+
+    it("expands a rename into a deletion of the old path and an addition of the new one", async () => {
+      t.seed.commit("chore: seed old", { "old.txt": "same content unique-marker\n" })
+      t.seed.deleteFile("old.txt")
+      t.seed.writeFile("new.txt", "same content unique-marker\n")
+      t.seed.stageAll()
+      t.seed.commit("feat: rename old to new", {})
+      const result = await runGit(t, (g) => g.commitHistory())
+      const renameCommit = result.find((c) => c.message === "feat: rename old to new")
+      expect([...(renameCommit?.touched ?? [])].sort()).toEqual(["new.txt", "old.txt"])
     })
   })
 
@@ -732,6 +818,26 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
 
     it("returns [] on a clean tree", async () => {
       expect(await runGit(t, (g) => g.changedPaths())).toEqual([])
+    })
+
+    for (const { label, path } of PATHOLOGICAL_PATHS) {
+      it(`reports an untracked path containing ${label}, verbatim`, async () => {
+        t.seed.writeFile(path, "content")
+        const changed = await runGit(t, (g) => g.changedPaths())
+        expect(changed).toEqual([{ path, status: "A" }])
+      })
+    }
+
+    it("expands a rename into a deletion of the old path and an addition of the new one", async () => {
+      t.seed.commit("chore: seed old", { "old.txt": "same content unique-marker\n" })
+      t.seed.deleteFile("old.txt")
+      t.seed.writeFile("new.txt", "same content unique-marker\n")
+      t.seed.stageAll()
+      const changed = await runGit(t, (g) => g.changedPaths())
+      expect([...changed].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+        { path: "new.txt", status: "A" },
+        { path: "old.txt", status: "D" },
+      ])
     })
 
     // The review checkout window's own shape: `git reset --mixed <base>` drops

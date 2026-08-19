@@ -1,5 +1,6 @@
 [tools]
 node = "lts"
+shellcheck = "latest"
 
 [env]
 _.path = ["dist"]

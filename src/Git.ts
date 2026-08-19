@@ -1,5 +1,6 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Duration, Effect, Layer, Option, Schedule, Stream } from "effect"
+import { GtdError } from "./Commentary.js"
 import { Cwd } from "./Cwd.js"
 
 export interface GitReaderOperations {
@@ -175,35 +176,57 @@ export interface GitWriterOperations {
 
 export interface GitOperations extends GitReaderOperations, GitWriterOperations {}
 
+/** Split a `-z` git output into its entries, dropping the trailing empty one. */
+const splitNul = (out: string): Array<string> => out.split("\0").filter((s) => s.length > 0)
+
 /**
- * Parse `git diff --name-status` output into `{ path, status }` pairs.
- * Status codes: A (added), D (deleted), M (modified), R (renamed), C (copied), etc.
- * Rename/copy lines have format `R<score>\told-path\tnew-path` — we expand them
- * into a deletion of old-path and an addition of new-path.
+ * Parse a `git diff --name-status -z` token stream (already split by
+ * `splitNul`) into `{ path, status }` pairs. Statuses are identified purely
+ * by POSITION, never by shape — the stream is strictly ordered (status, then
+ * path/s), so a file legally named e.g. `M` is never misread as a status
+ * token. A status beginning `R` (renamed) or `C` (copied) is followed by TWO
+ * paths instead of one; we expand it into a deletion of the old path and an
+ * addition of the new one, matching what a plain add/delete pair would
+ * report.
  */
-// fallow-ignore-next-line complexity
-const parseNameStatus = (out: string): Array<{ path: string; status: string }> => {
+const parseNameStatus = (
+  tokens: ReadonlyArray<string>,
+): Array<{ path: string; status: string }> => {
   const result: Array<{ path: string; status: string }> = []
-  for (const line of out.split("\n")) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    const [status, ...rest] = trimmed.split("\t")
-    if (!status || rest.length === 0) continue
+  let i = 0
+  while (i < tokens.length) {
+    const status = tokens[i]!
+    i += 1
     if (status.startsWith("R") || status.startsWith("C")) {
-      // old-path → deleted, new-path → added
-      const [oldPath, newPath] = rest
-      if (oldPath) result.push({ path: oldPath, status: "D" })
-      if (newPath) result.push({ path: newPath, status: "A" })
+      const oldPath = tokens[i]
+      const newPath = tokens[i + 1]
+      i += 2
+      if (oldPath !== undefined) result.push({ path: oldPath, status: "D" })
+      if (newPath !== undefined) result.push({ path: newPath, status: "A" })
     } else {
-      const path = rest[0]
-      if (path) result.push({ path, status: status[0]! })
+      const path = tokens[i]
+      i += 1
+      if (path !== undefined) result.push({ path, status: status[0]! })
     }
   }
   return result
 }
 
-/** Split a `-z` git output into its entries, dropping the trailing empty one. */
-const splitNul = (out: string): Array<string> => out.split("\0").filter((s) => s.length > 0)
+/**
+ * `git log -z --format=…` NUL-terminates the whole pretty-printed commit
+ * entry in place of the blank line that separates it from its diff — and
+ * when a diff follows, git additionally emits that blank line's own newline
+ * byte literally (never converted to NUL). Both are seam artifacts, not diff
+ * data: strip the leading NUL and, if present, the newline right after it,
+ * before handing the remainder to `splitNul`/`parseNameStatus`.
+ */
+const stripCommitSeam = (tail: string): string => {
+  const afterNul = tail.startsWith("\x00") ? tail.slice(1) : tail
+  return afterNul.startsWith("\n") ? afterNul.slice(1) : afterNul
+}
+
+/** The two spellings of the errors file a commit's deletion of it may carry — the namespaced state-dir path, and the legacy root-level one from pre-`.gtd/` history. */
+const ERRORS_MD_PATHS: ReadonlySet<string> = new Set([".gtd/ERRORS.md", "ERRORS.md"])
 
 /** A `git exec` bound to one repo root — `makeGitImpl`'s own local `exec`, named so the module-level helpers below can take it. */
 type GitExec = (...args: [string, ...Array<string>]) => Effect.Effect<string, Error>
@@ -411,6 +434,22 @@ const run = (
     }),
   ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
+/**
+ * `resolveRef`'s own validation: `git rev-parse --verify <ref>` EXITED ZERO
+ * (a non-existent ref already failed earlier, in `exec`'s own exit-code
+ * check) but its trimmed stdout isn't a 40-hex-char hash — a corrupted ref,
+ * not a missing one. Exported as its own pure function (rather than inlined
+ * in `resolveRef`) so this rare branch is unit-testable directly, without a
+ * real git repository contriving the condition.
+ */
+export const resolvedRefOrCorrupted = (
+  ref: string,
+  hash: string,
+): Effect.Effect<string, GtdError> =>
+  /^[0-9a-f]{40}$/.test(hash)
+    ? Effect.succeed(hash)
+    : Effect.fail(new GtdError(`Invalid ref: ${ref}`, [`ref: ${ref}`]))
+
 const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): GitOperations => {
   const exec = (...args: [string, ...Array<string>]) =>
     run(root, ...args).pipe(
@@ -433,7 +472,9 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     readFileAtRef: (ref: string, path: string) => exec("git", "show", `${ref}:${path}`),
 
     changedPathsSince: (ref: string) =>
-      exec("git", "diff", "--name-status", ref, "HEAD").pipe(Effect.map(parseNameStatus)),
+      exec("git", "diff", "--name-status", "-z", ref, "HEAD").pipe(
+        Effect.map((out) => parseNameStatus(splitNul(out))),
+      ),
 
     changedPaths: (base?: string) =>
       Effect.gen(function* () {
@@ -441,13 +482,13 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         // Only the empty-repo case (no HEAD) is tolerated here — an
         // `index.lock` failure must propagate so the port-level retry
         // (`withIndexLockRetries`) sees it, not this catch.
-        const nameStatusOut = yield* exec("git", "diff", "--name-status", ref).pipe(
+        const nameStatusOut = yield* exec("git", "diff", "--name-status", "-z", ref).pipe(
           Effect.catchIf(
             (e) => !isIndexLockError(e),
             () => Effect.succeed(""),
           ),
         )
-        const trackedPaths = parseNameStatus(nameStatusOut)
+        const trackedPaths = parseNameStatus(splitNul(nameStatusOut))
 
         const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard", "-z")
         const untrackedPaths = splitNul(untrackedRaw)
@@ -479,11 +520,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     resolveRef: (ref: string) =>
       exec("git", "rev-parse", "--verify", ref).pipe(
         Effect.map((s) => s.trim()),
-        Effect.flatMap((hash) =>
-          /^[0-9a-f]{40}$/.test(hash)
-            ? Effect.succeed(hash)
-            : Effect.fail(new Error(`Invalid ref: ${ref}`)),
-        ),
+        Effect.flatMap((hash) => resolvedRefOrCorrupted(ref, hash)),
       ),
 
     readRefOption: (ref: string) =>
@@ -510,7 +547,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         "log",
         "--first-parent",
         "--reverse",
-        "--format=%x01%H%x00%B%x00",
+        "-z",
+        "--format=%x01%H%x02%B%x02",
         "--name-status",
         ...(range !== undefined ? [range] : []),
       ]
@@ -518,16 +556,21 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         Effect.map((out) =>
           out
             .split("\x01")
-            .filter((chunk) => chunk.trim().length > 0)
+            .filter((chunk) => chunk.length > 0)
             .map((chunk) => {
-              const parts = chunk.split("\x00")
+              const parts = chunk.split("\x02")
               const hash = (parts[0] ?? "").trim()
               const message = (parts[1] ?? "").trim()
-              const nameStatusBlock = parts.slice(2).join("")
-              // Legacy root-level ERRORS.md kept so pre-namespaced history
-              // still classifies (budget resets survive the .gtd/ migration).
-              const removedErrors = /^D\t(\.gtd\/)?ERRORS\.md$/m.test(nameStatusBlock)
-              const touched = parseNameStatus(nameStatusBlock).map((e) => e.path)
+              // A literal \x02 byte inside the commit message (the documented
+              // residual risk) would otherwise silently drop the extra split
+              // pieces — rejoining keeps that failure mode no worse than
+              // before, without pretending to fix it.
+              const tail = parts.slice(2).join("")
+              const entries = parseNameStatus(splitNul(stripCommitSeam(tail)))
+              const removedErrors = entries.some(
+                (e) => e.status === "D" && ERRORS_MD_PATHS.has(e.path),
+              )
+              const touched = entries.map((e) => e.path)
               return { hash, message, removedErrors, touched }
             }),
         ),

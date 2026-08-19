@@ -1,14 +1,28 @@
-import { execFileSync, execSync } from "node:child_process"
+import { execFileSync, execSync, spawnSync } from "node:child_process"
 import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { REVIEW_HEAD_REF } from "./ReviewWindow.js"
-import { combinedScript, emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
+import {
+  combinedScript,
+  DID_NOT_RUN_COMMENT,
+  emitScripts,
+  type EmitPreconditions,
+  type EmitStep,
+} from "./Emit.js"
 
-const runBashCheckSyntax = (script: string): number => {
+/**
+ * `sh -n` (POSIX syntax check), not `bash -n` — a script that only passes
+ * under `bash -n` could still be using a bashism `dash` rejects (`local`,
+ * `$RANDOM`, `$'...'`, process substitution, …), which is exactly the class
+ * of bug this port is fixing. `sh` on this machine is a real POSIX shell, so
+ * a pass here is evidence the emitted script is portable, not just
+ * bash-flavored.
+ */
+const runShCheckSyntax = (script: string): number => {
   try {
-    execFileSync("bash", ["-n"], { input: script })
+    execFileSync("sh", ["-n"], { input: script })
     return 0
   } catch (error) {
     return (error as { status?: number }).status ?? 1
@@ -42,8 +56,8 @@ describe("emitScripts — required only", () => {
     expect(optional).toBe("")
   })
 
-  it("begins with set -euo pipefail as the literal first line", () => {
-    expect(required.split("\n")[0]).toBe("set -euo pipefail")
+  it("begins with set -eu as the literal first line", () => {
+    expect(required.split("\n")[0]).toBe("set -eu")
   })
 
   it("asserts HEAD before doing anything, naming the mismatch and telling the reader to re-run gtd", () => {
@@ -52,8 +66,8 @@ describe("emitScripts — required only", () => {
     expect(required).toContain("re-run gtd")
   })
 
-  it("is syntactically valid bash", () => {
-    expect(runBashCheckSyntax(required)).toBe(0)
+  it("is syntactically valid POSIX sh", () => {
+    expect(runShCheckSyntax(required)).toBe(0)
   })
 })
 
@@ -75,9 +89,9 @@ describe("emitScripts — both halves populated", () => {
     expect(result.optional).not.toBe("")
   })
 
-  it("both halves independently begin with set -euo pipefail", () => {
-    expect(result.required.split("\n")[0]).toBe("set -euo pipefail")
-    expect(result.optional.split("\n")[0]).toBe("set -euo pipefail")
+  it("both halves independently begin with set -eu", () => {
+    expect(result.required.split("\n")[0]).toBe("set -eu")
+    expect(result.optional.split("\n")[0]).toBe("set -eu")
   })
 
   it("both halves independently assert the review-window ref when reviewWindow is supplied", () => {
@@ -88,9 +102,9 @@ describe("emitScripts — both halves populated", () => {
     }
   })
 
-  it("both halves are syntactically valid bash", () => {
-    expect(runBashCheckSyntax(result.required)).toBe(0)
-    expect(runBashCheckSyntax(result.optional)).toBe(0)
+  it("both halves are syntactically valid POSIX sh", () => {
+    expect(runShCheckSyntax(result.required)).toBe(0)
+    expect(runShCheckSyntax(result.optional)).toBe(0)
   })
 
   it("a plain command step is emitted verbatim, not routed through the retry helper", () => {
@@ -138,11 +152,11 @@ describe("emitScripts — outcome steps", () => {
     expect(required).toContain(OUTCOME_MARKER)
   })
 
-  it("is syntactically valid bash", () => {
+  it("is syntactically valid POSIX sh", () => {
     const { required } = emitScripts(basePreconditions, [
       { kind: "outcome", command: "gtd_report_note 'nothing to do at \"idle\"'" },
     ])
-    expect(runBashCheckSyntax(required)).toBe(0)
+    expect(runShCheckSyntax(required)).toBe(0)
   })
 })
 
@@ -155,6 +169,25 @@ describe("emitScripts — no reviewWindow means no extra ref assertion", () => {
   })
 })
 
+describe("emitScripts — POSIX sh portability of the emitted output", () => {
+  const steps: ReadonlyArray<EmitStep> = [
+    { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
+  ]
+  const { required } = emitScripts(basePreconditions, steps)
+
+  it("never contains 'pipefail'", () => {
+    expect(required).not.toContain("pipefail")
+  })
+
+  it("never contains 'RANDOM'", () => {
+    expect(required).not.toContain("RANDOM")
+  })
+
+  it("RETRY_HELPER's rendered text contains no ' local ' token", () => {
+    expect(required).not.toContain(" local ")
+  })
+})
+
 describe("emitScripts — a script with no gitWrite steps omits the retry helper", () => {
   const steps: ReadonlyArray<EmitStep> = [{ kind: "command", command: "echo hi" }]
   const { required } = emitScripts(basePreconditions, steps)
@@ -163,8 +196,8 @@ describe("emitScripts — a script with no gitWrite steps omits the retry helper
     expect(required).not.toContain("gtd_retry()")
   })
 
-  it("is still syntactically valid bash", () => {
-    expect(runBashCheckSyntax(required)).toBe(0)
+  it("is still syntactically valid POSIX sh", () => {
+    expect(runShCheckSyntax(required)).toBe(0)
   })
 })
 
@@ -178,8 +211,8 @@ describe("emitScripts — unborn HEAD precondition (expectedHead: '')", () => {
     expect(required).toContain(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = '' ]`)
   })
 
-  it("is syntactically valid bash", () => {
-    expect(runBashCheckSyntax(required)).toBe(0)
+  it("is syntactically valid POSIX sh", () => {
+    expect(runShCheckSyntax(required)).toBe(0)
   })
 })
 
@@ -196,7 +229,7 @@ describe("emitScripts — a command step with onFailure", () => {
     execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()
   const runIn = (dir: string, script: string): { status: number; output: string } => {
     try {
-      const output = execSync("bash", { input: script, cwd: dir, encoding: "utf8" })
+      const output = execSync("sh", { input: script, cwd: dir, encoding: "utf8" })
       return { status: 0, output }
     } catch (error) {
       const e = error as { status?: number; stdout?: string }
@@ -204,12 +237,12 @@ describe("emitScripts — a command step with onFailure", () => {
     }
   }
 
-  it("is syntactically valid bash", () => {
+  it("is syntactically valid POSIX sh", () => {
     const steps: ReadonlyArray<EmitStep> = [
       { kind: "command", command: "true", onFailure: "fix it" },
     ]
     const { required } = emitScripts(basePreconditions, steps)
-    expect(runBashCheckSyntax(required)).toBe(0)
+    expect(runShCheckSyntax(required)).toBe(0)
   })
 
   it("a succeeding wrapped command exits 0 and prints nothing of its own", () => {
@@ -297,7 +330,7 @@ const withFakeGit = (
 
 const runScriptInRealRepo = (script: string, cwd: string): number => {
   try {
-    execSync("bash", { input: script, cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
+    execSync("sh", { input: script, cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
     return 0
   } catch (error) {
     return (error as { status?: number }).status ?? 1
@@ -394,7 +427,7 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     const { required } = emitScripts({ expectedHead: head }, [
       { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): landed'" },
     ])
-    execSync("bash", { input: required, cwd: dir })
+    execSync("sh", { input: required, cwd: dir })
     expect(commitCount(dir)).toBe(before + 1)
     expect(
       execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd: dir, encoding: "utf8" }).trim(),
@@ -409,7 +442,7 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     ])
     let status = 0
     try {
-      execSync("bash", { input: required, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+      execSync("sh", { input: required, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
     } catch (error) {
       status = (error as { status?: number }).status ?? 1
     }
@@ -425,7 +458,7 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     ])
     let status = 0
     try {
-      execSync("bash", { input: required, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+      execSync("sh", { input: required, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
     } catch (error) {
       status = (error as { status?: number }).status ?? 1
     }
@@ -435,6 +468,13 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
 })
 
 describe("combinedScript — the plain-text write commands' single pasteable script", () => {
+  it("DID_NOT_RUN_COMMENT points the reader at sh, not bash", () => {
+    expect(DID_NOT_RUN_COMMENT).toBe(
+      "# gtd emitted this and did NOT run it — pipe it into `sh` to land the turn",
+    )
+    expect(DID_NOT_RUN_COMMENT).not.toContain("bash")
+  })
+
   it("is the empty string when required is empty", () => {
     expect(combinedScript("", "")).toBe("")
     expect(combinedScript("", "echo optional")).toBe("")
@@ -445,16 +485,22 @@ describe("combinedScript — the plain-text write commands' single pasteable scr
     expect(script.startsWith("# gtd emitted this and did NOT run it")).toBe(true)
     expect(script).toContain("echo required")
     expect(script).not.toContain("presentation-only follow-up failed")
-    expect(runBashCheckSyntax(script)).toBe(0)
+    expect(runShCheckSyntax(script)).toBe(0)
   })
 
   it("wraps a non-empty optional in a subshell that never fails the whole script", () => {
     const script = combinedScript("echo required", "echo optional")
     expect(script.startsWith("# gtd emitted this and did NOT run it")).toBe(true)
     expect(script).toContain("echo required")
-    expect(script).toContain("(\necho optional\n) || echo")
+    expect(script).toContain("(\necho optional\n) || printf")
     expect(script).toContain("presentation-only follow-up failed — continuing")
-    expect(runBashCheckSyntax(script)).toBe(0)
+    expect(runShCheckSyntax(script)).toBe(0)
+  })
+
+  it("the presentation-only failure warning prints via printf, not echo, and its wording is stable", () => {
+    const script = combinedScript("echo required", "echo optional")
+    expect(script).toContain("printf 'gtd: presentation-only follow-up failed — continuing\\n' >&2")
+    expect(script).not.toMatch(/echo\s+["']?gtd: presentation-only/)
   })
 
   it("required runs before optional, and a failing required aborts before optional runs", () => {
@@ -462,7 +508,7 @@ describe("combinedScript — the plain-text write commands' single pasteable scr
     const script = combinedScript("exit 1", "touch optional-ran")
     let status = 0
     try {
-      execSync("bash", { input: script, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+      execSync("sh", { input: script, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
     } catch (error) {
       status = (error as { status?: number }).status ?? 1
     }
@@ -475,7 +521,16 @@ describe("combinedScript — the plain-text write commands' single pasteable scr
     const script = combinedScript("touch required-ran", "exit 1")
     // stderr piped, not inherited: the optional half's own failure warning is
     // the point of this case, and must not leak into the test run's output.
-    execSync("bash", { input: script, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+    execSync("sh", { input: script, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
     expect(existsSync(join(dir, "required-ran"))).toBe(true)
+  })
+
+  it("the discarded-optional-failure warning lands on stderr, never stdout — this channel's own shape, pinned alongside Commentary.test.ts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "emit-combined-"))
+    const script = combinedScript("touch required-ran", "exit 1")
+    const result = spawnSync("sh", [], { input: script, cwd: dir, encoding: "utf8" })
+    expect(result.status).toBe(0)
+    expect(result.stderr).toContain("gtd: presentation-only follow-up failed — continuing")
+    expect(result.stdout).not.toContain("gtd: presentation-only follow-up failed")
   })
 })

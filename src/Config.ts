@@ -3,6 +3,7 @@ import { dirname } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
+import { GtdError, Narrator } from "./Commentary.js"
 import {
   compileModesMap,
   compileVarsMap,
@@ -314,12 +315,28 @@ const toOperations = (
   return { workflow: definition, workflowVars, rcVars, machineTree: tree, stateScopes: scopes }
 }
 
-const formatSchemaError = (e: ParseError): string => {
+/**
+ * The offending top-level key(s) plus which config LAYER last set each one —
+ * `keyOrigin` maps a top-level key to the innermost level's `filepath` that
+ * declared it (levels are outermost→innermost, so a later write wins, same
+ * as `deepMerge`'s own precedence). A key the schema rejects that no level
+ * ever set (a `toOperations`-side default) has no origin to report.
+ */
+const formatSchemaError = (
+  e: ParseError,
+  keyOrigin: Readonly<Record<string, string>>,
+): GtdError => {
   const issues = ArrayFormatter.formatErrorSync(e)
   const summary = issues
     .map((i) => (i.path.length > 0 ? i.path.join(".") + ": " : "") + i.message)
     .join("; ")
-  return `Invalid gtd config: ${summary}`
+  const keys = [
+    ...new Set(issues.map((i) => i.path[0]).filter((k): k is PropertyKey => k !== undefined)),
+  ]
+  const detail = keys.map(
+    (key) => `${String(key)}: ${keyOrigin[String(key)] ?? "(built-in default)"}`,
+  )
+  return new GtdError(`Invalid gtd config: ${summary}`, detail)
 }
 
 /**
@@ -333,7 +350,7 @@ const formatSchemaError = (e: ParseError): string => {
  * absent `workflow:` no longer fails at all — the built-in default is used.)
  */
 interface ConfigServiceOperations {
-  readonly load: Effect.Effect<ConfigOperations, Error>
+  readonly load: Effect.Effect<ConfigOperations, Error, Narrator>
 }
 
 /**
@@ -354,8 +371,10 @@ export const configServiceLayer = (
   root: string,
   fileRefs: FileRefReader = nodeFileRefReader,
 ): Layer.Layer<ConfigService> => {
-  const load: Effect.Effect<ConfigOperations, Error> = Effect.gen(function* () {
+  const load: Effect.Effect<ConfigOperations, Error, Narrator> = Effect.gen(function* () {
+    const narrator = yield* Narrator
     const levels = yield* source.levels(root)
+    for (const level of levels) yield* narrator.narrate(`config: layer ${level.filepath}`)
     const refErrors: string[] = []
     const inlined = levels.map((level) =>
       inlineLevel(level.config, level.filepath, refErrors, fileRefs),
@@ -365,6 +384,13 @@ export const configServiceLayer = (
         new Error(`workflow config:\n${refErrors.map((e) => `  - ${e}`).join("\n")}`),
       )
     }
+    // Outermost→innermost, same order `deepMerge`'s reduction below applies —
+    // a later level's key origin overwrites an earlier one's, matching
+    // `deepMerge`'s own innermost-wins precedence exactly.
+    const keyOrigin: Record<string, string> = {}
+    for (let i = 0; i < levels.length; i++) {
+      for (const key of Object.keys(inlined[i]!)) keyOrigin[key] = levels[i]!.filepath
+    }
     const merged = inlined.reduce<Record<string, unknown>>(
       (acc, level) => deepMerge(acc, level),
       {},
@@ -372,9 +398,7 @@ export const configServiceLayer = (
     const { $schema: _schema, ...cleaned } = merged
     const decoded = yield* Schema.decodeUnknown(ConfigSchema)(cleaned, {
       onExcessProperty: "error",
-    })
-      .pipe(Effect.mapError(formatSchemaError))
-      .pipe(Effect.mapError((msg) => new Error(msg)))
+    }).pipe(Effect.mapError((e) => formatSchemaError(e, keyOrigin)))
     return yield* Effect.try({
       try: () => toOperations(decoded, root, fileRefs),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),

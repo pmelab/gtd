@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit, type Layer } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import {
   formatAndValidateSteeringFile,
   formatSteeringFile,
@@ -13,7 +13,9 @@ import {
   unknownModeMessage,
   validateSteeringFile,
 } from "./SteeringMode.js"
+import { GtdError } from "./Commentary.js"
 import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
+import { EnvVars } from "./EnvVars.js"
 import { QA_FORMAT } from "./OpenQuestions.js"
 import { REVIEW_FORMAT } from "./ReviewDoc.js"
 import { seededValidateCommand } from "./SteeringFormats.js"
@@ -82,17 +84,21 @@ const neverRunner: Layer.Layer<CommandRunner> = CommandRunner.layer(() =>
   Effect.fail(new Error("no command should have run")),
 )
 
-/** Runs an Effect needing a `CommandRunner` against a scripted/never layer. */
+/** A fixed `$PATH` — these tests assert on the missing-binary detail carrying it verbatim. */
+const TEST_PATH = "/usr/bin:/bin"
+const envVarsLayer: Layer.Layer<EnvVars> = EnvVars.layer({ PATH: TEST_PATH })
+
+/** Runs an Effect needing a `CommandRunner` (+ `EnvVars`, for the missing-binary detail) against a scripted/never layer. */
 const runWith = <A>(
-  eff: Effect.Effect<A, Error, CommandRunner>,
+  eff: Effect.Effect<A, Error, CommandRunner | EnvVars>,
   layer: Layer.Layer<CommandRunner>,
-) => Effect.runPromise(eff.pipe(Effect.provide(layer)))
+) => Effect.runPromise(eff.pipe(Effect.provide(Layer.merge(layer, envVarsLayer))))
 
 /** Same as `runWith`, but returns the `Exit` so a failure can be asserted on. */
 const runExitWith = <A>(
-  eff: Effect.Effect<A, Error, CommandRunner>,
+  eff: Effect.Effect<A, Error, CommandRunner | EnvVars>,
   layer: Layer.Layer<CommandRunner>,
-) => Effect.runPromiseExit(eff.pipe(Effect.provide(layer)))
+) => Effect.runPromiseExit(eff.pipe(Effect.provide(Layer.merge(layer, envVarsLayer))))
 
 describe("resolveSteeringMode", () => {
   it("resolves the two built-in names to their in-process validator, their format, and to no formatter", () => {
@@ -403,6 +409,29 @@ describe("validateSteeringFile — a workflow-declared command", () => {
     )
     expect(errors).toEqual([])
   })
+
+  it("a status-127 exit (bash's 'command not found') fails with a GtdError naming the resolved $PATH", async () => {
+    const { layer } = scriptedRunner({
+      status: 127,
+      output: "bash: nonexistent-tool: command not found\n",
+    })
+    const exit = await runExitWith(
+      validateSteeringFile(
+        { mode: "adr", validate: { kind: "command", command: "nonexistent-tool" } },
+        "docs/adr.md",
+        "",
+        context(),
+      ),
+      layer,
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toBeInstanceOf(GtdError)
+      expect(error).toHaveProperty("message", 'mode "adr": "validate" command not found')
+      if (error instanceof GtdError) expect(error.detail).toEqual([`$PATH: ${TEST_PATH}`])
+    }
+  })
 })
 
 describe("formatSteeringFile", () => {
@@ -470,6 +499,24 @@ describe("formatSteeringFile", () => {
     if (Exit.isFailure(exit)) {
       expect(String(exit.cause)).toContain('mode "adr": format command exited with status 4')
       expect(String(exit.cause)).toContain("formatter blew up")
+    }
+  })
+
+  it("a status-127 exit (bash's 'command not found') fails with a GtdError naming the resolved $PATH", async () => {
+    const { layer } = scriptedRunner({
+      status: 127,
+      output: "bash: nonexistent-tool: command not found\n",
+    })
+    const exit = await runExitWith(
+      formatSteeringFile({ mode: "adr", formatCommand: "nonexistent-tool" }, "adr.md", context()),
+      layer,
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toBeInstanceOf(GtdError)
+      expect(error).toHaveProperty("message", 'mode "adr": "format" command not found')
+      if (error instanceof GtdError) expect(error.detail).toEqual([`$PATH: ${TEST_PATH}`])
     }
   })
 

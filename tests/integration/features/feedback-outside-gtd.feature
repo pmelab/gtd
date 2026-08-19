@@ -34,7 +34,7 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
       """
       a note
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds

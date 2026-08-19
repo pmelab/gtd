@@ -45,7 +45,7 @@ Feature: Review sign-off reaches build.squashing even when reviewFile lives outs
       - [x] ./src/calc.ts#1
       new add function
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
@@ -93,7 +93,7 @@ Feature: Review sign-off reaches build.squashing even when reviewFile lives outs
       - [x] ./src/calc.ts#1
       new add function
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds

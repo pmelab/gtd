@@ -17,24 +17,27 @@ const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 // in as a real `claude` binary on $PATH instead. It parses the flags the
 // README's paste actually uses (-p, --session-id, --resume, --model,
 // --dangerously-skip-permissions) into the $GTD_LOOP_* env the stub script
-// reads, then execs the stub. Unknown flags (e.g.
-// --dangerously-skip-permissions itself) are shifted away inert.
+// reads, then execs the stub. The prompt itself no longer arrives as `-p`'s
+// argv value (the paste pipes it on stdin instead, to stay under argv's cap
+// on a large diff) — `-p` here is a bare flag, and the prompt is read off
+// stdin below. Unknown flags (e.g. --dangerously-skip-permissions itself)
+// are shifted away inert.
 function claudeShimScript(stubPath: string): string {
   return `#!/usr/bin/env bash
 set -euo pipefail
-prompt=""
 session_id=""
 model=""
 resume=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    -p) prompt="$2"; shift 2 ;;
+    -p) shift ;;
     --resume) session_id="$2"; resume=1; shift 2 ;;
     --session-id) session_id="$2"; shift 2 ;;
     --model) model="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
+prompt="$(cat)"
 export GTD_LOOP_PROMPT="$prompt"
 export GTD_LOOP_SESSION_ID="$session_id"
 export GTD_LOOP_MODEL="$model"
@@ -104,11 +107,15 @@ function driverEnv(world: GtdWorld): Record<string, string> {
   }
 }
 
+// Spawned via its own path (not `sh <path>` or `bash <path>`) so the
+// driver's `#!/usr/bin/env sh` shebang is the thing actually resolving and
+// running it — the most faithful proof the ported script's shebang is
+// correct, not just that *some* shell can execute the paste.
 When("I run the README driver", async (world: GtdWorld) => {
   const path = world.readmeDriverPath
   assert.ok(path, 'no README driver — run "Given the driver pasted from README.md" first')
   try {
-    const { stdout, stderr } = await execFile("bash", [path], {
+    const { stdout, stderr } = await execFile(path, [], {
       cwd: world.repoDir,
       env: driverEnv(world),
       encoding: "utf-8",
@@ -120,7 +127,7 @@ When("I run the README driver", async (world: GtdWorld) => {
   }
 })
 
-// The loop's log file path, as the driver resolves it from `gtd next --json`'s
+// The loop's log file path, as the driver resolves it from `gtd status --json`'s
 // own `.log` field — always the default ".git/gtd-loop.log" here (every
 // scenario runs against a plain, non-worktree test project, and the README
 // driver never exports a $GTD_LOOP_LOG of its own).

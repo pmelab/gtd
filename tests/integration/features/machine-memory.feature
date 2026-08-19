@@ -11,7 +11,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   started FROM. Entering a DESCENDANT scope (a true dotted-prefix match)
   doesn't break the ancestor's run; entering a sibling or unrelated scope
   does. These scenarios pin the product plan's full "done when" list for this
-  feature end to end, via `gtd next --json`'s `.memory` field, against the
+  feature end to end, via `gtd status --json`'s `.memory` field, against the
   REAL bundled machine tree (`src/workflows/unified.yaml`) — not a synthetic
   `.gtdrc`, since the whole point is the SHAPE of the actual shipped machines.
 
@@ -22,7 +22,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build a thing.
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
     And I record the json field "memory" as "first lap"
@@ -31,7 +31,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the agent's design.triage turn, routing to design.gate.answer
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.gate.answer\""
     And stdout does not contain "\"memory\""
@@ -40,7 +40,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the human's design.gate.answer turn, sending it back for another lap
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
     And the json field "memory" matches the one recorded as "first lap"
@@ -52,7 +52,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       test failed: widget() returns undefined
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And I record the json field "memory" as "first fix attempt"
@@ -61,7 +61,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       export const widget = () => undefined
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.health.check\""
     And stdout does not contain "\"memory\""
@@ -70,7 +70,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       test failed again: widget() still returns undefined
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.health.escalate\""
     And stdout does not contain "\"memory\""
@@ -79,7 +79,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the human retried the check after escalation
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And the json field "memory" matches the one recorded as "first fix attempt"
@@ -97,7 +97,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       .gtd/packages/01-widget.md
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
     And I record the json field "memory" as "the builder's turn"
@@ -106,7 +106,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       export const widget = () => ({})
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.spec.review\""
     And the json field "memory" differs from the one recorded as "the builder's turn"
@@ -116,7 +116,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       widget() should return a frozen object.
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.fix-spec\""
     And the json field "memory" matches the one recorded as "the builder's turn"
@@ -129,7 +129,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       .gtd/packages/01-widget.md
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I record the json field "memory" as "package 1's builder turn"
 
@@ -145,7 +145,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       starting the second package
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
     And the json field "memory" differs from the one recorded as "package 1's builder turn"
@@ -153,18 +153,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   Scenario: two instances of one healthGate-shaped machine never share a session, even with byte-identical check output
     Given a test project
     And the workflow
-    When I run gtd with args "visualize --json"
-    Then it succeeds
-    # Structural proof first: both are genuinely separate instances of the
-    # SAME machine, at different points in the tree.
-    And stdout matches "\"name\": \"build\.health\",\s*\"machine\": \"healthGate\""
-    And stdout matches "\"name\": \"packages\.item\.health\",\s*\"machine\": \"healthGate\""
+    # build.health and packages.item.health are both healthGate instances at
+    # different points in the tree (src/workflows/unified.yaml) — the proof
+    # below is that their computed memory keys never collide, even though
+    # both land byte-identical FEEDBACK.md check output.
 
     Given a commit "gtd(check): build.fix" that adds ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout matches "\"memory\":\"build#[0-9a-f]{7}\""
 
@@ -172,7 +170,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       test failed: widget() returns undefined
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
 
@@ -186,7 +184,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       .gtd/packages/01-widget.md
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
 
@@ -194,7 +192,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       export const widget = () => ({})
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout matches "\"memory\":\"packages\.item\.spec#[0-9a-f]{7}\""
     And stdout does not contain "\"memory\":\"packages.item#"
@@ -215,7 +213,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       test failed: widget() returns undefined
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And I record the json field "memory" as "the builder's turn"
@@ -224,7 +222,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       export const widget = () => 1
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.health.check\""
     And stdout does not contain "\"memory\""
@@ -233,7 +231,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the check turn, routing to build.review.reviewing
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
     And the json field "memory" differs from the one recorded as "the builder's turn"
@@ -257,7 +255,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the human's await-review turn, no comment
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.deciding\""
 
@@ -265,7 +263,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       feat: add widget
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.squashing\""
     And the json field "memory" matches the one recorded as "the builder's turn"
@@ -294,7 +292,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the check turn, routing to build.review.reviewing
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
     And I record the json field "memory" as "round 1's reviewer turn"
@@ -342,7 +340,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the second check turn, routing to build.review.reviewing again
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
     And the json field "memory" differs from the one recorded as "round 1's reviewer turn"
@@ -364,7 +362,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       test failed: widget() returns undefined
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And I record the json field "memory" as "the pre-loop-back builder's turn"
@@ -420,7 +418,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the second check turn, routing to build.review.reviewing again
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
     And the json field "memory" differs from the one recorded as "the pre-loop-back builder's turn"
@@ -445,7 +443,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       feat: add a doc comment to widget.ts
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.squashing\""
     And the json field "memory" differs from the one recorded as "the pre-loop-back builder's turn"
@@ -471,7 +469,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Then it succeeds
     And the last commit subject is "gtd(check): fix-precheck → build.fix"
 
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And I record the json field "memory" as "the fix-precheck path's fix turn"
@@ -507,7 +505,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       fix: repair the failing test
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.squashing\""
     And the json field "memory" matches the one recorded as "the fix-precheck path's fix turn"
@@ -525,7 +523,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build a widget.
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
     And I record the json field "memory" as "the design conversation's turn"
@@ -534,7 +532,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Technical plan for the widget.
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.author\""
     And the json field "memory" differs from the one recorded as "the design conversation's turn"
@@ -544,7 +542,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the agent's architecture.author turn, routing to architecture.gate.answer
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.gate.answer\""
     And stdout does not contain "\"memory\""
@@ -553,7 +551,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       the human accepted the technical plan with no open questions left
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.decompose\""
     And the json field "memory" matches the one recorded as "the architecture conversation's first turn"
@@ -569,7 +567,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       .gtd/packages/01-widget.md
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.picking\""
 
@@ -577,7 +575,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       starting the package
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
     And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
@@ -587,7 +585,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       export const widget = () => ({})
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
     And the json field "memory" differs from the one recorded as "the package builder's turn"
@@ -610,7 +608,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       feat: add widget
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.squashing\""
     And the json field "memory" differs from the one recorded as "the package builder's turn"

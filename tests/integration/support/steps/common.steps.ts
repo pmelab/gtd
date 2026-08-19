@@ -1,6 +1,6 @@
 import { Given, Then, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
-import { writeFileSync, mkdirSync, mkdtempSync } from "node:fs"
+import { writeFileSync, mkdirSync, mkdtempSync, chmodSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -65,6 +65,33 @@ Given("a file {string} with:", (world: GtdWorld, path: string, content: string) 
 Given("{string} is modified to:", (world: GtdWorld, path: string, content: string) => {
   writeRepoFile(world, path, content, false)
 })
+
+/**
+ * A deterministic way to make a file cross a size threshold without inlining
+ * an unreviewable blob in a `.feature` docstring: repeats a fixed, readable
+ * line — `line 000000: the quick brown fox jumps over the lazy dog` — with an
+ * incrementing counter until the content reaches at least `minBytes`. Generic
+ * and composable, like the other file-write steps above — any future
+ * scenario that needs a large-but-readable fixture (e.g. to size a prompt
+ * past an OS pipe buffer) can reuse this rather than growing its own
+ * one-off blob.
+ */
+function paddedRepeatingContent(minBytes: number): string {
+  let content = ""
+  let n = 0
+  while (Buffer.byteLength(content, "utf-8") < minBytes) {
+    content += `line ${String(n).padStart(6, "0")}: the quick brown fox jumps over the lazy dog\n`
+    n++
+  }
+  return content
+}
+
+Given(
+  "a file {string} padded to at least {int} bytes with a repeating line",
+  (world: GtdWorld, path: string, minBytes: number) => {
+    writeRepoFile(world, path, paddedRepeatingContent(minBytes))
+  },
+)
 
 // Plain working-tree deletion — what an editor's "delete file" does. Distinct
 // from "a deleted committed file" (git rm), which refuses when the index entry
@@ -169,6 +196,32 @@ Given("I hard-reset to {string}", (world: GtdWorld, name: string) => {
   }
 })
 
+// @live only — points every bare `sh` the driver and its emitted scripts
+// resolve (via world.ts's `spawnEnv`/`driverEnv`, which both prepend
+// `pathShimDir` to PATH) at real `dash`, not whatever `/bin/sh` the test
+// host happens to have. On macOS `/bin/sh` is bash running in POSIX mode,
+// which still accepts `local`/`$'...'`/process substitution — piping a
+// script into it proves nothing about portability to a genuinely POSIX-only
+// shell (see tests/integration/features/emitted-scripts-under-dash.feature).
+Given("real dash runs every emitted script", (world: GtdWorld) => {
+  assert.ok(
+    world.pathShimDir,
+    'no PATH shim dir — "real dash runs every emitted script" is @live only',
+  )
+  let dashPath: string
+  try {
+    dashPath = execFileSync("which", ["dash"], { encoding: "utf-8" }).trim()
+  } catch {
+    throw new Error(
+      "this scenario requires `dash` on PATH — install it first (it ships " +
+        "at /bin/dash on macOS; `apt-get install dash` on Debian/Ubuntu)",
+    )
+  }
+  const shimPath = join(world.pathShimDir!, "sh")
+  writeFileSync(shimPath, `#!/bin/sh\nexec '${dashPath}' "$@"\n`)
+  chmodSync(shimPath, 0o755)
+})
+
 // ── Invocation ───────────────────────────────────────────────────────────────
 
 When("I run gtd", async (world: GtdWorld) => {
@@ -205,6 +258,11 @@ When("I run gtd land piped to bash", async (world: GtdWorld) => {
   await world.runGtdLandPiped()
 })
 
+// @live only — see `GtdWorld.runGtdNextRedirectedAndPiped`'s own doc comment.
+When("I run gtd next redirected to a file and through a slow pipe", async (world: GtdWorld) => {
+  await world.runGtdNextRedirectedAndPiped()
+})
+
 When("I run gtd next", async (world: GtdWorld) => {
   await world.runGtd("next")
 })
@@ -230,7 +288,20 @@ When("I run gtd status with {string}", async (world: GtdWorld, arg: string) => {
 
 // ── Assertions ───────────────────────────────────────────────────────────────
 
+// The owner exit-code table (`src/ExitCodes.ts`): 0 nothing owed, 10 an agent
+// turn is owed, 20 a human turn is owed — none of the three is a failure.
+// `it succeeds` accepts all three; only 1 (refusal) or 2 (usage error) fail it.
 Then("it succeeds", (world: GtdWorld) => {
+  assert.ok(
+    [0, 10, 20].includes(world.lastResult.exitCode),
+    `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
+  )
+})
+
+// Nothing owed — strictly 0. Distinct from `it succeeds` (0/10/20): a settled
+// landing's stdout still carries a script a driver must run, but the exit
+// code itself already says "stop, don't spin" rather than "keep going".
+Then("it settles", (world: GtdWorld) => {
   assert.strictEqual(
     world.lastResult.exitCode,
     0,
@@ -238,13 +309,20 @@ Then("it succeeds", (world: GtdWorld) => {
   )
 })
 
-// `gtd land`'s SETTLED signal — exit 3, nothing owed. Distinct from `it
-// succeeds` (strictly 0): a settled landing's stdout still carries a script a
-// driver must run, but the exit code itself already says "stop, don't spin".
-Then("it settles", (world: GtdWorld) => {
+// An agent owes the next turn (`script`/`prompt` beats) — exit 10.
+Then("it awaits the agent", (world: GtdWorld) => {
   assert.strictEqual(
     world.lastResult.exitCode,
-    3,
+    10,
+    `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
+  )
+})
+
+// A human owes the next turn (`capture`/`message`/`stalled` beats) — exit 20.
+Then("it awaits the human", (world: GtdWorld) => {
+  assert.strictEqual(
+    world.lastResult.exitCode,
+    20,
     `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
   )
 })
@@ -254,6 +332,28 @@ Then("it fails", (world: GtdWorld) => {
     world.lastResult.exitCode,
     0,
     `Expected non-zero exit code, but got 0.\nstdout: ${world.lastResult.stdout}`,
+  )
+})
+
+// See `GtdWorld.runGtdNextRedirectedAndPiped`'s own doc comment: proves a
+// large artifact reaches a slow pipe consumer with the same byte count as the
+// same command redirected straight to a file — nothing was truncated at the
+// non-zero exit.
+Then("the direct and piped byte counts are equal", (world: GtdWorld) => {
+  assert.strictEqual(
+    world.directRedirectByteCount,
+    world.pipedByteCount,
+    `Expected the direct-redirect byte count (${world.directRedirectByteCount}) to equal ` +
+      `the piped byte count (${world.pipedByteCount}) — nothing should be truncated`,
+  )
+})
+
+// Confirms the fixture actually cleared the OS pipe buffer it's meant to
+// prove something about, rather than silently fitting inside it.
+Then("the direct byte count exceeds {int} bytes", (world: GtdWorld, n: number) => {
+  assert.ok(
+    world.directRedirectByteCount !== undefined && world.directRedirectByteCount > n,
+    `Expected the direct-redirect byte count to exceed ${n}, got ${world.directRedirectByteCount}`,
   )
 })
 
@@ -275,6 +375,22 @@ Then("stdout does not contain {string}", (world: GtdWorld, text: string) => {
   assert.ok(
     !world.lastResult.stdout.includes(text),
     `Expected stdout NOT to contain "${text}". Got:\n${world.lastResult.stdout}`,
+  )
+})
+
+// A real ESC byte (0x1b) — the thing a terminal actually interprets — as
+// opposed to the printed SOURCE TEXT of an escape sequence (the ASCII
+// characters `\033[`), which gtd's own emitted scripts legitimately contain
+// as `printf` literals (see src/OutcomeScript.ts's OUTCOME_PREAMBLE). This
+// step is gtd's own-stdout regression guard (ansi-free-stdout.feature): gtd
+// never emits the real byte itself, only ever the text a driver's shell
+// later interprets into one.
+const ESC_BYTE = String.fromCharCode(0x1b)
+
+Then("stdout contains no ANSI escape sequence", (world: GtdWorld) => {
+  assert.ok(
+    !world.lastResult.stdout.includes(ESC_BYTE),
+    `Expected stdout to contain no real ESC byte (0x1b). Got:\n${JSON.stringify(world.lastResult.stdout)}`,
   )
 })
 

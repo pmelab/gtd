@@ -33,8 +33,10 @@ Feature: gtd init — seed a minimal .gtdrc.json (default vars + formatting)
     And ".gtdrc.json" does not contain "build.review.deciding"
     # No prompt files are extracted — the prompts live in the built-in workflow.
     And "gtd-prompts/planning.md" does not exist
-    # Left uncommitted — HEAD is still the project's own initial commit.
+    # Left uncommitted — HEAD is still the project's own initial commit, and
+    # the scaffolded file itself is untracked, not staged.
     And the last commit subject is "chore: initial commit"
+    And the git status contains "?? .gtdrc.json"
 
   Scenario: gtd init rejects a workflow argument
     Given a test project

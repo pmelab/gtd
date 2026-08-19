@@ -11,6 +11,7 @@
 import { NodeContext } from "@effect/platform-node"
 import { createRequire } from "node:module"
 import { Cause, Effect, Either, Layer } from "effect"
+import { Narrator, renderFailure } from "./Commentary.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -22,6 +23,7 @@ import { GitService } from "./Git.js"
 import { runCommand, type CommandRequirements } from "./program.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
+import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
 
 export type { CommandRequirements }
 
@@ -65,7 +67,13 @@ export type CliPlan =
       readonly message: string
       readonly json: boolean
     }
-  | { readonly kind: "command"; readonly command: Command; readonly json: boolean }
+  | {
+      readonly kind: "command"
+      readonly command: Command
+      readonly json: boolean
+      /** Whether `--verbose`/`-v` was present — gates the `Narrator` `Cli.ts` builds for this dispatch (see `runCli`). */
+      readonly verbose: boolean
+    }
 
 /**
  * What a command kind needs before it may run. `pure`/`removed` never reach
@@ -119,11 +127,13 @@ const FLAGS: readonly FlagRow[] = [
     name: "--json",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind !== "lsp",
+    scope: (kind) => kind === "status",
     decode: () => Either.right(true),
-    scopeError: "gtd lsp does not accept --json",
+    scopeError:
+      "gtd: --json is only valid for `gtd status` — every other command prints plain text; " +
+      "see `gtd install` for the driver protocol briefing",
     valueHint: "",
-    help: ["Output structured JSON instead of plain text"],
+    help: ["(gtd status only) output structured JSON instead of plain text"],
   },
   {
     name: "--port",
@@ -240,7 +250,33 @@ const FLAGS: readonly FlagRow[] = [
       "non-zero when any remain",
     ],
   },
+  {
+    name: "--verbose",
+    arity: 0,
+    repeatable: false,
+    scope: () => true,
+    decode: () => Either.right(true),
+    scopeError: "gtd: --verbose is valid for every command — this error is unreachable",
+    valueHint: "",
+    help: [
+      "enable stderr narration for this invocation: which rest",
+      "resolved, which declared pattern each pending change",
+      "matched, which review-window action was emitted, and how",
+      "config resolved across layers. Aliased to -v",
+    ],
+  },
 ]
+
+/**
+ * `-v` is `--verbose`'s single-dash alias (the only one today) — resolved to
+ * its canonical `--` name before flag-row lookup, so the rest of the
+ * tokenizer never distinguishes how a flag was spelled. A `Map`, not a plain
+ * object: an object literal inherits `Object.prototype`, so a positional
+ * argument that happens to spell an inherited property name (`"valueOf"`,
+ * `"toString"`, …) would otherwise resolve to that inherited FUNCTION instead
+ * of `undefined`.
+ */
+const SINGLE_DASH_ALIASES: ReadonlyMap<string, string> = new Map([["-v", "--verbose"]])
 
 const flagByToken = (token: string): FlagRow | undefined => {
   const eq = token.indexOf("=")
@@ -282,18 +318,18 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     kind: "land",
     arity: "none",
     details: [
-      "Land whatever the tree now shows at the currently",
-      "resolved rest — a human capture, an agent/check turn, an",
-      "empty attempt (a fruitless prompt turn), or a squash — and",
-      "print the script that records it; a driver runs the",
-      "script, e.g. `gtd land | bash`. Pass --cost=<n>",
-      "(optionally --model=<name>) to record the just-finished",
-      "invocation's token cost and model on the turn commit",
-      "(summed into it.processCost/processCostByModel). Exits 0",
-      "when a script is emitted (or a benign no-op at a clean",
-      "message rest), 3 when SETTLED — nothing owed: a no-op at a",
-      "script rest, or the initial-state collapse (stdout still",
-      "carries the script) — 1 on any refusal",
+      "Land whatever the tree now shows at the currently resolved",
+      "rest — a human capture, an agent/check turn, an empty",
+      "attempt (a fruitless prompt turn), or a squash — and print",
+      "the script that records it; a driver runs the script, e.g.",
+      "`gtd land | sh`. Pass --cost=<n> (optionally",
+      "--model=<name>) to record the just-finished invocation's",
+      "token cost and model on the turn commit (summed into",
+      "it.processCost/processCostByModel). Exits 10 when the next",
+      "rest needs an agent turn, 20 when it needs a human turn, 0",
+      "when nothing is owed (a no-op at a script rest, the",
+      "initial-state collapse, or a clean message rest), 1 on any",
+      "refusal — see the Exit codes section below",
     ],
   },
   {
@@ -327,11 +363,10 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: "none",
     details: [
       "Print the resolved rest's rendered script/prompt/message",
-      "(no mutation, safe to poll). --json emits the whole beat",
-      "document instead: kind (capture|message|script|prompt|",
-      "stalled) selects what a driver does, content is what it",
-      "runs or shows, plus the prompt session, model, validate",
-      "script, log path and the resting state's own fields",
+      "(no mutation, safe to poll; plain text only — see `gtd",
+      "status --json` for the structured beat document). Exits 0",
+      "(idle), 10 (agent turn) or 20 (human turn) — see the Exit",
+      "codes section below",
     ],
   },
   {
@@ -340,7 +375,14 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: "none",
     details: [
       "Print the resolved rest's state/actor and which declared",
-      "pattern (if any) each pending change matches (no mutation)",
+      "pattern (if any) each pending change matches (no",
+      "mutation). --json emits the one structured surface gtd",
+      "has: kind (capture|message|script|prompt|stalled) selects",
+      "what a driver does, content is what it runs or shows, plus",
+      "the prompt session, model, validate script, log path,",
+      "changes, next and the resting state's own fields. Exits 0",
+      "(idle), 10 (agent turn) or 20 (human turn) — see the Exit",
+      "codes section below",
     ],
   },
   {
@@ -352,13 +394,11 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "validates the resolved rest's steering file, using its",
       "mode's commands (its file:/mode:), instead of running it —",
       "a driver runs the script and reads the findings from its",
-      "own exit code/output. Always exits 0; --json emits",
-      '{state, file?, mode?, script} (script is "" when there is',
-      'nothing to validate; plain text prints "nothing to',
-      'validate" in that case). On a non-zero validate exit',
-      "the emitted script prints a ready-to-send fix prompt",
-      "(instruction + findings) and exits with the",
-      "validator's own code",
+      'own exit code/output. Always exits 0; prints "nothing to',
+      'validate" when the resolved rest declares nothing to run.',
+      "On a non-zero validate exit the emitted script prints a",
+      "ready-to-send fix prompt (instruction + findings) and",
+      "exits with the validator's own code",
     ],
   },
   {
@@ -373,8 +413,9 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: "none",
     details: [
       "Serve an interactive diagram of the active workflow on a",
-      "local web server (--port <n>, --no-open; --json prints the",
-      "model and exits)",
+      "local web server (--port <n>, --no-open). Prints the",
+      "chosen port on its own line — with --port 0, this is the",
+      "only way to learn which port was picked",
     ],
   },
   {
@@ -492,7 +533,7 @@ export const renderHelp = (): string => {
 
   const options = FLAGS.map((row) => renderBlock(flagHeader(row), row.help)).join("")
   const versionHelpOptions =
-    renderBlock("--version, -v", ["Print version and exit"]) +
+    renderBlock("--version, -V", ["Print version and exit"]) +
     renderBlock("--help, -h", ["Print this help and exit"])
 
   return (
@@ -500,21 +541,6 @@ export const renderHelp = (): string => {
     `Commands:\n${commands}\n` +
     `Options:\n${options}${versionHelpOptions}`
   )
-}
-
-// ---------------------------------------------------------------------------
-// cliErrorLine
-// ---------------------------------------------------------------------------
-
-/**
- * The stderr line for a CLI error: a `gtd: ` prefix UNLESS the message
- * already carries one. Most gtd errors are authored with a `gtd:`/`gtd
- * <cmd>:` prefix of their own (e.g. `gtd init: …`, `gtd: unknown option …`),
- * so a blind prepend would produce a doubled `gtd: gtd: …`.
- */
-export const cliErrorLine = (error: unknown): string => {
-  const message = error instanceof Error ? error.message : String(error)
-  return /^gtd[: ]/.test(message) ? message : `gtd: ${message}`
 }
 
 // ---------------------------------------------------------------------------
@@ -543,9 +569,10 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
   let jsonSeen = false
 
   for (let i = 0; i < tail.length; i++) {
-    const tok = tail[i]!
+    const original = tail[i]!
+    const tok = SINGLE_DASH_ALIASES.get(original) ?? original
     if (!tok.startsWith("--")) {
-      positionals.push(tok)
+      positionals.push(original)
       continue
     }
     const row = flagByToken(tok)
@@ -679,7 +706,7 @@ const buildLandCommand = (bag: {
 export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (argv.includes("--help") || argv.includes("-h"))
     return { kind: "output", stdout: renderHelp() }
-  if (argv.includes("--version") || argv.includes("-v")) {
+  if (argv.includes("--version") || argv.includes("-V")) {
     return { kind: "output", stdout: `${GTD_VERSION}\n` }
   }
 
@@ -762,6 +789,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   }
 
   const json = present.has("--json")
+  const verbose = present.has("--verbose")
 
   if (kind === "land") {
     if (bag["--model"] !== undefined && bag["--cost"] === undefined) {
@@ -770,7 +798,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         json,
       )
     }
-    return { kind: "command", command: buildLandCommand(bag), json }
+    return { kind: "command", command: buildLandCommand(bag), json, verbose }
   }
 
   if (kind === "entry") {
@@ -779,6 +807,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: { kind: "entry", actor: "human", state: entryRaw!, vars: bag["--var"] ?? {}, label },
       json,
+      verbose,
     }
   }
 
@@ -787,6 +816,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: { kind: "visualize", port: bag["--port"] ?? 0, open: !(bag["--no-open"] ?? false) },
       json,
+      verbose,
     }
   }
 
@@ -802,6 +832,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
           : {}),
       },
       json,
+      verbose,
     }
   }
 
@@ -817,7 +848,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "validate"
       | "install",
   }
-  return { kind: "command", command, json }
+  return { kind: "command", command, json, verbose }
 }
 
 // ---------------------------------------------------------------------------
@@ -828,29 +859,59 @@ export interface CliIo {
   readonly stdout: (chunk: string) => void
   readonly stderr: (chunk: string) => void
   readonly exit: (code: number) => void
-  /** Deferred thunk — a layer is built only for a resolved `Command`, never for `--version`/`--help`/a usage error. */
-  readonly layers: () => Layer.Layer<CommandRequirements>
+  /**
+   * Deferred thunk — a layer is built only for a resolved `Command`, never
+   * for `--version`/`--help`/a usage error. `verbose` (`--verbose`/`-v`,
+   * decoded by `parseArgv`) gates the `Narrator` this builds — a no-op
+   * writer when `false`.
+   */
+  readonly layers: (verbose: boolean) => Layer.Layer<CommandRequirements>
+}
+
+// The one write-to-stderr primitive nodeCliIo uses for both `stderr` (errors)
+// and `layers`'s `Narrator` (narration) — same sink, so a real invocation's
+// narration and its remediation interleave on the same fd exactly as
+// written.
+const writeStderr = (chunk: string): void => {
+  process.stderr.write(chunk)
 }
 
 export const nodeCliIo: CliIo = {
+  // `process.stdout.write` is asynchronous whenever stdout is a pipe (the
+  // normal case — a driver piping gtd's output into a shell) or a socket: a
+  // `false` return means the chunk was only queued in the stream's internal
+  // buffer, not yet handed to the OS. Passing a completion callback, and
+  // never forcing the process closed (see `exit` below), is what keeps that
+  // queued remainder from being discarded — Node holds the event loop open
+  // for the pending write on `process.stdout`'s handle exactly like any
+  // other scheduled work, so a large artifact still reaches a slow reader
+  // even after a non-zero exit.
   stdout: (chunk) => {
-    process.stdout.write(chunk)
+    process.stdout.write(chunk, () => {})
   },
-  stderr: (chunk) => {
-    process.stderr.write(chunk)
-  },
+  stderr: writeStderr,
   exit: (code) => {
-    process.exit(code)
+    // Never `process.exit(code)`: that tears the process down out from under
+    // an undrained `stdout.write` above and truncates the artifact mid-pipe.
+    // Setting `exitCode` lets the event loop run to completion — draining
+    // any queued write — before Node exits gracefully with this code.
+    process.exitCode = code
   },
   // A Layer is a lazy description, not a running service — building this
   // object touches no filesystem/git; only `Effect.provide` running the
   // result does. `runCli` calls this thunk exactly when `plan.kind ===
   // "command"`, so --version/--help/a usage error never provoke it.
-  layers: () =>
+  layers: (verbose) =>
     // Dependency order matters: RepoFiles.Live needs GitService, both need Cwd,
     // and GitService/CommandRunner need NodeContext's CommandExecutor. Each
     // `provideMerge` satisfies the layers above it AND stays in the output.
-    Layer.mergeAll(ConfigService.Live, RepoFiles.Live, CommandRunner.Live, EnvVars.Live).pipe(
+    Layer.mergeAll(
+      ConfigService.Live,
+      RepoFiles.Live,
+      CommandRunner.Live,
+      EnvVars.Live,
+      Narrator.layer(writeStderr, verbose),
+    ).pipe(
       Layer.provideMerge(GitService.Live),
       Layer.provideMerge(Cwd.Live),
       Layer.provideMerge(NodeContext.layer),
@@ -858,10 +919,56 @@ export const nodeCliIo: CliIo = {
 }
 
 /**
- * The single envelope writer: `{state:"error",prompt}` on stdout under
- * `--json`, `cliErrorLine` on stderr always, exit 1. `Effect.sandbox` (see
- * below) means this also fires for a DEFECT (e.g. a layer's own `readFileSync`
- * throwing) — main.ts's previous `catchAll` never covered that case.
+ * The all-or-nothing stdout buffer every `run*Command` handler writes
+ * through instead of `io.stdout` directly — structural, not a discipline each
+ * writer has to remember. `flush()` is called exactly once, by `runCli`,
+ * after the command's Effect succeeds; on any failure (a typed error, a
+ * defect, an interruption) `flush()` is never reached, so the buffer is
+ * simply discarded and nothing reaches `io.stdout`. `visualize` is the one
+ * handler that calls `flush()` itself, ahead of blocking on `Effect.never`
+ * (see `runVisualizeCommand`'s own doc comment) — everything it writes
+ * afterward (its per-request current-state diagnostic) flushes itself too,
+ * since the one `runCli`-driven flush already fired.
+ */
+export interface ArtifactOut {
+  readonly write: (chunk: string) => void
+  readonly flush: () => void
+}
+
+/**
+ * Normalizes an artifact's trailing newlines to exactly one — an emitted
+ * script ends with none, plain text already ends with one, so this is the
+ * single place both become uniform. A byte-empty artifact stays byte-empty
+ * (never becomes a lone `\n`); several trailing newlines collapse to one.
+ */
+export const normalizeTrailingNewline = (artifact: string): string =>
+  artifact.length === 0 ? artifact : `${artifact.replace(/\n+$/, "")}\n`
+
+const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
+  let buffer = ""
+  return {
+    write: (chunk) => {
+      buffer += chunk
+    },
+    flush: () => {
+      if (buffer.length > 0) io.stdout(normalizeTrailingNewline(buffer))
+      buffer = ""
+    },
+  }
+}
+
+/**
+ * The single envelope writer: `{state:"error",prompt}` on **stderr** under
+ * `--json`, `renderFailure` on stderr always, exit `EXIT_RUNTIME_ERROR`.
+ * stdout is never touched here — the command's own `ArtifactOut` buffer was
+ * never flushed (see `bufferedArtifactOut`), so stdout stays byte-empty on
+ * every failure; a `--json` driver piping stdout into `jq` on a failed run
+ * must read stderr or the exit code instead. `Effect.sandbox` (see below)
+ * means this also fires for a DEFECT (e.g. a layer's own `readFileSync`
+ * throwing) — main.ts's previous `catchAll` never covered that case. Never
+ * reached for a USAGE error — those never build a layer at all, so nothing
+ * here can fail on their behalf (see `runCli`'s own `"usage"` branch, which
+ * exits `EXIT_USAGE_ERROR` instead).
  */
 const report =
   (io: CliIo, json: boolean) =>
@@ -870,10 +977,10 @@ const report =
       const error = Cause.squash(cause)
       if (json) {
         const message = error instanceof Error ? error.message : String(error)
-        io.stdout(`${JSON.stringify({ state: "error", prompt: message })}\n`)
+        io.stderr(`${JSON.stringify({ state: "error", prompt: message })}\n`)
       }
-      io.stderr(`${cliErrorLine(error)}\n`)
-      io.exit(1)
+      io.stderr(`${renderFailure(error)}\n`)
+      io.exit(EXIT_RUNTIME_ERROR)
     })
 
 export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, Error> => {
@@ -885,24 +992,31 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
 
   if (plan.kind === "usage") {
     return Effect.sync(() => {
-      if (plan.stdout.length > 0) io.stdout(plan.stdout)
+      // The rendered help text (missing-command only) and the `--json`
+      // envelope both move to stderr — stdout stays byte-empty on a usage
+      // error exactly like every other failure surface.
+      if (plan.stdout.length > 0) io.stderr(plan.stdout)
       if (plan.json) {
-        io.stdout(`${JSON.stringify({ state: "error", prompt: plan.message })}\n`)
+        io.stderr(`${JSON.stringify({ state: "error", prompt: plan.message })}\n`)
       }
-      io.stderr(`${cliErrorLine(plan.message)}\n`)
-      io.exit(1)
+      io.stderr(`${renderFailure(plan.message)}\n`)
+      io.exit(EXIT_USAGE_ERROR)
     })
   }
 
-  return runCommand(plan.command, plan.json, io.stdout).pipe(
-    // `runCommand` returns the exit code to use (0 for the ordinary case,
-    // e.g. `land`'s settled 3) — `io.exit` is called only for a non-zero
-    // code, exactly like the ordinary success path never called `exit` at
-    // all before this.
+  const out = bufferedArtifactOut(io)
+  return runCommand(plan.command, plan.json, out).pipe(
+    // `runCommand` returns the exit code to use (`EXIT_OK` for the ordinary
+    // case, or `land`/`next`/`status`'s own owner code — see `ExitCodes.ts`).
+    // `flush()` fires here, on success, BEFORE `io.exit` — the one point
+    // where the whole buffered artifact is known-complete and safe to hand
+    // to stdout (see `bufferedArtifactOut`'s own doc comment for the
+    // failure-discards-the-buffer half of the same contract).
     Effect.map((code) => {
-      if (code !== 0) io.exit(code)
+      out.flush()
+      if (code !== EXIT_OK) io.exit(code)
     }),
-    Effect.provide(io.layers()),
+    Effect.provide(io.layers(plan.verbose)),
     Effect.sandbox,
     // `sandbox` moves EVERY failure mode — a typed error, a defect, an
     // interruption — into this handler's `cause`. An interrupt-only cause

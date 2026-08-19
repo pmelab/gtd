@@ -401,7 +401,7 @@ machines:
         actor: check
         label: $checkLabel
         script: &suiteCheck |
-          #!/usr/bin/env bash
+          #!/usr/bin/env sh
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
           # green run cleans it up. The `on` rules decide what that means.
           set +e
@@ -409,7 +409,7 @@ machines:
           # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
           # newline after an interpolation tag, so no tag may be the last token on
           # a line — it would glue the next line's `else`/`fi` onto it and break
-          # the script. Below this point everything is plain bash.
+          # the script. Below this point everything is plain POSIX sh.
           feedback="<%~ it.vars.feedbackFile %>"
           mkdir -p "$(dirname "$feedback")"
           <%~ it.vars.testCommand %> > <%~ it.stateDir %>/.check-output 2>&1
@@ -482,7 +482,7 @@ machines:
         # it executes before planning, while a fresh sketch legitimately still
         # exists.
         script: |
-          #!/usr/bin/env bash
+          #!/usr/bin/env sh
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
           # green run cleans it up. The `on` rules decide what that means.
           set +e
@@ -490,7 +490,7 @@ machines:
           # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
           # after an interpolation tag, so no tag may be the last token on a
           # line — it would glue the next line's `else`/`fi` onto it and break
-          # the script. Below this point everything is plain bash.
+          # the script. Below this point everything is plain POSIX sh.
           feedback="<%~ it.vars.feedbackFile %>"
           mkdir -p "$(dirname "$feedback")"
           # Sweep the raw review capture — no path from `deciding`/`collecting`
@@ -563,7 +563,7 @@ machines:
         actor: check
         label: $checkLabel
         script: |
-          #!/usr/bin/env bash
+          #!/usr/bin/env sh
           # gtd check turn — probe the current phase's steering file for
           # unanswered questions; an answered/empty result removes the marker
           # (questionsFile), an unanswered one stamps it fresh. Design and
@@ -577,7 +577,7 @@ machines:
           # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
           # after an interpolation tag, so no tag may be the last token on a
           # line — it would glue the next line's `else`/`fi` onto it and break
-          # the script. Below this point everything is plain bash.
+          # the script. Below this point everything is plain POSIX sh.
           questions="<%~ it.vars.questionsFile %>"
           mkdir -p "$(dirname "$questions")"
           requirements="<%~ it.vars.requirementsFile %>"
@@ -1042,7 +1042,7 @@ machines:
         # the first review there is no such commit, so the base is the process start.
         reviewBase: true
         script: |
-          #!/usr/bin/env bash
+          #!/usr/bin/env sh
           # gtd check turn — decide the human's review step from its CONTENT. HEAD is
           # the human's `await-review -> deciding` commit; HEAD^ is the `reviewing`
           # commit that wrote the agent's original REVIEW.md (`await-review`'s single
@@ -1071,7 +1071,7 @@ machines:
           # Hoist the paths once, at the TOP: Eta's autoTrim eats the newline after
           # an interpolation tag, so no tag may be the last token on a line — it
           # would glue the next line onto it and break the script. Below this point
-          # everything is plain bash.
+          # everything is plain POSIX sh.
           stateDir="<%~ it.stateDir %>"
           reviewFile="<%~ it.vars.reviewFile %>"
           reviewRawFile="<%~ it.vars.reviewRawFile %>"
@@ -1271,7 +1271,7 @@ machines:
         actor: check
         label: Picking the next package
         script: |
-          #!/usr/bin/env bash
+          #!/usr/bin/env sh
           # gtd check turn (the package queue arbiter) — the loop driver executes
           # this verbatim, then steps the check actor. Mechanics only: take the
           # first package file (by name) under the packages dir into NEXT.md, or
@@ -1282,7 +1282,7 @@ machines:
           # Hoist the NEXT path once, at the TOP: Eta's autoTrim eats the newline
           # after an interpolation tag, so no tag may be the last token on a line —
           # it would glue the next line's `else`/`fi` onto it and break the script.
-          # Below this point everything is plain bash.
+          # Below this point everything is plain POSIX sh.
           nextFile="<%~ it.vars.nextFile %>"
           # Sweep the design/architecture phases' spent steering files:
           # requirementsFile is consumed by architecture.author, architectureFile
@@ -1300,6 +1300,10 @@ machines:
           questions="<%~ it.vars.questionsFile %>"
           reviewRaw="<%~ it.vars.reviewRawFile %>"
           rm -f "$requirements" "$architecture" "$questions" "$reviewRaw"
+          # Package file names are gtd-authored (architecture.decompose writes
+          # NN-name.md), never containing whitespace/newlines that would break
+          # ls | head.
+          # shellcheck disable=SC2012
           next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
           if [ -n "$next" ]; then
             mkdir -p "$(dirname "$nextFile")"
@@ -1428,7 +1432,7 @@ machines:
         actor: check
         label: Closing out the package
         script: |
-          #!/usr/bin/env bash
+          #!/usr/bin/env sh
           # gtd check turn (the package closer) — remove the just-reviewed package
           # file (its path is in NEXT.md) plus any leftover spec feedback and
           # already-satisfied evidence, so `picking` selects the NEXT package (or
@@ -1660,7 +1664,7 @@ machines:
         actor: check
         label: Unwinding your input
         script: |
-          #!/usr/bin/env bash
+          #!/usr/bin/env sh
           # gtd check turn — revert the entry commit's diff out of the working
           # tree. Its content survives in history for design.triage to read.
           set +e
@@ -1737,7 +1741,7 @@ machines:
         file: <%= it.vars.reviewFile %>
         requireRevert: true
         script: |
-          #!/usr/bin/env bash
+          #!/usr/bin/env sh
           # gtd check turn — revert the human's own review edit out of the
           # working tree, scoped to real code: stateDir and reviewFile
           # (var-configurable, may live at the repo root — issue #128) are

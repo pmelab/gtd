@@ -2,23 +2,32 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit, Layer } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
+import { GtdError, Narrator } from "./Commentary.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { compileTemplate } from "./workflows/templates.js"
 import { seededValidateCommand } from "./SteeringFormats.js"
 
 // ConfigService.Live only loads/validates the config — it never writes.
-// NodeContext.layer satisfies FileSystem + CommandExecutor.
+// NodeContext.layer satisfies FileSystem + CommandExecutor. Narrator is a
+// no-op here, MERGED (not just provided) so it stays in the output — these
+// tests assert on the loaded config/failure, not on narration (see
+// Commentary.test.ts for that).
 const layer = (dir: string) =>
-  Layer.provide(ConfigService.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer))
+  Layer.merge(
+    Layer.provide(ConfigService.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer)),
+    Narrator.layer(() => {}, false),
+  )
 
-const run = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
+const run = <A>(eff: Effect.Effect<A, Error, ConfigService | Narrator>, dir: string = projectDir) =>
   Effect.runPromise(eff.pipe(Effect.provide(layer(dir))))
 
-const runExit = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
-  Effect.runPromiseExit(eff.pipe(Effect.provide(layer(dir))))
+const runExit = <A>(
+  eff: Effect.Effect<A, Error, ConfigService | Narrator>,
+  dir: string = projectDir,
+) => Effect.runPromiseExit(eff.pipe(Effect.provide(layer(dir))))
 
 const getConfig = (dir?: string) =>
   run(
@@ -310,14 +319,42 @@ describe("ConfigService", () => {
     }
   })
 
-  it("rejects an unknown top-level key as an excess property", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `testCommand: "npm test"\n`)
+  it("rejects an unknown top-level key as an excess property, naming the key and its layer's file", async () => {
+    const configFile = join(projectDir, ".gtdrc.yaml")
+    writeFileSync(configFile, `testCommand: "npm test"\n`)
 
     const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
       expect(String(exit.cause)).toMatch(/testCommand/i)
+      const error = Cause.squash(exit.cause)
+      expect(error).toBeInstanceOf(GtdError)
+      if (error instanceof GtdError) {
+        expect(error.detail).toEqual([`testCommand: ${configFile}`])
+      }
+    }
+  })
+
+  it("names the ANCESTOR layer's file when the offending key came from there, not the cwd's own config", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+    const ancestorFile = join(projectDir, ".gtdrc.yaml")
+    writeFileSync(ancestorFile, `badKey: true\n`)
+    writeFileSync(join(child, ".gtdrc.yaml"), `vars:\n  greeting: hi\n`)
+
+    const exit = await runExit(
+      Effect.flatMap(ConfigService, (c) => c.load),
+      child,
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toBeInstanceOf(GtdError)
+      if (error instanceof GtdError) {
+        expect(error.detail).toEqual([`badKey: ${ancestorFile}`])
+      }
     }
   })
 
