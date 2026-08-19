@@ -179,41 +179,57 @@ file yourself and `gtd land` — no hand-authored state commit.
 The process converges on that same shared tail: an agent hands you a
 `.gtd/REVIEW.md` checkbox review of the diff — the prompt never inlines the diff
 itself; it names the commit the changes are based at and the agent runs
-`git diff` to read the range before writing the review. While the process rests
-at that gate, the landing script opens a **review checkout window**: HEAD is
-rewound to the review base with the working tree untouched, so the whole
-reviewable change shows up as ordinary uncommitted changes in your editor's
-normal git integration (and files added during the process show up as ordinary
-untracked files, so discarding one deletes it — an untracked file you leave
-alone is not a pending change, and only actually removing it from disk counts as
-a deletion). The next landing's own script closes the window before it commits.
-Tick a box as you review each hunk (ticking just records "I read this"), and
-leave a **comment** to request changes: a note on a line, an inline
-`// TODO`-style comment in the code, or a direct code edit. A comment sends a
-FULL development lap, not a quick fix-and-re-review: an agent first judges
-whether your comment is actually actionable (a genuinely approving remark with
-no code edit short-circuits straight to sign-off instead), and an actionable
-round is re-planned from scratch through triage, architecture, and the package
-queue again — a hand-edit you made during review is treated as a **sketch**, the
-same as any other change that starts a process, not a fix the agent builds on:
-it is reverted out of the tree first, and your intent survives only in your own
-review-round commit for triage to read. There is no baseline check on the way
-back into planning. If a styled `.gtd/REVIEW.md` ever comes out malformed (a
-paragraph where a `- [ ] ./path#line` row belongs), `gtd check review` refuses
-the step before it commits: the file stays exactly as written in the working
-tree, unlanded, and re-running the same prompt is the recovery — nothing is
-lost. Only the turn that drafts the final squash message resumes the session
-that built the feature in the first place (the review tail is nested inside that
-build identity rather than sitting beside it) — an actionable round leaves that
-identity entirely, so it starts a fresh session like any other process. Ticking
-every box with no comment is the sign-off, which collapses the whole process
-into one commit (a **squash finale** whose message an agent drafts). Landing
-with a box still unticked and no comment is refused (finish reviewing first), as
-is deleting `.gtd/REVIEW.md`. Both refusals hold wherever the review doc lives:
-repointing `reviewFile` out of `.gtd/` (say to `REVIEW.md` at the repo root)
-changes nothing about them — your own edit to the review doc is never mistaken
-for a code comment, and the doc's pre-turn copy is read at the review window's
-saved head rather than at the rewound `HEAD`.
+`git diff` to read the range before writing the review. Each hunk is a
+`- [ ] ./path/to/file.ts#42` pointer with its explanation on the line(s) BELOW
+it, not trailing the pointer on the same line:
+
+```
+- [ ] ./path/to/file.ts#42
+  what this hunk does, with room to run to several lines
+```
+
+Text after the pointer token on the pointer's own line is a validation error —
+`gtd check`/`gtd validate`/the LSP all reject it — and, because the review
+gate's own emitted script runs that same check ahead of every commit, upgrading
+gtd mid-review leaves an already-open `.gtd/REVIEW.md` written in the old
+same-line form UNLANDABLE until every pointer in it is hand-edited into the new
+shape; there is no migration tool. If a styled `.gtd/REVIEW.md` ever comes out
+malformed some other way (a paragraph where a `- [ ] ./path#line` row belongs),
+`gtd check review` refuses the step the same way: the file stays exactly as
+written in the working tree, unlanded, and re-running the same prompt is the
+recovery — nothing is lost. While the process rests at that gate, the landing
+script opens a **review checkout window**: HEAD is rewound to the review base
+with the working tree untouched, so the whole reviewable change shows up as
+ordinary uncommitted changes in your editor's normal git integration (and files
+added during the process show up as ordinary untracked files, so discarding one
+deletes it — an untracked file you leave alone is not a pending change, and only
+actually removing it from disk counts as a deletion). The next landing's own
+script closes the window before it commits. Tick a box as you review each hunk
+(ticking just records "I read this"), and leave a **comment** to request
+changes: a note on a line, an inline `// TODO`-style comment in the code, or a
+direct code edit. A comment sends a FULL development lap, not a quick
+fix-and-re-review: an agent first judges whether your comment is actually
+actionable (a genuinely approving remark with no code edit short-circuits
+straight to sign-off instead), and an actionable round is re-planned from
+scratch through triage, architecture, and the package queue again — a hand-edit
+you made during review is treated as a **sketch**, the same as any other change
+that starts a process, not a fix the agent builds on: it is reverted out of the
+tree first, and your intent survives only in your own review-round commit for
+triage to read. There is no baseline check on the way back into planning. Only
+the turn that drafts the final squash message resumes the session that built the
+feature in the first place (the review tail is nested inside that build identity
+rather than sitting beside it) — an actionable round leaves that identity
+entirely, so it starts a fresh session like any other process. A comment is what
+asks for changes; landing with no comment signs off, whatever the boxes say,
+which collapses the whole process into one commit (a **squash finale** whose
+message an agent drafts). Deleting `.gtd/REVIEW.md` is refused, wherever the
+review doc lives: repointing `reviewFile` out of `.gtd/` (say to `REVIEW.md` at
+the repo root) changes nothing about that refusal, since it only asks whether
+the step's diff deletes the file. The exact-path exemption issue #128 fixed
+still matters elsewhere, though: the `deciding` state's own classification and
+the feedback-progress guard both exclude the state's own `file:` by exact path,
+not merely a `.gtd/` prefix, so your own edit to a relocated steering file is
+never mistaken for a code comment.
 
 A second entry, the same review tail's own direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -859,7 +875,7 @@ its own retry/resume logic beyond "if the script failed, ask gtd again."
 
 A mode's `format:` command may reformat a steering file — whitespace, wrapping,
 reordering — but must NEVER change what a land-capture guard would decide. gtd's
-guards (the review sign-off check, the feedback-progress check, the
+guards (the review-doc check, the feedback-progress check, the
 answer-completeness check, the require-revert check — `src/StepGuards.ts`)
 decide ONCE, against whichever bytes are on disk at the moment `gtd land` runs,
 which may be before OR after an emitted script's own `format:` line has run (the
@@ -867,12 +883,14 @@ script runs `format:` then `validate:` then the commit — see
 `src/SteeringMode.ts`'s `renderSteeringCommands` — but gtd's decision and the
 driver's script execution are different processes at different times, so there's
 no guaranteed ordering between "gtd decided" and "the script formatted"). That's
-only safe because every built-in guard judges content, not incidental formatting
-(e.g. it normalizes `[ ]`/`[x]` checkboxes before comparing). If you plug in
-your own `format:` command, the same rule binds it: a formatter that also
-changes meaning — ticking a box, stripping a paragraph — makes the guard's
-decision and the file's actual content disagree, and gtd will not catch that for
-you.
+only safe because every built-in guard judges only the content it explicitly
+cares about, not incidental formatting around it — the feedback-progress guard,
+for instance, only checks whether a deleted file's trimmed first line is the
+`NOTHING ACTIONABLE` sentinel, so reindenting the rest of it changes nothing the
+guard reads. If you plug in your own `format:` command, the same rule binds it:
+a formatter that also changes meaning — stripping a paragraph a guard reads —
+makes the guard's decision and the file's actual content disagree, and gtd will
+not catch that for you.
 
 One case never runs your `format:` (or `validate:`) at all: a step whose diff
 DELETES the state's own `file:`. Deleting it is a legitimate outcome — a review

@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
 import { isSeededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
-import type { SteeringFormat } from "./SteeringFormat.js"
+import type { SteeringFinding, SteeringFormat } from "./SteeringFormat.js"
 import { knownModes, type StateMode, type WorkflowDefinition } from "./PatternMachine.js"
 import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 
@@ -127,7 +127,7 @@ export const resolveBuiltInMode = (mode: StateMode): ResolvedMode | undefined =>
  */
 export interface SteeringCapabilities {
   readonly format?: SteeringFormat
-  readonly liveValidate?: (content: string) => readonly string[]
+  readonly liveValidate?: (content: string) => readonly SteeringFinding[]
   readonly externalValidate?: boolean
 }
 
@@ -175,14 +175,18 @@ const renderCommand = (
     catch: (e) => new Error(`mode "${mode}": "${key}" command failed to render — ${errorText(e)}`),
   })
 
-/** The findings a non-zero `validate` exit reports: its output lines, or a synthesized line when it said nothing. */
-const findingsFrom = (mode: StateMode, outcome: CommandOutcome): readonly string[] => {
+/** The findings a non-zero `validate` exit reports: its output lines, or a synthesized line when it said nothing. A shell command's findings can never carry a line — gtd sees only its stdout/stderr text, so each output line maps to a positionless finding. */
+const findingsFrom = (mode: StateMode, outcome: CommandOutcome): readonly SteeringFinding[] => {
   const lines = outcome.output
     .split("\n")
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0)
-  if (lines.length > 0) return lines
-  return [`mode "${mode}": validate command exited with ${exitText(outcome.status)} and no output`]
+  if (lines.length > 0) return lines.map((message) => ({ message }))
+  return [
+    {
+      message: `mode "${mode}": validate command exited with ${exitText(outcome.status)} and no output`,
+    },
+  ]
 }
 
 /**
@@ -227,7 +231,7 @@ export const validateSteeringFile = (
   file: string,
   content: string,
   context: TemplateContext,
-): Effect.Effect<readonly string[], Error, CommandRunner> =>
+): Effect.Effect<readonly SteeringFinding[], Error, CommandRunner> =>
   Effect.gen(function* () {
     const validator = resolved.validate
     if (validator === undefined) return []
@@ -262,7 +266,7 @@ export const formatAndValidateSteeringFile = (
   file: string,
   content: string,
   context: TemplateContext,
-): Effect.Effect<readonly string[], Error, CommandRunner> =>
+): Effect.Effect<readonly SteeringFinding[], Error, CommandRunner> =>
   Effect.gen(function* () {
     yield* formatSteeringFile(resolved, file, context)
     return yield* validateSteeringFile(resolved, file, content, context)

@@ -10,7 +10,6 @@ import {
   type PendingChange,
 } from "./PatternMachine.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
-import { untickedFiles } from "./ReviewDoc.js"
 import type { ExecutableDecision, ResolvedRest } from "./Edge.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
@@ -22,8 +21,11 @@ import type { TemplateContext } from "./PatternTemplates.js"
  * may land at all). One registry (`stepGuards`) replaces hand-copied
  * `enforce*` blocks that used to live in `src/program.ts`:
  *
- * - **review-signoff** — at a review window's `mode: review` gate, refuse a
- *   deleted doc or an unfinished tick-only pass with no comment.
+ * - **review-doc** — at a review window's `mode: review` gate, refuse a
+ *   deleted review doc — the review record must survive the step. A tick only
+ *   records that the reviewer has read a hunk; it never gates a land. (Sign-off
+ *   itself is decided elsewhere, by `unified.yaml`'s `deciding` script — no
+ *   guard in this registry has anything to do with it.)
  * - **feedback-progress** — at a `requireProgress` state, refuse deleting the
  *   instructions file without doing (or explicitly declining) the work.
  * - **answer-completeness** — at an `answerGate` `mode: qa` state, refuse
@@ -70,12 +72,12 @@ export interface GuardContext {
    * every guard here reads as "a comment"/"the work was done".
    *
    * Excluding `file` by exact path is load-bearing for a state whose `file:` is
-   * repointed OUTSIDE `stateDir` (an ordinary `vars:` override, e.g. `REVIEW.md`
-   * at the repo root): the reviewer's own edit to the review doc would
-   * otherwise count as a code edit, so the sign-off guard took the
-   * it-is-a-comment branch on every pass and its unticked check was
-   * unreachable. Same shape as the bug in `deciding`'s check script (issue
-   * #128), which also assumed every steering file lives under `.gtd/`.
+   * repointed OUTSIDE `stateDir` (an ordinary `vars:` override, e.g.
+   * `REQUIREMENTS.md` at the repo root): the human's own edit to that file
+   * would otherwise count as a code edit, so the feedback-progress guard's
+   * "was this deletion actually addressed" check could never see the deletion
+   * as bare. Same shape as the bug in `deciding`'s check script (issue #128),
+   * which also assumed every steering file lives under `.gtd/`.
    */
   readonly hasCodeChange: boolean
   readonly template: TemplateContext
@@ -86,11 +88,10 @@ export interface GuardContext {
    * That head is real `HEAD` normally, but the review checkout window's saved
    * head (`Rest.windowHead`) while a window is open: the window has rewound
    * real HEAD to the review base, where a file the process itself added does
-   * not exist yet. Reading `HEAD` there made `original` empty for every review
-   * doc, so the sign-off guard's "only checkbox flips" comparison always found
-   * a difference, took the it's-a-comment branch, and never reached the
-   * unticked count — the tick-completeness gate was inert for exactly the
-   * situation it exists for.
+   * not exist yet. Any guard that runs at a `reviewWindow: true` state MUST
+   * read this field rather than reach for real `HEAD` some other way, or its
+   * "pre-turn copy" would come back empty for every file the review turn
+   * itself wrote.
    */
   readonly head: Effect.Effect<string | undefined, Error>
   /** `file`'s CURRENT working-tree contents — whatever is on disk right now, pre- or post- an external driver's own `format:` run. Cached. */
@@ -110,7 +111,7 @@ export interface StepGuard {
  * `GuardContext.fileDeleted` and `program.ts`'s `steeringModeSteps` ask about a
  * state's `file:`, so they ask it in exactly one place. A deletion is a
  * legitimate step outcome at some states (a review sign-off's bare REVIEW.md
- * deletion) and a refusal at others (see `reviewSignoffGuard`), but either way
+ * deletion) and a refusal at others (see `reviewDocGuard`), but either way
  * there is no file left to format or validate. `steeringModeSteps` widens this
  * same "nothing to format" idea one step further, to a file that was never
  * written at all (not deleted this step, just absent) — that's a separate
@@ -142,34 +143,19 @@ const isPlumbingPath = (path: string, dir: string): boolean =>
 const isCodePath = (path: string, file: string, stateDir: string): boolean =>
   !isPlumbingPath(path, stateDir) && path !== file
 
-/** Normalize every markdown checkbox to a single placeholder so a pure `[ ]`→`[x]` tick is invisible to a text comparison; any surviving difference is a human note. */
-const normalizeCheckboxes = (content: string): string => content.replace(/\[[ xX]\]/g, "[_]")
-
-/** The `mode:` name of gtd's built-in REVIEW.md checkbox validator — the only mode the sign-off guard understands. */
+/** The `mode:` name of gtd's built-in REVIEW.md checkbox format — the only mode the review-doc guard understands. */
 const REVIEW_MODE = "review"
 
-const reviewSignoffGuard: StepGuard = {
-  name: "review-signoff",
+const reviewDocGuard: StepGuard = {
+  name: "review-doc",
   appliesTo: (rest) =>
     isReviewWindowState(rest.def, rest.state) && rest.stateDef.mode === REVIEW_MODE,
   check: (ctx) =>
-    Effect.gen(function* () {
-      if (ctx.fileDeleted) {
-        return `${ctx.file} was deleted at "${ctx.rest.state}" — restore it and tick the boxes to sign off, or leave a note (or edit code) to request changes.`
-      }
-      // A comment — a code edit, or a note (the doc differs beyond a checkbox
-      // flip) — is always a feedback round; let it commit.
-      if (ctx.hasCodeChange) return undefined
-      const original = (yield* ctx.head) ?? ""
-      const current = (yield* ctx.worktree) ?? ""
-      if (normalizeCheckboxes(original) !== normalizeCheckboxes(current)) return undefined
-      // Only checkbox flips, no comment: a sign-off needs EVERY file pointer ticked.
-      const unticked = untickedFiles(current).length
-      if (unticked > 0) {
-        return `${unticked} review item(s) still unticked and no comment at "${ctx.rest.state}" — finish reviewing (tick every box), or leave a note (or edit code) to request a change.`
-      }
-      return undefined
-    }),
+    Effect.succeed(
+      ctx.fileDeleted
+        ? `${ctx.file} was deleted at "${ctx.rest.state}" — restore it, or leave a note (or edit code) to request changes.`
+        : undefined,
+    ),
 }
 
 /** The one-line marker `feedback-collecting` writes when a review round left nothing actionable — the ONLY content that lets a `requireProgress` state's instructions file be deleted without a code change. */
@@ -254,7 +240,7 @@ const requireRevertGuard: StepGuard = {
 
 /** The four step-capture guards, in EVALUATION order — message precedence when two would fire is observable, so this order is the contract (matches the old hand-copied call order, minus the now-removed steering-file guard). */
 export const stepGuards: readonly StepGuard[] = [
-  reviewSignoffGuard,
+  reviewDocGuard,
   feedbackProgressGuard,
   answerCompletenessGuard,
   requireRevertGuard,

@@ -72,8 +72,10 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       **New pure function, no side effects.** Confirm the signature and the
       one test that pins it.
 
-      - [ ] ./src/calc.ts#1 — exported `add`, two `number` params
-      - [ ] ./src/calc.test.ts#1 — happy-path coverage only
+      - [ ] ./src/calc.ts#1
+        Exported `add`, two `number` params.
+      - [ ] ./src/calc.test.ts#1
+        Happy-path coverage only.
       """
     When I run gtd land
     Then it succeeds

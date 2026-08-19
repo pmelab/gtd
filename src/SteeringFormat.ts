@@ -56,16 +56,22 @@ export interface SteeringPointer {
   readonly line: number
 }
 
+/** One validation finding. `line` is 0-based; absent when the finding is about the document as a whole. */
+export interface SteeringFinding {
+  readonly message: string
+  readonly line?: number
+}
+
 /**
  * One steering-file FORMAT's whole behavior: how to validate it in process,
  * build its outline, offer code actions at a range, and (optionally) resolve
  * a cursor position to a pointer elsewhere. `validate` returns the same
- * `errors` shape `gtd validate` and the capture gate both consume (empty =
+ * `findings` shape `gtd validate` and the capture gate both consume (empty =
  * valid). `pointerAt` is absent for a format with nothing to jump to (`qa`
  * has none; `review` does).
  */
 export interface SteeringFormat {
-  readonly validate: (content: string) => readonly string[]
+  readonly validate: (content: string) => readonly SteeringFinding[]
   readonly outline: (content: string) => readonly SteeringOutlineNode[]
   readonly actions: (
     content: string,

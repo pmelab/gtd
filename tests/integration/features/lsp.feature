@@ -191,7 +191,8 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       ## Add calculator
 
       - [ ] ./src/calc.ts#1
-      - [x] ./src/calc.ts#5 — subtract
+      - [x] ./src/calc.ts#5
+        subtract
       """
     Then the LSP response has no error
     And the LSP response result points to "src/calc.ts" at line 4
@@ -211,7 +212,8 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
       ## Add budget alerts
 
-      - [ ] ./src/server/email/budget-threshold.ts#31 — non-obvious import
+      - [ ] ./src/server/email/budget-threshold.ts#31
+        non-obvious import
       """
     Then the LSP response has no error
     And the LSP response result points to "src/server/email/budget-threshold.ts" at line 30

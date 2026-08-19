@@ -75,7 +75,7 @@ export interface GitReaderOperations {
    * window staged back from the saved head but the reviewer DELETED shows up
    * in neither tree and so reports no change at all (real git agrees: the
    * index-only `AD` entry is invisible to `git diff --name-status HEAD`),
-   * which is precisely the deletion the review sign-off guard must catch.
+   * which is precisely the deletion the review-doc guard must catch.
    * Passing the window's saved head restores the pre-window meaning.
    *
    * An untracked path is classified by CONTENT against `base`, not by the
@@ -86,13 +86,13 @@ export interface GitReaderOperations {
    * perfectly present at the saved head. Reporting the index's view instead
    * would report each of them DELETED (`git diff --name-status <base>`
    * compares `base` to the INDEX) though the file sits right there on disk —
-   * a phantom deletion that made the review sign-off guard refuse every
-   * sign-off in a repo whose `reviewFile` is not under `.gtd/` (the one
-   * directory the window pins back into the index).
+   * a phantom deletion that made the review-doc guard refuse every sign-off
+   * in a repo whose `reviewFile` is not under `.gtd/` (the one directory the
+   * window pins back into the index).
    *
    * A REAL deletion (the reviewer removed the file from disk) still reports
    * `D`: it is not in the untracked list, so the tracked diff's own `D`
-   * stands. That is the deletion the sign-off guard must catch.
+   * stands. That is the deletion the review-doc guard must catch.
    */
   readonly changedPaths: (
     base?: string,
@@ -251,9 +251,9 @@ const blobsAtRef = (
  * stored, and is correctly read as unchanged. Never add `--no-filters` (nor
  * `--path=<other>`) here: that would report every such file `M`, i.e. a
  * spurious "the human edited something real" (`StepGuards`'s `hasCodeChange`),
- * which walks the review-signoff guard past its unticked-box check, plus a
- * spurious change for any `on` pattern to match. Both tiers of the
- * `changedPaths` contract pin this (`src/testing/GitTiers.ts`).
+ * which flips a clean sign-off onto the feedback edge — a full re-plan nobody
+ * asked for — and still fabricates a change for any `on` pattern to match.
+ * Both tiers of the `changedPaths` contract pin this (`src/testing/GitTiers.ts`).
  *
  * A symlink is the one residual inexactness: hash-object reads through it, so it
  * hashes the target's content rather than the link text git stores, and reads as
@@ -298,8 +298,8 @@ const hashObjects = (
  * through the repo's own clean filters, so a `text=auto` repo's untouched CRLF
  * file matches the LF blob it was stored as. Over-reporting `M` for an untouched
  * file would not be cosmetic: it is a spurious "the human edited something real"
- * (`StepGuards`'s `hasCodeChange`), which sends the review-signoff guard down
- * its it-is-a-comment branch and past the unticked-box check, plus a spurious
+ * (`StepGuards`'s `hasCodeChange`), which flips a clean sign-off onto the
+ * feedback edge — a full re-plan nobody asked for — and still fabricates a
  * change for any `on` pattern to match.
  */
 const classifyUntracked = (

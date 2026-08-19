@@ -18,7 +18,7 @@ Feature: Review sign-off reaches build.squashing even when reviewFile lives outs
   AGENTS.md and review-feedback-guards.feature, which simulate this same state
   for the pure-engine routing rules instead).
 
-  Scenario: a clean sign-off (all boxes ticked, no comment, no code edit) reaches build.squashing, not build.review.collecting
+  Scenario: a clean sign-off (no comment, no code edit) reaches build.squashing, not build.review.collecting
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -32,7 +32,8 @@ Feature: Review sign-off reaches build.squashing even when reviewFile lives outs
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     And a commit "gtd(human): build.review.await-review → build.review.deciding" that adds "REVIEW.md" with:
       """
@@ -41,7 +42,8 @@ Feature: Review sign-off reaches build.squashing even when reviewFile lives outs
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function
+      - [x] ./src/calc.ts#1
+      new add function
       """
     When I run gtd next with "--json"
     And I execute the printed check script
@@ -78,7 +80,8 @@ Feature: Review sign-off reaches build.squashing even when reviewFile lives outs
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     And a commit "gtd(human): build.review.await-review → build.review.deciding" that adds "REVIEW.md" with:
       """
@@ -87,7 +90,8 @@ Feature: Review sign-off reaches build.squashing even when reviewFile lives outs
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function
+      - [x] ./src/calc.ts#1
+      new add function
       """
     When I run gtd next with "--json"
     And I execute the printed check script

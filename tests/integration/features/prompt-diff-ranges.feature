@@ -47,7 +47,8 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     And a commit "gtd(human): build.review.await-review → build.review.deciding" that adds ".gtd/REVIEW.md" with:
       """
@@ -56,7 +57,8 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function — also handle negatives
+      - [x] ./src/calc.ts#1
+      new add function — also handle negatives
       """
     And I mark the current commit as "review-commit"
     When I run gtd next with "--json"

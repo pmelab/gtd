@@ -101,7 +101,8 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1 — new export
+      - [ ] ./src/thing.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -113,7 +114,8 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       ## Add thing.ts
 
-      - [x] ./src/thing.ts#1 — new export
+      - [x] ./src/thing.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -298,7 +300,8 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1 — new export
+      - [ ] ./src/thing.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -310,7 +313,8 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       ## Add thing.ts
 
-      - [x] ./src/thing.ts#1 — new export
+      - [x] ./src/thing.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -421,7 +425,8 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       ## Add one.ts
 
-      - [ ] ./src/one.ts#1 — new export
+      - [ ] ./src/one.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -433,7 +438,8 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       ## Add one.ts
 
-      - [x] ./src/one.ts#1 — new export
+      - [x] ./src/one.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -533,7 +539,8 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       ## Add two.ts
 
-      - [ ] ./src/two.ts#1 — new export
+      - [ ] ./src/two.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -545,7 +552,8 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
       ## Add two.ts
 
-      - [x] ./src/two.ts#1 — new export
+      - [x] ./src/two.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds

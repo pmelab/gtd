@@ -882,9 +882,10 @@ export interface Rest extends ResolvedRest {
    * Carried on the snapshot rather than re-read per caller: it is the PRE-TURN
    * head, so anything that needs a file's committed, pre-turn copy — the step
    * guards' own `readFileAtRef` reads (`src/StepGuards.ts`) — must resolve it
-   * here, not at `HEAD`. Reading `HEAD` under an open window reports every file
-   * the process itself added as absent, which silently turned the review
-   * sign-off's tick-completeness check into a no-op.
+   * here, not at `HEAD`. Any guard running at a `reviewWindow: true` state must
+   * read the pre-turn copy at this saved head: real `HEAD` is rewound to the
+   * review base there, where a file the process itself wrote does not exist
+   * yet.
    */
   readonly windowHead: string | undefined
   readonly memory: string | undefined

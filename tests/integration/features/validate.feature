@@ -86,7 +86,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1 — new export
+      - [ ] ./src/thing.ts#1
+      new export
       """
     When I run gtd with args "validate"
     Then it succeeds
@@ -101,7 +102,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1 — new export
+      - [ ] ./src/thing.ts#1
+      new export
       """
     When I run gtd with args "validate"
     Then it fails

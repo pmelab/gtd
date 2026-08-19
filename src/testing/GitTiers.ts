@@ -738,7 +738,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
     // every path the reviewed range ADDED out of the index, leaving it
     // untracked but present on disk. An index-based answer calls each of those
     // a deletion (`git diff --name-status <base>` compares base to the INDEX),
-    // which made the review sign-off guard refuse every sign-off whose
+    // which made the review-doc guard refuse every sign-off whose
     // `reviewFile` the window does not pin back. The port answers by CONTENT
     // instead — these four cases are that contract.
     describe("with a base, over paths the index no longer carries", () => {
@@ -765,7 +765,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
         ])
       })
 
-      it("reports an untracked path REMOVED from disk as D — the deletion the sign-off guard must catch", async () => {
+      it("reports an untracked path REMOVED from disk as D — the deletion the review-doc guard must catch", async () => {
         const head = openWindowOver("- [ ] one\n")
         t.seed.deleteFile("REVIEW.md")
         expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([
@@ -786,8 +786,8 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       // tree legitimately holds CRLF, so a RAW byte comparison calls an
       // untouched file modified — and a spurious `M` on the review doc is a
       // spurious "the human edited something real" (`StepGuards`'s
-      // `hasCodeChange`), which walks the sign-off guard straight past its
-      // unticked-box check. The fake has no filters at all, so it answers
+      // `hasCodeChange`), which flips a clean sign-off onto the feedback edge
+      // — a full re-plan nobody asked for. The fake has no filters at all, so it answers
       // "unchanged" by construction; this pins real git to the same answer.
       it("omits an untracked path that only differs by a clean filter's normalization", async () => {
         t.seed.writeFile(".gitattributes", "* text=auto\n")

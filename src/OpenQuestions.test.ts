@@ -396,10 +396,13 @@ describe("QA_FORMAT", () => {
     "",
   ].join("\n")
 
-  it("validate delegates to parseOpenQuestions's errors", () => {
+  it("validate delegates to parseOpenQuestions's errors, each wrapped as a positionless finding", () => {
     const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
     expect(QA_FORMAT.validate(malformed)).toEqual([
-      "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+      {
+        message:
+          "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+      },
     ])
     expect(QA_FORMAT.validate(questionsDoc)).toEqual([])
   })

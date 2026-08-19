@@ -186,7 +186,8 @@ Feature: The bundled unified workflow — one flow, end to end
 
       ## Add greeter.ts
 
-      - [ ] ./src/greeter.ts#1 — new export
+      - [ ] ./src/greeter.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -195,7 +196,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And stdout contains "State: build.review.await-review"
 
-    # await-review: tick every box, leave no comment -> sign-off
+    # await-review: leave no comment -> sign-off (ticking the box just records that it was read)
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -203,7 +204,8 @@ Feature: The bundled unified workflow — one flow, end to end
 
       ## Add greeter.ts
 
-      - [x] ./src/greeter.ts#1 — new export
+      - [x] ./src/greeter.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds
@@ -242,7 +244,8 @@ Feature: The bundled unified workflow — one flow, end to end
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     # await-review: a hand-edit to real code is feedback
     Given a file "src/calc.ts" with:
@@ -308,7 +311,8 @@ Feature: The bundled unified workflow — one flow, end to end
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     # await-review: a hand-edit to real code is feedback
     Given a file "src/calc.ts" with:
@@ -378,7 +382,8 @@ Feature: The bundled unified workflow — one flow, end to end
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     # await-review: a note is still feedback-shaped from deciding's own
     # point of view (any REVIEW.md edit beyond a tick), even though it's just
@@ -389,7 +394,8 @@ Feature: The bundled unified workflow — one flow, end to end
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function — nice work, looks great
+      - [x] ./src/calc.ts#1
+      new add function — nice work, looks great
       """
     When I run gtd land
     Then it succeeds
@@ -494,7 +500,8 @@ Feature: The bundled unified workflow — one flow, end to end
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
       ## Chunk
-      - [x] ./src/thing.ts#1 — looks great, nice work
+      - [x] ./src/thing.ts#1
+      looks great, nice work
       """
     And the file ".gtd/REVIEW.md" is deleted
     And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
@@ -1052,7 +1059,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(check): build.health.check → build.health.escalate"
 
   @inmem
-  Scenario: deleting REVIEW.md at await-review is refused — sign off by ticking every box, not by deleting
+  Scenario: deleting REVIEW.md at await-review is refused — sign off by leaving no comment, not by deleting
     Given a test project
     And the workflow
     And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
@@ -1076,7 +1083,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the commit count is unchanged
 
   @inmem
-  Scenario: stepping at await-review with a box still unticked and no comment is refused — finish reviewing first
+  Scenario: a sign-off lands even with a box still unticked — a tick only records that a hunk was read
     Given a test project
     And the workflow
     And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
@@ -1100,12 +1107,13 @@ Feature: The bundled unified workflow — one flow, end to end
       - [x] ./src/a.ts#1
       - [ ] ./src/b.ts#1
       """
-    And I record the commit count
     When I run gtd land
-    Then it fails
-    And stderr contains "still unticked and no comment"
-    # Nothing committed — the reviewer stays at the gate.
-    And the commit count is unchanged
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    Given the file ".gtd/REVIEW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
 
   @inmem
   Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
@@ -1122,9 +1130,9 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "**Sign off** — tick EVERY box and leave no comment"
+    And stdout contains "**Sign off** — leave no comment"
     And stdout contains "**Request changes** — leave a comment"
-    And stdout contains "no comment is refused"
+    And stdout contains "Deleting `.gtd/REVIEW.md` is refused."
 
   @inmem
   Scenario: a code edit at await-review is feedback — it routes to review-deciding (which turns it into a fix + re-review round)

@@ -1098,6 +1098,26 @@ describe("gtd check <mode> <file>", () => {
     expect(lines).toContain("REVIEW.md has no '##' chunks")
   })
 
+  it("a positioned finding prints '<file>:<line>: <message>' with a 1-based line number", async () => {
+    const repo = bareRepo()
+    const trailingTextDoc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 — legacy trailing note",
+      "",
+    ].join("\n")
+    repo.writeFile("REVIEW.md", trailingTextDoc)
+    const { stdout, exitCode } = await run(repo, "check", "review", "REVIEW.md")
+    expect(exitCode).toBe(1)
+    // The trailing-text pointer is the 0-based 6th line (index 5) — printed 1-based as 6.
+    expect(stdout.trim().split("\n")).toContain(
+      'REVIEW.md:6: Chunk "Add calculator" hunk ./src/calc.ts#1 has text on the pointer line — move the explanation to the line(s) below it',
+    )
+  })
+
   it("an absent file exits 0 with no output", async () => {
     const repo = bareRepo()
     const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")

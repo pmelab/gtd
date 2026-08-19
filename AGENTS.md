@@ -92,20 +92,21 @@ description, and must be preserved:
   The window's `git reset --mixed` leaves every file the reviewed range added
   untracked-but-present, and `git diff --name-status <base>` compares `base` to
   the INDEX — so the index view calls each of them deleted. That phantom `D`
-  made the review-signoff guard refuse every sign-off in a repo whose
-  `reviewFile` sits outside `.gtd/` (the one directory the window pins back into
-  the index). `src/Git.ts`'s `classifyUntracked` therefore classifies each
-  untracked path against the base tree by blob id: absent → `A`, different →
-  `M`, identical → no change. Don't "simplify" it back to the index's answer.
-  The worktree side is hashed WITH the repo's clean filters (plain
-  `git hash-object -- <paths>`, which looks each file's attributes up from its
-  own path) — never `--no-filters`, or a `text=auto` repo reports every
-  untouched CRLF file `M`, and a spurious `M` on the review doc is a spurious
-  `hasCodeChange`, i.e. the same inert guard as above. The in-memory double has
-  always compared the base tree to the worktree directly, so only the Live tier
-  of `runGitServiceContract`'s `changedPaths` base-case group can fail on this —
-  and an @inmem e2e scenario cannot (hence `@live`
-  `review-window-untracked.feature`).
+  made the review-doc guard refuse every sign-off in a repo whose `reviewFile`
+  sits outside `.gtd/` (the one directory the window pins back into the index).
+  `src/Git.ts`'s `classifyUntracked` therefore classifies each untracked path
+  against the base tree by blob id: absent → `A`, different → `M`, identical →
+  no change. Don't "simplify" it back to the index's answer. The worktree side
+  is hashed WITH the repo's clean filters (plain `git hash-object -- <paths>`,
+  which looks each file's attributes up from its own path) — never
+  `--no-filters`, or a `text=auto` repo reports every untouched CRLF file `M`,
+  and a spurious `M` on such a file (never the review doc itself, which
+  `hasCodeChange` excludes by exact path) flips a clean sign-off onto the
+  feedback edge in `deciding`'s classification script and the feedback-progress
+  guard. The in-memory double has always compared the base tree to the worktree
+  directly, so only the Live tier of `runGitServiceContract`'s `changedPaths`
+  base-case group can fail on this — and an @inmem e2e scenario cannot (hence
+  `@live` `review-window-untracked.feature`).
 
 - **No emitted script moves HEAD.** `unified.yaml`'s `unwind` state reverts the
   entry commit's diff (`git revert --no-commit`) before planning ever starts, so
@@ -290,7 +291,7 @@ parser, one envelope. The table is the source of truth, not prose:
   map
 - **Step-capture guards (edge, not engine):** `enforceStepGuards` in
   `src/StepGuards.ts` runs a registry of four guards before a normal commit
-  lands — the review-signoff, feedback-progress, answer-completeness, and
+  lands — the review-doc, feedback-progress, answer-completeness, and
   require-revert guards each check their own state-flavor condition. A state's
   `file:`+`mode:` formatting and validation is NOT a guard any more:
   `program.ts`'s `steeringModeSteps` emits the mode's own `format:`/`validate:`
@@ -319,8 +320,10 @@ parser, one envelope. The table is the source of truth, not prose:
   prefix check. A `reviewFile` repointed to the repo root is still a steering
   file — the same assumption issue #128 broke in `deciding`'s check script — and
   a plumbing directory relocated via `vars.stateDir` is still plumbing. With
-  either exemption wrong, the review sign-off guard takes its it-is-a-comment
-  branch on every pass and the unticked-box check is unreachable
+  either exemption wrong, a spurious `hasCodeChange` flips a clean sign-off onto
+  the feedback edge — a full re-plan nobody asked for — in both of its live
+  consumers, `deciding`'s own classification script and the feedback-progress
+  guard
 - The require-revert guard's own version of the same INPUTS risk: it compares
   the current tree against `reviewBase~1` intersected with the human's own
   review-round commit's touched paths, and it exempts the state's own `file:` by
