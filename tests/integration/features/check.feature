@@ -61,7 +61,8 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1 — new export
+      - [ ] ./src/thing.ts#1
+      new export
       """
     When I run gtd with args "check review REVIEW.md"
     Then it succeeds
@@ -75,7 +76,8 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1 — new export
+      - [ ] ./src/thing.ts#1
+      new export
       """
     When I run gtd with args "check review REVIEW.md"
     Then it fails

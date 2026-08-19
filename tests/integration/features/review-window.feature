@@ -49,7 +49,8 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
 
   @inmem
@@ -104,12 +105,12 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     Then it fails
     And stderr contains "was deleted"
     # A refusal emits no script at all, so the window stays exactly as it was —
-    # the reviewer can restore the file and tick.
+    # the reviewer can restore the file.
     And the git ref "refs/worktree/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"
 
   @inmem
-  Scenario: Ticking every box with no comment signs off — the window closes and routes to build.review.deciding
+  Scenario: No comment signs off, boxes ticked along the way or not — the window closes and routes to build.review.deciding
     Given I run gtd land
     And ".gtd/REVIEW.md" is modified to:
       """
@@ -118,12 +119,13 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function
+      - [x] ./src/calc.ts#1
+      new add function
       """
     When I run gtd land
     Then it succeeds
-    # Every box ticked, no note, no code edit — a clean sign-off hands to the
-    # deterministic check, which collapses the process from there.
+    # No note, no code edit — a clean sign-off hands to the deterministic
+    # check, which collapses the process from there.
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
     And the git ref "refs/worktree/gtd/review-head" does not exist
 

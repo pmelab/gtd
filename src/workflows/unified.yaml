@@ -190,8 +190,8 @@
 # `build.review.await-review` goes to `build.review.deciding`, which CAPTURES
 # the raw material (never interprets it) and routes on the step's shape —
 # THREE edges out of the review tail, not one:
-#   * the SIGN-OFF edge: no comment at all (every box ticked, no REVIEW.md
-#     note, no code edit) -> the diff is a bare REVIEW.md deletion ->
+#   * the SIGN-OFF edge: no comment at all (no REVIEW.md note, no code edit)
+#     -> the diff is a bare REVIEW.md deletion ->
 #     build.squashing -> done (the whole process collapses into one commit).
 #   * the NON-ACTIONABLE edge: some comment exists, but `build.review.collecting`
 #     judges it non-actionable (the human left only an approving remark, e.g. a
@@ -214,9 +214,9 @@
 #     build.review again), not a quick fix-and-re-review; there is no
 #     baseline check on the way back in (`re-unwind` is not an entry, so
 #     `entryGate` never runs on this path).
-# Two dead ends never commit: the review-signoff guard (src/StepGuards.ts)
-# REFUSES a step that leaves a box unticked with no comment (finish reviewing
-# first) and a deleted REVIEW.md (restore it and tick the boxes).
+# One dead end never commits: the review-doc guard (src/StepGuards.ts) REFUSES
+# a deleted REVIEW.md — restore it, or leave a note (or edit code) to request
+# changes. A tick only records that a hunk was read; it never gates a land.
 #
 # The shared health pair (`build.health.check`/`.escalate`, plus its own
 # `build.fix`) no longer serves a feedback loop at all — with the implementer's
@@ -965,10 +965,18 @@ machines:
           - Somewhere in the document: `<!-- base: <%= it.reviewBase %> -->`
           - At least one `## <Chunk Title>` heading, grouping hunks semantically
             (same feature/refactor/fix, even across files) — a short explanation of
-            what changed and why, then one `- [ ] ./path/to/file.ts#42 — note` file
-            pointer per hunk (checkboxes are for the human to tick, not you; every
-            path is `./`-relative, with an optional `#line` and an optional
-            ` — note`).
+            what changed and why, then one file pointer per hunk (checkboxes are
+            for the human to tick, not you; every path is `./`-relative, with an
+            optional `#line`). The pointer's OWN line carries nothing but the
+            pointer — no note, no dash. Its explanation goes on the line(s)
+            beneath it instead:
+
+                - [ ] ./path/to/file.ts#42
+                  what this hunk does, with room to run to several lines
+
+            Text after the pointer token on the pointer's own line is a
+            validation error, not just a style nit — an older-format doc like
+            `- [ ] ./path/to/file.ts#42 — note` is UNLANDABLE.
 
           This prompt carries no diff — read the changes yourself. The range runs
           from `<%= it.reviewBase %>` to the working tree (committed turns plus
@@ -993,10 +1001,10 @@ machines:
         #
         # Every human step here routes to `deciding`, which decides sign-off vs.
         # feedback from the step's CONTENT (a comment, not a tick). Ticking a box
-        # only records "I reviewed this hunk". Two dead ends can't be told apart by a
-        # file-pattern edge, so the review-signoff guard (`src/StepGuards.ts`)
-        # catches them BEFORE the step commits and refuses: an unfinished
-        # review (a box still `- [ ]` with no comment) and a deleted REVIEW.md.
+        # only records "I reviewed this hunk" — it never gates a land, whatever the
+        # boxes say. The one dead end that CAN'T be told apart by a file-pattern
+        # edge is a deleted REVIEW.md, so the review-doc guard
+        # (`src/StepGuards.ts`) catches it BEFORE the step commits and refuses.
         reviewWindow: true
         message: |
           `<%= it.vars.reviewFile %>` holds the review record for the process — one
@@ -1006,9 +1014,9 @@ machines:
 
           When you've been through the whole diff, run `gtd land`:
 
-          - **Sign off** — tick EVERY box and leave no comment — no note in
+          - **Sign off** — leave no comment — no note in
             `<%= it.vars.reviewFile %>`, no code edit — to collapse the process into
-            one commit (**build.squashing**).
+            one commit (**build.squashing**), whatever the boxes say.
           - **Request changes** — leave a comment: a note on a
             `<%= it.vars.reviewFile %>` line, or a direct code edit — to send a FULL
             development lap (**review.deciding** → **review.collecting** →
@@ -1019,8 +1027,7 @@ machines:
             genuinely non-actionable comment (an approving remark with no code
             edit) skips the lap and signs off straight away.
 
-          Stepping with a box still unticked and no comment is refused (finish
-          reviewing first); so is deleting `<%= it.vars.reviewFile %>`.
+          Deleting `<%= it.vars.reviewFile %>` is refused.
         on:
           "* **": deciding
 
@@ -1038,9 +1045,10 @@ machines:
           #!/usr/bin/env bash
           # gtd check turn — decide the human's review step from its CONTENT. HEAD is
           # the human's `await-review -> deciding` commit; HEAD^ is the `reviewing`
-          # commit that wrote the agent's original REVIEW.md (the sign-off gate
-          # refuses an incomplete step, so `deciding` is entered exactly once per
-          # round — nothing commits in between). It is FEEDBACK when the human left
+          # commit that wrote the agent's original REVIEW.md (`await-review`'s single
+          # `"* **": deciding` edge means EVERY human step there lands here, so
+          # `deciding` is entered exactly once per round — nothing else commits in
+          # between). It is FEEDBACK when the human left
           # a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]" tick) OR a
           # hand-edit to any file this round outside the declared stateDir or the
           # state's own reviewFile (which is var-configurable and may live outside

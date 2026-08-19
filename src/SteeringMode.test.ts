@@ -270,7 +270,7 @@ describe("validateSteeringFile — built-in modes", () => {
       ),
       neverRunner,
     )
-    expect(errors.join("\n")).toContain("has no question text")
+    expect(errors.map((e) => e.message).join("\n")).toContain("has no question text")
   })
 
   it("`review` reports the review-doc parser's findings", async () => {
@@ -283,7 +283,7 @@ describe("validateSteeringFile — built-in modes", () => {
       ),
       neverRunner,
     )
-    expect(errors.join("\n")).toContain("# Review: <hash>")
+    expect(errors.map((e) => e.message).join("\n")).toContain("# Review: <hash>")
   })
 
   it("reports no findings for a valid file", async () => {
@@ -335,7 +335,10 @@ describe("validateSteeringFile — a workflow-declared command", () => {
       ),
       layer,
     )
-    expect(errors).toEqual(["docs/adr.md: missing Status section", "on stderr"])
+    expect(errors).toEqual([
+      { message: "docs/adr.md: missing Status section" },
+      { message: "on stderr" },
+    ])
     expect(calls).toEqual([
       { command: 'echo "docs/adr.md: missing Status section"; echo "on stderr" >&2; exit 3' },
     ])
@@ -352,7 +355,9 @@ describe("validateSteeringFile — a workflow-declared command", () => {
       ),
       layer,
     )
-    expect(errors).toEqual(['mode "adr": validate command exited with status 2 and no output'])
+    expect(errors).toEqual([
+      { message: 'mode "adr": validate command exited with status 2 and no output' },
+    ])
   })
 
   it("renders the command as an Eta template over `it.file` and `it.vars` before running it", async () => {
@@ -373,7 +378,7 @@ describe("validateSteeringFile — a workflow-declared command", () => {
       layer,
     )
     expect(calls[0]?.command).toBe('echo "adr-lint saw docs/adr.md"; exit 1')
-    expect(errors).toEqual(["adr-lint saw docs/adr.md"])
+    expect(errors).toEqual([{ message: "adr-lint saw docs/adr.md" }])
   })
 
   it("fails (rather than running anything) when the command template is malformed", async () => {

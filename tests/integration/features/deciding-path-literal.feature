@@ -39,7 +39,8 @@ Feature: the review scripts exclude stateDir/reviewFile by literal path, not by 
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     And ".gtd/REVIEW.md" is modified to:
       """
@@ -48,7 +49,8 @@ Feature: the review scripts exclude stateDir/reviewFile by literal path, not by 
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function
+      - [x] ./src/calc.ts#1
+      new add function
       """
     And a file "agtd/notes.md" with:
       """

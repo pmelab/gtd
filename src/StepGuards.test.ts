@@ -59,9 +59,9 @@ const guard = (name: string) => {
 const checkOf = async (name: string, context: GuardContext): Promise<string | undefined> =>
   Effect.runPromise(guard(name).check(context) as Effect.Effect<string | undefined, never, never>)
 
-// ── review-signoff ───────────────────────────────────────────────────────────
+// ── review-doc ───────────────────────────────────────────────────────────────
 
-describe("review-signoff guard", () => {
+describe("review-doc guard", () => {
   const reviewState = rest("await-review", {
     actor: "human",
     prompt: "review",
@@ -69,18 +69,16 @@ describe("review-signoff guard", () => {
     mode: "review",
     reviewWindow: true,
   })
-  const twoUnticked = "## C\n- [ ] ./a.ts#1\n- [ ] ./b.ts#1\n"
-  const allTicked = "## C\n- [x] ./a.ts#1\n- [x] ./b.ts#1\n"
 
   it("applies only to a review-window state with mode: review", () => {
-    expect(guard("review-signoff").appliesTo(reviewState)).toBe(true)
+    expect(guard("review-doc").appliesTo(reviewState)).toBe(true)
     expect(
-      guard("review-signoff").appliesTo(
+      guard("review-doc").appliesTo(
         rest("await-review", { actor: "human", prompt: "x", reviewWindow: true }),
       ),
     ).toBe(false)
     expect(
-      guard("review-signoff").appliesTo(
+      guard("review-doc").appliesTo(
         rest("drafting", { actor: "human", prompt: "x", mode: "review" }),
       ),
     ).toBe(false)
@@ -88,70 +86,19 @@ describe("review-signoff guard", () => {
 
   it("refuses a deleted review doc", async () => {
     const refusal = await checkOf(
-      "review-signoff",
+      "review-doc",
       ctx({ rest: reviewState, fileDeleted: true, file: ".gtd/REVIEW.md" }),
     )
     expect(refusal).toContain("was deleted")
   })
 
-  it("allows a code edit (a comment) even with boxes unticked", async () => {
+  it("allows a sign-off with boxes still unticked — a tick only records that the hunk was read", async () => {
     const refusal = await checkOf(
-      "review-signoff",
+      "review-doc",
       ctx({
         rest: reviewState,
-        hasCodeChange: true,
-        head: Effect.succeed(twoUnticked),
-        worktree: Effect.succeed(twoUnticked),
-      }),
-    )
-    expect(refusal).toBeUndefined()
-  })
-
-  it("allows a note — the doc differs beyond a tick — even with a box left unticked", async () => {
-    const refusal = await checkOf(
-      "review-signoff",
-      ctx({
-        rest: reviewState,
-        head: Effect.succeed(twoUnticked),
-        worktree: Effect.succeed("## C\n- [x] ./a.ts#1\n- [ ] ./b.ts#1 — please rename\n"),
-      }),
-    )
-    expect(refusal).toBeUndefined()
-  })
-
-  it("allows a clean sign-off: every box ticked, no note, no code", async () => {
-    const refusal = await checkOf(
-      "review-signoff",
-      ctx({
-        rest: reviewState,
-        head: Effect.succeed(twoUnticked),
-        worktree: Effect.succeed(allTicked),
-      }),
-    )
-    expect(refusal).toBeUndefined()
-  })
-
-  it("refuses an unfinished review: only tick-flips, a box still unticked, no comment", async () => {
-    const refusal = await checkOf(
-      "review-signoff",
-      ctx({
-        rest: reviewState,
-        head: Effect.succeed(twoUnticked),
-        worktree: Effect.succeed("## C\n- [x] ./a.ts#1\n- [ ] ./b.ts#1\n"),
-      }),
-    )
-    expect(refusal).toContain("1 review item(s) still unticked")
-  })
-
-  it("narrows unticked to `./`-prefixed hunk pointers inside `##` chunks (deliberate behavior change)", async () => {
-    // An indented note-only `- [ ]` outside any recognized file-pointer shape
-    // (no `./` prefix) must NOT block sign-off, unlike the old raw-regex count.
-    const refusal = await checkOf(
-      "review-signoff",
-      ctx({
-        rest: reviewState,
-        head: Effect.succeed("## C\n- [ ] ./a.ts#1\n"),
-        worktree: Effect.succeed("## C\n- [x] ./a.ts#1\n\nNotes:\n- [ ] not a file pointer\n"),
+        head: Effect.succeed("## C\n- [ ] ./a.ts#1\n- [ ] ./b.ts#1\n"),
+        worktree: Effect.succeed("## C\n- [ ] ./a.ts#1\n- [ ] ./b.ts#1\n"),
       }),
     )
     expect(refusal).toBeUndefined()
@@ -780,22 +727,21 @@ describe("enforceStepGuards", () => {
     }
   })
 
-  it("runs guards in registry order — review-signoff, feedback-progress, answer-completeness, require-revert", () => {
+  it("runs guards in registry order — review-doc, feedback-progress, answer-completeness, require-revert", () => {
     expect(stepGuards.map((g) => g.name)).toEqual([
-      "review-signoff",
+      "review-doc",
       "feedback-progress",
       "answer-completeness",
       "require-revert",
     ])
   })
 
-  // While the review checkout window is open, real HEAD sits at the REVIEW
-  // BASE — the review doc the process itself wrote does not exist there. The
-  // pre-turn copy every guard compares against therefore has to be read at the
-  // window's SAVED HEAD (`Rest.windowHead`), or `original` comes back empty,
-  // the sign-off guard sees "the doc differs beyond a checkbox flip", takes the
-  // it-is-a-comment branch, and the unticked count is never reached.
-  describe("with a review checkout window open", () => {
+  it("refuses a deleted review doc while a review checkout window is open, reading the pre-turn copy at windowHead", async () => {
+    // While the review checkout window is open, real HEAD sits at the review
+    // base — a file the process itself wrote does not exist there. The
+    // review-doc guard's `fileDeleted` branch doesn't need to read `head` at
+    // all, but `windowHead` is still threaded through so a future guard that
+    // does can rely on it.
     const WINDOW_HEAD = "refs/worktree/gtd/review-head"
     const reviewState = rest("await-review", {
       actor: "human",
@@ -804,108 +750,27 @@ describe("enforceStepGuards", () => {
       mode: "review",
       reviewWindow: true,
     })
-    // A real review doc: `untickedFiles` only counts file pointers inside a
-    // chunk heading, so the header/base/chunk shape is load-bearing here.
-    const doc = (a: string, b: string): string =>
-      [
-        "# Review: abc1234",
-        "<!-- base: abc1234def5678901234567890123456789abcd -->",
-        "",
-        "## Chunk",
-        "",
-        `- [${a}] ./src/a.ts#1 — first hunk`,
-        `- [${b}] ./src/b.ts#1 — second hunk`,
-        "",
-      ].join("\n")
-    const agentsDoc = doc(" ", " ")
-    const oneTicked = doc("x", " ")
-    const allTicked = doc("x", "x")
-
-    const runGuards = (worktreeDoc: string, windowHead: string | undefined) =>
-      Effect.runPromiseExit(
-        enforceStepGuards({
-          rest: reviewState,
-          file: reviewState.stateDef.file,
-          context: templateContext,
-          changes: [{ path: "REVIEW.md", status: "M" }],
-          windowHead,
-          kind: "commit",
-          attempt: false,
-        }).pipe(
-          Effect.provide(
-            Layer.merge(
-              unusedGitService,
-              Layer.succeed(
-                RepoFiles,
-                // The doc exists at the window's saved head and NOT at real HEAD
-                // (the review base) — the window's whole shape, in one double.
-                repoFilesFrom(
-                  { "REVIEW.md": worktreeDoc },
-                  { [WINDOW_HEAD]: { "REVIEW.md": agentsDoc } },
-                ),
-              ),
-            ),
-          ),
-        ),
-      )
-
-    it("refuses a tick-only pass that still leaves a box unticked", async () => {
-      const exit = await runGuards(oneTicked, WINDOW_HEAD)
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit)) {
-        expect(String(exit.cause)).toContain("still unticked and no comment")
-      }
-    })
-
-    it("allows the same pass once every box is ticked — a sign-off", async () => {
-      const exit = await runGuards(allTicked, WINDOW_HEAD)
-      expect(Exit.isSuccess(exit)).toBe(true)
-    })
-
-    it("reading real HEAD instead is what made the gate inert — the unticked pass would pass", async () => {
-      // Pins the regression itself: with no saved head to read, the pre-turn
-      // copy is absent, every tick reads as a note, and nothing is enforced.
-      const exit = await runGuards(oneTicked, undefined)
-      expect(Exit.isSuccess(exit)).toBe(true)
-    })
-  })
-
-  it("a plumbing-only edit under a relocated stateDir is not a code change — the unticked-box check stays reachable", async () => {
-    const reviewState = rest("await-review", {
-      actor: "human",
-      message: "review",
-      file: ".gtd/REVIEW.md",
-      mode: "review",
-      reviewWindow: true,
-    })
-    const twoUnticked = "## C\n- [ ] ./a.ts#1\n- [ ] ./b.ts#1\n"
     const exit = await Effect.runPromiseExit(
       enforceStepGuards({
         rest: reviewState,
         file: reviewState.stateDef.file,
-        context: { ...templateContext, stateDir: "workflow-state" },
-        changes: [{ path: "workflow-state/notes.md", status: "M" }],
-        windowHead: undefined,
+        context: templateContext,
+        changes: [{ path: "REVIEW.md", status: "D" }],
+        windowHead: WINDOW_HEAD,
         kind: "commit",
         attempt: false,
       }).pipe(
         Effect.provide(
           Layer.merge(
             unusedGitService,
-            Layer.succeed(
-              RepoFiles,
-              repoFilesFrom(
-                { ".gtd/REVIEW.md": twoUnticked },
-                { HEAD: { ".gtd/REVIEW.md": twoUnticked } },
-              ),
-            ),
+            Layer.succeed(RepoFiles, repoFilesFrom({}, { [WINDOW_HEAD]: { "REVIEW.md": "doc" } })),
           ),
         ),
       ),
     )
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain("still unticked and no comment")
+      expect(String(exit.cause)).toContain("was deleted")
     }
   })
 

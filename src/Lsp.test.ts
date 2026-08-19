@@ -268,6 +268,43 @@ describe("diagnosticsFor", () => {
   it("publishes nothing for an unresolved mode", () => {
     expect(diagnosticsFor(undefined, "anything")).toEqual([])
   })
+
+  it("underlines exactly one line for a positioned review finding (a trailing-text pointer)", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add thing.ts",
+      "",
+      "- [ ] ./src/thing.ts#1 — legacy trailing note",
+      "",
+    ].join("\n")
+    const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]?.message).toContain("has text on the pointer line")
+    expect(diagnostics[0]?.range).toEqual({
+      start: { line: 5, character: 0 },
+      end: { line: 5, character: content.split("\n")[5]!.length },
+    })
+  })
+
+  it("spans the whole document for a positionless review finding (a missing header)", () => {
+    const content = [
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add thing.ts",
+      "",
+      "- [ ] ./src/thing.ts#1",
+      "",
+    ].join("\n")
+    const lines = content.split("\n")
+    const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
+    const headerFinding = diagnostics.find((d) => String(d.message).includes("# Review: <hash>"))
+    expect(headerFinding?.range).toEqual({
+      start: { line: 0, character: 0 },
+      end: { line: lines.length - 1, character: lines[lines.length - 1]!.length },
+    })
+  })
 })
 
 const fakeEnv = (overrides: Partial<LspEnv> = {}): LspEnv => ({

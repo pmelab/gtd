@@ -102,7 +102,12 @@ import {
   steeringCapabilities,
   type ResolvedMode,
 } from "./SteeringMode.js"
-import type { SteeringAction, SteeringOutlineNode, SteeringPointer } from "./SteeringFormat.js"
+import type {
+  SteeringAction,
+  SteeringFinding,
+  SteeringOutlineNode,
+  SteeringPointer,
+} from "./SteeringFormat.js"
 
 // ── Domain → protocol translation (pure) ────────────────────────────────────
 
@@ -141,12 +146,15 @@ export const toLocation =
     },
   })
 
-/** One bare finding string → a whole-document `Diagnostic` (a built-in format's `validate` errors carry no per-line position). Not exported on its own — `diagnosticsFor`'s tests cover it in context. */
+/** One `SteeringFinding` → a `Diagnostic`: a positioned finding underlines exactly its own line, a positionless one spans the whole document. Not exported on its own — `diagnosticsFor`'s tests cover it in context. */
 const toDiagnostic =
   (lines: readonly string[]) =>
-  (message: string): Diagnostic => ({
-    range: spanRange(lines, 0, Math.max(0, lines.length - 1)),
-    message,
+  (finding: SteeringFinding): Diagnostic => ({
+    range:
+      finding.line !== undefined
+        ? spanRange(lines, finding.line, finding.line)
+        : spanRange(lines, 0, Math.max(0, lines.length - 1)),
+    message: finding.message,
     severity: DiagnosticSeverity.Warning,
     source: "gtd",
   })

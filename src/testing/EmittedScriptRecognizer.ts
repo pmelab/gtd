@@ -489,12 +489,15 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
   // An ABSENT file has nothing to check and exits 0 — `runCheckCommand`'s own
   // documented behavior. Validating `""` instead would report every "missing
   // header" finding the format has, turning "the reviewer deleted the file"
-  // (a case the sign-off guard owns) into a script failure.
+  // (a case the review-doc guard owns) into a script failure.
   const content = repo.readFile(file)
   if (content === undefined) return { kind: "noop" }
   const findings = format.validate(content)
   if (findings.length > 0) {
-    return { kind: "failed", error: `gtd check ${mode} ${file}: ${findings.join("; ")}` }
+    const formatted = findings.map((f) =>
+      f.line !== undefined ? `${file}:${f.line + 1}: ${f.message}` : f.message,
+    )
+    return { kind: "failed", error: `gtd check ${mode} ${file}: ${formatted.join("; ")}` }
   }
   return { kind: "noop" }
 }

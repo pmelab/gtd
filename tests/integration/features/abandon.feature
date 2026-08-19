@@ -88,7 +88,8 @@ Feature: gtd abandon — end the process underway without completing it
 
       ## Add calc.ts
 
-      - [ ] ./src/calc.ts#1 — new export
+      - [ ] ./src/calc.ts#1
+      new export
       """
     When I run gtd land
     Then it succeeds

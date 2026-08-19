@@ -48,6 +48,7 @@ import {
 import { deletesFile, enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
 import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
+import type { SteeringFinding } from "./SteeringFormat.js"
 import { resolveSteeringMode, renderSteeringCommands, unknownModeMessage } from "./SteeringMode.js"
 import {
   initialStateOf,
@@ -411,11 +412,10 @@ const planLanding = (
     }
 
     // Step-capture guards (edge, not engine — see src/StepGuards.ts): the
-    // review-signoff, feedback-progress, answer-completeness and
-    // require-revert guards, in registry order, each able to refuse before
-    // anything is emitted. `file` is the rest's already-rendered `file:`
-    // hint — rendered once when the snapshot was built, not re-rendered per
-    // guard.
+    // review-doc, feedback-progress, answer-completeness and require-revert
+    // guards, in registry order, each able to refuse before anything is
+    // emitted. `file` is the rest's already-rendered `file:` hint — rendered
+    // once when the snapshot was built, not re-rendered per guard.
     yield* enforceStepGuards({
       rest,
       context: rest.context,
@@ -1067,6 +1067,10 @@ const runValidateCommand = (
  * takes two, but `"review"` there is a distinct, equally wrong, silent
  * mismatch this rejects explicitly rather than accepting).
  */
+/** One `SteeringFinding` printed the way plain-mode `gtd check`/`gtd validate` show it: `<file>:<line+1>: <message>` for a positioned finding (1-based, editors and humans both count from 1), bare `<message>` for a positionless one. */
+const formatFinding = (file: string, finding: SteeringFinding): string =>
+  finding.line !== undefined ? `${file}:${finding.line + 1}: ${finding.message}` : finding.message
+
 const runCheckCommand = (
   mode: string,
   file: string,
@@ -1097,7 +1101,9 @@ const runCheckCommand = (
     const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
     const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
     const errors = present
-      ? format.validate(yield* fs.readFileString(file).pipe(Effect.mapError(toError)))
+      ? format
+          .validate(yield* fs.readFileString(file).pipe(Effect.mapError(toError)))
+          .map((finding) => formatFinding(file, finding))
       : []
 
     if (errors.length === 0) {

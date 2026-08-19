@@ -250,11 +250,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       ## Add widget.ts
 
-      - [ ] ./src/widget.ts#1 — new export
+      - [ ] ./src/widget.ts#1
+      new export
       """
     Given a commit "gtd(human): build.review.deciding" that adds "src/marker-2.txt" with:
       """
-      the human's await-review turn, ticking every box with no comment
+      the human's await-review turn, no comment
       """
     When I run gtd next with "--json"
     Then it succeeds
@@ -305,7 +306,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       ## Add widget.ts
 
-      - [ ] ./src/widget.ts#1 — new export
+      - [ ] ./src/widget.ts#1
+      new export
       """
     Given a commit "gtd(human): build.review.deciding" that adds ".gtd/REVIEW_RAW.md" with:
       """
@@ -382,7 +384,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       ## Add widget.ts
 
-      - [ ] ./src/widget.ts#1 — new export
+      - [ ] ./src/widget.ts#1
+      new export
       """
     Given a commit "gtd(human): build.review.deciding" that adds ".gtd/REVIEW_RAW.md" with:
       """
@@ -429,11 +432,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       ## Add widget.ts
 
-      - [ ] ./src/widget.ts#1 — new export
+      - [ ] ./src/widget.ts#1
+      new export
       """
     Given a commit "gtd(human): build.review.deciding" that adds "src/marker-2.txt" with:
       """
-      the human's await-review turn, ticking every box with no comment
+      the human's await-review turn, no comment
       """
     # deciding's clean sign-off short-circuits straight to build.squashing —
     # simulated the same way the sibling scenarios above simulate it.
@@ -492,11 +496,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       ## Repair
 
-      - [ ] ./src/repair.ts#1 — new export
+      - [ ] ./src/repair.ts#1
+      new export
       """
     Given a commit "gtd(human): build.review.deciding" that adds "src/marker.txt" with:
       """
-      the human's await-review turn, ticking every box with no comment
+      the human's await-review turn, no comment
       """
     Given a commit "gtd(check): build.squashing" that adds ".gtd/COMMIT_MSG.md" with:
       """
@@ -594,11 +599,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       ## Add widget.ts
 
-      - [ ] ./src/widget.ts#1 — new export
+      - [ ] ./src/widget.ts#1
+      new export
       """
     Given a commit "gtd(human): build.review.deciding" that adds "src/marker-2.txt" with:
       """
-      the human's await-review turn, ticking every box with no comment
+      the human's await-review turn, no comment
       """
     Given a commit "gtd(check): build.squashing" that adds ".gtd/COMMIT_MSG.md" with:
       """

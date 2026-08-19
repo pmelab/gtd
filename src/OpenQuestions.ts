@@ -418,9 +418,9 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
   return actions
 }
 
-/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, and code actions, no `pointerAt` (an open question's options have nothing to jump to). */
+/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, and code actions, no `pointerAt` (an open question's options have nothing to jump to). Its one finding is always positionless — this format has no notion of a per-line problem. */
 export const QA_FORMAT: SteeringFormat = {
-  validate: (content) => parseOpenQuestions(content).errors,
+  validate: (content) => parseOpenQuestions(content).errors.map((message) => ({ message })),
   outline: questionsOutline,
   actions: questionActions,
 }

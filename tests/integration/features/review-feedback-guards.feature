@@ -44,10 +44,8 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       """
     # The committed REVIEW.md already carries a non-`./`-prefixed "- [ ]" note,
     # untouched by the human's edit below. Only the real file pointer is
-    # ticked, with no other comment — this used to be refused (the old raw
-    # regex counted the note's box too); now `untickedFiles` counts only
-    # recognized `./`-prefixed hunk pointers inside `##` chunks, so it signs
-    # off cleanly.
+    # ticked, with no other comment — it signs off cleanly, because the
+    # review-doc guard no longer reads tick state at all.
     And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -59,7 +57,8 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       Follow-up ideas, not part of this review:
       - [ ] consider renaming the module later
 
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     Given ".gtd/REVIEW.md" is modified to:
       """
@@ -72,7 +71,8 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       Follow-up ideas, not part of this review:
       - [ ] consider renaming the module later
 
-      - [x] ./src/calc.ts#1 — new add function
+      - [x] ./src/calc.ts#1
+      new add function
       """
     When I run gtd land
     Then it succeeds
@@ -92,7 +92,8 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     # await-review: the human leaves a note (a change beyond a tick) → feedback
     Given ".gtd/REVIEW.md" is modified to:
@@ -102,7 +103,8 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function — rename `add` to `sum`
+      - [x] ./src/calc.ts#1
+      new add function — rename `add` to `sum`
       """
     When I run gtd land
     Then it succeeds

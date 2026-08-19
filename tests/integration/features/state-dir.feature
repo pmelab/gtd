@@ -24,7 +24,8 @@ Feature: The require-revert guard exempts a relocated plumbing directory (it.sta
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
     # await-review: the human's own step leaves a note on the review doc and
     # writes a scratch note under the relocated plumbing directory — never
@@ -35,7 +36,8 @@ Feature: The require-revert guard exempts a relocated plumbing directory (it.sta
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function — looks fine, but see my note
+      - [x] ./src/calc.ts#1
+      new add function — looks fine, but see my note
       """
     And a file "workflow-state/notes.md" with:
       """

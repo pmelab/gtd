@@ -12,13 +12,13 @@ Feature: An open review window reports untracked-but-present files by content, n
   `src/Git.ts`) — absent at the base is `A`, different bytes are `M`, identical
   bytes are no change at all.
 
-  Without that, the review-signoff guard (`src/StepGuards.ts`) saw a phantom
-  `D <reviewFile>` and refused EVERY sign-off with "was deleted — restore it and
-  tick the boxes", with the file sitting untouched in the working tree. The
-  bundled `.gtd/REVIEW.md` hid it: `.gtd` is the one directory the window pins
-  back into the index (`buildOpenWindowScript`'s `restoreStagedFrom`), so the
-  doc stays TRACKED there. A `reviewFile` repointed to the repo root — an
-  ordinary `vars:` override — is not pinned, and so was unlandable.
+  Without that, the review-doc guard (`src/StepGuards.ts`) saw a phantom
+  `D <reviewFile>` and refused EVERY sign-off with "was deleted — restore it",
+  with the file sitting untouched in the working tree. The bundled
+  `.gtd/REVIEW.md` hid it: `.gtd` is the one directory the window pins back
+  into the index (`buildOpenWindowScript`'s `restoreStagedFrom`), so the doc
+  stays TRACKED there. A `reviewFile` repointed to the repo root — an ordinary
+  `vars:` override — is not pinned, and so was unlandable.
 
   Every scenario here is live, because the phantom deletion is real git's index
   behaviour: the in-memory double compares the base tree to the worktree
@@ -26,6 +26,16 @@ Feature: An open review window reports untracked-but-present files by content, n
   (`InMemRepo.changedPathsWorktree`), so an @inmem scenario cannot fail on this.
   The contract test that pins the two tiers together on it lives in
   `src/testing/GitTiers.ts`.
+
+  Coverage gap: the review-doc guard's `fileDeleted` branch is the only thing
+  it checks now, and deciding that needs no `head` read at all — so the
+  deletion scenario below no longer exercises `GuardContext.head`'s
+  `windowHead` read. That read's production plumbing is untouched (kept for a
+  future guard, see `src/StepGuards.ts`), but this file's tick-completeness
+  scenario was its only regression coverage, and it is gone along with the
+  guard's tick check. No in-memory scenario can replace it either — the
+  in-memory double never had the phantom-deletion behaviour this file exists
+  for.
 
   Background:
     Given a test project
@@ -46,7 +56,8 @@ Feature: An open review window reports untracked-but-present files by content, n
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1
+      new add function
       """
 
   Scenario: the review doc the window left untracked is not pending at all — it is present and unchanged
@@ -61,7 +72,7 @@ Feature: An open review window reports untracked-but-present files by content, n
     And stdout does not contain "D REVIEW.md"
     And the git status contains "?? REVIEW.md"
 
-  Scenario: ticking every box signs off — the reviewer's edit reads as a modification
+  Scenario: a tick with no comment signs off — the reviewer's edit reads as a modification
     Given I run gtd land
     And "REVIEW.md" is modified to:
       """
@@ -70,7 +81,8 @@ Feature: An open review window reports untracked-but-present files by content, n
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1 — new add function
+      - [x] ./src/calc.ts#1
+      new add function
       """
     When I run gtd land
     Then it succeeds
@@ -84,43 +96,5 @@ Feature: An open review window reports untracked-but-present files by content, n
     Then it fails
     And stderr contains "was deleted"
     # A refusal emits no script, so the window stays open for the reviewer to
-    # restore the file and tick.
-    And the git ref "refs/worktree/gtd/review-head" exists
-
-  # The tick-completeness half of the same guard, through an OPEN window and a
-  # root-level reviewFile — the two things that each independently made it
-  # unreachable. It compares the doc on disk against its PRE-TURN committed copy,
-  # which lives at the window's saved head, not at real HEAD (rewound to the
-  # review base, where the doc does not exist yet); and "did the human edit
-  # something other than gtd's own files" must not count the reviewFile itself
-  # just because it sits outside `.gtd/`.
-  Scenario: a box left unticked with no comment is refused — finish reviewing first
-    # Two hunks to review, so ticking one still leaves the pass unfinished.
-    Given "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-      - [ ] ./src/calc.ts#1 — new add function
-      - [ ] ./src/calc.ts#2 — its export
-      """
-    And I run gtd land
-    # Tick the first hunk only, leave the second, add no note and no code edit.
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-      - [x] ./src/calc.ts#1 — new add function
-      - [ ] ./src/calc.ts#2 — its export
-      """
-    And I record the commit count
-    When I run gtd land
-    Then it fails
-    And stderr contains "still unticked and no comment"
-    And the commit count is unchanged
+    # restore the file.
     And the git ref "refs/worktree/gtd/review-head" exists

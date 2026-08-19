@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { parseReviewDoc, untickedFiles, toggleFilePointer, REVIEW_FORMAT } from "./ReviewDoc.js"
+import { parseReviewDoc, toggleFilePointer, REVIEW_FORMAT } from "./ReviewDoc.js"
 
 describe("parseReviewDoc", () => {
-  it("parses a well-formed review with one chunk", () => {
+  it("parses a well-formed review with one chunk, no explanations", () => {
     const content = [
       "# Review: abc1234",
       "",
@@ -26,8 +26,8 @@ describe("parseReviewDoc", () => {
           headingLine: 4,
           description: "New add function for the calculator.",
           files: [
-            { path: "./src/calc.ts", line: 1, checked: false, sourceLine: 8 },
-            { path: "./src/calc.ts", line: 5, checked: false, sourceLine: 9 },
+            { path: "./src/calc.ts", line: 1, checked: false, sourceLine: 8, endLine: 8 },
+            { path: "./src/calc.ts", line: 5, checked: false, sourceLine: 9, endLine: 9 },
           ],
         },
       ],
@@ -35,14 +35,15 @@ describe("parseReviewDoc", () => {
     })
   })
 
-  it("parses multiple chunks, checked boxes, and trailing notes", () => {
+  it("parses multiple chunks, checked boxes, and below-the-pointer explanations", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
       "",
       "## Add calculator",
       "",
-      "- [x] ./src/calc.ts#1 — new add function",
+      "- [x] ./src/calc.ts#1",
+      "  new add function",
       "",
       "## Wire it up",
       "",
@@ -64,16 +65,143 @@ describe("parseReviewDoc", () => {
             checked: true,
             note: "new add function",
             sourceLine: 5,
+            endLine: 6,
           },
         ],
       },
       {
         title: "Wire it up",
-        headingLine: 7,
+        headingLine: 8,
         description: "",
-        files: [{ path: "./src/index.ts", line: 10, checked: false, sourceLine: 9 }],
+        files: [{ path: "./src/index.ts", line: 10, checked: false, sourceLine: 10, endLine: 10 }],
       },
     ])
+  })
+
+  it("gathers a multi-line explanation, joined with a single space", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  first line of the explanation",
+      "  second line of the explanation",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files[0]).toEqual({
+      path: "./src/calc.ts",
+      line: 1,
+      checked: false,
+      note: "first line of the explanation second line of the explanation",
+      sourceLine: 5,
+      endLine: 7,
+    })
+  })
+
+  it("parses the same note whether the continuation is indented or flush", () => {
+    const indented = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  what this hunk does",
+      "",
+    ].join("\n")
+    const flush = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "what this hunk does",
+      "",
+    ].join("\n")
+    expect(parseReviewDoc(indented).changesets[0]?.files[0]?.note).toBe("what this hunk does")
+    expect(parseReviewDoc(flush).changesets[0]?.files[0]?.note).toBe("what this hunk does")
+  })
+
+  it("keeps a blank line between two continuation paragraphs inside the pointer's span, joining both", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  first paragraph",
+      "",
+      "  second paragraph",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const file = result.changesets[0]?.files[0]!
+    expect(file.note).toBe("first paragraph second paragraph")
+    expect(file.endLine).toBe(8)
+  })
+
+  it("a pointer with no explanation has endLine === sourceLine", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "- [ ] ./src/calc.ts#2",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const [first, second] = result.changesets[0]!.files
+    expect(first?.sourceLine).toBe(first?.endLine)
+    expect(second?.sourceLine).toBe(second?.endLine)
+  })
+
+  it("trims trailing blank lines before the next '##' heading out of the last pointer's span", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  the note",
+      "",
+      "",
+      "## Next chunk",
+      "",
+      "- [ ] ./src/index.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files[0]?.endLine).toBe(6)
+  })
+
+  it("puts lines before a chunk's first pointer into its description, and lines after a pointer into that pointer's note, not the description", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "Chunk-level prose, describing why the group exists.",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  This is the hunk's own note, not chunk prose.",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe(
+      "Chunk-level prose, describing why the group exists.",
+    )
+    expect(result.changesets[0]?.files[0]?.note).toBe(
+      "This is the hunk's own note, not chunk prose.",
+    )
   })
 
   it("errors when the header is missing", () => {
@@ -157,7 +285,8 @@ describe("parseReviewDoc", () => {
       "",
       "## Add budget alerts",
       "",
-      "- [ ] ./src/server/email/budget-threshold.ts#31 — non-obvious import: uses the shared mailer",
+      "- [ ] ./src/server/email/budget-threshold.ts#31",
+      "  non-obvious import: uses the shared mailer",
       "",
     ].join("\n")
     const result = parseReviewDoc(content)
@@ -169,23 +298,8 @@ describe("parseReviewDoc", () => {
         checked: false,
         note: "non-obvious import: uses the shared mailer",
         sourceLine: 5,
+        endLine: 6,
       },
-    ])
-  })
-
-  it("splits a single-dash note after a hyphenated path at the space, not the hyphen", () => {
-    const content = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./a-b/c-d.ts#7 - note",
-      "",
-    ].join("\n")
-    const result = parseReviewDoc(content)
-    expect(result.changesets[0]?.files).toEqual([
-      { path: "./a-b/c-d.ts", line: 7, checked: false, note: "note", sourceLine: 5 },
     ])
   })
 
@@ -201,7 +315,7 @@ describe("parseReviewDoc", () => {
     ].join("\n")
     const result = parseReviewDoc(content)
     expect(result.changesets[0]?.files).toEqual([
-      { path: "./a#b.ts", checked: false, sourceLine: 5 },
+      { path: "./a#b.ts", checked: false, sourceLine: 5, endLine: 5 },
     ])
   })
 
@@ -222,6 +336,122 @@ describe("parseReviewDoc", () => {
   })
 })
 
+describe("parseReviewDoc — trailing text on the pointer's own line (invalid legacy form)", () => {
+  it("still parses as a pointer, with path, #line, and checked state intact", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add thing.ts",
+      "",
+      "- [x] ./src/Edge.ts#42 — what this hunk does",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files[0]).toMatchObject({
+      path: "./src/Edge.ts",
+      line: 42,
+      checked: true,
+      sourceLine: 5,
+    })
+  })
+
+  it("produces exactly one error, naming the chunk and the pointer, and carrying the pointer's sourceLine", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add thing.ts",
+      "",
+      "- [ ] ./src/Edge.ts#42 — what this hunk does",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([
+      {
+        message:
+          'Chunk "Add thing.ts" hunk ./src/Edge.ts#42 has text on the pointer line — move the explanation to the line(s) below it',
+        line: 5,
+      },
+    ])
+  })
+
+  it("does not also report 'no file pointers' for a chunk whose only pointer carries trailing text", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add thing.ts",
+      "",
+      "- [ ] ./src/Edge.ts#42 — what this hunk does",
+      "",
+    ].join("\n")
+    const errors = parseReviewDoc(content).errors
+    expect(errors.some((e) => e.includes("no file pointers"))).toBe(false)
+  })
+
+  it("a hyphen inside a filename is never read as a separator — the separator is only recognized after whitespace splits it from the path", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./a-b/c-d.ts#7",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([])
+    expect(parseReviewDoc(content).changesets[0]?.files[0]?.path).toBe("./a-b/c-d.ts")
+  })
+
+  it("the clean below-the-pointer form produces no errors", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/Edge.ts#42",
+      "  what this hunk does",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([])
+  })
+})
+
+describe("parseReviewDoc — continuation-line dash stripping", () => {
+  it("strips a leading em dash, en dash, or hyphen run from a continuation line", () => {
+    for (const dash of ["—", "–", "-", "---"]) {
+      const content = [
+        "# Review: abc1234",
+        "<!-- base: abc1234def5678901234567890123456789abcd -->",
+        "",
+        "## Chunk",
+        "",
+        "- [ ] ./src/calc.ts#1",
+        `  ${dash} the note`,
+        "",
+      ].join("\n")
+      expect(parseReviewDoc(content).changesets[0]?.files[0]?.note).toBe("the note")
+    }
+  })
+
+  it("keeps a dash mid-sentence on a continuation line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  a note with a mid-sentence dash — kept",
+      "",
+    ].join("\n")
+    expect(parseReviewDoc(content).changesets[0]?.files[0]?.note).toBe(
+      "a note with a mid-sentence dash — kept",
+    )
+  })
+})
+
 const reviewDoc = [
   "# Review: abc1234",
   "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -229,39 +459,15 @@ const reviewDoc = [
   "## Add calculator",
   "",
   "- [ ] ./src/calc.ts#1",
-  "- [x] ./src/calc.ts#5 — subtract",
+  "  add",
+  "- [x] ./src/calc.ts#5",
+  "  subtract",
   "",
   "## Wire it up",
   "",
   "- [ ] ./src/index.ts#10",
   "",
 ].join("\n")
-
-describe("untickedFiles", () => {
-  it("returns every unticked pointer across all chunks", () => {
-    expect(untickedFiles(reviewDoc).map((f) => f.path)).toEqual(["./src/calc.ts", "./src/index.ts"])
-  })
-
-  it("returns an empty array when every pointer is ticked", () => {
-    const allChecked = reviewDoc.replace("- [ ] ./src/calc.ts#1", "- [x] ./src/calc.ts#1")
-    expect(untickedFiles(allChecked).filter((f) => f.path === "./src/calc.ts")).toEqual([])
-  })
-
-  it("reports a hyphenated path whole, not truncated at its first hyphen", () => {
-    const content = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Add budget alerts",
-      "",
-      "- [ ] ./src/server/email/budget-threshold.ts#31",
-      "",
-    ].join("\n")
-    expect(untickedFiles(content).map((f) => f.path)).toEqual([
-      "./src/server/email/budget-threshold.ts",
-    ])
-  })
-})
 
 describe("toggleFilePointer", () => {
   it("flips an unchecked box to checked without touching the rest of the line", () => {
@@ -272,24 +478,24 @@ describe("toggleFilePointer", () => {
     expect(edit!.newText).toBe("x")
   })
 
-  it("flips a checked box back to unchecked, preserving the trailing note", () => {
-    const edit = toggleFilePointer(reviewDoc, 6)
+  it("flips a checked box back to unchecked, preserving the pointer line exactly", () => {
+    const edit = toggleFilePointer(reviewDoc, 7)
     expect(edit).toBeDefined()
     expect(edit!.newText).toBe(" ")
     const lines = reviewDoc.split("\n")
-    const line = lines[6]!
+    const line = lines[7]!
     const patched =
       line.slice(0, edit!.range.start.character) +
       edit!.newText +
       line.slice(edit!.range.end.character)
-    expect(patched).toBe("- [ ] ./src/calc.ts#5 — subtract")
+    expect(patched).toBe("- [ ] ./src/calc.ts#5")
   })
 
   it("returns undefined for a line that isn't a file pointer", () => {
     expect(toggleFilePointer(reviewDoc, 3)).toBeUndefined()
   })
 
-  it("flips only the box on a hyphenated pointer line, round-tripping the rest", () => {
+  it("still toggles a legacy trailing-note pointer line, round-tripping the rest", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -311,12 +517,29 @@ describe("toggleFilePointer", () => {
 })
 
 describe("REVIEW_FORMAT", () => {
-  it("validate delegates to parseReviewDoc's errors", () => {
+  it("validate delegates to the review findings, header/base-comment/no-chunks findings carrying no line", () => {
     expect(REVIEW_FORMAT.validate(reviewDoc)).toEqual([])
     expect(REVIEW_FORMAT.validate("Just some text\n")).toEqual([
-      "Missing or malformed '# Review: <hash>' header as the document's first line",
-      "Missing '<!-- base: <hash> -->' comment",
-      "REVIEW.md has no '##' chunks",
+      {
+        message: "Missing or malformed '# Review: <hash>' header as the document's first line",
+      },
+      { message: "Missing '<!-- base: <hash> -->' comment" },
+      { message: "REVIEW.md has no '##' chunks" },
+    ])
+  })
+
+  it("no-file-pointers finding also carries no line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "Just prose, no pointers.",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([
+      { message: 'Chunk "Add calculator" has no file pointers' },
     ])
   })
 
@@ -345,9 +568,36 @@ describe("REVIEW_FORMAT", () => {
     expect(REVIEW_FORMAT.outline(doc).map((n) => n.name)).toEqual(["Still open (0/1)"])
   })
 
-  it("actions offer a single-hunk toggle when the range sits on a hunk line", () => {
+  it("actions offer a single-hunk toggle when the range sits on a hunk's pointer line", () => {
     const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
     const actions = REVIEW_FORMAT.actions(reviewDoc, at(5))
+    expect(actions.map((a) => a.title)).toContain("gtd: check this hunk")
+  })
+
+  it("actions offer the SAME single-hunk toggle when the range sits on a continuation line below the pointer, and its edit targets the pointer line's own box", () => {
+    const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+    const onPointer = REVIEW_FORMAT.actions(reviewDoc, at(5))
+    const onContinuation = REVIEW_FORMAT.actions(reviewDoc, at(6))
+    expect(onContinuation.map((a) => a.title)).toContain("gtd: check this hunk")
+    const pointerEdit = onPointer.find((a) => a.title === "gtd: check this hunk")!.edits[0]!
+    const continuationEdit = onContinuation.find((a) => a.title === "gtd: check this hunk")!
+      .edits[0]!
+    expect(continuationEdit).toEqual(pointerEdit)
+    expect(continuationEdit.range.start.line).toBe(5)
+  })
+
+  it("actions still offer the toggle on a legacy trailing-note pointer line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1 — legacy note",
+      "",
+    ].join("\n")
+    const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+    const actions = REVIEW_FORMAT.actions(content, at(5))
     expect(actions.map((a) => a.title)).toContain("gtd: check this hunk")
   })
 
@@ -358,7 +608,7 @@ describe("REVIEW_FORMAT", () => {
   })
 
   it("pointerAt jumps to the hunk's file at its 1-based #line, mapped to a 0-based position", () => {
-    const pointer = REVIEW_FORMAT.pointerAt?.(reviewDoc, 6)
+    const pointer = REVIEW_FORMAT.pointerAt?.(reviewDoc, 7)
     expect(pointer).toEqual({ path: "./src/calc.ts", line: 4 })
   })
 
@@ -378,6 +628,15 @@ describe("REVIEW_FORMAT", () => {
     expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, 3)).toBeUndefined() // "## Add calculator"
   })
 
+  it("go-to-definition and the check/uncheck action DISAGREE at a continuation line: the action fires, go-to-definition does not — asserted at the SAME cursor position", () => {
+    const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+    const continuationLine = 6 // "  add" — below "- [ ] ./src/calc.ts#1" at line 5
+    expect(REVIEW_FORMAT.actions(reviewDoc, at(continuationLine)).map((a) => a.title)).toContain(
+      "gtd: check this hunk",
+    )
+    expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, continuationLine)).toBeUndefined()
+  })
+
   it("pointerAt on a hyphenated hunk line returns the full path, not a truncated prefix", () => {
     const doc = [
       "# Review: abc1234",
@@ -385,7 +644,8 @@ describe("REVIEW_FORMAT", () => {
       "",
       "## Add budget alerts",
       "",
-      "- [ ] ./src/server/email/budget-threshold.ts#31 — non-obvious import",
+      "- [ ] ./src/server/email/budget-threshold.ts#31",
+      "  non-obvious import",
     ].join("\n")
     expect(REVIEW_FORMAT.pointerAt?.(doc, 5)).toEqual({
       path: "./src/server/email/budget-threshold.ts",
@@ -410,8 +670,10 @@ describe("voice styling (styled review exemplar)", () => {
     "This is the only algorithm change in the batch — everything else below",
     "is wiring.",
     "",
-    "- [ ] ./src/RateLimiter.ts#12 — refill math, check the rounding direction",
-    "- [ ] ./src/RateLimiter.ts#48 — cap enforcement on a burst request",
+    "- [ ] ./src/RateLimiter.ts#12",
+    "  Refill math. Check the rounding direction.",
+    "- [ ] ./src/RateLimiter.ts#48",
+    "  Cap enforcement on a burst request.",
     "",
     "## Wire the limiter into the API gateway",
     "",
@@ -420,7 +682,8 @@ describe("voice styling (styled review exemplar)", () => {
     "account id.",
     "",
     "- [ ] ./src/Gateway.ts#101",
-    "- [ ] ./src/Gateway.ts#134 — account-keyed bucket lookup",
+    "- [ ] ./src/Gateway.ts#134",
+    "  Account-keyed bucket lookup.",
     "",
   ].join("\n")
 
