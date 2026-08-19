@@ -588,6 +588,30 @@ describe("currentRest — one snapshot: cost folding, per-model grouping, entryV
   })
 })
 
+describe("currentRest — narrates the resolved rest", () => {
+  it("narrates the resolved state and actor, on the stderr-shaped channel — Narrator, not a return value", async () => {
+    const { repo } = seededNotesRepo()
+    repo.commitAllWithPrefix("gtd(human): checkpoint")
+    repo.commitAllWithPrefix("gtd(agent): thinking")
+    const lines: string[] = []
+    await Effect.runPromise(
+      currentRest.pipe(Effect.provide(testLayers(repo, { narrate: (line) => lines.push(line) }))),
+    )
+    // Config resolution narrates its own layer(s) first (`Config.ts`), then
+    // the rest resolver narrates which rest resolved (`Edge.ts`) — both fire
+    // for one `currentRest` call, since resolving a rest always loads config.
+    expect(lines).toContain("rest resolved: thinking (awaits agent)\n")
+    expect(lines.some((l) => l.startsWith("config: layer "))).toBe(true)
+  })
+
+  it("narrates nothing when no narrate sink is given (the default no-op — matches no --verbose)", async () => {
+    const { repo } = seededNotesRepo()
+    repo.commitAllWithPrefix("gtd(human): checkpoint")
+    // Should not throw even though nothing observes the narration.
+    await expect(provide(currentRest, repo)).resolves.toBeDefined()
+  })
+})
+
 // ── it.stateDir — the declared plumbing directory, rendered and normalized ──
 
 describe("currentRest — it.stateDir", () => {

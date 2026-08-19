@@ -68,19 +68,23 @@ export const abandonNoopText = (initial: string): string => renderFormat(FMT_ABA
  * where the block comes from.
  *
  * The palette/marker detection follows the `NO_COLOR` convention
- * (`[ -t 1 ] && [ -z "${NO_COLOR:-}" ]`) with the same plain-mode fallback
- * strings (`->`/`[commit]`/`...`) the now-deleted bash `bin/gtd` used to
- * render, so existing `@live` assertions on plain output kept matching once
- * this preamble took over printing it. `gtd_files` is the diff-tree read
+ * (`[ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]`) with the
+ * same plain-mode fallback strings (`->`/`[commit]`/`...`) the now-deleted
+ * bash `bin/gtd` used to render, so existing `@live` assertions on plain
+ * output kept matching once this preamble took over printing it. The
+ * `${TERM:-}` form (never a bare `$TERM`) is deliberate: `TERM` is
+ * legitimately unset in plenty of real shells, and a bare reference would
+ * trip `set -u` in the script this preamble is embedded in. `gtd_files` is
+ * the diff-tree read
  * (with `--root` so a repository's very first commit shows its files too)
  * plus the 3-row cap, fused into one function, since a script-side caller
  * always has the commit, never a pre-fetched file list.
  */
 export const OUTCOME_PREAMBLE = [
   "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",
-  'if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then',
-  "  gtd_c_reset=$'\\e[0m'; gtd_c_bold=$'\\e[1m'; gtd_c_dim=$'\\e[2m'",
-  "  gtd_c_cyan=$'\\e[36m'; gtd_c_green=$'\\e[32m'",
+  'if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then',
+  "  gtd_c_reset=$(printf '\\033[0m'); gtd_c_bold=$(printf '\\033[1m'); gtd_c_dim=$(printf '\\033[2m')",
+  "  gtd_c_cyan=$(printf '\\033[36m'); gtd_c_green=$(printf '\\033[32m')",
   '  gtd_m_trans="➡️"; gtd_m_commit="✅"; gtd_m_ellipsis="…"',
   "else",
   '  gtd_c_reset=""; gtd_c_bold=""; gtd_c_dim=""',
@@ -88,44 +92,59 @@ export const OUTCOME_PREAMBLE = [
   '  gtd_m_trans="->"; gtd_m_commit="[commit]"; gtd_m_ellipsis="..."',
   "fi",
   "gtd_files() {",
-  '  local sha="$1" f shown=0 total=0 files',
-  '  files="$(git diff-tree --no-commit-id --name-only -r --root "$sha" 2>/dev/null || true)"',
-  '  [ -z "$files" ] && return 0',
-  '  while IFS= read -r f; do [ -n "$f" ] && total=$((total + 1)); done < <(printf \'%s\\n\' "$files")',
-  "  while IFS= read -r f; do",
-  '    [ -z "$f" ] && continue',
-  '    if [ "$shown" -ge 3 ]; then',
-  '      printf \'   %s%s (%d more)%s\\n\' "$gtd_c_dim" "$gtd_m_ellipsis" "$((total - 3))" "$gtd_c_reset"',
+  '  gtd_files_sha="$1"',
+  "  gtd_files_shown=0",
+  "  gtd_files_total=0",
+  '  gtd_files_list="$(git diff-tree --no-commit-id --name-only -r --root "$gtd_files_sha" 2>/dev/null || true)"',
+  '  [ -z "$gtd_files_list" ] && { unset gtd_files_sha gtd_files_f gtd_files_shown gtd_files_total gtd_files_list; return 0; }',
+  '  while IFS= read -r gtd_files_f; do [ -n "$gtd_files_f" ] && gtd_files_total=$((gtd_files_total + 1)); done <<EOF',
+  "$gtd_files_list",
+  "EOF",
+  "  while IFS= read -r gtd_files_f; do",
+  '    [ -z "$gtd_files_f" ] && continue',
+  '    if [ "$gtd_files_shown" -ge 3 ]; then',
+  '      printf \'   %s%s (%d more)%s\\n\' "$gtd_c_dim" "$gtd_m_ellipsis" "$((gtd_files_total - 3))" "$gtd_c_reset"',
   "      break",
   "    fi",
-  '    printf \'   %s%s%s\\n\' "$gtd_c_dim" "$f" "$gtd_c_reset"',
-  "    shown=$((shown + 1))",
-  "  done < <(printf '%s\\n' \"$files\")",
+  '    printf \'   %s%s%s\\n\' "$gtd_c_dim" "$gtd_files_f" "$gtd_c_reset"',
+  "    gtd_files_shown=$((gtd_files_shown + 1))",
+  "  done <<EOF",
+  "$gtd_files_list",
+  "EOF",
+  "  unset gtd_files_sha gtd_files_f gtd_files_shown gtd_files_total gtd_files_list",
   "}",
   "gtd_report_transition() {",
-  '  local from="$1" to="$2"',
-  '  printf \'%s %s%s → %s%s\\n\' "$gtd_m_trans" "${gtd_c_bold}${gtd_c_cyan}" "$from" "$to" "$gtd_c_reset"',
+  '  gtd_rt_from="$1"',
+  '  gtd_rt_to="$2"',
+  '  printf \'%s %s%s → %s%s\\n\' "$gtd_m_trans" "${gtd_c_bold}${gtd_c_cyan}" "$gtd_rt_from" "$gtd_rt_to" "$gtd_c_reset"',
   "  gtd_files HEAD",
+  "  unset gtd_rt_from gtd_rt_to",
   "}",
   "gtd_report_commit() {",
-  '  local subject="$1"',
-  '  printf \'%s %s%s%s\\n\' "$gtd_m_commit" "$gtd_c_green" "$subject" "$gtd_c_reset"',
+  '  gtd_rc_subject="$1"',
+  '  printf \'%s %s%s%s\\n\' "$gtd_m_commit" "$gtd_c_green" "$gtd_rc_subject" "$gtd_c_reset"',
   "  gtd_files HEAD",
+  "  unset gtd_rc_subject",
   "}",
   "gtd_report_note() {",
   "  printf '%s\\n' \"$1\"",
   "}",
   "gtd_report_abandoned() {",
-  '  local from="$1" head="$2" state="$3" short subject',
-  '  short="$(git rev-parse --short "$head")"',
-  '  subject="$(git log -1 --format=%s "$head")"',
-  `  ${printfLine(FMT_ABANDONED, ['"$from"', '"$short"', '"$subject"', '"$state"'])}`,
+  '  gtd_ra_from="$1"',
+  '  gtd_ra_head="$2"',
+  '  gtd_ra_state="$3"',
+  '  gtd_ra_short="$(git rev-parse --short "$gtd_ra_head")"',
+  '  gtd_ra_subject="$(git log -1 --format=%s "$gtd_ra_head")"',
+  `  ${printfLine(FMT_ABANDONED, ['"$gtd_ra_from"', '"$gtd_ra_short"', '"$gtd_ra_subject"', '"$gtd_ra_state"'])}`,
+  "  unset gtd_ra_from gtd_ra_head gtd_ra_state gtd_ra_short gtd_ra_subject",
   "}",
   "gtd_report_restored() {",
-  '  local to="$1" state="$2" short subject',
-  '  short="$(git rev-parse --short "$to")"',
-  '  subject="$(git log -1 --format=%s "$to")"',
-  `  ${printfLine(FMT_RESTORED, ['"$short"', '"$subject"', '"$state"'])}`,
+  '  gtd_rr_to="$1"',
+  '  gtd_rr_state="$2"',
+  '  gtd_rr_short="$(git rev-parse --short "$gtd_rr_to")"',
+  '  gtd_rr_subject="$(git log -1 --format=%s "$gtd_rr_to")"',
+  `  ${printfLine(FMT_RESTORED, ['"$gtd_rr_short"', '"$gtd_rr_subject"', '"$gtd_rr_state"'])}`,
+  "  unset gtd_rr_to gtd_rr_state gtd_rr_short gtd_rr_subject",
   "}",
 ].join("\n")
 

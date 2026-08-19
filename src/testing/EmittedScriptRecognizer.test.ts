@@ -10,7 +10,13 @@ import {
   softResetTo,
   updateRef,
 } from "../GitScript.js"
-import { emitScripts, headAssertion, reviewWindowAssertion, type EmitStep } from "../Emit.js"
+import {
+  combinedScript,
+  emitScripts,
+  headAssertion,
+  reviewWindowAssertion,
+  type EmitStep,
+} from "../Emit.js"
 import {
   buildCloseWindowScript,
   buildOpenWindowScript,
@@ -333,14 +339,14 @@ describe("applyEmittedScript — a tripped precondition stops the script", () =>
 })
 
 describe("applyEmittedScript — a realistic assembled multi-block script", () => {
-  it("parses set -euo pipefail and a satisfied precondition alongside real builder blocks", () => {
+  it("parses set -eu and a satisfied precondition alongside real builder blocks", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
     repo.commitAllWithPrefix("chore: first")
     const first = repo.resolveRef("HEAD")!
 
     const script = [
-      "set -euo pipefail",
+      "set -eu",
       preconditionHeadEquals(first),
       commitAll("gtd(agent): second"),
       updateRef("refs/gtd/base", first),
@@ -662,5 +668,72 @@ describe("applyEmittedScript — the gtd_retry function definition is an inert n
 
     expect(result).toEqual({ ok: true })
     expect(snapshot(repo)).toEqual(before)
+  })
+})
+
+describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a plain-text write command)", () => {
+  it("recognizes the leading 'did not run it' comment and applies the required half that follows it", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+
+    const required = emitScripts({}, [
+      { kind: "gitWrite", command: commitAll("gtd(human): idle") },
+    ]).required
+    const script = combinedScript(required, "")
+    const result = applyEmittedScript(repo, NO_COMMANDS, script)
+
+    expect(result).toEqual({ ok: true })
+    expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
+  })
+
+  it("applies a non-empty optional half wrapped in the presentation-only subshell, even though the optional script itself carries a blank line between its own sections", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+
+    const required = emitScripts({}, [
+      { kind: "gitWrite", command: commitAll("gtd(human): idle") },
+    ]).required
+    // A gitWrite optional half is itself multi-section (assembleScript joins
+    // "set -eu", the gtd_retry definition, and the retry-wrapped
+    // command with blank lines) — the realistic shape this recognizer must
+    // keep intact as ONE block.
+    const optional = emitScripts({}, [
+      { kind: "gitWrite", command: updateRef(REVIEW_HEAD_REF, "HEAD") },
+    ]).required
+    expect(optional).toContain("\n\n")
+    const script = combinedScript(required, optional)
+
+    const result = applyEmittedScript(repo, NO_COMMANDS, script)
+
+    expect(result).toEqual({ ok: true })
+    expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
+    expect(repo.resolveRef(REVIEW_HEAD_REF)).toBe(repo.resolveRef("HEAD"))
+  })
+
+  it("a failing optional half is swallowed — the combined script as a whole still applies ok", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+
+    const required = emitScripts({}, [
+      { kind: "gitWrite", command: commitAll("gtd(human): idle") },
+    ]).required
+    // An optional half whose own block is unrecognizable — a stand-in for a
+    // real optional script failing at run time — must not fail the OUTER
+    // script: presentation-only, its exit status is discarded by construction
+    // (see combinedScript's own doc comment).
+    const script = combinedScript(required, "totally-unrecognized-command")
+
+    const result = applyEmittedScript(repo, NO_COMMANDS, script)
+
+    expect(result).toEqual({ ok: true })
+    expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
+  })
+
+  it("still fails loudly on an unrecognized block outside the presentation-only subshell", () => {
+    const repo = new InMemRepo()
+    const script = `${combinedScript("totally-unrecognized-required-command", "")}`
+    const result = applyEmittedScript(repo, NO_COMMANDS, script)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("totally-unrecognized-required-command")
   })
 })

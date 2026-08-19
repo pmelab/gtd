@@ -6,7 +6,8 @@ Feature: gtd in a repository with no commits yet
   commit and refuses immediately, before emitting any script or touching
   anything, when there isn't one yet. The refusal states the requirement and
   the remedy verbatim and exits `1`; under `--json` the same message rides
-  the `{"state":"error","prompt":…}` envelope on stdout, still exiting `1`.
+  the `{"state":"error","prompt":…}` envelope on stderr (stdout stays
+  byte-empty), still exiting `1`.
 
   `gtd init` is exempt — it writes only config and derives no workflow state
   — so it still succeeds in a commitless repository, and its own next-steps
@@ -82,12 +83,17 @@ Feature: gtd in a repository with no commits yet
     And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
   @inmem
-  Scenario: gtd land --json carries the refusal on stdout as a "state":"error" envelope
+  Scenario: gtd land --json is a usage error even in a repository with no commits
+    # --json is scope-checked before any repository precondition, so this is
+    # the same usage error command-surface.feature/land.feature assert on
+    # everywhere else — not the old refusal envelope, which no longer exists
+    # (land is plain-text only now, see AGENTS.md).
     Given a git repository with no commits
     When I run gtd land with "--json"
     Then it fails
-    And the exit code is 1
-    And stdout contains "{\"state\":\"error\",\"prompt\":\"gtd requires a repository with at least one commit — make an initial commit, then run gtd again\"}"
+    And the exit code is 2
+    And stdout is empty
+    And stderr contains "only valid for `gtd status`"
 
   @live
   Scenario: gtd init is exempt — it still succeeds in a repository with no commits

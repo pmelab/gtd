@@ -58,7 +58,7 @@ Feature: the review scripts exclude stateDir/reviewFile by literal path, not by 
       .gtd/, so it must count as a real hand-edit.
       """
     And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
@@ -101,7 +101,7 @@ Feature: the review scripts exclude stateDir/reviewFile by literal path, not by 
       """
     And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
     And an empty commit "gtd(agent): build.review.collecting → re-unwind"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     # With a bare `:(exclude)`, `state-machine.ts` fell out of the patch, the

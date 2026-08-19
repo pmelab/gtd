@@ -57,25 +57,6 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And stderr contains "has no question text"
     And stderr contains "does not pass its own validation script"
 
-  Scenario: --json reports the emitted script structurally
-    # `--json` is the raw engine response: the resolved state, its file and
-    # mode, and the `script` a driver runs to get the verdict. There is no
-    # `valid` key — the verdict lives in that script's exit code, not this
-    # command's, which is why `validate` itself always succeeds now.
-    Given a test project
-    And the workflow
-    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
-      """
-      Build a thing. Plan: add src/thing.ts.
-      """
-    When I run gtd with args "validate --json"
-    Then it succeeds
-    And stdout contains "\"mode\":\"qa\""
-    And stdout contains "\"file\":\".gtd/REQUIREMENTS.md\""
-    And stdout contains "gtd check qa"
-    And stdout contains "does not pass its own validation script"
-    And stdout contains "Fix these format violations in .gtd/REQUIREMENTS.md"
-
   Scenario: a well-formed REVIEW.md at build.review.reviewing validates cleanly
     Given a test project
     And the workflow
@@ -117,14 +98,15 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
 
-  Scenario: a state with a file: but no mode: pins the file in --json output
+  Scenario: a state with a file: but no mode: still has nothing to validate, in plain text
+    # No more --json here (validate is plain-text only now) — there is no
+    # file/script pair to pin any more, just the same "nothing to validate"
+    # line every no-op prints.
     Given a test project
     And the workflow
-    When I run gtd with args "validate --json"
+    When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains "\"state\":\"idle\""
-    And stdout contains "\"file\":\".gtd/TODO.md\""
-    And stdout contains "\"script\":\"\""
+    And stdout contains "nothing to validate at \"idle\""
 
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
@@ -141,14 +123,14 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And stdout contains "run `gtd check qa '.gtd/REQUIREMENTS.md'`"
     And stdout contains "fix every violation"
 
-  Scenario: `gtd next --json` withholds the self-validation instruction but embeds the validate script
+  Scenario: `gtd status --json` withholds the self-validation instruction but embeds the validate script
     Given a test project
     And the workflow
     And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
     And stdout does not contain "Before finishing your turn"

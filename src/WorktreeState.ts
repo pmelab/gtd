@@ -9,12 +9,16 @@
  * IS `.git`) or a `gitdir: <path>` pointer file (a linked worktree, or
  * `--separate-git-dir`). Reading it directly needs no `stat` (a failed read
  * because `.git` is a directory reads the same as a missing `.git` — both
- * fall back to `".git"`) and, unlike `git rev-parse --git-dir`, cannot be
- * diverted by a stray `GIT_DIR`/`GIT_WORK_TREE` in the ambient environment —
- * there is no subprocess for those to divert. `loopLogPath` is the ONE path
- * resolved here: gtd keeps no other per-worktree state (sessions are derived
- * from history, stall is history itself), and gtd never creates or truncates
- * even this file — the driver owns it; gtd only names it.
+ * fall back to `".git"`). This filesystem read is itself immune to a stray
+ * `GIT_DIR`/`GIT_WORK_TREE` — there is no subprocess for those to divert —
+ * but `loopLogPath`, its one caller, deliberately layers `$GIT_DIR` back on
+ * top (see its own doc comment): gtd assumes nothing about where `.git`
+ * lives, and a `GIT_DIR` set on the ambient environment is exactly such an
+ * assumption-breaker that every git subprocess already honors. `loopLogPath`
+ * is the ONE path resolved here: gtd keeps no other per-worktree state
+ * (sessions are derived from history, stall is history itself), and gtd
+ * never creates or truncates even this file — the driver owns it; gtd only
+ * names it.
  */
 
 import { isAbsolute, join } from "node:path"
@@ -49,18 +53,39 @@ export const worktreeGitDir: Effect.Effect<string, never, Cwd | FileSystem.FileS
 
 /**
  * The per-worktree loop log path `gtd next --json` reports as `log`.
- * `$GTD_LOOP_LOG` (non-empty) wins verbatim — no join, no normalization — so
- * a `gtd` invoked from inside a check script inherits the enclosing run's
- * log path unchanged. Otherwise `<git-dir>/gtd-loop.log`, isolating two
- * worktrees looping concurrently from each other's log by construction (each
- * has its own git dir). Advisory metadata only — gtd neither creates nor
- * truncates the file.
+ * Precedence: `$GTD_LOOP_LOG` (non-empty) wins verbatim — no join, no
+ * normalization — so a `gtd` invoked from inside a check script inherits the
+ * enclosing run's log path unchanged. Otherwise `$GIT_DIR` (non-empty) names
+ * the git dir directly — absolute used as-is, relative joined against the
+ * repo root (the same join `worktreeGitDir`'s `gitdir:`-pointer branch
+ * already does, so the two branches agree). Only with neither set does this
+ * fall back to `worktreeGitDir`'s filesystem-read pointer resolution.
+ *
+ * `$GIT_DIR` is honored here rather than guarded against: every git
+ * subprocess gtd's own emitted scripts run already goes wherever `$GIT_DIR`
+ * points, so a log path immune to it would name a DIFFERENT git dir than the
+ * one git itself just wrote to. Accepted cost: a `GIT_DIR` merely INHERITED
+ * from a parent process (not set deliberately for this invocation) now moves
+ * the log path too — this is the shape of the recorded corruption incident
+ * where an exported `GIT_DIR` and the e2e suite met, so a caller that
+ * doesn't want the move (the e2e suite's own support code included) must
+ * scrub `GIT_DIR` before invoking gtd rather than rely on gtd to ignore it.
+ *
+ * Advisory metadata only — gtd neither creates nor truncates the file.
  */
 export const loopLogPath: Effect.Effect<string, never, Cwd | FileSystem.FileSystem | EnvVars> =
   Effect.gen(function* () {
     const { all } = yield* EnvVars
     const override = all.GTD_LOOP_LOG
     if (override !== undefined && override !== "") return override
+
+    const gitDirEnv = all.GIT_DIR
+    if (gitDirEnv !== undefined && gitDirEnv !== "") {
+      const { root } = yield* Cwd
+      const gitDir = isAbsolute(gitDirEnv) ? gitDirEnv : join(root, gitDirEnv)
+      return join(gitDir, "gtd-loop.log")
+    }
+
     const gitDir = yield* worktreeGitDir
     return join(gitDir, "gtd-loop.log")
   })

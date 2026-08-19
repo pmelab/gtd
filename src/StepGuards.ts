@@ -250,7 +250,7 @@ export const stepGuards: readonly StepGuard[] = [
  * The `gtd land` capture gate: run every guard the resolved rest's state
  * applies to against ONE sample of the current committed/working bytes — see
  * the module docstring — and fail with the first refusal's reason, prefixed
- * `gtd land: ` (the one place that prefix, and the `cliErrorLine`
+ * `gtd land: ` (the one place that prefix, and `Commentary.ts`'s `renderFailure`
  * `/^gtd[: ]/` contract, is satisfied). A no-op for a squash/no-op decision, an
  * ATTEMPT commit (`input.attempt` — see its own doc comment), a state with no
  * `file:`, or a state no guard applies to.

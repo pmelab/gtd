@@ -33,7 +33,11 @@ export const makeCapturingCliIo = (
     exit: (code) => {
       exitCode = code
     },
-    layers: () => testLayers(repo, { env, commands }),
+    // `narrate: io.stderr` is the SAME sink `stderr` above already captures
+    // errors into — narration lands in the exact same buffer, exactly like a
+    // real invocation's narration and remediation share one fd.
+    layers: (verbose) =>
+      testLayers(repo, { env, commands, narrate: (line) => (stderr += line), verbose }),
   }
   return { io, result: () => ({ stdout, stderr, exitCode }) }
 }

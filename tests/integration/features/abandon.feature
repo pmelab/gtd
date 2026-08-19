@@ -106,24 +106,28 @@ Feature: gtd abandon — end the process underway without completing it
     And the git status contains ".gtd/REVIEW.md"
     And the git status does not contain "src/calc.ts"
 
-  Scenario: --json reports the abandoned process and the state it returned to
+  Scenario: reports the abandoned process and the state it returned to, in plain text
+    # No more --json here (abandon is plain-text only now, see AGENTS.md) —
+    # the printed script names the resting state it abandoned, and a
+    # follow-up "gtd status" confirms it rewound to idle.
     Given a file "NOTE.md" with:
       """
       Build a thing.
       """
     When I run gtd land
     Then it succeeds
-    When I run gtd with args "abandon --json"
+    When I run gtd with args "abandon"
     Then it succeeds
-    And stdout contains "\"abandoned\":true"
-    And stdout contains "\"from\":\"unwind\""
-    And stdout contains "\"state\":\"idle\""
+    And stdout contains "gtd_report_abandoned 'unwind'"
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: idle"
 
-  Scenario: --json reports the no-op too, without an error envelope
-    When I run gtd with args "abandon --json"
+  Scenario: the no-op succeeds too, without printing an error
+    When I run gtd with args "abandon"
     Then it succeeds
-    And stdout contains "\"abandoned\":false"
-    And stdout does not contain "\"state\":\"error\""
+    And stdout contains "nothing to abandon"
+    And stderr does not contain "error"
 
   Scenario: takes no argument
     When I run gtd with args "abandon planning"

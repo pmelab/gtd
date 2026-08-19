@@ -59,9 +59,9 @@ describe("worktreeGitDir / loopLogPath [in-memory]", () => {
   it("GTD_LOOP_LOG wins verbatim, even over a gitdir: pointer", async () => {
     const repo = new InMemRepo()
     repo.writeFile(join("/repo", ".git"), "gitdir: /abs/path\n")
-    expect(await provide(loopLogPath, repo, { env: { GTD_LOOP_LOG: "/tmp/custom.log" } })).toBe(
-      "/tmp/custom.log",
-    )
+    expect(
+      await provide(loopLogPath, repo, { env: { GTD_LOOP_LOG: "/elsewhere/custom.log" } }),
+    ).toBe("/elsewhere/custom.log")
   })
 
   it("treats an empty GTD_LOOP_LOG as unset", async () => {
@@ -69,6 +69,43 @@ describe("worktreeGitDir / loopLogPath [in-memory]", () => {
     expect(await provide(loopLogPath, repo, { env: { GTD_LOOP_LOG: "" } })).toBe(
       ".git/gtd-loop.log",
     )
+  })
+
+  it("an absolute GIT_DIR names the git dir for the log path, even over a gitdir: pointer", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(join("/repo", ".git"), "gitdir: /abs/pointer-path\n")
+    expect(await provide(loopLogPath, repo, { env: { GIT_DIR: "/elsewhere/gitdir" } })).toBe(
+      join("/elsewhere/gitdir", "gtd-loop.log"),
+    )
+  })
+
+  it("a relative GIT_DIR is joined against the repo root", async () => {
+    const repo = new InMemRepo()
+    expect(
+      await provide(loopLogPath, repo, { root: "/repo", env: { GIT_DIR: "../shared/gitdir" } }),
+    ).toBe(join("/repo", "../shared/gitdir", "gtd-loop.log"))
+  })
+
+  it("treats an empty GIT_DIR as unset, falling through to the pointer read", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(join("/repo", ".git"), "gitdir: /abs/pointer-path\n")
+    expect(await provide(loopLogPath, repo, { env: { GIT_DIR: "" } })).toBe(
+      join("/abs/pointer-path", "gtd-loop.log"),
+    )
+  })
+
+  it("GTD_LOOP_LOG still wins verbatim over GIT_DIR", async () => {
+    const repo = new InMemRepo()
+    expect(
+      await provide(loopLogPath, repo, {
+        env: { GTD_LOOP_LOG: "/elsewhere/custom.log", GIT_DIR: "/elsewhere/gitdir" },
+      }),
+    ).toBe("/elsewhere/custom.log")
+  })
+
+  it("falls back to the literal .git when GIT_DIR is unset and the fake filesystem has no .git entry", async () => {
+    const repo = new InMemRepo()
+    expect(await provide(loopLogPath, repo)).toBe(".git/gtd-loop.log")
   })
 })
 

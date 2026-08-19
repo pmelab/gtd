@@ -324,3 +324,16 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     And stderr contains "workflow config:"
     And stderr contains "\"on\" target \"nowhere\" is not a state or reference of machine \"root\""
     And stderr contains "declare a \"params:\" entry and bind it at the reference site"
+
+  Scenario: an unknown top-level config key fails with remediation naming the key and its file — unconditional, no --verbose needed
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: "npm test"
+      """
+    When I run gtd status
+    Then it fails
+    And stderr contains "Invalid gtd config:"
+    And stderr contains "testCommand"
+    And stderr contains "  testCommand: "
+    And stderr contains ".gtdrc"

@@ -10,12 +10,13 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
   short-circuit before any repo-state work and exit 0 everywhere, including
   outside a workflow state.
 
-  Scenario: Bare gtd fails with usage help and authors nothing
+  Scenario: Bare gtd fails with usage help on stderr and authors nothing
     Given a test project
     And I record the commit count
     When I run gtd
     Then it fails
-    And stdout contains "Usage:"
+    And stdout is empty
+    And stderr contains "Usage:"
     And the commit count is unchanged
 
   Scenario: An unknown subcommand fails
@@ -103,11 +104,26 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Then it succeeds
     And stdout contains "lsp"
 
-  Scenario: gtd lsp rejects --json — it's a long-running server, not a state command
+  Scenario Outline: --json is a usage error on every command except gtd status — it's the only structured surface
     Given a test project
-    When I run gtd with args "lsp --json"
+    When I run gtd with args "<args>"
     Then it fails
-    And stderr contains "gtd lsp does not accept --json"
+    And stderr contains "only valid for `gtd status`"
+    And stderr contains "gtd install"
+
+    Examples:
+      | args                    |
+      | lsp --json              |
+      | next --json              |
+      | land --json              |
+      | validate --json          |
+      | check qa TODO.md --json  |
+      | init --json              |
+      | visualize --json         |
+      | install --json           |
+      | abandon --json           |
+      | restore --json           |
+      | --entry idle --json      |
 
   Scenario: gtd --entry version refuses as an unknown entry state and prints no version
     # The regression this RFC exists to fix: a flag-unaware positional
@@ -120,12 +136,13 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Then it fails
     And stderr contains "is not an enterable state"
 
-  Scenario: a usage error under --json writes the envelope on stdout and a single gtd: line on stderr
+  Scenario: a usage error under --json writes the envelope on stderr, leaving stdout byte-empty
     Given a test project
     When I run gtd with args "bogus-subcommand --json"
     Then it fails
-    And stdout contains "\"state\":\"error\""
-    And stderr matches "^gtd: [^\n]*\n$"
+    And stdout is empty
+    And stderr contains "\"state\":\"error\""
+    And stderr matches "gtd: [^\n]*\n$"
 
   Scenario: gtd --entry --json fails with --entry requires a value
     Given a test project

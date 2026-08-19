@@ -599,7 +599,10 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       gtd(check): build.review.deciding → build.squashing
       """
 
-  Scenario: --json reports the restored state, hash, and prior state on success
+  Scenario: reports the restored state via the emitted script, in plain text
+    # No more --json here (restore is plain-text only now, see AGENTS.md) —
+    # the printed script's own gtd_report_restored call names the state it
+    # restored to.
     Given a file "NOTE.md" with:
       """
       Build a thing.
@@ -622,17 +625,16 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
     When I run gtd with args "abandon"
     Then it succeeds
 
-    When I run gtd with args "restore --json"
+    When I run gtd with args "restore"
     Then it succeeds
-    And stdout contains "\"restored\":true"
-    And stdout contains "\"state\":\"design.triage\""
-    And stdout contains "\"from\":\"idle\""
+    And stdout contains "gtd_report_restored"
+    And stdout contains "'design.triage'"
 
-  Scenario: --json reports the standard error envelope on refusal
-    When I run gtd with args "restore --json"
+  Scenario: reports the standard error on stderr, leaving stdout empty
+    When I run gtd with args "restore"
     Then it fails
-    And stdout contains "\"state\":\"error\""
-    And stdout contains "no retained history to restore"
+    And stdout is empty
+    And stderr contains "no retained history to restore"
 
   Scenario: takes no positional argument
     When I run gtd with args "restore foo"

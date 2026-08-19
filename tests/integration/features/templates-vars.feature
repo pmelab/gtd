@@ -228,7 +228,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And stdout contains "echo env-wins"
     And stdout does not contain "npm test >"
 
-  Scenario: a machine's "model:" resolves an "it.vars" reference in "gtd next --json"
+  Scenario: a machine's "model:" resolves an "it.vars" reference in "gtd status --json"
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -259,7 +259,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       """
       a note
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"model\":\"opus\""
@@ -303,7 +303,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       """
       a sketch
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
     And stdout contains "\"model\":\"smart\""
@@ -315,7 +315,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       """
       the plan
       """
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
     And stdout contains "\"model\":\"base\""
@@ -328,7 +328,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       a sketch
       """
     And an environment variable "GTD_PLANNERMODEL" set to "opus"
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And stdout contains "\"model\":\"opus\""
     And stdout does not contain "\"model\":\"smart\""

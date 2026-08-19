@@ -11,8 +11,9 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
   self-validation gate and its fix cap, check-script log redirection, and
   session continuity across laps. A real `claude` CLI is never invoked: a
   `claude` shim on $PATH translates the paste's own argv (-p, --session-id,
-  --resume, --model, --dangerously-skip-permissions) into the stub agent's
-  env. The driver is spawned with only $PATH (the shim dir first) and $HOME —
+  --resume, --model, --dangerously-skip-permissions) and the prompt piped to
+  it on stdin into the stub agent's env. The driver is spawned with only
+  $PATH (the shim dir first) and $HOME —
   no $GTD_* var, no test-harness leak — which is itself the
   copy-paste-complete proof. Turn/transition reporting is not asserted here
   beyond what the emitted scripts print themselves
@@ -478,7 +479,7 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And stderr does not contain "stalled at"
 
   Scenario: A dirty human gate reached mid-run is a capture beat — landed outright, never halting the driver
-    # The loop's own first `next --json` read finds "confirm" resting with
+    # The loop's own first `gtd status --json` read finds "confirm" resting with
     # REVIEW.md already written — a message rest with a
     # dirty tree is `kind: "capture"` — and the loop's `capture) ;;` branch
     # falls straight through to landing it as reviewer, with no display and no
@@ -516,9 +517,9 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
     # a checkable format. The paste's `.validate` field is embedded in the
     # BEAT it reads before the agent's turn runs — so the file must already
-    # exist at that point for the field to be populated at all (`gtd next
+    # exist at that point for the field to be populated at all (`gtd status
     # --json` omits it for a file the working tree doesn't have yet, exactly
-    # like `gtd validate --json` degrades) — this is why a placeholder
+    # like plain `gtd validate` degrades) — this is why a placeholder
     # .gtd/PLAN.md is seeded below, standing in for a prior draft. The stub
     # then OVERWRITES it with a MALFORMED plan first; the paste's embedded
     # validate script fails, and it re-prompts the SAME session with the
@@ -692,8 +693,13 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
           default: root
         machines:
           root:
-            entry: checking
+            entry: idle
             states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": checking
               checking:
                 actor: check
                 script: |
@@ -706,6 +712,10 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
               reviewing:
                 actor: human
                 message: "sign off"
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
       """
     And the driver pasted from README.md
     When I run the README driver

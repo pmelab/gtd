@@ -1,4 +1,5 @@
 import { Effect, Option } from "effect"
+import { Narrator } from "./Commentary.js"
 import { GitService, type GitOperations } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import { RepoFiles, templateRead } from "./RepoFiles.js"
@@ -503,14 +504,13 @@ const computeProcessRun = (
  * callers need the REAL head — abandon rewinds the reviewed branch tip, the
  * re-arm re-derives the review base — so the saved head is the walk's origin.
  */
-export const currentRun: Effect.Effect<ProcessRun, Error, GitService | ConfigService> = Effect.gen(
-  function* () {
+export const currentRun: Effect.Effect<ProcessRun, Error, GitService | ConfigService | Narrator> =
+  Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const windowHead = Option.getOrUndefined(yield* git.readRefOption(REVIEW_HEAD_REF))
     return yield* computeProcessRun(git, config.workflow, windowHead)
-  },
-)
+  })
 
 /**
  * PURE: the most-recent in-process turn commit that entered a `reviewBase`
@@ -838,8 +838,8 @@ const retainsNothing = (
 
 // ── The resolved rest, fully assembled ───────────────────────────────────────
 
-/** The four services resolving a rest needs. */
-export type RestRequirements = GitService | ConfigService | RepoFiles | EnvVars
+/** The services resolving a rest needs. */
+export type RestRequirements = GitService | ConfigService | RepoFiles | EnvVars | Narrator
 
 /**
  * Every field a resolved rest carries as a hint (`rest: "rendered"` or
@@ -942,6 +942,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const resolution = resolveRestFrom(def, headSubject)
     if (!resolution.ok) return yield* Effect.fail(resolution.error)
     const resolved = resolution.rest
+    yield* (yield* Narrator).narrate(`rest resolved: ${resolved.state} (awaits ${resolved.actor})`)
 
     const run = yield* computeProcessRun(git, def, windowHead)
     const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)

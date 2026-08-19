@@ -88,6 +88,7 @@ import {
   type Range,
 } from "vscode-languageserver/node"
 import { TextDocument } from "vscode-languageserver-textdocument"
+import { Narrator } from "./Commentary.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -553,17 +554,24 @@ const mergeStaticVars = (
   return merged
 }
 
-/** The layers `LspEnv`'s Effects run against, scoped to one root. */
+/**
+ * The layers `LspEnv`'s Effects run against, scoped to one root. `Narrator`
+ * is permanently a no-op here — the LSP talks stdio JSON-RPC, never a
+ * terminal's stderr, so it has no `--verbose` flag and nothing to narrate
+ * onto — it's provided only so `ConfigService.load`/`RestRequirements`'
+ * shared `Narrator` requirement (see `Commentary.ts`) typechecks here too.
+ */
 const layersForRoot = (root: string) =>
   Layer.mergeAll(
     gitLayerForRoot(root),
     configLayerForRoot(root),
     repoFilesLayerForRoot(root),
     EnvVars.Live,
+    Narrator.layer(() => {}, false),
   )
 
 type RootRuntime = ManagedRuntime.ManagedRuntime<
-  GitService | ConfigService | RepoFiles | EnvVars,
+  GitService | ConfigService | RepoFiles | EnvVars | Narrator,
   never
 >
 

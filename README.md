@@ -85,16 +85,17 @@ gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
 template), with an ordered set of change-patterns routing to the next state.
 
-The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
+The loop is one beat, repeated: run `gtd status --json` and dispatch on `kind` —
 `"message"` means it's a human's move (stop and hand off, unless it's the run's
 opening beat, which the human triggered by re-running the driver: land that one,
 since changing nothing is itself a declared outcome at some gates); `"capture"`
 means a human gate the human already acted on (land it immediately); `"script"`
-means the driver runs `content` itself, then lands it; `"prompt"` means feed
-`content` to your agent — using the accompanying `session.id`/`session.resume`
-to continue or start that agent conversation (see "Driving the loop" below) —
-then run `gtd land` once it's done. gtd itself never executes anything — the
-driver owns running scripts. Every `gtd next` call is strictly mutation-free,
+means the driver runs `gtd next`'s own plain-text output itself, then lands it;
+`"prompt"` means feed `gtd next`'s output to your agent — using the accompanying
+`session.id`/`session.resume` fields off `gtd status --json` to continue or
+start that agent conversation (see "Driving the loop" below) — then run
+`gtd land` once it's done. gtd itself never executes anything — the driver owns
+running scripts. Every `gtd next`/ `gtd status` call is strictly mutation-free,
 safe to poll or peek at any time: `session.id`/`session.resume` are DERIVED,
 never stored, so looking is free — nothing distinguishes a peek from a dispatch,
 and there is no separate claiming form at all. A `prompt` beat whose turn
@@ -102,7 +103,7 @@ changes nothing still lands: `gtd land` commits an EMPTY `gtd(<actor>): <state>`
 attempt instead of silently doing nothing, so the fruitless dispatch is visible
 in history rather than invisible. `"kind": "stalled"` is derived from that
 history — HEAD is an empty attempt at the resting state and the tree is clean —
-so every `gtd next --json` call reports it, and it stays reported on a repeat
+so every `gtd status --json` call reports it, and it stays reported on a repeat
 (there's no marker to consume) until something actually changes. The fix for a
 repeated stall is either a better prompt, a `retry:` cap on the state that
 redirects to an escalation state after N fruitless attempts, or — if the state
@@ -301,18 +302,18 @@ Commands:
                    Takes no argument. Run once per repo; refuses if a gtd
                    config already exists. Leaves the file uncommitted for you
                    to review and commit
-  land             Land whatever the tree now shows at the currently
-                   resolved rest — a human capture, an agent/check turn, an
-                   empty attempt (a fruitless prompt turn), or a squash — and
-                   print the script that records it; a driver runs the
-                   script, e.g. `gtd land | bash`. Pass --cost=<n>
-                   (optionally --model=<name>) to record the just-finished
-                   invocation's token cost and model on the turn commit
-                   (summed into it.processCost/processCostByModel). Exits 0
-                   when a script is emitted (or a benign no-op at a clean
-                   message rest), 3 when SETTLED — nothing owed: a no-op at a
-                   script rest, or the initial-state collapse (stdout still
-                   carries the script) — 1 on any refusal
+  land             Land whatever the tree now shows at the currently resolved
+                   rest — a human capture, an agent/check turn, an empty
+                   attempt (a fruitless prompt turn), or a squash — and print
+                   the script that records it; a driver runs the script, e.g.
+                   `gtd land | sh`. Pass --cost=<n> (optionally
+                   --model=<name>) to record the just-finished invocation's
+                   token cost and model on the turn commit (summed into
+                   it.processCost/processCostByModel). Exits 10 when the next
+                   rest needs an agent turn, 20 when it needs a human turn, 0
+                   when nothing is owed (a no-op at a script rest, the
+                   initial-state collapse, or a clean message rest), 1 on any
+                   refusal — see the Exit codes section below
   (no command) --entry <state>
                    Starts a new process authenticated as human, e.g.
                    'gtd --entry <state>'
@@ -328,28 +329,33 @@ Commands:
                    history, or when HEAD has advanced past the squash with
                    commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
-                   (no mutation, safe to poll). --json emits the whole beat
-                   document instead: kind (capture|message|script|prompt|
-                   stalled) selects what a driver does, content is what it
-                   runs or shows, plus the prompt session, model, validate
-                   script, log path and the resting state's own fields
+                   (no mutation, safe to poll; plain text only — see `gtd
+                   status --json` for the structured beat document). Exits 0
+                   (idle), 10 (agent turn) or 20 (human turn) — see the Exit
+                   codes section below
   status           Print the resolved rest's state/actor and which declared
-                   pattern (if any) each pending change matches (no mutation)
+                   pattern (if any) each pending change matches (no
+                   mutation). --json emits the one structured surface gtd
+                   has: kind (capture|message|script|prompt|stalled) selects
+                   what a driver does, content is what it runs or shows, plus
+                   the prompt session, model, validate script, log path,
+                   changes, next and the resting state's own fields. Exits 0
+                   (idle), 10 (agent turn) or 20 (human turn) — see the Exit
+                   codes section below
   validate         Print the script that formats (when declared) then
                    validates the resolved rest's steering file, using its
                    mode's commands (its file:/mode:), instead of running it —
                    a driver runs the script and reads the findings from its
-                   own exit code/output. Always exits 0; --json emits
-                   {state, file?, mode?, script} (script is "" when there is
-                   nothing to validate; plain text prints "nothing to
-                   validate" in that case). On a non-zero validate exit
-                   the emitted script prints a ready-to-send fix prompt
-                   (instruction + findings) and exits with the
-                   validator's own code
+                   own exit code/output. Always exits 0; prints "nothing to
+                   validate" when the resolved rest declares nothing to run.
+                   On a non-zero validate exit the emitted script prints a
+                   ready-to-send fix prompt (instruction + findings) and
+                   exits with the validator's own code
   lsp              Start the LSP server for .gtd/ steering files (stdio)
   visualize        Serve an interactive diagram of the active workflow on a
-                   local web server (--port <n>, --no-open; --json prints the
-                   model and exits)
+                   local web server (--port <n>, --no-open). Prints the
+                   chosen port on its own line — with --port 0, this is the
+                   only way to learn which port was picked
   check <mode> <file>
                    Read <file> and run the built-in steering format named
                    <mode> (see `gtd validate`'s modes: qa, review) over its
@@ -370,7 +376,7 @@ Commands:
   help             Print this help and exit
 
 Options:
-  --json           Output structured JSON instead of plain text
+  --json           (gtd status only) output structured JSON instead of plain text
   --port=<n>       (gtd visualize only) port to serve on (default: a free port)
   --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd land only) record the invocation's token cost
@@ -386,23 +392,76 @@ Options:
                    instead run the qa open-questions predicate over <file>,
                    printing each unanswered question one per line and exiting
                    non-zero when any remain
-  --version, -v    Print version and exit
+  --verbose        enable stderr narration for this invocation: which rest
+                   resolved, which declared pattern each pending change
+                   matched, which review-window action was emitted, and how
+                   config resolved across layers. Aliased to -v
+  --version, -V    Print version and exit
   --help, -h       Print this help and exit
 ```
 
-`--version` (`-v`) / `gtd version` and `--help` (`-h`) / `gtd help`
+### Exit codes
+
+Closed at seven numbers, six meanings — a new workflow state never grows this
+table, it just maps onto one of the two OWNER rows:
+
+| Code      | Meaning                          |
+| --------- | -------------------------------- |
+| 0         | terminal success — nothing to do |
+| 10        | needs an agent turn              |
+| 20        | needs a human turn               |
+| 1         | runtime error                    |
+| 2         | usage error                      |
+| 130 / 143 | SIGINT / SIGTERM                 |
+
+`gtd next`, `gtd status`, and `gtd land` all report the owner of the NEXT turn
+this way — 10 when the resolved (`next`/`status`) or post-land (`land`) rest is
+a `script`/`prompt` state, 20 when it's `capture`/`message`/`stalled`, and 0
+only for the one shape that means the process is genuinely done: resting at the
+workflow's initial state with a clean tree (`next`/`status`), or a landing that
+settles there or SETTLES outright — a no-op at a `script` rest, or a decision
+that collapses back to the initial state retaining nothing. This REPLACES the
+old table (`0`/`3`-SETTLED/`1`) — see `src/ExitCodes.ts`. **The migration hazard
+is an inversion, not a renumbering**: the old table's `0` meant "keep going",
+the new table's `0` means "stop"; an unmodified driver that only checks for a
+strict `0` will halt on the very first turn. `130`/`143` (SIGINT/SIGTERM) mean
+gtd itself died by that signal — a parent's `wait` sees a real signal death
+(`WIFSIGNALED`), not a chosen exit code that merely reuses the same number.
+
+Every OTHER command — `init`, `lsp`, `visualize`, `check`, and `install` —
+carries no owner-signal meaning at all: it's a plain success (`0`) or failure
+(`1` refusal, `2` usage error), exactly like any ordinary CLI tool. Only
+`next`/`status`/`land` overload their exit code with whose turn is next.
+
+Known, bounded imprecision: a clean-tree `gtd land` at a `prompt` rest writes an
+empty attempt and reports `10` (agent turn), while the FOLLOWING `gtd status`
+reports `stalled` and `20` (human turn) — two different rests, not a bug. No
+dispatch is wasted either way — a driver consults `status`/`next` before acting
+on a beat, `land`'s own exit code is advisory about what to do NEXT, not a
+promise that the next beat can't have moved on.
+
+Every usage mistake — an unknown option or command, missing/extra arguments, a
+scope violation (e.g. `--cost` on a command other than `gtd land`), a bad flag
+value — is a USAGE error (`2`), never a runtime error (`1`): nothing was even
+attempted. `--help`/`--version` still exit `0`.
+
+`--version` (`-V`) / `gtd version` and `--help` (`-h`) / `gtd help`
 short-circuit before any git or repository-state work — they run outside a repo
-and in any repo state. Bare `gtd` (no subcommand) and `gtd loop` are both usage
-errors that exit 1 and print help — gtd decides and prints, full stop; driving a
-loop is a driver's job, not a bundled command (see
-[Driving the loop](#driving-the-loop) below). Any other, truly unknown
-subcommand is likewise a usage error: it prints the help text and exits 1
-without touching the repository. The state commands (`land`, `--entry`,
-`abandon`, `restore`, `next`, `status`, `validate`) must run from the
-**repository root** — gtd derives the workflow, pending changes, and process
-history relative to cwd, so they refuse with a clear error from a subdirectory;
-`lsp`, `init`, `visualize`, `check`, and `install` are standalone and run from
-anywhere (see each command's own help entry).
+and in any repo state, and print to **stdout** at exit 0. `--verbose` (`-v`) is
+not a short-circuit — it gates narration for whatever command follows (see
+[Narration and remediation](#narration-and-remediation) below). Bare `gtd` (no
+subcommand) is a usage error that exits 2 — gtd decides and prints, full stop;
+driving a loop is a driver's job, not a bundled command (see
+[Driving the loop](#driving-the-loop) below) — printing its help text to
+**stderr**, not stdout: stdout stays byte-empty on every failure, a usage error
+included (see [Error envelope](#error-envelope) below). Any other, truly unknown
+subcommand is likewise a usage error exiting 2 without touching the repository.
+The state commands (`land`, `--entry`, `abandon`, `restore`, `next`, `status`,
+`validate`) must run from the **repository root** — gtd derives the workflow,
+pending changes, and process history relative to cwd, so they refuse with a
+clear error from a subdirectory; `lsp`, `init`, `visualize`, `check`, and
+`install` are standalone and run from anywhere (see each command's own help
+entry).
 
 `--json`, `--cost=<n>`, `--model=<name>` (the latter two only for `gtd land`),
 `--entry <state>` (no other command at all), and `--var <name>=<value>` (with
@@ -435,23 +494,68 @@ real `gtd land` lands.
 
 ### Error envelope
 
-Every command, in `--json` mode, reports a failure as a machine-readable
-envelope on **stdout**, and still exits 1:
+**stdout is either the complete artifact or byte-empty — never a partial write
+followed by an error.** Every command buffers everything it would print and
+flushes that buffer to stdout exactly once, only after it succeeds; on any
+failure the buffer is simply discarded, so stdout never carries a half-written
+prompt/script alongside a message about why it stopped. `gtd visualize` is the
+one exception worth knowing: it flushes its served-URL line immediately, before
+blocking on `Ctrl-C`, since a flush-on-success would never otherwise fire.
+
+Any invocation that carries `--json` (valid only for `gtd status` — every other
+command usage-errors on it) reports a failure as a machine-readable envelope on
+**stderr** — including the scope violation itself, so a driver that always adds
+`--json` still gets a parseable envelope on every failure, not only
+`gtd status`'s own:
 
 ```json
 { "state": "error", "prompt": "<message>" }
 ```
 
-This covers every failure mode, not just a command's own refusal: a **usage
-error** (an unknown flag, a missing argument, `gtd --entry version`'s "not an
-enterable state") and a **defect** (a layer throwing outside the ordinary error
-channel) both get the same envelope — there is no failure path that reaches
-`--json` without one.
+This covers every failure mode, not just a command's own refusal (exit 1): a
+**usage error** (an unknown flag, a missing argument, `gtd --entry version`'s
+"not an enterable state" — exit 2) and a **defect** (a layer throwing outside
+the ordinary error channel — exit 1) both get the same envelope shape — there is
+no failure path that reaches `--json` without one — but a usage error's exit
+code is 2, never 1, so a driver can tell "you invoked gtd wrong" apart from "gtd
+refused/broke" (see [Exit codes](#exit-codes)).
 
-A human-readable `gtd: <message>` line is still written to **stderr** regardless
-of `--json` — the envelope adds a structured stdout channel, it does not replace
-the plain-text one. Stderr always carries exactly one `gtd: ` prefix: a message
-already authored with its own `gtd:`/`gtd <cmd>:` prefix is never doubled.
+A human-readable `gtd: <message>` line is also always written to **stderr**,
+right after the envelope — stdout carries neither one on a failing run. Stderr
+always carries exactly one `gtd: ` prefix: a message already authored with its
+own `gtd:`/`gtd <cmd>:` prefix is never doubled.
+
+**Accepted cost:** a driver that pipes stdout into `jq` on a failed run now
+reads nothing instead of a parseable error object — it must read stderr or the
+exit code to learn why a run failed.
+
+### Narration and remediation
+
+Stderr carries two things beyond the `gtd: ` message line above: NARRATION,
+gated by `--verbose`/`-v`, and REMEDIATION, unconditional.
+
+`--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
+command's dispatch already computes — which rest resolved, which declared
+pattern each pending change matched, which review-window action was emitted, and
+how config resolved across `.gtdrc` layers. Without it, none of this is printed;
+stdout is never touched either way — narration is a stderr-only concern, exactly
+like the error envelope above.
+
+A failure's remediation detail is unconditional — it prints at every verbosity,
+on the line(s) right after the `gtd: `-prefixed message, each indented two
+spaces: a bad config key names the offending key and which `.gtdrc` layer it
+came from, a corrupted ref names the ref, and a missing binary in a steering
+mode's `format:`/`validate:` command names the resolved `$PATH` it was looked up
+in.
+
+### Non-interactive today
+
+gtd is non-interactive: no readline, no `/dev/tty`, no prompt call anywhere in
+`src/`. If interaction is ever added, it goes to `/dev/tty`, never stderr, and
+never blocks — a question fails with a code when the tty cannot be opened rather
+than hanging. The reason is the section above: stderr already has two occupants,
+narration and remediation, and a question mixed into that stream would deadlock
+a driver that never reads stderr.
 
 ## Driving the loop
 
@@ -485,24 +589,24 @@ not of the loop itself; see
 below for a worked example.
 
 A workflow state can declare an optional `label:` — a human-readable display
-name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
-per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
-can use it the same way.
+name surfaced in `gtd status --json`/plain `gtd status`. The driver uses it for
+its per-beat progress lines; an outer wrapper (a terminal multiplexer, a
+notifier) can use it the same way.
 
 Memory is **entry-scoped to a machine**, not a state-authored label: each
 machine instance (a node in the `machines:` tree, e.g. `build`, `build.health`,
 `packages.item`, `packages.item.health`) owns its own conversational scope, and
-a `prompt`-content state's `memory` key — surfaced in `gtd next --json`/
-`gtd status --json`'s `memory` field, and as a `Memory: <key>` line in plain
-`gtd status` — is computed, never authored, as `<scope>#<hash7>`: `<scope>` is
-that machine instance's dotted path (the root instance is shown as `root`), and
-`<hash7>` anchors to the commit the CURRENT unbroken entry into that scope
-started FROM. Entering a **descendant** scope (e.g. dipping from `build` into
-`build.health`) does not break the parent's unbroken run — a full agent turn in
-a nested child machine, then back to the parent, still resumes the SAME parent
-conversation; entering a **sibling or unrelated** scope does start a fresh one.
-The bundled template's `build.review` (the human review tail) is a worked
-example: it is nested INSIDE `build` (the builder's own machine) so that a
+a `prompt`-content state's `memory` key — surfaced in `gtd status --json`'s
+`memory` field, and as a `Memory: <key>` line in plain `gtd status` — is
+computed, never authored, as `<scope>#<hash7>`: `<scope>` is that machine
+instance's dotted path (the root instance is shown as `root`), and `<hash7>`
+anchors to the commit the CURRENT unbroken entry into that scope started FROM.
+Entering a **descendant** scope (e.g. dipping from `build` into `build.health`)
+does not break the parent's unbroken run — a full agent turn in a nested child
+machine, then back to the parent, still resumes the SAME parent conversation;
+entering a **sibling or unrelated** scope does start a fresh one. The bundled
+template's `build.review` (the human review tail) is a worked example: it is
+nested INSIDE `build` (the builder's own machine) so that a
 `gtd --entry fix-precheck` run — `build.fix` -> `build.health.check` ->
 `build.review.*` -> `build.squashing` — stays inside one subtree, letting
 `build.squashing` resume the SAME session that made the fixes instead of a
@@ -523,8 +627,8 @@ scopes.
 computed `<scope>#<hash7>` key above — so the same scope-run always re-derives
 the exact same id, and there is no table, no file, no write to keep in sync.
 `session.resume` is `true` iff a prior `prompt` turn already landed within that
-same scope-run. Because nothing is written, calling `gtd next --json` twice in a
-row — a driver's own opening peek, a status poll, a curious human — derives
+same scope-run. Because nothing is written, calling `gtd status --json` twice in
+a row — a driver's own opening peek, a status poll, a curious human — derives
 IDENTICAL `session.id`/`session.resume` values both times, since there is
 nothing to poison: looking is free, and there is no separate claiming form to
 protect. The per-scope survival story (a child machine's own excursion doesn't
@@ -587,7 +691,7 @@ env -u HERDR_PANE_ID gtd-loop
 rc=$?
 
 # Whose turn is it now? `gtd status --json` is a strictly read-only peek —
-# every gtd command is, including `gtd next --json` (its prompt session id is
+# every gtd command is, including `gtd next` (its prompt session id is
 # derived, never minted/stored) — only the emitted scripts a driver runs
 # actually touch git. A human actor means gtd is waiting on you; anything else
 # means the run ended with nothing owed.
@@ -632,7 +736,7 @@ to build a driver without leaving your terminal. The briefing ends by directing
 the agent to INTERVIEW you first — which agent CLI runs the turns, under what
 permission model, how you want to invoke the loop, what should happen at a human
 gate — and to build the driver your answers describe rather than copying the
-reference bash. It writes nothing: "install" means installing knowledge into the
+reference sh. It writes nothing: "install" means installing knowledge into the
 calling agent's context, and the briefing it prints is always exactly as current
 as the `gtd` that printed it.
 
@@ -641,88 +745,120 @@ privileged one — the engine itself is a supported public surface, and anything
 below holds for any driver you write against it. gtd decides and prints; it
 never touches git itself. The four commands that change anything — `gtd land`,
 `gtd --entry <state>`, `gtd abandon`, and `gtd restore` — perform no git write
-when run. Instead, each one's output carries `required`/ `optional`: bash
-scripts for YOU to execute. Plain-text output (no `--json`) prints them combined
-into ONE pasteable script — `required` verbatim, then `optional` wrapped so its
-own failure can't turn a landed turn into a non-zero exit — so `gtd land | bash`
-is a complete, single-command way to land a turn. Under `--json`, each one's
-output object instead carries `required`/`optional` as two separate string
-fields (plus, for `gtd land`, the same two combined into `script`), for a driver
-that wants to run them apart (e.g. to skip `optional` outright). Either way,
-printing gtd's output and never running it is not driving anything; a driver
-must pipe or `jq`-and-execute what gtd prints.
+when run: each one prints ONE POSIX sh script for YOU to execute
+(`src/Emit.ts`'s `combinedScript`) — a leading comment ("gtd emitted this and
+did NOT run it — pipe it into `sh` to land the turn"), then the REQUIRED half
+verbatim, then, only when there's a presentation-only follow-up, a second
+comment ("presentation only — safe to skip") and the OPTIONAL half wrapped in a
+subshell whose own non-zero exit is swallowed (reported to stderr as a warning,
+never turning a landed turn into a failing one). Printing gtd's output and never
+running it is not driving anything; a driver must pipe or execute what gtd
+prints — e.g. the capture-then-pipe form the reference driver below uses — never
+a bare `gtd land | sh`, which would hand an empty script to a shell on a refusal
+instead of stopping first (see the driver's own `gtd_land` function).
 
-- **`required`** is everything that decides what lands in git — closing an open
-  review checkout window, the resting state's own steering-mode
+Every script gtd emits — `gtd land`, `gtd --entry <state>`, `gtd abandon`,
+`gtd restore`, and the format/validate script `gtd validate` prints — is POSIX
+`sh`, portable to `dash`: a driver may run any of them with any POSIX-compliant
+shell, not specifically bash. The same convention extends to the workflow's own
+`vars.testCommand` (what a `script`-content check state actually executes): it
+is expected to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION
+only — gtd never inspects or validates `testCommand`'s shell dialect itself, it
+only renders the value into a script and hands it to whatever shell the driver
+invokes that script with.
+
+- **The required half** is everything that decides what lands in git — closing
+  an open review checkout window, the resting state's own steering-mode
   `format:`/`validate:` commands, the commit or squash itself (`gtd land` and
   `gtd --entry <state>`), or the ref update and reset that undo a process
   (`gtd abandon`, `gtd restore`) — and, last, a printed line naming what just
   landed (`src/OutcomeScript.ts`'s `gtd_report_*` calls): a transition or
   capture's changed-file rows, or the abandon/restore prose, resolved from the
-  repository AFTER the write above it. Run this one. Skipping it means the turn
-  never lands, and you never see what it did.
-- **`optional`** is presentation only: re-opening the review checkout window
-  (the `<<<<<<< HEAD` diff view) after `gtd land` lands at a
+  repository AFTER the write above it. Its own exit code IS the printed script's
+  exit code — skipping it means the turn never lands, and you never see what it
+  did.
+- **The optional half** is presentation only: re-opening the review checkout
+  window (the `<<<<<<< HEAD` diff view) after `gtd land` lands at a
   `reviewWindow: true` state, so an editor's diff view has something to show.
-  Skip it and you lose nothing but that view — the workflow is still driven
-  correctly. `gtd abandon`/`gtd restore` always emit `optional: ""` (there is no
-  window to reopen after either).
+  Its own failure is swallowed by the wrapping subshell (a warning on stderr,
+  nothing more) — skip it (or let it fail) and you lose nothing but that view,
+  the workflow is still driven correctly. `gtd abandon`/`gtd restore` never
+  carry one — there is no window to reopen after either, so their printed
+  artifact is the required half alone, with no trailing comment/subshell at all.
 
-`gtd next --json` carries one more field worth a custom driver's attention:
+`gtd status --json` carries one more field worth a custom driver's attention:
 
 - **`log`** — the per-worktree loop log path, always present. It's derived from
   the worktree's own git dir, so two worktrees looping concurrently never share
-  one file; set `$GTD_LOOP_LOG` to override it verbatim. gtd itself neither
-  creates nor truncates this file — a driver appends subprocess output to it and
-  truncates once at the start of a run, exactly like the driver above does.
+  one file; set `$GTD_LOOP_LOG` to override it verbatim, or `$GIT_DIR` to name
+  the git dir directly (both honored the same way every git subprocess already
+  honors them — an inherited `$GIT_DIR` moves the log path along with it). gtd
+  itself neither creates nor truncates this file — a driver appends subprocess
+  output to it and truncates once at the start of a run, exactly like the driver
+  above does.
 
-`optional` may be the empty string `""`, meaning "nothing to do here".
-`required` is never empty — even a genuine no-op `gtd land` (a clean tree
-matching no `on` pattern) emits a PRINT-ONLY script: no git write, just the same
-`nothing to do at "<state>"` line the script prints when a driver runs it (or,
-under plain text with no `--json`, when gtd prints the very same script back to
-you). Both scripts are self-contained (each carries its own precondition assert
-and retry helper) and safe to run standalone, in sequence, or not at all — paste
-either into a terminal and it does exactly what it says, printed output
-included: the scripts detect their own tty/`NO_COLOR` at RUN time (not at the
-moment gtd generated them), so the fancy/plain rendering always matches wherever
-you actually run them.
+Even a genuine no-op `gtd land` (a clean tree matching no `on` pattern) prints a
+PRINT-ONLY script: no git write, just the same `nothing to do at "<state>"` line
+the script prints when a driver runs it (or when gtd prints the very same script
+back to you, since it's plain text either way now — there is no more `--json`
+split to bypass by reading a field instead of running the script). The script is
+self-contained (it carries its own precondition assert and retry helper) and
+safe to run standalone, in sequence, or not at all — paste it into a terminal
+and it does exactly what it says, printed output included: it detects its own
+tty/`NO_COLOR` at RUN time (not at the moment gtd generated it), so the
+fancy/plain rendering always matches wherever you actually run it.
 
 A driver has no opening move. It does not need to know whose turn it is before
-it starts — `gtd next --json` tells it, and a human's pending edit arrives as an
-ordinary `kind: "capture"` beat that the driver lands like any other. The rule
-this replaces: never `gtd land` outside a beat you dispatched. A stray land at a
-clean `prompt` rest authors an empty attempt on purpose (that IS the stall
+it starts — `gtd status --json` tells it, and a human's pending edit arrives as
+an ordinary `kind: "capture"` beat that the driver lands like any other. The
+rule this replaces: never `gtd land` outside a beat you dispatched. A stray land
+at a clean `prompt` rest authors an empty attempt on purpose (that IS the stall
 bookkeeping), so an unconditional opening land would manufacture a stall out of
-a fresh start.
+a fresh start. The one EXCEPTION is the run's very first beat: land it before
+trusting a `0` there too, so a workflow whose initial state declares its own
+clean-tree `"C"` pattern still gets a chance to advance on a human's bare
+re-invocation, rather than the driver concluding "nothing owed" without ever
+giving that edge a turn (see the reference driver's own comment on this).
 
-`gtd land`'s exit code IS the settled signal: 0 for an ordinary landing
-(capture, turn, attempt, squash, or a benign no-op at a clean `message` rest), 3
-for SETTLED, 1 for a refusal or usage error. SETTLED means nothing owed, for
-either of two terminal shapes — a no-op at a `script` rest (the check ran, left
-nothing any pattern claims, and re-running the same beat cannot change that), or
-a step whose decision rewinds the process back to the workflow's initial state
+`gtd land`'s exit code IS the owner signal (see [Exit codes](#exit-codes)
+above): 10/20 for an ordinary landing that leaves an agent/human turn owed
+(capture, turn, attempt, squash), 0 when nothing is owed — either of two
+terminal shapes — a no-op at a `script` rest (the check ran, left nothing any
+pattern claims, and re-running the same beat cannot change that), or a step
+whose decision rewinds the process back to the workflow's initial state
 retaining nothing (`gtd --entry fix-precheck` against a green suite is the
 shipped example — the probe collapses away rather than landing a round trip
-through the log). Either way a loop should exit rather than spin — with
-`set -o pipefail`, `gtd land | bash` propagates gtd's own exit code through the
-pipe, and `--json` carries the same fact as `settled: true`. A no-op at a
-`prompt` rest is NOT settled — an agent that was asked to act and produced
-nothing is a stall, a driver's own concern, not this signal's. Declaring a `C`
-edge on a `script` state is the workflow-side way to make the state advance
-instead of settling.
+through the log) — and 1 for a refusal, 2 for a usage error. Either way a loop
+should exit rather than spin on a bare `0`. Capture `gtd land`'s output into a
+variable and check ITS OWN exit code before running anything, then pipe that
+captured text into `sh` (gtd's own emitted scripts are POSIX sh — exactly like
+the reference driver below does) — never a bare `gtd land | sh` with nothing
+captured first, which would hand an empty script straight to `sh` on a refusal
+instead of stopping on gtd's own code. There is no more `settled` JSON field to
+read — `gtd land` has no JSON surface at all any more — the exit code alone
+already says "stop" (`0`) or "keep going" (`10`/`20`) for both terminal shapes,
+though the two shapes of "stop" are no longer told apart by any field either: a
+driver that wants to show the idle gate's own message on the finishing shape
+(rather than the settle-in-place shape, where nothing further is worth reading)
+reads once more — a plain `gtd status --json` peek, exactly like the reference
+driver below does in its own `gtd_land`. A no-op at a `prompt` rest is NOT one
+of them (it exits 10) — an agent that was asked to act and produced nothing is a
+stall, a driver's own concern, not this signal's. Declaring a `C` edge on a
+`script` state is the workflow-side way to make the state advance instead of
+settling.
 
-### Drivers other than bash
+### Drivers other than sh
 
-The protocol above is JSON in, subprocesses out — bash is one convenient shape,
-not the only one. A **program** parses `gtd next --json`, switches on `kind`,
-and runs `content`/`required`/`optional` as subprocesses — no bash anywhere in
-it. A **human** runs plain `gtd next` (no `--json`), does what it says, and
-pastes `gtd land | bash`: plain-text output exists for exactly this, printing
-`required` and `optional` already combined into one pasteable script. An
-**agent** gets `gtd install` as its instructions — the same protocol, in a form
-built to be pasted into a context window rather than read. A **CI job** is the
-program case with the `prompt` arm pointed at a headless agent CLI, and
+The protocol above is JSON in (from `gtd status --json` alone), subprocesses out
+— sh is one convenient shape, not the only one. A **program** parses
+`gtd status --json`, switches on `kind`, and runs `gtd next`'s (plain-text)
+output and `gtd land`'s (POSIX sh) output as subprocesses — no sh anywhere in
+it. A **human** runs plain `gtd next` (there is no JSON form of it at all), does
+what it says, and pastes `gtd land | sh`: plain-text output exists for exactly
+this, printing the combined script ready to paste. An **agent** gets
+`gtd install` as its instructions — the same protocol, in a form built to be
+pasted into a context window rather than read. A **CI job** is the program case
+with the `prompt` arm pointed at a headless agent CLI, and
 `kind: "message"`/`kind: "stalled"` mapped onto "stop and report".
 
 ### A complete minimal driver
@@ -737,50 +873,99 @@ This exact fenced block is extracted and executed by
 `tests/integration/features/readme-driver.feature` — renaming the heading above
 or splitting the block into more than one fence breaks the build.
 
+**Pipe the prompt to the agent CLI on stdin — never pass it as a command-line
+argument.** A `prompt` beat's content embeds a full diff, and argv is capped:
+roughly 1 MB on macOS, and POSIX guarantees only 4 KB (`ARG_MAX`). Both are
+reachable by an ordinary diff, so a driver that passes the prompt as an argument
+works in testing and then fails on the first large change, in a way that looks
+like an agent error rather than a driver bug. The driver below pipes `$c`/`$out`
+into `claude -p` over stdin for exactly this reason.
+
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env sh
+set -eu
 
 # The bundle plans; this executes. Emitted scripts print their own outcomes.
-# Exit 3 means SETTLED — nothing owed — so this exits the whole driver at 0.
+# gtd's own exit code says whose turn is next — 0 nothing owed, 10 an agent
+# turn, 20 a human turn — never a failure by itself; only 1 (refusal) or 2
+# (usage error) means gtd itself failed. 10/20 are the ORDINARY case now, so
+# every gtd call below is captured explicitly — a bare command substitution
+# under `set -e` would abort the whole driver on either one.
 gtd_land() {
-  local json code=0
-  json="$(gtd land --json)" || code=$?
-  [ "$code" = 0 ] || [ "$code" = 3 ] || return "$code"
-  bash -c "$(jq -r '.required // empty' <<<"$json")" || return $?
-  bash -c "$(jq -r '.optional // empty' <<<"$json")" ||
-    echo "warn: presentation follow-up failed — continuing" >&2
-  [ "$code" = 3 ] && exit 0
-  return 0
+  gtd_land_code=0
+  gtd_land_script="$(gtd land)" || gtd_land_code=$?
+  case "$gtd_land_code" in
+    0 | 10 | 20) ;;
+    *) return "$gtd_land_code" ;;
+  esac
+  # Captured, then piped into `sh` (gtd's own emitted scripts are POSIX sh —
+  # see the "pipe it into `sh`" comment they carry) rather than a bare
+  # `gtd land | sh`: capturing first is what lets this branch on gtd's
+  # OWN exit code before running anything at all, so a refusal (1) or usage
+  # error (2) returns above without ever handing an empty script to a shell
+  # that would silently exit 0 and spin the driver forever.
+  printf '%s\n' "$gtd_land_script" | sh || return $?
+  [ "$gtd_land_code" = 0 ] || return 0
+  # Nothing is owed, but the rest may or may not have MOVED: a no-op at a
+  # `script` rest settles right where it rests (re-running it can never make
+  # progress, so there is nothing further to read), while an ordinary or
+  # squash landing that finishes the whole process moves on to the
+  # workflow's own idle gate — read once more and show it before stopping.
+  gtd_land_code2=0
+  gtd_land_st2="$(gtd status --json)" || gtd_land_code2=$?
+  [ "$gtd_land_code2" = 0 ] && { gtd next || true; }
+  exit 0
 }
 
 beat=1
 while :; do
-  next="$(gtd next --json)" || exit 1
-  kind="$(jq -r .kind <<<"$next")"
-  log="$(jq -r .log <<<"$next")"
+  code=0
+  st="$(gtd status --json)" || code=$?
+  # Idle (the initial state, clean tree) is the one shape that means the
+  # process is genuinely done — EXCEPT on the run's opening beat: land it
+  # anyway, so the workflow's own idle `on:` edge gets one chance to fire if
+  # the human's re-invocation while resting there is itself a decision (a
+  # clean-tree "C" pattern declared on that very state).
+  if [ "$code" = 0 ] && [ "$beat" -gt 1 ]; then
+    gtd next || true
+    exit 0
+  fi
+  case "$code" in
+    0 | 10 | 20) ;;
+    *) exit "$code" ;;
+  esac
+  kind="$(printf '%s' "$st" | jq -r .kind)"
+  log="$(printf '%s' "$st" | jq -r .log)"
   case "$kind" in
-    stalled) jq -r .content <<<"$next" >&2; exit 1 ;;
+    stalled) gtd next >&2 || true; exit 1 ;;
     # you re-ran us resting here: you either edited something or accepted by
     # editing nothing, so land the opening beat either way. Later beats are
     # gates we just produced and you have not read yet — hand off.
-    message) [ "$beat" = 1 ] || { jq -r .content <<<"$next"; exit 0; } ;;
+    message) [ "$beat" = 1 ] || { gtd next || true; exit 0; } ;;
     capture) ;; # the human already acted — just land it
-    script) bash -c "$(jq -r .content <<<"$next")" >>"$log" 2>&1 || true ;;
+    script) c="$(gtd next)" || true; sh -c "$c" >>"$log" 2>&1 || true ;;
     prompt)
-      sid="$(jq -r '.session.id // empty' <<<"$next")"
-      c="$(jq -r .content <<<"$next")" model="$(jq -r '.model // empty' <<<"$next")"
-      agent_turn() { claude -p "$c" "$1" "$sid" ${model:+--model "$model"} \
-        --dangerously-skip-permissions >>"$log" 2>&1; }
-      if [ "$(jq -r '.session.resume // false' <<<"$next")" = true ]
+      c="$(gtd next)" || true
+      sid="$(printf '%s' "$st" | jq -r '.session.id // empty')"
+      model="$(printf '%s' "$st" | jq -r '.model // empty')"
+      # $c embeds a full diff, so it goes to the agent over stdin, never as
+      # an argv positional — argv is capped (~1 MB on macOS, and POSIX
+      # guarantees only 4 KB, ARG_MAX), and a diff crosses that far sooner
+      # than you'd expect.
+      agent_turn() { printf '%s' "$c" | claude -p "$1" "$sid" \
+        ${model:+--model "$model"} --dangerously-skip-permissions \
+        >>"$log" 2>&1; }
+      if [ "$(printf '%s' "$st" | jq -r '.session.resume // false')" = true ]
       then agent_turn --resume || agent_turn --session-id
       else agent_turn --session-id || agent_turn --resume
       fi
-      v="$(jq -r '.validate // empty' <<<"$next")" n=0
-      while [ -n "$v" ] && ! out="$(bash -c "$v" 2>&1)"; do
+      v="$(printf '%s' "$st" | jq -r '.validate // empty')"
+      n=0
+      while [ -n "$v" ] && ! out="$(sh -c "$v" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\n' "$out" >&2; exit 1; }
-        claude -p "$out" --resume "$sid" --dangerously-skip-permissions \
-          >>"$log" 2>&1 # $out IS the fix prompt, verbatim
+        # $out IS the fix prompt, verbatim — piped for the same reason as $c
+        printf '%s' "$out" | claude -p --resume "$sid" \
+          --dangerously-skip-permissions >>"$log" 2>&1
       done ;;
   esac
   gtd_land || exit 1
@@ -788,51 +973,67 @@ while :; do
 done
 ```
 
-Line by line it is the protocol described above: no opening move at all — a
-human's pending edit arrives as the `capture` beat, and a stray `gtd land`
-outside a beat you acted on would author an empty attempt at a clean prompt rest
-on purpose; one `gtd next --json` beat document read per loop (`kind: "stalled"`
-guarding against a spinning agent); `message` halts unless it is the opening
-beat, which the human's own re-invocation authored and which therefore lands
-like any other decision (see [Driving the loop](#driving-the-loop) above — this
-is the one place the driver, not gtd, decides, because "has the human read this
-gate" is run-scoped knowledge gtd deliberately does not keep); `capture` lands a
-human's already-made edit outright, `script` runs in the driver, `prompt` goes
-to the agent with the document's own `session.id`/`session.resume` mapped onto
-the agent's session flags — trying `resume`'s hinted flag first and falling back
-to the other on failure, since `session.id` is derived, not remembered (see
-[Driving the loop](#driving-the-loop) above) — and its embedded `.validate`
-script's output re-prompted verbatim on failure (the driver owns only the retry
-cap); and every landed turn executed — and reported — by the emitted scripts
-themselves, with `gtd land`'s exit 3 (SETTLED) ending a run that has nothing
-left to do.
+Line by line it is the protocol described above: every gtd call captures its own
+exit code explicitly, since 10/20 are the ordinary case now and a bare command
+substitution under `set -e` would abort on either; the very first beat lands
+even at an apparent `0`, so a workflow whose initial state declares its own
+clean-tree `"C"` pattern still gets a chance to fire before the driver calls it
+done; `kind: "stalled"` guards against a spinning agent; `message` halts unless
+it is the opening beat, which the human's own re-invocation authored and which
+therefore lands like any other decision (see
+[Driving the loop](#driving-the-loop) above — this is the one place the driver,
+not gtd, decides, because "has the human read this gate" is run-scoped knowledge
+gtd deliberately does not keep); `capture` lands a human's already-made edit
+outright, no display needed; `script` runs `gtd next`'s own output in the
+driver; `prompt` sends it to the agent with `gtd status --json`'s own
+`session.id`/`session.resume` mapped onto the agent's session flags — trying
+`resume`'s hinted flag first and falling back to the other on failure, since
+`session.id` is derived, not remembered (see
+[Driving the loop](#driving-the-loop) above) — and its own `.validate` script's
+output re-prompted verbatim on failure (the driver owns only the retry cap);
+every landed turn is executed — and reported — by the emitted scripts
+themselves, via `gtd land`'s own captured-then-piped-to-`sh` form; and
+`gtd land`'s exit 0 ends a run that has nothing left to do — never a bare 10/20,
+which mean the loop keeps going. That exit-0 ending itself has two shapes,
+neither one distinguished by any field any more: a no-op at a `script` rest
+settles right where it rests (re-running the same beat can never make progress
+there, so `gtd_land` just stops), while an ordinary or squash landing that
+finishes the whole process moves on to the workflow's own idle gate — the
+reference driver reads once more (a plain `gtd status --json` peek) to tell the
+two apart, printing the idle gate's own message only when that peek confirms the
+process genuinely landed there.
 
 ### The self-validation gate
 
 After an agent turn at a state that declares `file:`+`mode:`, run the script:
-either `gtd next --json`'s own embedded `.validate` field (present at every
+either `gtd status --json`'s own embedded `.validate` field (present at every
 `prompt` beat that hands over a validatable file), or, standalone,
-`gtd validate --json`'s `.script` — both resolve the exact same script from one
-shared resolver. Exit 0 means the file is well-formed — proceed to `gtd land`. A
-non-zero exit means the script's own captured output IS a complete,
-ready-to-send fix prompt (an instruction plus the findings, see `src/Emit.ts`'s
-`failurePromptWrapper`): send it back to the same agent session verbatim, and
-cap how many fix attempts you allow yourself — the driver owns that retry count,
-not gtd. Landing never TRUSTS that you validated, either: the emitted `land`
-script carries the same format/validate commands ahead of its own commit and
-fails without committing when they fail, so a malformed file is never captured
-whether or not you ran the validate script first.
+`gtd validate`'s own plain-text output — both resolve the exact same script from
+one shared resolver. Exit 0 means the file is well-formed — proceed to
+`gtd land`. A non-zero exit means the script's own captured output IS a
+complete, ready-to-send fix prompt (an instruction plus the findings, see
+`src/Emit.ts`'s `failurePromptWrapper`): send it back to the same agent session
+verbatim, and cap how many fix attempts you allow yourself — the driver owns
+that retry count, not gtd. Landing never TRUSTS that you validated, either: the
+emitted `land` script carries the same format/validate commands ahead of its own
+commit and fails without committing when they fail, so a malformed file is never
+captured whether or not you ran the validate script first.
 
 ### Failure taxonomy and recovery
 
-Two different things can go wrong, and they mean different things — and one
-non-zero-looking exit is not a failure at all:
+Several different things can go wrong, and they mean different things — and most
+non-zero-looking exits are not a failure at all:
 
 - **`gtd` itself exits 1.** Nothing was attempted — this is a refusal (a guard
-  rejected the turn) or a usage error. No script was ever produced.
-- **`gtd land` exits 3 (SETTLED).** This is NOT a failure: nothing is owed, and
-  stdout still carries a script (a print-only note, or a genuine retain+rewind)
-  that a driver must still run.
+  rejected the turn). No script was ever produced.
+- **`gtd` itself exits 2.** A usage error — nothing was even attempted, the
+  invocation itself was wrong (unknown option/command, bad arity, a scope
+  violation).
+- **`gtd next`/`gtd status`/`gtd land` exit 10 or 20.** This is NOT a failure:
+  it's the owner signal (see [Exit codes](#exit-codes)) — an agent or a human
+  owes the next turn — and for `gtd land`, stdout still carries a script (a
+  print-only note, or a genuine retain+rewind, or an ordinary commit) that a
+  driver must still run.
 - **An emitted script exits non-zero when YOU run it.** Something may have
   partially happened — e.g. a `gtd_retry`-wrapped git write landed but a later
   step in the same script failed.
@@ -856,8 +1057,13 @@ its own retry/resume logic beyond "if the script failed, ask gtd again."
 
 ### Prerequisites
 
-- **`jq`** — to pull the `required`/`optional` strings back out of gtd's
-  `--json` output.
+- **`jq`** — to pull `gtd status --json`'s fields (`.kind`, `.log`,
+  `.session.id`, `.session.resume`, `.model`, `.validate`) back out of its JSON.
+  `gtd next`/`gtd land` print plain text, so nothing else needs it.
+- **A POSIX `sh`** (dash, ash, bash's own POSIX mode, etc.) — gtd's own emitted
+  scripts (`gtd land`, `gtd --entry <state>`, `gtd abandon`, `gtd restore`) are
+  POSIX sh; captured, then piped into it (see
+  [Writing your own driver](#writing-your-own-driver) above).
 - **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one the
   compiler fills in for the built-in `qa`/`review` formats) is literally the
   string `gtd check <mode> '<file>'`, invoked by NAME from inside an emitted
@@ -896,7 +1102,7 @@ One case never runs your `format:` (or `validate:`) at all: a step whose diff
 DELETES the state's own `file:`. Deleting it is a legitimate outcome — a review
 sign-off's whole diff is the review doc's deletion — and there is nothing left
 to format. Emitting the command anyway would make such a step unlandable, since
-`format:` is the first line of a `set -euo pipefail` script and a formatter like
+`format:` is the first line of a `set -eu` script and a formatter like
 `prettier --write` exits non-zero on a path that is not there.
 
 ### Built-in steering formats are ordinary modes
@@ -1002,7 +1208,7 @@ workflow:
           retry:
             max: <number>
             otherwise: <targetState>
-          label: <string> # optional, opaque display name passed through `gtd next --json`/`gtd status --json`
+          label: <string> # optional, opaque display name passed through `gtd status --json`
           file: <string> # optional, an Eta template naming the state's steering file
           mode: <modeName> # optional, requires "file" — must be declared in `modes:` (qa/review are seeded for you; everything else, including prose, you declare)
           reviewWindow: true # optional — open the review checkout window at rest here

@@ -1,7 +1,9 @@
-import { Effect } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
+import { GtdError } from "./Commentary.js"
 import {
   isIndexLockError,
+  resolvedRefOrCorrupted,
   withIndexLockRetry,
   withIndexLockRetries,
   type GitOperations,
@@ -20,6 +22,33 @@ for (const makeTier of gitTiers) {
     runGitServiceContract(makeTier)
   })
 }
+
+/**
+ * `resolveRef`'s own validation, unit-tested directly rather than through a
+ * real git repo — `git rev-parse --verify` exiting non-zero for a genuinely
+ * missing ref is a plain `Error` from `exec` itself (covered by the contract
+ * above's "errors on invalid ref"); this is the rarer, defensive branch where
+ * the command SUCCEEDS but its output isn't a 40-hex-char hash — a corrupted
+ * ref, gtd's one `GtdError` site in `Git.ts`.
+ */
+describe("resolvedRefOrCorrupted", () => {
+  it("succeeds with a genuine 40-hex-char hash", async () => {
+    const hash = "a".repeat(40)
+    const result = await Effect.runPromise(resolvedRefOrCorrupted("HEAD", hash))
+    expect(result).toBe(hash)
+  })
+
+  it("fails with a GtdError naming the ref, for anything else", async () => {
+    const exit = await Effect.runPromiseExit(resolvedRefOrCorrupted("some-ref", "not-a-hash"))
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toBeInstanceOf(GtdError)
+      expect(error).toHaveProperty("message", "Invalid ref: some-ref")
+      if (error instanceof GtdError) expect(error.detail).toEqual(["ref: some-ref"])
+    }
+  })
+})
 
 /**
  * `GitScript.ts`'s bash builders, run through real `bash` against a real git

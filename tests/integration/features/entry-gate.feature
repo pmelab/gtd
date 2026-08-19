@@ -99,7 +99,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
 
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -107,7 +107,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     And the last commit subject is "gtd(check): unwind → start-gate.check"
     And "NOTE.md" does not exist
 
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -132,7 +132,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
 
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -166,7 +166,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
 
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
@@ -174,7 +174,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     And the last commit subject is "gtd(check): unwind → start-gate.check"
     And "NOTE.md" does not exist
 
-    When I run gtd next with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
