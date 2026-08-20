@@ -61,7 +61,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       new add function — also handle negatives
       """
     And I mark the current commit as "review-commit"
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds

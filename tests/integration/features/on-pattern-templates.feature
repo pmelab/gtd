@@ -132,7 +132,7 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
     Then it succeeds
     And the last commit subject is "gtd(agent): working → captured"
 
-  Scenario: "gtd status --json" reports the pending change against the RENDERED pattern
+  Scenario: "gtd next --json" reports the pending change against the RENDERED pattern
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -170,7 +170,7 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       """
       the renamed output
       """
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"pattern\":\"A RENAMED.md\""
     And stdout contains "\"pattern\":\"A RENAMED.md\",\"target\":\"captured\""

@@ -66,7 +66,7 @@ Feature: gtd init — seed a minimal .gtdrc.json (default vars + formatting)
   # config at all — no init required.
   Scenario: a state command with no config runs on the built-in default workflow
     Given a test project
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"
     And stdout contains "Awaits: human"

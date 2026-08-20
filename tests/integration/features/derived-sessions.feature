@@ -1,7 +1,7 @@
 @inmem
 Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
 
-  `gtd status --json` (a pure peek, called once or twice back to back — both
+  `gtd next --json` (a pure peek, called once or twice back to back — both
   derive the exact same answer, since nothing is written; see
   src/Sessions.ts's own doc comment) resolves a `session: {id, resume}` pair
   at every `prompt` rest by hashing the resting state's memory key
@@ -61,7 +61,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     When I run gtd land
     Then it succeeds
 
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout matches "\"session\":\{\"id\":\"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\""
@@ -76,7 +76,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
 
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And the json field "session.id" matches the one recorded as "s1"
@@ -90,18 +90,18 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     When I run gtd land
     Then it succeeds
 
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"resume\":false"
     And I record the json field "session.id" as "first peek"
 
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"resume\":false"
     And the json field "session.id" matches the one recorded as "first peek"
 
   Scenario: a message rest and a script rest emit no session at all
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""
     And stdout does not contain "\"session\""
@@ -120,7 +120,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     When I run gtd land
     Then it succeeds
 
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking.verify\""
     And stdout does not contain "\"session\""
@@ -134,7 +134,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
 
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"resume\":false"
@@ -148,7 +148,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(agent): working → checking.verify"
 
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking.verify\""
     And stdout does not contain "\"session\""
@@ -168,7 +168,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
       """
       looks good
       """
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking.ask\""
     And stdout contains "\"resume\":false"
@@ -179,7 +179,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     Then it succeeds
     And the last commit subject is "gtd(reviewer): checking.ask → working"
 
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And the json field "session.id" matches the one recorded as "the outer session"
@@ -210,7 +210,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
       """
       looks good
       """
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And I record the json field "session.id" as "the first child session"
 
@@ -235,7 +235,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
       """
       looks good again
       """
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking.ask\""
     And the json field "session.id" differs from the one recorded as "the first child session"

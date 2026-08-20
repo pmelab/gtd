@@ -1,11 +1,11 @@
 @inmem
-Feature: v3 pattern-machine smoke — one-flow hops, gtd status --json, custom squash
+Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, custom squash
 
-  Minimal smoke coverage for the v3 CLI (`gtd land` / `gtd next` /
-  `gtd status`, see src/Edge.ts and
+  Minimal smoke coverage for the v3 CLI (`gtd land` / `gtd next`, see
+  src/Edge.ts and
   docs/design/pattern-machine-plan.md). Proves the rewritten edge/CLI wiring
   end to end: a handful of hops on the built-in default workflow's one flow,
-  the `gtd status --json` contract, and a custom `.gtdrc` `workflow:` squashing
+  the `gtd next --json` contract, and a custom `.gtdrc` `workflow:` squashing
   through a `commit:` state. Comprehensive coverage (every state, retry/
   escalation, the full check/fix/review tail, both refusal shapes) has its own
   dedicated feature files — see refusals.feature, default-workflow.feature,
@@ -77,10 +77,10 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd status --json, custom s
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
 
-  Scenario: gtd status --json reports state, actor, kind, and content
+  Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project
     And the workflow
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""
     And stdout contains "\"actor\":\"human\""

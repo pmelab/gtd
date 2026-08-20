@@ -288,20 +288,11 @@ When("I run gtd status with {string}", async (world: GtdWorld, arg: string) => {
 
 // ── Assertions ───────────────────────────────────────────────────────────────
 
-// The owner exit-code table (`src/ExitCodes.ts`): 0 nothing owed, 10 an agent
-// turn is owed, 20 a human turn is owed — none of the three is a failure.
-// `it succeeds` accepts all three; only 1 (refusal) or 2 (usage error) fail it.
+// The whole exit-code table (`src/ExitCodes.ts`) is closed at {0, 1, 2, 130,
+// 143} now, uniformly across every command — whose turn is next lives in
+// `gtd next --json`'s own `kind` field, never in the exit code. `it succeeds`
+// is strictly 0; only 1 (refusal) or 2 (usage error) fail it.
 Then("it succeeds", (world: GtdWorld) => {
-  assert.ok(
-    [0, 10, 20].includes(world.lastResult.exitCode),
-    `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
-  )
-})
-
-// Nothing owed — strictly 0. Distinct from `it succeeds` (0/10/20): a settled
-// landing's stdout still carries a script a driver must run, but the exit
-// code itself already says "stop, don't spin" rather than "keep going".
-Then("it settles", (world: GtdWorld) => {
   assert.strictEqual(
     world.lastResult.exitCode,
     0,
@@ -309,20 +300,14 @@ Then("it settles", (world: GtdWorld) => {
   )
 })
 
-// An agent owes the next turn (`script`/`prompt` beats) — exit 10.
-Then("it awaits the agent", (world: GtdWorld) => {
+// An alias for `it succeeds` at a landing that settles (a script rest's
+// no-op, or a collapse back to the initial state) — both read the same exit
+// code now; the `settled` distinction itself lives in `gtd land --json`'s own
+// `settled` field or the emitted script's content, not the exit code.
+Then("it settles", (world: GtdWorld) => {
   assert.strictEqual(
     world.lastResult.exitCode,
-    10,
-    `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
-  )
-})
-
-// A human owes the next turn (`capture`/`message`/`stalled` beats) — exit 20.
-Then("it awaits the human", (world: GtdWorld) => {
-  assert.strictEqual(
-    world.lastResult.exitCode,
-    20,
+    0,
     `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
   )
 })

@@ -41,7 +41,7 @@ Feature: gtd abandon — end the process underway without completing it
     # The plan the process committed is kept, now as a pending change.
     And the git status contains "NOTE.md"
     And "NOTE.md" contains "Build a thing."
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"
 
@@ -109,7 +109,7 @@ Feature: gtd abandon — end the process underway without completing it
   Scenario: reports the abandoned process and the state it returned to, in plain text
     # No more --json here (abandon is plain-text only now, see AGENTS.md) —
     # the printed script names the resting state it abandoned, and a
-    # follow-up "gtd status" confirms it rewound to idle.
+    # follow-up "gtd next" confirms it rewound to idle.
     Given a file "NOTE.md" with:
       """
       Build a thing.
@@ -119,7 +119,7 @@ Feature: gtd abandon — end the process underway without completing it
     When I run gtd with args "abandon"
     Then it succeeds
     And stdout contains "gtd_report_abandoned 'unwind'"
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"
 

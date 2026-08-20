@@ -16,7 +16,12 @@
       "outputs": []
     },
     "lint:sh": {
-      "inputs": ["src/**", "scripts/generate-shell-corpus.ts", "tests/shell/corpus/**"],
+      "inputs": [
+        "src/**",
+        "scripts/generate-shell-corpus.ts",
+        "tests/shell/corpus/**",
+        ".shellcheckrc"
+      ],
       "outputs": []
     },
     "typecheck": {

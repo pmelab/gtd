@@ -19,9 +19,9 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
   exercise. The step that LANDS at the gate opens it (in that command's
   `optional` script — presentation only, which is exactly what the window is);
   the next step AWAY from the gate closes it (in that command's `required`
-  script, ahead of its own commit). A read command — `gtd next`, `gtd status` —
-  neither opens nor closes it: it resolves through the window and leaves it
-  exactly as it found it.
+  script, ahead of its own commit). A read command — `gtd next` — neither
+  opens nor closes it: it resolves through the window and leaves it exactly as
+  it found it.
 
   The bundled unified workflow declares `reviewWindow: true` on
   `await-review`. Each scenario builds a process resting one state earlier, at
@@ -87,11 +87,11 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And "src/calc.ts" contains "export const add"
 
   @inmem
-  Scenario: The machine never sees the window — status resolves the real state
+  Scenario: The machine never sees the window — next resolves the real state
     Given I run gtd land
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
-    # `gtd status` resolved the true rest by reading THROUGH the open window —
+    # `gtd next` resolved the true rest by reading THROUGH the open window —
     # it neither closed nor re-armed anything:
     And stdout contains "State: build.review.await-review"
     And the git ref "refs/worktree/gtd/review-head" exists
@@ -150,7 +150,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     # The window they resolve through survives both invocations untouched, and
     # the second one still sees exactly what the first did.
     Given I run gtd land
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And the git ref "refs/worktree/gtd/review-head" exists
     And the git ref "refs/worktree/gtd/review-base" exists

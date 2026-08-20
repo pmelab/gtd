@@ -2,7 +2,7 @@
 Feature: gtd validate — self-validating the resolved rest's steering file
 
   `gtd validate` (see src/program.ts) resolves the current rest exactly like
-  `gtd status`, renders that state's `file:`, and evaluates it per its `mode:`.
+  `gtd next`, renders that state's `file:`, and evaluates it per its `mode:`.
   For the two BUILT-IN modes that means reading the working-tree contents and
   running gtd's own parser — `qa` -> src/OpenQuestions.ts, `review` ->
   src/ReviewDoc.ts (the SAME pure parsers the LSP publishes as diagnostics, so
@@ -123,14 +123,14 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And stdout contains "run `gtd check qa '.gtd/REQUIREMENTS.md'`"
     And stdout contains "fix every violation"
 
-  Scenario: `gtd status --json` withholds the self-validation instruction but embeds the validate script
+  Scenario: `gtd next --json` withholds the self-validation instruction but embeds the validate script
     Given a test project
     And the workflow
     And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
     And stdout does not contain "Before finishing your turn"

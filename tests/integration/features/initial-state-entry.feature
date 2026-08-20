@@ -18,7 +18,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
   Scenario: an ordinary non-gtd HEAD resolves to the initial state
     Given a test project
     And the workflow
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"
 
@@ -29,7 +29,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
       """
       old two-namespace boundary commit
       """
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"
 
@@ -40,7 +40,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
       """
       a plan
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "frobnicate"
     And stderr contains "gtd abandon"
@@ -52,7 +52,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
       """
       a plan
       """
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"
 
@@ -81,6 +81,6 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
       """
       feat: something
       """
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"

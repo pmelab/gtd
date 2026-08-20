@@ -6,14 +6,14 @@ Feature: The stderr narration channel, and the -v/-V swap
   across layers. `-V` (not `-v`) is now `--version`'s short-circuit alias;
   `-v` alone no longer prints a version.
 
-  Scenario: without --verbose, gtd status prints no narration to stderr
+  Scenario: without --verbose, gtd next prints no narration to stderr
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       vars:
         greeting: hi
       """
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stderr does not contain "rest resolved:"
     And stderr does not contain "config: layer"
@@ -25,14 +25,14 @@ Feature: The stderr narration channel, and the -v/-V swap
       vars:
         greeting: hi
       """
-    When I run gtd with args "status --verbose"
+    When I run gtd with args "next --verbose"
     Then it succeeds
     And stderr contains "rest resolved:"
     And stderr contains "config: layer"
 
   Scenario: -v is the alias for --verbose
     Given a test project
-    When I run gtd with args "status -v"
+    When I run gtd with args "next -v"
     Then it succeeds
     And stderr contains "rest resolved:"
 
@@ -61,7 +61,7 @@ Feature: The stderr narration channel, and the -v/-V swap
       """
       a scratch note
       """
-    When I run gtd with args "status --verbose"
+    When I run gtd with args "next --verbose"
     Then it succeeds
     And stderr contains "pending:"
 

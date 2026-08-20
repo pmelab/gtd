@@ -83,10 +83,10 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
     # it opens the review checkout window: HEAD rewinds to the review base in
     # the SAME land command's optional script (see review-window.feature), so
     # "the last commit subject" would name the base, not this transition.
-    # Assert through `gtd status`, which resolves the true rest by reading
+    # Assert through `gtd next`, which resolves the true rest by reading
     # THROUGH the open window, the same way review-window.feature's own
     # "The machine never sees the window" scenario does.
     And the git ref "refs/worktree/gtd/review-head" exists
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"

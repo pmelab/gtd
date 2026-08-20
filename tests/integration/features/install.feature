@@ -21,11 +21,11 @@ Feature: gtd install — the driver-building briefing
     When I run gtd with args "install"
     Then it succeeds
 
-  Scenario: --json is not gtd install's own surface — a usage error like every other non-status command
+  Scenario: --json is not gtd install's own surface — a usage error like every other non-next command
     Given a test project
     When I run gtd with args "install --json"
     Then it fails
-    And stderr contains "only valid for `gtd status`"
+    And stderr contains "only valid for `gtd next`"
     And stderr contains "gtd install"
 
   Scenario: gtd install takes no arguments and no out-of-scope flags
@@ -35,7 +35,7 @@ Feature: gtd install — the driver-building briefing
     When I run gtd with args "install --port 3"
     Then it fails
 
-  Scenario: the briefing names every field the current gtd status --json payload carries (drift guard)
+  Scenario: the briefing names every field the current gtd next --json payload carries (drift guard)
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -69,7 +69,7 @@ Feature: gtd install — the driver-building briefing
       """
       a prior draft, so the validate field resolves
       """
-    When I run gtd status with "--json"
+    When I run gtd next with "--json"
     Then it succeeds
     And I record the JSON keys of stdout as "status"
 

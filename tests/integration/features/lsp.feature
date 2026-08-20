@@ -129,13 +129,13 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/PLAN.md"
 
-  Scenario: gtd.openSteeringFile renders file: with the process's own entry vars, matching what gtd status reports (issue #156)
+  Scenario: gtd.openSteeringFile renders file: with the process's own entry vars, matching what gtd next reports (issue #156)
     # Before src/Edge.ts's currentRest, the LSP's own resolveSteeringFile hand-
     # rolled a byte-for-byte copy of the CLI's resolution chain that had
     # drifted three ways: it never applied `--var` overrides, never rendered
     # `on`, and never computed a review base. This pins the fix — a state
     # entered with `--var planFile=OTHER.md` renders `file:` against THAT
-    # override, the same file `gtd status` would report.
+    # override, the same file `gtd next` would report.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """

@@ -87,7 +87,7 @@ Feature: The require-revert guard exempts a relocated plumbing directory (it.sta
       vars:
         stateDir: a/./state
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "is not a canonical path"
     And stderr contains "a/state"

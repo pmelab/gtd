@@ -15,7 +15,7 @@ import { makeCapturingCliIo } from "../../../src/testing/cliIo.js"
 import { type ScriptedCommand } from "../../../src/testing/Layers.js"
 import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 import { applyEmittedScript } from "../../../src/testing/EmittedScriptRecognizer.js"
-import { EXIT_AGENT_TURN, EXIT_HUMAN_TURN, EXIT_OK } from "../../../src/ExitCodes.js"
+import { EXIT_OK } from "../../../src/ExitCodes.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 // Exported so `hooks.ts`'s PATH shim (a `gtd` shell script on the live tier's
@@ -35,21 +35,32 @@ export type Tier = "live" | "inmem"
  */
 const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore", "--entry"])
 
+/**
+ * `--json`/`--sh` on `gtd land` (in scope alongside `gtd next` now) print a
+ * STRUCTURED document, not the runnable script itself — `stdout` there is
+ * JSON/`gtd_`-prefixed shell assignments, never something `driveWriteCommand`
+ * should feed to `sh` as-is (the runnable script is `gtd_script`/`.script`,
+ * one field inside it). A scenario that wants to land under `--json`/`--sh`
+ * extracts that field itself and runs it explicitly, exactly like a real
+ * driver would.
+ */
+const requestsStructuredOutput = (args: readonly string[]): boolean =>
+  args.includes("--json") || args.includes("--sh")
+
 /** `--entry` takes both spellings (`--entry <state>` and `--entry=<state>`), so the bare short form has to be recognized either way. */
 const isWriteCommand = (args: readonly string[]): boolean => {
+  if (requestsStructuredOutput(args)) return false
   const first = args[0] ?? ""
   return WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--entry=")
 }
 
 /**
- * The three drivable exit codes ANY command now reports — `EXIT_OK` (0,
- * nothing owed), `EXIT_AGENT_TURN` (10) and `EXIT_HUMAN_TURN` (20), all of
- * which still carry a script/beat for a driver to act on — as opposed to a
- * genuine refusal (`EXIT_RUNTIME_ERROR`, 1) or a usage error
- * (`EXIT_USAGE_ERROR`, 2), which have nothing to drive.
+ * `gtd land`'s own exit code no longer overloads whose turn is next — it's
+ * `EXIT_OK` (0) on any successful landing (whatever `next --json`'s `kind`
+ * says comes after), and only a genuine refusal (`EXIT_RUNTIME_ERROR`, 1) or
+ * a usage error (`EXIT_USAGE_ERROR`, 2) has nothing to drive.
  */
-const landExitDrivable = (exitCode: number): boolean =>
-  exitCode === EXIT_OK || exitCode === EXIT_AGENT_TURN || exitCode === EXIT_HUMAN_TURN
+const landExitDrivable = (exitCode: number): boolean => exitCode === EXIT_OK
 
 /** The one line of a possibly multi-document stdout that parses as a JSON object (`gtd check --json`'s failing shape emits two). */
 const firstJsonObject = (stdout: string): Record<string, unknown> | undefined => {
@@ -273,12 +284,11 @@ export class GtdWorld extends QuickPickleWorld {
    *
    * Invoke the command exactly as the scenario asked (so `lastResult` carries
    * gtd's own wording and exit code verbatim), then drive whatever it
-   * emitted. A read command (`next`, `status`, `visualize`, `lsp`, `check`,
-   * `init`) emits nothing and falls straight through regardless of its own
-   * exit code (0/10/20 all just report whose turn it is next). `gtd land`'s
-   * `EXIT_AGENT_TURN`/`EXIT_HUMAN_TURN` still carry a script to run — same as
-   * `EXIT_OK` — so the guard below tolerates all three; only a genuine
-   * refusal (`EXIT_RUNTIME_ERROR`) or usage error skips driving.
+   * emitted. A read command (`next`, `visualize`, `lsp`, `check`, `init`)
+   * emits nothing and falls straight through regardless of its own exit code
+   * — every command exits 0 on success now, whatever `next --json`'s `kind`
+   * says comes after. Only a genuine refusal (`EXIT_RUNTIME_ERROR`) or usage
+   * error skips driving `gtd land`'s emitted script.
    */
   async runGtd(...args: string[]): Promise<void> {
     await this.invokeGtd(...args)
@@ -298,12 +308,12 @@ export class GtdWorld extends QuickPickleWorld {
 
   /**
    * `land`/`--entry`/`abandon`/`restore`: run the WHOLE of `lastResult.stdout`
-   * as one script — `Emit.ts`'s `combinedScript` is now the only artifact any
-   * of these commands print (no more `--json` to split `required`/`optional`
-   * out of), sequencing required before optional itself and swallowing the
-   * optional half's own failure. gtd's own plain-text line stays as
-   * `lastResult`; only a FAILING script overrides it, since a scenario
-   * asserting "it succeeds" must not pass when the work never landed.
+   * as one script — `Emit.ts`'s `combinedScript`, the plain (never `--json`/
+   * `--sh`, see `isWriteCommand`) artifact each of these commands prints,
+   * sequencing required before optional itself and swallowing the optional
+   * half's own failure. gtd's own plain-text line stays as `lastResult`; only
+   * a FAILING script overrides it, since a scenario asserting "it succeeds"
+   * must not pass when the work never landed.
    */
   private async driveWriteCommand(): Promise<void> {
     this.lastScriptOutput = ""
@@ -324,9 +334,9 @@ export class GtdWorld extends QuickPickleWorld {
    * `nothing to validate at "<state>"` when there's nothing to run) — the
    * verdict lives in that script's exit code, not the command's. Run it and
    * report the verdict the way a driver does (`validateVerdict`). `validate`
-   * itself no longer names the file structurally (`--json` is `gtd status`'s
+   * itself no longer names the file structurally (`--json` is `gtd next`'s
    * surface alone now), so the file name for the verdict message is probed
-   * off a `gtd status --json` call against the SAME rest instead.
+   * off a `gtd next --json` call against the SAME rest instead.
    */
   private async driveValidateCommand(): Promise<void> {
     const script = this.lastResult.stdout
@@ -337,14 +347,14 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * Probes `gtd status --json`'s `file` field — the resolved rest `gtd
+   * Probes `gtd next --json`'s `file` field — the resolved rest `gtd
    * validate` just emitted a script for — restoring `lastResult` to gtd's own
    * `validate` output afterwards, exactly like the old `--json` re-invoke
    * this replaces (see AGENTS.md's "one structured surface" decision).
    */
   private async currentValidateFile(): Promise<string> {
     const reported = this.lastResult
-    await this.invokeGtd("status", "--json")
+    await this.invokeGtd("next", "--json")
     const probe = this.lastResult
     this.lastResult = reported
     const parsed = firstJsonObject(probe.stdout)
@@ -462,28 +472,24 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * `@live` only — proves a large `gtd next` prompt survives its own
-   * non-zero exit (`EXIT_AGENT_TURN`, 10) through a pipe under backpressure,
-   * the property task 3 of `05-flush-stdout-before-exit.md` exists to pin.
-   * Runs the SAME command two ways, each a REAL `bash -c` shell redirect
-   * (not this world's own `runGtd`/`driveWriteCommand` machinery, which
-   * never touches a real OS pipe):
+   * `@live` only — proves a large `gtd next` prompt survives its own exit
+   * through a pipe under backpressure, the property task 3 of
+   * `05-flush-stdout-before-exit.md` exists to pin. Runs the SAME command two
+   * ways, each a REAL `bash -c` shell redirect (not this world's own
+   * `runGtd`/`driveWriteCommand` machinery, which never touches a real OS
+   * pipe):
    *
    *  - direct: `gtd next > <file>` — no reader-side delay, nothing queues;
    *    this is the byte count "nothing was truncated" is measured against
-   *  - piped: `gtd next | { sleep 2; cat; } > <file>`, with `set -o
-   *    pipefail` so the pipeline's own exit status is `gtd next`'s (10),
-   *    never `cat`'s — the sleep holds the reader off long enough that a
-   *    fixture sized past the OS pipe buffer forces `process.stdout.write`
-   *    to queue, exactly the condition `nodeCliIo.exit` used to race
+   *  - piped: `gtd next | { sleep 2; cat; } > <file>` — the sleep holds the
+   *    reader off long enough that a fixture sized past the OS pipe buffer
+   *    forces `process.stdout.write` to queue, exactly the condition
+   *    `nodeCliIo.exit` used to race
    *
    * Both byte counts are read back with `statSync` — bash's own redirect
    * writes straight to disk, never back through this process — and
-   * `lastResult` is set from the PIPED run's own exit so `it awaits the
-   * agent`/`it succeeds` read it exactly like any other invocation. Each
-   * half's own non-zero exit (expected — a `prompt` rest's `next` always
-   * exits 10) is caught rather than treated as a step failure; only the
-   * piped run's final exit code and both byte counts matter here.
+   * `lastResult` is set from the PIPED run's own exit so `it succeeds` reads
+   * it exactly like any other invocation.
    */
   async runGtdNextRedirectedAndPiped(): Promise<void> {
     const bin = `${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)}`
@@ -501,7 +507,7 @@ export class GtdWorld extends QuickPickleWorld {
     )
     this.directRedirectByteCount = statSync(directFile).size
 
-    const pipeline = `set -o pipefail; ${bin} next | { sleep 2; cat; } > ${JSON.stringify(pipedFile)}`
+    const pipeline = `${bin} next | { sleep 2; cat; } > ${JSON.stringify(pipedFile)}`
     try {
       await execFile("bash", ["-c", pipeline], runOpts)
       this.lastResult = { exitCode: 0, stdout: "", stderr: "" }

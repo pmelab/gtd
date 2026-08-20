@@ -49,7 +49,6 @@ export type Command =
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
   | { readonly kind: "next" }
-  | { readonly kind: "status" }
   | { readonly kind: "validate" }
   | {
       readonly kind: "check"
@@ -71,6 +70,8 @@ export type CliPlan =
       readonly kind: "command"
       readonly command: Command
       readonly json: boolean
+      /** Whether `--sh` was present — `gtd next` only; mutually exclusive with `json` (see `conflictViolation`). */
+      readonly sh: boolean
       /** Whether `--verbose`/`-v` was present — gates the `Narrator` `Cli.ts` builds for this dispatch (see `runCli`). */
       readonly verbose: boolean
     }
@@ -78,8 +79,8 @@ export type CliPlan =
 /**
  * What a command kind needs before it may run. `pure`/`removed` never reach
  * `io.layers()` at all (they resolve to `output`/`usage` plans, never a
- * `Command`). `state` marks the seven kinds (`land`, `entry`, `abandon`,
- * `restore`, `next`, `status`, `validate`) that share the repo-root guard, the
+ * `Command`). `state` marks the six kinds (`land`, `entry`, `abandon`,
+ * `restore`, `next`, `validate`) that share the repo-root guard, the
  * at-least-one-commit guard, and the review-window bracket
  * (`needsOf(kind) === "state"`) — a repository with no commits has no HEAD to
  * derive workflow state from, so both guards must pass before dispatch;
@@ -112,6 +113,8 @@ interface FlagRow {
   readonly valueHint: string
   /** Pre-wrapped help lines (data, not generated prose) — see `renderHelp`. */
   readonly help: readonly string[]
+  /** Flag names this one may never appear alongside — checked generically after parsing (see `conflictViolation`), never as a bespoke `if`. Defaults to none. */
+  readonly conflicts?: readonly string[]
 }
 
 const nonNegativeNumber = (raw: string, flag: string): Either.Either<number, string> => {
@@ -127,13 +130,34 @@ const FLAGS: readonly FlagRow[] = [
     name: "--json",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "status",
+    scope: (kind) => kind === "next" || kind === "land",
     decode: () => Either.right(true),
     scopeError:
-      "gtd: --json is only valid for `gtd status` — every other command prints plain text; " +
-      "see `gtd install` for the driver protocol briefing",
+      "gtd: --json is only valid for `gtd next`/`gtd land` — every other command prints " +
+      "plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "",
-    help: ["(gtd status only) output structured JSON instead of plain text"],
+    help: [
+      "(gtd next/gtd land only) output structured JSON",
+      "instead of plain text. Mutually exclusive with --sh",
+    ],
+    conflicts: ["--sh"],
+  },
+  {
+    name: "--sh",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "next" || kind === "land",
+    decode: () => Either.right(true),
+    scopeError:
+      "gtd: --sh is only valid for `gtd next`/`gtd land` — every other command prints " +
+      "plain text; see `gtd install` for the driver protocol briefing",
+    valueHint: "",
+    help: [
+      "(gtd next/gtd land only) output gtd_-prefixed POSIX",
+      "shell assignments instead of plain text. Mutually",
+      "exclusive with --json",
+    ],
+    conflicts: ["--json"],
   },
   {
     name: "--port",
@@ -320,16 +344,17 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     details: [
       "Land whatever the tree now shows at the currently resolved",
       "rest — a human capture, an agent/check turn, an empty",
-      "attempt (a fruitless prompt turn), or a squash — and print",
-      "the script that records it; a driver runs the script, e.g.",
-      "`gtd land | sh`. Pass --cost=<n> (optionally",
-      "--model=<name>) to record the just-finished invocation's",
-      "token cost and model on the turn commit (summed into",
-      "it.processCost/processCostByModel). Exits 10 when the next",
-      "rest needs an agent turn, 20 when it needs a human turn, 0",
-      "when nothing is owed (a no-op at a script rest, the",
-      "initial-state collapse, or a clean message rest), 1 on any",
-      "refusal — see the Exit codes section below",
+      "attempt (a fruitless prompt turn), or a squash. Pass",
+      "--cost=<n> (optionally --model=<name>) to record the",
+      "just-finished invocation's token cost and model on the",
+      "turn commit (summed into it.processCost/",
+      "processCostByModel). Plain (the default) prints ONLY the",
+      "script that records the landing; a driver runs it, e.g.",
+      "`gtd land | sh`. --json/--sh instead emit script (that",
+      "same script, byte-identical) alongside settled, idle,",
+      "state (the post-land target), subject, cost and model —",
+      "--json/--sh are mutually exclusive. Exits 0 on success, 1",
+      "on any refusal — see the Exit codes section below",
     ],
   },
   {
@@ -362,27 +387,21 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     kind: "next",
     arity: "none",
     details: [
-      "Print the resolved rest's rendered script/prompt/message",
-      "(no mutation, safe to poll; plain text only — see `gtd",
-      "status --json` for the structured beat document). Exits 0",
-      "(idle), 10 (agent turn) or 20 (human turn) — see the Exit",
-      "codes section below",
-    ],
-  },
-  {
-    token: "status",
-    kind: "status",
-    arity: "none",
-    details: [
-      "Print the resolved rest's state/actor and which declared",
-      "pattern (if any) each pending change matches (no",
-      "mutation). --json emits the one structured surface gtd",
-      "has: kind (capture|message|script|prompt|stalled) selects",
-      "what a driver does, content is what it runs or shows, plus",
-      "the prompt session, model, validate script, log path,",
-      "changes, next and the resting state's own fields. Exits 0",
-      "(idle), 10 (agent turn) or 20 (human turn) — see the Exit",
-      "codes section below",
+      "Print the resolved rest's beat (no mutation, safe to",
+      "poll), in one of three encodings. Plain (the default): a",
+      "status summary, a blank line, then the step verbatim —",
+      "except at a prompt rest, which is the bare step (plus the",
+      "self-validation instruction when applicable) with no",
+      "header, since those bytes are the agent's own input. --json",
+      "emits the one structured surface gtd has: kind",
+      "(capture|message|script|prompt|stalled) selects what a",
+      "driver does, content is what it runs or shows, idle marks",
+      "the workflow's initial state with a clean tree, plus the",
+      "prompt session, model, validate script, log path, changes,",
+      "next and the resting state's own fields. --sh emits the",
+      "same fields as gtd_-prefixed POSIX shell assignments.",
+      "--json/--sh are mutually exclusive. Exits 0 — see the",
+      "Exit codes section below",
     ],
   },
   {
@@ -477,6 +496,7 @@ const REMOVED: Readonly<Record<string, string>> = {
     "gtd: `gtd loop` is gone — gtd decides and prints, a driver executes. " +
     'Copy the driver from the README\'s "A complete minimal driver" section ' +
     "and run that instead",
+  status: "gtd: `gtd status` is gone — run `gtd next` instead; --json moved with it",
 }
 
 // ---------------------------------------------------------------------------
@@ -649,6 +669,17 @@ const scopeViolation = (
   return undefined
 }
 
+/** A table field, not an `if`: any row present alongside a flag it names in `conflicts` is a usage error — checked generically over every row, so a new conflicting pair is one table edit. */
+const conflictViolation = (present: ReadonlySet<string>): string | undefined => {
+  for (const row of FLAGS) {
+    if (!present.has(row.name)) continue
+    for (const other of row.conflicts ?? []) {
+      if (present.has(other)) return `gtd: ${row.name} and ${other} are mutually exclusive`
+    }
+  }
+  return undefined
+}
+
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") {
     return rest.length > 0
@@ -776,6 +807,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const violation = scopeViolation(kind, present)
   if (violation !== undefined) return usagePlan(violation, jsonSeen)
 
+  const conflict = conflictViolation(present)
+  if (conflict !== undefined) return usagePlan(conflict, jsonSeen)
+
   const decoded = decodeFlags(byFlag)
   if (Either.isLeft(decoded)) return usagePlan(decoded.left, jsonSeen)
   const bag = decoded.right as {
@@ -789,6 +823,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   }
 
   const json = present.has("--json")
+  const sh = present.has("--sh")
   const verbose = present.has("--verbose")
 
   if (kind === "land") {
@@ -798,7 +833,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         json,
       )
     }
-    return { kind: "command", command: buildLandCommand(bag), json, verbose }
+    return { kind: "command", command: buildLandCommand(bag), json, sh, verbose }
   }
 
   if (kind === "entry") {
@@ -807,6 +842,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: { kind: "entry", actor: "human", state: entryRaw!, vars: bag["--var"] ?? {}, label },
       json,
+      sh,
       verbose,
     }
   }
@@ -816,6 +852,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: { kind: "visualize", port: bag["--port"] ?? 0, open: !(bag["--no-open"] ?? false) },
       json,
+      sh,
       verbose,
     }
   }
@@ -832,23 +869,16 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
           : {}),
       },
       json,
+      sh,
       verbose,
     }
   }
 
   // Every other kind carries no extra fields.
   const command: Command = {
-    kind: kind as
-      | "lsp"
-      | "init"
-      | "abandon"
-      | "restore"
-      | "next"
-      | "status"
-      | "validate"
-      | "install",
+    kind: kind as "lsp" | "init" | "abandon" | "restore" | "next" | "validate" | "install",
   }
-  return { kind: "command", command, json, verbose }
+  return { kind: "command", command, json, sh, verbose }
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,16 +1035,16 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
   }
 
   const out = bufferedArtifactOut(io)
-  return runCommand(plan.command, plan.json, out).pipe(
-    // `runCommand` returns the exit code to use (`EXIT_OK` for the ordinary
-    // case, or `land`/`next`/`status`'s own owner code — see `ExitCodes.ts`).
-    // `flush()` fires here, on success, BEFORE `io.exit` — the one point
-    // where the whole buffered artifact is known-complete and safe to hand
-    // to stdout (see `bufferedArtifactOut`'s own doc comment for the
+  return runCommand(plan.command, plan.json, plan.sh, out).pipe(
+    // `runCommand` no longer returns an exit code — a command choosing its
+    // own is unrepresentable now — so this supplies `EXIT_OK` uniformly on
+    // success. `flush()` fires here, on success, BEFORE `io.exit` — the one
+    // point where the whole buffered artifact is known-complete and safe to
+    // hand to stdout (see `bufferedArtifactOut`'s own doc comment for the
     // failure-discards-the-buffer half of the same contract).
-    Effect.map((code) => {
+    Effect.map(() => {
       out.flush()
-      if (code !== EXIT_OK) io.exit(code)
+      io.exit(EXIT_OK)
     }),
     Effect.provide(io.layers(plan.verbose)),
     Effect.sandbox,
