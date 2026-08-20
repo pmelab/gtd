@@ -64,7 +64,7 @@ Feature: An open review window reports untracked-but-present files by content, n
     # The step that lands at the gate commits REVIEW.md and opens the window,
     # which un-tracks it again (the index moves to the review base).
     Given I run gtd land
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"
     # Present on disk with the bytes it was committed with: no change, and

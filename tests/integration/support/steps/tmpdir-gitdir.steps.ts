@@ -73,9 +73,9 @@ Then("nothing was written under the overridden TMPDIR", (world: GtdWorld) => {
 })
 
 Then(
-  "gtd status --json reports the log path under the relocated git dir",
+  "gtd next --json reports the log path under the relocated git dir",
   async (world: GtdWorld) => {
-    await world.runGtd("status", "--json")
+    await world.runGtd("next", "--json")
     const parsed = JSON.parse(world.lastResult.stdout) as Record<string, unknown>
     assert.strictEqual(parsed.log, join(world.customGitDir!, "gtd-loop.log"))
   },

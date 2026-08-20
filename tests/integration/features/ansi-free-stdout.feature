@@ -56,9 +56,11 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
       """
 
   @inmem
-  Scenario: no escape sequence appears in gtd's own stdout for a prompt, a script, a status and a land (in-memory tier)
-    # idle: a plain message rest — gtd status prints it as ordinary text.
-    When I run gtd status
+  Scenario: no escape sequence appears in gtd's own stdout for a message, a prompt, a script and a land (in-memory tier)
+    # idle: a plain message rest — gtd next prints the header block, then a
+    # blank line, then the message text (gtd status is gone; this surface
+    # merged into gtd next).
+    When I run gtd next
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
@@ -91,9 +93,11 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     And stdout contains no ANSI escape sequence
 
   @live
-  Scenario: no escape sequence appears in gtd's own stdout for a prompt, a script, a status and a land (live tier)
-    # idle: a plain message rest — gtd status prints it as ordinary text.
-    When I run gtd status
+  Scenario: no escape sequence appears in gtd's own stdout for a message, a prompt, a script and a land (live tier)
+    # idle: a plain message rest — gtd next prints the header block, then a
+    # blank line, then the message text (gtd status is gone; this surface
+    # merged into gtd next).
+    When I run gtd next
     Then it succeeds
     And stdout contains no ANSI escape sequence
 

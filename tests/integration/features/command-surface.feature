@@ -2,7 +2,7 @@
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
   gtd v3 exposes `init`, `land` (with `--cost=<n>`/`--model=<name>`),
-  `abandon`, `restore`, `next`, `status`, `validate`, `check <mode> <file>`,
+  `abandon`, `restore`, `next`, `validate`, `check <mode> <file>`,
   `lsp`, `visualize`, `version`, and `help` as its subcommands. `--entry
   <state>` is only the bare form (no command at all) — landing and entering
   are different verbs. Bare `gtd` (no subcommand) is a usage error unless
@@ -104,18 +104,16 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Then it succeeds
     And stdout contains "lsp"
 
-  Scenario Outline: --json is a usage error on every command except gtd status — it's the only structured surface
+  Scenario Outline: --json is a usage error on every command except gtd next/gtd land — the only structured surfaces
     Given a test project
     When I run gtd with args "<args>"
     Then it fails
-    And stderr contains "only valid for `gtd status`"
+    And stderr contains "only valid for `gtd next`/`gtd land`"
     And stderr contains "gtd install"
 
     Examples:
       | args                    |
       | lsp --json              |
-      | next --json              |
-      | land --json              |
       | validate --json          |
       | check qa TODO.md --json  |
       | init --json              |
@@ -124,6 +122,32 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
       | abandon --json           |
       | restore --json           |
       | --entry idle --json      |
+
+  Scenario Outline: --sh is a usage error on every command except gtd next/gtd land
+    Given a test project
+    When I run gtd with args "<args>"
+    Then it fails
+    And stderr contains "only valid for `gtd next`/`gtd land`"
+    And stderr contains "gtd install"
+
+    Examples:
+      | args                    |
+      | status --sh             |
+      | lsp --sh                |
+      | validate --sh            |
+      | check qa TODO.md --sh    |
+      | init --sh                |
+      | visualize --sh           |
+      | install --sh             |
+      | abandon --sh             |
+      | restore --sh             |
+      | --entry idle --sh        |
+
+  Scenario: --sh and --json together on gtd next is a usage error, not a silent last-one-wins
+    Given a test project
+    When I run gtd with args "next --sh --json"
+    Then it fails
+    And stderr contains "mutually exclusive"
 
   Scenario: gtd --entry version refuses as an unknown entry state and prints no version
     # The regression this RFC exists to fix: a flag-unaware positional

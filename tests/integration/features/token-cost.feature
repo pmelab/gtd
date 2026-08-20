@@ -8,8 +8,10 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
   such entry across the current process; a `commit:` squash template renders
   the whole-process total via `it.processCost` and the per-model breakdown via
   `it.processCostByModel` — the complete cost of the feature, itemized by model,
-  since tokens alone don't tell you the price. `gtd status` shows the running
-  total (and per-model breakdown) mid-process.
+  since tokens alone don't tell you the price. `gtd next` shows the running
+  total (and per-model breakdown) mid-process — via its `--json` `cost`/
+  `costByModel` fields when the resting state is a bare `prompt` (whose plain
+  output carries no header at all).
 
   Scenario: gtd land --cost records a Gtd-Cost trailer on the turn commit, subject untouched
     Given a test project
@@ -89,7 +91,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     And the last commit subject is "gtd(agent): building → idle"
     And the last commit body contains "Gtd-Cost: 1450"
 
-  Scenario: gtd status shows the running process cost, accumulated across turns
+  Scenario: gtd next --json shows the running process cost, accumulated across turns
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -139,12 +141,15 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     When I run gtd land with "--cost=250"
     Then it succeeds
     And the last commit subject is "gtd(agent): reviewing → polishing"
-    When I run gtd status
+    # polishing is a bare `prompt` state — plain `gtd next` output there drops
+    # the header entirely (see AGENTS.md), so the running total is only
+    # observable via --json's `cost` field.
+    When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "State: polishing"
-    And stdout contains "Cost: 350"
+    And stdout contains "\"state\":\"polishing\""
+    And stdout contains "\"cost\":350"
 
-  Scenario: gtd status omits the Cost line when no cost has been recorded
+  Scenario: gtd next --json omits the cost field when no cost has been recorded
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -170,10 +175,13 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
       a note
       """
-    When I run gtd status
+    # building is a bare `prompt` state — plain `gtd next` output there drops
+    # the header entirely, so check --json directly: the `cost` field is
+    # omitted outright (never emitted as a zero) when nothing was recorded.
+    When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "State: building"
-    And stdout does not contain "Cost:"
+    And stdout contains "\"state\":\"building\""
+    And stdout does not contain "\"cost\""
 
   Scenario: a squash commit template renders it.processCost — the whole-process total including the squashing step
     Given a test project
@@ -232,7 +240,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: --cost is rejected on a non-land command
     Given a test project
-    When I run gtd status with "--cost=5"
+    When I run gtd next with "--cost=5"
     Then it fails
     And stderr contains "gtd: --cost is only valid for `gtd land`"
 
@@ -325,7 +333,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     Then it succeeds
     And the last commit body contains "Gtd-Cost: 1450 opus"
 
-  Scenario: gtd status shows the per-model breakdown under the running total
+  Scenario: gtd next --json shows the per-model breakdown under the running total
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -373,11 +381,14 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
     When I run gtd land with "--cost=250" and "--model=opus"
     Then it succeeds
-    When I run gtd status
+    # polishing is a bare `prompt` state — plain `gtd next` output there drops
+    # the header entirely, so the running total and per-model breakdown are
+    # only observable via --json's `cost`/`costByModel` fields.
+    When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "Cost: 350"
-    And stdout contains "opus: 250"
-    And stdout contains "haiku: 100"
+    And stdout contains "\"cost\":350"
+    And stdout contains "\"model\":\"opus\",\"cost\":250"
+    And stdout contains "\"model\":\"haiku\",\"cost\":100"
 
   Scenario: a squash commit template itemizes it.processCostByModel across the whole process
     Given a test project
@@ -440,7 +451,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: --model is rejected on a non-land command
     Given a test project
-    When I run gtd status with "--model=opus"
+    When I run gtd next with "--model=opus"
     Then it fails
     And stderr contains "gtd: --model is only valid for `gtd land`"
 

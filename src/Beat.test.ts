@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest"
-import { beatDocument, beatKindOf, stallDiagnosis, type BeatKind, type NextMatch } from "./Beat.js"
+import {
+  beatFields,
+  beatKindOf,
+  landFields,
+  renderBeatJson,
+  renderBeatPlain,
+  renderBeatSh,
+  renderLandJson,
+  renderLandSh,
+  stallDiagnosis,
+  type BeatFields,
+  type BeatKind,
+  type LandFields,
+  type NextMatch,
+} from "./Beat.js"
 import type { ModelCost, RenderedRest } from "./Edge.js"
 
-/** The four status-shape fields every `beatDocument` call must now carry — factored so each test only overrides what it's testing. */
+/** `renderBeatJson(beatFields(input))`, composed once so the pre-existing per-call-site assertions below (each pinning the JSON shape/order `beatFields`/`renderBeatJson` must produce) exercise the real two-function split byte-for-byte. */
+const renderBeatJsonLine = (input: Parameters<typeof beatFields>[0]): string =>
+  renderBeatJson(beatFields(input))
+
+/** The four status-shape fields every `renderBeatJsonLine` call must now carry — factored so each test only overrides what it's testing. */
 const statusFields = (
   overrides: {
     readonly changes?: readonly {
@@ -13,8 +31,10 @@ const statusFields = (
     readonly next?: NextMatch | null
     readonly cost?: number
     readonly costByModel?: readonly ModelCost[]
+    readonly idle?: boolean
   } = {},
 ) => ({
+  idle: overrides.idle ?? false,
   changes: overrides.changes ?? [],
   next: overrides.next ?? null,
   cost: overrides.cost ?? 0,
@@ -70,9 +90,9 @@ describe("stallDiagnosis", () => {
   })
 })
 
-describe("beatDocument", () => {
+describe("renderBeatJsonLine", () => {
   it("emits the unconditional fields plus the resolved kind and content", () => {
-    const line = beatDocument({
+    const line = renderBeatJsonLine({
       rendered: rest({ kind: "script" }),
       kind: "script",
       log: ".git/gtd-loop.log",
@@ -81,6 +101,7 @@ describe("beatDocument", () => {
     expect(JSON.parse(line)).toEqual({
       kind: "script",
       content: "fix it",
+      idle: false,
       log: ".git/gtd-loop.log",
       state: "build.fixing",
       actor: "agent",
@@ -90,7 +111,12 @@ describe("beatDocument", () => {
   })
 
   it("uses the stall diagnosis as content, never the rendered content, at kind stalled", () => {
-    const line = beatDocument({ rendered: rest(), kind: "stalled", log: "log", ...statusFields() })
+    const line = renderBeatJsonLine({
+      rendered: rest(),
+      kind: "stalled",
+      log: "log",
+      ...statusFields(),
+    })
     const parsed = JSON.parse(line) as { content: string }
     expect(parsed.content).toBe(stallDiagnosis("build.fixing", "agent"))
     expect(parsed.content).not.toBe("fix it")
@@ -104,9 +130,10 @@ describe("beatDocument", () => {
       "script",
       "stalled",
     ] as const satisfies readonly BeatKind[]) {
-      const line = beatDocument({
+      const line = renderBeatJsonLine({
         rendered: rest(),
         kind,
+        idle: false,
         log: "log",
         session,
         validate: "gtd check qa 'TODO.md'",
@@ -123,7 +150,7 @@ describe("beatDocument", () => {
 
   it("emits session and validate at kind prompt", () => {
     const session = { id: "8f2c", resume: true }
-    const line = beatDocument({
+    const line = renderBeatJsonLine({
       rendered: rest(),
       kind: "prompt",
       log: "log",
@@ -137,7 +164,12 @@ describe("beatDocument", () => {
   })
 
   it("omits session/validate at kind prompt when the caller supplied none, never emitting null", () => {
-    const line = beatDocument({ rendered: rest(), kind: "prompt", log: "log", ...statusFields() })
+    const line = renderBeatJsonLine({
+      rendered: rest(),
+      kind: "prompt",
+      log: "log",
+      ...statusFields(),
+    })
     const parsed = JSON.parse(line) as Record<string, unknown>
     expect("session" in parsed).toBe(false)
     expect("validate" in parsed).toBe(false)
@@ -164,7 +196,7 @@ describe("beatDocument", () => {
       // no match) — the "never null" claim in this test's title is about the
       // OPTIONAL fields under test (model/memory/file/mode/label/edges), not
       // about `next`, which is always present as an object or `null`.
-      const line = beatDocument({ rendered, kind, log: "log", ...statusFields() })
+      const line = renderBeatJsonLine({ rendered, kind, log: "log", ...statusFields() })
       const parsed = JSON.parse(line) as Record<string, unknown>
       expect(parsed.model).toBe("opus")
       expect(parsed.memory).toBe("build#a1b2c3d")
@@ -176,7 +208,12 @@ describe("beatDocument", () => {
   })
 
   it("omits optional fields entirely (not undefined/null) when unset", () => {
-    const line = beatDocument({ rendered: rest(), kind: "script", log: "log", ...statusFields() })
+    const line = renderBeatJsonLine({
+      rendered: rest(),
+      kind: "script",
+      log: "log",
+      ...statusFields(),
+    })
     const parsed = JSON.parse(line) as Record<string, unknown>
     for (const key of [
       "session",
@@ -204,9 +241,10 @@ describe("beatDocument", () => {
       label: "Fixing",
       edges: [{ pattern: "C", target: "idle" }],
     })
-    const line = beatDocument({
+    const line = renderBeatJsonLine({
       rendered,
       kind: "prompt",
+      idle: false,
       log: ".git/gtd-loop.log",
       session: { id: "8f2c", resume: true },
       validate: "gtd check qa 'TODO.md'",
@@ -219,6 +257,7 @@ describe("beatDocument", () => {
     expect(keys).toEqual([
       "kind",
       "content",
+      "idle",
       "session",
       "model",
       "validate",
@@ -238,7 +277,12 @@ describe("beatDocument", () => {
   })
 
   it("ends with a trailing newline", () => {
-    const line = beatDocument({ rendered: rest(), kind: "script", log: "log", ...statusFields() })
+    const line = renderBeatJsonLine({
+      rendered: rest(),
+      kind: "script",
+      log: "log",
+      ...statusFields(),
+    })
     expect(line.endsWith("\n")).toBe(true)
   })
 
@@ -247,7 +291,7 @@ describe("beatDocument", () => {
       { status: "M", path: "TODO.md", pattern: "TODO.md" },
       { status: "A", path: "REVIEW.md", pattern: null },
     ]
-    const line = beatDocument({
+    const line = renderBeatJsonLine({
       rendered: rest(),
       kind: "prompt",
       log: "log",
@@ -258,7 +302,7 @@ describe("beatDocument", () => {
   })
 
   it("carries next as null on no match, an object (action omitted when absent) on a match", () => {
-    const noMatch = beatDocument({
+    const noMatch = renderBeatJsonLine({
       rendered: rest(),
       kind: "prompt",
       log: "log",
@@ -266,7 +310,7 @@ describe("beatDocument", () => {
     })
     expect((JSON.parse(noMatch) as { next: unknown }).next).toBeNull()
 
-    const matched = beatDocument({
+    const matched = renderBeatJsonLine({
       rendered: rest(),
       kind: "prompt",
       log: "log",
@@ -276,7 +320,7 @@ describe("beatDocument", () => {
     expect(parsedMatch.next).toEqual({ pattern: "C", target: "idle" })
     expect("action" in parsedMatch.next).toBe(false)
 
-    const matchedWithAction = beatDocument({
+    const matchedWithAction = renderBeatJsonLine({
       rendered: rest(),
       kind: "prompt",
       log: "log",
@@ -287,12 +331,17 @@ describe("beatDocument", () => {
   })
 
   it("omits cost/costByModel when cost is zero, emits both when a cost was recorded", () => {
-    const noCost = beatDocument({ rendered: rest(), kind: "prompt", log: "log", ...statusFields() })
+    const noCost = renderBeatJsonLine({
+      rendered: rest(),
+      kind: "prompt",
+      log: "log",
+      ...statusFields(),
+    })
     const parsedNoCost = JSON.parse(noCost) as Record<string, unknown>
     expect("cost" in parsedNoCost).toBe(false)
     expect("costByModel" in parsedNoCost).toBe(false)
 
-    const withCost = beatDocument({
+    const withCost = renderBeatJsonLine({
       rendered: rest(),
       kind: "prompt",
       log: "log",
@@ -304,7 +353,287 @@ describe("beatDocument", () => {
   })
 
   it("carries no version key", () => {
-    const line = beatDocument({ rendered: rest(), kind: "prompt", log: "log", ...statusFields() })
+    const line = renderBeatJsonLine({
+      rendered: rest(),
+      kind: "prompt",
+      log: "log",
+      ...statusFields(),
+    })
     expect("version" in (JSON.parse(line) as Record<string, unknown>)).toBe(false)
+  })
+
+  it("golden: a fully-populated rest renders one exact, byte-identical JSON line through beatFields + renderBeatJson", () => {
+    const rendered = rest({
+      kind: "prompt",
+      model: "opus",
+      memory: "build#a1b2c3d",
+      file: "TODO.md",
+      mode: "qa",
+      label: "Fixing",
+      edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
+    })
+    const line = renderBeatJson(
+      beatFields({
+        rendered,
+        kind: "prompt",
+        idle: false,
+        log: ".git/gtd-loop.log",
+        session: { id: "8f2c", resume: true },
+        validate: "gtd check qa 'TODO.md'",
+        changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
+        next: { action: "land", pattern: "C", target: "idle" },
+        cost: 12,
+        costByModel: [{ model: "opus", cost: 12 }],
+      }),
+    )
+    expect(line).toBe(
+      JSON.stringify({
+        kind: "prompt",
+        content: "fix it",
+        idle: false,
+        session: { id: "8f2c", resume: true },
+        model: "opus",
+        validate: "gtd check qa 'TODO.md'",
+        log: ".git/gtd-loop.log",
+        state: "build.fixing",
+        actor: "agent",
+        label: "Fixing",
+        memory: "build#a1b2c3d",
+        file: "TODO.md",
+        mode: "qa",
+        edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
+        changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
+        next: { action: "land", pattern: "C", target: "idle" },
+        cost: 12,
+        costByModel: [{ model: "opus", cost: 12 }],
+      }) + "\n",
+    )
+  })
+})
+
+describe("idle", () => {
+  it("is always present in JSON as a real boolean, never null", () => {
+    const idleTrue = renderBeatJsonLine({
+      rendered: rest({ kind: "message" }),
+      kind: "message",
+      log: "log",
+      ...statusFields({ idle: true }),
+    })
+    expect((JSON.parse(idleTrue) as { idle: unknown }).idle).toBe(true)
+
+    const idleFalse = renderBeatJsonLine({
+      rendered: rest({ kind: "message" }),
+      kind: "message",
+      log: "log",
+      ...statusFields({ idle: false }),
+    })
+    expect((JSON.parse(idleFalse) as { idle: unknown }).idle).toBe(false)
+  })
+
+  it("is the third JSON key", () => {
+    const line = renderBeatJsonLine({
+      rendered: rest({ kind: "message" }),
+      kind: "message",
+      log: "log",
+      ...statusFields({ idle: true }),
+    })
+    const keys = Object.keys(JSON.parse(line) as Record<string, unknown>)
+    expect(keys.slice(0, 3)).toEqual(["kind", "content", "idle"])
+  })
+
+  it("under --sh, is present only when true — the walker's plain boolean rule, no special case", () => {
+    const trueFields = beatFields({
+      rendered: rest({ kind: "message" }),
+      kind: "message",
+      log: "log",
+      ...statusFields({ idle: true }),
+    })
+    expect(renderBeatSh(trueFields)).toContain("gtd_idle=true")
+
+    const falseFields = beatFields({
+      rendered: rest({ kind: "message" }),
+      kind: "message",
+      log: "log",
+      ...statusFields({ idle: false }),
+    })
+    expect(renderBeatSh(falseFields)).not.toMatch(/^gtd_idle=/m)
+    // still named in the `unset` preamble, so a caller's own re-run never sees a stale value
+    expect(renderBeatSh(falseFields)).toMatch(/\bgtd_idle\b/)
+  })
+})
+
+describe("renderBeatPlain", () => {
+  const fieldsFor = (
+    kind: BeatKind,
+    contentKind: RenderedRest["kind"],
+    content: string,
+  ): BeatFields =>
+    beatFields({
+      rendered: rest({ kind: contentKind, content }),
+      kind,
+      idle: false,
+      log: "log",
+      changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
+      next: { action: undefined, pattern: "C", target: "idle" },
+      cost: 0,
+      costByModel: [],
+    })
+
+  const HEADER =
+    "State: build.fixing\nAwaits: agent\nPending:\n  M TODO.md -> TODO.md\nNext: C → idle"
+
+  it("shows header, blank line, content verbatim at kind script", () => {
+    const fields = fieldsFor("script", "script", "npm test")
+    expect(renderBeatPlain(fields)).toBe(`${HEADER}\n\nnpm test\n`)
+  })
+
+  it("shows header, blank line, content verbatim at kind message", () => {
+    const fields = fieldsFor("message", "message", "write NOTE.md")
+    expect(renderBeatPlain(fields)).toBe(`${HEADER}\n\nwrite NOTE.md\n`)
+  })
+
+  it("shows header, blank line, content verbatim at kind capture", () => {
+    const fields = fieldsFor("capture", "message", "already edited")
+    expect(renderBeatPlain(fields)).toBe(`${HEADER}\n\nalready edited\n`)
+  })
+
+  it("shows header, blank line, the stall diagnosis (never the rendered content) at kind stalled", () => {
+    const fields = fieldsFor("stalled", "prompt", "would-be prompt")
+    const plain = renderBeatPlain(fields)
+    expect(plain.startsWith(`${HEADER}\n\n`)).toBe(true)
+    expect(plain).toContain('stalled at "build.fixing"')
+    expect(plain).not.toContain("would-be prompt")
+  })
+
+  it("drops the header entirely at kind prompt, emitting bare content — no self-validate command given", () => {
+    const fields = fieldsFor("prompt", "prompt", "fix the bug")
+    expect(renderBeatPlain(fields)).toBe("fix the bug\n")
+  })
+
+  it("at kind prompt, appends the self-validation instruction when a command is given", () => {
+    const fields = beatFields({
+      rendered: rest({ kind: "prompt", content: "fix the bug", file: "TODO.md", mode: "qa" }),
+      kind: "prompt",
+      idle: false,
+      log: "log",
+      changes: [],
+      next: null,
+      cost: 0,
+      costByModel: [],
+    })
+    expect(renderBeatPlain(fields, "gtd check qa 'TODO.md'")).toBe(
+      "fix the bug\n\nBefore finishing your turn, run `gtd check qa 'TODO.md'` — it checks " +
+        "TODO.md — and fix every violation it reports until it exits cleanly. Do not finish " +
+        "while it still reports violations.\n",
+    )
+  })
+
+  it("is byte-identical to a bare prompt render when no self-validate command is given", () => {
+    const fields = fieldsFor("prompt", "prompt", "fix the bug")
+    expect(renderBeatPlain(fields)).toBe(renderBeatPlain(fields, undefined))
+  })
+})
+
+describe("landFields / renderLandJson / renderLandSh", () => {
+  const sample: LandFields = {
+    script: 'gtd_report_commit "gtd(agent): build.fixing"\ngit commit ...\n',
+    settled: false,
+    idle: false,
+    state: "build.review.deciding",
+    subject: "gtd(agent): build.fixing",
+    cost: 0.42,
+    model: "smart",
+  }
+
+  it("landFields assembles the object in the declared key order regardless of input order", () => {
+    const scrambled = {
+      model: sample.model,
+      cost: sample.cost,
+      subject: sample.subject,
+      state: sample.state,
+      idle: sample.idle,
+      settled: sample.settled,
+      script: sample.script,
+    }
+    expect(Object.keys(landFields(scrambled))).toEqual([
+      "script",
+      "settled",
+      "idle",
+      "state",
+      "subject",
+      "cost",
+      "model",
+    ])
+  })
+
+  it("renderLandJson emits exactly script/settled/idle/state/subject/cost/model, newline-terminated", () => {
+    const line = renderLandJson(landFields(sample))
+    expect(line.endsWith("\n")).toBe(true)
+    expect(JSON.parse(line)).toEqual(sample)
+  })
+
+  it("renderLandJson carries null subject/cost/model verbatim for a genuine no-op — never omitted", () => {
+    const noop: LandFields = {
+      script: "gtd_report_note 'nothing to do at \"idle\"'\n",
+      settled: true,
+      idle: true,
+      state: "idle",
+      subject: null,
+      cost: null,
+      model: null,
+    }
+    expect(JSON.parse(renderLandJson(landFields(noop)))).toEqual(noop)
+  })
+
+  it("renderLandSh emits gtd_-prefixed assignments for every present field", () => {
+    const sh = renderLandSh(landFields(sample))
+    expect(sh).toContain(`gtd_script=`)
+    expect(sh).toContain("gtd_state='build.review.deciding'")
+    expect(sh).toContain("gtd_subject='gtd(agent): build.fixing'")
+    expect(sh).toContain("gtd_cost='0.42'")
+    expect(sh).toContain("gtd_model='smart'")
+    expect(sh).not.toMatch(/^gtd_settled=/m)
+    expect(sh).not.toMatch(/^gtd_idle=/m)
+  })
+
+  it("renderLandSh's unset preamble names only LandFields' own leaves — never gtd_content/gtd_log/gtd_session_id", () => {
+    const sh = renderLandSh(landFields(sample))
+    const preamble = sh.split("\n")[0]!
+    expect(preamble).toMatch(/^unset /)
+    expect(preamble).toContain("gtd_script")
+    expect(preamble).toContain("gtd_state")
+    expect(preamble).toContain("gtd_cost")
+    expect(preamble).toContain("gtd_model")
+    expect(preamble).toContain("gtd_idle")
+    expect(preamble).not.toContain("gtd_content")
+    expect(preamble).not.toContain("gtd_log")
+    expect(preamble).not.toContain("gtd_session_id")
+  })
+
+  it("renderLandSh's unset preamble shares the beat's own gtd_state/gtd_cost/gtd_model/gtd_idle names, so a land --sh eval clears and resets them", () => {
+    const beatSh = renderBeatSh(
+      beatFields({
+        rendered: {
+          state: "build.fixing",
+          actor: "agent",
+          kind: "prompt",
+          content: "fix it",
+          memoryResumed: false,
+          edges: [],
+        },
+        kind: "prompt",
+        idle: false,
+        log: "log",
+        changes: [],
+        next: null,
+        cost: 0,
+        costByModel: [],
+      }),
+    )
+    const landSh = renderLandSh(landFields(sample))
+    for (const name of ["gtd_state", "gtd_cost", "gtd_model", "gtd_idle"]) {
+      expect(beatSh).toContain(name)
+      expect(landSh).toContain(name)
+    }
   })
 })

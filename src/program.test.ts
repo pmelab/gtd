@@ -1,6 +1,6 @@
 /**
  * Unit tests for src/program.ts — behavioral coverage of `land` /
- * `next` / `status` / `--entry` against an in-memory repo, plus the pure
+ * `next` / `--entry` against an in-memory repo, plus the pure
  * refusal-classifier functions (`classifyReviewSignoff`,
  * `classifyFeedbackProgress`, `classifyAnswerCompleteness`) and
  * `computeNextMatch`. Argv parsing, flags, help/version, and the envelope
@@ -87,8 +87,8 @@ describe("gtd --entry <state> — a custom workflow declaring `entry: true`", ()
     expect(exitCode).toBe(0)
     // `gtd --entry` is now a pure emitter — no commit lands until the
     // external driver runs the printed script. Plain text prints the script
-    // itself, not a result line — the subject lives inside it. There is no
-    // `--json` any more (status is the only structured surface) — the
+    // itself, not a result line — the subject lives inside it. `--entry`
+    // carries no `--json`/`--sh` of its own (only `next`/`land` do) — the
     // combined script IS the whole of stdout.
     expect(stdout).toContain(shellQuote(commitAll("gtd(human): side-entry")))
     expect(repo.commitHistory()).toHaveLength(before)
@@ -201,7 +201,7 @@ describe("gtd --entry <state> — the bundled unified template", () => {
   })
 })
 
-describe("gtd status --json — label emission", () => {
+describe("gtd next --json — label emission", () => {
   // `label:` is a display-only state hint rendered/emitted exactly like
   // `model:`/`memory:` (see src/Edge.ts's renderLabel) — pinned end-to-end in
   // tests/integration/features/driver-json-status.feature for `model:`; these
@@ -261,32 +261,63 @@ describe("gtd status --json — label emission", () => {
     return repo
   }
 
-  it("gtd status shows the state's declared label hint as a plain-text Label: line", async () => {
-    const repo = seededRepoAt(workflowWithLabel)
-    const { stdout, exitCode } = await run(repo, "status")
-    expect(exitCode).toBe(10)
-    expect(stdout).toContain("State: working")
+  // `gtd next`'s plain encoding suppresses the whole header at a `prompt`
+  // rest (the bytes ARE the agent's input — see `Beat.ts`'s
+  // `renderBeatPlain`), so a plain-text `Label:` line can only be exercised
+  // at a non-`prompt` rest — a dedicated message-kind fixture, below.
+  it("gtd next shows the state's declared label hint as a plain-text Label: line at a non-prompt rest", async () => {
+    const workflow = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: write NOTE.md to start a process",
+      "          on:",
+      '            "* **": reviewing',
+      "        reviewing:",
+      "          actor: human",
+      "          label: planning",
+      "          message: check the note",
+      "          on:",
+      '            "* **": idle',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gitignore", "node_modules\n")
+    repo.writeFile("README.md", "# test project\n")
+    repo.writeFile(".gtdrc.yaml", workflow)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd(human): reviewing")
+    const { stdout, exitCode } = await run(repo, "next")
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain("State: reviewing")
     expect(stdout).toContain("Label: planning")
   })
 
-  it("gtd status --json carries the state's declared label hint", async () => {
+  it("gtd next --json carries the state's declared label hint", async () => {
     const repo = seededRepoAt(workflowWithLabel)
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed.label).toBe("planning")
   })
 
-  it("gtd status --json omits label entirely when the state declares none", async () => {
+  it("gtd next --json omits label entirely when the state declares none", async () => {
     const repo = seededRepoAt(workflowWithoutLabel)
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("label")
   })
 })
 
-describe("gtd status --json — log path emission (gtd#169)", () => {
+describe("gtd next --json — log path emission (gtd#169)", () => {
   // `log` is the per-worktree loop log path (src/WorktreeState.ts's
   // `loopLogPath`) — always present, unlike the omit-when-unset keys above.
 
@@ -299,7 +330,7 @@ describe("gtd status --json — log path emission (gtd#169)", () => {
 
   it("defaults to .git/gtd-loop.log", async () => {
     const repo = seededRepo()
-    const { stdout, exitCode } = await run(repo, "status", "--json")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed.log).toBe(".git/gtd-loop.log")
@@ -308,7 +339,7 @@ describe("gtd status --json — log path emission (gtd#169)", () => {
   it("GTD_LOOP_LOG overrides it verbatim", async () => {
     const repo = seededRepo()
     const { io, result } = makeCapturingCliIo(repo, { GTD_LOOP_LOG: "/elsewhere/run.log" })
-    await Effect.runPromise(runCli(["node", "gtd.js", "status", "--json"], io))
+    await Effect.runPromise(runCli(["node", "gtd.js", "next", "--json"], io))
     const { stdout, exitCode } = result()
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
@@ -316,7 +347,7 @@ describe("gtd status --json — log path emission (gtd#169)", () => {
   })
 })
 
-describe("gtd status --json — memory key emission", () => {
+describe("gtd next --json — memory key emission", () => {
   // `memory` is now COMPUTED (src/Edge.ts's `memoryKeyFor`, package 05/06)
   // from the resting state's scope (`ConfigOperations.stateScopes`) and a
   // commit-anchored hash — there is no authored `memory:` state key at all
@@ -382,26 +413,23 @@ describe("gtd status --json — memory key emission", () => {
 
   const MEMORY_KEY = /^root#[0-9a-f]{7}$/
 
-  it("gtd status --json computes a <scope>#<hash7> memory key for a prompt rest", async () => {
+  it("gtd next --json computes a <scope>#<hash7> memory key for a prompt rest", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed.memory).toMatch(MEMORY_KEY)
   })
 
-  it("gtd status shows the computed memory key as a plain-text Memory: line", async () => {
-    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "status")
-    expect(exitCode).toBe(10)
-    expect(stdout).toContain("State: working")
-    expect(stdout).toMatch(/Memory: root#[0-9a-f]{7}/)
-  })
+  // A plain-text `Memory:` line is no longer reachable: memory is only ever
+  // computed for a `prompt` rest, and `gtd next`'s plain encoding suppresses
+  // the whole header there (the bytes ARE the agent's input) — the `--json`
+  // coverage above is the only surface left that can observe this key.
 
-  it("gtd status --json omits memory entirely for a non-prompt rest", async () => {
+  it("gtd next --json omits memory entirely for a non-prompt rest", async () => {
     const repo = seededRepoAt(workflowNonPrompt, "gtd(human): checking")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("memory")
   })
@@ -410,30 +438,30 @@ describe("gtd status --json — memory key emission", () => {
 
   type WithSession = { readonly session?: { readonly id: string; readonly resume: boolean } }
 
-  it("gtd status --json derives a session for a prompt rest, resume: false on the fresh scope-run", async () => {
+  it("gtd next --json derives a session for a prompt rest, resume: false on the fresh scope-run", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as WithSession
     expect(parsed.session?.id).toMatch(UUID)
     expect(parsed.session?.resume).toBe(false)
   })
 
-  it("two status --json calls back-to-back, with no step in between, yield the SAME id and resume — nothing is written, so a peek can never poison a beat", async () => {
+  it("two next --json calls back-to-back, with no step in between, yield the SAME id and resume — nothing is written, so a peek can never poison a beat", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const first = JSON.parse((await run(repo, "status", "--json")).stdout) as WithSession
-    const second = JSON.parse((await run(repo, "status", "--json")).stdout) as WithSession
+    const first = JSON.parse((await run(repo, "next", "--json")).stdout) as WithSession
+    const second = JSON.parse((await run(repo, "next", "--json")).stdout) as WithSession
     expect(second.session?.id).toBe(first.session?.id)
     expect(first.session?.resume).toBe(false)
     expect(second.session?.resume).toBe(false)
   })
 
-  it("purity property: three consecutive status --json calls at a prompt rest are byte-identical and leave the commit count unchanged", async () => {
+  it("purity property: three consecutive next --json calls at a prompt rest are byte-identical and leave the commit count unchanged", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
     const before = repo.commitHistory().length
-    const first = (await run(repo, "status", "--json")).stdout
-    const second = (await run(repo, "status", "--json")).stdout
-    const third = (await run(repo, "status", "--json")).stdout
+    const first = (await run(repo, "next", "--json")).stdout
+    const second = (await run(repo, "next", "--json")).stdout
+    const third = (await run(repo, "next", "--json")).stdout
     expect(second).toBe(first)
     expect(third).toBe(first)
     expect(repo.commitHistory().length).toBe(before)
@@ -475,12 +503,12 @@ describe("gtd status --json — memory key emission", () => {
 
   it("resume flips false → true once a turn commit lands back at the same prompt state, id unchanged", async () => {
     const repo = seededRepoAt(workflowPromptThenCheck, "gtd(human): working")
-    const first = JSON.parse((await run(repo, "status", "--json")).stdout) as WithSession
+    const first = JSON.parse((await run(repo, "next", "--json")).stdout) as WithSession
     expect(first.session?.resume).toBe(false)
 
     const applyLand = async (): Promise<void> => {
       const { stdout, exitCode } = await run(repo, "land")
-      expect(exitCode).toBe(10)
+      expect(exitCode).toBe(0)
       expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     }
 
@@ -489,29 +517,29 @@ describe("gtd status --json — memory key emission", () => {
     repo.writeFile("FEEDBACK.md", "check ran\n")
     await applyLand()
 
-    const second = JSON.parse((await run(repo, "status", "--json")).stdout) as WithSession
+    const second = JSON.parse((await run(repo, "next", "--json")).stdout) as WithSession
     expect(second.session?.id).toBe(first.session?.id)
     expect(second.session?.resume).toBe(true)
   })
 
-  it("gtd status --json includes session at a prompt rest — the beat document merged into status (AGENTS.md's one structured surface)", async () => {
+  it("gtd next --json includes session at a prompt rest — the beat document merged into next (AGENTS.md's one structured surface)", async () => {
     const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as WithSession
     expect(parsed.session?.id).toMatch(UUID)
   })
 
-  it("gtd status --json omits session for a non-prompt rest", async () => {
+  it("gtd next --json omits session for a non-prompt rest", async () => {
     const repo = seededRepoAt(workflowNonPrompt, "gtd(human): checking")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("session")
   })
 })
 
-describe("gtd status --json — stall detection (attempt commits)", () => {
+describe("gtd next --json — stall detection (attempt commits)", () => {
   const workflow = [
     "workflow:",
     "  entry:",
@@ -563,8 +591,8 @@ describe("gtd status --json — stall detection (attempt commits)", () => {
 
   it("is not kind stalled before the attempt lands", async () => {
     const repo = seededAt("gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     expect(JSON.parse(stdout).kind).not.toBe("stalled")
   })
 
@@ -573,7 +601,7 @@ describe("gtd status --json — stall detection (attempt commits)", () => {
     await landAgentStep(repo)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
 
-    const { stdout } = await run(repo, "status", "--json")
+    const { stdout } = await run(repo, "next", "--json")
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed.kind).toBe("stalled")
     expect(parsed.content).toBe(stallDiagnosis("working", "agent"))
@@ -587,8 +615,8 @@ describe("gtd status --json — stall detection (attempt commits)", () => {
     // emptiness as an attempt; only the actor tells them apart.
     const repo = seededAtIdle()
     repo.commitAllWithPrefix("gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     expect(JSON.parse(stdout).kind).toBe("prompt")
   })
 
@@ -597,17 +625,21 @@ describe("gtd status --json — stall detection (attempt commits)", () => {
     await landAgentStep(repo)
 
     const { stdout, exitCode } = await run(repo, "next")
-    expect(exitCode).toBe(20)
-    expect(stdout).toBe(stallDiagnosis("working", "agent"))
+    expect(exitCode).toBe(0)
+    // `stalled` shows the header like every other non-`prompt` kind (see
+    // `Beat.ts`'s `renderBeatPlain`) — the diagnosis rides in `content`,
+    // after a blank line, not as the whole output any more.
+    expect(stdout.startsWith("State: working\nAwaits: agent\n")).toBe(true)
+    expect(stdout).toContain(`\n\n${stallDiagnosis("working", "agent")}`)
   })
 
   it("stays stalled on a repeat — sticky, unlike the old marker's single-shot report", async () => {
     const repo = seededAt("gtd(human): working")
     await landAgentStep(repo)
 
-    const first = await run(repo, "status", "--json")
+    const first = await run(repo, "next", "--json")
     expect(JSON.parse(first.stdout).kind).toBe("stalled")
-    const second = await run(repo, "status", "--json")
+    const second = await run(repo, "next", "--json")
     expect(JSON.parse(second.stdout).kind).toBe("stalled")
   })
 
@@ -616,7 +648,7 @@ describe("gtd status --json — stall detection (attempt commits)", () => {
     await landAgentStep(repo)
     repo.writeFile("scratch.txt", "x\n")
 
-    const { stdout } = await run(repo, "status", "--json")
+    const { stdout } = await run(repo, "next", "--json")
     expect(JSON.parse(stdout).kind).not.toBe("stalled")
   })
 
@@ -624,19 +656,19 @@ describe("gtd status --json — stall detection (attempt commits)", () => {
     const repo = seededAtIdle()
     repo.commitAllWithPrefix("gtd(check): checking")
 
-    const { stdout } = await run(repo, "status", "--json")
+    const { stdout } = await run(repo, "next", "--json")
     expect(JSON.parse(stdout).kind).toBe("script")
   })
 
   it("is never stalled at a message rest — a clean step there is a plain no-op, not an attempt", async () => {
     const repo = seededAtIdle()
 
-    const { stdout } = await run(repo, "status", "--json")
+    const { stdout } = await run(repo, "next", "--json")
     expect(JSON.parse(stdout).kind).toBe("message")
   })
 })
 
-describe("gtd status --json — capture/message kinds at a human gate", () => {
+describe("gtd next --json — capture/message kinds at a human gate", () => {
   const workflow = [
     "workflow:",
     "  entry:",
@@ -667,7 +699,7 @@ describe("gtd status --json — capture/message kinds at a human gate", () => {
 
   it("is kind message at a clean message rest", async () => {
     const repo = seededRepo()
-    const { stdout, exitCode } = await run(repo, "status", "--json")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
     expect(JSON.parse(stdout).kind).toBe("message")
   })
@@ -675,17 +707,18 @@ describe("gtd status --json — capture/message kinds at a human gate", () => {
   it("is kind capture at a dirty message rest — the human already acted", async () => {
     const repo = seededRepo()
     repo.writeFile("NOTE.md", "a note\n")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(20)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     expect(JSON.parse(stdout).kind).toBe("capture")
   })
 })
 
-describe("gtd next / gtd status — the owner exit-code table (package 03)", () => {
-  // Pins the four idleness/owner combinations `ExitCodes.ts`'s `restExitCode`
-  // must get right: `idle` (the initial state, clean tree) — and ONLY that —
-  // is 0; a dirty tree at the SAME state is not idle; a clean `message` gate
-  // past the initial state is not idle either.
+describe("gtd next — exit code is uniformly 0 across every rest shape (package 05)", () => {
+  // `gtd next`'s exit code no longer names whose turn is next (that's
+  // `kind` alone, off `--json`/`--sh`) — it's 0 on every one of these shapes:
+  // idle (the initial state, clean tree), a dirty tree at the same state, a
+  // clean `message` gate past the initial state, and a non-initial
+  // prompt/script rest.
   const workflow = [
     "workflow:",
     "  entry:",
@@ -719,43 +752,43 @@ describe("gtd next / gtd status — the owner exit-code table (package 03)", () 
     return repo
   }
 
-  it("a clean tree at the initial state is 0 (idle) for both next and status", async () => {
+  it("a clean tree at the initial state is 0 (idle)", async () => {
     const repo = seededAtIdle()
     expect((await run(repo, "next")).exitCode).toBe(0)
-    expect((await run(repo, "status", "--json")).exitCode).toBe(0)
+    expect((await run(repo, "next", "--json")).exitCode).toBe(0)
   })
 
-  it("a dirty tree at the initial state is 20, not 0", async () => {
+  it("a dirty tree at the initial state (kind capture) is still 0", async () => {
     const repo = seededAtIdle()
     repo.writeFile("NOTE.md", "a note\n")
-    expect((await run(repo, "next")).exitCode).toBe(20)
-    expect((await run(repo, "status", "--json")).exitCode).toBe(20)
+    expect((await run(repo, "next")).exitCode).toBe(0)
+    expect((await run(repo, "next", "--json")).exitCode).toBe(0)
   })
 
-  it("a clean, NON-initial message gate is 20, not 0", async () => {
+  it("a clean, NON-initial message gate (kind message) is still 0", async () => {
     const repo = seededAtIdle()
     repo.writeFile("NOTE.md", "a note\n")
     repo.commitAllWithPrefix("gtd(human): working")
     repo.writeFile("DONE.md", "done\n")
     repo.commitAllWithPrefix("gtd(agent): working → waiting")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(JSON.parse(stdout).kind).toBe("message")
-    expect(exitCode).toBe(20)
-    expect((await run(repo, "next")).exitCode).toBe(20)
+    expect(exitCode).toBe(0)
+    expect((await run(repo, "next")).exitCode).toBe(0)
   })
 
-  it("a non-initial prompt/script rest is 10", async () => {
+  it("a non-initial prompt/script rest (kind prompt) is still 0", async () => {
     const repo = seededAtIdle()
     repo.writeFile("NOTE.md", "a note\n")
     repo.commitAllWithPrefix("gtd(human): working")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(JSON.parse(stdout).kind).toBe("prompt")
-    expect(exitCode).toBe(10)
-    expect((await run(repo, "next")).exitCode).toBe(10)
+    expect(exitCode).toBe(0)
+    expect((await run(repo, "next")).exitCode).toBe(0)
   })
 })
 
-describe("gtd status --json — embedded validate script", () => {
+describe("gtd next --json — embedded validate script", () => {
   const workflow = [
     "workflow:",
     "  entry:",
@@ -792,21 +825,21 @@ describe("gtd status --json — embedded validate script", () => {
     const repo = seededRepoAtWorking()
     repo.writeFile(".gtd/PLAN.md", "- [ ] a question\n")
 
-    const { stdout: statusStdout, exitCode: statusExit } = await run(repo, "status", "--json")
-    expect(statusExit).toBe(10)
-    const status = JSON.parse(statusStdout) as { validate?: string }
+    const { stdout: nextStdout, exitCode: nextExit } = await run(repo, "next", "--json")
+    expect(nextExit).toBe(0)
+    const next = JSON.parse(nextStdout) as { validate?: string }
 
     const { stdout: validateStdout, exitCode: validateExit } = await run(repo, "validate")
     expect(validateExit).toBe(0)
 
-    expect(status.validate).toBeDefined()
-    expect(status.validate).toBe(validateStdout.replace(/\n$/, ""))
+    expect(next.validate).toBeDefined()
+    expect(next.validate).toBe(validateStdout.replace(/\n$/, ""))
   })
 
   it("omits validate when the declared file is absent from the working tree", async () => {
     const repo = seededRepoAtWorking()
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("validate")
   })
@@ -861,7 +894,7 @@ describe("gtd next — refuses when HEAD names a state the current workflow no l
   it("a state that IS declared, resting normally, is unaffected", async () => {
     const repo = seededRepoAt("gtd(human): working")
     const { exitCode } = await run(repo, "next")
-    expect(exitCode).toBe(10)
+    expect(exitCode).toBe(0)
   })
 
   it("`gtd abandon` itself still works for a renamed-away rest — the escape hatch it points to must not refuse right alongside everything else", async () => {
@@ -869,8 +902,8 @@ describe("gtd next — refuses when HEAD names a state the current workflow no l
     const before = repo.commitHistory().length
 
     // `gtd abandon` EMITS its mutation as plain text instead of performing it
-    // — no `--json` any more (status is the only structured surface), so the
-    // combined script is the whole of stdout.
+    // — it carries no `--json`/`--sh` of its own (only `next`/`land` do), so
+    // the combined script is the whole of stdout.
     const { stdout, exitCode } = await run(repo, "abandon")
     expect(exitCode).toBe(0)
     expect(stdout).toContain("gtd_report_abandoned 'renamedAway'")
@@ -1126,13 +1159,13 @@ describe("gtd check <mode> <file>", () => {
     expect(stderr).toContain("review")
   })
 
-  it("--json is out of scope for check — a usage error, never a JSON envelope (status is the only structured surface)", async () => {
+  it("--json is out of scope for check — a usage error, never a JSON envelope (next/land are the only structured surfaces)", async () => {
     const repo = bareRepo()
     repo.writeFile(".gtd/TODO.md", validQaDoc)
     const { stdout, stderr, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md", "--json")
     expect(exitCode).toBe(2)
     expect(stdout).toBe("")
-    expect(stderr).toContain("only valid for `gtd status`")
+    expect(stderr).toContain("only valid for `gtd next`")
   })
 })
 
@@ -1286,7 +1319,7 @@ describe("gtd check <mode> <file> --open-questions", () => {
     )
     expect(exitCode).toBe(2)
     expect(stdout).toBe("")
-    expect(stderr).toContain("only valid for `gtd status`")
+    expect(stderr).toContain("only valid for `gtd next`")
   })
 
   it("an unknown mode still fails with the usual unknown-mode usage error, even with --open-questions", async () => {
@@ -1328,7 +1361,7 @@ describe("gtd visualize — flushes before blocking (package 04)", () => {
     }
 
     const fiber = Effect.runFork(
-      runCommand({ kind: "visualize", port: 0, open: false }, false, out).pipe(
+      runCommand({ kind: "visualize", port: 0, open: false }, false, false, out).pipe(
         Effect.provide(testLayers(repo)),
       ),
     )
@@ -1385,11 +1418,15 @@ describe("computeNextMatch", () => {
   })
 })
 
-describe("gtd status — Next: preview", () => {
-  // Exercises `computeNextMatch` wired through `gtd status`'s plain-text
+describe("gtd next — Next: preview", () => {
+  // Exercises `computeNextMatch` wired through `gtd next`'s plain-text
   // `Next:` line and `--json`'s `next` key. The workflow below carries one
   // edge with an `action`, one without (falls back to the raw `pattern`),
-  // and leaves a third change unmatched by either.
+  // and leaves a third change unmatched by either. A `message`-kind rest
+  // (not `prompt`) is deliberate: `gtd next`'s plain encoding suppresses the
+  // whole header — including `Next:` — at a `prompt` rest (see `Beat.ts`'s
+  // `renderBeatPlain`), so the plain-text half of this coverage needs a
+  // non-`prompt` rest to observe anything at all.
 
   const workflowWithNextEdges = [
     "workflow:",
@@ -1406,7 +1443,7 @@ describe("gtd status — Next: preview", () => {
     '            "* **": working',
     "        working:",
     "          actor: agent",
-    "          prompt: do the work described in NOTE.md",
+    "          message: do the work described in NOTE.md",
     "          on:",
     '            "A PLAN.md":',
     "              to: accepted",
@@ -1430,19 +1467,19 @@ describe("gtd status — Next: preview", () => {
     return repo
   }
 
-  it("gtd status shows `Next:` with the action when the matched edge carries one", async () => {
+  it("gtd next shows `Next:` with the action when the matched edge carries one", async () => {
     const repo = seededRepoAt(workflowWithNextEdges)
     repo.writeFile("PLAN.md", "the plan\n")
-    const { stdout, exitCode } = await run(repo, "status")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next")
+    expect(exitCode).toBe(0)
     expect(stdout).toContain("Next: Accept plan → accepted")
   })
 
-  it("gtd status --json's `next` carries the action when the matched edge has one", async () => {
+  it("gtd next --json's `next` carries the action when the matched edge has one", async () => {
     const repo = seededRepoAt(workflowWithNextEdges)
     repo.writeFile("PLAN.md", "the plan\n")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed.next).toEqual({
       action: "Accept plan",
@@ -1451,43 +1488,43 @@ describe("gtd status — Next: preview", () => {
     })
   })
 
-  it("gtd status falls back to the raw pattern when the matched edge carries no action", async () => {
+  it("gtd next falls back to the raw pattern when the matched edge carries no action", async () => {
     const repo = seededRepoAt(workflowWithNextEdges)
     repo.writeFile("REVIEW.md", "an updated review\n")
-    const { stdout, exitCode } = await run(repo, "status")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next")
+    expect(exitCode).toBe(0)
     expect(stdout).toContain("Next: M REVIEW.md → idle")
   })
 
-  it("gtd status --json's `next` omits `action` and falls back to `pattern` when the matched edge has none", async () => {
+  it("gtd next --json's `next` omits `action` and falls back to `pattern` when the matched edge has none", async () => {
     const repo = seededRepoAt(workflowWithNextEdges)
     repo.writeFile("REVIEW.md", "an updated review\n")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed.next).toEqual({ pattern: "M REVIEW.md", target: "idle" })
   })
 
-  it("gtd status shows the no-match line when the pending change matches no declared pattern", async () => {
+  it("gtd next shows the no-match line when the pending change matches no declared pattern", async () => {
     const repo = seededRepoAt(workflowWithNextEdges)
     repo.writeFile("OTHER.md", "unrelated\n")
-    const { stdout, exitCode } = await run(repo, "status")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next")
+    expect(exitCode).toBe(0)
     expect(stdout).toContain("Next: (no match — nothing would happen)")
   })
 
-  it("gtd status --json's `next` is present-but-null (never omitted) on no match", async () => {
+  it("gtd next --json's `next` is present-but-null (never omitted) on no match", async () => {
     const repo = seededRepoAt(workflowWithNextEdges)
     repo.writeFile("OTHER.md", "unrelated\n")
-    const { stdout, exitCode } = await run(repo, "status", "--json")
-    expect(exitCode).toBe(10)
+    const { stdout, exitCode } = await run(repo, "next", "--json")
+    expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).toHaveProperty("next")
     expect(parsed.next).toBeNull()
   })
 })
 
-describe("gtd land — the settled signal (observable only via exit code and the script's own content — no more --json)", () => {
+describe("gtd land — the settled signal (exit code, script content, and now the --json/--sh settled field)", () => {
   // idle (message) -> working (prompt) -> checking (script, no C row) — the
   // shape #170 cares about: a script rest's no-op is the terminal "nothing
   // left to do" signal, a prompt rest's no-op is not (that's #167's stall).
@@ -1537,8 +1574,9 @@ describe("gtd land — the settled signal (observable only via exit code and the
 
   it("a clean tree at a prompt rest is not settled — that's a stall, not a terminal state", async () => {
     const repo = seededRepo("gtd(agent): working")
-    const { exitCode } = await run(repo, "land")
-    expect(exitCode).toBe(10)
+    const { exitCode, stdout } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(0)
+    expect((JSON.parse(stdout) as { readonly settled: boolean }).settled).toBe(false)
   })
 
   it("a dirty tree matching the script rest's own pattern is not settled — proves it's the no-op, not the state, that settles", async () => {
@@ -1602,21 +1640,102 @@ describe("gtd land — the settled signal (observable only via exit code and the
     repo.writeFile("OUT.txt", "all green\n")
     const { stdout, exitCode } = await run(repo, "land")
     // Both this case and the one above target the initial state (`idle`) —
-    // `postLandExitCode` reports 0 either way — so exit code alone can't tell
-    // a genuine collapse apart from an ordinary commit that happens to land
-    // there; the script's own content (a real `git commit`, no rewind) is
-    // what proves it's the REWIND, not the target state, that settles.
+    // exit code is 0 either way, whether or not the landing settles — so exit
+    // code alone can't tell a genuine collapse apart from an ordinary commit
+    // that happens to land there; the script's own content (a real
+    // `git commit`, no rewind) is what proves it's the REWIND, not the
+    // target state, that settles.
     expect(exitCode).toBe(0)
     expect(stdout).toContain("git commit")
     expect(stdout).not.toContain("nothing to retain")
   })
+
+  it("gtd land --sh's gtd_script is byte-identical to plain gtd land's stdout for the same rest", async () => {
+    const repo = seededRepo("gtd(check): checking")
+    const plain = await run(repo, "land")
+    const sh = await run(repo, "land", "--sh")
+    expect(sh.exitCode).toBe(plain.exitCode)
+    // `shQuote` is total and deterministic — the exact quoted assignment gtd
+    // land --sh must emit for `gtd_script` is reconstructible from plain
+    // land's own stdout, so this is a byte-identity check, not a substring
+    // heuristic.
+    expect(sh.stdout).toContain(`gtd_script=${shellQuote(plain.stdout)}`)
+  })
+
+  it("gtd land --json a no-op at a script rest reports settled:true, idle:false (checking isn't the initial state)", async () => {
+    const repo = seededRepo("gtd(check): checking")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as {
+      readonly settled: boolean
+      readonly idle: boolean
+      readonly state: string
+      readonly script: string
+    }
+    expect(parsed.settled).toBe(true)
+    expect(parsed.idle).toBe(false)
+    expect(parsed.state).toBe("checking")
+    expect(parsed.script).toContain("nothing to do")
+  })
+
+  it("gtd land --json a decision that collapses back to the initial state reports settled:true, idle:true, state:idle", async () => {
+    const repo = seededCollapseRepo("gtd(check): checking")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdout) as {
+      readonly settled: boolean
+      readonly idle: boolean
+      readonly state: string
+    }
+    expect(parsed.settled).toBe(true)
+    expect(parsed.idle).toBe(true)
+    expect(parsed.state).toBe("idle")
+  })
+
+  it("gtd land --json an ordinary commit reports settled:false", async () => {
+    const repo = seededRepo("gtd(agent): working")
+    repo.writeFile("OUT.txt", "all green\n")
+    const { stdout } = await run(repo, "land", "--json")
+    const parsed = JSON.parse(stdout) as { readonly settled: boolean; readonly idle: boolean }
+    expect(parsed.settled).toBe(false)
+    expect(parsed.idle).toBe(false)
+  })
+
+  it("gtd land --json --cost=<n> --model=<name> carries both verbatim, and a genuine no-op reports both null", async () => {
+    const withCost = seededRepo("gtd(agent): working")
+    withCost.writeFile("OUT.txt", "all green\n")
+    const { stdout: withCostStdout } = await run(
+      withCost,
+      "land",
+      "--json",
+      "--cost=0.5",
+      "--model=opus",
+    )
+    const parsedWithCost = JSON.parse(withCostStdout) as {
+      readonly cost: number | null
+      readonly model: string | null
+    }
+    expect(parsedWithCost.cost).toBe(0.5)
+    expect(parsedWithCost.model).toBe("opus")
+
+    const noop = seededRepo("gtd(check): checking")
+    const { stdout: noopStdout } = await run(noop, "land", "--json")
+    const parsedNoop = JSON.parse(noopStdout) as {
+      readonly cost: number | null
+      readonly model: string | null
+      readonly subject: string | null
+    }
+    expect(parsedNoop.cost).toBeNull()
+    expect(parsedNoop.model).toBeNull()
+    expect(parsedNoop.subject).toBeNull()
+  })
 })
 
-describe("gtd land — the post-land rest's own owner exit code (package 03)", () => {
-  // `postLandExitCode` reads the state landing WILL rest at, not the resolved
-  // one `runLandCommand` started from — pins all four shapes from its own
-  // doc comment: a `script`/`prompt` target is 10, a `message` target is 20,
-  // a squash always resolves to the initial state (0), and a refusal is 1.
+describe("gtd land — exit code no longer names the post-land rest's owner (package 05)", () => {
+  // A landing's exit code is 0 on success regardless of what the post-land
+  // rest is (a `script`/`prompt` target, a `message` target, or a squash that
+  // resolves to the initial state) — and 1 on a refusal. Whose turn is next
+  // now lives entirely in the following `gtd next --json`'s own `kind` field.
   const WORKFLOW = [
     "workflow:",
     "  entry:",
@@ -1653,25 +1772,25 @@ describe("gtd land — the post-land rest's own owner exit code (package 03)", (
     return repo
   }
 
-  it("a landing whose next rest is a prompt state exits 10", async () => {
+  it("a landing whose next rest is a prompt state exits 0", async () => {
     const repo = seededAt("gtd(human): idle")
     repo.writeFile("NOTE.md", "a note\n")
     const { exitCode } = await run(repo, "land")
-    expect(exitCode).toBe(10)
+    expect(exitCode).toBe(0)
   })
 
-  it("a landing whose next rest is a script state exits 10", async () => {
+  it("a landing whose next rest is a script state exits 0", async () => {
     const repo = seededAt("gtd(agent): working")
     repo.writeFile("OUT.txt", "all green\n")
     const { exitCode } = await run(repo, "land")
-    expect(exitCode).toBe(10)
+    expect(exitCode).toBe(0)
   })
 
-  it("a landing whose next rest is a message state exits 20", async () => {
+  it("a landing whose next rest is a message state exits 0", async () => {
     const repo = seededAt("gtd(agent): working")
     repo.writeFile("DONE.md", "done\n")
     const { stdout, exitCode } = await run(repo, "land")
-    expect(exitCode).toBe(20)
+    expect(exitCode).toBe(0)
     expect(stdout).toContain("gtd(agent): working → waiting")
   })
 
@@ -1686,6 +1805,25 @@ describe("gtd land — the post-land rest's own owner exit code (package 03)", (
     expect(stdout).toBe("")
     expect(stderr.length).toBeGreaterThan(0)
     expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("a refusal under --sh stays a plain `gtd: ...` on stderr with stdout byte-empty", async () => {
+    const repo = seededAt("gtd(check): checking")
+    repo.writeFile("scratch.txt", "an unrelated pending change\n")
+    const { stdout, stderr, exitCode } = await run(repo, "land", "--sh")
+    expect(exitCode).toBe(1)
+    expect(stdout).toBe("")
+    expect(stderr).toMatch(/^gtd\b/)
+    expect(stderr).not.toContain('"state":"error"')
+  })
+
+  it("a refusal under --json stays stdout byte-empty (the error envelope is on stderr, matching gtd next --json)", async () => {
+    const repo = seededAt("gtd(check): checking")
+    repo.writeFile("scratch.txt", "an unrelated pending change\n")
+    const { stdout, stderr, exitCode } = await run(repo, "land", "--json")
+    expect(exitCode).toBe(1)
+    expect(stdout).toBe("")
+    expect(stderr).toContain('"state":"error"')
   })
 })
 
@@ -1749,7 +1887,7 @@ describe("a step that DELETES its state's own steering file", () => {
     const repo = restingAtDrafting()
     repo.writeFile("NOTES.md", "# notes\n\nsecond draft\n")
     const { stdout, exitCode } = await run(repo, "land")
-    expect(exitCode).toBe(10)
+    expect(exitCode).toBe(0)
     expect(stdout).toContain("fmt-notes NOTES.md")
   })
 
@@ -1767,7 +1905,7 @@ describe("a step that DELETES its state's own steering file", () => {
     repo.commitAllWithPrefix("gtd(agent): drafting")
     repo.writeFile("OTHER.md", "unrelated, again\n")
     const { stdout, exitCode } = await run(repo, "land")
-    expect(exitCode).toBe(10)
+    expect(exitCode).toBe(0)
     expect(stdout).not.toContain("fmt-notes")
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting")
@@ -1789,7 +1927,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
     abandon: { kind: "abandon" },
     restore: { kind: "restore" },
     next: { kind: "next" },
-    status: { kind: "status" },
     validate: { kind: "validate" },
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
     install: { kind: "install" },
@@ -1802,9 +1939,9 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the seven non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the six non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
-      ["abandon", "entry", "land", "next", "restore", "status", "validate"].sort(),
+      ["abandon", "entry", "land", "next", "restore", "validate"].sort(),
     )
   })
 
@@ -1817,7 +1954,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
       const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
       const exit = await Effect.runPromiseExit(
-        runCommand(commandFor[kind], false, out).pipe(Effect.provide(testLayers(repo))),
+        runCommand(commandFor[kind], false, false, out).pipe(Effect.provide(testLayers(repo))),
       )
 
       expect(Exit.isFailure(exit)).toBe(true)
@@ -1838,7 +1975,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
     const exit = await Effect.runPromiseExit(
-      runCommand({ kind: "status" }, false, out).pipe(Effect.provide(testLayers(repo))),
+      runCommand({ kind: "next" }, false, false, out).pipe(Effect.provide(testLayers(repo))),
     )
 
     expect(Exit.isSuccess(exit)).toBe(true)

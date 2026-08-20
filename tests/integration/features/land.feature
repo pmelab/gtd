@@ -1,17 +1,17 @@
-Feature: gtd land — the one landing verb, actorless — the exit-code contract
+Feature: gtd land — the one landing verb, actorless
 
   `gtd land` derives who acts from the resolved rest itself — no actor
-  argument, no `--if-resting`. This pins the OWNER exit-code contract a driver
-  relies on (see README's "Exit codes"): 10 when the post-land rest needs an
-  agent turn (`script`/`prompt`), 20 when it needs a human turn
-  (`capture`/`message`/`stalled`), 0 when nothing is owed — a benign no-op at
-  a clean `script` rest, or a squash/collapse back to the workflow's initial
-  state — 1 for a refusal, 2 for a usage error (nothing emitted either way).
+  argument, no `--if-resting`. Its exit code is the same uniform table every
+  command now shares (see README's "Exit codes"): 0 on success — whatever the
+  post-land rest turns out to be, `capture`/`message`/`script`/`prompt`/
+  `stalled` included — 1 for a refusal, 2 for a usage error (nothing emitted
+  either way). Whose turn is next lives entirely in the FOLLOWING
+  `gtd next --json`'s own `kind` field, never in `gtd land`'s exit code.
   `gtd step <actor>` is removed outright; `--entry` is only the bare
   `gtd --entry <state>` form.
 
   @inmem
-  Scenario: a capture landing into a prompt state exits 10 and lands
+  Scenario: a capture landing into a prompt state succeeds and lands
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -36,7 +36,7 @@ Feature: gtd land — the one landing verb, actorless — the exit-code contract
       a note
       """
     When I run gtd land
-    Then it awaits the agent
+    Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
 
   @inmem
@@ -65,7 +65,7 @@ Feature: gtd land — the one landing verb, actorless — the exit-code contract
     And stdout contains "nothing to do at \"idle\""
 
   @inmem
-  Scenario: a landing whose next rest is a message state exits 20
+  Scenario: a landing whose next rest is a message state succeeds
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -99,7 +99,7 @@ Feature: gtd land — the one landing verb, actorless — the exit-code contract
       done
       """
     When I run gtd land
-    Then it awaits the human
+    Then it succeeds
     And the last commit subject is "gtd(agent): working → waiting"
 
   @inmem
@@ -193,7 +193,7 @@ Feature: gtd land — the one landing verb, actorless — the exit-code contract
     And stderr contains "gone"
 
   @inmem
-  Scenario: --json is a usage error on gtd land — status is the only structured surface now
+  Scenario: gtd land --sh and --json now exist, carrying script/settled/idle/state/subject/cost/model
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -217,10 +217,46 @@ Feature: gtd land — the one landing verb, actorless — the exit-code contract
       """
       a note
       """
+    When I run gtd land with "--sh"
+    Then the exit code is 0
+    And I record stdout as "sh"
+    And stdout contains "gtd_state='working'"
+    And stdout contains "gtd_subject='gtd(human): idle → working'"
+    And stdout does not contain "gtd_settled=true"
     When I run gtd land with "--json"
+    Then the exit code is 0
+    And stdout contains "\"settled\":false"
+    And stdout contains "\"idle\":false"
+    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"subject\":\"gtd(human): idle → working\""
+    And stdout contains "\"cost\":null"
+    And stdout contains "\"model\":null"
+    When I run gtd land
+    Then the exit code is 0
+    And the current stdout equals the sh field "script" recorded as "sh"
+    And the last commit subject is "gtd(human): idle → working"
+
+  @inmem
+  Scenario: gtd land --json reports settled:true, idle:true for the green --entry fix-precheck collapse, without landing it
+    Given a test project
+    And the workflow
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    And I record the commit count
+    When I run gtd land with "--json"
+    Then the exit code is 0
+    And stdout contains "\"settled\":true"
+    And stdout contains "\"idle\":true"
+    And stdout contains "\"state\":\"idle\""
+    And the commit count is unchanged
+
+  @inmem
+  Scenario: --sh and --json together on gtd land is still a usage error, exit 2, stdout byte-empty
+    Given a test project
+    When I run gtd land with "--sh" and "--json"
     Then the exit code is 2
     And stdout is empty
-    And stderr contains "only valid for `gtd status`"
+    And stderr contains "mutually exclusive"
 
   @live
   Scenario: gtd land | bash lands the turn in one pipe
@@ -248,7 +284,7 @@ Feature: gtd land — the one landing verb, actorless — the exit-code contract
       a note
       """
     When I run gtd land piped to bash
-    Then the exit code is 10
+    Then the exit code is 0
     And the last commit subject is "gtd(human): idle → working"
 
   @live

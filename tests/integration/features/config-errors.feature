@@ -26,7 +26,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
               done:
                 commit: "chore: done"
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "idle"
@@ -49,7 +49,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
                 on:
                   "* **": nowhere
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "idle"
@@ -79,7 +79,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
               done:
                 commit: "chore: done"
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "orphan"
@@ -103,7 +103,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
                 on:
                   "* **": nowhere
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "exactly one of"
@@ -131,7 +131,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
                 on:
                   "* **": idle
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "\"mode\" must name a mode this workflow knows"
@@ -159,7 +159,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
                 on:
                   "* **": idle
       """
-    When I run gtd status
+    When I run gtd next
     Then it succeeds
 
   Scenario: a "mode: prose" naming no "modes:" declaration fails — the engine blesses no built-in vocabulary of its own
@@ -181,7 +181,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
                 on:
                   "* **": idle
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "\"mode\" must name a mode this workflow knows (qa, review)"
@@ -208,7 +208,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
                 on:
                   "* **": idle
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "mode \"adr\": unknown key(s) lint"
@@ -221,7 +221,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
         qa:
           formatt: "npx prettier --write <%= it.file %>"
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "gtd config:"
     And stderr contains "mode \"qa\": unknown key(s) formatt"
@@ -236,7 +236,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
             actor: human
             message: "start"
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "top-level \"states:\" is no longer supported"
@@ -269,7 +269,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
               back:
                 machine: outer
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "machine reference cycle: outer → inner → outer"
@@ -297,7 +297,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
                 actor: human
                 message: "hi"
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "machine \"unused\" is declared but never referenced"
@@ -319,7 +319,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
                 on:
                   "* **": nowhere
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "\"on\" target \"nowhere\" is not a state or reference of machine \"root\""
@@ -331,7 +331,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
       testCommand: "npm test"
       """
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "Invalid gtd config:"
     And stderr contains "testCommand"

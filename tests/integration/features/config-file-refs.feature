@@ -67,7 +67,7 @@ Feature: A "./"-relative content value is a file reference, inlined at load time
       """
     And ".gtdrc" is staged
     When I commit with message "chore: add config"
-    When I run gtd status
+    When I run gtd next
     Then it fails
     And stderr contains "missing-message.md"
     And stderr contains "does not exist"

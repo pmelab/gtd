@@ -63,6 +63,7 @@ import {
   restoredOutcome,
   transitionOutcome,
 } from "../src/OutcomeScript.js"
+import { beatFields, landFields, renderBeatSh, renderLandSh } from "../src/Beat.js"
 
 const CORPUS_DIR = join(import.meta.dirname, "..", "tests", "shell", "corpus")
 const UNIFIED_YAML_PATH = join(import.meta.dirname, "..", "src", "workflows", "unified.yaml")
@@ -76,6 +77,27 @@ const add = (name: string, content: string): void => {
   if (name in files) throw new Error(`generate-shell-corpus: duplicate corpus file name "${name}"`)
   files[name] = content.endsWith("\n") ? content : `${content}\n`
 }
+
+/**
+ * Like `add`, for a sample whose every assignment is legitimately "unused" by
+ * this file's own logic — a `--sh` wire-format document meant to be `eval`'d
+ * into a DRIVER's own shell scope, never read by the file that defines it
+ * (`beat.sh`, `land.sh`; more may land as `--sh` reaches more commands).
+ * Prepends a file-scoped `# shellcheck disable=SC2034,SC1003` directive
+ * (verified: a leading directive line disables both rules for the whole
+ * file, not just the next line) so `lint:sh`'s
+ * `shellcheck -s sh tests/shell/corpus/*.sh` stays ONE uniform invocation
+ * over every corpus file — no filename-list split in `package.json`, no
+ * repo-wide `.shellcheckrc` disable — and the waiver is visible in the file
+ * it applies to, self-maintaining as more samples like it are added via this
+ * same helper. SC1003 fires only on a document whose OWN field embeds an
+ * already shell-quoted script (`land.sh`'s `gtd_script`, itself full of
+ * `shellQuote`-escaped git commands) inside `shQuote`'s outer quoting —
+ * doubly-nested `'\''` sequences are exactly what correct POSIX escaping
+ * looks like there, not a mistake shellcheck's heuristic should flag.
+ */
+const addAssignmentOnly = (name: string, content: string): void =>
+  add(name, `# shellcheck disable=SC2034,SC1003\n${content}`)
 
 const retryWrapped = (bare: string, expectedHead: string = SAMPLE_HEAD): string => {
   const steps: readonly EmitStep[] = [{ kind: "gitWrite", command: bare }]
@@ -191,6 +213,84 @@ for (const [name, state] of Object.entries(compiled.definition.states)) {
   }
   add(`workflow.${name}.sh`, renderStateTemplate(state.script, context))
 }
+
+// ── 7. The beat document, rendered in `--sh` form ───────────────────────────
+// One fixture exercising as many `BeatFields` kinds as possible: a `session`
+// (nested object), the plain scalars (`model`/`label`/`memory`/`file`/`mode`),
+// an `edges` list where only one row declares `describe` (TSV union-of-
+// columns), a non-empty `changes` list, a `next` match with an `action`, and
+// a non-zero `cost`/`costByModel`. `rendered` is a plain object literal
+// shaped like `src/Edge.ts`'s `RenderedRest` (mirroring `src/Beat.test.ts`'s
+// own `rest()` helper) rather than an import — `beatFields`'s own imports
+// from `./Edge.js` are `import type` only (erased at build), and this script
+// must never pull that module in as a VALUE (see this file's own top comment
+// on why `src/Edge.js` is unloadable under `jiti`).
+//
+// Every assignment `renderBeatSh` emits is meant to be read by a DRIVER that
+// `eval`s the whole document into its own shell scope, never by this script
+// itself — shellcheck's SC2034 ("appears unused") fires on all of them for
+// exactly that reason. `addAssignmentOnly` (above) scopes the waiver to this
+// one file via a leading directive rather than a repo-wide `.shellcheckrc`
+// disable or a `package.json`-level invocation split.
+
+const beatFixtureRendered = {
+  state: "build.fixing",
+  actor: "agent",
+  kind: "prompt",
+  content: "fix the failing build",
+  memoryResumed: true,
+  edges: [
+    { pattern: "A", target: "build.review.deciding", describe: "approved" },
+    { pattern: "R", target: "build.fixing" },
+  ],
+  model: "smart",
+  label: "Fix Build",
+  memory: "build.fixing#abc1234",
+  file: ".gtd/TODO.md",
+  mode: "qa",
+}
+
+const beatFixtureFields = beatFields({
+  rendered: beatFixtureRendered,
+  kind: "prompt",
+  log: "gtd(agent): build.fixing",
+  session: { id: "11111111-1111-1111-1111-111111111111", resume: true },
+  validate: "gtd validate qa .gtd/TODO.md",
+  changes: [
+    { status: "M", path: ".gtd/TODO.md", pattern: "A" },
+    { status: "A", path: "src/foo.ts", pattern: null },
+  ],
+  next: { action: "advance", pattern: "A", target: "build.review.deciding" },
+  cost: 0.47,
+  costByModel: [
+    { model: "smart", cost: 0.42 },
+    { model: "cheap", cost: 0.05 },
+  ],
+})
+
+addAssignmentOnly("beat.sh", renderBeatSh(beatFixtureFields))
+
+// ── 8. The land document, rendered in `--sh` form ───────────────────────────
+// `script` reuses the combined land script assembled in section 5 above
+// (required + optional, both non-empty) — a landing's `LandFields.script` is
+// always `LandResult.script` verbatim, never re-derived — with the same
+// single-trailing-newline normalization `program.ts`'s own
+// `normalizeScriptNewline` applies (duplicated here for the same reason that
+// function documents its own duplication: this script can't import
+// `program.ts`, which is unloadable under `jiti` — see this file's own top
+// comment).
+
+const landFixtureFields = landFields({
+  script: `${combinedScript(combinedRequired, combinedOptional).replace(/\n+$/, "")}\n`,
+  settled: false,
+  idle: false,
+  state: "build.review.deciding",
+  subject: "gtd(agent): sample",
+  cost: 0.42,
+  model: "smart",
+})
+
+addAssignmentOnly("land.sh", renderLandSh(landFixtureFields))
 
 // ── Write or check ───────────────────────────────────────────────────────────
 

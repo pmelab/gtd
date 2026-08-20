@@ -3,7 +3,7 @@ Feature: gtd visualize — an interactive diagram of the active workflow
 
   `gtd visualize` serves a local web page rendering the active workflow (the
   main flow, its sub-machines, and per-state details — see src/Visualize.ts).
-  `--json` is gone from `visualize` — like every command but `gtd status`, it
+  `--json` is gone from `visualize` — like every command but `gtd next`, it
   now usage-errors on `--json` (see command-surface.feature's generic
   outline); there is no JSON replacement for inspecting the model. The command
   reads the config but touches no git/HEAD/review-window, and owns its own
@@ -14,7 +14,7 @@ Feature: gtd visualize — an interactive diagram of the active workflow
     And I record the commit count
     When I run gtd with args "visualize --json"
     Then it fails
-    And stderr contains "only valid for `gtd status`"
+    And stderr contains "only valid for `gtd next`"
     And the commit count is unchanged
 
   Scenario: an unknown option is rejected (no server is started)

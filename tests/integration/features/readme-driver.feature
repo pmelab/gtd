@@ -479,7 +479,7 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And stderr does not contain "stalled at"
 
   Scenario: A dirty human gate reached mid-run is a capture beat — landed outright, never halting the driver
-    # The loop's own first `gtd status --json` read finds "confirm" resting with
+    # The loop's own first `gtd next --json` read finds "confirm" resting with
     # REVIEW.md already written — a message rest with a
     # dirty tree is `kind: "capture"` — and the loop's `capture) ;;` branch
     # falls straight through to landing it as reviewer, with no display and no
@@ -517,7 +517,7 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
     # a checkable format. The paste's `.validate` field is embedded in the
     # BEAT it reads before the agent's turn runs — so the file must already
-    # exist at that point for the field to be populated at all (`gtd status
+    # exist at that point for the field to be populated at all (`gtd next
     # --json` omits it for a file the working tree doesn't have yet, exactly
     # like plain `gtd validate` degrades) — this is why a placeholder
     # .gtd/PLAN.md is seeded below, standing in for a prior draft. The stub

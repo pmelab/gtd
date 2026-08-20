@@ -26,4 +26,4 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
     And the last commit in the relocated git dir has subject "gtd(human): idle → unwind"
     And the repository's default ".git" directory was never recreated
     And nothing was written under the overridden TMPDIR
-    And gtd status --json reports the log path under the relocated git dir
+    And gtd next --json reports the log path under the relocated git dir

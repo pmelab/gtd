@@ -30,10 +30,10 @@ describe("renderBriefing", () => {
 
   it("names every command a driver invokes", () => {
     const briefing = renderBriefing()
-    expect(briefing).toContain("gtd status --json")
+    expect(briefing).toContain("gtd next --json")
     expect(briefing).toContain("gtd next")
     expect(briefing).toContain("gtd land")
-    expect(briefing).not.toContain("gtd next --json")
+    expect(briefing).not.toContain("gtd status --json")
     expect(briefing).not.toContain("gtd land --json")
     expect(briefing).not.toContain("--dispatch")
     expect(briefing).not.toContain("--if-resting")
