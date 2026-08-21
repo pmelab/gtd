@@ -804,7 +804,7 @@ describe("gtd next --json — embedded validate script", () => {
     '            "* **": working',
     "        working:",
     "          actor: agent",
-    '          file: ".gtd/PLAN.md"',
+    '          file: "PLAN.md"',
     "          mode: qa",
     "          prompt: do the work described in NOTE.md",
     "          on:",
@@ -1858,7 +1858,7 @@ describe("a step that DELETES its state's own steering file", () => {
     "          file: NOTES.md",
     "          mode: notes",
     "          on:",
-    '            "D NOTES.md": idle',
+    '            "D .gtd/NOTES.md": idle',
     '            "* **": drafting',
     "",
   ].join("\n")
@@ -1867,14 +1867,14 @@ describe("a step that DELETES its state's own steering file", () => {
     const repo = new InMemRepo()
     repo.writeFile(".gtdrc.yaml", NOTES_WORKFLOW)
     repo.commitAllWithPrefix("chore: add custom workflow")
-    repo.writeFile("NOTES.md", "# notes\n\nfirst draft\n")
+    repo.writeFile(".gtd/NOTES.md", "# notes\n\nfirst draft\n")
     repo.commitAllWithPrefix("gtd(agent): drafting")
     return repo
   }
 
   it("emits no format command, and still lands the commit", async () => {
     const repo = restingAtDrafting()
-    repo.deleteFile("NOTES.md")
+    repo.deleteFile(".gtd/NOTES.md")
     const { stdout, exitCode } = await run(repo, "land")
     expect(exitCode).toBe(0)
     expect(stdout).not.toContain("fmt-notes")
@@ -1885,10 +1885,10 @@ describe("a step that DELETES its state's own steering file", () => {
 
   it("still emits it when the same step MODIFIES that file — the skip is the deletion, not the state", async () => {
     const repo = restingAtDrafting()
-    repo.writeFile("NOTES.md", "# notes\n\nsecond draft\n")
+    repo.writeFile(".gtd/NOTES.md", "# notes\n\nsecond draft\n")
     const { stdout, exitCode } = await run(repo, "land")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("fmt-notes NOTES.md")
+    expect(stdout).toContain("fmt-notes .gtd/NOTES.md")
   })
 
   it("emits no format command when the file was never written at all — not deleted this step, genuinely absent since the process started", async () => {

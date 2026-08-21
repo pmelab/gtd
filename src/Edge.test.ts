@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit } from "effect"
+import { Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
 import {
   currentRest,
@@ -501,7 +501,7 @@ const NOTES_WORKFLOW = [
   "        thinking:",
   "          actor: agent",
   '          label: "label-<%= it.vars.testCommand %>"',
-  "          file: .gtd/NOTES.md",
+  "          file: NOTES.md",
   "          mode: qa",
   '          prompt: "think about <%= it.vars.testCommand %>"',
   "          on:",
@@ -535,8 +535,6 @@ describe("currentRest — one snapshot: cost folding, per-model grouping, entryV
       { model: "opus", cost: 120 },
     ])
     expect(rest.context.reviewBase).toBe(checkpoint)
-    // NOTES_WORKFLOW declares no `stateDir:` — `stateDirOf`'s `.gtd` default applies.
-    expect(rest.context.stateDir).toBe(".gtd")
     expect(rest.hints.model).toBe("echo entry-var")
     expect(rest.hints.label).toBe("label-echo entry-var")
     expect(rest.hints.file).toBe(".gtd/NOTES.md")
@@ -609,97 +607,6 @@ describe("currentRest — narrates the resolved rest", () => {
     repo.commitAllWithPrefix("gtd(human): checkpoint")
     // Should not throw even though nothing observes the narration.
     await expect(provide(currentRest, repo)).resolves.toBeDefined()
-  })
-})
-
-// ── it.stateDir — the declared plumbing directory, rendered and normalized ──
-
-describe("currentRest — it.stateDir", () => {
-  const workflowWith = (stateDirDecl: string, varsStateDir: string): string =>
-    [
-      "workflow:",
-      `  stateDir: "${stateDirDecl}"`,
-      "  vars:",
-      `    stateDir: ${varsStateDir}`,
-      "  entry:",
-      "    default: root",
-      "  machines:",
-      "    root:",
-      "      entry: idle",
-      "      states:",
-      "        idle:",
-      "          actor: human",
-      "          message: hi",
-      "          on:",
-      '            "* **": idle',
-      "",
-    ].join("\n")
-
-  it("renders the declaration against it.vars and normalizes a leading `./` and trailing `/`", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", workflowWith("<%= it.vars.stateDir %>", "./workflow-state/"))
-    repo.commitAllWithPrefix("chore: add relocated-plumbing workflow")
-    const rest = await provide(currentRest, repo)
-    expect(rest.context.stateDir).toBe("workflow-state")
-  })
-
-  it("defaults to `.gtd` when the workflow declares no `stateDir:`", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile(
-      ".gtdrc.yaml",
-      [
-        "workflow:",
-        "  entry:",
-        "    default: root",
-        "  machines:",
-        "    root:",
-        "      entry: idle",
-        "      states:",
-        "        idle:",
-        "          actor: human",
-        "          message: hi",
-        "          on:",
-        '            "* **": idle',
-        "",
-      ].join("\n"),
-    )
-    repo.commitAllWithPrefix("chore: add default-plumbing workflow")
-    const rest = await provide(currentRest, repo)
-    expect(rest.context.stateDir).toBe(".gtd")
-  })
-
-  it("a declaration referencing it.stateDir itself renders empty rather than recursing, which then fails as a repo-root value", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", workflowWith("<%= it.stateDir %>", "workflow-state"))
-    repo.commitAllWithPrefix("chore: add self-referencing workflow")
-    const exit = await provideExit(currentRest, repo)
-    expect(Exit.isFailure(exit)).toBe(true)
-  })
-
-  it("a declaration rendering to the repo root fails the command with the exact message", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", workflowWith("<%= it.vars.stateDir %>", "."))
-    repo.commitAllWithPrefix("chore: add repo-root-plumbing workflow")
-    const exit = await provideExit(currentRest, repo)
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      expect(Cause.pretty(exit.cause)).toContain(
-        '"stateDir": must name a directory inside the repository, not the repo root, an absolute path, or a path outside it (got ".")',
-      )
-    }
-  })
-
-  it("a declaration rendering to a non-canonical spelling fails the command naming the canonical spelling", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", workflowWith("<%= it.vars.stateDir %>", "a/./state"))
-    repo.commitAllWithPrefix("chore: add non-canonical-plumbing workflow")
-    const exit = await provideExit(currentRest, repo)
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      expect(Cause.pretty(exit.cause)).toContain(
-        '"stateDir": "a/./state" is not a canonical path — write it as "a/state"',
-      )
-    }
   })
 })
 

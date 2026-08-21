@@ -55,7 +55,7 @@ Feature: gtd install — the driver-building briefing
               working:
                 actor: agent
                 label: "Doing the work"
-                file: ".gtd/PLAN.md"
+                file: "PLAN.md"
                 mode: qa
                 prompt: "do the work described in NOTE.md"
                 on:

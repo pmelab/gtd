@@ -62,7 +62,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       # The validate command above prints one finding per missing section and
       # then exits non-zero only when it printed something.
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -72,8 +72,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd with args "validate"
     Then it fails
-    And stderr contains "docs/adr.md is not valid"
-    And stderr contains "docs/adr.md: missing a '## Decision' section"
+    And stderr contains ".gtd/docs/adr.md is not valid"
+    And stderr contains ".gtd/docs/adr.md: missing a '## Decision' section"
     And stderr does not contain "missing a '## Status' section"
 
   @inmem
@@ -107,18 +107,18 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And the shell command "adr-validate docs/adr.md" exits 1 with:
+    And the shell command "adr-validate .gtd/docs/adr.md" exits 1 with:
       """
-      docs/adr.md: missing a '## Decision' section
+      .gtd/docs/adr.md: missing a '## Decision' section
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
     When I run gtd with args "validate"
     Then it fails
-    And stderr contains "docs/adr.md is not valid"
-    And stderr contains "docs/adr.md: missing a '## Decision' section"
+    And stderr contains ".gtd/docs/adr.md is not valid"
+    And stderr contains ".gtd/docs/adr.md: missing a '## Decision' section"
     And stderr contains "does not pass"
 
   @live
@@ -149,7 +149,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -159,7 +159,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains "docs/adr.md: valid"
+    And stdout contains ".gtd/docs/adr.md: valid"
 
   @inmem
   Scenario: gtd validate exits 0 when the custom mode's validate command is happy (scripted)
@@ -189,11 +189,11 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And the shell command "adr-validate docs/adr.md" exits 0 with:
+    And the shell command "adr-validate .gtd/docs/adr.md" exits 0 with:
       """
       ok
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -203,7 +203,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains "docs/adr.md: valid"
+    And stdout contains ".gtd/docs/adr.md: valid"
 
   @live
   Scenario: the mode's format command rewrites the file in place before validation
@@ -237,7 +237,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       # The format command promotes "status: draft" to "status: accepted"; the
       # validate command demands the promoted form. Validation therefore passes
       # only because formatting ran FIRST, in place.
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -245,8 +245,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains "docs/adr.md: valid"
-    And the git status contains "docs/adr.md"
+    And stdout contains ".gtd/docs/adr.md: valid"
+    And the git status contains ".gtd/docs/adr.md"
 
   @inmem
   Scenario: the mode's format command rewrites the file in place before validation (scripted)
@@ -277,17 +277,17 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And the shell command "adr-format docs/adr.md" rewrites "docs/adr.md" to:
+    And the shell command "adr-format .gtd/docs/adr.md" rewrites ".gtd/docs/adr.md" to:
       """
       # ADR 1: use gtd
 
       status: accepted
       """
-    And the shell command "adr-validate docs/adr.md" exits 0 with:
+    And the shell command "adr-validate .gtd/docs/adr.md" exits 0 with:
       """
       ok
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -295,9 +295,9 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains "docs/adr.md: valid"
-    And "docs/adr.md" contains "status: accepted"
-    And the git status contains "docs/adr.md"
+    And stdout contains ".gtd/docs/adr.md: valid"
+    And ".gtd/docs/adr.md" contains "status: accepted"
+    And the git status contains ".gtd/docs/adr.md"
 
   @live
   Scenario: the gtd land capture gate refuses a turn whose custom-mode steering file is invalid
@@ -331,11 +331,11 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
-    And a file "docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -379,15 +379,15 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And the shell command "adr-validate docs/adr.md" exits 1 with:
+    And the shell command "adr-validate .gtd/docs/adr.md" exits 1 with:
       """
-      docs/adr.md: an ADR needs a '## Decision' section
+      .gtd/docs/adr.md: an ADR needs a '## Decision' section
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
-    And a file "docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -431,11 +431,11 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
-    And a file "docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -478,11 +478,11 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
-    And a file "docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd (edited)
       """
@@ -492,7 +492,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # `set -e`, so a non-zero format exit stops it before the validate command
     # or the commit is ever reached — and its status is the script's own.
     And the exit code is 3
-    And stderr contains "adr-fmt: cannot parse docs/adr.md"
+    And stderr contains "adr-fmt: cannot parse .gtd/docs/adr.md"
     And the last commit subject is "gtd(human): drafting"
 
   @inmem
@@ -524,15 +524,15 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And the shell command "adr-format-broken docs/adr.md" exits 3 with:
+    And the shell command "adr-format-broken .gtd/docs/adr.md" exits 3 with:
       """
-      adr-fmt: cannot parse docs/adr.md
+      adr-fmt: cannot parse .gtd/docs/adr.md
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
-    And a file "docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd (edited)
       """
@@ -542,7 +542,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # `set -e`, so a non-zero format exit stops it before the validate command
     # or the commit is ever reached.
     And stderr contains "exited 3"
-    And stderr contains "adr-fmt: cannot parse docs/adr.md"
+    And stderr contains "adr-fmt: cannot parse .gtd/docs/adr.md"
     And stderr does not contain "adr-validate-never-runs"
     And the last commit subject is "gtd(human): drafting"
 
@@ -573,7 +573,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
               grilling:
                 actor: agent
                 prompt: "Draft the plan."
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 on:
                   "* **": idle
@@ -613,7 +613,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
               grilling:
                 actor: agent
                 prompt: "Draft the plan."
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 on:
                   "* **": idle
@@ -638,7 +638,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: a top-level modes: key plugs a formatter into a workflow without re-declaring its modes
     # The top-level `modes:` layer sits BESIDE `workflow:` — the workflow's
-    # `grilling` state declares `file: .gtd/TODO.md` + `mode: qa` but no `modes:`
+    # `grilling` state declares `file: TODO.md` + `mode: qa` but no `modes:`
     # of its own, so the project brings its own formatter for that mode via the
     # top-level key, and gtd's own built-in qa validation still runs underneath.
     Given a test project
@@ -661,7 +661,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                   "* **": grilling
               grilling:
                 actor: agent
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 prompt: "plan"
                 on:
@@ -710,13 +710,13 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       # The workflow declares `adr`'s validator; the project's own top-level
       # `modes:` adds the formatter. Validation passes only because both halves
       # survived the merge and ran in order.
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       status: draft
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains "docs/adr.md: valid"
+    And stdout contains ".gtd/docs/adr.md: valid"
 
   @live
   Scenario: a custom mode declaring only format: formats the file and has nothing to validate
@@ -746,14 +746,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       status: draft
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains "docs/adr.md: valid"
-    And "docs/adr.md" contains "status: DRAFT"
+    And stdout contains ".gtd/docs/adr.md: valid"
+    And ".gtd/docs/adr.md" contains "status: DRAFT"
 
   @inmem
   Scenario: the answer-completeness gate still fires on a qa-mode state even when its validate: command is overridden
@@ -779,14 +779,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
               drafting:
                 actor: agent
                 prompt: "Draft the plan."
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 on:
                   "* **": answering
               answering:
                 actor: human
                 message: "Answer the open questions."
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 answerGate: true
                 on:
@@ -860,7 +860,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """

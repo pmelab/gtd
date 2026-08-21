@@ -149,7 +149,11 @@ before any per-state compilation), so it never needs its own logic. A state's
 `mode:` must name an entry the workflow's own top-level `modes:` map declares
 (an empty `{}` entry is enough) — the compiler seeds `qa`/`review` for you, but
 any OTHER name (including `prose`) needs its own `modes:` entry, or
-`validateDefinition` rejects the state at load time. After editing, update:
+`validateDefinition` rejects the state at load time. A state's `file:` names a
+path RELATIVE to `.gtd/` — the compiler prepends that directory automatically
+(`PatternConfig.ts`'s `stateFile` compiler), so `file: REVIEW.md` compiles to
+`.gtd/REVIEW.md`; a `..` segment, an absolute path, or an already-declared
+`.gtd/` prefix are all load-time errors. After editing, update:
 
 - **`src/workflows/templates.test.ts`** — the invariants the compiled template
   must keep (one `entry.default`, one review window, one review/fix entry, the
@@ -309,44 +313,21 @@ parser, one envelope. The table is the source of truth, not prose:
   deletion — and a `format:` like `prettier --write` exits non-zero on a missing
   path, which aborted the whole `set -euo pipefail` script before the commit and
   made the step unlandable
-- **Two properties of a guard's INPUTS, each of which makes a guard silently
-  INERT rather than loudly wrong when broken:** the pre-turn copy of a `file:`
-  is read at `Rest.windowHead` — the open review window's saved head — never at
-  real `HEAD`, which the window has rewound to the review base, where a file the
-  process itself wrote does not exist yet; and `hasCodeChange` ("the human
-  edited something real") excludes the state's OWN `file:` by exact path, and
-  gtd's own plumbing by the DECLARED directory read off `it.stateDir`
-  (`src/StepGuards.ts`'s `isCodePath`/`isPlumbingPath`), never a literal `.gtd/`
-  prefix check. A `reviewFile` repointed to the repo root is still a steering
-  file — the same assumption issue #128 broke in `deciding`'s check script — and
-  a plumbing directory relocated via `vars.stateDir` is still plumbing. With
-  either exemption wrong, a spurious `hasCodeChange` flips a clean sign-off onto
-  the feedback edge — a full re-plan nobody asked for — in both of its live
-  consumers, `deciding`'s own classification script and the feedback-progress
-  guard
-- The require-revert guard's own version of the same INPUTS risk: it compares
-  the current tree against `reviewBase~1` intersected with the human's own
-  review-round commit's touched paths, and it exempts the state's own `file:` by
-  exact path and gtd's own plumbing by the same declared `it.stateDir` directory
-  (never a literal `.gtd/` prefix). Get the comparison direction wrong (matching
-  against `reviewBase` instead of its parent) and the guard is INERT — it allows
-  every un-reverted tree; get either exemption wrong (a `.gtd/`-prefix check
-  instead of the exact path on a `reviewFile` repointed to the repo root, or a
-  literal `.gtd/` instead of the declared `stateDir` on a relocated plumbing
-  directory) and it REFUSES every note-only round, or every round that touches
-  the relocated directory, forever. `it.stateDir` is canonical BY VALIDATION —
-  `src/Edge.ts`'s `renderStateDirOrFail` refuses a non-canonical spelling before
-  any guard ever sees it — so this comparison, like every other consumer, must
-  never re-normalize the value itself. BOTH scripts that render those two values
-  into a pathspec (`src/workflows/unified.yaml`'s `deciding` hand-edit test and
-  `re-unwind`'s scoped `git diff`/`git apply -R`) are a LITERAL path test
-  agreeing with `isCodePath`/`isPlumbingPath` — every one of their four
-  pathspecs uses git's `:(exclude,literal)` magic rather than a glob, a bare
-  `:(exclude)` (whose default magic is glob-ish — `*` even crosses `/`), or a
-  grep (the step guards themselves are plain string comparisons, not pathspecs),
-  alongside the same "never a literal `.gtd/`" rule above. Nothing validates a
-  metacharacter out of either value, so a non-literal pathspec drops a real
-  edited path out of `re-unwind`'s patch and the require-revert guard then
-  refuses that land forever
-  (`tests/integration/features/deciding-path-literal.feature` covers both
-  scripts)
+- **One property of a guard's INPUTS that makes a guard silently INERT rather
+  than loudly wrong when broken:** the pre-turn copy of a `file:` is read at
+  `Rest.windowHead` — the open review window's saved head — never at real
+  `HEAD`, which the window has rewound to the review base, where a file the
+  process itself wrote does not exist yet
+- The require-revert guard compares the current tree against `reviewBase~1`
+  intersected with the human's own review-round commit's touched paths, and it
+  exempts gtd's own plumbing by a literal `.gtd/` prefix (`src/StepGuards.ts`'s
+  `isCodePath`/`isPlumbingPath`, both over the one shared `STATE_DIR` constant
+  in `src/PatternMachine.ts`) — no separate exact-path exemption for the state's
+  own `file:` any more, since every `file:` compiles under `.gtd/` too
+  (`PatternConfig.ts`'s `stateFile` compiler). Getting the comparison direction
+  wrong (matching against `reviewBase` instead of its parent) still makes the
+  guard INERT — it allows every un-reverted tree. The two scripts that render
+  the exclusion into a pathspec (`src/workflows/unified.yaml`'s `deciding`
+  hand-edit test and `re-unwind`'s scoped `git diff`/`git apply -R`) both render
+  a bare `:(exclude).gtd` — a LITERAL path test, never a glob, since `.gtd` is a
+  fixed string with no metacharacters to escape

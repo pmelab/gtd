@@ -12,13 +12,15 @@ Feature: An open review window reports untracked-but-present files by content, n
   `src/Git.ts`) — absent at the base is `A`, different bytes are `M`, identical
   bytes are no change at all.
 
-  Without that, the review-doc guard (`src/StepGuards.ts`) saw a phantom
-  `D <reviewFile>` and refused EVERY sign-off with "was deleted — restore it",
-  with the file sitting untouched in the working tree. The bundled
-  `.gtd/REVIEW.md` hid it: `.gtd` is the one directory the window pins back
-  into the index (`buildOpenWindowScript`'s `restoreStagedFrom`), so the doc
-  stays TRACKED there. A `reviewFile` repointed to the repo root — an ordinary
-  `vars:` override — is not pinned, and so was unlandable.
+  Every steering file now lives at a fixed path under `.gtd/`, and `.gtd` is
+  the one directory the window pins back into the index
+  (`buildOpenWindowScript`'s `restoreStagedFrom`), so `.gtd/REVIEW.md` itself
+  can no longer demonstrate the phantom-deletion bug (it stays TRACKED
+  through the window). This exercises the same `classifyUntracked` content
+  comparison against an ordinary CODE file instead — any file the process
+  added earlier stays untracked once the window opens (it lives outside
+  `.gtd/`, same as before), and its content on disk is unchanged since the
+  commit that saved the window's head.
 
   Every scenario here is live, because the phantom deletion is real git's index
   behaviour: the in-memory double compares the base tree to the worktree
@@ -39,17 +41,13 @@ Feature: An open review window reports untracked-but-present files by content, n
 
   Background:
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        reviewFile: REVIEW.md
-      """
+    And the workflow
     And a commit "gtd(agent): building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     And an empty commit "gtd(check): build.review.reviewing"
-    And a file "REVIEW.md" with:
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -60,21 +58,23 @@ Feature: An open review window reports untracked-but-present files by content, n
       new add function
       """
 
-  Scenario: the review doc the window left untracked is not pending at all — it is present and unchanged
+  Scenario: a code file the window left untracked is not pending at all — it is present and unchanged
     # The step that lands at the gate commits REVIEW.md and opens the window,
-    # which un-tracks it again (the index moves to the review base).
+    # which rewinds the index to the review base — src/calc.ts (added earlier
+    # in the process, outside .gtd/) goes untracked again, same bytes as the
+    # window's saved head.
     Given I run gtd land
     When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"
-    # Present on disk with the bytes it was committed with: no change, and
-    # above all not a deletion.
-    And stdout does not contain "D REVIEW.md"
-    And the git status contains "?? REVIEW.md"
+    # Present on disk with the bytes the window's head committed: no change,
+    # and above all not a deletion.
+    And stdout does not contain "D src/calc.ts"
+    And the git status contains "?? src/calc.ts"
 
   Scenario: a tick with no comment signs off — the reviewer's edit reads as a modification
     Given I run gtd land
-    And "REVIEW.md" is modified to:
+    And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
 
@@ -91,7 +91,7 @@ Feature: An open review window reports untracked-but-present files by content, n
 
   Scenario: a REAL deletion is still refused — the guard keeps its teeth through real git
     Given I run gtd land
-    And the file "REVIEW.md" is deleted
+    And the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it fails
     And stderr contains "was deleted"
