@@ -62,13 +62,18 @@
 #   * designPlan (encap)      — the triage phase's one conversation: group the
 #                               diff that started the process into ordered,
 #                               classified concerns and resolve the PRODUCT
-#                               ones' open questions (`design.*`: triage,
-#                               gate.check, gate.answer). ▸ planner.
+#                               ones' open questions that clear the bar — a
+#                               genuine fork, not already settled, worth
+#                               surviving to review — deciding every
+#                               sub-threshold point itself instead
+#                               (`design.*`: triage, gate.check,
+#                               gate.answer). ▸ planner.
 #   * archPlan (encap)        — the technical phase's one conversation: a COLD
 #                               read of the settled concerns, resolving the
-#                               TECHNICAL open questions, then a mechanical
-#                               decomposition into package files
-#                               (`architecture.*`: author, gate.check,
+#                               TECHNICAL open questions that clear the same
+#                               bar (same decide-it-yourself sink below it),
+#                               then a mechanical decomposition into package
+#                               files (`architecture.*`: author, gate.check,
 #                               gate.answer, decompose). A separate machine
 #                               from `designPlan` (not one fused machine) —
 #                               its own memory scope, since there may be a
@@ -164,15 +169,18 @@
 #
 # Once the product questions are settled, `architecture.author` picks up as a
 # COLD reader (a separate machine, a separate memory scope — it reads
-# `REQUIREMENTS.md` in full rather than resuming design's conversation),
-# develops the *how* for each settled concern, and — now that it knows each
-# concern's file footprint — may re-merge concerns whose footprints coincide
-# (never split), recording every merge under its own `## Merged Concerns`
-# heading and raising only TECHNICAL open questions — routed through the
-# same shared `questionGate` shape (`architecture.gate`) over
-# `ARCHITECTURE.md`. Once those are settled, `architecture.decompose` is a
-# purely mechanical write-out: one package file per concern, in the settled
-# — possibly coarsened — order, with no merge/split judgement of its own.
+# `REQUIREMENTS.md` in full rather than resuming design's conversation; COLD
+# means no memory of that conversation, never no git access — it still reads
+# the entry commit from history), develops the *how* for each settled
+# concern, and — now that it knows each concern's file footprint — may
+# re-merge concerns whose footprints coincide (never split), recording every
+# merge under its own `## Merged Concerns` heading and raising a TECHNICAL
+# open question only when it clears the same three-part bar triage does,
+# deciding every sub-threshold point itself — routed through the same shared
+# `questionGate` shape (`architecture.gate`) over `ARCHITECTURE.md`. Once
+# those are settled, `architecture.decompose` is a purely mechanical
+# write-out: one package file per concern, in the settled — possibly
+# coarsened — order, with no merge/split judgement of its own.
 #
 # From there the per-package build queue (`packages.*`) and the shared review
 # + squash tail (`build.*`) are UNCHANGED from before this restructure — see
@@ -730,7 +738,8 @@ machines:
 
   # ── ENCAPSULATION: the triage phase's one conversation ─────────────────────
   # Groups the diff that started the process into ordered, classified
-  # concerns and resolves the PRODUCT ones' open questions — one machine
+  # concerns and resolves the PRODUCT ones' open questions that clear the
+  # bar — deciding every sub-threshold point itself instead — one machine
   # identity across the whole back-and-forth, so the agent explores the
   # codebase once and the human's answer rationale survives every return lap.
   # `triage`'s prompt reads THREE laps off the requirements file's own
@@ -818,11 +827,29 @@ machines:
 
           2. Classify each concern as PRODUCT (a user-facing/requirements
              decision) or TECHNICAL (an implementation decision).
-          3. For every PRODUCT concern with an open point you cannot settle
-             yourself, add a question under a `## Open Questions` heading near
-             the top: one `### <question>` sub-heading each, followed by a
-             checkbox list of candidate answers — aim for TWO concrete options
-             plus a final free-text slot, ALL left UNTICKED:
+          3. For every concern's open point, PRODUCT or TECHNICAL, a question
+             is warranted only when all three hold: the answer is a genuine
+             fork with divergent outcomes — user-visible for a product
+             question, materially different implementations for a technical
+             one; the sketch, the entry diff, and history do not already
+             settle it (treat anything the entry diff states explicitly — a
+             directive in `.gtd/TODO.md`, a committed choice in a hand-edit —
+             as already settled, and on a review loop-back lap treat
+             whatever the human's own review-round edit or note states
+             explicitly the same way); and getting it wrong would survive
+             all the way to the human review tail.
+
+             Anything below that bar, PRODUCT or TECHNICAL alike, decide
+             yourself: record the decision under `## Answered Questions` —
+             the same section a human-answered question lands in — as
+             `### <the point phrased as a question>` followed by the
+             decision and a one-line rationale in prose, no checkboxes.
+
+             A question that clears the bar is written under a
+             `## Open Questions` heading near the top and takes this shape:
+             one `### <question>` sub-heading each, followed by a checkbox
+             list of candidate answers — TWO concrete options plus a final
+             free-text slot, ALL left UNTICKED:
 
                  ### <the question>
 
@@ -833,6 +860,9 @@ machines:
              Raise questions ONLY for product concerns here — a technical
              concern's open points wait for the next phase. Never tick a box
              yourself — the human ticks exactly one per question.
+
+             When every concern in this lap is TECHNICAL, write no
+             `## Open Questions` section at all.
           4. Fold EVERYTHING the entry commit added into the concerns above —
              a scratch note and a real code edit are both just a SKETCH of
              the intent, a spec to be finished, never work to be preserved;
@@ -915,15 +945,18 @@ machines:
   # A separate machine from `designPlan` — its own memory scope, since there
   # may be a handover between the user-facing and the technical phase: this
   # phase does NOT resume design's conversation, it reads
-  # `.gtd/REQUIREMENTS.md` cold. Resolves the TECHNICAL open
-  # questions, then decomposes the settled concerns into package files.
-  # Merge authority lives HERE, in `author` — it is the first state that
-  # knows the *how*, so it alone may re-merge concerns whose file footprints
-  # coincide (never split); `decompose` remains the mechanical write-out,
-  # carrying `author`'s settled — possibly coarsened — grouping over
-  # verbatim. ▸ planner identity — `model:` declared once here, stamped onto
-  # `author` and `decompose` (its own prompt states; `gate.answer` is a human
-  # turn and carries no prompt).
+  # `.gtd/REQUIREMENTS.md` cold — COLD means no memory of that conversation,
+  # never no git access; it still finds and reads the entry commit from
+  # history the same way triage does. Resolves the TECHNICAL open questions
+  # that clear the same bar triage's own do, deciding every sub-threshold
+  # point itself instead, then decomposes the settled concerns into package
+  # files. Merge authority lives HERE, in `author` — it is the first state
+  # that knows the *how*, so it alone may re-merge concerns whose file
+  # footprints coincide (never split); `decompose` remains the mechanical
+  # write-out, carrying `author`'s settled — possibly coarsened — grouping
+  # over verbatim. ▸ planner identity — `model:` declared once here, stamped
+  # onto `author` and `decompose` (its own prompt states; `gate.answer` is a
+  # human turn and carries no prompt).
   archPlan:
     model: <%= it.vars.plannerModel %>
     system: <%~ it.vars.architectPersona %>
@@ -952,9 +985,18 @@ machines:
           You do NOT resume the design conversation — this is a separate
           machine with its own memory, a COLD read every time. Read
           `.gtd/REQUIREMENTS.md` (the settled, ordered, classified
-          concerns) in full. Treat every product decision recorded there —
-          plain prose or a resolved `## Answered Questions` entry — as
-          SETTLED; never re-open it.
+          concerns) in full. Treat every decision recorded there — plain
+          prose or a resolved `## Answered Questions` entry, PRODUCT or
+          TECHNICAL alike — as SETTLED; never re-open it.
+
+          COLD means the machine carries no conversational memory of
+          triage's own back-and-forth; it never meant no git access. This
+          process started at commit `<%= it.startCommit %>`. Find the
+          process's first turn yourself: run
+          `git rev-list --ancestry-path <%= it.startCommit %>..HEAD | tail -1`
+          then `git show` that commit to see everything that started this
+          process: a hand-edit to real code, a scratch note in some file,
+          or both.
 
           On the FIRST lap, develop `.gtd/ARCHITECTURE.md` from
           those concerns: for each one, in the same order, work out the *how*
@@ -978,11 +1020,29 @@ machines:
           larger packages — the smallest independently valuable change, not
           the smallest change that compiles.
 
-          For every open TECHNICAL point you cannot settle yourself, add a
-          question under a `## Open Questions` heading exactly as the
-          requirements phase does: one `### <question>` each, followed by a
-          checkbox list — TWO concrete options plus a final free-text slot,
-          ALL left UNTICKED:
+          For every open TECHNICAL point, a question is warranted
+          only when all three hold: the answer is a genuine fork with
+          divergent outcomes — user-visible for a product question,
+          materially different implementations for a technical one; the
+          sketch, the entry diff, and history do not already settle it
+          (treat anything the entry diff states explicitly — a directive
+          in `.gtd/TODO.md`, a committed choice in a hand-edit — as
+          already settled, and on a review loop-back lap treat whatever
+          the human's own review-round edit or note states explicitly the
+          same way); and getting it wrong would survive all the way to
+          the human review tail.
+
+          Anything below that bar, decide yourself: record the decision
+          under `## Answered Questions` — the same section a
+          human-answered question lands in — as
+          `### <the point phrased as a question>` followed by the decision
+          and a one-line rationale in prose, no checkboxes.
+
+          A question that clears the bar is written under a
+          `## Open Questions` heading, exactly as the requirements phase
+          does: one `### <question>` each, followed by a checkbox list —
+          TWO concrete options plus a final free-text slot, ALL left
+          UNTICKED:
 
               ### <the question>
 
