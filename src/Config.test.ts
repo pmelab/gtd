@@ -448,6 +448,46 @@ const idleLabelOverlayYaml = (label: string) =>
     ``,
   ].join("\n")
 
+// A single-machine workflow whose `system:` is a file reference.
+const machineSystemRefYaml = (ref: string) =>
+  [
+    `workflow:`,
+    `  entry:`,
+    `    default: root`,
+    `  machines:`,
+    `    root:`,
+    `      system: "${ref}"`,
+    `      entry: working`,
+    `      states:`,
+    `        working:`,
+    `          actor: agent`,
+    `          prompt: "do the thing"`,
+    `          on: {}`,
+    ``,
+  ].join("\n")
+
+// A partial workflow that overlays only `machines.root.system` — merged over
+// an ancestor that supplies the rest of the machine (entry + states).
+const machineSystemOverlayYaml = (ref: string) =>
+  [`workflow:`, `  machines:`, `    root:`, `      system: "${ref}"`, ``].join("\n")
+
+describe("ConfigService — machine-level `system` file refs resolve against the declaring config file", () => {
+  it("resolves a child's overriding `system` ref against the CHILD dir (each level uses its own file), child wins", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+    mkdirSync(join(projectDir, "prompts"), { recursive: true })
+    mkdirSync(join(child, "prompts"), { recursive: true })
+    writeFileSync(join(projectDir, "prompts", "persona.md"), "ancestor persona")
+    writeFileSync(join(child, "prompts", "persona.md"), "child persona")
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), machineSystemRefYaml("./prompts/persona.md"))
+    writeFileSync(join(child, ".gtdrc.yaml"), machineSystemOverlayYaml("./prompts/persona.md"))
+
+    const cfg = await getConfig(child)
+
+    expect(cfg.workflow.states["working"]?.system).toBe("child persona")
+  })
+})
+
 describe("ConfigService — content file refs resolve against the declaring config file", () => {
   it("resolves a `./`-relative ref from a .gtdrc stored in an ANCESTOR dir against the ancestor, not the child cwd gtd runs from", async () => {
     // .gtdrc + gtd-prompts/ live in `projectDir`; gtd runs from the child repo

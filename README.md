@@ -571,6 +571,31 @@ name surfaced in `gtd next --json`/plain `gtd next`. The driver uses it for its
 per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
 can use it the same way.
 
+A machine may also declare `system:` — like `model:`, stamped once at the
+machine level onto every one of that machine's own `prompt` states, never
+authored on an individual state. It is passed to the agent CLI as (in the
+reference driver's case) `--system-prompt`, which **replaces** the harness's own
+default system prompt outright rather than appending to it (contrast with an
+`--append-system-prompt`-shaped flag) — so a machine declaring `system:` loses
+not only the harness's own tool-use instructions but also its dynamic per-turn
+sections: current working directory, environment info, memory-path information,
+git status. A workflow author reaching for `system:` for the first time is
+therefore writing a complete replacement system prompt, not a tweak on top of
+the harness's own. The scoping is machine-level for the same reason memory is
+machine-scoped below: a machine is the unit of conversational identity, so its
+system prompt — like its model tier — is one property of that identity, constant
+across every turn of the one resumed session, never a per-state override. Like
+`model:`/`file:`, a `system:` value prefixed `./` or `../` is inlined from the
+declaring config file's own directory at compile time — for a user's own
+`.gtdrc` `workflow:` config only; the bundled template ships no filesystem
+references at all, since it has to work inside a single-file build. The bundled
+default template ships six such personas already, one per prompt-bearing machine
+— `designPersona`, `architectPersona`, `reviewerPersona`, `specReviewerPersona`,
+`builderPersona`, `finisherPersona` — and, like any other bundled var, each is
+overridable through a top-level `.gtdrc` `vars:` key or a `GTD_<NAME>`-style
+environment variable (e.g. `GTD_DESIGNPERSONA`) — gtd's existing, generic
+vars-override mechanism, nothing new.
+
 Memory is **entry-scoped to a machine**, not a state-authored label: each
 machine instance (a node in the `machines:` tree, e.g. `build`, `build.health`,
 `packages.item`, `packages.item.health`) owns its own conversational scope, and
@@ -888,8 +913,9 @@ while :; do
       # macOS, and POSIX guarantees only 4 KB, ARG_MAX), and a diff crosses
       # that far sooner than you'd expect.
       agent_turn() { printf '%s' "$gtd_content" | claude -p "$1" "$gtd_session_id" \
-        ${gtd_model:+--model "$gtd_model"} --dangerously-skip-permissions \
-        >>"$gtd_log" 2>&1; }
+        ${gtd_model:+--model "$gtd_model"} \
+        ${gtd_system:+--system-prompt "$gtd_system"} \
+        --dangerously-skip-permissions >>"$gtd_log" 2>&1; }
       if [ "${gtd_session_resume:-}" = true ]
       then agent_turn --resume || agent_turn --session-id
       else agent_turn --session-id || agent_turn --resume
@@ -898,8 +924,16 @@ while :; do
       while [ -n "${gtd_validate:-}" ] && ! fix="$(sh -c "$gtd_validate" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\n' "$fix" >&2; exit 1; }
         # $fix IS the fix prompt, verbatim — piped for the same reason as
-        # $gtd_content above
+        # $gtd_content above. Whether `claude --resume` re-applies the
+        # original session's model/system prompt is a harness detail gtd
+        # cannot verify from outside, so this passes the identical
+        # $gtd_model/$gtd_system on both calls rather than assume it does —
+        # otherwise this fix turn might silently fall back to Claude Code's
+        # own defaults while the turn that produced the file ran under the
+        # workflow's own model and persona.
         printf '%s' "$fix" | claude -p --resume "$gtd_session_id" \
+          ${gtd_model:+--model "$gtd_model"} \
+          ${gtd_system:+--system-prompt "$gtd_system"} \
           --dangerously-skip-permissions >>"$gtd_log" 2>&1
       done ;;
   esac
@@ -934,12 +968,13 @@ re-invocation authored and which therefore lands like any other decision (see
 not gtd, decides, because "has the human read this gate" is run-scoped knowledge
 gtd deliberately does not keep); `capture` lands a human's already-made edit
 outright, no display needed; `script` runs `$gtd_content` in the driver;
-`prompt` sends it to the agent over stdin with `$gtd_session_id`/`$gtd_model`
-mapped onto the agent's session flags — trying `resume`'s hinted flag first and
-falling back to the other on failure, since the session id is derived, not
-remembered (see [Driving the loop](#driving-the-loop) above) — and its own
-`$gtd_validate` script's output re-prompted verbatim on failure (the driver owns
-only the retry cap). Every optional variable (`$gtd_model`, `$gtd_validate`,
+`prompt` sends it to the agent over stdin with
+`$gtd_session_id`/`$gtd_model`/`$gtd_system` mapped onto the agent's session
+flags — trying `resume`'s hinted flag first and falling back to the other on
+failure, since the session id is derived, not remembered (see
+[Driving the loop](#driving-the-loop) above) — and its own `$gtd_validate`
+script's output re-prompted verbatim on failure (the driver owns only the retry
+cap). Every optional variable (`$gtd_model`, `$gtd_system`, `$gtd_validate`,
 `$gtd_session_resume`, `$gtd_idle`, `$gtd_settled`) is read as `${var:-}` or
 `${var:+...}` — under `set -u`, the `--sh` document's own `unset` preamble makes
 an absent field genuinely unset, not empty, so a bare `$gtd_model` would abort
@@ -952,6 +987,20 @@ instead resolves `$gtd_idle` on the FOLLOWING beat's own `gtd next --sh` read �
 the reference driver reads once more (a plain `gtd next`) only to DISPLAY that
 gate's own message, the decision to stop already made from `$gtd_settled`/
 `$gtd_idle` alone.
+
+This paste passes `$gtd_system` on argv, and POSIX guarantees only 4 KB of argv
+(`ARG_MAX`) — real systems are far higher (roughly 1 MB on both macOS and
+Linux), and the bundled personas are only a few KB each, so this works
+everywhere in practice. A driver shipping much larger system prompts, or
+targeting a platform sitting at the POSIX floor, should write the string to a
+file and pass that instead: gtd's own contract ends at emitting `gtd_system` as
+a string, and how a driver hands that string to its agent CLI — argv, a temp
+file, or something else — is the driver's own call, since it alone knows its
+platform's argv limit and whether it has a writable temp directory; gtd adds no
+flag, no file, and no mechanism of its own for this. (The doc-test below only
+proves this paste parses and runs against a `claude` shim — not that the flag is
+spelled or placed correctly; that's a `claude --help` check plus one live run,
+not something the green suite can catch.)
 
 ### The self-validation gate
 

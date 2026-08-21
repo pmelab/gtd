@@ -1,5 +1,5 @@
 # shellcheck disable=SC2034,SC1003
-unset gtd_kind gtd_content gtd_idle gtd_session_id gtd_session_resume gtd_model gtd_validate gtd_log gtd_state gtd_actor gtd_label gtd_memory gtd_file gtd_mode gtd_edges gtd_changes gtd_next_pattern gtd_next_target gtd_next_action gtd_cost gtd_costByModel
+unset gtd_kind gtd_content gtd_idle gtd_session_id gtd_session_resume gtd_model gtd_system gtd_validate gtd_log gtd_state gtd_actor gtd_label gtd_memory gtd_file gtd_mode gtd_edges gtd_changes gtd_next_pattern gtd_next_target gtd_next_action gtd_cost gtd_costByModel
 gtd_kind='prompt'
 gtd_content='fix the failing build'
 gtd_session_id='11111111-1111-1111-1111-111111111111'

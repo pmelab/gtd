@@ -102,7 +102,7 @@ export interface VizGroup {
   readonly parent?: string
   /** `0` for a top-level reference, incrementing with nesting depth. */
   readonly depth: number
-  /** This instance's machine's own `model:` (stamped onto every one of its `prompt`-content states — see `Machines.ts`'s `resolveInstanceModel`), read off any one of them. Absent when the machine declares no `model:` or owns no `prompt` state. */
+  /** This instance's machine's own `model:` (stamped onto every one of its `prompt`-content states — see `Machines.ts`'s `resolveInstanceMachineFields`), read off any one of them. Absent when the machine declares no `model:` or owns no `prompt` state. */
   readonly model?: string
 }
 
@@ -233,7 +233,7 @@ const flattenTree = (
  * The `model` of one group — a machine instance's own `model:`, read off any
  * ONE of that group's own prompt-content states (by construction every prompt
  * state one machine instance owns carries the identical `def.model` — see
- * `Machines.ts`'s `resolveInstanceModel`/`emitTree`). `undefined` when the
+ * `Machines.ts`'s `resolveInstanceMachineFields`/`emitTree`). `undefined` when the
  * group owns no prompt state (e.g. a queue/gate machine of only
  * script/message/commit states) or its machine declares no `model:` — never
  * guessed.

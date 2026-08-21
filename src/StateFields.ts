@@ -123,6 +123,8 @@ export interface FieldSpec {
   readonly doc: string
   /** Escape hatch for a property whose JSON Schema is structurally nested (`on`, `retry`) or otherwise doesn't fit `{ ...JSON_TYPE[kind], description: doc }` (`entry`'s `const: true`). */
   readonly jsonSchema?: object
+  /** Marks a text field whose value may be a `./`- or `../`-prefixed file reference, inlined from the declaring config file's directory (package 02's concern — this module only carries the flag). */
+  readonly fileRef?: true
 }
 
 const ON_JSON_SCHEMA = {
@@ -258,6 +260,18 @@ const STATE_FIELDS = {
     viz: "field",
     rest: "rendered",
     doc: 'Opaque harness hint stamped onto every one of this machine\'s own `prompt` states (e.g. "smart"), passed through `gtd next --json`/`gtd status --json`. The ONLY place a model may be declared — a state carrying its own `model:` is a config error. Never interpreted by gtd. A machine declaring this with no `prompt` state is a config error.',
+  },
+
+  system: {
+    kind: "text",
+    surface: "def",
+    authored: "machine",
+    nonEmpty: true,
+    commit: "forbidden",
+    fileRef: true,
+    rest: "rendered",
+    viz: "field",
+    doc: "The agent harness system prompt stamped onto every one of this machine's own `prompt` states — emitted verbatim in `gtd next --json`/`--sh` for the driver to pass to its agent CLI, never interpreted by gtd. Machine-level only: a machine's `prompt` states share one resumed session, and a system prompt must be identical across every call of it. A `./` or `../` value is inlined from the declaring config file's directory. A machine declaring this with no `prompt` state is a config error.",
   },
 
   /**
@@ -499,6 +513,11 @@ export const STATE_FIELD_ENTRIES: ReadonlyArray<[keyof Fields, FieldSpec]> = Obj
 export const CONTENT_FIELDS: readonly string[] = STATE_FIELD_ENTRIES.filter(
   ([, spec]) => spec.kind === "content",
 ).map(([key]) => key)
+
+/** Every machine-authored field, in table order — the machine tier's `CONTENT_FIELDS`. */
+export const MACHINE_FIELD_ENTRIES: ReadonlyArray<[string, FieldSpec]> = STATE_FIELD_ENTRIES.filter(
+  ([, spec]) => spec.authored === "machine",
+)
 
 /** True when a state is a commit (final, squash) state. */
 export const isCommitState = (state: StateDef): boolean => state.commit !== undefined
