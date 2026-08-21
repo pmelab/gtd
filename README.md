@@ -85,34 +85,33 @@ gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
 template), with an ordered set of change-patterns routing to the next state.
 
-The loop is one beat, repeated: run `gtd status --json` and dispatch on `kind` —
+The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
 `"message"` means it's a human's move (stop and hand off, unless it's the run's
 opening beat, which the human triggered by re-running the driver: land that one,
 since changing nothing is itself a declared outcome at some gates); `"capture"`
 means a human gate the human already acted on (land it immediately); `"script"`
 means the driver runs `gtd next`'s own plain-text output itself, then lands it;
 `"prompt"` means feed `gtd next`'s output to your agent — using the accompanying
-`session.id`/`session.resume` fields off `gtd status --json` to continue or
-start that agent conversation (see "Driving the loop" below) — then run
-`gtd land` once it's done. gtd itself never executes anything — the driver owns
-running scripts. Every `gtd next`/ `gtd status` call is strictly mutation-free,
-safe to poll or peek at any time: `session.id`/`session.resume` are DERIVED,
-never stored, so looking is free — nothing distinguishes a peek from a dispatch,
-and there is no separate claiming form at all. A `prompt` beat whose turn
-changes nothing still lands: `gtd land` commits an EMPTY `gtd(<actor>): <state>`
-attempt instead of silently doing nothing, so the fruitless dispatch is visible
-in history rather than invisible. `"kind": "stalled"` is derived from that
-history — HEAD is an empty attempt at the resting state and the tree is clean —
-so every `gtd status --json` call reports it, and it stays reported on a repeat
-(there's no marker to consume) until something actually changes. The fix for a
-repeated stall is either a better prompt, a `retry:` cap on the state that
-redirects to an escalation state after N fruitless attempts, or — if the state
-can legitimately finish with nothing to change — declaring a `C` (clean-tree)
-pattern on it.
+`session.id`/`session.resume` fields off `gtd next --json` to continue or start
+that agent conversation (see "Driving the loop" below) — then run `gtd land`
+once it's done. gtd itself never executes anything — the driver owns running
+scripts. Every `gtd next` call is strictly mutation-free, safe to poll or peek
+at any time: `session.id`/`session.resume` are DERIVED, never stored, so looking
+is free — nothing distinguishes a peek from a dispatch, and there is no separate
+claiming form at all. A `prompt` beat whose turn changes nothing still lands:
+`gtd land` commits an EMPTY `gtd(<actor>): <state>` attempt instead of silently
+doing nothing, so the fruitless dispatch is visible in history rather than
+invisible. `"kind": "stalled"` is derived from that history — HEAD is an empty
+attempt at the resting state and the tree is clean — so every `gtd next --json`
+call reports it, and it stays reported on a repeat (there's no marker to
+consume) until something actually changes. The fix for a repeated stall is
+either a better prompt, a `retry:` cap on the state that redirects to an
+escalation state after N fruitless attempts, or — if the state can legitimately
+finish with nothing to change — declaring a `C` (clean-tree) pattern on it.
 
 An `on` edge may also carry a short imperative `action` (e.g. `Accept plan`)
 alongside its existing `describe` sentence — a human-facing name for the choice
-itself, not just the underlying glob pattern. `gtd status` (plain and `--json`)
+itself, not just the underlying glob pattern. `gtd next` (plain and `--json`)
 and `gtd visualize`'s diagram and inspector all render the two composed
 together: the `action` leads when the edge declares one, with the raw pattern
 (and `describe`) still shown alongside it, so a human choosing between routes
@@ -122,14 +121,14 @@ reads intent first, glob second.
 to the tree — a hand-edit to real code, a scratch note in some file, anything at
 all — as a sketch to be finished, never as work to be preserved: there is no
 fork on which steering file you happen to create, and `idle` has exactly one
-outgoing edge, into `unwind`. `.gtd/TODO.md` (the `todoFile` var) is a good
-default place to start sketching when you'd rather write a note than touch code
-— despite living beside the workflow's own state files, that sketch is your
-input for `design.triage` to fold in, never gtd bookkeeping to preserve or
-ignore. `unwind` reverts that whole diff back out of your working tree
-(`git revert --no-commit` against the commit it just landed in) before planning
-ever starts — your tree is back to exactly what it was, and your intent doesn't
-disappear, it survives in history for `design.triage` to read.
+outgoing edge, into `unwind`. `.gtd/TODO.md` is a good default place to start
+sketching when you'd rather write a note than touch code — despite living beside
+the workflow's own state files, that sketch is your input for `design.triage` to
+fold in, never gtd bookkeeping to preserve or ignore. `unwind` reverts that
+whole diff back out of your working tree (`git revert --no-commit` against the
+commit it just landed in) before planning ever starts — your tree is back to
+exactly what it was, and your intent doesn't disappear, it survives in history
+for `design.triage` to read.
 
 From there, `start-gate.check` runs your test suite on the tree as it now stands
 — which, thanks to the unwind, is simply your repo's own baseline. The rule is
@@ -223,14 +222,8 @@ rather than sitting beside it) — an actionable round leaves that identity
 entirely, so it starts a fresh session like any other process. A comment is what
 asks for changes; landing with no comment signs off, whatever the boxes say,
 which collapses the whole process into one commit (a **squash finale** whose
-message an agent drafts). Deleting `.gtd/REVIEW.md` is refused, wherever the
-review doc lives: repointing `reviewFile` out of `.gtd/` (say to `REVIEW.md` at
-the repo root) changes nothing about that refusal, since it only asks whether
-the step's diff deletes the file. The exact-path exemption issue #128 fixed
-still matters elsewhere, though: the `deciding` state's own classification and
-the feedback-progress guard both exclude the state's own `file:` by exact path,
-not merely a `.gtd/` prefix, so your own edit to a relocated steering file is
-never mistaken for a code comment.
+message an agent drafts). Deleting `.gtd/REVIEW.md` is refused — the guard only
+asks whether the step's diff deletes the file.
 
 A second entry, the same review tail's own direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -263,27 +256,9 @@ to target a state.
 Every agent state routes its model through two `vars` tiers — `plannerModel`
 (heavier planning and review) and `coderModel` (the coding turns) — so you can
 repoint the models globally in one place (a `vars:` edit or a `GTD_PLANNERMODEL`
-override) instead of per state. Steering-file path vars (`todoFile`,
-`feedbackFile`, `reviewFile`, …) work the same way, and propagate to the `on`
-patterns that route on them too — a repointed path var actually reroutes the
-machine, not just the templates that read/write the file. `todoFile` (default
-`.gtd/TODO.md`, `idle`'s own `file:` hint) is the one exception: it's the only
-per-file var gtd never writes and never reads, since it names your own sketch
-pad, not a file any state produces. A separate `stateDir` var (default `.gtd`)
-names only where the check scripts keep their own scratch/bookkeeping,
-independent of the per-file vars — relocate one steering file without touching
-it. The workflow declares its plumbing directory once, at the top level of the
-`workflow:` value (`stateDir: <%= it.vars.stateDir %>` in the bundled template),
-rendered from that same `stateDir` var — this is what the engine itself reads to
-tell gtd's own bookkeeping apart from your code (e.g. the review window's revert
-pathspec, the step guards' code-vs-plumbing check), not just a value the
-templates happen to share. The rendered value is constrained: it must name a
-directory inside the repository — not the repo root, not an absolute path, and
-not a path that escapes the repository via `..` — and it must be spelled
-canonically: no `.` and no empty path segments (`a/./state` or `a//state` are
-rejected, not rewritten), though a leading `./` and a trailing `/` are accepted
-— or the next `gtd next`/`gtd status`/`gtd land` fails loudly with that message,
-rather than silently excluding the whole tree from the review window's revert.
+override) instead of per state. Every steering file the bundled workflow reads
+or writes lives at a fixed path under `.gtd/`; `testCommand`, `plannerModel`,
+`coderModel`, and `reviewBase` are the only vars left to tune.
 
 To inspect or change the machine itself, see [Configuration](#configuration) —
 the workflow is just `.gtdrc` config.
@@ -408,11 +383,11 @@ Options:
 
 ### Plain output is not a parsing surface
 
-`gtd next`'s plain encoding (and `gtd status`'s own) is for a human, or a driver
-that merely displays it — never for scraping. Parsing lives in `--json`/`--sh`,
-both of which read from the exact same field set (`gtd install`'s briefing has
-the full reference); anything that greps, cuts, or `awk`s plain text is
-unsupported, and its shape may change across releases with no warning.
+`gtd next`'s plain encoding is for a human, or a driver that merely displays it
+— never for scraping. Parsing lives in `--json`/`--sh`, both of which read from
+the exact same field set (`gtd install`'s briefing has the full reference);
+anything that greps, cuts, or `awk`s plain text is unsupported, and its shape
+may change across releases with no warning.
 
 ### Exit codes
 
@@ -480,7 +455,7 @@ command are all usage errors too — landing and entering are different verbs, s
 `--model`, `--model` without `--cost`, or `--cost`/`--model` on any command
 other than `gtd land` are all usage errors.
 
-### `gtd status`'s `Next:`/`next`
+### `gtd next`'s `Next:`/`next`
 
 Both plain and `--json` output include a headline preview of what would happen
 next: the first declared `on` edge whose pattern matches the pending changes AS
@@ -505,11 +480,11 @@ prompt/script alongside a message about why it stopped. `gtd visualize` is the
 one exception worth knowing: it flushes its served-URL line immediately, before
 blocking on `Ctrl-C`, since a flush-on-success would never otherwise fire.
 
-Any invocation that carries `--json` (valid only for `gtd status` — every other
-command usage-errors on it) reports a failure as a machine-readable envelope on
-**stderr** — including the scope violation itself, so a driver that always adds
-`--json` still gets a parseable envelope on every failure, not only
-`gtd status`'s own:
+Any invocation that carries `--json` (valid only for `gtd next`/`gtd land` —
+every other command usage-errors on it) reports a failure as a machine-readable
+envelope on **stderr** — including the scope violation itself, so a driver that
+always adds `--json` still gets a parseable envelope on every failure, not only
+`gtd next`'s/`gtd land`'s own:
 
 ```json
 { "state": "error", "prompt": "<message>" }
@@ -592,46 +567,45 @@ not of the loop itself; see
 below for a worked example.
 
 A workflow state can declare an optional `label:` — a human-readable display
-name surfaced in `gtd status --json`/plain `gtd status`. The driver uses it for
-its per-beat progress lines; an outer wrapper (a terminal multiplexer, a
-notifier) can use it the same way.
+name surfaced in `gtd next --json`/plain `gtd next`. The driver uses it for its
+per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
+can use it the same way.
 
 Memory is **entry-scoped to a machine**, not a state-authored label: each
 machine instance (a node in the `machines:` tree, e.g. `build`, `build.health`,
 `packages.item`, `packages.item.health`) owns its own conversational scope, and
-a `prompt`-content state's `memory` key — surfaced in `gtd status --json`'s
-`memory` field, and as a `Memory: <key>` line in plain `gtd status` — is
-computed, never authored, as `<scope>#<hash7>`: `<scope>` is that machine
-instance's dotted path (the root instance is shown as `root`), and `<hash7>`
-anchors to the commit the CURRENT unbroken entry into that scope started FROM.
-Entering a **descendant** scope (e.g. dipping from `build` into `build.health`)
-does not break the parent's unbroken run — a full agent turn in a nested child
-machine, then back to the parent, still resumes the SAME parent conversation;
-entering a **sibling or unrelated** scope does start a fresh one. The bundled
-template's `build.review` (the human review tail) is a worked example: it is
-nested INSIDE `build` (the builder's own machine) so that a
-`gtd --entry fix-precheck` run — `build.fix` -> `build.health.check` ->
-`build.review.*` -> `build.squashing` — stays inside one subtree, letting
-`build.squashing` resume the SAME session that made the fixes instead of a
-root-level sibling forcing it to re-derive the range from scratch on every pass
-through the tail. (An actionable review round breaks the run on purpose instead
-— it leaves `build` entirely through a root-level `re-unwind` state and a full
-re-plan, since a hand-edit made during review is a sketch to reconsider, not a
-fix to build on.) Two instances of the same reusable machine (e.g.
-`build.health` and `packages.item.health`, both instantiating `healthGate`) get
-different scopes and so never share a key, even though they're the "same shaped"
-machine. One consequence is a structural guarantee: **a reviewer's turn never
-resumes an implementer's session, and vice versa** — a reviewer machine and the
-implementer machine it reviews are always different instances with different
-scopes.
+a `prompt`-content state's `memory` key — surfaced in `gtd next --json`'s
+`memory` field, and as a `Memory: <key>` line in plain `gtd next` — is computed,
+never authored, as `<scope>#<hash7>`: `<scope>` is that machine instance's
+dotted path (the root instance is shown as `root`), and `<hash7>` anchors to the
+commit the CURRENT unbroken entry into that scope started FROM. Entering a
+**descendant** scope (e.g. dipping from `build` into `build.health`) does not
+break the parent's unbroken run — a full agent turn in a nested child machine,
+then back to the parent, still resumes the SAME parent conversation; entering a
+**sibling or unrelated** scope does start a fresh one. The bundled template's
+`build.review` (the human review tail) is a worked example: it is nested INSIDE
+`build` (the builder's own machine) so that a `gtd --entry fix-precheck` run —
+`build.fix` -> `build.health.check` -> `build.review.*` -> `build.squashing` —
+stays inside one subtree, letting `build.squashing` resume the SAME session that
+made the fixes instead of a root-level sibling forcing it to re-derive the range
+from scratch on every pass through the tail. (An actionable review round breaks
+the run on purpose instead — it leaves `build` entirely through a root-level
+`re-unwind` state and a full re-plan, since a hand-edit made during review is a
+sketch to reconsider, not a fix to build on.) Two instances of the same reusable
+machine (e.g. `build.health` and `packages.item.health`, both instantiating
+`healthGate`) get different scopes and so never share a key, even though they're
+the "same shaped" machine. One consequence is a structural guarantee: **a
+reviewer's turn never resumes an implementer's session, and vice versa** — a
+reviewer machine and the implementer machine it reviews are always different
+instances with different scopes.
 
 `gtd` itself stores NOTHING to make this work: `session.id` is
 `UUIDv5(<fixed gtd namespace>, <memory key>)` — a deterministic hash of the
 computed `<scope>#<hash7>` key above — so the same scope-run always re-derives
 the exact same id, and there is no table, no file, no write to keep in sync.
 `session.resume` is `true` iff a prior `prompt` turn already landed within that
-same scope-run. Because nothing is written, calling `gtd status --json` twice in
-a row — a driver's own opening peek, a status poll, a curious human — derives
+same scope-run. Because nothing is written, calling `gtd next --json` twice in a
+row — a driver's own opening peek, a status poll, a curious human — derives
 IDENTICAL `session.id`/`session.resume` values both times, since there is
 nothing to poison: looking is free, and there is no separate claiming form to
 protect. The per-scope survival story (a child machine's own excursion doesn't
@@ -792,7 +766,7 @@ invokes that script with.
   carry one — there is no window to reopen after either, so their printed
   artifact is the required half alone, with no trailing comment/subshell at all.
 
-`gtd status --json` carries one more field worth a custom driver's attention:
+`gtd next --json` carries one more field worth a custom driver's attention:
 
 - **`log`** — the per-worktree loop log path, always present. It's derived from
   the worktree's own git dir, so two worktrees looping concurrently never share
@@ -843,16 +817,16 @@ advance instead of settling.
 
 ### Drivers other than sh
 
-The protocol above is JSON in (from `gtd status --json` alone), subprocesses out
-— sh is one convenient shape, not the only one. A **program** parses
-`gtd status --json`, switches on `kind`, and runs `gtd next`'s (plain-text)
-output and `gtd land`'s (POSIX sh) output as subprocesses — no sh anywhere in
-it. A **human** runs plain `gtd next` (there is no JSON form of it at all), does
-what it says, and pastes `gtd land | sh`: plain-text output exists for exactly
-this, printing the combined script ready to paste. An **agent** gets
-`gtd install` as its instructions — the same protocol, in a form built to be
-pasted into a context window rather than read. A **CI job** is the program case
-with the `prompt` arm pointed at a headless agent CLI, and
+The protocol above is JSON in (from `gtd next --json` alone), subprocesses out —
+sh is one convenient shape, not the only one. A **program** parses
+`gtd next --json`, switches on `kind`, and runs `gtd next`'s (plain-text) output
+and `gtd land`'s (POSIX sh) output as subprocesses — no sh anywhere in it. A
+**human** runs plain `gtd next` (there is no JSON form of it at all), does what
+it says, and pastes `gtd land | sh`: plain-text output exists for exactly this,
+printing the combined script ready to paste. An **agent** gets `gtd install` as
+its instructions — the same protocol, in a form built to be pasted into a
+context window rather than read. A **CI job** is the program case with the
+`prompt` arm pointed at a headless agent CLI, and
 `kind: "message"`/`kind: "stalled"` mapped onto "stop and report".
 
 ### A complete minimal driver
@@ -982,7 +956,7 @@ gate's own message, the decision to stop already made from `$gtd_settled`/
 ### The self-validation gate
 
 After an agent turn at a state that declares `file:`+`mode:`, run the script:
-either `gtd status --json`'s own embedded `.validate` field (present at every
+either `gtd next --json`'s own embedded `.validate` field (present at every
 `prompt` beat that hands over a validatable file), or, standalone,
 `gtd validate`'s own plain-text output — both resolve the exact same script from
 one shared resolver. Exit 0 means the file is well-formed — proceed to
@@ -1156,7 +1130,6 @@ workflow:
     <name>:
       format: <shell command> # both optional — {} is the format-only tier
       validate: <shell command>
-  stateDir: <string> # optional, an Eta template naming where this workflow keeps its own plumbing (default ".gtd") — the definition-level declaration the engine reads, distinct from the `vars.stateDir` var the bundled template renders it from
   entry:
     default: <machine name> # which machine is the ROOT instance
   machines:
@@ -1181,8 +1154,8 @@ workflow:
           retry:
             max: <number>
             otherwise: <targetState>
-          label: <string> # optional, opaque display name passed through `gtd status --json`
-          file: <string> # optional, an Eta template naming the state's steering file
+          label: <string> # optional, opaque display name passed through `gtd next --json`
+          file: <string> # optional, an Eta template naming the state's steering file RELATIVE to ".gtd/" — the compiler prepends that directory automatically
           mode: <modeName> # optional, requires "file" — must be declared in `modes:` (qa/review are seeded for you; everything else, including prose, you declare)
           reviewWindow: true # optional — open the review checkout window at rest here
           reviewBase: true # optional — anchor the review window's diff base to this state's most-recent commit
@@ -1202,11 +1175,7 @@ derives a driver's session id).
 The top-level `entry:` key (naming the root machine, `entry.default`) and a
 state's own `entry: true` flag are the same word at two different levels, by
 design: one selects the workflow's root machine, the other opts one state in as
-an extra manual entry point. The top-level `stateDir:` key and the
-`vars.stateDir` var it renders from are the same call: the definition-level
-declaration is what the engine reads (e.g. to tell gtd's own plumbing apart from
-your code), while the var is the knob you actually override — repointing
-`vars.stateDir` moves both.
+an extra manual entry point.
 
 A workflow is authored as a TREE of reusable, parameterized machines — a
 gate/loop written once and instantiated several times with different `with:`
@@ -1239,8 +1208,8 @@ Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
 
 A template never sees rendered diff CONTENT — no field carries a diff. It names
 a base and leaves the agent to run `git diff <base>` itself; this keeps every
-render cheap (no diff computed on `gtd next`/`gtd status`/`gtd lsp`) and the
-prompt small and cacheable.
+render cheap (no diff computed on `gtd next`/`gtd lsp`) and the prompt small and
+cacheable.
 
 Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
 is the agent-facing contract for producing a valid `workflow:` — the state
@@ -1401,10 +1370,10 @@ top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
 `GTD_STYLEFORMATCONTRACT` environment variable):
 
 - **`styleBlock`** — the voice itself, injected at all seven prompt states that
-  generate content, not just three: the free-prose ones — the `packagesDir`
-  package files (`architecture.decompose`), `specFeedbackFile`
-  (`packages.item.spec.review`), and `commitMsgFile` (`build.squashing`) — plus
-  the four machine-parsed states named in the next bullet. Blanking
+  generate content, not just three: the free-prose ones — the `.gtd/packages/`
+  package files (`architecture.decompose`), `.gtd/SPEC_FEEDBACK.md`
+  (`packages.item.spec.review`), and `.gtd/COMMIT_MSG.md` (`build.squashing`) —
+  plus the four machine-parsed states named in the next bullet. Blanking
   `GTD_STYLEBLOCK` strips the voice from all seven, including the machine-parsed
   ones, not only the free-prose three. In short: why density matters before any
   rule, answer-first with no preamble or restatement, blunt and imperative,
@@ -1417,17 +1386,17 @@ top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
   ahead of the role sentence and well before any state-specific format-contract
   text — `styleBlock` first, then `styleFormatContract`, at the four prompt
   states whose output a parser reads: the two `qa`-mode steering files
-  (`requirementsFile` at `design.triage`, `architectureFile` at
-  `architecture.author`) and the `review`-mode one (`reviewFile` at
-  `build.review.reviewing`), plus `requirementsFile` again at
+  (`.gtd/REQUIREMENTS.md` at `design.triage`, `.gtd/ARCHITECTURE.md` at
+  `architecture.author`) and the `review`-mode one (`.gtd/REVIEW.md` at
+  `build.review.reviewing`), plus `.gtd/REQUIREMENTS.md` again at
   `build.review.collecting`, which classifies a review round straight into it.
 
 Three more generated files carry no injected voice, because a script — not an
-agent — writes them: `feedbackFile` (verbatim test-suite output plus a HEAD
-stamp — the tool's content, not gtd's prose), `nextFile` (a bare path, no prose
-to style), and `reviewRawFile` (gtd's own prose, hand-tightened in the voice
-directly in `build.review.deciding`'s script rather than templated in through
-either variable).
+agent — writes them: `.gtd/FEEDBACK.md` (verbatim test-suite output plus a HEAD
+stamp — the tool's content, not gtd's prose), `.gtd/NEXT.md` (a bare path, no
+prose to style), and `.gtd/REVIEW_RAW.md` (gtd's own prose, hand-tightened in
+the voice directly in `build.review.deciding`'s script rather than templated in
+through either variable).
 
 ### Lookup and precedence
 
@@ -1502,8 +1471,8 @@ option"/"uncheck this option" code actions on each option — offered anywhere o
 the option's list item, including any wrapped continuation lines, not just its
 own `- [ ]` line — diagnostics for both (live as you edit), and a
 `gtd.openSteeringFile` command that jumps to the current state's steering file —
-including `idle`, whose `todoFile` hint gives the one keybinding an answer even
-before a process has started. The command only names that path — it never
+including `idle`, whose `.gtd/TODO.md` hint gives the one keybinding an answer
+even before a process has started. The command only names that path — it never
 stat-checks or creates it — so on a repo that has never run gtd, `.gtd/` may not
 exist yet and editors differ on opening a file whose parent directory is missing
 (an empty buffer that creates it on save vs. refusing the path outright); this

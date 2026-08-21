@@ -3,7 +3,6 @@ import fc from "fast-check"
 import {
   contentKindOf,
   contentOf,
-  DEFAULT_STATE_DIR,
   entryBaseTemplateOf,
   enterableStates,
   initialStateOf,
@@ -16,8 +15,6 @@ import {
   parsePattern,
   parseStateSubject,
   resolveState,
-  stateDirError,
-  stateDirOf,
   stateSubject,
   step,
   validateDefinition,
@@ -239,65 +236,6 @@ describe("entryBaseTemplateOf", () => {
       "idle",
     )
     expect(entryBaseTemplateOf(workflow, "ghost")).toBeUndefined()
-  })
-})
-
-describe("stateDirOf", () => {
-  it("defaults to `.gtd` when the definition declares no `stateDir`", () => {
-    expect(stateDirOf(simpleWorkflow)).toBe(".gtd")
-    expect(DEFAULT_STATE_DIR).toBe(".gtd")
-  })
-
-  it("returns the declared raw template source verbatim, unrendered", () => {
-    const workflow: WorkflowDefinition = { ...simpleWorkflow, stateDir: "<%= it.vars.stateDir %>" }
-    expect(stateDirOf(workflow)).toBe("<%= it.vars.stateDir %>")
-  })
-})
-
-describe("stateDirError", () => {
-  it.each([".", "./", "/abs", "../out", "a/../..", "", "   "])("rejects %j", (value) => {
-    expect(stateDirError(value)).toBeDefined()
-  })
-
-  it("rejects the repo root and reports the exact message", () => {
-    expect(stateDirError(".")).toBe(
-      '"stateDir": must name a directory inside the repository, not the repo root, an absolute path, or a path outside it (got ".")',
-    )
-  })
-
-  it.each([".gtd", "workflow-state", "./x/", "x/"])("accepts %j", (value) => {
-    expect(stateDirError(value)).toBeUndefined()
-  })
-
-  it.each(["a/../..", "../out"])(
-    "rejects an escape (%j) with the root/escape message, not the naming message — rule ordering",
-    (value) => {
-      expect(stateDirError(value)).toBe(
-        `"stateDir": must name a directory inside the repository, not the repo root, an absolute path, or a path outside it (got ${JSON.stringify(value)})`,
-      )
-    },
-  )
-
-  it.each(["a/./state", "a//state", "a/.", "./a/./state/"])(
-    "rejects a non-canonical spelling (%j) distinctly from the root/escape/absolute message",
-    (value) => {
-      const error = stateDirError(value)
-      expect(error).toBeDefined()
-      expect(error).toContain("is not a canonical path")
-      expect(error).not.toContain("not the repo root")
-    },
-  )
-
-  it("names both the offending value and the derived canonical spelling", () => {
-    expect(stateDirError("a/./state")).toBe(
-      '"stateDir": "a/./state" is not a canonical path — write it as "a/state"',
-    )
-  })
-
-  it("reports the post-strip spelling (not the raw declaration) while still suggesting the fully canonical form", () => {
-    expect(stateDirError("./a/./state/")).toBe(
-      '"stateDir": "a/./state" is not a canonical path — write it as "a/state"',
-    )
   })
 })
 
@@ -1132,6 +1070,31 @@ describe("validateDefinition", () => {
     expect(validateDefinition(retryWorkflow)).toEqual([])
   })
 
+  it("rejects a `file:` outside `.gtd/` — the one case the compiler's prepend can't catch, a hand-built definition that skipped it", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", file: "REVIEW.md", on: [] },
+      },
+    })
+    expect(errors).toContain('state "a": "file" must be under ".gtd/" (got "REVIEW.md")')
+  })
+
+  it("accepts a `file:` that is exactly `.gtd` itself, or any path under `.gtd/`", () => {
+    expect(
+      validateDefinition({
+        entries: { default: "a", manual: [] },
+        states: { a: { actor: "h", message: "x", file: ".gtd", on: [] } },
+      }),
+    ).toEqual([])
+    expect(
+      validateDefinition({
+        entries: { default: "a", manual: [] },
+        states: { a: { actor: "h", message: "x", file: ".gtd/packages/x.md", on: [] } },
+      }),
+    ).toEqual([])
+  })
+
   it("requires at least one state", () => {
     expect(validateDefinition({ entries: { default: "a", manual: [] }, states: {} })).toEqual([
       "workflow must declare at least one state",
@@ -1486,7 +1449,7 @@ describe("validateDefinition", () => {
       entries: { default: "a", manual: [] },
       modes: { adr: { validate: "./scripts/check-adr.sh <%= it.file %>" } },
       states: {
-        a: { actor: "h", message: "x", file: "docs/adr.md", mode: "adr", on: [] },
+        a: { actor: "h", message: "x", file: ".gtd/docs/adr.md", mode: "adr", on: [] },
       },
     })
     expect(accepted).toEqual([])
@@ -1495,7 +1458,7 @@ describe("validateDefinition", () => {
       entries: { default: "a", manual: [] },
       modes: { adr: { validate: "check" } },
       states: {
-        a: { actor: "h", message: "x", file: "docs/adr.md", mode: "adrs", on: [] },
+        a: { actor: "h", message: "x", file: ".gtd/docs/adr.md", mode: "adrs", on: [] },
       },
     })
     expect(rejected).toContain(
@@ -1509,7 +1472,7 @@ describe("validateDefinition", () => {
         entries: { default: "a", manual: [] },
         modes: { adr: {} },
         states: {
-          a: { actor: "h", message: "x", file: "docs/adr.md", mode: "adr", on: [] },
+          a: { actor: "h", message: "x", file: ".gtd/docs/adr.md", mode: "adr", on: [] },
         },
       }),
     ).toEqual([])
@@ -1538,27 +1501,6 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toEqual(['mode "blank": "validate" must be a non-empty shell command'])
-  })
-
-  it("rejects a blank `stateDir` template", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      stateDir: "   ",
-      states: { a: { actor: "h", message: "x", on: [] } },
-    })
-    expect(errors).toEqual(['"stateDir" template must not be blank'])
-  })
-
-  it("reports nothing for a `.gtd` `stateDir`, a relocated directory, or an absent declaration", () => {
-    const withStateDir = (stateDir?: string): readonly string[] =>
-      validateDefinition({
-        entries: { default: "a", manual: [] },
-        ...(stateDir === undefined ? {} : { stateDir }),
-        states: { a: { actor: "h", message: "x", on: [] } },
-      })
-    expect(withStateDir(".gtd")).toEqual([])
-    expect(withStateDir("workflow-state")).toEqual([])
-    expect(withStateDir(undefined)).toEqual([])
   })
 
   it("rejects a `mode` with no sibling `file`", () => {

@@ -7,6 +7,7 @@ import {
   isReviewWindowState,
   isRequireProgressState,
   isRequireRevertState,
+  STATE_DIR,
   type PendingChange,
 } from "./PatternMachine.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
@@ -66,18 +67,12 @@ export interface GuardContext {
   /** True when this step's changes delete `file`. */
   readonly fileDeleted: boolean
   /**
-   * True when this step touches a path that is neither gtd plumbing (the
-   * DECLARED directory at `template.stateDir`, never a literal `.gtd/`) nor
-   * the state's OWN `file:` — i.e. the human edited something real, which
-   * every guard here reads as "a comment"/"the work was done".
-   *
-   * Excluding `file` by exact path is load-bearing for a state whose `file:` is
-   * repointed OUTSIDE `stateDir` (an ordinary `vars:` override, e.g.
-   * `REQUIREMENTS.md` at the repo root): the human's own edit to that file
-   * would otherwise count as a code edit, so the feedback-progress guard's
-   * "was this deletion actually addressed" check could never see the deletion
-   * as bare. Same shape as the bug in `deciding`'s check script (issue #128),
-   * which also assumed every steering file lives under `.gtd/`.
+   * True when this step touches a path outside gtd's plumbing directory
+   * (`STATE_DIR`, `.gtd`) — i.e. the human edited something real, which every
+   * guard here reads as "a comment"/"the work was done". Every state's `file:`
+   * is compiled under `STATE_DIR` too (`PatternConfig.ts`'s `stateFile`
+   * compiler), so excluding plumbing already excludes the state's own file —
+   * there is no separate exact-path exemption to maintain here.
    */
   readonly hasCodeChange: boolean
   readonly template: TemplateContext
@@ -122,26 +117,24 @@ export const deletesFile = (changes: readonly PendingChange[], file: string): bo
   changes.some((c) => c.path === file && c.status === "D")
 
 /**
- * True when `path` sits inside the declared plumbing directory `dir` (carries
- * no trailing slash) — an exact match on the bare directory path itself, or
- * prefixed by `dir + "/"` (the separator is appended here, not assumed to be
- * part of `dir`). A naive `path.startsWith(dir)` would also swallow a sibling
- * `<dir>-backup/` next to the declared directory.
+ * True when `path` sits inside gtd's plumbing directory (`STATE_DIR`, `.gtd`)
+ * — an exact match on the bare directory path itself, or prefixed by
+ * `STATE_DIR + "/"`. The exact-match-or-separator shape matters: a naive
+ * `path.startsWith(STATE_DIR)` would also swallow a sibling `.gtd-backup/`.
  */
-const isPlumbingPath = (path: string, dir: string): boolean =>
-  path === dir || path.startsWith(`${dir}/`)
+const isPlumbingPath = (path: string): boolean =>
+  path === STATE_DIR || path.startsWith(`${STATE_DIR}/`)
 
 /**
- * True when `path` is a real code path — outside the DECLARED plumbing
- * directory (`stateDir`, never a literal `.gtd/`) and not the state's own
- * `file:`, excluded by EXACT path (never merely a prefix check, since `file:`
- * is var-configurable to live outside `stateDir` — issue #128). The one "did
- * a human touch something real" predicate shared by `enforceStepGuards`'s own
+ * True when `path` is a real code path — outside gtd's plumbing directory.
+ * Every state's `file:` is compiled under `STATE_DIR` too (`PatternConfig.ts`'s
+ * `stateFile` compiler), so this plain negation already excludes a state's own
+ * steering file with no separate exact-path exemption needed. The one "did a
+ * human touch something real" predicate shared by `enforceStepGuards`'s own
  * `hasCodeChange` and the require-revert guard's residue scoping, so the rule
  * is declared exactly once.
  */
-const isCodePath = (path: string, file: string, stateDir: string): boolean =>
-  !isPlumbingPath(path, stateDir) && path !== file
+const isCodePath = (path: string): boolean => !isPlumbingPath(path)
 
 /** The `mode:` name of gtd's built-in REVIEW.md checkbox format — the only mode the review-doc guard understands. */
 const REVIEW_MODE = "review"
@@ -208,12 +201,12 @@ const answerCompletenessGuard: StepGuard = {
  *   base-tree-vs-worktree by content, so the fake and a real repo answer
  *   alike. A false positive here is a refusal (loud); a false negative would
  *   be silence.
- * - **Exempting the review file by exact path**, not by a `stateDir` prefix:
- *   with `reviewFile` at the repo root the human's commit's deletion of it is
- *   a `D` in `changedPaths(base)`, which would refuse every note-only round.
- *   Plumbing itself is exempted by the DECLARED `stateDir` directory
- *   (`isCodePath`), never a literal `.gtd/` — a review-round commit touching
- *   a relocated plumbing directory is real plumbing, not residue.
+ * - **Exempting the review file**, which needs no exact-path carve-out any
+ *   more: every state's `file:` compiles under `STATE_DIR` (`.gtd`) now (see
+ *   `PatternConfig.ts`'s `stateFile` compiler), so `isCodePath`'s plain
+ *   plumbing-directory exclusion already covers it — a review-round commit's
+ *   deletion of the review file is plumbing, not residue, with no separate
+ *   check needed.
  */
 const requireRevertGuard: StepGuard = {
   name: "require-revert",
@@ -227,7 +220,7 @@ const requireRevertGuard: StepGuard = {
       const git = yield* GitService
       const base = `${rb}~1`
       const touched = (yield* git.commitHistory(base, rb))[0]?.touched ?? []
-      const scoped = touched.filter((path) => isCodePath(path, ctx.file, ctx.template.stateDir))
+      const scoped = touched.filter((path) => isCodePath(path))
       if (scoped.length === 0) return undefined
       const residue = (yield* git.changedPaths(base))
         .filter((c) => scoped.includes(c.path))
@@ -284,9 +277,7 @@ export const enforceStepGuards = (input: {
     if (applicable.length === 0) return
 
     const fileDeleted = deletesFile(input.changes, file)
-    const hasCodeChange = input.changes.some((c) =>
-      isCodePath(c.path, file, input.context.stateDir),
-    )
+    const hasCodeChange = input.changes.some((c) => isCodePath(c.path))
 
     const base = {
       rest: input.rest,

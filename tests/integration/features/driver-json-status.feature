@@ -551,7 +551,7 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
                   "* **": working
               working:
                 actor: agent
-                file: ".gtd/PLAN.md"
+                file: "PLAN.md"
                 mode: qa
                 prompt: "do the work described in NOTE.md"
                 on:
@@ -606,7 +606,7 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout does not contain "\"file\""
     And stdout does not contain "\"mode\""
 
-  Scenario: the bundled template's idle rest carries the todoFile hint in gtd next --json
+  Scenario: the bundled template's idle rest carries the .gtd/TODO.md hint in gtd next --json
     Given a test project
     And the workflow
     When I run gtd next with "--json"

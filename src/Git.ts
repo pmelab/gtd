@@ -160,8 +160,8 @@ export interface GitWriterOperations {
    * so it stays out of the surfaced diff.
    *
    * The one caller (`src/ReviewWindow.ts`'s `buildOpenWindowScript`) passes the
-   * LITERAL `[".gtd"]`, deliberately, rather than the workflow's declared
-   * `stateDir` — this pin is an editor-visibility concern, covering paths no
+   * LITERAL `[".gtd"]`, deliberately, rather than deriving it from any state's
+   * `file:` — this pin is an editor-visibility concern, covering paths no
    * declaration names (a check script's temp output), and
    * `src/testing/EmittedScriptRecognizer.ts`'s `recognizeReviewWindowOpen`
    * re-derives this exact string to verify the emitted script, which only

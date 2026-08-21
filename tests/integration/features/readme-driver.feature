@@ -543,7 +543,7 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
                   "* **": planning
               planning:
                 actor: agent
-                file: .gtd/PLAN.md
+                file: PLAN.md
                 mode: qa
                 prompt: "Write .gtd/PLAN.md with the plan."
                 on:
@@ -612,7 +612,7 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
                   "* **": planning
               planning:
                 actor: agent
-                file: .gtd/PLAN.md
+                file: PLAN.md
                 mode: qa
                 prompt: "Write .gtd/PLAN.md with the plan."
                 on:

@@ -158,16 +158,16 @@
 # and folds EVERYTHING the start diff added into the concerns — a scratch
 # sketch and a real hand-edit alike, since `unwind` already emptied the tree
 # of both; nothing is left to delete. `design.gate` is a shared check+answer
-# pair: its check probes `requirementsFile` for unanswered questions and only
+# pair: its check probes `REQUIREMENTS.md` for unanswered questions and only
 # rests the process at a human answer gate when some remain — a
 # question-free phase skips the human stop entirely.
 #
 # Once the product questions are settled, `architecture.author` picks up as a
 # COLD reader (a separate machine, a separate memory scope — it reads
-# `requirementsFile` in full rather than resuming design's conversation),
+# `REQUIREMENTS.md` in full rather than resuming design's conversation),
 # develops the *how* for each settled concern, and raises only TECHNICAL open
 # questions — routed through the same shared `questionGate` shape
-# (`architecture.gate`) over `architectureFile`. Once those are settled,
+# (`architecture.gate`) over `ARCHITECTURE.md`. Once those are settled,
 # `architecture.decompose` is a purely mechanical write-out: one package file
 # per concern, in the settled order — no merge/split judgement, since that
 # already happened in triage's grouping.
@@ -207,7 +207,7 @@
 #     REVIEW.md, or a hand-edit to code) -> marks the raw capture (a real
 #     edit) -> the root's own `re-unwind` state reverts the human's
 #     review-round commit out of the working tree, scoped to real code (never
-#     the review file, already gone, and never `stateDir`) -> `design.triage`
+#     the review file, already gone, and never `.gtd/`) -> `design.triage`
 #     re-derives the work from that history as intent only — the human's
 #     hand-edit is a SKETCH to be re-planned, never built upon. This is a full
 #     development lap (triage -> gate -> architecture -> gate -> packages ->
@@ -227,48 +227,8 @@
 # `.escalate`, plus `packages.item.fix-suite`) because its green edge targets
 # the per-package `packages.item.spec.review` gate instead.
 #
-# Every `on` pattern's path below is written as the matching var's Eta
-# template (e.g. `"A <%= it.vars.feedbackFile %>"`), not a literal `.gtd/...`
-# path — repointing a var reroutes the machine along with every template that
-# reads/writes it (see the README's "Variables" section).
-
-# The definition-level declaration `stateDirOf` (src/PatternMachine.ts) reads —
-# a DIFFERENT thing from the `vars.stateDir` below despite sharing a name
-# (see that var's own comment). Rendered from it here so the two stay in
-# lockstep: relocating the var relocates what the engine treats as plumbing.
-stateDir: <%= it.vars.stateDir %>
-
 vars:
   testCommand: npm test
-  # Where gtd keeps its own scratch/bookkeeping (the check scripts' temp output
-  # file, review-deciding's state-file exclusion). Independent of the per-file
-  # vars below — relocating a file wholesale means setting both. An ordinary
-  # var — the knob a user overrides — distinct from the top-level `stateDir:`
-  # declaration above, which renders its value from this one; that is why the
-  # two share a name.
-  stateDir: .gtd
-  # The only per-file var gtd never writes and never reads — the human's own
-  # sketch pad, named so the one "open steering file" keybinding has an
-  # answer at `idle` too.
-  todoFile: .gtd/TODO.md
-  requirementsFile: .gtd/REQUIREMENTS.md
-  architectureFile: .gtd/ARCHITECTURE.md
-  # Stamped (never authored, never read for its content) by design.gate.check
-  # / architecture.gate.check — its mere presence is the routing signal that
-  # the current phase's steering file still has unanswered questions.
-  questionsFile: .gtd/QUESTIONS.md
-  packagesDir: .gtd/packages
-  nextFile: .gtd/NEXT.md
-  # Written by packages.item.building when a package's acceptance criteria are
-  # already met (an earlier package's fix turn pulled the work in); read by
-  # the spec reviewer as the evidence a clean turn there is a real approval,
-  # not a lazy/crashed one; removed by packages.item.closing.
-  satisfiedFile: .gtd/SATISFIED.md
-  reviewFile: .gtd/REVIEW.md
-  reviewRawFile: .gtd/REVIEW_RAW.md
-  feedbackFile: .gtd/FEEDBACK.md
-  specFeedbackFile: .gtd/SPEC_FEEDBACK.md
-  commitMsgFile: .gtd/COMMIT_MSG.md
   # The two opaque model tiers every agent state draws from — repoint them here
   # (or via a top-level `.gtdrc` `vars:` key / a `GTD_PLANNERMODEL` env var)
   # to change every state on that tier at once. `plannerModel` (default "smart")
@@ -389,10 +349,8 @@ machines:
   # Runs the suite before any work starts — both `start-gate` and
   # `review-gate` reach this one check, and its script IS the shared
   # `&suiteCheck` anchor (defined once, right here, and aliased by
-  # `fix-precheck` below); the `on` rules turn the result into "halt at
-  # blocked" vs "proceed to $onGreen". Kept SEPARATE from `healthGate` (below)
-  # even though both are a check+something-else shape: this gate runs BEFORE
-  # planning, so it must NOT sweep any steering file `healthGate` does.
+  # `fix-precheck` and `healthGate.check` below); the `on` rules turn the
+  # result into "halt at blocked" vs "proceed to $onGreen".
   entryGate:
     params: [onGreen, blockedMessage, blockedDescribe, checkLabel, blockedLabel, reviewBase]
     entry: check
@@ -405,31 +363,31 @@ machines:
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
           # green run cleans it up. The `on` rules decide what that means.
           set +e
-          mkdir -p "<%~ it.stateDir %>"
-          # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-          # newline after an interpolation tag, so no tag may be the last token on
-          # a line — it would glue the next line's `else`/`fi` onto it and break
-          # the script. Below this point everything is plain POSIX sh.
-          feedback="<%~ it.vars.feedbackFile %>"
-          mkdir -p "$(dirname "$feedback")"
-          <%~ it.vars.testCommand %> > <%~ it.stateDir %>/.check-output 2>&1
+          mkdir -p .gtd
+          # Sweep the raw review capture — no path from `deciding`/`collecting`
+          # reaches this check; this is a leftover sweeper for a capture an
+          # earlier, abandoned process may have left committed here (see the
+          # `D .gtd/REVIEW_RAW.md` rows below). A no-op when it is already gone
+          # or never existed.
+          rm -f .gtd/REVIEW_RAW.md
+          <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
-            if [ -s <%~ it.stateDir %>/.check-output ]; then
-              mv <%~ it.stateDir %>/.check-output "$feedback"
+            if [ -s .gtd/.check-output ]; then
+              mv .gtd/.check-output .gtd/FEEDBACK.md
             else
-              rm -f <%~ it.stateDir %>/.check-output
-              printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+              rm -f .gtd/.check-output
+              printf 'the test command failed with exit code %s and produced no output.' "$code" > .gtd/FEEDBACK.md
             fi
             # A repeat identical failure would otherwise leave FEEDBACK.md
             # byte-identical to its committed copy — no diff, so the check would
             # look GREEN. Stamp each red run with the current HEAD (which always
             # advances between checks) so a still-red re-run always re-registers
             # as an M/A edit and takes the red edge.
-            printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
+            printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/FEEDBACK.md
           else
-            rm -f <%~ it.stateDir %>/.check-output
-            rm -f "$feedback"
+            rm -f .gtd/.check-output
+            rm -f .gtd/FEEDBACK.md
           fi
         # `entry: true` on the shared local marks both `entryGate` instances
         # (start-gate/review-gate) as manual entries — only `review-gate.check`
@@ -445,14 +403,20 @@ machines:
         # from `idle`, never manually entered with a base.
         reviewBase: $reviewBase
         on:
-          "A <%= it.vars.feedbackFile %>": blocked
-          "M <%= it.vars.feedbackFile %>": blocked
-          "D <%= it.vars.feedbackFile %>": $onGreen
+          "A .gtd/FEEDBACK.md": blocked
+          "M .gtd/FEEDBACK.md": blocked
+          "D .gtd/REVIEW_RAW.md": $onGreen
+          "D .gtd/FEEDBACK.md": $onGreen
           "C": $onGreen
       blocked:
         actor: human
         label: $blockedLabel
-        file: <%= it.vars.feedbackFile %>
+        # `file:` is the one field with an implicit prefix: the compiler
+        # resolves it under `.gtd/` automatically, so `file: FEEDBACK.md` here
+        # sits beside `on: "A .gtd/FEEDBACK.md"` above on purpose — every OTHER
+        # path in this template (an `on` pattern, a script body, a prompt/
+        # message) still spells `.gtd/` in full.
+        file: FEEDBACK.md
         message: $blockedMessage
         on:
           "* **":
@@ -461,7 +425,7 @@ machines:
             describe: $blockedDescribe
 
   # ── DEDUP: the check/escalate health pair (identity-free) ─────────────────
-  # Runs the suite; a red run records the configured feedbackFile and routes to
+  # Runs the suite; a red run records `.gtd/FEEDBACK.md` and routes to
   # the caller's OWN fixer (`$onRed` — a coder-identity action that lives
   # beside this machine, not inside it, since fixing IS a coder action and this
   # machine has no identity); a green run cleans it up and routes to
@@ -477,61 +441,20 @@ machines:
       check:
         actor: check
         label: $checkLabel
-        # This script ALSO sweeps the spent raw review capture
-        # (`reviewRawFile`) — a mechanic `entryGate.check` must NOT run, since
-        # it executes before planning, while a fresh sketch legitimately still
-        # exists.
-        script: |
-          #!/usr/bin/env sh
-          # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
-          # green run cleans it up. The `on` rules decide what that means.
-          set +e
-          mkdir -p "<%~ it.stateDir %>"
-          # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
-          # after an interpolation tag, so no tag may be the last token on a
-          # line — it would glue the next line's `else`/`fi` onto it and break
-          # the script. Below this point everything is plain POSIX sh.
-          feedback="<%~ it.vars.feedbackFile %>"
-          mkdir -p "$(dirname "$feedback")"
-          # Sweep the raw review capture — no path from `deciding`/`collecting`
-          # reaches this gate any more (its only inbound edge is
-          # `gtd --entry fix-precheck`'s red branch); this is a leftover
-          # sweeper for a capture an earlier, abandoned process may have left
-          # committed on that path. A no-op when it is already gone or never
-          # existed.
-          reviewRaw="<%~ it.vars.reviewRawFile %>"
-          rm -f "$reviewRaw"
-          <%~ it.vars.testCommand %> > <%~ it.stateDir %>/.check-output 2>&1
-          code=$?
-          if [ "$code" -ne 0 ]; then
-            if [ -s <%~ it.stateDir %>/.check-output ]; then
-              mv <%~ it.stateDir %>/.check-output "$feedback"
-            else
-              rm -f <%~ it.stateDir %>/.check-output
-              printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
-            fi
-            # A repeat identical failure would otherwise leave FEEDBACK.md
-            # byte-identical to its committed copy — no diff, so the check would
-            # look GREEN. Stamp each red run with the current HEAD (which always
-            # advances between checks) so a still-red re-run always re-registers
-            # as an M/A edit and takes the red edge.
-            printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
-          else
-            rm -f <%~ it.stateDir %>/.check-output
-            rm -f "$feedback"
-          fi
+        # See the shared suite check on `entryGate.check` above.
+        script: *suiteCheck
         on:
-          "A <%= it.vars.feedbackFile %>": $onRed
-          "M <%= it.vars.feedbackFile %>": $onRed
+          "A .gtd/FEEDBACK.md": $onRed
+          "M .gtd/FEEDBACK.md": $onRed
           "* **": $onGreen
           "C": $onGreen
       escalate:
         actor: human
         label: $escalateLabel
-        file: <%= it.vars.feedbackFile %>
+        file: FEEDBACK.md
         message: |
           The agent could not get the check to pass after repeated attempts.
-          `<%= it.vars.feedbackFile %>` holds the last failing output.
+          `.gtd/FEEDBACK.md` holds the last failing output.
 
           What each change does next (then run `gtd land`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>
@@ -546,9 +469,9 @@ machines:
   # ── DEDUP: the open-questions check/answer pair (identity-free) ───────────
   # Shared by design and architecture's own gate (`design.gate`/
   # `architecture.gate`): `check`'s script probes whichever of
-  # requirementsFile/architectureFile currently exists (see the script's own
+  # REQUIREMENTS.md/ARCHITECTURE.md currently exists (see the script's own
   # comment) with `gtd check qa --open-questions` and stamps/removes
-  # `questionsFile` on the result; only when it's present does the process
+  # `QUESTIONS.md` on the result; only when it's present does the process
   # rest at `answer`, a human gate. A question-free phase never rests here at
   # all — `check`'s own `on` rows skip straight to `$onNone`. Takes NO `file:`
   # PARAM for the probe script itself: machine `$param` substitution is
@@ -566,41 +489,31 @@ machines:
           #!/usr/bin/env sh
           # gtd check turn — probe the current phase's steering file for
           # unanswered questions; an answered/empty result removes the marker
-          # (questionsFile), an unanswered one stamps it fresh. Design and
+          # (.gtd/QUESTIONS.md), an unanswered one stamps it fresh. Design and
           # architecture share this one probe: whichever of
-          # requirementsFile/architectureFile exists ON DISK right now IS this
-          # phase's steering file — unambiguous because architecture.author
-          # deletes requirementsFile in the same turn it writes
-          # architectureFile, so exactly one of the two exists here.
+          # .gtd/REQUIREMENTS.md/.gtd/ARCHITECTURE.md exists ON DISK right now
+          # IS this phase's steering file — unambiguous because
+          # architecture.author deletes .gtd/REQUIREMENTS.md in the same turn
+          # it writes .gtd/ARCHITECTURE.md, so exactly one of the two exists
+          # here.
           set +e
-          mkdir -p "<%~ it.stateDir %>"
-          # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
-          # after an interpolation tag, so no tag may be the last token on a
-          # line — it would glue the next line's `else`/`fi` onto it and break
-          # the script. Below this point everything is plain POSIX sh.
-          questions="<%~ it.vars.questionsFile %>"
-          mkdir -p "$(dirname "$questions")"
-          requirements="<%~ it.vars.requirementsFile %>"
-          architecture="<%~ it.vars.architectureFile %>"
-          file="$requirements"
-          [ -f "$file" ] || file="$architecture"
+          mkdir -p .gtd
+          file=.gtd/REQUIREMENTS.md
+          [ -f "$file" ] || file=.gtd/ARCHITECTURE.md
           gtd check qa "$file" --open-questions > /dev/null 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
-            printf 'open questions remain in %s\n' "$file" > "$questions"
-            # A repeat identical result would otherwise leave the marker
-            # byte-identical to its committed copy — no diff, so the check
-            # would look answered. Stamp each round with the current HEAD
-            # (which always advances between checks) so a still-open re-run
-            # always re-registers as an M/A edit and takes the answer edge.
-            printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$questions"
+            printf 'open questions remain in %s\n' "$file" > .gtd/QUESTIONS.md
+            # See the shared suite check's cache-buster rationale on
+            # `entryGate.check` above.
+            printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/QUESTIONS.md
           else
-            rm -f "$questions"
+            rm -f .gtd/QUESTIONS.md
           fi
         on:
-          "A <%= it.vars.questionsFile %>": answer
-          "M <%= it.vars.questionsFile %>": answer
-          "D <%= it.vars.questionsFile %>": $onNone
+          "A .gtd/QUESTIONS.md": answer
+          "M .gtd/QUESTIONS.md": answer
+          "D .gtd/QUESTIONS.md": $onNone
           "C": $onNone
       answer:
         actor: human
@@ -648,7 +561,7 @@ machines:
       triage:
         actor: agent
         label: Triaging the change
-        file: <%= it.vars.requirementsFile %>
+        file: REQUIREMENTS.md
         mode: qa
         # An agent that deletes the assembled review input without folding it
         # in is the original "captured then discarded" bug, now against THIS
@@ -665,10 +578,10 @@ machines:
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
-          turn touches is `<%= it.vars.requirementsFile %>`; develop it. Do
+          turn touches is `.gtd/REQUIREMENTS.md`; develop it. Do
           not create other files to hold notes or output.
 
-          `<%= it.vars.todoFile %>` is the likely home of the sketch that
+          `.gtd/TODO.md` is the likely home of the sketch that
           started this process. Despite living beside this workflow's own
           state files, it is the HUMAN'S INPUT — the sketch to be folded into
           the concerns below like any other part of the start diff. It is
@@ -686,7 +599,7 @@ machines:
           process: a hand-edit to real code, a scratch note in some file, or
           both.
 
-          On the FIRST lap, `<%= it.vars.requirementsFile %>` does not exist
+          On the FIRST lap, `.gtd/REQUIREMENTS.md` does not exist
           yet (or holds whatever the human's own change happened to leave
           there). Build it from that start diff:
 
@@ -721,7 +634,7 @@ machines:
 
           On a RETURN lap the human has ticked one option per question (or
           replaced `_your answer_` with their own text) in
-          `<%= it.vars.requirementsFile %>`. For each answered question: fold
+          `.gtd/REQUIREMENTS.md`. For each answered question: fold
           the chosen answer into its concern's prose, then MOVE the question
           down into a `## Answered Questions` section as `### <question>`
           followed by the resolved answer in plain PROSE (drop the
@@ -731,7 +644,7 @@ machines:
           something is genuinely still blocking. Omit `## Open Questions`
           entirely once there are none left.
 
-          On a REVIEW LOOP-BACK lap, `<%= it.vars.requirementsFile %>`
+          On a REVIEW LOOP-BACK lap, `.gtd/REQUIREMENTS.md`
           already holds concerns and none of them have a ticked-but-unfolded
           answer waiting — that shape means a completed REVIEW ROUND put
           this material here, not a question you asked. Develop those
@@ -744,7 +657,7 @@ machines:
           from history, never the working tree: run
           `git show <%= it.reviewBase %>` to see it. (On a FIRST lap that
           same hash IS the process's own diff base, `<%= it.startCommit %>`,
-          so this branch does not apply: `<%= it.vars.requirementsFile %>`
+          so this branch does not apply: `.gtd/REQUIREMENTS.md`
           does not exist yet for a review round to have happened against.)
 
           Whatever this round touches, every decision already settled under
@@ -764,7 +677,7 @@ machines:
           "leaves the suite green on its own" property assumes the suite
           already started green.
 
-          Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your
+          Leave `.gtd/REQUIREMENTS.md` uncommitted and finish your
           turn.
         on:
           "* **": gate.check
@@ -772,13 +685,13 @@ machines:
       gate:
         machine: questionGate
         with:
-          file: <%= it.vars.requirementsFile %>
+          file: REQUIREMENTS.md
           onNone: $onArchitecture
           onRevise: triage
           checkLabel: Checking for open questions
           answerLabel: Awaiting your product answers
           message: |
-            `<%= it.vars.requirementsFile %>` holds the concerns under
+            `.gtd/REQUIREMENTS.md` holds the concerns under
             development. Each open question under `## Open Questions` offers
             a few options plus a `- [ ] _your answer_` slot. Answer EVERY
             question by ticking exactly one box (`- [x]`); for your own
@@ -794,7 +707,7 @@ machines:
   # A separate machine from `designPlan` — its own memory scope, since there
   # may be a handover between the user-facing and the technical phase: this
   # phase does NOT resume design's conversation, it reads
-  # `<%= it.vars.requirementsFile %>` cold. Resolves the TECHNICAL open
+  # `.gtd/REQUIREMENTS.md` cold. Resolves the TECHNICAL open
   # questions, then mechanically decomposes the settled concerns into package
   # files (no merge/split judgement — that already happened in triage's
   # grouping). ▸ planner identity — `model:` declared once here, stamped onto
@@ -808,7 +721,7 @@ machines:
       author:
         actor: agent
         label: Refining the technical plan
-        file: <%= it.vars.architectureFile %>
+        file: ARCHITECTURE.md
         mode: qa
         prompt: |
           <%~ it.vars.styleBlock %>
@@ -820,18 +733,18 @@ machines:
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state files this
-          turn touches are `<%= it.vars.architectureFile %>` (write it) and
-          `<%= it.vars.requirementsFile %>` (delete it once its content is
+          turn touches are `.gtd/ARCHITECTURE.md` (write it) and
+          `.gtd/REQUIREMENTS.md` (delete it once its content is
           folded in). Do not create other files to hold notes or output.
 
           You do NOT resume the design conversation — this is a separate
           machine with its own memory, a COLD read every time. Read
-          `<%= it.vars.requirementsFile %>` (the settled, ordered, classified
+          `.gtd/REQUIREMENTS.md` (the settled, ordered, classified
           concerns) in full. Treat every product decision recorded there —
           plain prose or a resolved `## Answered Questions` entry — as
           SETTLED; never re-open it.
 
-          On the FIRST lap, develop `<%= it.vars.architectureFile %>` from
+          On the FIRST lap, develop `.gtd/ARCHITECTURE.md` from
           those concerns: for each one, in the same order, work out the *how*
           — file/module structure, data models, library/tech-stack choices,
           error-handling strategy — building on the *what* already settled.
@@ -856,8 +769,8 @@ machines:
           section as acceptance. Omit `## Open Questions` once there are none
           left.
 
-          Once `<%= it.vars.architectureFile %>` is written, delete
-          `<%= it.vars.requirementsFile %>` — its content has been folded in
+          Once `.gtd/ARCHITECTURE.md` is written, delete
+          `.gtd/REQUIREMENTS.md` — its content has been folded in
           and it must not linger. Leave everything uncommitted and finish
           your turn.
         on:
@@ -866,13 +779,13 @@ machines:
       gate:
         machine: questionGate
         with:
-          file: <%= it.vars.architectureFile %>
+          file: ARCHITECTURE.md
           onNone: decompose
           onRevise: author
           checkLabel: Checking for open questions
           answerLabel: Awaiting your technical answers
           message: |
-            `<%= it.vars.architectureFile %>` holds the technical plan under
+            `.gtd/ARCHITECTURE.md` holds the technical plan under
             development. Each open question under `## Open Questions` offers
             a few options plus a `- [ ] _your answer_` slot. Answer EVERY
             question by ticking exactly one box (`- [x]`); for your own
@@ -894,20 +807,20 @@ machines:
           You are an autonomous coding agent. This workflow steers itself through
           its own state files — treat them as its private scratchpad, never as
           project code or documentation. The only state files this turn touches
-          are the package files it writes under `<%= it.vars.packagesDir %>/` and
-          `<%= it.vars.architectureFile %>`, which it deletes. Do not create other
+          are the package files it writes under `.gtd/packages/` and
+          `.gtd/ARCHITECTURE.md`, which it deletes. Do not create other
           files to hold notes or output.
 
-          If you wrote `<%= it.vars.architectureFile %>` earlier in this
+          If you wrote `.gtd/ARCHITECTURE.md` earlier in this
           conversation, work from what you already settled; otherwise read it
           (the converged technical plan) yourself. It already lists an ORDERED
           set of concerns with every merge/split judgement made — this turn is
           a mechanical write-out, not a planning one.
 
           Write one package file per concern, in the settled order, under
-          `<%= it.vars.packagesDir %>/` (e.g.
-          `<%= it.vars.packagesDir %>/01-name.md`,
-          `<%= it.vars.packagesDir %>/02-name.md`, ...). Each package file
+          `.gtd/packages/` (e.g.
+          `.gtd/packages/01-name.md`,
+          `.gtd/packages/02-name.md`, ...). Each package file
           carries that concern's requirement (so it can be reviewed against
           its spec), its independent tasks, and each task's acceptance
           criteria as `- [ ]` checkboxes and relevant paths. Do NOT merge or
@@ -916,16 +829,16 @@ machines:
           reference any other `.gtd/` file.
 
           Once the package files are written, delete
-          `<%= it.vars.architectureFile %>`. Leave everything uncommitted and
+          `.gtd/ARCHITECTURE.md`. Leave everything uncommitted and
           finish your turn.
         on:
-          "* <%= it.vars.packagesDir %>/**": $onPackages
+          "* .gtd/packages/**": $onPackages
 
   # ── ENCAPSULATION: the shared review tail ──────────────────────────────────
   # ▸ planner identity — `model:` declared once here, stamped onto `reviewing`
   # and `collecting` (its only prompt states). `collecting` JUDGES whether a
   # round is actionable and, when it is, CLASSIFIES it straight into
-  # `requirementsFile` as ordered, PRODUCT/TECHNICAL concerns — the same
+  # `REQUIREMENTS.md` as ordered, PRODUCT/TECHNICAL concerns — the same
   # artifact `design.triage` develops — never an instruction list, and never a
   # build. An actionable round still leaves this machine entirely (the root's
   # own `re-unwind`, then `design.triage` folds the concerns in cold), so
@@ -937,7 +850,7 @@ machines:
       reviewing:
         actor: agent
         label: Reviewing
-        file: <%= it.vars.reviewFile %>
+        file: REVIEW.md
         mode: review
         # `gtd --entry review-gate.check` (a plain non-gtd branch, e.g. a
         # colleague's PR) does NOT enter here directly — it enters
@@ -955,10 +868,10 @@ machines:
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
-          turn touches is `<%= it.vars.reviewFile %>`; write it at exactly
+          turn touches is `.gtd/REVIEW.md`; write it at exactly
           that path. Do not create other files to hold notes or output.
 
-          Write `<%= it.vars.reviewFile %>` to help a human review the changes in
+          Write `.gtd/REVIEW.md` to help a human review the changes in
           this EXACT format:
 
           - First non-blank line: `# Review: <%= it.currentCommit.slice(0, 7) %>`
@@ -984,14 +897,14 @@ machines:
           review's boundary, so it covers only what changed since then, not items
           already signed off.
 
-          Leave `<%= it.vars.reviewFile %>` uncommitted and finish your turn.
+          Leave `.gtd/REVIEW.md` uncommitted and finish your turn.
         on:
           "* **": await-review
 
       await-review:
         actor: human
         label: Awaiting your review
-        file: <%= it.vars.reviewFile %>
+        file: REVIEW.md
         mode: review
         # While the process rests here, gtd opens a "review checkout window": raw HEAD
         # is rewound to the review base (the most-recent `deciding` commit — so a
@@ -1007,7 +920,7 @@ machines:
         # (`src/StepGuards.ts`) catches it BEFORE the step commits and refuses.
         reviewWindow: true
         message: |
-          `<%= it.vars.reviewFile %>` holds the review record for the process — one
+          `.gtd/REVIEW.md` holds the review record for the process — one
           `- [ ]` checkbox per reviewable item, grouped into chunks. Tick a box
           (`- [x]`) as you review each hunk; ticking only records that you've read
           it, it is not sign-off.
@@ -1015,10 +928,10 @@ machines:
           When you've been through the whole diff, run `gtd land`:
 
           - **Sign off** — leave no comment — no note in
-            `<%= it.vars.reviewFile %>`, no code edit — to collapse the process into
+            `.gtd/REVIEW.md`, no code edit — to collapse the process into
             one commit (**build.squashing**), whatever the boxes say.
           - **Request changes** — leave a comment: a note on a
-            `<%= it.vars.reviewFile %>` line, or a direct code edit — to send a FULL
+            `.gtd/REVIEW.md` line, or a direct code edit — to send a FULL
             development lap (**review.deciding** → **review.collecting** →
             re-triage). A hand-edit you make here is treated as a SKETCH, not a
             fix the agent builds on: it is reverted out of the tree and re-planned
@@ -1027,14 +940,14 @@ machines:
             genuinely non-actionable comment (an approving remark with no code
             edit) skips the lap and signs off straight away.
 
-          Deleting `<%= it.vars.reviewFile %>` is refused.
+          Deleting `.gtd/REVIEW.md` is refused.
         on:
           "* **": deciding
 
       deciding:
         actor: check
         label: Reviewing
-        file: <%= it.vars.reviewFile %>
+        file: REVIEW.md
         mode: review
         # Anchors the INCREMENTAL review base: its most-recent in-process commit is
         # the point the previous review round ended, so the next `reviewing` turn
@@ -1050,69 +963,51 @@ machines:
           # `deciding` is entered exactly once per round — nothing else commits in
           # between). It is FEEDBACK when the human left
           # a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]" tick) OR a
-          # hand-edit to any file this round outside the declared stateDir or the
-          # state's own reviewFile (which is var-configurable and may live outside
-          # stateDir, e.g. a root-level REVIEW.md — issue #128). Otherwise it is a
-          # clean sign-off. This pathspec's plumbing-directory exclusion (stateDir,
-          # never a literal `.gtd/`) is the same declaration `src/StepGuards.ts`'s
-          # `isCodePath`/`hasCodeChange` re-derive for their own code-vs-plumbing
-          # test — keep the two together when either changes. Both exclusions use
-          # git's `:(exclude,literal)` pathspec magic, matching stateDir/reviewFile
-          # as literal paths rather than regex/glob patterns — a bare grep here
-          # would let a metacharacter in either value change what gets excluded.
-          # This turn only CAPTURES the raw material into REVIEW_RAW.md (the
-          # `collecting` agent then judges whether it's actionable); it does
-          # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
-          # MEANS is decided by this state's own `on` rules — the A/M REVIEW_RAW.md
-          # rows are declared BEFORE the D REVIEW.md row so a feedback round (which
-          # also deletes REVIEW.md) is captured as feedback, not mistaken for a
-          # sign-off.
+          # hand-edit to any file this round outside `.gtd/` (every gtd steering
+          # file, including REVIEW.md itself, lives there). Otherwise it is a
+          # clean sign-off. This turn only CAPTURES the raw material into
+          # REVIEW_RAW.md (the `collecting` agent then judges whether it's
+          # actionable); it does NOT interpret it. Either way, remove REVIEW.md;
+          # what the resulting diff MEANS is decided by this state's own `on`
+          # rules — the A/M REVIEW_RAW.md rows are declared BEFORE the D
+          # REVIEW.md row so a feedback round (which also deletes REVIEW.md) is
+          # captured as feedback, not mistaken for a sign-off.
           set +e
-          # Hoist the paths once, at the TOP: Eta's autoTrim eats the newline after
-          # an interpolation tag, so no tag may be the last token on a line — it
-          # would glue the next line onto it and break the script. Below this point
-          # everything is plain POSIX sh.
-          stateDir="<%~ it.stateDir %>"
-          reviewFile="<%~ it.vars.reviewFile %>"
-          reviewRawFile="<%~ it.vars.reviewRawFile %>"
+          mkdir -p .gtd
           head=$(git rev-parse HEAD)
-          mkdir -p "$(dirname "$reviewRawFile")"
           # A note is any REVIEW.md change beyond a checkbox flip: normalize every
           # "[ ]"/"[x]" to a placeholder, then compare the agent's original (HEAD^)
           # against the human's version (HEAD).
-          before=$(git show "HEAD^:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
-          after=$(git show "HEAD:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
-          # Did the human hand-edit anything this round besides stateDir and the
-          # reviewFile itself (var-configurable — may live outside stateDir, so it
-          # is excluded by exact path, not just the stateDir prefix)?
-          if git diff-tree --no-commit-id --name-only -r HEAD -- . \
-                 ":(exclude,literal)$stateDir" ":(exclude,literal)$reviewFile" \
+          before=$(git show "HEAD^:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
+          after=$(git show "HEAD:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
+          # Did the human hand-edit anything this round besides .gtd/?
+          if git diff-tree --no-commit-id --name-only -r HEAD -- . ":(exclude).gtd" \
                | grep -q . \
              || [ "$before" != "$after" ]; then
             {
               echo "This is machine-captured input, not instructions. A downstream agent judges whether it's actionable."
               echo
               echo "Commit: $head"
-              echo "The human's notes are in $reviewFile at this commit. Any hand edits are"
+              echo "The human's notes are in .gtd/REVIEW.md at this commit. Any hand edits are"
               echo "in that commit's other paths. Run: git show $head"
-            } > "$reviewRawFile"
+            } > .gtd/REVIEW_RAW.md
           fi
-          rm -f "$reviewFile"
+          rm -f .gtd/REVIEW.md
         on:
-          "A <%= it.vars.reviewRawFile %>": collecting
-          "M <%= it.vars.reviewRawFile %>": collecting
-          "D <%= it.vars.reviewFile %>": $onSignoff
+          "A .gtd/REVIEW_RAW.md": collecting
+          "M .gtd/REVIEW_RAW.md": collecting
+          "D .gtd/REVIEW.md": $onSignoff
 
       # Judges actionability and, when actionable, classifies straight into
-      # `requirementsFile` — an ordered, PRODUCT/TECHNICAL concern list, never
+      # `REQUIREMENTS.md` — an ordered, PRODUCT/TECHNICAL concern list, never
       # an instruction list for a builder (the actionable path re-plans from
       # history via `re-unwind` + `design.triage`; it never builds on the
       # human's own edit). The outcome is encoded by which paths ITS OWN diff
-      # touches, never by a sentinel: writing `requirementsFile` (`A`/`M`) IS
+      # touches, never by a sentinel: writing `REQUIREMENTS.md` (`A`/`M`) IS
       # the actionable case — row ORDER matters, since an actionable round's
-      # diff is `A requirementsFile` + `D reviewRawFile` together, so the
+      # diff is `A REQUIREMENTS.md` + `D REVIEW_RAW.md` together, so the
       # requirements rows must be declared first or every round would
-      # short-circuit to sign-off. CONSUMING `reviewRawFile` alone (deleting
+      # short-circuit to sign-off. CONSUMING `REVIEW_RAW.md` alone (deleting
       # it, the only change this turn) is the non-actionable short-circuit —
       # the same trick `deciding` already uses, one state earlier; it reuses
       # `$onSignoff` (already bound to `build.squashing`) rather than a new
@@ -1123,15 +1018,15 @@ machines:
       # instead — an empty ATTEMPT commit, remembered as a stall
       # (`Edge.ts`'s `stalledAt`) rather than silently misread as "the human's
       # feedback was non-actionable" — and a dirty tree matching neither row
-      # is a REFUSAL (you classify, you do not build). `requirementsFile`
-      # survives `re-unwind` (it lives under `stateDir`, excluded from its own
+      # is a REFUSAL (you classify, you do not build). `REQUIREMENTS.md`
+      # survives `re-unwind` (it lives under `.gtd/`, excluded from its own
       # revert pathspec) for `design.triage` to fold in cold; a consumed
-      # `reviewRawFile` with no requirements written is gone before
+      # `REVIEW_RAW.md` with no requirements written is gone before
       # `build.squashing` ever runs, so nothing leaks into the finale.
       collecting:
         actor: agent
         label: Collecting your feedback
-        file: <%= it.vars.requirementsFile %>
+        file: REQUIREMENTS.md
         mode: qa
         prompt: |
           <%~ it.vars.styleBlock %>
@@ -1144,11 +1039,11 @@ machines:
           of review feedback. This workflow steers itself through its own
           state files — treat them as its private scratchpad, never as
           project code or documentation. The only state files this turn
-          touches are `<%= it.vars.requirementsFile %>` and
-          `<%= it.vars.reviewRawFile %>`, which it deletes — do NOT change any
+          touches are `.gtd/REQUIREMENTS.md` and
+          `.gtd/REVIEW_RAW.md`, which it deletes — do NOT change any
           other file: you classify, you do not build.
 
-          The raw review material is: <%~ it.read(it.vars.reviewRawFile) %>
+          The raw review material is: <%~ it.read(".gtd/REVIEW_RAW.md") %>
 
           It names a commit. If you wrote today's review earlier in this
           conversation, work from what you already reviewed; otherwise read that
@@ -1156,7 +1051,7 @@ machines:
 
           The round is ACTIONABLE if any of the following is true:
 
-          1. The human left a NOTE on `<%= it.vars.reviewFile %>` — a note is
+          1. The human left a NOTE on `.gtd/REVIEW.md` — a note is
              anything beyond a checkbox flip, regardless of whether the box
              itself is ticked (ticking means only "I read this hunk", never
              sign-off). A note is a MANDATORY concern below, whether or not
@@ -1179,7 +1074,7 @@ machines:
           invent actionability to justify a lap, and never dismiss a real note
           or edit as approval.
 
-          If the round is ACTIONABLE: write `<%= it.vars.requirementsFile %>`
+          If the round is ACTIONABLE: write `.gtd/REQUIREMENTS.md`
           with an ORDERED list of CONCERNS, each classified PRODUCT (a
           user-facing/requirements decision) or TECHNICAL (an implementation
           decision) — the same shape `design.triage` builds, one
@@ -1188,16 +1083,16 @@ machines:
           concern it belongs to, per the rules above. Raise NO open
           questions here — write no `## Open Questions` section;
           `design.triage` owns that, one phase later. Then delete
-          `<%= it.vars.reviewRawFile %>` and finish your turn.
+          `.gtd/REVIEW_RAW.md` and finish your turn.
 
           If the round is NOT actionable: delete
-          `<%= it.vars.reviewRawFile %>` and finish your turn, writing nothing
-          to `<%= it.vars.requirementsFile %>` — consuming the capture with no
+          `.gtd/REVIEW_RAW.md` and finish your turn, writing nothing
+          to `.gtd/REQUIREMENTS.md` — consuming the capture with no
           other change IS the sign-off.
         on:
-          "A <%= it.vars.requirementsFile %>": $onFeedback
-          "M <%= it.vars.requirementsFile %>": $onFeedback
-          "D <%= it.vars.reviewRawFile %>": $onSignoff
+          "A .gtd/REQUIREMENTS.md": $onFeedback
+          "M .gtd/REQUIREMENTS.md": $onFeedback
+          "D .gtd/REVIEW_RAW.md": $onSignoff
 
   # ── ENCAPSULATION: the per-package agentic review ──────────────────────────
   # A single state: a machine whose entire job is to be a separate MIND from
@@ -1232,11 +1127,11 @@ machines:
           against its own spec. This workflow steers itself through its own
           state files — treat them as its private scratchpad, never as project
           code or documentation. The only state file this turn touches is
-          `<%= it.vars.specFeedbackFile %>`; write it only when — and only
+          `.gtd/SPEC_FEEDBACK.md`; write it only when — and only
           when — you find problems. Do not create other files to hold notes or
           output.
 
-          The package spec is: <%~ it.read(it.vars.nextFile) %>
+          The package spec is: <%~ it.read(".gtd/NEXT.md") %>
 
           Read that spec, then verify the package's implementation against it: are
           all its tasks done, acceptance criteria met, and the code sound and
@@ -1249,15 +1144,15 @@ machines:
 
           - If it fully satisfies the spec, write NOTHING and finish your turn — a
             clean turn is your approval.
-          - If it does not, write `<%= it.vars.specFeedbackFile %>` listing the
+          - If it does not, write `.gtd/SPEC_FEEDBACK.md` listing the
             concrete problems for a fix turn to address. Be specific.
 
           Do not fix anything yourself and do not delete the package file — a later
           step owns that. Finish your turn.
         on:
-          "A <%= it.vars.specFeedbackFile %>": $onFix
-          "M <%= it.vars.specFeedbackFile %>": $onFix
-          "D <%= it.vars.specFeedbackFile %>": $onApproved
+          "A .gtd/SPEC_FEEDBACK.md": $onFix
+          "M .gtd/SPEC_FEEDBACK.md": $onFix
+          "D .gtd/SPEC_FEEDBACK.md": $onApproved
           "C": $onApproved
 
   # ── ENCAPSULATION: the per-package build queue ─────────────────────────────
@@ -1279,41 +1174,32 @@ machines:
           # MEANS (another package to build vs. the queue closing out to review) is
           # decided by this state's own `on` rules at capture time — never here.
           set +e
-          # Hoist the NEXT path once, at the TOP: Eta's autoTrim eats the newline
-          # after an interpolation tag, so no tag may be the last token on a line —
-          # it would glue the next line's `else`/`fi` onto it and break the script.
-          # Below this point everything is plain POSIX sh.
-          nextFile="<%~ it.vars.nextFile %>"
+          mkdir -p .gtd
           # Sweep the design/architecture phases' spent steering files:
-          # requirementsFile is consumed by architecture.author, architectureFile
-          # by architecture.decompose, and questionsFile by whichever gate ran
+          # REQUIREMENTS.md is consumed by architecture.author, ARCHITECTURE.md
+          # by architecture.decompose, and QUESTIONS.md by whichever gate ran
           # last — all three are gone by the time the package queue starts.
-          # reviewRawFile is swept here too: the review loop-back
-          # (re-unwind) excludes stateDir from its revert, so an actionable
+          # REVIEW_RAW.md is swept here too: the review loop-back
+          # (re-unwind) excludes .gtd from its revert, so an actionable
           # feedback round's MARKED raw capture (see humanReview's own
           # `collecting` state) rides through design and architecture
           # untouched — this is the ONLY sweeper on that path
           # before the queue (and eventually the squash finale) would
           # otherwise pick it up as stray content. No-op if already removed.
-          requirements="<%~ it.vars.requirementsFile %>"
-          architecture="<%~ it.vars.architectureFile %>"
-          questions="<%~ it.vars.questionsFile %>"
-          reviewRaw="<%~ it.vars.reviewRawFile %>"
-          rm -f "$requirements" "$architecture" "$questions" "$reviewRaw"
+          rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md
           # Package file names are gtd-authored (architecture.decompose writes
           # NN-name.md), never containing whitespace/newlines that would break
           # ls | head.
           # shellcheck disable=SC2012
-          next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
+          next=$(ls .gtd/packages/*.md 2>/dev/null | head -n 1)
           if [ -n "$next" ]; then
-            mkdir -p "$(dirname "$nextFile")"
-            printf '%s' "$next" > "$nextFile"
+            printf '%s' "$next" > .gtd/NEXT.md
           else
-            rm -f "$nextFile"
+            rm -f .gtd/NEXT.md
           fi
         on:
-          "D <%= it.vars.nextFile %>": $onDrained
-          "* <%= it.vars.nextFile %>": item.building
+          "D .gtd/NEXT.md": $onDrained
+          "* .gtd/NEXT.md": item.building
           "C": $onDrained
 
       # The per-package build identity — its own coder machine (below), so
@@ -1343,17 +1229,17 @@ machines:
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
-          turn may write is `<%= it.vars.satisfiedFile %>` (see below); do NOT
+          turn may write is `.gtd/SATISFIED.md` (see below); do NOT
           delete the package file (the spec-review gate reads it after you)
-          and never touch `<%= it.vars.nextFile %>` — the `picking` state owns
+          and never touch `.gtd/NEXT.md` — the `picking` state owns
           it.
 
-          The package to implement is: <%~ it.read(it.vars.nextFile) %>
+          The package to implement is: <%~ it.read(".gtd/NEXT.md") %>
 
           Before implementing anything, check the package's acceptance criteria
           against the current tree — an earlier package's fix turn may already
           have satisfied them. If **every** criterion is already met, implement
-          nothing: write `<%= it.vars.satisfiedFile %>` recording each criterion
+          nothing: write `.gtd/SATISFIED.md` recording each criterion
           and the concrete evidence it is already satisfied (the commit, file,
           or symbol that proves it), change nothing else, and finish your turn.
           If any criterion is outstanding, implement the package normally and
@@ -1369,7 +1255,7 @@ machines:
           Leave the package file in place and everything else uncommitted, then
           finish your turn.
         on:
-          "A <%= it.vars.satisfiedFile %>": &satisfied
+          "A .gtd/SATISFIED.md": &satisfied
             to: health.check
             action: Close as already satisfied
             describe: >-
@@ -1377,25 +1263,25 @@ machines:
               package's work already landed (an earlier package's fix turn
               pulled it in) — the package still runs the checks and the spec
               review, then closes out.
-          "M <%= it.vars.satisfiedFile %>": *satisfied
+          "M .gtd/SATISFIED.md": *satisfied
           "* **": health.check
 
       fix-suite:
         actor: agent
         label: Fixing the check
-        file: <%= it.vars.feedbackFile %>
+        file: FEEDBACK.md
         prompt: |
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
-          turn touches is `<%= it.vars.feedbackFile %>`; fix it per its
+          turn touches is `.gtd/FEEDBACK.md`; fix it per its
           contents, or delete it if the feedback turns out to be wrong. Do not
           create other files to hold notes or output.
 
-          Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
+          Read `.gtd/FEEDBACK.md` (the failing test output) and fix the
           code so the suite passes. Keep the change focused — do not refactor
           unrelated code. If the feedback is wrong, empty or delete
-          `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue. If the
+          `.gtd/FEEDBACK.md` instead of "fixing" a non-issue. If the
           only way to green the suite is to implement work that another
           package file describes, make the smallest change that gets there and
           do it — that later package will then legitimately report itself
@@ -1411,19 +1297,19 @@ machines:
       fix-spec:
         actor: agent
         label: Fixing review feedback
-        file: <%= it.vars.specFeedbackFile %>
+        file: SPEC_FEEDBACK.md
         prompt: |
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
-          turn touches is `<%= it.vars.specFeedbackFile %>`; address it, then
+          turn touches is `.gtd/SPEC_FEEDBACK.md`; address it, then
           delete it. Do not create other files to hold notes or output.
 
-          Read `<%= it.vars.specFeedbackFile %>` (the reviewer's concerns about the
-          current package) and the package spec (`<%= it.read(it.vars.nextFile) %>`),
+          Read `.gtd/SPEC_FEEDBACK.md` (the reviewer's concerns about the
+          current package) and the package spec (`<%= it.read(".gtd/NEXT.md") %>`),
           then fix the code to resolve every concern. Keep the change focused.
 
-          Delete `<%= it.vars.specFeedbackFile %>` once every concern is addressed.
+          Delete `.gtd/SPEC_FEEDBACK.md` once every concern is addressed.
           Leave everything else uncommitted and finish your turn.
         on:
           "* **": health.check
@@ -1440,9 +1326,9 @@ machines:
           # (spec review clean) and on the spec review retry cap (force-close,
           # deferring the concern to the tail).
           set +e
-          pkg=$(cat <%~ it.vars.nextFile %> 2>/dev/null)
+          pkg=$(cat .gtd/NEXT.md 2>/dev/null)
           [ -n "$pkg" ] && rm -f "$pkg"
-          rm -f <%~ it.vars.specFeedbackFile %> <%~ it.vars.nextFile %> <%~ it.vars.satisfiedFile %>
+          rm -f .gtd/SPEC_FEEDBACK.md .gtd/NEXT.md .gtd/SATISFIED.md
         on:
           "* **": $onNext
 
@@ -1492,7 +1378,7 @@ machines:
       squashing:
         actor: agent
         label: Squashing
-        file: <%= it.vars.commitMsgFile %>
+        file: COMMIT_MSG.md
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -1500,10 +1386,10 @@ machines:
           You are an autonomous coding agent. The process is approved and done. This
           workflow steers itself through its own state files — treat them as its
           private scratchpad, never as project code or documentation. The only
-          state file this turn touches is `<%= it.vars.commitMsgFile %>`; write
+          state file this turn touches is `.gtd/COMMIT_MSG.md`; write
           it. Do not create other files to hold notes or output.
 
-          Leave `<%= it.vars.commitMsgFile %>` uncommitted and finish your turn —
+          Leave `.gtd/COMMIT_MSG.md` uncommitted and finish your turn —
           entering this file squashes everything this process retains into one
           commit using its content as the message. This prompt carries no diff —
           if you built that range yourself earlier in this conversation, work from
@@ -1515,37 +1401,37 @@ machines:
           process it is only the fixes made during the review — NOT the changeset
           that was under review.
 
-          If that range is non-empty, write `<%= it.vars.commitMsgFile %>` with ONE
+          If that range is non-empty, write `.gtd/COMMIT_MSG.md` with ONE
           conventional-commits message for the changes (subject line
           `type(scope): subject`, imperative mood, <= 72 characters; a body
           explaining the why, trade-offs, and key decisions). Plain text, no
           markdown wrapper.
 
           If that range is empty (a clean review sign-off with no fixes), write
-          `<%= it.vars.commitMsgFile %>` with exactly this one line and nothing
+          `.gtd/COMMIT_MSG.md` with exactly this one line and nothing
           else:
 
           chore: human review
         on:
-          "A <%= it.vars.commitMsgFile %>": $onDone
-          "M <%= it.vars.commitMsgFile %>": $onDone
+          "A .gtd/COMMIT_MSG.md": $onDone
+          "M .gtd/COMMIT_MSG.md": $onDone
 
       fix:
         actor: agent
         label: Fixing the check
-        file: <%= it.vars.feedbackFile %>
+        file: FEEDBACK.md
         prompt: |
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. The only state file this
-          turn touches is `<%= it.vars.feedbackFile %>`; fix it per its
+          turn touches is `.gtd/FEEDBACK.md`; fix it per its
           contents, or delete it if the feedback turns out to be wrong. Do not
           create other files to hold notes or output.
 
-          Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
+          Read `.gtd/FEEDBACK.md` (the failing test output) and fix the
           code so the suite passes. Keep the change focused — do not refactor
           unrelated code. If the feedback is wrong, empty or delete
-          `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue.
+          `.gtd/FEEDBACK.md` instead of "fixing" a non-issue.
 
           Leave everything uncommitted and finish your turn — do not commit.
         retry:
@@ -1589,7 +1475,7 @@ machines:
       idle:
         actor: human
         label: Idle
-        file: <%= it.vars.todoFile %>
+        file: TODO.md
         # Every human-gate `message:` below closes with the same rendered "What
         # each change does next" list, built from `it.edges` (the resting state's
         # own `on` edges — each edge's `describe:` is the single source of truth).
@@ -1597,7 +1483,7 @@ machines:
           No active gtd process.
 
           To start one, make ANY change — a hand-edit to real code, a scratch
-          note, anything at all. <%= it.vars.todoFile %> is a good default
+          note, anything at all. .gtd/TODO.md is a good default
           place to start sketching. gtd treats it as a SKETCH, not finished
           work: the very next beat unwinds it out of your working tree (its
           intent survives in history, for the triage phase to read), then
@@ -1635,15 +1521,16 @@ machines:
         entry: true
         script: *suiteCheck
         on:
-          "A <%= it.vars.feedbackFile %>": build.fix
-          "M <%= it.vars.feedbackFile %>": build.fix
-          "D <%= it.vars.feedbackFile %>": idle
+          "A .gtd/FEEDBACK.md": build.fix
+          "M .gtd/FEEDBACK.md": build.fix
+          "D .gtd/REVIEW_RAW.md": idle
+          "D .gtd/FEEDBACK.md": idle
           "C": idle
 
       # ── Shared tail: the finale ─────────────────────────────────────────────
       done:
         commit: |
-          <%~ it.read(it.vars.commitMsgFile) %>
+          <%~ it.read(".gtd/COMMIT_MSG.md") %>
 
           Token cost: <%= it.processCost %>
           <% it.processCostByModel.forEach(function(m){ %>
@@ -1691,10 +1578,9 @@ machines:
       #
       # SCOPED, not wholesale: `deciding` already `rm -f`'d the review file,
       # so a plain `git revert --no-commit` would resurrect it (and conflict
-      # on it). Instead this renders that ONE commit's diff with `stateDir`
-      # and `reviewFile` excluded from the pathspec (the review file by exact
-      # path, since it is var-configurable and may sit at the repo root —
-      # issue #128) and reverse-applies it. The apply is EXPECTED to succeed —
+      # on it). Instead this renders that ONE commit's diff with `.gtd/`
+      # excluded from the pathspec (REVIEW.md lives there too) and
+      # reverse-applies it. The apply is EXPECTED to succeed —
       # nothing between that commit and now touches a code path — but it can
       # still FAIL: a clean-filter round-trip, a drifted worktree, or a binary
       # path can all make `git apply -R` a no-op on an otherwise-clean tree,
@@ -1711,7 +1597,7 @@ machines:
       # `changedPaths` answers by CONTENT, so an unstaged revert is still the
       # pending diff the pattern matches — one fewer index write in a
       # worktree gtd shares with the editor's SCM. The patch file lives under
-      # `stateDir` (excluded from its own pathspec, the same precedent as the
+      # `.gtd/` (excluded from its own pathspec, the same precedent as the
       # check scripts' own `.check-output`) and is removed before the step
       # lands.
       #
@@ -1723,12 +1609,12 @@ machines:
       # would otherwise be a silent no-op that never advances. Declaring `C`
       # here makes that the expected, terminating case instead.
       #
-      # `file: <%= it.vars.reviewFile %>` + `requireRevert: true` exist ONLY
+      # `file: REVIEW.md` + `requireRevert: true` exist ONLY
       # to give the require-revert guard the path it must exempt from residue
       # (the engine blesses no variable names, so the guard reads `Rest.hints.
-      # file`, never `it.vars.reviewFile` itself) — the review file is already
+      # file`, never this literal itself) — the review file is already
       # gone two commits earlier, so this state never renders it. The accepted
-      # presentational cost: `gtd next --json`/`gtd status --json` carry that
+      # presentational cost: `gtd next --json`/`gtd land --json` carry that
       # already-deleted path as this state's `file:` hint, and the visualizer
       # labels `re-unwind` with it too. Bounded — `Lsp.ts`'s `buildSteeringMap`
       # skips a mode-less state, so `re-unwind` contributes no path→mode entry
@@ -1738,13 +1624,12 @@ machines:
       re-unwind:
         actor: check
         label: Re-unwinding your review edit
-        file: <%= it.vars.reviewFile %>
+        file: REVIEW.md
         requireRevert: true
         script: |
           #!/usr/bin/env sh
           # gtd check turn — revert the human's own review edit out of the
-          # working tree, scoped to real code: stateDir and reviewFile
-          # (var-configurable, may live at the repo root — issue #128) are
+          # working tree, scoped to real code: everything under `.gtd/` is
           # excluded, because the review file is already gone by this point
           # and reverting it would resurrect it. The human's intent survives
           # in their own commit for the triage phase to read. The apply is
@@ -1754,25 +1639,16 @@ machines:
           # step-capture guard (src/StepGuards.ts) catches that by
           # re-checking the tree itself before this step is allowed to land.
           # The guard's own residue scoping (`isCodePath`) re-derives the same
-          # stateDir/reviewFile exemption this pathspec renders, from the same
-          # declaration (never a literal `.gtd/`) — keep the two together
-          # when either changes. Both exclusions carry `:(exclude,literal)`,
-          # the same magic `deciding` uses: git's DEFAULT pathspec magic is
-          # glob-ish (`*` even crosses `/`), and nothing validates a
-          # metacharacter out of either value — `stateDirError` rejects only
-          # blanks/root/absolute/`..`/non-canonical segments, and `reviewFile`
-          # is an ordinary var. A bare `:(exclude)` therefore lets a `*`/`?`/
-          # `[` in either value drop a REAL edited path out of the patch,
-          # which the guard (a plain string comparison, not a pathspec) then
-          # scores as residue and refuses forever.
+          # `.gtd/` exemption this pathspec renders — keep the two together
+          # when either changes.
           set +e
+          # Hoist the reverted commit once, at the TOP: Eta's autoTrim eats the
+          # newline after an interpolation tag, so no tag may be the last token
+          # on a line.
           commit="<%~ it.reviewBase %>"
-          stateDir="<%~ it.stateDir %>"
-          reviewFile="<%~ it.vars.reviewFile %>"
-          patch="$stateDir/.re-unwind.patch"
-          mkdir -p "$stateDir"
-          git diff --binary "$commit^" "$commit" -- . \
-            ":(exclude,literal)$stateDir" ":(exclude,literal)$reviewFile" > "$patch"
+          patch=.gtd/.re-unwind.patch
+          mkdir -p .gtd
+          git diff --binary "$commit^" "$commit" -- . ":(exclude).gtd" > "$patch"
           if [ -s "$patch" ]; then
             git apply -R "$patch" || echo "re-unwind: could not revert $commit" >&2
           fi
@@ -1793,7 +1669,7 @@ machines:
           reviewBase: ""
           blockedMessage: |
             The test baseline is red — gtd will not start new work on a broken suite.
-            `<%= it.vars.feedbackFile %>` holds the failing output.
+            `.gtd/FEEDBACK.md` holds the failing output.
 
             What each change does next (then run `gtd land`):
             <% it.edges.forEach(function (e) { if (e.describe) { %>
@@ -1815,7 +1691,7 @@ machines:
           reviewBase: <%= it.vars.reviewBase %>
           blockedMessage: |
             The test baseline is red — gtd will not start a review on a broken suite.
-            `<%= it.vars.feedbackFile %>` holds the failing output.
+            `.gtd/FEEDBACK.md` holds the failing output.
 
             What each change does next (then run `gtd land`):
             <% it.edges.forEach(function (e) { if (e.describe) { %>

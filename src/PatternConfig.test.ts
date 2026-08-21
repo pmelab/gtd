@@ -219,7 +219,6 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       },
       vars: {},
       edges: [],
-      stateDir: ".gtd",
     }
     const rendered = await Effect.runPromise(
       renderSteeringCommands(resolved!, ".gtd/TODO.md", context),
@@ -334,25 +333,6 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       "/config-dir",
     )
     expect(definition.states["a"]!.mode).toBe("adr")
-  })
-
-  it("compiles a declared `stateDir:` onto the definition, verbatim", () => {
-    const { definition } = compileWorkflowConfig(
-      { ...draftCheckRevise, stateDir: "<%= it.vars.stateDir %>" },
-      "/config-dir",
-    )
-    expect(definition.stateDir).toBe("<%= it.vars.stateDir %>")
-  })
-
-  it("leaves `stateDir` undefined when the workflow declares none", () => {
-    const { definition } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
-    expect(definition.stateDir).toBeUndefined()
-  })
-
-  it("rejects a non-string `stateDir:` value", () => {
-    expect(() =>
-      compileWorkflowConfig({ ...draftCheckRevise, stateDir: ["nope"] }, "/config-dir"),
-    ).toThrowError(/"stateDir" must be a string, got array/)
   })
 })
 
@@ -750,7 +730,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
               b: {
                 actor: "agent",
                 prompt: "p",
-                file: ".gtd/F.md",
+                file: "F.md",
                 requireProgress: true,
                 on: { "* **": "a" },
               },
@@ -775,7 +755,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
               b: {
                 actor: "check",
                 script: "s",
-                file: ".gtd/REVIEW.md",
+                file: "REVIEW.md",
                 requireRevert: true,
                 on: { C: "a" },
               },
@@ -1323,8 +1303,52 @@ describe("compileWorkflowConfig — config-shape validation", () => {
       },
       "/dir",
     )
-    expect(definition.states["working"]!.file).toBe("<%= it.vars.todoFile %>")
+    expect(definition.states["working"]!.file).toBe(".gtd/<%= it.vars.todoFile %>")
     expect(definition.states["working"]!.mode).toBe("qa")
+  })
+})
+
+describe("the `stateFile` compiler — `file:` prepend and its four rejections", () => {
+  const workflowWithFile = (file: string): Record<string, unknown> => ({
+    entry: { default: "root" },
+    machines: {
+      root: {
+        entry: "working",
+        states: {
+          working: { actor: "agent", prompt: "do the thing", file, on: { "* *": "done" } },
+          done: { commit: "chore: done" },
+        },
+      },
+    },
+  })
+
+  it("accepts a subdirectory path and prepends `.gtd/`", () => {
+    const { definition } = compileWorkflowConfig(workflowWithFile("packages/x.md"), "/dir")
+    expect(definition.states["working"]!.file).toBe(".gtd/packages/x.md")
+  })
+
+  it("rejects a `..` segment with the exact message", () => {
+    expect(() => compileWorkflowConfig(workflowWithFile("../REVIEW.md"), "/dir")).toThrowError(
+      /state "working": "file" must not contain a "\.\." segment \(got "\.\.\/REVIEW\.md"\)/,
+    )
+  })
+
+  it("rejects an absolute path with the exact message", () => {
+    expect(() => compileWorkflowConfig(workflowWithFile("/REVIEW.md"), "/dir")).toThrowError(
+      /state "working": "file" must not be an absolute path \(a leading "\/"\) \(got "\/REVIEW\.md"\)/,
+    )
+  })
+
+  it("rejects a declared `.gtd/` prefix with the exact message", () => {
+    expect(() => compileWorkflowConfig(workflowWithFile(".gtd/REVIEW.md"), "/dir")).toThrowError(
+      /state "working": "file" is resolved under "\.gtd\/" automatically — drop the "\.gtd\/" prefix \(got "\.gtd\/REVIEW\.md"\)/,
+    )
+  })
+
+  it("leaves a blank `file:` blank (not prepended), so the field's own non-empty rule still catches it", () => {
+    expect(() => compileWorkflowConfig(workflowWithFile(""), "/dir")).toThrowError(
+      /state "working": "file" must be a non-empty string/,
+    )
   })
 
   it("omits `file`/`mode` entirely when the state declares neither", () => {
@@ -1380,7 +1404,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                 a: {
                   actor: "human",
                   message: "hi",
-                  file: ".gtd/TODO.md",
+                  file: "TODO.md",
                   mode: 42,
                 },
               },
@@ -1404,7 +1428,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                 a: {
                   actor: "human",
                   message: "hi",
-                  file: ".gtd/TODO.md",
+                  file: "TODO.md",
                   mode: "yolo",
                   on: {},
                 },

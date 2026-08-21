@@ -72,7 +72,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
                   "* **": working
               working:
                 actor: agent
-                file: ".gtd/PLAN.md"
+                file: "PLAN.md"
                 mode: qa
                 prompt: "develop the plan"
                 on:
@@ -112,7 +112,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
                   "* **": working
               working:
                 actor: agent
-                file: ".gtd/PLAN.md"
+                file: "PLAN.md"
                 mode: qa
                 prompt: "develop the plan"
                 on:
@@ -155,7 +155,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
                   "* **": working
               working:
                 actor: agent
-                file: ".gtd/<%= it.vars.planFile %>"
+                file: "<%= it.vars.planFile %>"
                 mode: qa
                 prompt: "develop the plan"
                 on:
@@ -163,7 +163,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
               review-check:
                 entry: true
                 actor: human
-                file: ".gtd/<%= it.vars.planFile %>"
+                file: "<%= it.vars.planFile %>"
                 mode: qa
                 message: "reviewing"
                 on:
@@ -236,7 +236,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
                   "* **": working
               working:
                 actor: agent
-                file: ".gtd/PLAN.md"
+                file: "PLAN.md"
                 mode: qa
                 prompt: "develop the plan"
                 on:
@@ -288,7 +288,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
                   "* **": working
               working:
                 actor: agent
-                file: ".gtd/PLAN.md"
+                file: "PLAN.md"
                 mode: qa
                 prompt: "develop the plan"
                 on:
@@ -340,7 +340,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
                   "* **": working
               working:
                 actor: agent
-                file: ".gtd/PLAN.md"
+                file: "PLAN.md"
                 mode: qa
                 prompt: "develop the plan"
                 on:

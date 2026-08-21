@@ -463,7 +463,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the file ".gtd/REVIEW.md" is deleted
     And a file ".gtd/marker.md" with:
       """
-      keep this — under stateDir, must survive the revert
+      keep this — under .gtd/, must survive the revert
       """
     And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
     And an empty commit "gtd(agent): build.review.collecting → re-unwind"

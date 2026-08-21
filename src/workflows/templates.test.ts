@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml"
 import { describe, expect, it } from "vitest"
-import { stateDirError, validateDefinition } from "../PatternMachine.js"
+import { validateDefinition } from "../PatternMachine.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 import type { MachineNode } from "../Machines.js"
 import {
@@ -39,13 +39,19 @@ describe("the bundled unified workflow template", () => {
     expect(definition.states[definition.entries.default]).toBeDefined()
   })
 
-  it("declares a `stateDir` that renders from its own `stateDir` var", () => {
+  it("pins the `file:` prepend round trip: every compiled value starts with `.gtd/`, no raw declaration does", () => {
     const { definition } = compileTemplate()
-    expect(definition.stateDir).toBe("<%= it.vars.stateDir %>")
-    expect(defaultWorkflowVars.stateDir).toBe(".gtd")
-    // The declaration's own template only ever substitutes the var verbatim,
-    // so the var's default value IS the rendered result `stateDirError` sees.
-    expect(stateDirError(defaultWorkflowVars.stateDir!)).toBeUndefined()
+    const compiledFiles = Object.values(definition.states)
+      .map((s) => s.file)
+      .filter((f): f is string => f !== undefined)
+    expect(compiledFiles.length).toBeGreaterThan(0)
+    for (const file of compiledFiles) expect(file.startsWith(".gtd/")).toBe(true)
+
+    const rawFileLines = unifiedYaml
+      .split("\n")
+      .filter((line) => /^\s*file:\s/.test(line) && !/^\s*#/.test(line.trimStart()))
+    expect(rawFileLines.length).toBeGreaterThan(0)
+    for (const line of rawFileLines) expect(line).not.toMatch(/file:\s*\.gtd\//)
   })
 
   it("declares no `prose` mode, plus the built-in registry's `qa`/`review` seeded with their validate command", () => {
@@ -121,6 +127,32 @@ describe("the bundled unified workflow template", () => {
     expect(new Set([def, ...manual]).size).toBe(4)
     expect(definition.states[def]).toBeDefined()
     for (const state of manual) expect(definition.states[state]).toBeDefined()
+  })
+
+  it("the entry gate's check and fix-precheck each sweep a leftover review capture, ordered after the FEEDBACK rows", () => {
+    // A swept run's diff carries the sweep's `D .gtd/REVIEW_RAW.md` alongside
+    // whatever the suite wrote (`src/PatternMachine.ts`'s `changes.some`
+    // matches ANY pending change), so a red run that also swept must still
+    // route through the FEEDBACK rows, not the sweep row — package 03.
+    const { definition } = compileTemplate()
+    for (const name of ["start-gate.check", "review-gate.check", "fix-precheck"]) {
+      const patterns = (definition.states[name]!.on ?? []).map(([pattern]) => pattern)
+      const feedbackIndexes = patterns
+        .map((p, i) => [p, i] as const)
+        .filter(([p]) => p === "A .gtd/FEEDBACK.md" || p === "M .gtd/FEEDBACK.md")
+        .map(([, i]) => i)
+      const sweepIndex = patterns.indexOf("D .gtd/REVIEW_RAW.md")
+      expect(feedbackIndexes.length, name).toBe(2)
+      expect(sweepIndex, name).toBeGreaterThan(-1)
+      expect(sweepIndex, name).toBeGreaterThan(Math.max(...feedbackIndexes))
+    }
+    // The health gate's shared check needs no new row: its existing `"* **"`
+    // green catch-all already absorbs the sweep's deletion.
+    expect(
+      (definition.states["start-gate.check"]!.script as string).match(
+        /rm -f \.gtd\/REVIEW_RAW\.md/g,
+      )?.length,
+    ).toBe(1)
   })
 
   it("compiles exactly one template-form reviewBase, and no truthy reviewBase on start-gate", () => {
@@ -334,11 +366,11 @@ describe("the bundled unified workflow template", () => {
     // reads it.
     const { definition } = compileTemplate()
     const closing = definition.states["packages.item.closing"]!
-    expect(closing.script).toContain("it.vars.satisfiedFile")
+    expect(closing.script).toContain(".gtd/SATISFIED.md")
     const buildHealthCheck = definition.states["build.health.check"]!
     const packagesHealthCheck = definition.states["packages.item.health.check"]!
-    expect(buildHealthCheck.script).not.toContain("it.vars.satisfiedFile")
-    expect(packagesHealthCheck.script).not.toContain("it.vars.satisfiedFile")
+    expect(buildHealthCheck.script).not.toContain(".gtd/SATISFIED.md")
+    expect(packagesHealthCheck.script).not.toContain(".gtd/SATISFIED.md")
   })
 
   it("every script-content state is POSIX sh, not bash — the driver runs it via `sh -c`", () => {

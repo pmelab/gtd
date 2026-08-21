@@ -25,7 +25,6 @@ const templateContext: TemplateContext = {
   },
   vars: {},
   edges: [],
-  stateDir: ".gtd",
 }
 
 const rest = (
@@ -457,105 +456,6 @@ describe("require-revert guard", () => {
     )
     expect(Exit.isSuccess(exit)).toBe(true)
     if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
-  })
-
-  it("allows a note-only round when `reviewFile` is repointed to the repo root — exempted by EXACT path, not by a `.gtd/` prefix check", async () => {
-    // issue #128's shape: a `reviewFile` outside `.gtd/`. If the exemption
-    // regressed to a `.gtd/`-prefix check, `REVIEW.md` would no longer be
-    // excluded from `touched`, `scoped` would be non-empty, and this note-only
-    // round would be wrongly refused.
-    const rootState = rest("re-unwind", {
-      actor: "check",
-      script: "revert",
-      file: "REVIEW.md",
-      requireRevert: true,
-    })
-    const repo = new InMemRepo()
-    repo.writeFile("src/thing.ts", "export const thing = 1\n")
-    repo.writeFile("REVIEW.md", "- [ ] ./src/thing.ts#1\n")
-    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
-    const base = repo.resolveRef("HEAD")!
-    repo.writeFile("REVIEW.md", "- [x] ./src/thing.ts#1 — looks great\n")
-    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
-    const rb = repo.resolveRef("HEAD")!
-
-    const exit = await runCheck(
-      ctx({
-        rest: rootState,
-        file: rootState.stateDef.file!,
-        template: { ...templateContext, reviewBase: rb, startCommit: base },
-      }),
-      repo,
-    )
-    expect(Exit.isSuccess(exit)).toBe(true)
-    if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
-  })
-
-  it("allows a review round touching a relocated plumbing directory — today: permanent refusal", async () => {
-    // The reported deadlock's shape: `stateDir` relocated to `workflow-state`.
-    // A revert script that deliberately keeps `workflow-state/` untouched
-    // leaves that path differing from `base` forever; scoping residue by the
-    // DECLARED directory (not a literal `.gtd/`) exempts it correctly.
-    const repo = new InMemRepo()
-    repo.writeFile("src/thing.ts", "export const thing = 1\n")
-    repo.writeFile("workflow-state/notes.md", "before\n")
-    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
-    const base = repo.resolveRef("HEAD")!
-    repo.writeFile("workflow-state/notes.md", "after\n")
-    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
-    const rb = repo.resolveRef("HEAD")!
-    // The revert script deliberately keeps `workflow-state/` as-is — it still
-    // differs from `base`, but it is plumbing, not residue.
-
-    const exit = await runCheck(
-      ctx({
-        rest: reUnwindState,
-        file: reUnwindState.stateDef.file!,
-        template: {
-          ...templateContext,
-          reviewBase: rb,
-          startCommit: base,
-          stateDir: "workflow-state",
-        },
-      }),
-      repo,
-    )
-    expect(Exit.isSuccess(exit)).toBe(true)
-    if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined()
-  })
-
-  it("still refuses on real code residue alongside a relocated plumbing directory, naming ONLY the code path", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile("src/thing.ts", "export const thing = 1\n")
-    repo.writeFile("workflow-state/notes.md", "before\n")
-    repo.commitAllWithPrefix("gtd(check): build.review.reviewing")
-    const base = repo.resolveRef("HEAD")!
-    repo.writeFile("workflow-state/notes.md", "after\n")
-    repo.writeFile("src/thing.ts", "export const thing = 1\n// TODO: also export doubled\n")
-    repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
-    const rb = repo.resolveRef("HEAD")!
-    // The revert script never touches `workflow-state/` (plumbing) but the
-    // failed `git apply -R` left `src/thing.ts` (real code) as residue.
-
-    const exit = await runCheck(
-      ctx({
-        rest: reUnwindState,
-        file: reUnwindState.stateDef.file!,
-        template: {
-          ...templateContext,
-          reviewBase: rb,
-          startCommit: base,
-          stateDir: "workflow-state",
-        },
-      }),
-      repo,
-    )
-    expect(Exit.isSuccess(exit)).toBe(true)
-    if (Exit.isSuccess(exit)) {
-      expect(exit.value).toContain("src/thing.ts")
-      expect(exit.value).not.toContain("workflow-state")
-      expect(exit.value).toContain(`git checkout ${rb}~1 -- 'src/thing.ts'`)
-    }
   })
 
   it("allows when the human's commit touched nothing", async () => {

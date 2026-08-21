@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { resolve as resolvePath } from "node:path"
 import {
+  STATE_DIR,
   validateDefinition,
   type ModeDef,
   type OnEdge,
@@ -31,7 +32,6 @@ import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
  *   <name>:
  *     format: <shell command>    # at least one of format/validate
  *     validate: <shell command>
- * stateDir: <string>?   # optional — an Eta template naming where this workflow keeps its own plumbing; defaults to ".gtd" (see PatternMachine.stateDirOf)
  * entry:
  *   default: <machine name>     # which machine is the ROOT instance
  * machines:
@@ -50,7 +50,7 @@ import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
  *           max: <number>
  *           otherwise: <targetState>
  *         label: <string>     # optional, opaque display name — never on a commit state
- *         file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
+ *         file: <string>      # optional, an Eta template naming the state's steering file RELATIVE to ".gtd/" (the compiler prepends it automatically) — never on a commit state
  *         mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
  *         entry: true         # optional — an EXTRA reachability root (WorkflowEntries.manual), enterable via `gtd --entry <this state's qualified name>`; distinct from the top-level `entry:` key above
  *       <local>: { machine: <name>, with: { ... } }       # a REFERENCE — instantiates <name> as a child, see src/Machines.ts
@@ -93,20 +93,15 @@ import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
  * `isSeededValidateCommand` lets the edge (`src/SteeringMode.ts`) tell gtd's
  * own seeding apart from a genuine user override.
  *
- * ## `stateDir:` — where this workflow keeps its own plumbing
+ * ## `file:` — resolved under `.gtd/` automatically
  *
- * A sibling `stateDir:` key INSIDE the `workflow:` value declares the raw Eta
- * template source for gtd's own scratch/bookkeeping directory (see
- * `PatternMachine.WorkflowDefinition.stateDir`/`stateDirOf`) — a
- * DEFINITION-level declaration, not a var, because the value must reach
- * `enforceStepGuards`'s `hasCodeChange` (`src/StepGuards.ts`), computed once
- * per call before any one guard runs, rather than any guard reaching into
- * `it.vars` itself (a blessed-config-key shape this repo forbids). Absent
- * compiles to `undefined`, so `stateDirOf`'s `.gtd` default applies — a
- * workflow declaring nothing behaves exactly as before this key existed. The
- * bundled template renders this from its own ordinary `vars.stateDir` (the
- * knob a user actually overrides) — this compiler never renders it itself,
- * the same discipline as a state's own `file:`.
+ * A state's `file:` names a path RELATIVE to `PatternMachine.STATE_DIR`
+ * (`.gtd`) — the `stateFile` field kind (`compileStateFile`, below) prepends
+ * the directory after rejecting a `..` segment, an absolute path, or a
+ * declared `.gtd/` prefix (each a load-time error, never silently rewritten).
+ * There is no per-workflow relocation knob any more: `.gtd` is a fixed
+ * literal every consumer (the review window's revert pathspec, the step
+ * guards' code-vs-plumbing test) agrees on.
  *
  * ## File references
  *
@@ -259,34 +254,10 @@ export const mergeModes = (
   return merged
 }
 
-/**
- * Compile the `stateDir:` key — the raw Eta template source for where this
- * workflow keeps its own plumbing (see `PatternMachine.WorkflowDefinition.stateDir`).
- * An absent key compiles to `undefined` — the definition then carries none,
- * and `stateDirOf`'s `.gtd` default applies. A non-string value pushes one
- * load error and drops the value, never guessed at. Never rendered here —
- * the pure engine carries the string verbatim, the same discipline as a
- * state's own `file:`.
- */
-const compileStateDir = (raw: unknown, errors: string[]): string | undefined => {
-  if (raw === undefined) return undefined
-  if (typeof raw !== "string") {
-    errors.push(`"stateDir" must be a string, got ${describeType(raw)}`)
-    return undefined
-  }
-  return raw
-}
-
 /** Every state property a flattened state may carry — `STATE_FIELDS`'s own key set, in table order. */
 const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set(Object.keys(STATE_FIELDS))
 
-const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set([
-  "entry",
-  "machines",
-  "vars",
-  "modes",
-  "stateDir",
-])
+const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
 const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set(["params", "entry", "states", "model"])
 const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with"])
 
@@ -776,6 +747,53 @@ const compileText = (
 }
 
 /**
+ * `file:` — a plain string (`compileText`'s own shape), then prepended under
+ * `STATE_DIR` after three load-time rejections: a `..` segment (an escape), a
+ * leading `/` (an absolute path), or an already-declared `STATE_DIR` prefix
+ * (what would otherwise silently double up into `.gtd/.gtd/...`). None of
+ * these is a rewrite — a leading `./` or a doubled `//` is neither accepted
+ * nor normalized, since reintroducing canonical-spelling machinery for `file:`
+ * buys nothing when removing it is the point. A blank value is left alone
+ * (returned as `""`, not prepended) so the field's own generic `nonEmpty` rule
+ * (`STATE_FIELDS.file`, walked by `validateFieldRules`) still catches it —
+ * prepending onto blank would hide the blank behind a non-empty
+ * `"${STATE_DIR}/"` string. `undefined` (absent, or the type mismatch
+ * `compileText` already reported) short-circuits with nothing left to check.
+ *
+ * A templated `file:` (e.g. `file: <%= it.vars.x %>`) is checked against its
+ * SOURCE, not its rendered form — a var supplying `../REVIEW.md` at runtime
+ * passes every one of these checks and renders outside `.gtd/` at the edge.
+ * Accepted, not guarded: see this module's own `file:` section for the
+ * rationale.
+ */
+const compileStateFile = (
+  raw: Record<string, unknown>,
+  key: string,
+  name: string,
+  ctx: CompileCtx,
+): string | undefined => {
+  const value = compileText(raw, key, name, ctx.errors)
+  if (value === undefined || value === "") return value
+  if (value.split("/").includes("..")) {
+    ctx.errors.push(`state "${name}": "${key}" must not contain a ".." segment (got "${value}")`)
+    return undefined
+  }
+  if (value.startsWith("/")) {
+    ctx.errors.push(
+      `state "${name}": "${key}" must not be an absolute path (a leading "/") (got "${value}")`,
+    )
+    return undefined
+  }
+  if (value === STATE_DIR || value.startsWith(`${STATE_DIR}/`)) {
+    ctx.errors.push(
+      `state "${name}": "${key}" is resolved under "${STATE_DIR}/" automatically — drop the "${STATE_DIR}/" prefix (got "${value}")`,
+    )
+    return undefined
+  }
+  return `${STATE_DIR}/${value}`
+}
+
+/**
  * A boolean state flag (`reviewWindow`/`requireProgress`/`answerGate`/
  * `entry`): `true` only when the raw value is the literal `true`; a
  * non-boolean is a config error; `false` (or absent) compiles away to
@@ -872,6 +890,7 @@ type FieldCompiler = (
 const COMPILE: Record<FieldKind, FieldCompiler> = {
   actor: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
   text: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
+  stateFile: compileStateFile,
   mode: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
   content: compileContentRef,
   flag: (raw, key, name, ctx) => compileBooleanFlag(raw, key, name, ctx.errors),
@@ -1025,7 +1044,6 @@ export const compileWorkflowConfig = (
   // `mergeModes` is `undefined` only when BOTH arguments are — `seeded` never
   // is, so this merge (and the one layering `rcModes` over it) always resolves.
   const modes = mergeModes(mergeModes(seeded, compileModesMap(raw.modes, errors)), rcModes)!
-  const stateDir = compileStateDir(raw.stateDir, errors)
   validateMachinesShape(raw.machines, errors)
 
   const flattened = flattenMachines(raw, errors)
@@ -1061,7 +1079,6 @@ export const compileWorkflowConfig = (
     states,
     entries,
     modes,
-    ...(stateDir !== undefined ? { stateDir } : {}),
   }
 
   assertScopesCoverStates(Object.keys(states), flattened.scopes, errors)

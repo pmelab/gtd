@@ -86,6 +86,70 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(check): start-gate.check → design.triage"
 
+  @inmem
+  Scenario: an abandoned process's committed REVIEW_RAW.md at the entry gate does not misroute the gate
+    Given a test project
+    And the workflow
+    Given a file ".gtd/REVIEW_RAW.md" with:
+      """
+      stale raw review capture left by an abandoned process
+      """
+    And the working tree is committed
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → unwind"
+
+    Given the file "NOTE.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): unwind → start-gate.check"
+
+    # Simulate the check script's own sweep of the leftover capture, with the
+    # suite passing: the deletion alone must not refuse the step or misroute
+    # it away from design.triage.
+    Given the file ".gtd/REVIEW_RAW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.check → design.triage"
+
+  @inmem
+  Scenario: a red run that also swept a leftover REVIEW_RAW.md still halts at start-gate.blocked
+    Given a test project
+    And the workflow
+    Given a file ".gtd/REVIEW_RAW.md" with:
+      """
+      stale raw review capture left by an abandoned process
+      """
+    And the working tree is committed
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → unwind"
+
+    Given the file "NOTE.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): unwind → start-gate.check"
+
+    # Simulate a red run that ALSO swept the leftover capture: both changes
+    # land in the same diff, so the FEEDBACK.md rows (declared first) must
+    # still win over the new sweep row.
+    Given the file ".gtd/REVIEW_RAW.md" is deleted
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing: baseline broken
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.check → start-gate.blocked"
+
   @live
   Scenario: a green baseline proceeds from the gate into design.triage
     Given a test project

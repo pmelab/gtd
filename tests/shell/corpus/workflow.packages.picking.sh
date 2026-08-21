@@ -6,35 +6,26 @@
 # MEANS (another package to build vs. the queue closing out to review) is
 # decided by this state's own `on` rules at capture time — never here.
 set +e
-# Hoist the NEXT path once, at the TOP: Eta's autoTrim eats the newline
-# after an interpolation tag, so no tag may be the last token on a line —
-# it would glue the next line's `else`/`fi` onto it and break the script.
-# Below this point everything is plain POSIX sh.
-nextFile=".gtd/NEXT.md"
+mkdir -p .gtd
 # Sweep the design/architecture phases' spent steering files:
-# requirementsFile is consumed by architecture.author, architectureFile
-# by architecture.decompose, and questionsFile by whichever gate ran
+# REQUIREMENTS.md is consumed by architecture.author, ARCHITECTURE.md
+# by architecture.decompose, and QUESTIONS.md by whichever gate ran
 # last — all three are gone by the time the package queue starts.
-# reviewRawFile is swept here too: the review loop-back
-# (re-unwind) excludes stateDir from its revert, so an actionable
+# REVIEW_RAW.md is swept here too: the review loop-back
+# (re-unwind) excludes .gtd from its revert, so an actionable
 # feedback round's MARKED raw capture (see humanReview's own
 # `collecting` state) rides through design and architecture
 # untouched — this is the ONLY sweeper on that path
 # before the queue (and eventually the squash finale) would
 # otherwise pick it up as stray content. No-op if already removed.
-requirements=".gtd/REQUIREMENTS.md"
-architecture=".gtd/ARCHITECTURE.md"
-questions=".gtd/QUESTIONS.md"
-reviewRaw=".gtd/REVIEW_RAW.md"
-rm -f "$requirements" "$architecture" "$questions" "$reviewRaw"
+rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md
 # Package file names are gtd-authored (architecture.decompose writes
 # NN-name.md), never containing whitespace/newlines that would break
 # ls | head.
 # shellcheck disable=SC2012
 next=$(ls .gtd/packages/*.md 2>/dev/null | head -n 1)
 if [ -n "$next" ]; then
-  mkdir -p "$(dirname "$nextFile")"
-  printf '%s' "$next" > "$nextFile"
+  printf '%s' "$next" > .gtd/NEXT.md
 else
-  rm -f "$nextFile"
+  rm -f .gtd/NEXT.md
 fi

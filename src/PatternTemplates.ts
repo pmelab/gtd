@@ -119,29 +119,16 @@ export interface TemplateContext {
    * other field, this module never derives it.
    */
   readonly edges: readonly TemplateEdge[]
-  /**
-   * `def`'s declared plumbing directory (`PatternMachine.stateDirOf`),
-   * rendered against `vars` ONLY and normalized (no trailing `/`, no leading
-   * `./`) — see `src/Edge.ts`'s stage list for why `vars`-only. Engine-
-   * assembled, never config-derived like `it.vars`: a guard or a script reads
-   * this field to know which paths are plumbing, never `it.vars.stateDir`
-   * itself (a workflow's own var, which this field happens to be rendered
-   * from in the bundled template).
-   */
-  readonly stateDir: string
 }
 
 /**
  * The stub `TemplateContext` an `on` pattern key renders against at the edge
  * (see `Edge.ts`'s `renderOnEdges`): only `vars` (and, optionally, `state`)
  * are real — every commit-ish/diff field is empty, `processCost` is `0`,
- * `edges` is empty, `stateDir` is empty, and `read` throws, since a pattern
- * names a path and never legitimately needs a working tree or git history to
- * resolve. This is also `Lsp.ts`'s `buildFileModeMap` map-building context,
- * factored out here to avoid building the same stub in two places, AND the
- * context `src/Edge.ts` renders the `stateDir:` declaration itself against —
- * an empty `stateDir` there is what makes a declaration that references
- * `it.stateDir` render empty rather than recurse.
+ * `edges` is empty, and `read` throws, since a pattern names a path and never
+ * legitimately needs a working tree or git history to resolve. This is also
+ * `Lsp.ts`'s `buildFileModeMap` map-building context, factored out here to
+ * avoid building the same stub in two places.
  */
 export const varsOnlyContext = (vars: Record<string, string>, state = ""): TemplateContext => ({
   startCommit: "",
@@ -160,7 +147,6 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
   },
   vars,
   edges: [],
-  stateDir: "",
 })
 
 // One shared Eta instance, `renderString`-only (no named template registry —

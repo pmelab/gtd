@@ -27,7 +27,7 @@ const raw = {
         blocked: {
           actor: "human",
           message: "red",
-          file: ".gtd/FEEDBACK.md",
+          file: "FEEDBACK.md",
           on: { "* **": "check" },
         },
       },
@@ -40,7 +40,7 @@ const raw = {
         planning: {
           actor: "agent",
           prompt: "plan",
-          file: ".gtd/TODO.md",
+          file: "TODO.md",
           answerGate: true,
           on: { "* **": "done" },
         },

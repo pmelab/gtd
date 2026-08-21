@@ -34,14 +34,14 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
                   "* **": grilling
               grilling:
                 actor: agent
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 prompt: "plan"
                 on:
                   "* **": grilling-answer
               grilling-answer:
                 actor: human
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 message: "answer"
                 on:
@@ -79,14 +79,14 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
                   "* **": grilling
               grilling:
                 actor: agent
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 prompt: "plan"
                 on:
                   "* **": grilling-answer
               grilling-answer:
                 actor: human
-                file: .gtd/TODO.md
+                file: TODO.md
                 mode: qa
                 message: "answer"
                 on:

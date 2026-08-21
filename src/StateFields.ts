@@ -92,6 +92,7 @@ export interface FieldValue {
   readonly actor: Actor
   readonly content: string
   readonly text: string
+  readonly stateFile: string
   readonly mode: StateMode
   readonly flag: boolean
   readonly flagOrTemplate: true | string
@@ -287,21 +288,25 @@ const STATE_FIELDS = {
    * Optional — THE steering file this state is about: the file a human/
    * editor should look at while the machine rests here. An Eta template
    * (rendered through the same `it.vars`-carrying context as content and
-   * `model`) that must render non-empty. Forbidden on a commit state (never
-   * at rest — see `validateDefinition`). Multiple states may share one
-   * `file:` (and, in the bundled default, do). The engine never reads a
-   * path out of this string itself — only the LSP (`src/Lsp.ts`) interprets
-   * it, to map rendered paths to `mode`.
+   * `model`) that must render non-empty. Names a path RELATIVE to `.gtd/` —
+   * the compiler prepends the directory (see `PatternConfig.ts`'s `stateFile`
+   * compiler); a `..` segment, an absolute path, or an already-prefixed
+   * `.gtd/...` declaration are all load-time errors, never silently
+   * rewritten. Forbidden on a commit state (never at rest — see
+   * `validateDefinition`). Multiple states may share one `file:` (and, in the
+   * bundled default, do). The engine never reads a path out of this string
+   * itself — only the LSP (`src/Lsp.ts`) interprets it, to map rendered paths
+   * to `mode`.
    */
   file: {
-    kind: "text",
+    kind: "stateFile",
     surface: "def",
     authored: "state",
     nonEmpty: true,
     commit: "forbidden",
     viz: "field",
     rest: "rendered",
-    doc: "The state's steering file: an Eta template naming the file a human/editor should look at while the machine rests here. Forbidden on a commit state.",
+    doc: 'The state\'s steering file: an Eta template naming the file a human/editor should look at while the machine rests here, RELATIVE to ".gtd/" — the compiler prepends that directory automatically. A ".." segment, an absolute path, or an already-prefixed ".gtd/" are rejected, not rewritten. Forbidden on a commit state.',
   },
 
   /**

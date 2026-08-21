@@ -188,7 +188,6 @@ add("combined.with-optional.sh", combinedScript(combinedRequired, combinedOption
 
 const unifiedYamlText = readFileSync(UNIFIED_YAML_PATH, "utf8")
 const compiled = compileWorkflowConfig(parseYaml(unifiedYamlText), ".")
-const fixtureStateDir = compiled.vars["stateDir"] ?? ".gtd"
 
 for (const [name, state] of Object.entries(compiled.definition.states)) {
   if (state.script === undefined) continue
@@ -209,7 +208,6 @@ for (const [name, state] of Object.entries(compiled.definition.states)) {
     },
     vars: compiled.vars,
     edges: [],
-    stateDir: fixtureStateDir,
   }
   add(`workflow.${name}.sh`, renderStateTemplate(state.script, context))
 }

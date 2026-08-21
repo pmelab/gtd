@@ -98,73 +98,17 @@ export interface ModeDef {
 export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
   Object.keys(def.modes ?? {})
 
-/** The engine's own default for `WorkflowDefinition.stateDir` — see `stateDirOf`. The one place `.gtd` is spelled as the engine's default. */
-export const DEFAULT_STATE_DIR = ".gtd"
-
 /**
- * `def`'s declared plumbing directory — the raw Eta template source a
- * workflow carried on `stateDir:`, or `DEFAULT_STATE_DIR` when it declared
- * none (so a workflow declaring nothing, and every hand-built test fixture
- * that skipped the compiler, behaves exactly as before this key existed).
- * Rendering the template is an edge concern, exactly like `entryBaseTemplateOf`
- * — this module only carries and defaults the raw string.
+ * The engine's own plumbing directory — gtd's scratch/bookkeeping directory
+ * (the review window's revert pathspec, the step guards' code-vs-plumbing
+ * test) and the prefix `PatternConfig.ts`'s `stateFile` compiler prepends onto
+ * every state's `file:` declaration. A plain const, not a workflow-level
+ * declaration: there is nothing left to relocate it to, and the three sites
+ * that must agree on it — the compiler that prepends, the validator that
+ * re-checks, and the runtime guard that tests the prefix — all import this
+ * one value rather than re-deriving a prefix string of their own.
  */
-export const stateDirOf = (def: WorkflowDefinition): string => def.stateDir ?? DEFAULT_STATE_DIR
-
-/**
- * The leading-`./` + trailing-`/` strip shared by `stateDirError` and
- * `src/Edge.ts`'s `renderStateDir` — the one tolerated rewrite of a
- * `stateDir` declaration, covering the two conventional spellings a
- * hand-written template or `.gtdrc` value commonly carries. Exported as one
- * function rather than duplicated at the edge so the two call sites can never
- * drift into tolerating different affixes. Anything beyond these two is a
- * spelling `stateDirError` rejects rather than rewrites — the strip is
- * tolerance, not full canonicalization; it does not touch an internal `.` or
- * empty segment.
- */
-export const canonicalStateDir = (value: string): string =>
-  value.replace(/^\.\//, "").replace(/\/+$/, "")
-
-/**
- * The one place the engine interprets a `stateDir` VALUE (never the var
- * NAME) — pure and total, so both the edge (on the rendered, normalized
- * value, before any consumer sees it — see `src/Edge.ts`'s
- * `renderStateDirOrFail`) and a test can call it directly. Returns the
- * error message when `value` cannot name a usable plumbing directory,
- * `undefined` when it can.
- *
- * Rejects, in this order: blank/whitespace-only; the repo root (`.`, `./`,
- * `/`, or empty once a leading `./` and trailing `/` are stripped); an
- * absolute path (a leading `/` after that stripping); any `..` segment (an
- * escape); any other `.` or empty path segment (a non-canonical spelling —
- * `a/./state`, `a//state`, `a/.` — rejected rather than silently
- * canonicalized, since every downstream consumer compares `it.stateDir`
- * rather than re-normalizing it). The `..` escape check runs BEFORE the
- * segment-canonicality check so a value carrying BOTH is always reported as
- * an escape, never as a spelling to rewrite — `a/.././state` (segments `a`,
- * `..`, `.`, `state`) would, under the reverse order, suggest the canonical
- * spelling `"a/../state"`, a rewrite that still escapes the repo. `..` is
- * deliberately not in the canonicality predicate — it is an escape, not a
- * spelling. Deliberately does its own stripping rather than requiring an
- * already-normalized `value` — a caller may hand it either the raw
- * declaration or the edge's normalized form and get the same verdict, which
- * is what lets a unit test exercise `"./"` directly.
- */
-export const stateDirError = (value: string): string | undefined => {
-  const invalid = (): string =>
-    `"stateDir": must name a directory inside the repository, not the repo root, an absolute path, or a path outside it (got ${JSON.stringify(value)})`
-  if (value.trim() === "") return invalid()
-  const stripped = canonicalStateDir(value)
-  if (stripped === "" || stripped === ".") return invalid()
-  if (stripped.startsWith("/")) return invalid()
-  const segments = stripped.split("/")
-  if (segments.includes("..")) return invalid()
-  if (segments.some((segment) => segment === "." || segment === "")) {
-    const canonical = segments.filter((segment) => segment !== "." && segment !== "").join("/")
-    return `"stateDir": ${JSON.stringify(stripped)} is not a canonical path — write it as ${JSON.stringify(canonical)}`
-  }
-  return undefined
-}
+export const STATE_DIR = ".gtd"
 
 /**
  * The state names a process may START at. `default` is where an ordinary
@@ -205,25 +149,6 @@ export interface WorkflowDefinition {
    * entries.
    */
   readonly modes?: Readonly<Record<StateMode, ModeDef>>
-  /**
-   * The raw Eta template source for where this workflow keeps its own
-   * plumbing (gtd's scratch/bookkeeping directory, e.g. the review window's
-   * revert pathspec and the step guards' code-vs-plumbing test) — carried
-   * verbatim, exactly as authored, never rendered here (the same discipline
-   * as a state's own `file:`). Absent when the workflow declared no
-   * `stateDir:`; see `stateDirOf` for the defaulted accessor.
-   *
-   * This is a DIFFERENT thing from `it.vars.stateDir`, on purpose, despite
-   * sharing a name: `stateDir:` here is the definition-level declaration the
-   * engine reads (so the value can reach `enforceStepGuards`'s
-   * once-per-call `hasCodeChange`, rather than any one guard reaching into
-   * `it.vars` itself — a blessed-config-key the engine forbids); `vars.stateDir`
-   * is an ordinary workflow var, the knob a user overrides, that the bundled
-   * template happens to render this declaration from. Same call as the
-   * per-state `entry:` flag sharing a name with the top-level `entry:`
-   * machine key.
-   */
-  readonly stateDir?: string
 }
 
 /** Which content kind a state declares, or `undefined` if none (a validation error). */
@@ -911,22 +836,6 @@ const validateKnownMode = (def: WorkflowDefinition, name: string, state: StateDe
 }
 
 /**
- * `stateDir`, when DECLARED, must be non-blank — the same
- * blank/whitespace-only check `validateReviewBaseTemplate` runs for a string
- * `reviewBase` template. Deliberately checks nothing else: `stateDirError`'s
- * repo-root/absolute/escape rules apply to the RENDERED value, which this
- * load-time pass can't see (the bundled declaration is itself a template,
- * e.g. `<%= it.vars.stateDir %>`, whose var can arrive at runtime via a
- * `GTD_STATEDIR` override no load-time check could ever observe — see
- * `renderStateDirOrFail` in `src/Edge.ts` for the one site that does own
- * that rule).
- */
-const validateStateDir = (def: WorkflowDefinition): string[] =>
-  def.stateDir !== undefined && def.stateDir.trim() === ""
-    ? [`"stateDir" template must not be blank`]
-    : []
-
-/**
  * When `reviewBase` is a STRING (the template form — see `StateDef.reviewBase`),
  * its source must be non-blank: a literal `reviewBase: ""` (or whitespace-only)
  * is an authoring error, distinct from the runtime concern of the RENDERED
@@ -939,6 +848,21 @@ const validateReviewBaseTemplate = (name: string, state: StateDef): string[] => 
   return state.reviewBase.trim() === ""
     ? [`state "${name}": "reviewBase" template must not be blank`]
     : []
+}
+
+/**
+ * A compiled `file:` must sit under `STATE_DIR` (`.gtd`) — `PatternConfig.ts`'s
+ * `stateFile` compiler already guarantees this for anything it compiles by
+ * prepending the directory itself, so this can only fire for a definition
+ * built directly in TypeScript (a hand-authored test fixture) that skipped
+ * the compiler entirely.
+ */
+const validateFileUnderStateDir = (name: string, state: StateDef): string[] => {
+  const file = state.file
+  if (file === undefined) return []
+  return file === STATE_DIR || file.startsWith(`${STATE_DIR}/`)
+    ? []
+    : [`state "${name}": "file" must be under "${STATE_DIR}/" (got "${file}")`]
 }
 
 /** Every `on` row parses, and its target names a defined state. */
@@ -1033,6 +957,7 @@ const BESPOKE: Readonly<
   retry: (_def, name, state, names) => validateRetry(name, state, names),
   mode: (def, name, state) => validateKnownMode(def, name, state),
   reviewBase: (_def, name, state) => validateReviewBaseTemplate(name, state),
+  file: (_def, name, state) => validateFileUnderStateDir(name, state),
 }
 
 /**
@@ -1068,12 +993,14 @@ const validateState = (
  * `entries.manual` itself (see `validateEntries`); every state declares
  * exactly one content kind; commit states carry no `actor` and no `on`;
  * non-commit states carry an `actor`; every `modes:` entry declares at least
- * one non-blank `format`/`validate` command; a DECLARED `stateDir` template is
- * non-blank (`validateStateDir` — the value-shape rule, `stateDirError`, is a
- * runtime/edge concern, not checked here); every state is reachable from an
- * entry root (`def.entries` — `default` plus every `entries.manual` state) by
- * walking `on` targets and `retry.otherwise` redirects (checked only when
- * `validateEntries` itself found no problem — see `validateReachability`).
+ * one non-blank `format`/`validate` command; a compiled `file:` sits under
+ * `STATE_DIR` (`validateFileUnderStateDir` — the compiler's `stateFile` kind
+ * already guarantees this for anything it compiles, so this only fires for a
+ * hand-built definition that skipped the compiler); every state is reachable
+ * from an entry root (`def.entries` — `default` plus every `entries.manual`
+ * state) by walking `on` targets and `retry.otherwise` redirects (checked
+ * only when `validateEntries` itself found no problem — see
+ * `validateReachability`).
  *
  * Every OTHER per-field rule (`on`/`retry` targets resolving, `retry.max`
  * being a non-negative integer, a text field's non-empty/commit-forbidden
@@ -1094,7 +1021,6 @@ export const validateDefinition = (def: WorkflowDefinition): readonly string[] =
   return [
     ...entriesErrors,
     ...validateModes(def),
-    ...validateStateDir(def),
     ...names.flatMap((name) => validateState(def, name, names)),
     ...(entriesErrors.length === 0 ? validateReachability(def, names) : []),
   ]

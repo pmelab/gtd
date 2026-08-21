@@ -14,7 +14,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
 
   Consuming the raw capture with nothing else, and writing no
   `.gtd/REQUIREMENTS.md`, IS a legal outcome now — the non-actionable
-  sign-off short-circuit (`"D reviewRawFile": $onSignoff`), the same trick
+  sign-off short-circuit (`"D .gtd/REVIEW_RAW.md": $onSignoff`), the same trick
   `deciding` already uses one state earlier. What `collecting` still refuses
   is a dirty tree that touches something OTHER than `.gtd/REQUIREMENTS.md` /
   `.gtd/REVIEW_RAW.md` while leaving neither of the declared rows matched: no
@@ -188,25 +188,6 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     Then it fails
     And stderr contains "without addressing its instructions"
 
-  Scenario: the refusal still respects a requirementsFile repointed outside .gtd/ (issue #128's exact-path exclusion)
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        requirementsFile: REQUIREMENTS.md
-      """
-    And a commit "gtd(check): re-unwind → design.triage" that adds "REQUIREMENTS.md" with:
-      """
-      ## Rename `add` to `sum`
-
-      PRODUCT — the review left a note on ./src/calc.ts#1 asking to rename
-      the `add` export to `sum`.
-      """
-    Given the file "REQUIREMENTS.md" is deleted
-    When I run gtd land
-    Then it fails
-    And stderr contains "without addressing its instructions"
-
   Scenario: a NOTHING ACTIONABLE sentinel is the one exemption, pinned against a minimal custom workflow since no bundled state writes it any more
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -225,7 +206,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
                   "* **": drafting
               drafting:
                 actor: agent
-                file: .gtd/FEEDBACK.md
+                file: FEEDBACK.md
                 requireProgress: true
                 prompt: "address .gtd/FEEDBACK.md, then delete it"
                 on:
