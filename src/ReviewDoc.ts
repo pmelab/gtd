@@ -14,7 +14,7 @@
  *
  * - [ ] ./path/to/file.ts#42
  *   what this hunk does, with room to run to several lines
- * - [ ] ./path/to/file.ts#99
+ * - [ ] ./path/to/file.ts#99 — or the note can trail the pointer on its own line
  * ```
  *
  * Required: the `# Review: <hash>` header (as the document's first non-blank
@@ -22,15 +22,18 @@
  * with a non-empty title and at least one `- [ ]` / `- [x]` file pointer.
  *
  * A file pointer's path is ONE whitespace-delimited `./`-relative token, with
- * an optional `#<line>` suffix of that same token — nothing else may follow on
- * the pointer's own line; a hyphen (or em/en dash) in a filename is part of the
- * path, never a separator. **Text after the pointer token on the pointer's own
- * line is a validation error** — the explanation belongs on the line(s) below
- * it instead. Every line after a pointer belongs to that pointer as its
+ * an optional `#<line>` suffix of that same token — a hyphen (or em/en dash) in
+ * a filename is part of the path, never a separator. The explanation may trail
+ * the pointer on its own same line, continue on the line(s) below it, or both
+ * — same-line text first, then the below-pointer lines, joined with a single
+ * space. Every line after a pointer belongs to that pointer as its
  * explanation (`note`), until the next pointer or the next `##` heading;
  * indentation is optional, and a blank line between two continuation
  * paragraphs stays inside the span. Only lines before a chunk's FIRST pointer
- * are chunk-level description.
+ * are chunk-level description. **The one surviving rule: a note never begins
+ * with a bare `./path` token** — that parses as a second hunk pointer instead
+ * of an explanation, and gtd flags it as a positioned finding rather than
+ * silently swallowing the second hunk.
  *
  * **The format's single source of truth.** This module is the EXECUTABLE SPEC
  * of that format — its own unit tests (`ReviewDoc.test.ts`) are the format's
@@ -58,14 +61,12 @@ export interface ReviewFile {
   readonly path: string
   readonly line?: number
   readonly checked: boolean
-  /** The pointer's explanation, gathered from the lines BELOW it, joined with " ". */
+  /** The pointer's explanation: same-line text (if any) first, then the lines gathered from BELOW it, joined with " ". */
   readonly note?: string
   /** 0-based line index of this file pointer's own `- [ ]`/`- [x]` line in REVIEW.md, for editor tooling. */
   readonly sourceLine: number
   /** 0-based index of the last NON-BLANK line of this pointer's span; equals `sourceLine` when it has no explanation. */
   readonly endLine: number
-  /** Text found after the pointer token on the pointer's OWN line — the invalid legacy form. Absent when the line is clean. */
-  readonly trailingText?: string
 }
 
 export interface Changeset {
@@ -83,14 +84,29 @@ export interface ReviewDoc {
   readonly errors: readonly string[]
 }
 
+/**
+ * `REVIEW_FORMAT`'s canonical sample (see `SteeringFormat.sample`'s doc
+ * comment) — a minimal, valid `review`-mode document: the header, the base
+ * comment, and one chunk with one file pointer. Deliberately not authored to
+ * survive any particular formatter.
+ */
+const REVIEW_SAMPLE = `# Review: sample123
+<!-- base: 0000000000000000000000000000000000000000 -->
+
+## Sample chunk
+
+- [ ] ./sample.ts#1
+what this hunk does
+`
+
 const HEADER_RE = /^#\s+Review:\s*(\S+)\s*$/
 const BASE_COMMENT_RE = /^<!--\s*base:\s*(\S+)\s*-->$/
 const CHUNK_HEADING_RE = /^##\s+(.+)$/
-/** One `- [ ]`/`- [x]` pointer line: the box, the whitespace-delimited pointer token, and (invalidly) whatever trails it. */
+/** One `- [ ]`/`- [x]` pointer line: the box, the whitespace-delimited pointer token, and the inline note segment that trails it. */
 const FILE_POINTER_RE = /^-\s*\[([ xX])\]\s*(\S+)(?:\s+(.*))?$/
 /** A pointer token's trailing `#<line>` (greedy, so a `#` inside the path stays in it). */
 const POINTER_LINE_RE = /^(.*)#(\d+)$/
-/** The optional dash a continuation line may lead with — em dash, en dash, or hyphens. */
+/** The optional dash that may lead the inline note segment or a continuation line — em dash, en dash, or hyphens. */
 const NOTE_SEPARATOR_RE = /^[—–-]+\s*/
 
 /** The `# Review: <hash>` header, required as the document's first non-blank line. */
@@ -114,26 +130,33 @@ interface ParsedPointer {
   readonly line?: number
   readonly checked: boolean
   readonly sourceLine: number
-  /** Whatever trailed the pointer token on its own line, trimmed — present exactly when that line is invalid (Task 2). */
-  readonly trailingText?: string
+  /** Whatever trailed the pointer token on its own line, trimmed — the note's first segment, not an error carrier. Absent when the line is clean. */
+  readonly inlineNote?: string
 }
 
-/** One `- [ ]` / `- [x]` file-pointer line, or `undefined` if `line` isn't one. The regex is unchanged from the legacy same-line-note form — a line WITH trailing text still parses, so the resulting error can point at it precisely (see the module docstring). */
+/** True when `token` parses as a file pointer's path token — leading `./`, and a path longer than two characters once an optional `#<line>` suffix is stripped. The single source of truth for "is this a pointer token", shared by `parseFilePointer` and the second-pointer finding below so the two can never drift apart. */
+const isPointerToken = (token: string): boolean => {
+  if (!token.startsWith("./")) return false
+  const lineMatch = POINTER_LINE_RE.exec(token)
+  const path = lineMatch ? lineMatch[1]! : token
+  return path.length > 2 // `./` with nothing after it is not a path
+}
+
+/** One `- [ ]` / `- [x]` file-pointer line, or `undefined` if `line` isn't one. Text trailing the pointer token on its own line still parses — it becomes the note's inline segment (see the module docstring), not an error. */
 const parseFilePointer = (line: string, sourceLine: number): ParsedPointer | undefined => {
   const match = FILE_POINTER_RE.exec(line)
   if (!match) return undefined
   const token = match[2]!
-  if (!token.startsWith("./")) return undefined
+  if (!isPointerToken(token)) return undefined
   const lineMatch = POINTER_LINE_RE.exec(token)
   const path = lineMatch ? lineMatch[1]! : token
-  if (path.length <= 2) return undefined // `./` with nothing after it is not a path
-  const trailingText = (match[3] ?? "").trim()
+  const inlineNote = (match[3] ?? "").trim()
   return {
     checked: match[1] !== " ",
     path,
     ...(lineMatch ? { line: Number(lineMatch[2]) } : {}),
     sourceLine,
-    ...(trailingText.length > 0 ? { trailingText } : {}),
+    ...(inlineNote.length > 0 ? { inlineNote } : {}),
   }
 }
 
@@ -164,15 +187,6 @@ const pointerEndIndex = (body: readonly BodyLine[], index: number): number => {
   return end
 }
 
-/** The trailing-text validation error for one pointer whose own line carries text after the pointer token. */
-const trailingTextError = (title: string, pointer: ParsedPointer): SteeringFinding => {
-  const target = pointer.line !== undefined ? `${pointer.path}#${pointer.line}` : pointer.path
-  return {
-    message: `Chunk "${title}" hunk ${target} has text on the pointer line — move the explanation to the line(s) below it`,
-    line: pointer.sourceLine,
-  }
-}
-
 /** Joins a pointer's gathered explanation: every non-blank line strictly between `startIndex` and `endIndex` (inclusive), each stripped of a leading dash, joined with a single space. */
 const gatherNote = (body: readonly BodyLine[], startIndex: number, endIndex: number): string => {
   const noteLines: string[] = []
@@ -183,7 +197,39 @@ const gatherNote = (body: readonly BodyLine[], startIndex: number, endIndex: num
   return noteLines.join(" ").trim()
 }
 
-/** One pointer's parsed `ReviewFile` (span + gathered note), its trailing-text error when its own line carried one, and the body index just past its span for the caller to resume from. */
+/**
+ * The second-pointer validation error: a note whose first token is itself a
+ * pointer token. The relaxed same-line form would otherwise silently read
+ * `- [ ] ./a.ts#1 ./b.ts#2` (or with a separator, `- [ ] ./a.ts#1 — ./b.ts#2`)
+ * as ONE pointer whose note is `./b.ts#2`, dropping the second hunk entirely —
+ * this is the one case the relaxed parser must still refuse, and it points at
+ * the pointer's own `sourceLine` so it renders as a positioned finding.
+ */
+const secondPointerError = (
+  title: string,
+  pointer: ParsedPointer,
+  secondToken: string,
+): SteeringFinding => {
+  const target = pointer.line !== undefined ? `${pointer.path}#${pointer.line}` : pointer.path
+  return {
+    message: `Chunk "${title}" hunk ${target}'s note starts with a second pointer (${secondToken}) — give it its own "- [ ]" line`,
+    line: pointer.sourceLine,
+  }
+}
+
+/**
+ * One pointer's parsed `ReviewFile` — its note composed from the inline
+ * (same-line) segment first, then the lines gathered from below it, joined
+ * with a single space — plus the second-pointer finding when the inline
+ * segment itself opens with a pointer token, and the body index just past
+ * this pointer's span for the caller to resume from.
+ *
+ * The second-pointer check is scoped to the inline segment ALONE, never the
+ * composed note: a below-pointer explanation that legitimately opens with a
+ * path (`./src/foo.ts is the caller`) must not be refused — refusing a
+ * legitimate explanation is exactly the class of hard stop this format
+ * relaxation exists to remove.
+ */
 const parsePointerSpan = (
   title: string,
   body: readonly BodyLine[],
@@ -191,17 +237,22 @@ const parsePointerSpan = (
   pointer: ParsedPointer,
 ): { readonly file: ReviewFile; readonly error?: SteeringFinding; readonly nextIndex: number } => {
   const endIndex = pointerEndIndex(body, index)
-  const note = gatherNote(body, index, endIndex)
-  const { trailingText, ...pointerFields } = pointer
+  const inlineSegment = (pointer.inlineNote ?? "").replace(NOTE_SEPARATOR_RE, "")
+  const belowNote = gatherNote(body, index, endIndex)
+  const note = [inlineSegment, belowNote].filter((segment) => segment.length > 0).join(" ")
+  const { inlineNote: _inlineNote, ...pointerFields } = pointer
   const file: ReviewFile = {
     ...pointerFields,
     endLine: body[endIndex]!.line,
     ...(note.length > 0 ? { note } : {}),
-    ...(trailingText !== undefined ? { trailingText } : {}),
   }
+  const secondToken = inlineSegment.split(/\s+/)[0] ?? ""
+  const error = isPointerToken(secondToken)
+    ? secondPointerError(title, pointer, secondToken)
+    : undefined
   return {
     file,
-    ...(trailingText !== undefined ? { error: trailingTextError(title, pointer) } : {}),
+    ...(error ? { error } : {}),
     nextIndex: endIndex + 1,
   }
 }
@@ -264,7 +315,7 @@ const splitChunks = (
   return chunks
 }
 
-/** Parses every `##` chunk into a `Changeset`, collecting one error per chunk with no file pointers plus each chunk body's own trailing-text errors. */
+/** Parses every `##` chunk into a `Changeset`, collecting one error per chunk with no file pointers plus each chunk body's own second-pointer errors. */
 const parseChangesets = (
   lines: readonly string[],
 ): { readonly changesets: readonly Changeset[]; readonly errors: readonly SteeringFinding[] } => {
@@ -468,6 +519,7 @@ const reviewPointerAt = (
 
 /** The `review` steering format: gtd's own in-process review-checkbox format — validation, outline, code actions, and `pointerAt` (a hunk pointer's go-to-definition target). */
 export const REVIEW_FORMAT: SteeringFormat = {
+  sample: REVIEW_SAMPLE,
   validate: (content) => parseReviewFindings(content).findings,
   outline: reviewOutline,
   actions: reviewActions,

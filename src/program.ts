@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { tmpdir } from "node:os"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either, Option, Runtime } from "effect"
 import type { ArtifactOut, Command, Needs } from "./Cli.js"
@@ -49,7 +50,14 @@ import { deletesFile, enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
 import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
 import type { SteeringFinding } from "./SteeringFormat.js"
-import { resolveSteeringMode, renderSteeringCommands, unknownModeMessage } from "./SteeringMode.js"
+import {
+  resolveSteeringMode,
+  renderSteeringCommands,
+  steeringCapabilities,
+  unknownModeMessage,
+  type ResolvedMode,
+} from "./SteeringMode.js"
+import { buildModeContradictionCheck, modeContradictionSkipNotice } from "./ModeContradiction.js"
 import {
   contentKindOf,
   initialStateOf,
@@ -78,7 +86,13 @@ import {
 } from "./Beat.js"
 import { renderModeCommand, renderStateTemplate, type TemplateContext } from "./PatternTemplates.js"
 import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
-import { combinedScript, emitScripts, type EmitPreconditions, type EmitStep } from "./Emit.js"
+import {
+  combinedScript,
+  emitScripts,
+  fileExistsGuard,
+  type EmitPreconditions,
+  type EmitStep,
+} from "./Emit.js"
 import {
   abandonedOutcome,
   abandonNoopOutcome,
@@ -272,8 +286,13 @@ const steeringModeSteps = (
     if (resolved === undefined) {
       return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
     }
-    const commands = yield* renderSteeringCommands(resolved, file, rest.context)
-    return commands.map((command): EmitStep => ({ kind: "command", command }))
+    // The LAST command carries `onFailure: fixPromptInstruction(file)` when the
+    // validator is a command — the same wrapper `resolveValidateScript`'s own
+    // script uses — so a failing validate INSIDE this landing step's script
+    // prints the routable fix prompt instead of bare findings (package 2's
+    // Requirement A: the one path that fired on the stuck worktree used to
+    // print thirteen raw findings a driver can't route).
+    return yield* renderSteeringModeCommandSteps(resolved, file, rest.context)
   })
 
 /**
@@ -817,40 +836,25 @@ const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
 /**
- * Resolve the resting state's own steering-file validate script — the SAME
- * script both `gtd validate --json` (`runValidateCommand`, its thin caller
- * now) and `gtd next --json`'s embedded `validate` field emit, from one
- * shared resolver so the two surfaces can't drift. `undefined` = nothing to
- * validate: no `file:`+`mode:` declared, or the declared file is absent from
- * the working tree. An unknown `mode:` FAILS this Effect (exactly as
- * `runValidateCommand` always has) — `runNextCommand` is the one caller that
- * degrades that failure to omitting `validate`, mirroring how the plain-text
- * self-validation instruction already degrades on the same failure.
+ * Render `resolved`'s format:/validate: commands as `EmitStep[]`, wrapping
+ * the LAST one with `onFailure: fixPromptInstruction(file)` when the
+ * validator is a command — shared by `resolveValidateScript`'s own script
+ * (`gtd validate`/`gtd next --json`'s embedded `.validate`) and
+ * `steeringModeSteps`' landing-time one, so the two can never drift on which
+ * command gets the routable fix prompt (package 2's Requirement A: before
+ * this, `steeringModeSteps` carried no `onFailure` at all, so a failing
+ * landing-time validate printed thirteen raw findings a driver couldn't
+ * route).
  */
-const resolveValidateScript = (
-  rest: Rest,
-): Effect.Effect<
-  { readonly file: string; readonly mode: StateMode; readonly script: string } | undefined,
-  Error,
-  FileSystem.FileSystem
-> =>
+const renderSteeringModeCommandSteps = (
+  resolved: ResolvedMode,
+  file: string,
+  context: TemplateContext,
+): Effect.Effect<readonly EmitStep[], Error> =>
   Effect.gen(function* () {
-    const file = rest.hints.file
-    const mode = rest.stateDef.mode
-    if (file === undefined || mode === undefined) return undefined
-
-    const fs = yield* FileSystem.FileSystem
-    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
-    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
-    if (!present) return undefined
-
-    const resolved = resolveSteeringMode(rest.def, mode)
-    if (resolved === undefined) {
-      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
-    }
-    const commands = yield* renderSteeringCommands(resolved, file, rest.context)
+    const commands = yield* renderSteeringCommands(resolved, file, context)
     const lastIndex = commands.length - 1
-    const steps: EmitStep[] = commands.map(
+    return commands.map(
       (command, index): EmitStep => ({
         kind: "command",
         command,
@@ -859,6 +863,140 @@ const resolveValidateScript = (
           : {}),
       }),
     )
+  })
+
+/**
+ * The scratch directory a contradiction round-trip's sample is written
+ * under: `EnvVars.all["TMPDIR"]` when set and non-empty, `node:os`'s
+ * `tmpdir()` otherwise — never a `/tmp` literal or `mktemp`
+ * (`tests/tooling/no-tmp-assumption.test.ts` scans `src/` for both). Reading
+ * `EnvVars` first is what makes the emitted script deterministic in unit
+ * tests, which inject a fixed `TMPDIR`.
+ */
+const scratchDir = (envVars: {
+  readonly all: Readonly<Record<string, string | undefined>>
+}): string => {
+  const configured = envVars.all["TMPDIR"]
+  return configured !== undefined && configured.length > 0 ? configured : tmpdir()
+}
+
+/**
+ * `<scratchDir>/gtd-mode-sample-<mode>-<pid>.md` — an absolute literal baked
+ * in at EMIT time (never re-derived by a shell variable at run time: a
+ * `format:` template like `npx oxfmt --write '<%= it.file %>'` renders
+ * `it.file` inside single quotes, which no shell expands, so `mktemp`/
+ * `${TMPDIR:-/tmp}` forms would never actually resolve). `<pid>` is
+ * `process.pid`, so two concurrent `gtd` processes never collide. The `.md`
+ * suffix is load-bearing — without it a formatter may refuse the file
+ * outright (a raw `format:` failure, not the contradiction finding this
+ * exists to produce).
+ */
+const scratchSamplePath = (
+  envVars: { readonly all: Readonly<Record<string, string | undefined>> },
+  mode: StateMode,
+): string => join(scratchDir(envVars), `gtd-mode-sample-${mode}-${process.pid}.md`)
+
+/**
+ * The contradiction round-trip/skip-notice tier for `resolved`'s `mode:`,
+ * read off `steeringCapabilities` — no new resolution vocabulary (see
+ * `src/SteeringMode.ts`). `formatCommand` absent means nothing to round-trip
+ * (no formatter, no contradiction to find): empty. Otherwise, three cases —
+ * a LIVE built-in validator (covers `qa`/`review` under gtd's seeded
+ * `gtd check <mode> '<file>'` validator, and the `builtin` validator kind)
+ * runs the round-trip against that format's own canonical sample
+ * (`SteeringFormat.sample`); an EXTERNAL validator (a genuine user
+ * `validate:` override, or any command-validated non-built-in mode) prints a
+ * one-line skip notice instead — coverage is the two built-in modes only, and
+ * silence would read as a clean bill of health; a format-only mode with
+ * neither (no in-process parser at all) has nothing to round-trip either:
+ * empty, same as no formatter.
+ *
+ * Emitted BEFORE `Emit.ts`'s `fileExistsGuard` in the caller's step list —
+ * that is the whole reason to use a bundled sample rather than the real file:
+ * it keeps the check alive at a first-write beat where the real steering file
+ * does not exist yet (see the package's own "How" section).
+ */
+const modeContradictionSteps = (
+  resolved: ResolvedMode,
+  mode: StateMode,
+  context: TemplateContext,
+): Effect.Effect<readonly EmitStep[], Error, EnvVars> =>
+  Effect.gen(function* () {
+    if (resolved.formatCommand === undefined) return []
+    const capabilities = steeringCapabilities(resolved)
+    if (capabilities.format !== undefined && capabilities.liveValidate !== undefined) {
+      const envVars = yield* EnvVars
+      const samplePath = scratchSamplePath(envVars, mode)
+      const formatCommand = yield* Effect.try({
+        try: () => renderModeCommand(resolved.formatCommand!, { ...context, file: samplePath }),
+        catch: (e) =>
+          new Error(
+            `mode "${mode}": "format" command failed to render — ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          ),
+      })
+      const block = buildModeContradictionCheck({
+        mode,
+        samplePath,
+        sample: capabilities.format.sample,
+        formatCommand,
+      })
+      return [{ kind: "command", command: block }]
+    }
+    if (capabilities.externalValidate === true) {
+      return [{ kind: "command", command: modeContradictionSkipNotice(mode) }]
+    }
+    return []
+  })
+
+/**
+ * Resolve the resting state's own steering-file validate script — the SAME
+ * script both `gtd validate --json` (`runValidateCommand`, its thin caller
+ * now) and `gtd next --json`'s embedded `validate` field emit, from one
+ * shared resolver so the two surfaces can't drift. `undefined` = nothing to
+ * validate at all: no `file:`+`mode:` declared. An unknown `mode:` FAILS this
+ * Effect (exactly as `runValidateCommand` always has) — `runNextCommand` is
+ * the one caller that degrades that failure to omitting `validate`,
+ * mirroring how the plain-text self-validation instruction already degrades
+ * on the same failure.
+ *
+ * The declared file's PRESENCE is no longer checked here in TS-land: a
+ * missing file used to short-circuit this whole function to `undefined`,
+ * which withheld the repair loop at exactly the first-write beat that needs
+ * it (every `while [ -n "$gtd_validate" ]` driver loop only fires when this
+ * field is non-empty — see the package's own doc comment). Existence is
+ * instead evaluated INSIDE the emitted script itself, via `Emit.ts`'s
+ * `fileExistsGuard`, once it is knowable (after the turn) — an `EmitStep`
+ * list is always produced when `file:`+`mode:` are both declared, even for a
+ * file that turns out absent; that script's own `[ -f <file> ] || exit 0`
+ * then exits 0 with nothing to do, preserving the "a turn that legitimately
+ * wrote nothing burns no fix turns" property. The contradiction round-trip
+ * (`modeContradictionSteps`) is emitted BEFORE that guard, so it still runs
+ * at that same first-write beat, ahead of it.
+ */
+const resolveValidateScript = (
+  rest: Rest,
+): Effect.Effect<
+  { readonly file: string; readonly mode: StateMode; readonly script: string } | undefined,
+  Error,
+  EnvVars
+> =>
+  Effect.gen(function* () {
+    const file = rest.hints.file
+    const mode = rest.stateDef.mode
+    if (file === undefined || mode === undefined) return undefined
+
+    const resolved = resolveSteeringMode(rest.def, mode)
+    if (resolved === undefined) {
+      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
+    }
+
+    const steps: EmitStep[] = [
+      ...(yield* modeContradictionSteps(resolved, mode, rest.context)),
+      { kind: "command", command: fileExistsGuard(file) },
+      ...(yield* renderSteeringModeCommandSteps(resolved, file, rest.context)),
+    ]
     const script = emitScripts(headPreconditions(rest.context.currentCommit), steps).required
     return { file, mode, script }
   })

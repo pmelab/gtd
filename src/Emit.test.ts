@@ -8,6 +8,7 @@ import {
   combinedScript,
   DID_NOT_RUN_COMMENT,
   emitScripts,
+  fileExistsGuard,
   type EmitPreconditions,
   type EmitStep,
 } from "./Emit.js"
@@ -198,6 +199,25 @@ describe("emitScripts — a script with no gitWrite steps omits the retry helper
 
   it("is still syntactically valid POSIX sh", () => {
     expect(runShCheckSyntax(required)).toBe(0)
+  })
+})
+
+describe("fileExistsGuard", () => {
+  it("renders a plain OR-list test, never an if/fi block", () => {
+    expect(fileExistsGuard(".gtd/REVIEW.md")).toBe(`[ -f '.gtd/REVIEW.md' ] || exit 0`)
+  })
+
+  it("shell-quotes a file path containing a single quote", () => {
+    expect(fileExistsGuard("it's.md")).toBe(`[ -f 'it'\\''s.md' ] || exit 0`)
+  })
+
+  it("is syntactically valid POSIX sh on its own", () => {
+    expect(runShCheckSyntax(fileExistsGuard(".gtd/REVIEW.md"))).toBe(0)
+  })
+
+  it("exits 0 (not 1) when the guard trips, unlike headAssertion/reviewWindowAssertion", () => {
+    const result = spawnSync("sh", ["-c", fileExistsGuard("/no/such/file-for-sure")])
+    expect(result.status).toBe(0)
   })
 })
 

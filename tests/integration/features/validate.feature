@@ -108,6 +108,22 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
 
+  Scenario: gtd next --sh at a first-write beat (the steering file does not exist yet) still emits a gtd_validate= assignment
+    # Package 2, Requirement A: `resolveValidateScript` used to short-circuit
+    # to `undefined` at exactly this beat (the `fs.exists` check happened in
+    # TS-land, before the turn had written anything), silencing every
+    # driver's `while [ -n "$gtd_validate" ]` repair loop right when it is
+    # needed most. Existence is now a leading `[ -f <file> ] || exit 0` guard
+    # INSIDE the emitted script instead, so `gtd_validate` is always assigned
+    # whenever the resting state declares both `file:` and `mode:`.
+    Given a test project
+    And the workflow
+    And an empty commit "gtd(human): design.triage"
+    When I run gtd next with "--sh"
+    Then it succeeds
+    And stdout contains "gtd_validate="
+    And stdout contains "gtd check qa"
+
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
     And the workflow
@@ -176,7 +192,11 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it fails
     # The step's own required script runs the same validation ahead of its
     # commit, so the refusal is the checker's findings and a non-zero exit —
-    # nothing is committed.
+    # nothing is committed. Package 2, Requirement A: the landing script's
+    # own validate command now carries the SAME routable fix prompt
+    # `gtd validate`'s script does — the human/agent reading stderr gets a
+    # ready-to-send instruction, not bare findings.
+    And stderr contains "does not pass its own validation script"
     And stderr contains "has no question text"
     And the last commit subject is "gtd(human): design.gate.answer"
 

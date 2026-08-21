@@ -56,11 +56,17 @@ import {
 import {
   DID_NOT_RUN_COMMENT,
   failurePromptWrapper,
+  fileExistsGuard,
   headAssertion,
   PRESENTATION_FAILURE_WARNING,
   PRESENTATION_ONLY_COMMENT,
   reviewWindowAssertion,
 } from "../Emit.js"
+import {
+  buildModeContradictionCheck,
+  contradictionMessage,
+  modeContradictionSkipNotice,
+} from "../ModeContradiction.js"
 import { OUTCOME_PREAMBLE } from "../OutcomeScript.js"
 import {
   buildCloseWindowScript,
@@ -70,6 +76,7 @@ import {
   type WindowRefs,
 } from "../ReviewWindow.js"
 import { steeringFormatFor } from "../SteeringFormats.js"
+import type { SteeringFormat } from "../SteeringFormat.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
 
@@ -119,6 +126,16 @@ type BlockOutcome =
   | { readonly kind: "noop" }
   | { readonly kind: "applied" }
   | { readonly kind: "failed"; readonly error: string }
+  /**
+   * `Emit.ts`'s `fileExistsGuard` tripping on an absent file: a real
+   * `[ -f <file> ] || exit 0` exits the WHOLE script cleanly right there,
+   * unlike every other guard here (`recognizePrecondition`/
+   * `recognizeHeadAssertion`/etc.), which either no-op or fail the script —
+   * this is the one shape that succeeds EARLY, skipping every remaining
+   * block. `applyEmittedScript`'s loop stops on this exactly like it stops
+   * on a `"failed"` block, but reports `{ ok: true }`.
+   */
+  | { readonly kind: "stopped" }
 
 /** Bash's own no-op preamble decoration — never a failure, never applies anything. */
 const SET_FLAGS_RE = /^set\s+-\S+(\s+\S+)*$/
@@ -307,6 +324,22 @@ const recognizeReviewWindowRefAssertion = (
 }
 
 /**
+ * `src/Emit.ts`'s REAL `fileExistsGuard` block — `src/program.ts`'s
+ * `resolveValidateScript` leads every emitted validate script with it now
+ * (package 2: the `fs.exists` short-circuit moved OUT of TS-land and into
+ * the script itself). Re-derives the block from the extracted path and
+ * compares full strings, same discipline as `recognizeHeadAssertion`. Unlike
+ * every OTHER guard in this file, a tripped `fileExistsGuard` does not fail
+ * the script — a real `exit 0` there ends it successfully right there — so
+ * this is the one recognizer that can report `{ kind: "stopped" }`.
+ */
+const recognizeFileExistsGuard = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
+  const [file] = extractQuotedTokens(block)
+  if (file === undefined || fileExistsGuard(file) !== block) return undefined
+  return repo.readFile(file) !== undefined ? { kind: "noop" } : { kind: "stopped" }
+}
+
+/**
  * `src/Emit.ts`'s `gtd_retry` bash FUNCTION DEFINITION (`RETRY_HELPER`) —
  * present as its own block whenever any step is a `gitWrite`. Defining a
  * function is inert (it does nothing until called), so this is always a
@@ -481,6 +514,179 @@ const recognizeFailurePromptWrapper = (
   return innerOutcome
 }
 
+/**
+ * `src/ModeContradiction.ts`'s `modeContradictionSkipNotice` — a mode whose
+ * validator is EXTERNAL (a genuine user `validate:` override, or any
+ * command-validated non-built-in mode). A single loosely-recognized `printf`
+ * line, re-derived and compared against the real builder from the mode name
+ * embedded in its own (decoded) message text — same "call the real builder,
+ * never hand-copy its template" discipline as every other recognizer here,
+ * just extracting the one argument (`mode`) the builder needs from the
+ * message rather than from the shell syntax around it.
+ */
+const SKIP_NOTICE_MODE_RE = /mode "([^"]+)" has an external validate:/
+
+const recognizeModeContradictionSkipNotice = (block: string): BlockOutcome | undefined => {
+  // Two quoted tokens: the literal `printf` format string `'%s\n'` first,
+  // then the message itself.
+  const [, message] = extractQuotedTokens(block)
+  if (message === undefined) return undefined
+  const match = SKIP_NOTICE_MODE_RE.exec(message)
+  if (!match) return undefined
+  const mode = match[1]!
+  if (modeContradictionSkipNotice(mode) !== block) return undefined
+  return { kind: "noop" }
+}
+
+/**
+ * `src/ModeContradiction.ts`'s `buildModeContradictionCheck` — the
+ * contradiction round-trip block `src/program.ts`'s `resolveValidateScript`
+ * emits ahead of `fileExistsGuard` for a mode with a LIVE built-in validator
+ * and a declared `format:` (package 2, Requirement B). The block carries no
+ * blank line of its own, so it always arrives here as ONE block.
+ *
+ * Extraction, in order: `extractQuotedTokens` pulls the sample (the printf
+ * line's SECOND quoted argument, after its literal `'%s'` format string) and
+ * the scratch path (its third) off the WHOLE block — reliable regardless of
+ * how many literal newlines the sample itself carries, the same property the
+ * multi-line git builders above rely on. The scratch path is then enough to
+ * build its own `shellQuote`d form
+ * and find the fixed `<pathQ> >/dev/null 2>&1 || {\n` suffix that follows
+ * `gtd check <mode> ` — walking backward from there recovers `mode`, and
+ * everything between the printf line and that same line is the mode's
+ * rendered `format:` command. Every extracted piece is then confirmed by
+ * RE-RUNNING `buildModeContradictionCheck` and comparing the full block
+ * string, exactly like every other builder-backed recognizer here — so a
+ * wrong guess anywhere in the extraction just fails to recognize (returns
+ * `undefined`) rather than mis-simulating.
+ *
+ * Simulation: writes the sample to the scratch path, runs the extracted
+ * `format:` command through `recognizeScriptedCommand` (the ONLY way a
+ * command can execute against the in-memory tier — real bash is
+ * unreachable there), re-validates whatever ended up at the scratch path
+ * with the format's own parser, and cleans the scratch path up either way —
+ * mirroring the real script's `rm -f` on both the failure and success paths.
+ * An unscripted `format:` command fails loudly (mirroring
+ * `makeScriptedCommandRunner`'s own "unscripted command" error) rather than
+ * silently succeeding.
+ */
+/** Everything `parseModeContradictionCheck` recovers from a matched block — enough for `simulateModeContradictionCheck` to run it, with no further parsing. */
+interface ParsedModeContradictionCheck {
+  readonly mode: string
+  readonly samplePath: string
+  readonly sample: string
+  readonly formatCommand: string
+  readonly format: SteeringFormat
+}
+
+/**
+ * Parses `block` back into `buildModeContradictionCheck`'s own inputs, or
+ * `undefined` when it isn't one — split out of `recognizeModeContradictionCheck`
+ * so extraction (many small guards, no repo effects) and simulation (few
+ * guards, all the effects) each stay simple enough to read as their own
+ * function. Confirmed, like every other builder-backed recognizer here, by
+ * RE-RUNNING `buildModeContradictionCheck` on the recovered pieces and
+ * requiring a byte-for-byte match — a wrong guess anywhere just fails to
+ * parse rather than mis-simulating.
+ */
+/** The printf line's own pieces — the sample bytes, the scratch path, and the literal PREFIX text (up to and including that path) — or `undefined` when `block` doesn't open with `printf '%s' ...`. */
+const parsePrintfPrefix = (
+  block: string,
+):
+  | { readonly sample: string; readonly samplePath: string; readonly prefix: string }
+  | undefined => {
+  if (!block.startsWith("printf '%s' ")) return undefined
+  // Three leading quoted tokens: the literal printf format string `'%s'`
+  // first, then the sample, then the scratch path.
+  const [, sample, samplePath] = extractQuotedTokens(block)
+  if (sample === undefined || samplePath === undefined) return undefined
+  const prefix = `printf '%s' ${shellQuote(sample)} > ${shellQuote(samplePath)}`
+  if (!block.startsWith(`${prefix}\n`)) return undefined
+  return { sample, samplePath, prefix }
+}
+
+/** The mode name and `format:` command sandwiched between the printf `prefix` and the fixed `gtd check <mode> <pathQ> >/dev/null ...` line, or `undefined` when that line isn't there right after it. */
+const parseModeAndFormatCommand = (
+  block: string,
+  prefix: string,
+  pathQ: string,
+): { readonly mode: string; readonly formatCommand: string } | undefined => {
+  const suffix = ` ${pathQ} >/dev/null 2>&1 || {\n`
+  const suffixIndex = block.indexOf(suffix, prefix.length + 1)
+  if (suffixIndex === -1) return undefined
+  const lineStart = block.lastIndexOf("\ngtd check ", suffixIndex)
+  if (lineStart === -1) return undefined
+  const mode = block.slice(lineStart + "\ngtd check ".length, suffixIndex)
+  if (mode.length === 0 || /\s/.test(mode)) return undefined
+  return { mode, formatCommand: block.slice(prefix.length + 1, lineStart) }
+}
+
+const parseModeContradictionCheck = (block: string): ParsedModeContradictionCheck | undefined => {
+  const prefixParts = parsePrintfPrefix(block)
+  if (prefixParts === undefined) return undefined
+  const { sample, samplePath, prefix } = prefixParts
+
+  const modeParts = parseModeAndFormatCommand(block, prefix, shellQuote(samplePath))
+  if (modeParts === undefined) return undefined
+  const { mode, formatCommand } = modeParts
+
+  const format = steeringFormatFor(mode)
+  if (format === undefined) return undefined
+  if (buildModeContradictionCheck({ mode, samplePath, sample, formatCommand }) !== block) {
+    return undefined
+  }
+  return { mode, samplePath, sample, formatCommand, format }
+}
+
+/**
+ * Runs one PARSED round-trip against `repo`: writes the sample to the
+ * scratch path, runs its `format:` command through the scripted-command
+ * table (the only way a command executes against the in-memory tier — real
+ * bash is unreachable there), re-validates whatever ended up at the scratch
+ * path with the format's own parser, and cleans the scratch path up on
+ * every path out — mirroring the real script's `rm -f` on both the failure
+ * and success branches. An unscripted `format:` command fails loudly
+ * (mirroring `makeScriptedCommandRunner`'s own "unscripted command" error)
+ * rather than silently succeeding.
+ */
+const simulateModeContradictionCheck = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+  parsed: ParsedModeContradictionCheck,
+): BlockOutcome => {
+  const { mode, samplePath, sample, formatCommand, format } = parsed
+  repo.writeFile(samplePath, sample)
+  const formatOutcome = recognizeScriptedCommand(repo, commands, formatCommand)
+  if (formatOutcome === undefined) {
+    repo.deleteFile(samplePath)
+    return {
+      kind: "failed",
+      error: `unscripted command "${formatCommand}" — declare it with a Given step`,
+    }
+  }
+  if (formatOutcome.kind === "failed") {
+    repo.deleteFile(samplePath)
+    return formatOutcome
+  }
+  const formatted = repo.readFile(samplePath) ?? sample
+  const findings = format.validate(formatted)
+  repo.deleteFile(samplePath)
+  if (findings.length === 0) return { kind: "noop" }
+  return {
+    kind: "failed",
+    error: `${contradictionMessage(mode, formatCommand)}\n${formatted}`,
+  }
+}
+
+const recognizeModeContradictionCheck = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+  block: string,
+): BlockOutcome | undefined => {
+  const parsed = parseModeContradictionCheck(block)
+  return parsed === undefined ? undefined : simulateModeContradictionCheck(repo, commands, parsed)
+}
+
 const GTD_CHECK_RE = /^gtd check (\S+) (.+)$/
 
 /** `gtd check <mode> <file>` — a non-empty findings array fails the script, mirroring a real invocation's non-zero exit under `set -e`. */
@@ -644,35 +850,65 @@ const splitBlocks = (script: string): readonly string[] => {
  * non-zero scripted-command exit — exactly like `set -euo pipefail` stops a
  * real script. No block after the failing one is applied.
  */
+/**
+ * Every recognizer `applyEmittedScript` tries, in order — pulled out of that
+ * function's own body (which used to be one long `??` chain) into a plain
+ * array so trying each one is a single loop rather than N branches: the
+ * behavior is identical (first non-`undefined` wins), but a flat loop over
+ * data keeps `applyEmittedScript` itself simple regardless of how many
+ * recognizers this module accumulates.
+ */
+const recognizersFor = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+): ReadonlyArray<(block: string) => BlockOutcome | undefined> => [
+  (block) => recognizeSetFlags(block),
+  (block) => recognizeDidNotRunComment(block),
+  (block) => recognizePrecondition(repo, block),
+  (block) => recognizeHeadAssertion(repo, block),
+  (block) => recognizeReviewWindowRefAssertion(repo, block),
+  (block) => recognizeFileExistsGuard(repo, block),
+  (block) => recognizeRetryHelperDefinition(block),
+  (block) => recognizeGitBuilders(repo, block),
+  (block) => recognizeReviewWindowClose(repo, block),
+  (block) => recognizeReviewWindowOpen(repo, block),
+  (block) => recognizeRetryWrappedGitWrite(repo, block),
+  (block) => recognizeFailurePromptWrapper(repo, commands, block),
+  (block) => recognizePresentationSubshell(repo, commands, block),
+  (block) => recognizeModeContradictionSkipNotice(block),
+  (block) => recognizeModeContradictionCheck(repo, commands, block),
+  (block) => recognizeGtdCheck(repo, block),
+  (block) => recognizeOutcomePreamble(block),
+  (block) => recognizeOutcomeCall(block),
+  (block) => recognizeScriptedCommand(repo, commands, block),
+]
+
+/** The first recognizer (in `recognizersFor`'s declared order) that recognizes `block`, or `undefined` when none does. */
+const recognizeBlock = (
+  recognizers: ReadonlyArray<(block: string) => BlockOutcome | undefined>,
+  block: string,
+): BlockOutcome | undefined => {
+  for (const recognize of recognizers) {
+    const outcome = recognize(block)
+    if (outcome !== undefined) return outcome
+  }
+  return undefined
+}
+
 export const applyEmittedScript = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
   script: string,
 ): AppliedScriptResult => {
-  const blocks = splitBlocks(script)
+  const recognizers = recognizersFor(repo, commands)
 
-  for (const block of blocks) {
-    const outcome =
-      recognizeSetFlags(block) ??
-      recognizeDidNotRunComment(block) ??
-      recognizePrecondition(repo, block) ??
-      recognizeHeadAssertion(repo, block) ??
-      recognizeReviewWindowRefAssertion(repo, block) ??
-      recognizeRetryHelperDefinition(block) ??
-      recognizeGitBuilders(repo, block) ??
-      recognizeReviewWindowClose(repo, block) ??
-      recognizeReviewWindowOpen(repo, block) ??
-      recognizeRetryWrappedGitWrite(repo, block) ??
-      recognizeFailurePromptWrapper(repo, commands, block) ??
-      recognizePresentationSubshell(repo, commands, block) ??
-      recognizeGtdCheck(repo, block) ??
-      recognizeOutcomePreamble(block) ??
-      recognizeOutcomeCall(block) ??
-      recognizeScriptedCommand(repo, commands, block)
+  for (const block of splitBlocks(script)) {
+    const outcome = recognizeBlock(recognizers, block)
 
     if (outcome === undefined) {
       return { ok: false, error: `unrecognized script block: ${block.split("\n")[0]}` }
     }
+    if (outcome.kind === "stopped") return { ok: true }
     if (outcome.kind === "failed") {
       return { ok: false, error: outcome.error }
     }

@@ -4,7 +4,13 @@
     "testCommand": "npm test"
   },
   "modes": {
-    "qa": {},
-    "review": {}
+    "qa": {
+      "format": "npx oxfmt --no-error-on-unmatched-pattern --write '<%= it.file %>'",
+      "validate": "node ./dist/gtd.bundle.mjs check qa '<%= it.file %>'"
+    },
+    "review": {
+      "format": "npx oxfmt --no-error-on-unmatched-pattern --write '<%= it.file %>'",
+      "validate": "node ./dist/gtd.bundle.mjs check review '<%= it.file %>'"
+    }
   }
 }

@@ -836,12 +836,155 @@ describe("gtd next --json — embedded validate script", () => {
     expect(next.validate).toBe(validateStdout.replace(/\n$/, ""))
   })
 
-  it("omits validate when the declared file is absent from the working tree", async () => {
+  it("still embeds a validate script when the declared file is absent — the existence check moved INSIDE the script (package 2)", async () => {
+    // A first-write beat (the declared file doesn't exist yet) used to
+    // withhold `validate` entirely, silencing every driver's repair loop
+    // (`while [ -n "$gtd_validate" ]`) at exactly the beat that needs it.
+    // Existence is now a leading `[ -f <file> ] || exit 0` guard INSIDE the
+    // emitted script instead, evaluated once the script actually runs.
     const repo = seededRepoAtWorking()
     const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as Record<string, unknown>
-    expect(parsed).not.toHaveProperty("validate")
+    expect(parsed).toHaveProperty("validate")
+    expect(parsed.validate).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
+    expect(parsed.validate).toContain(`gtd check qa '.gtd/PLAN.md'`)
+  })
+})
+
+describe("gtd validate — the mode-contradiction round-trip (package 2, Requirement B)", () => {
+  /** Same as `run`, but with an injected env — needed to pin the round-trip's scratch path deterministically (`TMPDIR`). */
+  const runEnv = async (
+    repo: InMemRepo,
+    env: Readonly<Record<string, string | undefined>>,
+    ...args: string[]
+  ): Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }> => {
+    const { io, result } = makeCapturingCliIo(repo, env)
+    await Effect.runPromise(runCli(["node", "gtd.js", ...args], io))
+    return result()
+  }
+
+  const workflowWithMode = (modesYaml: string, stateMode = "qa"): string =>
+    [
+      "workflow:",
+      "  modes:",
+      modesYaml,
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: write NOTE.md to start a process",
+      "          on:",
+      '            "* **": working',
+      "        working:",
+      "          actor: agent",
+      '          file: "PLAN.md"',
+      `          mode: ${stateMode}`,
+      "          prompt: do the work",
+      "          on:",
+      '            "* **": idle',
+      "",
+    ].join("\n")
+
+  const seededRepoAtWorking = (modesYaml: string, stateMode = "qa"): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", workflowWithMode(modesYaml, stateMode))
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd(human): working")
+    return repo
+  }
+
+  it("a live built-in validator (qa, with a declared format:) emits the round-trip BEFORE the existence guard, using the scratch path under TMPDIR", async () => {
+    const repo = seededRepoAtWorking(
+      ["    qa:", '      format: "my-formatter <%= it.file %>"'].join("\n"),
+    )
+    const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
+    expect(exitCode).toBe(0)
+
+    const samplePath = `/fixture-scratch/gtd-mode-sample-qa-${process.pid}.md`
+    const roundTripIndex = stdout.indexOf(`printf '%s' `)
+    const guardIndex = stdout.indexOf(`[ -f '.gtd/PLAN.md' ] || exit 0`)
+    // The REAL format command, rendered against the real file — distinct
+    // from the round-trip's OWN copy of "my-formatter" (rendered against the
+    // scratch sample path), which appears earlier, inside the message text.
+    const formatIndex = stdout.indexOf(`my-formatter .gtd/PLAN.md`)
+    const validateIndex = stdout.indexOf(`gtd_validate_out=`)
+
+    expect(roundTripIndex).toBeGreaterThan(-1)
+    expect(guardIndex).toBeGreaterThan(-1)
+    // Ordering per the package's "How" section: round-trip/notice, guard, format:, validate:.
+    expect(roundTripIndex).toBeLessThan(guardIndex)
+    expect(guardIndex).toBeLessThan(formatIndex)
+    expect(formatIndex).toBeLessThan(validateIndex)
+
+    expect(stdout).toContain(samplePath)
+    expect(stdout).toContain(`my-formatter ${samplePath}`)
+    expect(stdout).toContain(`gtd check qa '${samplePath}' >/dev/null 2>&1 || {`)
+    expect(stdout).toContain("CONFIGURATION BUG")
+    expect(stdout).toContain("Do NOT edit the steering file")
+  })
+
+  it("an external validate: command (a genuine override, not gtd's own seeded string) prints a one-line skip notice instead of the round-trip", async () => {
+    const repo = seededRepoAtWorking(
+      ["    qa:", '      format: "my-formatter <%= it.file %>"', '      validate: "true"'].join(
+        "\n",
+      ),
+    )
+    const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('mode "qa" has an external validate: command')
+    expect(stdout).toContain("skipping")
+    expect(stdout).not.toContain("printf '%s' ")
+    expect(stdout).not.toContain("CONFIGURATION BUG")
+  })
+
+  it("a format-only mode (no validate at all) emits neither the round-trip nor the skip notice — just the guard and the format command", async () => {
+    const repo = seededRepoAtWorking(
+      ["    prose:", '      format: "my-formatter <%= it.file %>"'].join("\n"),
+      "prose",
+    )
+    const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
+    expect(stdout).toContain("my-formatter .gtd/PLAN.md")
+    expect(stdout).not.toContain("printf '%s' ")
+    expect(stdout).not.toContain("CONFIGURATION BUG")
+    expect(stdout).not.toContain("skipping")
+  })
+
+  it("no format: command at all emits neither — same as before this package", async () => {
+    const repo = seededRepoAtWorking("    qa: {}")
+    const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
+    expect(stdout).not.toContain("printf '%s' ")
+    expect(stdout).not.toContain("skipping")
+  })
+
+  it("resolves the scratch dir from node:os's tmpdir() when TMPDIR is unset or empty", async () => {
+    const repo = seededRepoAtWorking(
+      ["    qa:", '      format: "my-formatter <%= it.file %>"'].join("\n"),
+    )
+    const { stdout, exitCode } = await runEnv(repo, {}, "validate")
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain(`gtd-mode-sample-qa-${process.pid}.md`)
+  })
+
+  it("gtd validate the COMMAND still exits 0 even when the emitted SCRIPT would fail if run", async () => {
+    // gtd itself never runs the script — it only prints it — so a
+    // contradiction inside the printed script never surfaces as gtd
+    // validate's own exit code (see the README's closed five-number
+    // exit-code table).
+    const repo = seededRepoAtWorking(
+      ["    qa:", '      format: "my-formatter <%= it.file %>"'].join("\n"),
+    )
+    const { exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
+    expect(exitCode).toBe(0)
   })
 })
 
@@ -1123,22 +1266,22 @@ describe("gtd check <mode> <file>", () => {
 
   it("a positioned finding prints '<file>:<line>: <message>' with a 1-based line number, on stderr", async () => {
     const repo = bareRepo()
-    const trailingTextDoc = [
+    const secondPointerDoc = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
       "",
       "## Add calculator",
       "",
-      "- [ ] ./src/calc.ts#1 — legacy trailing note",
+      "- [ ] ./src/calc.ts#1 — ./src/other.ts#2",
       "",
     ].join("\n")
-    repo.writeFile("REVIEW.md", trailingTextDoc)
+    repo.writeFile("REVIEW.md", secondPointerDoc)
     const { stdout, stderr, exitCode } = await run(repo, "check", "review", "REVIEW.md")
     expect(exitCode).toBe(1)
     expect(stdout).toBe("")
-    // The trailing-text pointer is the 0-based 6th line (index 5) — printed 1-based as 6.
+    // The offending pointer is the 0-based 6th line (index 5) — printed 1-based as 6.
     expect(stderr).toContain(
-      'REVIEW.md:6: Chunk "Add calculator" hunk ./src/calc.ts#1 has text on the pointer line — move the explanation to the line(s) below it',
+      'REVIEW.md:6: Chunk "Add calculator" hunk ./src/calc.ts#1\'s note starts with a second pointer (./src/other.ts#2) — give it its own "- [ ]" line',
     )
   })
 

@@ -67,6 +67,23 @@ export type OpenQuestionStatus = "open" | "answered"
  */
 export const FREE_TEXT_PLACEHOLDER = "_your answer_"
 
+/**
+ * `QA_FORMAT`'s canonical sample (see `SteeringFormat.sample`'s doc comment) —
+ * a minimal, valid `qa`-mode document: one open question with two options plus
+ * the unfilled free-text slot. Deliberately not authored to survive any
+ * particular formatter.
+ */
+const QA_SAMPLE = `Sample plan. Add a thing.
+
+## Open Questions
+
+### Which option?
+
+- [ ] Option A
+- [ ] Option B
+- [ ] ${FREE_TEXT_PLACEHOLDER}
+`
+
 /** One checkbox option under an OPEN question: its ticked state, its text (the free-text placeholder normalized to `""`), and its source line span for editor tooling. */
 export interface QuestionOption {
   readonly checked: boolean
@@ -420,6 +437,7 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
 
 /** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, and code actions, no `pointerAt` (an open question's options have nothing to jump to). Its one finding is always positionless — this format has no notion of a per-line problem. */
 export const QA_FORMAT: SteeringFormat = {
+  sample: QA_SAMPLE,
   validate: (content) => parseOpenQuestions(content).errors.map((message) => ({ message })),
   outline: questionsOutline,
   actions: questionActions,

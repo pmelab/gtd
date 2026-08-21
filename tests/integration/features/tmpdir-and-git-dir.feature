@@ -27,3 +27,46 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
     And the repository's default ".git" directory was never recreated
     And nothing was written under the overridden TMPDIR
     And gtd next --json reports the log path under the relocated git dir
+
+  Scenario: the emitted validate script may write under TMPDIR while gtd itself still writes nothing there
+    # Package 2's mode-contradiction round-trip (src/ModeContradiction.ts,
+    # src/program.ts's scratchSamplePath) writes a scratch sample under
+    # $TMPDIR — but only the EMITTED SCRIPT does that, once a driver runs it;
+    # gtd the process still names no "/tmp" literal and calls no mktemp (see
+    # tests/tooling/no-tmp-assumption.test.ts). Inspected via the unexecuted
+    # `gtd next --sh` script text, since the round-trip cleans its own
+    # scratch file up on every path (success or failure) and leaves nothing
+    # on disk afterwards either way — a raw, unexecuted script is the only
+    # place the reference to $TMPDIR is ever observable.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          review:
+            format: "true"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                file: REVIEW.md
+                mode: review
+                prompt: "review"
+                on:
+                  "* **": idle
+      """
+    And an empty commit "gtd(human): reviewing"
+    And the repo's git dir relocated outside the worktree, with TMPDIR pointed at a fresh scratch directory
+    When I run gtd next with "--sh"
+    Then it succeeds
+    And stdout contains the overridden TMPDIR path
+    And nothing was written under the overridden TMPDIR

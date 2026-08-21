@@ -121,3 +121,40 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
     And the git log contains "chore: calculator done"
     And "src/calc.ts" exists
     And "FEEDBACK_NOTE.md" does not exist
+
+  Scenario: the mode-contradiction round-trip (package 2) also runs under dash, not just bash-flavored sh
+    # This scenario replaces the Background's own .gtdrc with one declaring a
+    # built-in mode paired with a hostile format: — the round-trip's own
+    # printf/cat/pipe machinery (src/ModeContradiction.ts's
+    # buildModeContradictionCheck) must parse and run under a genuinely
+    # POSIX-only shell, exactly like every other emitted script in this file.
+    Given a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          review:
+            format: "sed -i.bak 's/^- \\[/* [/' <%= it.file %> && rm -f <%= it.file %>.bak"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                file: REVIEW.md
+                mode: review
+                prompt: "review"
+                on:
+                  "* **": idle
+      """
+    And an empty commit "gtd(human): reviewing"
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains "CONFIGURATION BUG"
+    And stderr contains "Do NOT edit the steering file"

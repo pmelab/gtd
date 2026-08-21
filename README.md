@@ -202,50 +202,49 @@ The process converges on that same shared tail: an agent hands you a
 `.gtd/REVIEW.md` checkbox review of the diff — the prompt never inlines the diff
 itself; it names the commit the changes are based at and the agent runs
 `git diff` to read the range before writing the review. Each hunk is a
-`- [ ] ./path/to/file.ts#42` pointer with its explanation on the line(s) BELOW
-it, not trailing the pointer on the same line:
+`- [ ] ./path/to/file.ts#42` pointer, and its explanation can either sit on the
+line(s) below it or trail the pointer on the same line — both forms are equally
+valid:
 
 ```
 - [ ] ./path/to/file.ts#42
   what this hunk does, with room to run to several lines
+- [ ] ./path/to/file.ts#99 — a same-line note works too
 ```
 
-Text after the pointer token on the pointer's own line is a validation error —
-`gtd check`/`gtd validate`/the LSP all reject it — and, because the review
-gate's own emitted script runs that same check ahead of every commit, upgrading
-gtd mid-review leaves an already-open `.gtd/REVIEW.md` written in the old
-same-line form UNLANDABLE until every pointer in it is hand-edited into the new
-shape; there is no migration tool. If a styled `.gtd/REVIEW.md` ever comes out
-malformed some other way (a paragraph where a `- [ ] ./path#line` row belongs),
-`gtd check review` refuses the step the same way: the file stays exactly as
-written in the working tree, unlanded, and re-running the same prompt is the
-recovery — nothing is lost. While the process rests at that gate, the landing
-script opens a **review checkout window**: HEAD is rewound to the review base
-with the working tree untouched, so the whole reviewable change shows up as
-ordinary uncommitted changes in your editor's normal git integration (and files
-added during the process show up as ordinary untracked files, so discarding one
-deletes it — an untracked file you leave alone is not a pending change, and only
-actually removing it from disk counts as a deletion). The next landing's own
-script closes the window before it commits. Tick a box as you review each hunk
-(ticking just records "I read this"), and leave a **comment** to request
-changes: a note on a line, an inline `// TODO`-style comment in the code, or a
-direct code edit. A comment sends a FULL development lap, not a quick
-fix-and-re-review: an agent first judges whether your comment is actually
-actionable (a genuinely approving remark with no code edit short-circuits
-straight to sign-off instead), and an actionable round is re-planned from
-scratch through triage, architecture, and the package queue again — a hand-edit
-you made during review is treated as a **sketch**, the same as any other change
-that starts a process, not a fix the agent builds on: it is reverted out of the
-tree first, and your intent survives only in your own review-round commit for
-triage to read. There is no baseline check on the way back into planning. Only
-the turn that drafts the final squash message resumes the session that built the
-feature in the first place (the review tail is nested inside that build identity
-rather than sitting beside it) — an actionable round leaves that identity
-entirely, so it starts a fresh session like any other process. A comment is what
-asks for changes; landing with no comment signs off, whatever the boxes say,
-which collapses the whole process into one commit (a **squash finale** whose
-message an agent drafts). Deleting `.gtd/REVIEW.md` is refused — the guard only
-asks whether the step's diff deletes the file.
+The one rule an explanation must follow either way: it must never itself START
+with a bare `./path` token, since that parses as a second hunk pointer rather
+than a note. If a styled `.gtd/REVIEW.md` ever comes out malformed some other
+way (a paragraph where a `- [ ] ./path#line` row belongs), `gtd check review`
+refuses the step the same way: the file stays exactly as written in the working
+tree, unlanded, and re-running the same prompt is the recovery — nothing is
+lost. While the process rests at that gate, the landing script opens a **review
+checkout window**: HEAD is rewound to the review base with the working tree
+untouched, so the whole reviewable change shows up as ordinary uncommitted
+changes in your editor's normal git integration (and files added during the
+process show up as ordinary untracked files, so discarding one deletes it — an
+untracked file you leave alone is not a pending change, and only actually
+removing it from disk counts as a deletion). The next landing's own script
+closes the window before it commits. Tick a box as you review each hunk (ticking
+just records "I read this"), and leave a **comment** to request changes: a note
+on a line, an inline `// TODO`-style comment in the code, or a direct code edit.
+A comment sends a FULL development lap, not a quick fix-and-re-review: an agent
+first judges whether your comment is actually actionable (a genuinely approving
+remark with no code edit short-circuits straight to sign-off instead), and an
+actionable round is re-planned from scratch through triage, architecture, and
+the package queue again — a hand-edit you made during review is treated as a
+**sketch**, the same as any other change that starts a process, not a fix the
+agent builds on: it is reverted out of the tree first, and your intent survives
+only in your own review-round commit for triage to read. There is no baseline
+check on the way back into planning. Only the turn that drafts the final squash
+message resumes the session that built the feature in the first place (the
+review tail is nested inside that build identity rather than sitting beside it)
+— an actionable round leaves that identity entirely, so it starts a fresh
+session like any other process. A comment is what asks for changes; landing with
+no comment signs off, whatever the boxes say, which collapses the whole process
+into one commit (a **squash finale** whose message an agent drafts). Deleting
+`.gtd/REVIEW.md` is refused — the guard only asks whether the step's diff
+deletes the file.
 
 A second entry, the same review tail's own direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -1030,15 +1029,32 @@ After an agent turn at a state that declares `file:`+`mode:`, run the script:
 either `gtd next --json`'s own embedded `.validate` field (present at every
 `prompt` beat that hands over a validatable file), or, standalone,
 `gtd validate`'s own plain-text output — both resolve the exact same script from
-one shared resolver. Exit 0 means the file is well-formed — proceed to
-`gtd land`. A non-zero exit means the script's own captured output IS a
-complete, ready-to-send fix prompt (an instruction plus the findings, see
-`src/Emit.ts`'s `failurePromptWrapper`): send it back to the same agent session
-verbatim, and cap how many fix attempts you allow yourself — the driver owns
-that retry count, not gtd. Landing never TRUSTS that you validated, either: the
-emitted `land` script carries the same format/validate commands ahead of its own
-commit and fails without committing when they fail, so a malformed file is never
-captured whether or not you ran the validate script first.
+one shared resolver. This field is now populated even at a FIRST-WRITE beat,
+before the steering file exists at all: the script itself carries a leading
+`[ -f <file> ] || exit 0` guard rather than gtd checking existence ahead of
+time, so a driver's `while [ -n "$gtd_validate" ]` repair loop is armed from the
+very first turn at a state, not just the second and later ones. Exit 0 means the
+file is well-formed (or genuinely doesn't exist yet) — proceed to `gtd land`. A
+non-zero exit usually means the script's own captured output IS a complete,
+ready-to-send fix prompt (an instruction plus the findings, see `src/Emit.ts`'s
+`failurePromptWrapper`): send it back to the same agent session verbatim, and
+cap how many fix attempts you allow yourself — the driver owns that retry count,
+not gtd. Landing never TRUSTS that you validated, either: the emitted `land`
+script carries the same format/validate commands ahead of its own commit and
+fails without committing when they fail, so a malformed file is never captured
+whether or not you ran the validate script first.
+
+A non-zero exit can ALSO mean something the fix loop cannot fix: a mode whose
+`format:` command breaks its own validator, a config bug gtd detects by
+formatting a canonical sample and re-checking it before the real file's own
+findings are ever reported. That message is unmistakably different — it says
+this is a CONFIGURATION BUG, not the steering file, and tells the agent to stop
+and end its turn rather than edit anything. gtd's exit-code contract stays
+closed at five numbers (below), so nothing distinguishes the two cases at the
+process level — a driver's fix loop is still the CORRECT thing to run in both
+cases, it just can never win a contradiction: its 3-attempt cap is what ends
+one, not a fix. Reading the message text before re-prompting is what keeps an
+agent from thrashing on a document it cannot fix.
 
 ### Failure taxonomy and recovery
 
