@@ -165,12 +165,13 @@ check+answer gate shape, again skipping the human stop when nothing is open),
 deleting `.gtd/REQUIREMENTS.md` once its content is folded in. Once those are
 settled, `architecture.decompose` is a purely mechanical write-out — **one
 package file per concern**, in the settled order, with no merge/split judgement
-of its own (that already happened in triage's grouping) — handing off to the
-per-package build queue: each package (a set of independent tasks a single build
-turn fans out to parallel subagents) runs its own test loop and a per-package
-**agentic review** that verifies it against its own spec. A package whose work
-already landed (an earlier package's fix turn pulled it in) is not a dead end:
-the build turn records per-criterion evidence in `.gtd/SATISFIED.md` instead of
+of its own (triage grouped the concerns, and `architecture.author` may already
+have re-merged some of them by file footprint) — handing off to the per-package
+build queue: each package (a set of independent tasks a single build turn fans
+out to parallel subagents) runs its own test loop and a per-package **agentic
+review** that verifies it against its own spec. A package whose work already
+landed (an earlier package's fix turn pulled it in) is not a dead end: the build
+turn records per-criterion evidence in `.gtd/SATISFIED.md` instead of
 implementing anything, and the package still goes through the checks and the
 spec review before closing out. If a queue item ever _does_ dead-end (a build
 turn that authors nothing stalls), the supported recovery is to write that same
