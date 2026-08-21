@@ -358,6 +358,110 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout contains "\"state\":\"working\""
     And stdout does not contain "\"model\""
 
+  Scenario: gtd next --json/--sh carry the owning machine's system prompt — plain gtd next never shows it
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            system: "You are a careful senior engineer."
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout does not contain "You are a careful senior engineer."
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"system\":\"You are a careful senior engineer.\""
+    When I run gtd next with "--sh"
+    Then it succeeds
+    And stdout contains "gtd_system='You are a careful senior engineer.'"
+
+  Scenario: gtd next --json omits "system" entirely, and --sh leaves gtd_system unset, when the owning machine declares none
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout does not contain "\"system\""
+    When I run gtd next with "--sh"
+    Then it succeeds
+    And stdout does not contain "gtd_system="
+    And stdout contains "gtd_system"
+
+  Scenario: plain gtd next's prompt output is byte-identical whether or not the machine declares system:
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            system: "You are a careful senior engineer."
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout matches "^do the work described in NOTE\.md\n$"
+
   Scenario: gtd next --json computes a commit-anchored memory key from the resting prompt state's scope — plain gtd next never shows it (header dropped at a prompt rest)
     Given a test project
     And a gtd config file at ".gtdrc" with:

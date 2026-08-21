@@ -1,7 +1,7 @@
 import { JSONSchema } from "effect"
 import { describe, expect, it } from "vitest"
 import { ConfigSchema } from "./ConfigSchema.js"
-import { STATE_FIELD_ENTRIES } from "./StateFields.js"
+import { MACHINE_FIELD_ENTRIES, STATE_FIELD_ENTRIES } from "./StateFields.js"
 
 /**
  * The file whose absence let the `answerGate` bug ship: `stateJsonSchema`
@@ -37,6 +37,22 @@ const stateSchemaOf = (schema: JsonObject): JsonObject => {
 
 const buildStateSchema = (): JsonObject =>
   stateSchemaOf(JSONSchema.make(ConfigSchema) as unknown as JsonObject)
+
+/** Navigate from the full generated schema down to `machineJsonSchema`'s compiled shape. */
+const machineSchemaOf = (schema: JsonObject): JsonObject => {
+  const workflow = schema["properties"]
+  if (!isJsonObject(workflow)) throw new Error("no top-level properties")
+  const workflowProp = workflow["workflow"]
+  if (!isJsonObject(workflowProp)) throw new Error("no workflow property")
+  const machines = (workflowProp["properties"] as JsonObject)["machines"]
+  if (!isJsonObject(machines)) throw new Error("no machines property")
+  const machine = machines["additionalProperties"]
+  if (!isJsonObject(machine)) throw new Error("no machine shape")
+  return machine
+}
+
+const buildMachineSchema = (): JsonObject =>
+  machineSchemaOf(JSONSchema.make(ConfigSchema) as unknown as JsonObject)
 
 const AUTHORED_STATE_KEYS = STATE_FIELD_ENTRIES.filter(([, spec]) => spec.authored === "state").map(
   ([key]) => key,
@@ -77,5 +93,32 @@ describe("ConfigSchema — stateJsonSchema derives from STATE_FIELD_ENTRIES", ()
     const retry = (state["properties"] as JsonObject)["retry"] as JsonObject
     expect(retry["required"]).toEqual(["max", "otherwise"])
     expect(retry["additionalProperties"]).toBe(false)
+  })
+})
+
+describe("ConfigSchema — machineJsonSchema derives its machine-authored fields from MACHINE_FIELD_ENTRIES", () => {
+  it("has a `system` property with type string and the table's own doc as its description", () => {
+    const machine = buildMachineSchema()
+    const properties = machine["properties"] as JsonObject
+    const systemSpec = MACHINE_FIELD_ENTRIES.find(([key]) => key === "system")![1]
+    expect(properties["system"]).toEqual({ type: "string", description: systemSpec.doc })
+  })
+
+  it("emits `model`'s schema unchanged", () => {
+    const machine = buildMachineSchema()
+    const properties = machine["properties"] as JsonObject
+    const modelSpec = MACHINE_FIELD_ENTRIES.find(([key]) => key === "model")![1]
+    expect(properties["model"]).toEqual({ type: "string", description: modelSpec.doc })
+  })
+
+  it("names no machine-authored field by hand — properties is exactly params/entry/model/system/states", () => {
+    const machine = buildMachineSchema()
+    expect(Object.keys(machine["properties"] as JsonObject)).toEqual([
+      "params",
+      "entry",
+      "model",
+      "system",
+      "states",
+    ])
   })
 })

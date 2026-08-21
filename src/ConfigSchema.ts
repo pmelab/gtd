@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { STATE_FIELD_ENTRIES, type FieldKind } from "./StateFields.js"
+import { MACHINE_FIELD_ENTRIES, STATE_FIELD_ENTRIES, type FieldKind } from "./StateFields.js"
 
 /**
  * v3's `.gtdrc` config shape: three blessed top-level keys — `workflow:` (the
@@ -147,11 +147,12 @@ const machineJsonSchema = {
       description:
         "This machine's own default local (a local state name, or a reference key), resolved recursively.",
     },
-    model: {
-      type: "string",
-      description:
-        'Opaque harness hint stamped onto every one of this machine\'s own `prompt` states (e.g. "smart"), passed through `gtd next --json`/`gtd status --json`. The ONLY place a model may be declared — a state carrying its own `model:` is a config error. Never interpreted by gtd. A machine declaring this with no `prompt` state is a config error.',
-    },
+    ...Object.fromEntries(
+      MACHINE_FIELD_ENTRIES.map(([key, spec]) => [
+        key,
+        spec.jsonSchema ?? { ...JSON_TYPE[spec.kind], description: spec.doc },
+      ]),
+    ),
     states: {
       type: "object",
       description:

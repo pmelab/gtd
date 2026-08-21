@@ -462,6 +462,151 @@ describe("flattenMachines — model stamping", () => {
   })
 })
 
+describe("flattenMachines — system stamping", () => {
+  it("stamps a directly-declared machine system prompt onto every prompt-content state, and never onto non-prompt states", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            system: "You are a careful agent.",
+            entry: "start",
+            states: {
+              start: agentState({ "* **": "check" }),
+              check: checkState({ C: "gate" }),
+              gate: humanState({ "* **": "done" }),
+              done: commitState(),
+            },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect((out.states["start"] as { system: unknown }).system).toBe("You are a careful agent.")
+    expect(out.states["check"]).not.toHaveProperty("system")
+    expect(out.states["gate"]).not.toHaveProperty("system")
+    expect(out.states["done"]).not.toHaveProperty("system")
+  })
+
+  it("resolves a machine system prompt declared as a whole-value $param through the reference site's binding", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            entry: "child",
+            states: {
+              child: { machine: "childMachine", with: { system: "some-persona" } },
+            },
+          },
+          childMachine: {
+            system: "$system",
+            params: ["system"],
+            entry: "step",
+            states: {
+              step: agentState({ "* **": "step" }),
+            },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect((out.states["child.step"] as { system: unknown }).system).toBe("some-persona")
+  })
+
+  it("stamps nothing when a whole-value $system param resolves to the empty string", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            entry: "child",
+            states: {
+              child: { machine: "childMachine", with: { system: "" } },
+            },
+          },
+          childMachine: {
+            system: "$system",
+            params: ["system"],
+            entry: "step",
+            states: {
+              step: agentState({ "* **": "step" }),
+            },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect(out.states["child.step"]).not.toHaveProperty("system")
+  })
+
+  it("stamps nothing when a machine declares no system", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: { entry: "start", states: { start: agentState({ "* **": "start" }) } },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect(out.states["start"]).not.toHaveProperty("system")
+  })
+
+  it("does not leak a machine's system prompt into a reference local's child-machine states", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            system: "parent-persona",
+            entry: "child",
+            states: {
+              child: { machine: "childMachine" },
+            },
+          },
+          childMachine: {
+            entry: "step",
+            states: { step: agentState({ "* **": "step" }) },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect(out.states["child.step"]).not.toHaveProperty("system")
+  })
+
+  it("stamps `model` and `system` together, both independently", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            model: "opus",
+            system: "a persona",
+            entry: "start",
+            states: { start: agentState({ "* **": "start" }) },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect(out.states["start"]).toMatchObject({ model: "opus", system: "a persona" })
+  })
+})
+
 describe("flattenMachines — scopes", () => {
   it("covers every emitted state (prompt, script, human-gate, and commit alike) with its owning instance path", () => {
     const errors: string[] = []

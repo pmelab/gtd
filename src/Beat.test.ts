@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import {
   beatFields,
@@ -175,10 +176,11 @@ describe("renderBeatJsonLine", () => {
     expect("validate" in parsed).toBe(false)
   })
 
-  it("emits model/memory/file/mode/label/edges at every kind when present, never null", () => {
+  it("emits model/system/memory/file/mode/label/edges at every kind when present, never null", () => {
     const rendered = rest({
       kind: "script",
       model: "opus",
+      system: "You are a careful senior engineer.",
       memory: "build#a1b2c3d",
       file: "TODO.md",
       mode: "qa",
@@ -194,17 +196,26 @@ describe("renderBeatJsonLine", () => {
     ] as const satisfies readonly BeatKind[]) {
       // `next: null` is a legitimate literal here (statusFields()'s default,
       // no match) — the "never null" claim in this test's title is about the
-      // OPTIONAL fields under test (model/memory/file/mode/label/edges), not
-      // about `next`, which is always present as an object or `null`.
+      // OPTIONAL fields under test (model/system/memory/file/mode/label/edges),
+      // not about `next`, which is always present as an object or `null`.
       const line = renderBeatJsonLine({ rendered, kind, log: "log", ...statusFields() })
       const parsed = JSON.parse(line) as Record<string, unknown>
       expect(parsed.model).toBe("opus")
+      expect(parsed.system).toBe("You are a careful senior engineer.")
       expect(parsed.memory).toBe("build#a1b2c3d")
       expect(parsed.file).toBe("TODO.md")
       expect(parsed.mode).toBe("qa")
       expect(parsed.label).toBe("Fixing")
       expect(parsed.edges).toEqual([{ pattern: "C", target: "idle" }])
     }
+  })
+
+  it("omits system when its rendered value is the empty string, unlike model which carries an empty string through", () => {
+    const rendered = rest({ kind: "prompt", model: "", system: "" })
+    const line = renderBeatJsonLine({ rendered, kind: "prompt", log: "log", ...statusFields() })
+    const parsed = JSON.parse(line) as Record<string, unknown>
+    expect("system" in parsed).toBe(false)
+    expect(parsed.model).toBe("")
   })
 
   it("omits optional fields entirely (not undefined/null) when unset", () => {
@@ -218,6 +229,7 @@ describe("renderBeatJsonLine", () => {
     for (const key of [
       "session",
       "model",
+      "system",
       "validate",
       "label",
       "memory",
@@ -235,6 +247,7 @@ describe("renderBeatJsonLine", () => {
     const rendered = rest({
       kind: "prompt",
       model: "opus",
+      system: "You are a careful senior engineer.",
       memory: "build#a1b2c3d",
       file: "TODO.md",
       mode: "qa",
@@ -260,6 +273,7 @@ describe("renderBeatJsonLine", () => {
       "idle",
       "session",
       "model",
+      "system",
       "validate",
       "log",
       "state",
@@ -366,6 +380,7 @@ describe("renderBeatJsonLine", () => {
     const rendered = rest({
       kind: "prompt",
       model: "opus",
+      system: "You are a careful senior engineer.",
       memory: "build#a1b2c3d",
       file: "TODO.md",
       mode: "qa",
@@ -393,6 +408,7 @@ describe("renderBeatJsonLine", () => {
         idle: false,
         session: { id: "8f2c", resume: true },
         model: "opus",
+        system: "You are a careful senior engineer.",
         validate: "gtd check qa 'TODO.md'",
         log: ".git/gtd-loop.log",
         state: "build.fixing",
@@ -462,6 +478,56 @@ describe("idle", () => {
   })
 })
 
+describe("system", () => {
+  it("under --sh, assigns gtd_system when declared and unsets it (no assignment) when absent", () => {
+    const declared = beatFields({
+      rendered: rest({ kind: "script", system: "You are a careful senior engineer." }),
+      kind: "script",
+      log: "log",
+      ...statusFields(),
+    })
+    expect(renderBeatSh(declared)).toContain("gtd_system='You are a careful senior engineer.'")
+
+    const undeclared = beatFields({
+      rendered: rest({ kind: "script" }),
+      kind: "script",
+      log: "log",
+      ...statusFields(),
+    })
+    const undeclaredSh = renderBeatSh(undeclared)
+    expect(undeclaredSh).not.toMatch(/^gtd_system=/m)
+    // still named in the `unset` preamble, so `${gtd_system:-}` never sees a stale value
+    expect(undeclaredSh).toMatch(/\bgtd_system\b/)
+  })
+
+  it("under --sh, a system rendered to the empty string leaves gtd_system unset — no assignment line", () => {
+    const fields = beatFields({
+      rendered: rest({ kind: "script", system: "" }),
+      kind: "script",
+      log: "log",
+      ...statusFields(),
+    })
+    const sh = renderBeatSh(fields)
+    expect(sh).not.toMatch(/^gtd_system=/m)
+    expect(sh).toMatch(/\bgtd_system\b/)
+  })
+
+  it("a multi-line persona survives a real sh eval of --sh's document byte-for-byte", () => {
+    const persona = "You are a careful senior engineer.\nAlways write tests first.\nNever guess."
+    const fields = beatFields({
+      rendered: rest({ kind: "script", system: persona }),
+      kind: "script",
+      log: "log",
+      ...statusFields(),
+    })
+    const sh = renderBeatSh(fields)
+    const out = execFileSync("sh", ["-c", `${sh}\nprintf %s "$gtd_system"`], {
+      encoding: "utf8",
+    })
+    expect(out).toBe(persona)
+  })
+})
+
 describe("renderBeatPlain", () => {
   const fieldsFor = (
     kind: BeatKind,
@@ -505,6 +571,22 @@ describe("renderBeatPlain", () => {
     expect(plain).not.toContain("would-be prompt")
   })
 
+  it("a stalled beat at a prompt state whose machine declares system: prints its stall diagnosis with no System: line and no persona text", () => {
+    const fields = beatFields({
+      rendered: rest({ kind: "prompt", system: "You are a careful senior engineer." }),
+      kind: "stalled",
+      idle: false,
+      log: "log",
+      changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
+      next: { action: undefined, pattern: "C", target: "idle" },
+      cost: 0,
+      costByModel: [],
+    })
+    const plain = renderBeatPlain(fields)
+    expect(plain).not.toContain("System:")
+    expect(plain).not.toContain("You are a careful senior engineer.")
+  })
+
   it("drops the header entirely at kind prompt, emitting bare content — no self-validate command given", () => {
     const fields = fieldsFor("prompt", "prompt", "fix the bug")
     expect(renderBeatPlain(fields)).toBe("fix the bug\n")
@@ -531,6 +613,21 @@ describe("renderBeatPlain", () => {
   it("is byte-identical to a bare prompt render when no self-validate command is given", () => {
     const fields = fieldsFor("prompt", "prompt", "fix the bug")
     expect(renderBeatPlain(fields)).toBe(renderBeatPlain(fields, undefined))
+  })
+
+  it("plain output at kind prompt is byte-identical whether or not the machine declares system:", () => {
+    const withoutSystem = fieldsFor("prompt", "prompt", "fix the bug")
+    const withSystem = beatFields({
+      rendered: rest({ kind: "prompt", content: "fix the bug", system: "a persona" }),
+      kind: "prompt",
+      idle: false,
+      log: "log",
+      changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
+      next: { action: undefined, pattern: "C", target: "idle" },
+      cost: 0,
+      costByModel: [],
+    })
+    expect(renderBeatPlain(withSystem)).toBe(renderBeatPlain(withoutSystem))
   })
 })
 

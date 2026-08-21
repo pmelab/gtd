@@ -10,7 +10,13 @@ import {
   type StateName,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { CONTENT_FIELDS, STATE_FIELDS, STATE_FIELD_ENTRIES, type FieldKind } from "./StateFields.js"
+import {
+  CONTENT_FIELDS,
+  MACHINE_FIELD_ENTRIES,
+  STATE_FIELDS,
+  STATE_FIELD_ENTRIES,
+  type FieldKind,
+} from "./StateFields.js"
 import { flattenMachines, type InstancePath, type MachineNode } from "./Machines.js"
 import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
 
@@ -38,6 +44,7 @@ import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
  *   <name>:
  *     params: [<param>, ...]?   # advisory only — documents which $params a caller may bind
  *     model: <string>?          # optional, opaque harness hint — stamped onto every one of THIS machine's own `prompt` states; a state may NOT declare its own
+ *     system: <string>?         # optional, machine-level only — the agent harness system prompt stamped onto every one of THIS machine's own `prompt` states; a "./" or "../" value is inlined from the declaring config file's directory (package 02); a state may NOT declare its own
  *     entry: <local or ref key> # this machine's OWN default local, resolved recursively
  *     states:
  *       <local>:                # an ordinary state
@@ -258,7 +265,12 @@ export const mergeModes = (
 const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set(Object.keys(STATE_FIELDS))
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
-const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set(["params", "entry", "states", "model"])
+const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set([
+  "params",
+  "entry",
+  "states",
+  ...MACHINE_FIELD_ENTRIES.map(([key]) => key),
+])
 const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with"])
 
 /** A state-level key removed by the `entry:`/`machines:` rewrite (or, for `memory`, by the machine-scoped-memory restructure), naming its replacement so a stale config's error points somewhere useful instead of a bare "unknown key". The state-level `model` case is instead caught pre-flatten by `LEGACY_AUTHORED_STATE_KEY_HINTS`/`validateMachineStateKeys`, because by the time a state reaches `KNOWN_STATE_KEYS`/`compileState` its `model` may be a legitimately machine-stamped key. */
@@ -388,25 +400,29 @@ const validateMachineStateKeys = (
 }
 
 /**
- * The machine-level `model:` field — the ONLY place a model may be authored
- * (`validateMachineStateKeys`, above, rejects the state-level form): a
- * non-empty string, else a load error naming the machine. Validates the value
- * a machine stamps onto its own `prompt` states (`src/Machines.ts`'s
- * `resolveInstanceModel`/`emitTree`); the per-state `compileModel` (below) is
- * then only the type guard over that STAMPED value.
+ * Every machine-authored field (`MACHINE_FIELD_ENTRIES`) — the ONLY place any
+ * of them may be authored (`validateMachineStateKeys`, above, rejects the
+ * state-level form): a non-empty string, else a load error naming the
+ * machine. Validates the value a machine stamps onto its own `prompt` states
+ * (`src/Machines.ts`'s `resolveInstanceMachineFields`/`emitTree`); the
+ * per-state `compileText` (below) is then only the type guard
+ * over that STAMPED value.
  */
-const compileMachineModel = (
+const validateMachineFieldValues = (
   machineName: string,
   machineRaw: Record<string, unknown>,
   errors: string[],
 ): void => {
-  if (machineRaw.model === undefined) return
-  if (typeof machineRaw.model !== "string" || machineRaw.model === "") {
-    errors.push(`machines.${machineName}: "model" must be a non-empty string`)
+  for (const [key, spec] of MACHINE_FIELD_ENTRIES) {
+    const value = machineRaw[key]
+    if (value === undefined) continue
+    if (spec.nonEmpty === true && (typeof value !== "string" || value === "")) {
+      errors.push(`machines.${machineName}: "${key}" must be a non-empty string`)
+    }
   }
 }
 
-/** Does `machineRaw` declare at least one of its OWN (non-reference) states with content kind `prompt`? Mirrors exactly which states `src/Machines.ts` stamps a machine-level `model` onto — a reference local's states belong to the CHILD machine, never this one. */
+/** Does `machineRaw` declare at least one of its OWN (non-reference) states with content kind `prompt`? Mirrors exactly which states `src/Machines.ts` stamps a machine-authored field onto — a reference local's states belong to the CHILD machine, never this one. */
 const machineHasPromptState = (machineRaw: Record<string, unknown>): boolean => {
   const statesRaw = machineRaw["states"]
   if (!isPlainObject(statesRaw)) return false
@@ -416,21 +432,23 @@ const machineHasPromptState = (machineRaw: Record<string, unknown>): boolean => 
 }
 
 /**
- * A machine declaring `model:` with no `prompt`-content state anywhere among
- * its own states is a load error, not a silent no-op — see this module's
- * "BOUNDARY CORRECTION" note in package 02: the model would never land on any
- * emitted state, so the declaration does nothing.
+ * A machine declaring a machine-authored field with no `prompt`-content state
+ * anywhere among its own states is a load error, not a silent no-op — see
+ * this module's "BOUNDARY CORRECTION" note in package 02: the field would
+ * never land on any emitted state, so the declaration does nothing.
  */
-const validateMachineModelHasPromptState = (
+const validateMachineFieldsTakeEffect = (
   machineName: string,
   machineRaw: Record<string, unknown>,
   errors: string[],
 ): void => {
-  if (machineRaw.model === undefined) return
-  if (!machineHasPromptState(machineRaw)) {
-    errors.push(
-      `machine "${machineName}": declares "model" but has no "prompt" state — this would never take effect`,
-    )
+  for (const [key] of MACHINE_FIELD_ENTRIES) {
+    if (machineRaw[key] === undefined) continue
+    if (!machineHasPromptState(machineRaw)) {
+      errors.push(
+        `machine "${machineName}": declares "${key}" but has no "prompt" state — this would never take effect`,
+      )
+    }
   }
 }
 
@@ -450,8 +468,8 @@ const validateMachinesShape = (raw: unknown, errors: string[]): void => {
     }
     validateMachineRefs(machineName, machineRaw, errors)
     validateMachineStateKeys(machineName, machineRaw, errors)
-    compileMachineModel(machineName, machineRaw, errors)
-    validateMachineModelHasPromptState(machineName, machineRaw, errors)
+    validateMachineFieldValues(machineName, machineRaw, errors)
+    validateMachineFieldsTakeEffect(machineName, machineRaw, errors)
   }
 }
 
@@ -528,6 +546,19 @@ const isRefRaw = (v: unknown): v is Record<string, unknown> =>
   isPlainObject(v) && typeof v["machine"] === "string"
 
 /**
+ * Machine-authored fields whose `./`/`../` value is a file reference
+ * (`FieldSpec.fileRef`), derived from `MACHINE_FIELD_ENTRIES` rather than
+ * hand-listed — the declarative escape hatch for a field whose behaviour
+ * doesn't fit `nonEmpty`/`commit`/`requires`. Deliberately NOT every
+ * machine-authored field: `model` is an opaque harness hint today, and
+ * looping it here would turn `model: ./tiers/fast.txt` into a file read — a
+ * load error for a value that used to work.
+ */
+const MACHINE_FILE_REF_FIELDS: readonly string[] = MACHINE_FIELD_ENTRIES.filter(
+  ([, spec]) => spec.fileRef === true,
+).map(([key]) => key)
+
+/**
  * Inline every `./`/`../` content file reference in ONE raw `workflow:` value
  * against `configDir` — the directory of the `.gtdrc` that DECLARED it — and
  * return a copy with those references replaced by the referenced file's text.
@@ -575,7 +606,15 @@ const inlineStateFileRefs = (
   return next
 }
 
-/** Inline every state's content file references for one machine; a malformed machine/states shape passes through untouched. */
+/**
+ * Inline a machine's own file-reference fields (`MACHINE_FILE_REF_FIELDS`,
+ * e.g. `system: ./persona.md`) plus every state's content file references;
+ * a malformed machine shape passes through untouched. The machine-level pass
+ * runs FIRST and unconditionally — only the states loop is gated on a
+ * well-formed `states:` — so a machine with a malformed `states:` still gets
+ * its own `system:` reference resolved (and its missing-file error reported)
+ * rather than skipping inlining entirely.
+ */
 const inlineMachineFileRefs = (
   machineRaw: unknown,
   machineName: string,
@@ -584,15 +623,30 @@ const inlineMachineFileRefs = (
   fileRefs: FileRefReader = nodeFileRefReader,
 ): unknown => {
   if (!isPlainObject(machineRaw)) return machineRaw
-  const rawStates = machineRaw["states"]
-  if (!isPlainObject(rawStates)) return machineRaw
-  const states: Record<string, unknown> = {}
-  for (const [local, def] of Object.entries(rawStates)) {
-    states[local] = isPlainObject(def)
-      ? inlineStateFileRefs(def, machineName, local, configDir, errors, fileRefs)
-      : def
+  const next: Record<string, unknown> = { ...machineRaw }
+  for (const key of MACHINE_FILE_REF_FIELDS) {
+    const value = machineRaw[key]
+    if (typeof value !== "string" || !isFileReference(value)) continue
+    const resolved = resolveContent(
+      value,
+      configDir,
+      `machine "${machineName}" (${key})`,
+      errors,
+      fileRefs,
+    )
+    if (resolved !== undefined) next[key] = resolved
   }
-  return { ...machineRaw, states }
+  const rawStates = machineRaw["states"]
+  if (isPlainObject(rawStates)) {
+    const states: Record<string, unknown> = {}
+    for (const [local, def] of Object.entries(rawStates)) {
+      states[local] = isPlainObject(def)
+        ? inlineStateFileRefs(def, machineName, local, configDir, errors, fileRefs)
+        : def
+    }
+    next["states"] = states
+  }
+  return next
 }
 
 export const inlineWorkflowFileRefs = (

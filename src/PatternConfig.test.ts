@@ -4,7 +4,11 @@ import { join } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect } from "effect"
-import { assertScopesCoverStates, compileWorkflowConfig } from "./PatternConfig.js"
+import {
+  assertScopesCoverStates,
+  compileWorkflowConfig,
+  inlineWorkflowFileRefs,
+} from "./PatternConfig.js"
 import { isSeededValidateCommand, seededValidateCommand } from "./SteeringFormats.js"
 import { resolveSteeringMode, renderSteeringCommands } from "./SteeringMode.js"
 import type { TemplateContext } from "./PatternTemplates.js"
@@ -1879,6 +1883,188 @@ describe("compileWorkflowConfig — machine-level `model`", () => {
         "/dir",
       ),
     ).toThrowError(/machine "root": declares "model" but has no "prompt" state/)
+  })
+})
+
+describe("compileWorkflowConfig — machine-level `system`", () => {
+  it("accepts `system:` as a known machine key (a typo is still an unknown-key error)", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              system: "You are a careful agent.",
+              entry: "working",
+              states: {
+                working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
+                done: { commit: "chore: done" },
+              },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).not.toThrow()
+
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              systemm: "typo",
+              entry: "working",
+              states: {
+                working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
+                done: { commit: "chore: done" },
+              },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/machine "root": unknown key\(s\) systemm/)
+  })
+
+  it("rejects a blank machine-level `system` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              system: "",
+              entry: "working",
+              states: {
+                working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
+                done: { commit: "chore: done" },
+              },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/machines\.root: "system" must be a non-empty string/)
+  })
+
+  it("rejects a machine declaring `system` with no `prompt` state anywhere in its own states", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              system: "You are a careful agent.",
+              entry: "working",
+              states: {
+                working: { actor: "check", script: "npm test", on: { C: "done" } },
+                done: { commit: "chore: done" },
+              },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/machine "root": declares "system" but has no "prompt" state/)
+  })
+
+  it("rejects a state-level `system`, naming the machine to move it to", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "working",
+              states: {
+                working: {
+                  actor: "agent",
+                  prompt: "do the thing",
+                  system: "You are a careful agent.",
+                  on: { "* *": "done" },
+                },
+                done: { commit: "chore: done" },
+              },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(
+      /machine "root": state "working": unknown key\(s\) system \("system" is no longer a state key — declare it once on the machine that owns this state \("machines\.root\.system"\)\)/,
+    )
+  })
+})
+
+describe("inlineWorkflowFileRefs — machine-level `system`/`model` file references", () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "gtd-pattern-config-machine-fileref-"))
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it("inlines a `./`-relative machine-level `system` from the declaring config file's directory", () => {
+    writeFileSync(join(dir, "persona.md"), "You are a careful agent.\n")
+    const errors: string[] = []
+    const result = inlineWorkflowFileRefs(
+      { machines: { root: { system: "./persona.md" } } },
+      dir,
+      errors,
+    ) as { machines: { root: { system: string } } }
+    expect(errors).toEqual([])
+    expect(result.machines.root.system).toBe("You are a careful agent.\n")
+  })
+
+  it("resolves a `../`-relative machine-level `system` from the declaring config file's directory, not the process directory", () => {
+    writeFileSync(join(dir, "persona.md"), "You are a careful agent.\n")
+    const sub = join(dir, "sub")
+    mkdirSync(sub)
+    const errors: string[] = []
+    const result = inlineWorkflowFileRefs(
+      { machines: { root: { system: "../persona.md" } } },
+      sub,
+      errors,
+    ) as { machines: { root: { system: string } } }
+    expect(errors).toEqual([])
+    expect(result.machines.root.system).toBe("You are a careful agent.\n")
+  })
+
+  it("a missing machine-level `system` file reference is a load error naming the machine and key", () => {
+    const errors: string[] = []
+    inlineWorkflowFileRefs({ machines: { root: { system: "./missing-persona.md" } } }, dir, errors)
+    expect(errors).toEqual([
+      `machine "root" (system): file reference "./missing-persona.md" does not exist (resolved to "${join(dir, "missing-persona.md")}")`,
+    ])
+  })
+
+  it("still resolves a machine's `system` file reference (and reports its missing-file error) when the same machine's `states:` is malformed", () => {
+    const errors: string[] = []
+    const result = inlineWorkflowFileRefs(
+      { machines: { root: { system: "./missing-persona.md", states: "not an object" } } },
+      dir,
+      errors,
+    ) as { machines: { root: { states: unknown } } }
+    expect(errors).toEqual([
+      `machine "root" (system): file reference "./missing-persona.md" does not exist (resolved to "${join(dir, "missing-persona.md")}")`,
+    ])
+    // The malformed `states:` passes through untouched — `compileWorkflowConfig`/`validateDefinition` own that finding.
+    expect(result.machines.root.states).toBe("not an object")
+  })
+
+  it("`model: ./m.txt` stays the literal string — `model` gains no file-ref inlining", () => {
+    const errors: string[] = []
+    const result = inlineWorkflowFileRefs(
+      { machines: { root: { model: "./m.txt" } } },
+      dir,
+      errors,
+    ) as { machines: { root: { model: string } } }
+    expect(errors).toEqual([])
+    expect(result.machines.root.model).toBe("./m.txt")
   })
 })
 

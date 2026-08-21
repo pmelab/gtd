@@ -4,11 +4,7 @@
     "testCommand": "npm test"
   },
   "modes": {
-    "qa": {
-      "format": "npx oxfmt --write <%= it.file %>"
-    },
-    "review": {
-      "format": "npx oxfmt --write <%= it.file %>"
-    }
+    "qa": {},
+    "review": {}
   }
 }

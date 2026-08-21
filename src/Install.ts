@@ -50,8 +50,9 @@ while :; do
       # macOS, and POSIX guarantees only 4 KB, ARG_MAX), and a diff crosses
       # that far sooner than you'd expect.
       agent_turn() { printf '%s' "$gtd_content" | claude -p "$1" "$gtd_session_id" \\
-        \${gtd_model:+--model "$gtd_model"} --dangerously-skip-permissions \\
-        >>"$gtd_log" 2>&1; }
+        \${gtd_model:+--model "$gtd_model"} \\
+        \${gtd_system:+--system-prompt "$gtd_system"} \\
+        --dangerously-skip-permissions >>"$gtd_log" 2>&1; }
       if [ "\${gtd_session_resume:-}" = true ]
       then agent_turn --resume || agent_turn --session-id
       else agent_turn --session-id || agent_turn --resume
@@ -60,8 +61,16 @@ while :; do
       while [ -n "\${gtd_validate:-}" ] && ! fix="$(sh -c "$gtd_validate" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\\n' "$fix" >&2; exit 1; }
         # $fix IS the fix prompt, verbatim — piped for the same reason as
-        # $gtd_content above
+        # $gtd_content above. Whether \`claude --resume\` re-applies the
+        # original session's model/system prompt is a harness detail gtd
+        # cannot verify from outside, so this passes the identical
+        # $gtd_model/$gtd_system on both calls rather than assume it does —
+        # otherwise this fix turn might silently fall back to Claude Code's
+        # own defaults while the turn that produced the file ran under the
+        # workflow's own model and persona.
         printf '%s' "$fix" | claude -p --resume "$gtd_session_id" \\
+          \${gtd_model:+--model "$gtd_model"} \\
+          \${gtd_system:+--system-prompt "$gtd_system"} \\
           --dangerously-skip-permissions >>"$gtd_log" 2>&1
       done ;;
   esac

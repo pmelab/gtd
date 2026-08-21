@@ -187,9 +187,9 @@ export const stallDiagnosis = (state: StateName, actor: Actor): string =>
  * One beat's whole field set — the ONE object both `renderBeatJson` and
  * `renderBeatSh` render from, so a field can't land in one encoding and miss
  * the other. Property insertion order (built by `beatFields`) IS the JSON
- * key order: `kind`, `content`, `idle`, `session`, `model`, `validate`,
- * `log`, `state`, `actor`, `label`, `memory`, `file`, `mode`, `edges`,
- * `changes`, `next`, `cost`, `costByModel`.
+ * key order: `kind`, `content`, `idle`, `session`, `model`, `system`,
+ * `validate`, `log`, `state`, `actor`, `label`, `memory`, `file`, `mode`,
+ * `edges`, `changes`, `next`, `cost`, `costByModel`.
  */
 export interface BeatFields {
   readonly kind: BeatKind
@@ -197,6 +197,7 @@ export interface BeatFields {
   readonly idle: boolean
   readonly session?: { readonly id: string; readonly resume: boolean }
   readonly model?: string
+  readonly system?: string
   readonly validate?: string
   readonly log: string
   readonly state: StateName
@@ -229,6 +230,10 @@ export interface BeatFields {
  * always present, `true`/`false`, never omitted. `model`/`memory`/`file`/
  * `mode`/`label`/`edges` are plain facts about the resting state and are
  * emitted at EVERY kind — omitted (never `null`) when their source is unset.
+ * `system` is the same, EXCEPT it is also omitted when its rendered value is
+ * the empty string: unlike `model`, an empty system prompt reaching a driver
+ * as `--system-prompt ""` silently deletes the harness's own default instead
+ * of failing loudly, so a render-to-empty is treated as unset.
  * `changes` and `next` are always present (the headline conclusion, never
  * omit-vs-null — a `null` `next` means no declared pattern matches).
  * `cost`/`costByModel` are emitted only when a cost has actually been
@@ -257,6 +262,7 @@ export const beatFields = (input: {
       ? { session: { id: session.id, resume: session.resume } }
       : {}),
     ...(rendered.model !== undefined ? { model: rendered.model } : {}),
+    ...(rendered.system !== undefined && rendered.system !== "" ? { system: rendered.system } : {}),
     ...(dispatchable && validate !== undefined ? { validate } : {}),
     log,
     state: rendered.state,
@@ -279,6 +285,7 @@ const BEAT_SH_SHAPE: ShShapeFor<BeatFields> = {
   idle: "bool",
   session: { id: "scalar", resume: "bool" },
   model: "scalar",
+  system: "scalar",
   validate: "scalar",
   log: "scalar",
   state: "scalar",

@@ -485,6 +485,7 @@ const NOTES_WORKFLOW = [
   "  machines:",
   "    root:",
   '      model: "<%= it.vars.testCommand %>"',
+  '      system: "system-<%= it.vars.testCommand %>"',
   "      entry: idle",
   "      states:",
   "        idle:",
@@ -536,6 +537,7 @@ describe("currentRest — one snapshot: cost folding, per-model grouping, entryV
     ])
     expect(rest.context.reviewBase).toBe(checkpoint)
     expect(rest.hints.model).toBe("echo entry-var")
+    expect(rest.hints.system).toBe("system-echo entry-var")
     expect(rest.hints.label).toBe("label-echo entry-var")
     expect(rest.hints.file).toBe(".gtd/NOTES.md")
     expect(rest.hints.mode).toBe("qa")
@@ -551,6 +553,12 @@ describe("currentRest — one snapshot: cost folding, per-model grouping, entryV
     repo.commitAllWithPrefix("gtd(agent): thinking")
     const rest = await provide(currentRest, repo)
     expect(rest.on).toEqual([["A NOTE.md", "thinking"]])
+  })
+
+  it("omits `system` (never `undefined`-valued) when the resting machine declares none", async () => {
+    const repo = seededStepRepo()
+    const rest = await provide(currentRest, repo)
+    expect(rest.hints).not.toHaveProperty("system")
   })
 
   it("a malformed on-pattern template surfaces as a plain Error", async () => {

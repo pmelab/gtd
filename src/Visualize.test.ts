@@ -9,6 +9,7 @@ import {
 } from "./Visualize.js"
 import type { ResolvedRest } from "./Edge.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
+import { STATE_FIELDS } from "./StateFields.js"
 
 // A small workflow authored with a machine reference, so we exercise both the
 // compiled (flat) states AND the machine-instance tree.
@@ -34,6 +35,7 @@ const raw = {
     },
     root: {
       model: "smart",
+      system: "You are a careful agent.",
       entry: "idle",
       states: {
         idle: { actor: "human", message: "idle", on: { "* **": "start.check" } },
@@ -75,9 +77,18 @@ describe("buildVizModel", () => {
 
   it("carries model/file/mode/flags and flattens on-edges", () => {
     const planning = stateNamed("planning")
-    expect(planning).toMatchObject({ model: "smart", file: ".gtd/TODO.md" })
+    expect(planning).toMatchObject({
+      model: "smart",
+      system: "You are a careful agent.",
+      file: ".gtd/TODO.md",
+    })
     expect(planning.flags).toContain("answerGate")
     expect(planning.on).toEqual([{ pattern: "* **", to: "done" }])
+  })
+
+  it("surfaces `system` as a key/value field with the table's own doc as its tooltip", () => {
+    expect(model.fieldDocs["system"]).toBe(STATE_FIELDS.system.doc)
+    expect(model.fieldDocs["system"]?.length).toBeGreaterThan(0)
   })
 
   it("carries a prompt/message/script state's raw content, omits it for a commit state", () => {

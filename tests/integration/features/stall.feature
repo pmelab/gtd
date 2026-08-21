@@ -66,6 +66,49 @@ Feature: gtd next --json — attempt commits and the derived stall
     And the json field "content" contains "retry:"
     And the json field "content" contains "\"C\" pattern"
 
+  Scenario: a stalled beat at a prompt state whose machine declares system: prints its stall diagnosis with no persona text and no System: line
+    Given a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            system: "You are a careful senior engineer."
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "C": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): working"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "stalled at \"working\""
+    And stdout does not contain "System:"
+    And stdout does not contain "You are a careful senior engineer."
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"system\":\"You are a careful senior engineer.\""
+
   Scenario: before the attempt lands, the same beat reports no stall
     Given a commit "gtd(human): working" that adds "NOTE.md" with:
       """

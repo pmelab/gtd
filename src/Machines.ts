@@ -86,6 +86,7 @@
  * `Visualize.ts`) to render; this module only produces the data.
  */
 
+import { MACHINE_FIELD_ENTRIES } from "./StateFields.js"
 import type { StateName } from "./PatternMachine.js"
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
@@ -534,24 +535,27 @@ const emitState = (
 }
 
 /**
- * Resolve an instance's own `model` value, substituting a whole-value
+ * Resolve every one of an instance's own machine-authored field values
+ * (`MACHINE_FIELD_ENTRIES` — `model`, `system`), substituting a whole-value
  * `$param` at the reference site. A whole-value `$param` that resolves to the
  * empty string compiles away to "field absent" (mirrors the same rule in
- * `emitState`) — an instance that doesn't bind a model for this machine
- * should not stamp `model: ""`.
+ * `emitState`) — an instance that doesn't bind a value for this machine
+ * should not stamp e.g. `model: ""`.
  */
-const resolveInstanceModel = (
+const resolveInstanceMachineFields = (
   rawMachine: Record<string, unknown>,
   instance: Instance,
   errors: string[],
-): unknown => {
-  const rawModel = rawMachine["model"]
-  if (rawModel === undefined) return undefined
-  const substituted = substituteScalar(rawModel, instance, `machines.${instance.machine}`, errors)
-  if (typeof rawModel === "string" && PARAM_REF.test(rawModel) && substituted === "") {
-    return undefined
+): Record<string, unknown> => {
+  const resolved: Record<string, unknown> = {}
+  for (const [key] of MACHINE_FIELD_ENTRIES) {
+    const raw = rawMachine[key]
+    if (raw === undefined) continue
+    const substituted = substituteScalar(raw, instance, `machines.${instance.machine}`, errors)
+    if (typeof raw === "string" && PARAM_REF.test(raw) && substituted === "") continue
+    resolved[key] = substituted
   }
-  return substituted
+  return resolved
 }
 
 /** Walk the instance tree, emitting every instance's own direct states into `states` (qualified). */
@@ -565,7 +569,7 @@ const emitTree = (
 ): void => {
   const rawMachine = machinesRaw[instance.machine] as Record<string, unknown>
   const statesRaw = rawMachine["states"] as Record<string, unknown>
-  const resolvedModel = resolveInstanceModel(rawMachine, instance, errors)
+  const resolvedFields = resolveInstanceMachineFields(rawMachine, instance, errors)
   for (const [localName, local] of instance.locals) {
     if (local.kind !== "state") continue
     const qualified = qualify(instance.path, localName)
@@ -577,8 +581,8 @@ const emitTree = (
       machinesRaw,
       errors,
     )
-    if (resolvedModel !== undefined && typeof emitted["prompt"] === "string") {
-      emitted["model"] = resolvedModel
+    if (typeof emitted["prompt"] === "string") {
+      Object.assign(emitted, resolvedFields)
     }
     states[qualified] = emitted
     scopes[qualified] = instance.path

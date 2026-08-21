@@ -401,13 +401,102 @@ describe("the bundled unified workflow template", () => {
       }
     }
   })
+
+  // The six persona-carrying machines (package 04) — each declares its own
+  // `system:` (the agent harness system prompt, stamped onto every one of its
+  // own `prompt` states) built from its own `*Persona` var, mirroring the
+  // `model:` identity table above.
+  const PERSONA_MACHINES = [
+    { machine: "designPlan", states: ["design.triage"], personaVar: "designPersona" },
+    {
+      machine: "archPlan",
+      states: ["architecture.author", "architecture.decompose"],
+      personaVar: "architectPersona",
+    },
+    {
+      machine: "humanReview",
+      states: ["build.review.reviewing", "build.review.collecting"],
+      personaVar: "reviewerPersona",
+    },
+    {
+      machine: "specReview",
+      states: ["packages.item.spec.review"],
+      personaVar: "specReviewerPersona",
+    },
+    {
+      machine: "packageItem",
+      states: ["packages.item.building", "packages.item.fix-suite", "packages.item.fix-spec"],
+      personaVar: "builderPersona",
+    },
+    {
+      machine: "buildTail",
+      states: ["build.squashing", "build.fix"],
+      personaVar: "finisherPersona",
+    },
+  ]
+
+  it("no machine's `system:` value is a file reference (package 04)", () => {
+    const { definition } = compileTemplate()
+    const systemStates = Object.entries(definition.states).filter(([, s]) => Boolean(s.system))
+    expect(systemStates.length).toBeGreaterThan(0)
+    for (const [name, state] of systemStates) {
+      expect(state.system, `state "${name}"`).not.toMatch(/^\.\.?\//)
+    }
+  })
+
+  it("declares the six persona variables in vars:, each non-empty (package 04)", () => {
+    const { vars } = compileTemplate()
+    for (const { personaVar } of PERSONA_MACHINES) {
+      expect(vars[personaVar], personaVar).toBeTruthy()
+    }
+  })
+
+  it("every persona-carrying machine's `system:` uses the raw (unescaped) tag form, referencing a *Persona var (package 04)", () => {
+    const { definition } = compileTemplate()
+    for (const { states } of PERSONA_MACHINES) {
+      for (const name of states) {
+        expect(definition.states[name]?.system, `state "${name}"`).toMatch(
+          /<%~\s*it\.vars\.\w+Persona\s*%>/,
+        )
+      }
+    }
+  })
+
+  it("the machine -> persona-variable table holds by name and count, so an eighth persona site added later fails loudly (package 04)", () => {
+    const { definition } = compileTemplate()
+    const systemBearing = Object.entries(definition.states)
+      .filter(([, s]) => s.prompt !== undefined && Boolean(s.system))
+      .map(([name]) => name)
+      .sort()
+    const expectedStates = PERSONA_MACHINES.flatMap((m) => m.states).sort()
+    expect(systemBearing).toEqual(expectedStates)
+
+    // Exactly the six distinct persona vars are referenced — no more, no fewer.
+    const referencedVars = new Set(
+      Object.values(definition.states)
+        .map((s) => s.system?.match(/it\.vars\.(\w+Persona)\b/)?.[1])
+        .filter((v): v is string => v !== undefined),
+    )
+    expect([...referencedVars].sort()).toEqual(PERSONA_MACHINES.map((m) => m.personaVar).sort())
+  })
+
+  it("every persona-carrying machine also declares `model:`, and its persona states carry `prompt` content (package 04)", () => {
+    const { definition } = compileTemplate()
+    for (const { states } of PERSONA_MACHINES) {
+      for (const name of states) {
+        const state = definition.states[name]
+        expect(state?.model, `state "${name}"`).toBeTruthy()
+        expect(state?.prompt, `state "${name}"`).toBeTruthy()
+      }
+    }
+  })
 })
 
 describe("the bundled template's machine boundaries line up with conversational identity (package 08/02)", () => {
   // These invariants are about the RAW `machines:` source, not the compiled
   // (flattened) definition — the compiler STAMPS a machine-level `model:`
   // onto every one of its own `prompt` states (src/Machines.ts's
-  // `resolveInstanceModel`), so by the time a state is compiled it always
+  // `resolveInstanceMachineFields`), so by the time a state is compiled it always
   // carries a `model` whether it was declared machine-level or (the thing
   // this restructure eliminates) state-level. Only the raw source can tell
   // the two apart.

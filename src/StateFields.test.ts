@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import {
   CONTENT_FIELDS,
+  MACHINE_FIELD_ENTRIES,
   STATE_FIELD_ENTRIES,
   isCommitState,
   validateFieldRules,
@@ -28,6 +29,12 @@ describe("STATE_FIELD_ENTRIES", () => {
 describe("CONTENT_FIELDS", () => {
   it("is exactly script/prompt/message/commit, in that order", () => {
     expect(CONTENT_FIELDS).toEqual(["script", "prompt", "message", "commit"])
+  })
+})
+
+describe("MACHINE_FIELD_ENTRIES", () => {
+  it("is exactly model then system, in table order", () => {
+    expect(MACHINE_FIELD_ENTRIES.map(([key]) => key)).toEqual(["model", "system"])
   })
 })
 
