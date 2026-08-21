@@ -165,12 +165,14 @@
 # Once the product questions are settled, `architecture.author` picks up as a
 # COLD reader (a separate machine, a separate memory scope — it reads
 # `REQUIREMENTS.md` in full rather than resuming design's conversation),
-# develops the *how* for each settled concern, and raises only TECHNICAL open
-# questions — routed through the same shared `questionGate` shape
-# (`architecture.gate`) over `ARCHITECTURE.md`. Once those are settled,
-# `architecture.decompose` is a purely mechanical write-out: one package file
-# per concern, in the settled order — no merge/split judgement, since that
-# already happened in triage's grouping.
+# develops the *how* for each settled concern, and — now that it knows each
+# concern's file footprint — may re-merge concerns whose footprints coincide
+# (never split), recording every merge under its own `## Merged Concerns`
+# heading and raising only TECHNICAL open questions — routed through the
+# same shared `questionGate` shape (`architecture.gate`) over
+# `ARCHITECTURE.md`. Once those are settled, `architecture.decompose` is a
+# purely mechanical write-out: one package file per concern, in the settled
+# — possibly coarsened — order, with no merge/split judgement of its own.
 #
 # From there the per-package build queue (`packages.*`) and the shared review
 # + squash tail (`build.*`) are UNCHANGED from before this restructure — see
@@ -803,6 +805,17 @@ machines:
              its own, in the order you'd want them built. If a concern would
              red-light tests that a later concern is meant to fix, that is
              not a valid split: merge the two into one concern.
+
+          Two more tests sit beside that green floor, not instead of it.
+          Vertical, not horizontal: slice by capability, never by layer. A
+          concern that only prepares for a later one — types, scaffolding,
+          renames — is folded into the first concern that uses it. Distinct
+          acceptance: each concern needs an observable check that fails
+          before it and passes after; if you can't name one, merge it into
+          its neighbour. Prefer fewer, larger packages — the smallest
+          independently valuable change, not the smallest change that
+          compiles.
+
           2. Classify each concern as PRODUCT (a user-facing/requirements
              decision) or TECHNICAL (an implementation decision).
           3. For every PRODUCT concern with an open point you cannot settle
@@ -903,9 +916,12 @@ machines:
   # may be a handover between the user-facing and the technical phase: this
   # phase does NOT resume design's conversation, it reads
   # `.gtd/REQUIREMENTS.md` cold. Resolves the TECHNICAL open
-  # questions, then mechanically decomposes the settled concerns into package
-  # files (no merge/split judgement — that already happened in triage's
-  # grouping). ▸ planner identity — `model:` declared once here, stamped onto
+  # questions, then decomposes the settled concerns into package files.
+  # Merge authority lives HERE, in `author` — it is the first state that
+  # knows the *how*, so it alone may re-merge concerns whose file footprints
+  # coincide (never split); `decompose` remains the mechanical write-out,
+  # carrying `author`'s settled — possibly coarsened — grouping over
+  # verbatim. ▸ planner identity — `model:` declared once here, stamped onto
   # `author` and `decompose` (its own prompt states; `gate.answer` is a human
   # turn and carries no prompt).
   archPlan:
@@ -944,6 +960,24 @@ machines:
           those concerns: for each one, in the same order, work out the *how*
           — file/module structure, data models, library/tech-stack choices,
           error-handling strategy — building on the *what* already settled.
+
+          You now know the *how*, so you know each concern's file footprint —
+          list each concern's primary paths. Merge concerns whose footprints
+          center on the same files into one, unless the later one only
+          consumes an interface the earlier one creates: that exception is
+          what keeps a genuine build-on-top sequence from collapsing into one
+          blob. This authority is to merge only, never to split — granting
+          split authority here would work directly against the goal; the
+          whole problem is over-granularity. Record every merge under a
+          dedicated `## Merged Concerns` heading, carrying both merged requirements
+          verbatim so the per-package spec review still covers each one
+          independently. A merge raises no open question and stops for no
+          human — do not route it to `architecture.gate` for a veto; the
+          human still sees every merge when they review the plan, and the
+          per-package spec review is the real safety net. Prefer fewer,
+          larger packages — the smallest independently valuable change, not
+          the smallest change that compiles.
+
           For every open TECHNICAL point you cannot settle yourself, add a
           question under a `## Open Questions` heading exactly as the
           requirements phase does: one `### <question>` each, followed by a
@@ -1009,20 +1043,24 @@ machines:
 
           If you wrote `.gtd/ARCHITECTURE.md` earlier in this
           conversation, work from what you already settled; otherwise read it
-          (the converged technical plan) yourself. It already lists an ORDERED
-          set of concerns with every merge/split judgement made — this turn is
-          a mechanical write-out, not a planning one.
+          (the converged technical plan) yourself. It already lists an
+          ORDERED set of concerns with every merge/split judgement
+          `architecture.author` made — this turn is a mechanical write-out,
+          not a planning one. A `## Merged Concerns` heading there is a
+          record of those merges, never a concern of its own: write no
+          package file for it.
 
           Write one package file per concern, in the settled order, under
           `.gtd/packages/` (e.g.
           `.gtd/packages/01-name.md`,
           `.gtd/packages/02-name.md`, ...). Each package file
-          carries that concern's requirement (so it can be reviewed against
-          its spec), its independent tasks, and each task's acceptance
+          carries that concern's requirement(s) (so it can be reviewed
+          against its spec — both, independently, when the concern was
+          merged), its independent tasks, and each task's acceptance
           criteria as `- [ ]` checkboxes and relevant paths. Do NOT merge or
-          split concerns here — that judgement already happened upstream;
-          carry the settled grouping over verbatim. No package file may
-          reference any other `.gtd/` file.
+          split concerns here — that judgement already happened in
+          `architecture.author`; carry the settled grouping over verbatim.
+          No package file may reference any other `.gtd/` file.
 
           Once the package files are written, delete
           `.gtd/ARCHITECTURE.md`. Leave everything uncommitted and

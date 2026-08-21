@@ -490,6 +490,78 @@ describe("the bundled unified workflow template", () => {
       }
     }
   })
+
+  // Package 01 (decomposition granularity rules): design.triage's grouping
+  // step gains a vertical-slicing test and a distinct-acceptance test beside
+  // the green floor, and architecture.author gains footprint-based merge
+  // authority — both carry the same literal fewer-larger-packages bias, and
+  // neither states it as a number. Pinned by stable keyword, never a whole
+  // sentence, so a later reword doesn't red this suite for no reason.
+
+  it("design.triage's grouping step states the vertical-slicing test and the distinct-acceptance test (package 01)", () => {
+    const { definition } = compileTemplate()
+    const prompt = definition.states["design.triage"]!.prompt!
+
+    // Vertical, not horizontal: slice by capability, never by layer; a
+    // prep-only concern (types, scaffolding, renames) folds into its consumer.
+    expect(prompt).toMatch(/vertical/i)
+    expect(prompt).toMatch(/capability/i)
+    expect(prompt).toMatch(/never by layer/i)
+    expect(prompt).toMatch(/scaffolding/i)
+
+    // Distinct acceptance: an observable check that fails before, passes after.
+    expect(prompt).toMatch(/fails\s+before it and passes after/i)
+    expect(prompt).toMatch(/merge it into\s+its neighbour/i)
+  })
+
+  it("architecture.author states the footprint/merge rule under a dedicated `## Merged Concerns` heading, merge only, never split (package 01)", () => {
+    const { definition } = compileTemplate()
+    const prompt = definition.states["architecture.author"]!.prompt!
+
+    expect(prompt).toMatch(/file footprint/i)
+    expect(prompt).toMatch(/## Merged Concerns/)
+    expect(prompt).toMatch(/merge only, never to split/i)
+    expect(prompt).toMatch(/carrying both merged requirements\s+verbatim/i)
+    expect(prompt).toMatch(/raises no open question and stops for no\s+human/i)
+    // It explicitly refuses to route a merge to architecture.gate for a veto.
+    expect(prompt).toMatch(/do not route it to `architecture\.gate` for a veto/i)
+  })
+
+  it("the fewer-larger-packages bias is the same literal sentence in both design.triage and architecture.author (package 01)", () => {
+    const { definition } = compileTemplate()
+    const normalize = (s: string): string => s.replace(/\s+/g, " ").trim().toLowerCase()
+    const triagePrompt = normalize(definition.states["design.triage"]!.prompt!)
+    const authorPrompt = normalize(definition.states["architecture.author"]!.prompt!)
+
+    const bias =
+      "prefer fewer, larger packages — the smallest independently valuable change, not the smallest change that compiles"
+    expect(triagePrompt).toContain(bias)
+    expect(authorPrompt).toContain(bias)
+  })
+
+  it("neither the vertical/distinct-acceptance prose nor the footprint/merge prose states a package count as a digit (package 01)", () => {
+    const { definition } = compileTemplate()
+
+    // Slice out just the new prose in each prompt (between stable anchors
+    // either side of it), rather than the whole prompt — both prompts
+    // legitimately carry unrelated digits elsewhere (design.triage's own
+    // numbered steps "1."-"4.").
+    const triagePrompt = definition.states["design.triage"]!.prompt!
+    const triageStart = triagePrompt.indexOf("Two more tests sit beside")
+    const triageEnd = triagePrompt.indexOf("2. Classify each concern")
+    expect(triageStart).toBeGreaterThan(-1)
+    expect(triageEnd).toBeGreaterThan(triageStart)
+    const triageSlice = triagePrompt.slice(triageStart, triageEnd)
+    expect(triageSlice).not.toMatch(/[0-9]/)
+
+    const authorPrompt = definition.states["architecture.author"]!.prompt!
+    const authorStart = authorPrompt.indexOf("You now know the *how*")
+    const authorEnd = authorPrompt.indexOf("For every open TECHNICAL point")
+    expect(authorStart).toBeGreaterThan(-1)
+    expect(authorEnd).toBeGreaterThan(authorStart)
+    const authorSlice = authorPrompt.slice(authorStart, authorEnd)
+    expect(authorSlice).not.toMatch(/[0-9]/)
+  })
 })
 
 describe("the bundled template's machine boundaries line up with conversational identity (package 08/02)", () => {

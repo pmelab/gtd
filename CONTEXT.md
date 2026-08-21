@@ -182,8 +182,8 @@ commit. The input's intent isn't lost: it survives in history for
 `design.triage` to read.
 
 **Concern**: One ordered, independently greenable unit of work `design.triage`
-groups the process's start diff into — the unit `architecture.decompose` later
-turns 1:1 into a package.
+groups the process's start diff into — a unit `architecture.author` may later
+coarsen by re-merging it with another concern whose file footprint coincides.
 
 **Product concern** / **Technical concern**: A concern's classification — a
 product concern is a user-facing/requirements decision, raised (if it has an
@@ -219,7 +219,8 @@ file, carrying candidate answers as checkboxes plus a free-text slot. It becomes
 an **answered question** by moving under `## Answered Questions` as prose.
 
 **Package**: One independently buildable and independently greenable slice a
-concern turns into — `architecture.decompose`'s output, one file per concern.
+concern turns into — `architecture.decompose`'s output, one file per concern as
+it stands after `architecture.author`'s possible re-merging.
 
 **Satisfied package**: A package whose acceptance criteria are already met
 before its build turn runs — recorded as evidence in `.gtd/SATISFIED.md` rather
