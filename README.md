@@ -141,10 +141,19 @@ itself — the prompt never inlines it; it finds the entry commit (the one
 `unwind` reverted) and runs `git show` against it — and groups that diff into an
 ORDERED list of **concerns**, each one able to leave the test suite green on its
 own, classifying each as **product** (a user-facing/requirements decision) or
-**technical** (an implementation decision). It raises open questions for the
-product concerns only, in `.gtd/REQUIREMENTS.md`, folding EVERYTHING the entry
-commit added into those concerns — a scratch sketch and a hand-edited code
-change alike, since the unwind already reverted both; nothing is left to delete.
+**technical** (an implementation decision). A concern's open point clears a
+three-part bar before it's ever raised as a question: the answer must be a
+genuine fork with divergent outcomes, the sketch/entry diff/history must not
+already settle it, and getting it wrong must survive all the way to human
+review. Anything below that bar — product or technical alike — triage decides
+itself, recording the decision and a one-line rationale under
+`## Answered Questions`, the same section a human-answered question lands in;
+only a product point that clears the bar is raised as an open question in
+`.gtd/REQUIREMENTS.md` (a technical point that clears it waits for the
+architecture phase to raise it), folding EVERYTHING the entry commit added into
+those concerns — a scratch sketch and a hand-edited code change alike, since the
+unwind already reverted both; nothing is left to delete. When every concern
+turns out to be technical, triage writes no `## Open Questions` section at all.
 A shared check+answer gate then probes `.gtd/REQUIREMENTS.md` for unanswered
 questions: each open question offers a couple of candidate answers plus a
 `- [ ] _your answer_` slot, and you tick exactly one per question (the gate
@@ -158,24 +167,36 @@ the plan as-is.
 
 Once the product questions are settled, `architecture.author` picks up as a
 **cold reader** — a separate machine with its own memory scope, so it does not
-resume the triage conversation but reads `.gtd/REQUIREMENTS.md` in full — and
-develops the _how_ for each settled concern, raising only technical open
-questions in `.gtd/ARCHITECTURE.md` (routed through that same shared
-check+answer gate shape, again skipping the human stop when nothing is open),
-deleting `.gtd/REQUIREMENTS.md` once its content is folded in. Once those are
-settled, `architecture.decompose` is a purely mechanical write-out — **one
-package file per concern**, in the settled order, with no merge/split judgement
-of its own (triage grouped the concerns, and `architecture.author` may already
-have re-merged some of them by file footprint) — handing off to the per-package
-build queue: each package (a set of independent tasks a single build turn fans
-out to parallel subagents) runs its own test loop and a per-package **agentic
-review** that verifies it against its own spec. A package whose work already
-landed (an earlier package's fix turn pulled it in) is not a dead end: the build
-turn records per-criterion evidence in `.gtd/SATISFIED.md` instead of
-implementing anything, and the package still goes through the checks and the
-spec review before closing out. If a queue item ever _does_ dead-end (a build
-turn that authors nothing stalls), the supported recovery is to write that same
-file yourself and `gtd land` — no hand-authored state commit.
+resume the triage conversation but reads `.gtd/REQUIREMENTS.md` in full (cold
+means no memory of that conversation, never no git access — it finds and reads
+the entry commit from history exactly as triage did) — and develops the _how_
+for each settled concern. Because it is the first state that knows the _how_, it
+is also the one state allowed to re-merge concerns whose file footprints
+coincide (never split), recording every merge under a `## Merged Concerns`
+heading. The same three-part bar applies to every technical point here too: only
+one that clears it is raised as an open question in `.gtd/ARCHITECTURE.md`;
+everything below the bar, author decides itself and records under
+`## Answered Questions` right alongside triage's own settled points, all of
+which author treats as SETTLED regardless of whether they're product or
+technical. Open questions are routed through that same shared check+answer gate
+shape, again skipping the human stop when nothing is open, and
+`.gtd/REQUIREMENTS.md` is deleted once its content is folded in. A process where
+nothing ever clears the bar runs both phases straight through with no human stop
+at all — the existing review tail, which sees the whole diff anyway, is the
+veto. Once those are settled, `architecture.decompose` is a purely mechanical
+write-out — **one package file per concern**, in the settled order, with no
+merge/split judgement of its own (triage grouped the concerns, and
+`architecture.author` may already have re-merged some of them by file footprint)
+— handing off to the per-package build queue: each package (a set of independent
+tasks a single build turn fans out to parallel subagents) runs its own test loop
+and a per-package **agentic review** that verifies it against its own spec. A
+package whose work already landed (an earlier package's fix turn pulled it in)
+is not a dead end: the build turn records per-criterion evidence in
+`.gtd/SATISFIED.md` instead of implementing anything, and the package still goes
+through the checks and the spec review before closing out. If a queue item ever
+_does_ dead-end (a build turn that authors nothing stalls), the supported
+recovery is to write that same file yourself and `gtd land` — no hand-authored
+state commit.
 
 The process converges on that same shared tail: an agent hands you a
 `.gtd/REVIEW.md` checkbox review of the diff — the prompt never inlines the diff

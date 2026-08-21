@@ -861,6 +861,33 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/ARCHITECTURE.md" exists
 
   @inmem
+  Scenario: a question must clear the three-part bar, or the planner decides it itself
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Greeting export
+
+      Add a `greet()` export returning a friendly string.
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "only when all three hold"
+
+    # architecture.author's copy of the bar must be the byte-identical
+    # criteria — this identical-string assertion is the only guard against
+    # the two inlined copies drifting apart.
+    Given a commit "gtd(check): architecture.author" that adds ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Greeting export
+
+      Add a `greet()` export returning a friendly string. No open questions.
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "only when all three hold"
+
+  @inmem
   Scenario: a package whose work already landed closes out via .gtd/SATISFIED.md
     Given a test project
     And the workflow
