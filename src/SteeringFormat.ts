@@ -71,6 +71,20 @@ export interface SteeringFinding {
  * has none; `review` does).
  */
 export interface SteeringFormat {
+  /**
+   * A canonical, hand-authored example of this format — the CLEAREST minimal
+   * document that satisfies its own `validate`, nothing more. Required (not
+   * optional) so a new built-in format can't ship without one:
+   * `src/SteeringFormats.test.ts` asserts `validate(sample)` returns zero
+   * findings for every registry entry, and `src/ModeContradiction.ts` round-
+   * trips this exact string through a mode's `format:` command to catch a
+   * formatter that breaks its own validator (see that module's doc comment).
+   * Deliberately NOT authored to survive any particular formatter — a
+   * formatter that reflows this sample into something invalid IS the
+   * contradiction the round-trip exists to find, so designing the sample
+   * around one would hide the very bug it reports.
+   */
+  readonly sample: string
   readonly validate: (content: string) => readonly SteeringFinding[]
   readonly outline: (content: string) => readonly SteeringOutlineNode[]
   readonly actions: (

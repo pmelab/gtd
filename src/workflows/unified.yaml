@@ -1175,16 +1175,17 @@ machines:
             (same feature/refactor/fix, even across files) — a short explanation of
             what changed and why, then one file pointer per hunk (checkboxes are
             for the human to tick, not you; every path is `./`-relative, with an
-            optional `#line`). The pointer's OWN line carries nothing but the
-            pointer — no note, no dash. Its explanation goes on the line(s)
-            beneath it instead:
+            optional `#line`). The explanation can go on the line(s) beneath the
+            pointer, or trail it on the same line after a dash — both forms are
+            valid:
 
                 - [ ] ./path/to/file.ts#42
                   what this hunk does, with room to run to several lines
 
-            Text after the pointer token on the pointer's own line is a
-            validation error, not just a style nit — an older-format doc like
-            `- [ ] ./path/to/file.ts#42 — note` is UNLANDABLE.
+                - [ ] ./path/to/other.ts#7 — shorter note, same line as the pointer
+
+            Either way, the explanation itself must never START with a bare
+            `./path` token — that parses as a second hunk pointer, not a note.
 
           This prompt carries no diff — read the changes yourself. The range runs
           from `<%= it.reviewBase %>` to the working tree (committed turns plus

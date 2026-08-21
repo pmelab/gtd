@@ -755,6 +755,55 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stdout contains ".gtd/docs/adr.md: valid"
     And ".gtd/docs/adr.md" contains "status: DRAFT"
 
+  @live
+  Scenario: a format-only custom mode at a first-write beat now emits a script (the guard plus the format command), not "nothing to validate"
+    # Package 2, Requirement A/B combined: before this package, an absent
+    # steering file short-circuited to "nothing to validate" in TS-land — a
+    # format-only mode (no in-process parser at all, so no round-trip and no
+    # skip notice either) now still gets a real script: the existence guard
+    # plus its own format: command, evaluated once the script actually runs.
+    # Inspected via the unexecuted `gtd next --sh` text.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start a decision record"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the ADR."
+                file: docs/adr.md
+                mode: adr
+                on:
+                  "* **": idle
+      """
+    And an empty commit "gtd(human): drafting"
+    When I run gtd next with "--sh"
+    Then it succeeds
+    # gtd_validate's own value is itself shell-quoted for --sh (every literal
+    # `'` inside it becomes the POSIX `'\''` escape), so the guard/format
+    # command are matched by their quote-independent substrings.
+    And stdout contains "gtd_validate="
+    And stdout contains "-f "
+    And stdout contains ".gtd/docs/adr.md"
+    And stdout contains "] || exit 0"
+    And stdout contains "sed "
+    And stdout contains "draft/DRAFT"
+    And stdout does not contain "CONFIGURATION BUG"
+    And stdout does not contain "skipping the format/validate contradiction check"
+
   @inmem
   Scenario: the answer-completeness gate still fires on a qa-mode state even when its validate: command is overridden
     # The semantic upgrade: the gate asks steeringCapabilities for the FORMAT
@@ -868,3 +917,132 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "path-shim:"
     And stderr contains the gtd version under test
+
+  # ── The mode-contradiction round-trip (package 2, Requirement B) ──────────
+  # A mode whose declared `format:` breaks its own validator is a config bug
+  # gtd can detect mechanically: format a copy of the built-in format's own
+  # canonical sample, re-validate it with `gtd check <mode>`, and fail loudly
+  # BEFORE the real steering file's own findings are ever reported. Coverage
+  # is the two built-in modes only (`qa`/`review`) — the fixture pairs one of
+  # them with a deliberately hostile one-liner `format:`, never a synthetic
+  # mode, and never a real formatter binary.
+
+  @live
+  Scenario: a built-in mode paired with a format: that breaks its own validator is caught before any real file exists
+    # The hostile one-liner rewrites every "- [ ]" review hunk marker to
+    # "* [ ]" — REVIEW_FORMAT's parser only recognizes a hunk pointer that
+    # starts with "- [", so the round-trip's re-validation finds the
+    # reformatted sample invalid. No `.gtd/REVIEW.md` is ever written in this
+    # scenario — the whole point is that the check still fires at this
+    # first-write beat, ahead of `fileExistsGuard`.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          review:
+            format: "sed -i.bak 's/^- \\[/* [/' <%= it.file %> && rm -f <%= it.file %>.bak"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                file: REVIEW.md
+                mode: review
+                prompt: "review"
+                on:
+                  "* **": idle
+      """
+    And an empty commit "gtd(human): reviewing"
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains "mode \"review\""
+    And stderr contains "CONFIGURATION BUG"
+    And stderr contains "Do NOT edit the steering file"
+    And stderr contains "sed -i.bak"
+    # No file findings alongside it — the round-trip aborts the script before
+    # the real file's own format:/validate: commands ever run.
+    And stderr does not contain "Chunk"
+    And stderr does not contain "REVIEW.md has no"
+
+  @live
+  Scenario: the same repo with the formatter removed exits 0 — no contradiction to find
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                file: REVIEW.md
+                mode: review
+                prompt: "review"
+                on:
+                  "* **": idle
+      """
+    And an empty commit "gtd(human): reviewing"
+    When I run gtd with args "validate"
+    Then it succeeds
+
+  @live
+  Scenario: a mode carrying only a user validate: command prints that the contradiction check was skipped, loudly
+    # Coverage is the two built-in modes only, so a genuine user `validate:`
+    # override has no in-process parser to round-trip a sample through — the
+    # emitted script prints a one-line skip notice instead of silently saying
+    # nothing (silence would read as a clean bill of health). Inspected via
+    # the unexecuted `gtd next --sh` script text rather than a live run: the
+    # notice prints to stderr, and a SUCCESSFUL script's stderr is exactly
+    # the thing `gtd validate`'s own driving harness discards once the
+    # script exits 0 (see world.ts's validateVerdict) — the raw script text
+    # is the deterministic way to prove the line is really there.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          review:
+            format: "true"
+            validate: "true"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": reviewing
+              reviewing:
+                actor: agent
+                file: REVIEW.md
+                mode: review
+                prompt: "review"
+                on:
+                  "* **": idle
+      """
+    And an empty commit "gtd(human): reviewing"
+    When I run gtd next with "--sh"
+    Then it succeeds
+    And stdout contains "gtd_validate="
+    And stdout contains "mode \"review\" has an external validate: command"
+    And stdout contains "skipping the format/validate contradiction check"

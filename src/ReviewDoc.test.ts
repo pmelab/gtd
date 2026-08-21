@@ -336,8 +336,8 @@ describe("parseReviewDoc", () => {
   })
 })
 
-describe("parseReviewDoc — trailing text on the pointer's own line (invalid legacy form)", () => {
-  it("still parses as a pointer, with path, #line, and checked state intact", () => {
+describe("parseReviewDoc — a same-line note (trailing the pointer on its own line)", () => {
+  it("parses as a pointer, with path, #line, and checked state intact, and the trailing text as its note", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -348,15 +348,17 @@ describe("parseReviewDoc — trailing text on the pointer's own line (invalid le
       "",
     ].join("\n")
     const result = parseReviewDoc(content)
-    expect(result.changesets[0]?.files[0]).toMatchObject({
+    expect(result.changesets[0]?.files[0]).toEqual({
       path: "./src/Edge.ts",
       line: 42,
       checked: true,
+      note: "what this hunk does",
       sourceLine: 5,
+      endLine: 5,
     })
   })
 
-  it("produces exactly one error, naming the chunk and the pointer, and carrying the pointer's sourceLine", () => {
+  it("produces zero validation errors for an ordinary same-line note", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -366,16 +368,10 @@ describe("parseReviewDoc — trailing text on the pointer's own line (invalid le
       "- [ ] ./src/Edge.ts#42 — what this hunk does",
       "",
     ].join("\n")
-    expect(REVIEW_FORMAT.validate(content)).toEqual([
-      {
-        message:
-          'Chunk "Add thing.ts" hunk ./src/Edge.ts#42 has text on the pointer line — move the explanation to the line(s) below it',
-        line: 5,
-      },
-    ])
+    expect(REVIEW_FORMAT.validate(content)).toEqual([])
   })
 
-  it("does not also report 'no file pointers' for a chunk whose only pointer carries trailing text", () => {
+  it("does not report 'no file pointers' for a chunk whose only pointer carries a same-line note", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -403,7 +399,7 @@ describe("parseReviewDoc — trailing text on the pointer's own line (invalid le
     expect(parseReviewDoc(content).changesets[0]?.files[0]?.path).toBe("./a-b/c-d.ts")
   })
 
-  it("the clean below-the-pointer form produces no errors", () => {
+  it("the clean below-the-pointer form still produces no errors", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -412,6 +408,117 @@ describe("parseReviewDoc — trailing text on the pointer's own line (invalid le
       "",
       "- [ ] ./src/Edge.ts#42",
       "  what this hunk does",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([])
+  })
+
+  it("strips an em dash, en dash, or hyphen run from the same-line segment, identical to the below-pointer stripping", () => {
+    for (const dash of ["—", "–", "-", "---"]) {
+      const content = [
+        "# Review: abc1234",
+        "<!-- base: abc1234def5678901234567890123456789abcd -->",
+        "",
+        "## Chunk",
+        "",
+        `- [ ] ./src/calc.ts#1 ${dash} the note`,
+        "",
+      ].join("\n")
+      expect(parseReviewDoc(content).changesets[0]?.files[0]?.note).toBe("the note")
+    }
+  })
+
+  it("joins a same-line segment with below-pointer lines, single space, same-line segment first", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1 — the same-line part",
+      "  the below-pointer part",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files[0]?.note).toBe("the same-line part the below-pointer part")
+  })
+})
+
+describe("parseReviewDoc — a note starting with a second pointer is a positioned finding", () => {
+  it("a same-line note whose first token is itself a pointer token yields one finding at the pointer's own sourceLine", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add thing.ts",
+      "",
+      "- [ ] ./a.ts#1 ./b.ts#2",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([
+      {
+        message:
+          'Chunk "Add thing.ts" hunk ./a.ts#1\'s note starts with a second pointer (./b.ts#2) — give it its own "- [ ]" line',
+        line: 5,
+      },
+    ])
+  })
+
+  it("still fires when a separator sits between the two pointers, stripped before the check runs", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add thing.ts",
+      "",
+      "- [ ] ./a.ts#1 — ./b.ts#2",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([
+      {
+        message:
+          'Chunk "Add thing.ts" hunk ./a.ts#1\'s note starts with a second pointer (./b.ts#2) — give it its own "- [ ]" line',
+        line: 5,
+      },
+    ])
+  })
+
+  it("does not fire for a below-pointer line opening with a bare path — only the same-line segment is checked", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  ./src/foo.ts is the caller",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([])
+    expect(parseReviewDoc(content).changesets[0]?.files[0]?.note).toBe("./src/foo.ts is the caller")
+  })
+
+  it("does not fire for a same-line note whose first word merely contains a dot", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1 — e.g. this explains it",
+      "",
+    ].join("\n")
+    expect(REVIEW_FORMAT.validate(content)).toEqual([])
+  })
+
+  it("does not fire for a bare './' token, reusing parseFilePointer's own minimum-path-length rule", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1 — ./ is not a real path",
       "",
     ].join("\n")
     expect(REVIEW_FORMAT.validate(content)).toEqual([])
@@ -495,7 +602,7 @@ describe("toggleFilePointer", () => {
     expect(toggleFilePointer(reviewDoc, 3)).toBeUndefined()
   })
 
-  it("still toggles a legacy trailing-note pointer line, round-tripping the rest", () => {
+  it("still toggles a same-line-note pointer line, round-tripping the rest", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -586,7 +693,7 @@ describe("REVIEW_FORMAT", () => {
     expect(continuationEdit.range.start.line).toBe(5)
   })
 
-  it("actions still offer the toggle on a legacy trailing-note pointer line", () => {
+  it("actions still offer the toggle on a same-line-note pointer line", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",

@@ -49,3 +49,18 @@ describe("seededValidateCommand / isSeededValidateCommand", () => {
     expect(isSeededValidateCommand("qa", `gtd check qa "<%= it.file %>"`)).toBe(false)
   })
 })
+
+describe("every registry entry's sample", () => {
+  // Load-bearing, not a nicety (see the package's own doc comment on this
+  // acceptance criterion): `src/ModeContradiction.ts` round-trips this exact
+  // sample through a mode's declared `format:` command, then re-validates it
+  // — a sample that doesn't validate clean to begin with would hard-stop
+  // every prompt beat that declares `file:`+`mode:`, at 3 wasted agent turns
+  // each, with no way to tell a real contradiction from a drifted fixture.
+  it("validates clean under its own format's parser", () => {
+    for (const mode of builtInModeNames()) {
+      const format = steeringFormatFor(mode)!
+      expect(format.validate(format.sample)).toEqual([])
+    }
+  })
+})

@@ -269,19 +269,19 @@ describe("diagnosticsFor", () => {
     expect(diagnosticsFor(undefined, "anything")).toEqual([])
   })
 
-  it("underlines exactly one line for a positioned review finding (a trailing-text pointer)", () => {
+  it("underlines exactly one line for a positioned review finding (a second-pointer note)", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
       "",
       "## Add thing.ts",
       "",
-      "- [ ] ./src/thing.ts#1 — legacy trailing note",
+      "- [ ] ./src/thing.ts#1 — ./src/other.ts#2",
       "",
     ].join("\n")
     const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
     expect(diagnostics).toHaveLength(1)
-    expect(diagnostics[0]?.message).toContain("has text on the pointer line")
+    expect(diagnostics[0]?.message).toContain("starts with a second pointer")
     expect(diagnostics[0]?.range).toEqual({
       start: { line: 5, character: 0 },
       end: { line: 5, character: content.split("\n")[5]!.length },

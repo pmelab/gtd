@@ -110,6 +110,24 @@ export const headAssertion = (expectedHead: string): string => {
 }
 
 /**
+ * `[ -f <file> ] || exit 0` — the OR-list guard `src/program.ts`'s
+ * `resolveValidateScript` leads its emitted script with (once the
+ * contradiction round-trip/skip notice, if any, has already run): when the
+ * declared steering file is absent from the working tree — including at a
+ * first-write beat, before the producing agent has written it at all — there
+ * is nothing left to format or validate, so the script exits 0 rather than
+ * running the mode's commands against a file that doesn't exist. An OR list,
+ * never an `if`, for the same `set -eu` reason `headAssertion` documents
+ * above: in an OR list, `-e` exempts every command but the last, so the
+ * failing `[ ... ]` on the left never trips `set -e` on its own — only the
+ * explicit `exit 0` on the right does, and it exits the whole script
+ * cleanly. Exported (alongside `headAssertion`/`reviewWindowAssertion`) so
+ * `src/testing/EmittedScriptRecognizer.ts` can re-derive and string-compare
+ * this exact shape.
+ */
+export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file)} ] || exit 0`
+
+/**
  * Same shape as `headAssertion`, for the saved-head ref a review window
  * pins. `--verify --quiet ... 2>/dev/null` makes a MISSING ref read as an
  * empty string rather than erroring the substitution itself — the assertion
