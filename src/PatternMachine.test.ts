@@ -99,6 +99,45 @@ const retryWorkflow: WorkflowDefinition = def(
   "start",
 )
 
+/**
+ * A check/fix/review loop capping the FIXER rather than the checker — the
+ * shape the bundled template actually uses, and the only shape in which an
+ * out-of-loop reset is reachable: `checking` routes red to `fixing` and
+ * green to `reviewing`; `fixing` carries a retry cap and routes back to
+ * `checking`; `reviewing` also routes back to `checking`. `fixing`'s only
+ * source is `checking` — `reviewing` and `escalate` are not sources of
+ * `fixing`, so either one interleaved in the trace resets `fixing`'s count.
+ */
+const fixerRetryWorkflow: WorkflowDefinition = def(
+  {
+    checking: {
+      actor: "check",
+      script: "npm test",
+      on: [
+        ["A FEEDBACK.md", "fixing"],
+        ["C", "reviewing"],
+      ],
+    },
+    fixing: {
+      actor: "agent",
+      prompt: "fix it",
+      retry: { max: 2, otherwise: "escalate" },
+      on: [["* *", "checking"]],
+    },
+    reviewing: {
+      actor: "human",
+      message: "review",
+      on: [["* *", "checking"]],
+    },
+    escalate: {
+      actor: "human",
+      message: "stuck",
+      on: [["* *", "checking"]],
+    },
+  },
+  "checking",
+)
+
 const change = (status: PendingChange["status"], path: string): PendingChange => ({
   status,
   path,
@@ -714,9 +753,11 @@ describe("step — retry redirection", () => {
     })
   })
 
-  it("counts every occurrence in the trace, regardless of what's interleaved with it", () => {
+  it("redirects even with its own loop partner (fixing) interleaved — the reset only fires for a state outside the loop, see the fixerRetryWorkflow tests below", () => {
     // "checking" appears 3 times here — already past its max=2 cap — so this
-    // still redirects even though "fixing" entries sit between them.
+    // still redirects even though "fixing" entries sit between them: "fixing"
+    // is one of "checking"'s sources (its own "on" targets "checking"), so
+    // interleaving with it never resets the count.
     const decision = step(retryWorkflow, "fixing", "agent", {
       changes: [change("M", "x.ts")],
       processTrace: ["checking", "fixing", "checking", "fixing", "checking", "fixing"],
@@ -727,6 +768,42 @@ describe("step — retry redirection", () => {
       actor: "agent",
       from: "fixing",
       to: "escalate",
+    })
+  })
+
+  it("interleaved loop partner does not reset — and the cap still fires within one episode (fixerRetryWorkflow caps the fixer, the shape the bundled template uses)", () => {
+    // "fixing"'s only source is "checking" (checking's own "A FEEDBACK.md"
+    // row targets it) — so the two "checking" entries interleaved between the
+    // two "fixing" entries do NOT reset the count. Two prior "fixing" visits
+    // meets its max: 2 cap, so this third attempted entry redirects.
+    const decision = step(fixerRetryWorkflow, "checking", "check", {
+      changes: [change("A", "FEEDBACK.md")],
+      processTrace: ["checking", "fixing", "checking", "fixing"],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(check): checking → escalate",
+      actor: "check",
+      from: "checking",
+      to: "escalate",
+    })
+  })
+
+  it("out-of-loop state resets: an intervening `reviewing` entry (not a source of `fixing`) restores the budget", () => {
+    // Same shape as above, but a "reviewing" entry sits between the two
+    // "checking"/"fixing" pairs. "reviewing" is not one of "fixing"'s
+    // sources, so it resets the count back to zero — only the LAST
+    // "checking" → "fixing" pair counts, well under the max: 2 cap.
+    const decision = step(fixerRetryWorkflow, "checking", "check", {
+      changes: [change("A", "FEEDBACK.md")],
+      processTrace: ["checking", "fixing", "checking", "reviewing", "checking", "fixing"],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(check): checking → fixing",
+      actor: "check",
+      from: "checking",
+      to: "fixing",
     })
   })
 
@@ -758,11 +835,20 @@ describe("step — retry redirection", () => {
       },
       "s",
     )
-    // "a" is at its cap (1 prior visit) so it redirects to "b" — which is
-    // ALSO at its cap (1 prior visit) — so it redirects again to "c".
+    // Per-episode counting means a trace of just ["a", "b"] would no longer
+    // work here: "b" is not one of "a"'s sources, so it would reset "a"'s own
+    // count back to zero and the first hop would never fire. Landing at "b"
+    // is itself the redirect this test wants to prove chains further, so the
+    // trace instead shows "a" re-entered AFTER that reset (["a", "b", "a"]):
+    // the trailing "a" is "a"'s one (fresh, post-reset) episode visit, which
+    // already meets its max=1 cap, so THIS turn's attempt to enter "a" again
+    // redirects to "b". "b" is at its own cap too — because "a" is one of
+    // "b"'s sources (it's "a"'s own `retry.otherwise`), the leading "a" in
+    // the trace does NOT reset "b"'s count, so "b"'s one prior visit still
+    // counts, meeting its own max=1 cap — so it redirects again to "c".
     const decision = step(workflow, "s", "human", {
       changes: [change("A", "x")],
-      processTrace: ["a", "b"],
+      processTrace: ["a", "b", "a"],
     })
     expect(decision).toEqual({ kind: "squash", state: "c", template: "chore: c" })
   })
@@ -911,6 +997,28 @@ describe("step — attempt commits (clean tree, no-C prompt state)", () => {
       processTrace: ["working"],
     })
     expect(decision).toEqual({ kind: "squash", state: "done", template: "chore: done" })
+  })
+
+  it("attempt counting is unchanged: a clean-tree attempt at `fixing` counts from zero once an intervening `reviewing` entry resets the episode", () => {
+    // "fixing" appears twice, but "reviewing" (not one of "fixing"'s
+    // sources) sits between them and resets the count — so at this clean
+    // attempt, only the LAST "fixing" entry counts (1), still under max: 2.
+    const trace = ["fixing", "checking", "reviewing", "checking", "fixing"]
+    expect(wouldAttempt(fixerRetryWorkflow, "fixing", trace)).toBe(true)
+    const decision = step(fixerRetryWorkflow, "fixing", "agent", {
+      changes: [],
+      processTrace: trace,
+    })
+    // Identical shape to a fresh (empty-trace) attempt — the reset means this
+    // is exactly as if "fixing" had never been visited before.
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(agent): fixing",
+      actor: "agent",
+      from: "fixing",
+      to: "fixing",
+      attempt: true,
+    })
   })
 })
 

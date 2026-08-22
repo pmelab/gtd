@@ -752,9 +752,8 @@ machines:
   # `build.review.deciding` and here with no `entryGate` in between, so a red
   # the revert causes is otherwise ambient. Left for
   # `packages.item.health.check` to trip over instead, it would spend one of
-  # `packages.item.fix-suite`'s retry cap — process-pooled across every
-  # package, the same pattern `specReview.review`'s own retry comment
-  # documents — on breakage the package itself never caused.
+  # `packages.item.fix-suite`'s (per-episode) retry attempts on breakage the
+  # package itself never caused.
   # ▸ planner identity — `model:` declared once here, stamped onto `triage`
   # (its only prompt state; `gate.answer` is a human turn and carries no
   # prompt).
@@ -1412,16 +1411,11 @@ machines:
       review:
         actor: agent
         label: Reviewing the package
-        # Bounded per process: once entered `max` times, a transition into it is
-        # redirected to `$onApproved` (force-close the package and move on — the
-        # unresolved concern is deferred to the shared human review at the tail,
-        # which sees the whole diff anyway). NOTE the cap is PROCESS-scoped, so it
-        # pools across packages — the same documented limitation the shared
-        # `build.fix` cap has (see the README's "Why" section, "Bounded, not
-        # runaway").
-        retry:
-          max: 3
-          otherwise: $onApproved
+        # No retry cap here: the loop only ever re-enters through
+        # `fix-spec`/`health.check`, so under the per-episode retry rule this
+        # state's episode count can never exceed 1 and a cap could never fire.
+        # The spec-review loop is genuinely unbounded — see the README's
+        # "Bounded, not runaway" bullet and this package's own risk note.
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -1626,9 +1620,9 @@ machines:
           # gtd check turn (the package closer) — remove the just-reviewed package
           # file (its path is in NEXT.md) plus any leftover spec feedback and
           # already-satisfied evidence, so `picking` selects the NEXT package (or
-          # falls through to review when the queue is empty). Reached on approval
-          # (spec review clean) and on the spec review retry cap (force-close,
-          # deferring the concern to the tail).
+          # falls through to review when the queue is empty). Reached only on
+          # spec-review approval — the spec-review loop carries no retry cap,
+          # so there is no force-close path here.
           set +e
           pkg=$(cat .gtd/NEXT.md 2>/dev/null)
           [ -n "$pkg" ] && rm -f "$pkg"

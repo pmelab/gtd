@@ -39,6 +39,15 @@ describe("the bundled unified workflow template", () => {
     expect(definition.states[definition.entries.default]).toBeDefined()
   })
 
+  it("declares `retry` on exactly build.fix and packages.item.fix-suite, and nothing else (package 01)", () => {
+    const { definition } = compileTemplate()
+    const withRetry = Object.entries(definition.states)
+      .filter(([, state]) => state.retry !== undefined)
+      .map(([name]) => name)
+      .sort()
+    expect(withRetry).toEqual(["build.fix", "packages.item.fix-suite"])
+  })
+
   it("pins the `file:` prepend round trip: every compiled value starts with `.gtd/`, no raw declaration does", () => {
     const { definition } = compileTemplate()
     const compiledFiles = Object.values(definition.states)

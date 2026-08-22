@@ -519,6 +519,35 @@ const matchOn = (
   return undefined
 }
 
+/** Every state `state`'s edges can enter: its `on` targets plus its `retry.otherwise` redirect. */
+const edgeTargets = (state: StateDef): readonly StateName[] => [
+  ...(state.on ?? []).map(([, target]) => target),
+  ...(state.retry !== undefined ? [state.retry.otherwise] : []),
+]
+
+/** Every state whose edges can enter `target` — structural, derived from `def` alone. */
+const sourcesOf = (def: WorkflowDefinition, target: StateName): ReadonlySet<StateName> =>
+  new Set(
+    Object.entries(def.states)
+      .filter(([, state]) => edgeTargets(state).includes(target))
+      .map(([name]) => name),
+  )
+
+/** `target`'s entries since the process last left `target`'s loop. */
+const episodeVisits = (
+  def: WorkflowDefinition,
+  target: StateName,
+  trace: readonly StateName[],
+): number => {
+  const sources = sourcesOf(def, target)
+  let count = 0
+  for (const name of trace) {
+    if (name === target) count += 1
+    else if (!sources.has(name)) count = 0
+  }
+  return count
+}
+
 /**
  * Apply retry redirection to a raw `on`-match target: if the target has a
  * `retry` cap and has already been entered `max` times in `trace`, redirect
@@ -530,6 +559,12 @@ const matchOn = (
  * documented choice — the plan leaves "recursively?" open; a config that
  * builds such a cycle is almost certainly a bug, but the engine must still
  * terminate rather than hang.
+ *
+ * "Entered `max` times" now counts an EPISODE, not the whole process trace:
+ * `episodeVisits` above resets to zero at the first trace entry of a state
+ * that is neither `target` itself nor one of `target`'s structural sources
+ * (`sourcesOf`) — so a red caused by an unrelated part of the process no
+ * longer spends this target's budget.
  */
 const applyRetry = (
   def: WorkflowDefinition,
@@ -540,7 +575,7 @@ const applyRetry = (
   if (visited.has(target)) return target
   const targetDef = def.states[target]
   if (targetDef?.retry === undefined) return target
-  const priorVisits = trace.filter((name) => name === target).length
+  const priorVisits = episodeVisits(def, target, trace)
   if (priorVisits < targetDef.retry.max) return target
   return applyRetry(def, targetDef.retry.otherwise, trace, new Set([...visited, target]))
 }
@@ -921,8 +956,7 @@ const validateReachability = (def: WorkflowDefinition, names: readonly string[])
   const queue: StateName[] = [...roots]
   while (queue.length > 0) {
     const state = def.states[queue.shift()!]!
-    const targets = (state.on ?? []).map(([, target]) => target)
-    if (state.retry !== undefined) targets.push(state.retry.otherwise)
+    const targets = [...edgeTargets(state)]
     for (const target of targets) {
       if (def.states[target] !== undefined && !visited.has(target)) {
         visited.add(target)
