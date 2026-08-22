@@ -694,8 +694,9 @@ describe("applyEmittedScript — src/ReviewWindow.ts's compound open/close scrip
     // it's never UNTRACKED (an editor's default unstaged-diff view stays
     // clean for it either way, since worktree already matches the pinned
     // index). The new file added since the base surfaces as an ORDINARY
-    // UNTRACKED file (see `openReviewWindow`'s own doc comment on why this is
-    // deliberate).
+    // UNTRACKED file — deliberate, since `buildOpenWindowScript` avoids `git
+    // add --intent-to-add` (it loses the index-lock race and truncates
+    // discarded files to zero bytes) and only pins `.gtd/` back.
     expect(repo.statusPorcelain()).toContain("?? a.txt")
     expect(repo.statusPorcelain()).not.toContain("?? .gtd/REVIEW.md")
   })
@@ -846,8 +847,8 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     ]).required
     // An optional half whose own block is unrecognizable — a stand-in for a
     // real optional script failing at run time — must not fail the OUTER
-    // script: presentation-only, its exit status is discarded by construction
-    // (see combinedScript's own doc comment).
+    // script: `combinedScript` wraps the optional half in a subshell whose
+    // failure it deliberately swallows.
     const script = combinedScript(required, "totally-unrecognized-command")
 
     const result = applyEmittedScript(repo, NO_COMMANDS, script)

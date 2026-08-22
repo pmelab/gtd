@@ -32,11 +32,6 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP response result has a "codeActionProvider" capability
 
   Scenario: with no config, .gtd/TODO.md is NOT dispatched by basename — it yields no symbols
-    # There is no `TODO.md` → qa basename fallback: the bundled `idle` maps
-    # this exact path via its own `file:`, but declares no `mode:`, so nothing
-    # dispatches over it. With no `.gtdrc` mapping it either, documentSymbol
-    # returns nothing. (Config-driven qa dispatch over any file — including
-    # TODO.md — is covered below.)
     Given a test project
     And an LSP server started in the test project
     When the LSP client sends an initialize request

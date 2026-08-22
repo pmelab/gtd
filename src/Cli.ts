@@ -1,13 +1,3 @@
-/**
- * The whole CLI shell: argv in, an exit code out. Owns every usage rule (the
- * flag table, the command table, the `=`/space tokenizer duality, command
- * resolution, the state-command bracket decision) and the single envelope
- * shape (`{state:"error",prompt}` on stdout under `--json`, a `gtd: `-prefixed
- * line on stderr always). `parseArgv` is pure and total — every input maps to
- * exactly one `CliPlan`, and no layer is ever built to answer `--version`,
- * `--help`, or a usage error (there is no `Command` value that means "help").
- * `runCli` is the one place that decides WHEN a layer may be built at all.
- */
 import { NodeContext } from "@effect/platform-node"
 import { createRequire } from "node:module"
 import { Cause, Effect, Either, Layer } from "effect"
@@ -78,20 +68,12 @@ export type CliPlan =
 
 /**
  * What a command kind needs before it may run. `pure`/`removed` never reach
- * `io.layers()` at all (they resolve to `output`/`usage` plans, never a
- * `Command`). `state` marks the six kinds (`land`, `entry`, `abandon`,
- * `restore`, `next`, `validate`) that share the repo-root guard, the
- * at-least-one-commit guard, and the review-window bracket
- * (`needsOf(kind) === "state"`) — a repository with no commits has no HEAD to
- * derive workflow state from, so both guards must pass before dispatch;
- * `none`/`fs`/`config` merely document each standalone handler's own
- * annotated `R` — see `standaloneKinds()`.
- *
- * `needsOf`/`standaloneKinds` themselves live in `program.ts` (re-exported
- * here) — `program.ts`'s `runCommand` is their one runtime caller, and this
- * module already has a real (value) dependency on `program.ts` for
- * `runCommand` itself; a value import running the other way, back into this
- * module, would make the two modules circular.
+ * `io.layers()` at all (they resolve to `output`/`usage` plans). `state`
+ * marks the six kinds sharing the repo-root guard, the at-least-one-commit
+ * guard, and the review-window bracket — a repository with no commits has no
+ * HEAD to derive workflow state from. `needsOf`/`standaloneKinds` live in
+ * `program.ts` (re-exported here) rather than here, since a value import the
+ * other way would make the two modules circular.
  */
 export type Needs = "pure" | "removed" | "none" | "fs" | "config" | "state"
 export { needsOf, standaloneKinds } from "./program.js"
@@ -472,12 +454,9 @@ const commandByToken = (token: string): CommandRow | undefined =>
   COMMAND_ROWS.find((r) => r.token === token)
 
 /**
- * The two named commands the generic `--entry` mechanism replaced. No
- * fallback: `gtd review`/`gtd fix` fail with a message pointing at the
- * replacement rather than the generic "unknown command". Names no bundled
- * workflow's own state names — gtd has no opinion on any workflow's state
- * names; run `--entry` with an unknown state to see the active workflow's own
- * enterable states.
+ * Named commands the generic `--entry` mechanism replaced. No fallback: they
+ * fail with a message pointing at the replacement rather than the generic
+ * "unknown command".
  */
 const REMOVED: Readonly<Record<string, string>> = {
   step:
@@ -705,10 +684,7 @@ const arityError = (cmd: string, rest: readonly string[], arity: Arity): string 
   return undefined
 }
 
-/**
- * Decode every present flag (in table order) into a bag of values, or the
- * first decode error encountered.
- */
+/** Decode every present flag into a bag of values, or the first decode error encountered. */
 const decodeFlags = (
   byFlag: ReadonlyMap<string, readonly string[]>,
 ): Either.Either<Readonly<Record<string, unknown>>, string> => {
@@ -907,15 +883,10 @@ const writeStderr = (chunk: string): void => {
 }
 
 export const nodeCliIo: CliIo = {
-  // `process.stdout.write` is asynchronous whenever stdout is a pipe (the
-  // normal case — a driver piping gtd's output into a shell) or a socket: a
-  // `false` return means the chunk was only queued in the stream's internal
-  // buffer, not yet handed to the OS. Passing a completion callback, and
-  // never forcing the process closed (see `exit` below), is what keeps that
-  // queued remainder from being discarded — Node holds the event loop open
-  // for the pending write on `process.stdout`'s handle exactly like any
-  // other scheduled work, so a large artifact still reaches a slow reader
-  // even after a non-zero exit.
+  // `process.stdout.write` is asynchronous whenever stdout is a pipe or
+  // socket — passing a completion callback (and never force-closing, see
+  // `exit` below) keeps a queued remainder from being discarded, so a large
+  // artifact still reaches a slow reader even after a non-zero exit.
   stdout: (chunk) => {
     process.stdout.write(chunk, () => {})
   },
@@ -950,15 +921,13 @@ export const nodeCliIo: CliIo = {
 
 /**
  * The all-or-nothing stdout buffer every `run*Command` handler writes
- * through instead of `io.stdout` directly — structural, not a discipline each
- * writer has to remember. `flush()` is called exactly once, by `runCli`,
- * after the command's Effect succeeds; on any failure (a typed error, a
- * defect, an interruption) `flush()` is never reached, so the buffer is
- * simply discarded and nothing reaches `io.stdout`. `visualize` is the one
- * handler that calls `flush()` itself, ahead of blocking on `Effect.never`
- * (see `runVisualizeCommand`'s own doc comment) — everything it writes
- * afterward (its per-request current-state diagnostic) flushes itself too,
- * since the one `runCli`-driven flush already fired.
+ * through instead of `io.stdout` directly. `flush()` is called exactly once,
+ * by `runCli`, after the command's Effect succeeds; on any failure `flush()`
+ * is never reached, so the buffer is simply discarded and nothing reaches
+ * `io.stdout`. `visualize` is the one handler that calls `flush()` itself,
+ * ahead of blocking on `Effect.never` — since it blocks forever, `runCli`'s
+ * own flush-on-success would otherwise never fire and its output would never
+ * reach stdout.
  */
 export interface ArtifactOut {
   readonly write: (chunk: string) => void
@@ -990,15 +959,11 @@ const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
 /**
  * The single envelope writer: `{state:"error",prompt}` on **stderr** under
  * `--json`, `renderFailure` on stderr always, exit `EXIT_RUNTIME_ERROR`.
- * stdout is never touched here — the command's own `ArtifactOut` buffer was
- * never flushed (see `bufferedArtifactOut`), so stdout stays byte-empty on
- * every failure; a `--json` driver piping stdout into `jq` on a failed run
- * must read stderr or the exit code instead. `Effect.sandbox` (see below)
- * means this also fires for a DEFECT (e.g. a layer's own `readFileSync`
- * throwing) — main.ts's previous `catchAll` never covered that case. Never
- * reached for a USAGE error — those never build a layer at all, so nothing
- * here can fail on their behalf (see `runCli`'s own `"usage"` branch, which
- * exits `EXIT_USAGE_ERROR` instead).
+ * stdout is never touched here — the command's `ArtifactOut` buffer was never
+ * flushed, so a `--json` driver piping stdout into `jq` on a failed run must
+ * read stderr or the exit code instead. `Effect.sandbox` means this also
+ * fires for a DEFECT, not just a typed error. Never reached for a USAGE
+ * error — those never build a layer at all.
  */
 const report =
   (io: CliIo, json: boolean) =>
@@ -1036,12 +1001,10 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
 
   const out = bufferedArtifactOut(io)
   return runCommand(plan.command, plan.json, plan.sh, out).pipe(
-    // `runCommand` no longer returns an exit code — a command choosing its
-    // own is unrepresentable now — so this supplies `EXIT_OK` uniformly on
-    // success. `flush()` fires here, on success, BEFORE `io.exit` — the one
-    // point where the whole buffered artifact is known-complete and safe to
-    // hand to stdout (see `bufferedArtifactOut`'s own doc comment for the
-    // failure-discards-the-buffer half of the same contract).
+    // `flush()` fires here, on success, BEFORE `io.exit` — the one point
+    // where the whole buffered artifact is known-complete and safe to hand
+    // to stdout (a failure discards the buffer instead — see
+    // `bufferedArtifactOut`).
     Effect.map(() => {
       out.flush()
       io.exit(EXIT_OK)

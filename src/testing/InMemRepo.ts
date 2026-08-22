@@ -1,9 +1,4 @@
-/**
- * In-memory git snapshot store backing the fake `GitOperations`/`FileSystem`/
- * `ConfigService` layers (`GitDoubles.ts`/`Layers.ts`). Pure TypeScript, no
- * Effect, no real filesystem/git. Test-only — see `TEST_DOUBLE_SENTINEL`.
- */
-
+// Pure TypeScript, no Effect, no real filesystem/git.
 import { createHash } from "node:crypto"
 
 /** Embedded in every value this fake reaches (see also `strictGitOperations`'s default message) so `scripts/assert-no-test-doubles.mjs` can catch a leak into the shipped bundle by string search. */
@@ -33,21 +28,17 @@ const isUnder = (key: string, p: string): boolean =>
   key === p || key.startsWith(p.endsWith("/") ? p : `${p}/`)
 
 export class InMemRepo {
-  // fallow-ignore-next-line unused-class-member -- data-only marker read by no code path; embeds the sentinel in every instance so a leaked object still carries it (see module comment)
+  // fallow-ignore-next-line unused-class-member -- data-only marker read by no code path; embeds the sentinel in every instance so a leaked object still carries it
   readonly testDouble = TEST_DOUBLE_SENTINEL
 
   private commits: Map<string, Commit> = new Map()
   private branches: Map<string, string> = new Map() // branch name → hash
   private refs: Map<string, string> = new Map() // fully qualified ref (refs/gtd/…) → hash
-  private head: string | null = null // current commit hash
+  private head: string | null = null
   private currentBranch: string = "main"
   private worktree: Map<string, string> = new Map()
   private index: Map<string, string> = new Map()
   private pendingFaults: Array<() => Error> = []
-
-  // ---------------------------------------------------------------------------
-  // Internal helpers
-  // ---------------------------------------------------------------------------
 
   private getCommit(hash: string): Commit | null {
     return this.commits.get(hash) ?? null
@@ -69,16 +60,11 @@ export class InMemRepo {
     return hash === null ? new Map() : (this.getCommit(hash)?.files ?? new Map())
   }
 
-  // ---------------------------------------------------------------------------
-  // Read methods
-  // ---------------------------------------------------------------------------
-
   // fallow-ignore-next-line complexity
   statusPorcelain(): string {
     const headTree = this.headTree()
     const lines: string[] = []
 
-    // All paths that appear in index, worktree, or headTree
     const allPaths = new Set([...headTree.keys(), ...this.index.keys(), ...this.worktree.keys()])
 
     for (const path of [...allPaths].sort()) {
@@ -89,33 +75,30 @@ export class InMemRepo {
       const indexContent = this.index.get(path)
       const worktreeContent = this.worktree.get(path)
 
-      // Determine index status (X) vs HEAD
       let X = " "
       if (!inHead && inIndex) {
-        X = "A" // staged new
+        X = "A"
       } else if (inHead && !inIndex) {
-        X = "D" // staged deletion
+        X = "D"
       } else if (inHead && inIndex && headContent !== indexContent) {
-        X = "M" // staged modification
+        X = "M"
       }
 
-      // Determine worktree status (Y) vs index
       let Y = " "
       if (inIndex && !inWorktree) {
-        Y = "D" // deleted in worktree
+        Y = "D"
       } else if (!inIndex && inWorktree) {
-        Y = "?" // untracked (only if not in index)
+        Y = "?"
       } else if (inIndex && inWorktree && indexContent !== worktreeContent) {
-        Y = "M" // modified in worktree
+        Y = "M"
       }
 
-      // Untracked files not in index and not in head
       if (!inHead && !inIndex && inWorktree) {
         lines.push(`?? ${path}`)
         continue
       }
 
-      if (X === " " && Y === " ") continue // clean
+      if (X === " " && Y === " ") continue
 
       lines.push(`${X}${Y} ${path}`)
     }
@@ -129,12 +112,10 @@ export class InMemRepo {
 
   // fallow-ignore-next-line complexity
   resolveRef(ref: string): string | null {
-    // 40-hex hash passthrough
     if (/^[0-9a-f]{40}$/.test(ref)) {
       return this.commits.has(ref) ? ref : null
     }
 
-    // HEAD~N or <hash>~N notation
     const tildeMatch = /^(HEAD|[0-9a-f]{40})(~(\d+))?$/.exec(ref)
     if (tildeMatch) {
       const base = tildeMatch[1]!
@@ -147,11 +128,9 @@ export class InMemRepo {
       return cur
     }
 
-    // Fully qualified repo-local ref (refs/gtd/…)
     const refHash = this.refs.get(ref)
     if (refHash !== undefined) return refHash
 
-    // Branch name
     return this.branches.get(ref) ?? null
   }
 
@@ -187,7 +166,6 @@ export class InMemRepo {
     const headHash = head !== undefined ? this.resolveRef(head) : this.head
     if (headHash === null) return []
 
-    // Collect first-parent chain newest→oldest
     const chain: Commit[] = []
     let cur: string | null = headHash
     while (cur !== null) {
@@ -197,7 +175,6 @@ export class InMemRepo {
       cur = c.parent
     }
 
-    // Reverse to oldest→newest
     chain.reverse()
 
     // Filter to base..HEAD range if base given — resolved through `resolveRef`
@@ -208,7 +185,6 @@ export class InMemRepo {
       const resolvedBase = this.resolveRef(base)
       const baseIdx = resolvedBase === null ? -1 : chain.findIndex((c) => c.hash === resolvedBase)
       if (baseIdx === -1) {
-        // base not in chain — no commits in range
         return []
       }
       filtered = chain.slice(baseIdx + 1)
@@ -243,13 +219,11 @@ export class InMemRepo {
   }
 
   /**
-   * `base` (default HEAD) mirrors the port's own optional base — see
-   * `GitReaderOperations.changedPaths`. Tree-vs-worktree comparison already
-   * subsumes production's untracked-file filtering: a path present at `base`
-   * with identical content is simply not a difference.
+   * `base` (default HEAD) mirrors the port's own optional base. Tree-vs-worktree
+   * comparison already subsumes production's untracked-file filtering: a path
+   * present at `base` with identical content is simply not a difference.
    */
   changedPathsWorktree(base?: string): Array<{ path: string; status: string }> {
-    // Worktree vs the base tree: untracked → "A"
     const baseTree = this.treeAt(base)
     const worktreeTree = new Map(this.worktree)
     return diffTrees(baseTree, worktreeTree)
@@ -293,10 +267,6 @@ export class InMemRepo {
     return [...names].sort()
   }
 
-  // ---------------------------------------------------------------------------
-  // Write methods
-  // ---------------------------------------------------------------------------
-
   /** `git add -A` — the index becomes exactly the current worktree. */
   stageAll(): void {
     this.index = new Map(this.worktree)
@@ -331,17 +301,15 @@ export class InMemRepo {
     this.branches.set(this.currentBranch, hash)
   }
 
-  /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which now drops the freshly-staged untracked paths too). */
+  /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which drops the freshly-staged untracked paths too). */
   discardPending(): void {
     this.index = new Map(this.worktree)
     this.resetHard()
   }
 
   commitAllWithPrefix(prefix: string): void {
-    // Stage worktree → index
     this.index = new Map(this.worktree)
 
-    // Build new tree snapshot from index
     const tree = new Map(this.index)
     const message = prefix
     const parent = this.head
@@ -357,18 +325,15 @@ export class InMemRepo {
   private static readonly EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
   softResetTo(ref: string): void {
-    // Special case: git's empty-tree SHA means "reset to before the first commit"
     if (ref === InMemRepo.EMPTY_TREE) {
       this.head = null
       this.branches.delete(this.currentBranch)
-      // worktree and index unchanged (soft reset)
       return
     }
     const hash = this.resolveRef(ref)
     if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
     this.head = hash
     this.branches.set(this.currentBranch, hash)
-    // worktree and index unchanged
   }
 
   /**
@@ -389,29 +354,24 @@ export class InMemRepo {
     this.worktree = new Map(tree)
   }
 
-  /** Internal helper: `discardPending()` uses this after staging the worktree. */
   resetHard(): void {
     const headTree = this.headTree()
-    // Snapshot the old index before resetting it (needed to identify staged-new files)
+    // Snapshot the old index before resetting it (needed to identify staged-new files).
     const oldIndex = new Map(this.index)
 
-    // Reset index to HEAD
     this.index = new Map(headTree)
 
-    // Rebuild worktree:
-    // - pure-untracked files (not in HEAD and not in old index) survive
-    // - staged-new files (in old index but not in HEAD) are removed
-    // - tracked files are restored to HEAD content
+    // Rebuild worktree: pure-untracked files (not in HEAD and not in old
+    // index) survive; staged-new files (in old index but not in HEAD) are
+    // removed; tracked files are restored to HEAD content.
     const newWorktree = new Map<string, string>()
 
-    // Keep pure-untracked files: in worktree but not in HEAD and not in old index
     for (const [path, content] of this.worktree) {
       if (!headTree.has(path) && !oldIndex.has(path)) {
         newWorktree.set(path, content)
       }
     }
 
-    // Restore HEAD tree into worktree
     for (const [path, content] of headTree) {
       newWorktree.set(path, content)
     }
@@ -426,10 +386,6 @@ export class InMemRepo {
   deleteFile(path: string): void {
     this.worktree.delete(path)
   }
-
-  // ---------------------------------------------------------------------------
-  // Refs & review-checkout-window plumbing
-  // ---------------------------------------------------------------------------
 
   /** `git update-ref <ref> <hash>` — point a repo-local ref at a commit (resolves symbolic inputs first). */
   updateRef(ref: string, hash: string): void {
@@ -458,7 +414,6 @@ export class InMemRepo {
     this.head = hash
     this.branches.set(this.currentBranch, hash)
     this.index = new Map(this.getCommit(hash)?.files ?? new Map())
-    // worktree unchanged (mixed reset)
   }
 
   /** True iff `a` is an ancestor of (or equal to) `b` on the first-parent chain. */
@@ -493,10 +448,6 @@ export class InMemRepo {
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Utility: diff two trees
-// ---------------------------------------------------------------------------
 
 /**
  * Unlike production's `parseNameStatus` (`src/Git.ts`), this never reports a

@@ -1,27 +1,6 @@
-/**
- * The human-facing wording for what a `gtd`-emitted script just landed —
- * printed by the DRIVER's bash when it runs `required`/`optional`, authored
- * once here in TS. Pure, like `src/GitScript.ts`: no git, no filesystem, no
- * `Effect`. `OUTCOME_PREAMBLE` defines the bash functions
- * (`gtd_report_transition`/`gtd_report_commit`/`gtd_report_note`/
- * `gtd_report_abandoned`/`gtd_report_restored`) a script calls; the builders
- * below emit the one-line calls, every argument routed through
- * `src/GitScript.ts`'s `shellQuote`.
- *
- * `noopText`/`abandonNoopText` render the shared no-op wording; both reach the
- * driver only through an emitted script now (`noteOutcome(noopText(state))`
- * for a genuine `gtd land` no-op, `abandonNoopOutcome` for `gtd abandon` with
- * nothing underway) — a no-op's script always prints itself, exactly like
- * every other outcome, rather than `src/program.ts` special-casing an empty
- * script. Their format strings live once here (`FMT_*`, with
- * `%s` placeholders) and reach both sides through `renderFormat` (the plain
- * path) and `printfLine` (the bash `printf` call embedded in
- * `OUTCOME_PREAMBLE`), so the two can never drift.
- */
-
 import { shellQuote } from "./GitScript.js"
 
-/** Substitute `args` into `fmt`'s `%s` placeholders, in order — the plain-text twin of `printfLine`. */
+/** The plain-text twin of `printfLine`: substitutes `args` into `fmt`'s `%s` placeholders, in order. */
 export const renderFormat = (fmt: string, ...args: readonly string[]): string => {
   let i = 0
   return fmt.replace(/%s/g, () => args[i++] ?? "")
@@ -50,10 +29,7 @@ const FMT_RESTORED =
 /** `nothing to do at "<state>"` — a no-op step's plain-text line, and the text a print-only script's `gtd_report_note` carries. */
 export const noopText = (state: string): string => renderFormat(FMT_NOOP, state)
 
-/** The initial-state collapse's own line — no commit landed, HEAD was rewound
- *  to the process's start parent. Trailing newline, exactly like `noopText`:
- *  printed verbatim by `program.ts` and via `noteOutcome`/`gtd_report_note` by
- *  the emitted script. */
+/** The initial-state collapse's line — no commit landed, HEAD was rewound to the process's start parent. */
 export const COLLAPSED_TEXT =
   "nothing to retain — rewound to the commit before the process started\n"
 
@@ -62,23 +38,10 @@ export const abandonNoopText = (initial: string): string => renderFormat(FMT_ABA
 
 /**
  * The bash preamble every outcome-carrying script includes, ONE block (no
- * blank lines, like `src/Emit.ts`'s `RETRY_HELPER`) so `assembleScript`'s
- * blank-line-joined sections stay intact. First line is a literal comment
- * naming this module, so a reader (or the recognizer) can tell at a glance
- * where the block comes from.
- *
- * The palette/marker detection follows the `NO_COLOR` convention
- * (`[ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]`) with the
- * same plain-mode fallback strings (`->`/`[commit]`/`...`) the now-deleted
- * bash `bin/gtd` used to render, so existing `@live` assertions on plain
- * output kept matching once this preamble took over printing it. The
- * `${TERM:-}` form (never a bare `$TERM`) is deliberate: `TERM` is
+ * blank lines) so `assembleScript`'s blank-line-joined sections stay intact.
+ * The `${TERM:-}` form (never a bare `$TERM`) is deliberate: `TERM` is
  * legitimately unset in plenty of real shells, and a bare reference would
- * trip `set -u` in the script this preamble is embedded in. `gtd_files` is
- * the diff-tree read
- * (with `--root` so a repository's very first commit shows its files too)
- * plus the 3-row cap, fused into one function, since a script-side caller
- * always has the commit, never a pre-fetched file list.
+ * trip `set -u` in the embedding script.
  */
 export const OUTCOME_PREAMBLE = [
   "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",

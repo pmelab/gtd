@@ -1,15 +1,10 @@
-/**
- * The in-memory tier's Effect layers, backed by one `InMemRepo`. No real
- * filesystem or git is used. `testLayers` is the ONE layer-set builder every
- * `@inmem` scenario and `src/**\/*.test.ts` unit test provides — see
- * `CommandRequirements` (`src/program.ts`) for what it must cover.
- *
- * Subprocess work goes through `CommandRunner` (#157), which `testLayers`
- * provides as a SCRIPTED runner: an `@inmem` scenario declares each command's
- * canned outcome and an unscripted command fails loudly, so nothing shells out
- * to real bash with `cwd: "/repo"` (a path that doesn't exist). `Visualize.ts`'s
- * browser `spawn` is still portless, but no `@inmem` scenario reaches it.
- */
+// `testLayers` is the ONE layer-set builder every `@inmem` scenario and
+// `src/**/*.test.ts` unit test provides.
+//
+// Subprocess work goes through `CommandRunner`, which `testLayers` provides
+// as a SCRIPTED runner: an `@inmem` scenario declares each command's canned
+// outcome and an unscripted command fails loudly, so nothing shells out to
+// real bash with `cwd: "/repo"` (a path that doesn't exist).
 
 import { FileSystem } from "@effect/platform"
 import { SystemError, type PlatformError } from "@effect/platform/Error"
@@ -33,18 +28,13 @@ import { RepoFiles } from "../RepoFiles.js"
 import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
 import type { CommandRequirements } from "../program.js"
 
-// ---------------------------------------------------------------------------
-// 1. In-memory FileSystem layer
-// ---------------------------------------------------------------------------
-
 const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileSystem => {
   // `.git/`-rooted paths have no production consumer through this layer —
   // gtd keeps no driver-scoped files at all (sessions are derived, stall is
   // history) — so a stray write under the fake git dir must FAIL
   // rather than silently fall through to the `worktree` store, which would
   // make it surface as a pending change (real git never reports a `.git/**`
-  // path as one). See `InMemRepo.ts`'s module doc comment for the same
-  // boundary on the git-side store this used to route to.
+  // path as one).
   const gitDirPrefix = `${root}/.git/`
   const isGitDirPath = (path: string): boolean => path.startsWith(gitDirPrefix)
 
@@ -115,9 +105,7 @@ const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileS
   const makeDirectory = (
     _path: string,
     _options?: FileSystem.MakeDirectoryOptions,
-  ): Effect.Effect<void, PlatformError> =>
-    // Directories are implicit in the in-memory store
-    Effect.void
+  ): Effect.Effect<void, PlatformError> => Effect.void
 
   const realPath = (_path: string): Effect.Effect<string, PlatformError> =>
     // Return the fixed in-memory root — the cwd guard in main.ts checks
@@ -246,11 +234,6 @@ const fileRefReader = (repo: InMemRepo, root: string): FileRefReader => {
 const makeInMemoryConfigService = (repo: InMemRepo, root: string): Layer.Layer<ConfigService> =>
   configServiceLayer(worktreeConfigSource(repo, root), root, fileRefReader(repo, root))
 
-// ---------------------------------------------------------------------------
-// 3. In-memory WorktreeReader layer
-// ---------------------------------------------------------------------------
-
-/** `PatternTemplates.TemplateContext.read` for the in-memory tier: a synchronous lookup straight into the repo's worktree (never real `fs`). */
 /** `RepoFiles` for the in-memory tier: a synchronous worktree lookup (never real `fs`) and `committed` via the repo's own `fileAtRef`. Absence is `undefined` on BOTH members — `templateRead` re-adds the ENOENT throw for the one caller (Eta) that needs it. */
 const makeInMemoryRepoFiles = (repo: InMemRepo): Layer.Layer<RepoFiles> =>
   Layer.succeed(RepoFiles, {
@@ -293,14 +276,9 @@ const makeScriptedCommandRunner = (
     },
   })
 
-// ---------------------------------------------------------------------------
-// Assembly
-// ---------------------------------------------------------------------------
-
 export interface TestWorldOptions {
   readonly env?: Readonly<Record<string, string | undefined>>
   readonly root?: string
-  /** Canned `bash` outcomes for the scripted `CommandRunner` — see `ScriptedCommand`. */
   readonly commands?: ReadonlyMap<string, ScriptedCommand>
   /**
    * Captures every narrated line — absent (the default) means the
@@ -314,7 +292,7 @@ export interface TestWorldOptions {
   readonly verbose?: boolean
 }
 
-/** The fine-grained `GitService` layer alone — for unit tests that need only git. `root` (default `/repo`) is only consumed by `topLevel`/`gitDir` — see `fakeGitOperations`. */
+/** The fine-grained `GitService` layer alone — for unit tests that need only git. */
 export const gitTestLayer = (repo: InMemRepo, root = "/repo"): Layer.Layer<GitService> =>
   Layer.succeed(GitService, withIndexLockRetries(fakeGitOperations(repo, root)))
 

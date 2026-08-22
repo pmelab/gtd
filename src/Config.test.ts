@@ -11,10 +11,8 @@ import { compileTemplate } from "./workflows/templates.js"
 import { seededValidateCommand } from "./SteeringFormats.js"
 
 // ConfigService.Live only loads/validates the config — it never writes.
-// NodeContext.layer satisfies FileSystem + CommandExecutor. Narrator is a
-// no-op here, MERGED (not just provided) so it stays in the output — these
-// tests assert on the loaded config/failure, not on narration (see
-// Commentary.test.ts for that).
+// Narrator is a no-op here, MERGED (not just provided) so it stays in the
+// output — these tests assert on the loaded config/failure, not on narration.
 const layer = (dir: string) =>
   Layer.merge(
     Layer.provide(ConfigService.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer)),
@@ -65,8 +63,6 @@ describe("ConfigService", () => {
   it("with no config anywhere: falls back to the built-in default workflow", async () => {
     const cfg = await getConfig()
 
-    // The built-in default is gtd's bundled unified template — same compiled
-    // shape and its own `vars:` defaults.
     const { definition, vars } = compileTemplate()
     expect(cfg.workflow).toEqual(definition)
     expect(cfg.workflowVars).toEqual(vars)
@@ -93,8 +89,8 @@ describe("ConfigService", () => {
 
     const cfg = await getConfig()
 
-    // No `workflow:` -> built-in default; the top-level `vars:` still loads as
-    // the `rcVars` layer that overrides the workflow's own defaults.
+    // No `workflow:` -> built-in default; the top-level `vars:` still loads
+    // into the `rcVars` layer.
     expect(cfg.workflow).toEqual(compileTemplate().definition)
     expect(cfg.rcVars).toEqual({ testCommand: "custom-test" })
   })

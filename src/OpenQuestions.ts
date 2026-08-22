@@ -1,78 +1,16 @@
-/**
- * Pure parser/validator for the "open questions" structure the bundled
- * template's steering files (`.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`)
- * follow across `design.triage`/`design.gate.answer` (product questions) and
- * `architecture.author`/`architecture.gate.answer` (technical questions) —
- * see `src/workflows/unified.yaml` — and for any custom workflow that reuses
- * the same file/format.
- *
- * Format: free-form prose, plus an OPTIONAL `## Open Questions` section (near
- * the top) and an OPTIONAL `## Answered Questions` section (at the bottom).
- * Every `###` sub-heading directly under one of those sections is one question;
- * its STATUS is POSITIONAL — a `###` under `## Open Questions` is open, one
- * under `## Answered Questions` is answered. The only structural error is a
- * `###` heading with no question text. Either section may be omitted entirely
- * (omitted = zero questions of that status, not an error).
- *
- * An OPEN question's body carries a checkbox list of candidate answers — the
- * producing agent writes two options plus a trailing free-text slot
- * (`- [ ] _your answer_`, see `FREE_TEXT_PLACEHOLDER`), and the human ticks
- * exactly one. This module parses those options (`OpenQuestion.options`) and
- * derives whether the question is answered (`OpenQuestion.answered`) — the two
- * things the answer-completeness gate (`src/program.ts`) and the LSP outline
- * both read. Base VALIDATION stays loose (the checkbox convention is NOT
- * required — a plain prose body is still valid); the only reported error is the
- * empty-`###` one. An ANSWERED question is prose (the agent drops the checkboxes
- * when it resolves and moves it down), so it carries no options. Each option
- * also carries an `endLine` spanning any wrapped continuation lines
- * (`QuestionOption.endLine`) — for editor tooling only; it feeds no validation
- * and no `answered` decision.
- *
- * A question is answered/accepted by MOVING its `###` block from
- * `## Open Questions` down into `## Answered Questions` — the agent does this on
- * the next `design.triage`/`architecture.author` lap (a human leaving a suggestion untouched IS acceptance;
- * an edit IS the answer — either way the whole batch resolves). Nothing here
- * enforces the move or the section order; that is the producing agent's prompt
- * contract, and this parser only reports the resulting status.
- *
- * **The format's single source of truth.** This module is the EXECUTABLE SPEC
- * of that format — its own unit tests (`OpenQuestions.test.ts`) are the
- * format's spec tests. Both consumers of the format run THIS parser, so there
- * is no second implementation to keep in sync: the `gtd validate` CLI command
- * (`src/program.ts`) parses the resolved state's `qa`-mode file and exits
- * non-zero with the `errors` below, and the LSP (`src/Lsp.ts`) publishes the
- * same `errors` as live diagnostics (and labels each question `[open]` /
- * `[answered]` by its section in the document outline). The engine
- * (`PatternMachine`/`Edge`/the bundled workflow) itself stays
- * git/filesystem/Effect-dependency-free of this module, and this module stays
- * independent of any particular workflow's shape.
- *
- * No git, no filesystem, no Effect — trivially unit-testable and safe to call
- * from both the LSP's protocol edge (`src/Lsp.ts`) and any other IO layer that
- * wants to read/validate a `qa`-mode steering file.
- */
-
 import type { SteeringEdit, SteeringFormat, SteeringOutlineNode } from "./SteeringFormat.js"
 
 export type OpenQuestionStatus = "open" | "answered"
 
 /**
- * The sentinel an UNFILLED free-text option carries in an OPEN question — the
- * last option line the producing agent renders as `- [ ] _your answer_`. The
- * human answers by REPLACING it with their own text (and ticking that line).
- * The parser normalizes a last-option text equal to this sentinel to `""`
- * (empty), so a ticked-but-unfilled free-text option reads as unanswered (see
- * `OpenQuestion.answered`). A fixed placeholder token, like `ReviewDoc`'s fixed
- * `# Review:`/`<!-- base: -->` markers.
+ * The sentinel an UNFILLED free-text option carries — the human answers by
+ * REPLACING it with their own text and ticking that line. The parser
+ * normalizes a last-option text equal to this to `""`, so a ticked-but-
+ * unfilled free-text option reads as unanswered (see `OpenQuestion.answered`).
  */
 export const FREE_TEXT_PLACEHOLDER = "_your answer_"
 
-/**
- * `QA_FORMAT`'s canonical sample (see `SteeringFormat.sample`'s doc comment) —
- * a minimal, valid `qa`-mode document: one open question with two options plus
- * the unfilled free-text slot. Deliberately not authored to survive any
- * particular formatter.
- */
+/** `QA_FORMAT`'s canonical sample: one open question with two options plus the unfilled free-text slot. Not authored to survive any particular formatter. */
 const QA_SAMPLE = `Sample plan. Add a thing.
 
 ## Open Questions
@@ -91,9 +29,8 @@ export interface QuestionOption {
   readonly text: string
   /** `true` for the LAST option of the block — the free-text "your answer" slot (identified positionally, not by label). */
   readonly freeText: boolean
-  /** 0-based line index of this option's own `- [ ]`/`- [x]` line, for editor tooling. */
   readonly sourceLine: number
-  /** 0-based line index of the LAST line of this option's list item — equal to `sourceLine` for a single-line option, greater when the item's text wraps onto continuation lines. Editor tooling maps a cursor anywhere in `sourceLine..endLine` to this option. */
+  /** 0-based line index of the LAST line of this option's list item — equal to `sourceLine` unless the item's text wraps onto continuation lines. */
   readonly endLine: number
 }
 
@@ -102,22 +39,13 @@ export interface OpenQuestion {
   readonly status: OpenQuestionStatus
   /** First non-blank body line (trimmed), or `""` — a short summary for editor tooling. */
   readonly text: string
-  /** 0-based line index of this question's `###` heading, for editor tooling. */
   readonly headingLine: number
-  /**
-   * The checkbox options parsed from this question's body, in document order.
-   * OPEN questions carry these (the agent authors `- [ ]` options + a trailing
-   * `- [ ] _your answer_`); ANSWERED questions are prose, so this is `[]` for
-   * them. The LAST option is the free-text slot (`freeText: true`).
-   */
+  /** Checkbox options in document order. `[]` for an ANSWERED question (prose, no checkboxes). The LAST option is the free-text slot. */
   readonly options: readonly QuestionOption[]
   /**
    * `true` when this OPEN question is fully answered: EXACTLY ONE option is
-   * ticked, and if that option is the free-text slot its text is non-empty (not
-   * the unfilled placeholder). Meaningful only for `status === "open"` with at
-   * least one option — the answer-completeness gate (`src/program.ts`) and the
-   * LSP outline both read it. Always `false` for a question with no options and
-   * for an answered question.
+   * ticked, and if that's the free-text slot its text is non-empty. Always
+   * `false` for a question with no options and for an answered question.
    */
   readonly answered: boolean
 }
@@ -137,11 +65,10 @@ interface Heading {
 }
 
 /**
- * Parses an ATX heading (`#`..`######` followed by a space and text, OR a bare
- * `###` run with no text), or `undefined` when the (trimmed) line isn't a
- * heading. A bare `### ` is a level-3 heading with empty `text` on purpose — an
- * open-question heading with no question text is the one structural error this
- * format reports, so it must be recognised rather than skipped as prose.
+ * Parses an ATX heading, or `undefined` when the line isn't one. A bare
+ * `### ` is a level-3 heading with empty `text` on purpose — a heading with no
+ * question text is the one structural error this format reports, so it must
+ * be recognised rather than skipped as prose.
  */
 const parseHeading = (line: string): Heading | undefined => {
   const match = /^(#{1,6})(?:\s+(.*))?$/.exec(line.trim())
@@ -155,12 +82,7 @@ interface QuestionBlock {
   readonly body: readonly string[]
 }
 
-/**
- * Splits the lines after a `## ... Questions` heading into consecutive `###`
- * blocks. Stops at the next level-1/2 heading (the end of the section) or EOF;
- * a heading deeper than level 3, or plain prose, is skipped as filler between
- * blocks.
- */
+/** Splits the lines after a `## ... Questions` heading into consecutive `###` blocks. Stops at the next level-1/2 heading or EOF. */
 const splitQuestionBlocks = (lines: readonly string[], start: number): readonly QuestionBlock[] => {
   const blocks: QuestionBlock[] = []
   let i = start
@@ -194,9 +116,8 @@ const CHECKBOX_RE = /^\s*[-*]\s*\[([ xX])\]\s?(.*)$/
 /**
  * The body index of the last line belonging to the list item that starts at
  * `index`: the run of following lines that are neither blank nor a checkbox of
- * their own (see the span rule in the module doc). Indentation is NOT
- * required — an unindented lazy wrap is as much part of the item as an
- * indented one.
+ * their own. Indentation is NOT required — an unindented lazy wrap is as much
+ * part of the item as an indented one.
  */
 const itemEndIndex = (body: readonly string[], index: number): number => {
   let end = index
@@ -210,11 +131,8 @@ const itemEndIndex = (body: readonly string[], index: number): number => {
 
 /**
  * Extracts the checkbox options from a question block's body, in document
- * order. The LAST option is the free-text slot (`freeText: true`); its text is
- * normalized to `""` when it still carries the unfilled `FREE_TEXT_PLACEHOLDER`.
- * `bodyStart` is the absolute 0-based line index of `body[0]` (the line right
- * after the `###` heading), so each option carries its true source line and
- * span (`itemEndIndex`).
+ * order. `bodyStart` is the absolute line index of `body[0]`, so each option
+ * carries its true source line and span.
  */
 const parseOptions = (body: readonly string[], bodyStart: number): QuestionOption[] => {
   const raw: { checked: boolean; text: string; sourceLine: number; bodyIndex: number }[] = []
@@ -256,7 +174,6 @@ const isAnswered = (options: readonly QuestionOption[]): boolean => {
   return !(chosen.freeText && chosen.text.length === 0)
 }
 
-/** Parses one question block into a well-formed `OpenQuestion`, or an error message. */
 const parseQuestionBlock = (
   block: QuestionBlock,
   status: OpenQuestionStatus,
@@ -269,8 +186,6 @@ const parseQuestionBlock = (
   }
 
   const firstNonBlank = block.body.map((line) => line.trim()).find((line) => line.length > 0) ?? ""
-  // Options are meaningful only for OPEN questions — an ANSWERED question is
-  // prose (the agent drops the checkboxes when it resolves and moves it down).
   const options = status === "open" ? parseOptions(block.body, block.headingLine + 1) : []
 
   return {
@@ -284,14 +199,10 @@ const parseQuestionBlock = (
 }
 
 /**
- * Parses the open-questions structure out of `content` (the raw text of
- * `.gtd/TODO.md` or `.gtd/ARCHITECTURE.md`). Total and side-effect-free:
- * always returns a result, never throws. `errors` is non-empty exactly when
- * the document violates the required structure (a `###` question under either
- * questions section with no question text) — the caller decides what to do with
- * that (`gtd validate` exits non-zero with them; the LSP publishes them as
- * diagnostics). Questions are returned in document order (by heading line)
- * regardless of which section comes first.
+ * Parses the open-questions structure out of `content`. Total and
+ * side-effect-free: always returns a result, never throws. Questions are
+ * returned in document order (by heading line) regardless of which section
+ * comes first.
  */
 export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   const lines = content.split(/\r?\n/)
@@ -321,11 +232,11 @@ export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   return { questions, errors }
 }
 
-/** Every OPEN question that is not answered (see `OpenQuestion.answered`), over a freshly-parsed document — the answer-completeness guard (`src/StepGuards.ts`) refuses a step while this is non-empty. */
+/** Every OPEN question that is not answered — the answer-completeness guard (`src/StepGuards.ts`) refuses a step while this is non-empty. */
 export const unansweredQuestions = (content: string): readonly OpenQuestion[] =>
   parseOpenQuestions(content).questions.filter((q) => q.status === "open" && !q.answered)
 
-/** Flips the `[ ]`/`[x]` box of the checkbox on line `line`, preserving the rest of the line exactly. `undefined` when the line has no LIST-MARKER checkbox (`CHECKBOX_RE`) — unlike a bare `/\[([ xX])\]/` scan, a `[x]` inside ordinary prose with no `- `/`* ` marker is not a checkbox. */
+/** Flips the checkbox on `line`, preserving the rest of the line exactly. `undefined` when the line has no LIST-MARKER checkbox — a bare `[x]` in ordinary prose doesn't count. */
 export const toggleCheckbox = (content: string, line: number): SteeringEdit | undefined => {
   const raw = content.split(/\r?\n/)[line]
   if (raw === undefined) return undefined
@@ -348,13 +259,7 @@ const spanRange = (lines: readonly string[], startLine: number, endLine: number)
   end: { line: endLine, character: (lines[endLine] ?? "").length },
 })
 
-/**
- * The outline marker for one question. Answered-section questions are
- * `[answered]`. An OPEN question is `[answered]` once exactly one option is
- * ticked (see `OpenQuestion.answered`) and `[unanswered]` otherwise — so the
- * `[unanswered]` entries are exactly the questions still blocking the
- * answer-completeness gate, navigable straight from the outline.
- */
+/** The outline marker for one question — `[unanswered]` entries are exactly the questions still blocking the answer-completeness gate. */
 const statusMarker = (question: OpenQuestion): string => {
   if (question.status === "answered") return "[answered]"
   return question.answered ? "[answered]" : "[unanswered]"
@@ -413,11 +318,9 @@ const optionAction = (
 
 /**
  * Actions for a `qa`-mode file: anywhere on an open question's option's list
- * item — its `- [ ]` line or any of its wrapped continuation lines (see
- * `QuestionOption.endLine`) — "pick this option" (radio semantics — check it
- * and uncheck every sibling in the same question, so exactly one stays
- * ticked) or "uncheck this option" when it is already the chosen one. No
- * action off an option's span, or on an answered-section (prose) question.
+ * item, "pick this option" (radio semantics) or "uncheck this option" when
+ * it's already chosen. No action off an option's span, or on an
+ * answered-section (prose) question.
  */
 const questionActions: SteeringFormat["actions"] = (content, range) => {
   const { questions } = parseOpenQuestions(content)

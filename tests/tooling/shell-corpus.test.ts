@@ -8,12 +8,10 @@ import {
   REVIEW_HEAD_REF,
 } from "../../src/ReviewWindow.js"
 
-// `scripts/generate-shell-corpus.ts` names each rendered `script`-content
-// state's corpus file "workflow.<qualified-state-name>.sh" — this test
-// cross-checks that naming against the COMPILED definition itself (not a
-// hand-maintained list of state names), so a new `script` state added to
-// src/workflows/unified.yaml later, with no matching corpus file, fails here
-// loudly instead of silently shipping uncovered by the shellcheck -s sh gate.
+// Cross-checks the corpus file names against the COMPILED definition itself
+// (not a hand-maintained list of state names), so a new `script` state added
+// to src/workflows/unified.yaml with no matching corpus file fails here
+// loudly instead of shipping uncovered by the shellcheck -s sh gate.
 const CORPUS_DIR = new URL("../shell/corpus/", import.meta.url)
 
 const readCorpus = (name: string): string =>

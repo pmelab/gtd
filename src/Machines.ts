@@ -1,91 +1,3 @@
-/**
- * Compile-time MACHINE FLATTENING — a raw `entry:`/`machines:` config in, a
- * flat `{ states, entries, tree }` out. This is the pure compile-time pass
- * that lets a workflow be AUTHORED as a tree of reusable, parameterized
- * "machines" (a gate/loop written once, instantiated several times with
- * different bindings — dedup — or a complex cluster grouped under one name
- * for source comprehension — encapsulation) while the rest of the compiler
- * (`src/PatternConfig.ts`) and the pure engine (`src/PatternMachine.ts`) only
- * ever see ordinary qualified states. No git, no filesystem, no Effect, no
- * runtime footprint — every export here is a plain function of its
- * arguments, and every finding is a pushed string on the shared `errors`
- * accumulator the caller threads through, never a throw.
- *
- * ## The raw shape
- *
- * ```yaml
- * entry:
- *   default: <machine name>     # which machine is the ROOT instance
- * machines:
- *   <name>:
- *     params: [<param>, ...]?   # advisory only — documents which $params a caller may bind
- *     entry: <local or ref key> # this machine's OWN default local, resolved recursively
- *     states:
- *       <local>: <StateDef>                              # an ordinary state
- *       <local>: { machine: <name>, with: { ... } }       # a REFERENCE — instantiates <name> as a child
- * ```
- *
- * ## Two passes over one `Instance` tree
- *
- * **Pass 1 (instantiate)** walks depth-first from `entry.default`'s machine
- * at the root (`path: ""`), turning every local `machine:` reference into a
- * child `Instance` at `parent.path + "." + local` — recording each local as
- * either a `state` or a `ref` (for later target resolution) along the way.
- * Guards push an error and skip only the offending subtree/local: a machine
- * reference cycle, an unknown `machine:` name, or a local name containing
- * `.` (which would be indistinguishable from a qualified reference path).
- * Any `machines:` entry never targeted by a reference (or the root) is
- * reported as unreferenced once both passes complete.
- *
- * **Pass 2 (emit)** clones each instance's own states into the flat
- * `states` map, keyed by qualified name (`qualify`), substituting `$param`
- * placeholders (whole-value only — a field whose ENTIRE value is `$name`,
- * never a substring, so bash `$var`/Eta `<%= %>` inside a `script:` survive
- * untouched) and rewriting every `on` target and `retry.otherwise` through
- * the resolver below.
- *
- * ## Bindings carry their scope
- *
- * A bound value cannot be resolved eagerly at the reference site (it is not
- * yet known whether it will be used as a TARGET, needing scope-aware
- * resolution, or spliced whole into a `describe:`/`prompt:` sentence, needing
- * none) and cannot be resolved lazily purely in the callee's own scope (it
- * was written in the CALLER's). So a `Binding` is a value plus the instance
- * path it was written in (`scope`) — see `Binding`/`Bindings`. Building a
- * child's bindings at a reference site substitutes each `with:` value
- * against the caller's OWN bindings first: if it names another binding, that
- * binding is passed down WHOLE, scope intact, which is what makes a param
- * threaded grandparent → parent → child resolve in the grandparent's
- * namespace rather than the parent's or child's.
- *
- * ## The resolver
- *
- * Resolving a target string written in instance `I` (`resolveCore`):
- *
- * 1. `$param` → look up `I.bindings[name]`; missing or non-string is an
- *    "unbound param" finding. Otherwise resolve `binding.value` starting
- *    over at `binding.scope` (recursing through however many bindings were
- *    chained).
- * 2. Split on the first `.`. The leading segment must name a local of `I`:
- *    a state with no remainder qualifies directly; a reference with no
- *    remainder resolves THAT machine's own `entry:` recursively (so a chain
- *    of references collapses to a real state); a reference with a remainder
- *    recurses into the child using the remainder; anything else (not a
- *    local, or a remainder against a state) is the sideways/upward refusal.
- *
- * The root machine's own `entry:` (which becomes `FlattenedWorkflow.entries.
- * default`) runs through the exact same resolver seeded at the ROOT instance
- * — accepting either a bare state path or an instance/reference-key path
- * uniformly — but surfaces a distinctly worded finding (`"entry.default"
- * names "y", which is not a state or machine reference`) since there is no
- * single owning state to blame.
- *
- * The `MachineNode` tree (`FlattenedWorkflow.tree`) is a plain projection of
- * the `Instance` tree Pass 1 built — which concrete states each instance
- * directly owns — kept around for a future visualizer (Package 05's
- * `Visualize.ts`) to render; this module only produces the data.
- */
-
 import { MACHINE_FIELD_ENTRIES } from "./StateFields.js"
 import type { StateName } from "./PatternMachine.js"
 
@@ -105,10 +17,12 @@ const PARAM_REF = /^\$([A-Za-z_][A-Za-z0-9_]*)$/
 export type InstancePath = string
 
 /**
- * A bound value plus the instance whose namespace it was written in — see the
- * "Bindings carry their scope" section of the module doc comment. `value` is
- * `unknown` because a target position requires a string, but a non-target
- * field may bind anything a `with:` clause can express.
+ * A bound value plus the instance whose namespace it was written in. A
+ * `with:` value naming another binding is passed down WHOLE (value and scope
+ * unchanged), which is what makes a param threaded grandparent → parent →
+ * child resolve in the grandparent's namespace rather than the parent's or
+ * child's. `value` is `unknown` because a target position requires a string,
+ * but a non-target field may bind anything a `with:` clause can express.
  */
 export interface Binding {
   readonly value: unknown
@@ -156,8 +70,6 @@ const qualify = (path: InstancePath, local: string): string =>
 /** A local is a REFERENCE iff its raw value carries a `machine` key. */
 const isRef = (v: unknown): v is { machine: string; with?: Record<string, unknown> } =>
   isPlainObject(v) && typeof v["machine"] === "string"
-
-// ── Pass 1 — instantiate ─────────────────────────────────────────────────────
 
 /**
  * Resolve one `with:` value against the CALLER's own bindings: a whole-value
@@ -285,14 +197,12 @@ const instantiate = (
   return instance
 }
 
-// ── The resolver ─────────────────────────────────────────────────────────────
-
 type ResolveResult =
   | { readonly kind: "ok"; readonly value: string; readonly trail: readonly string[] }
   | { readonly kind: "unbound"; readonly name: string; readonly trail: readonly string[] }
   | { readonly kind: "invalid"; readonly machine: string; readonly trail: readonly string[] }
 
-/** Resolve a `$param` target: recurse into the binding's own scope instance (see "Bindings carry their scope"), or report it unbound. */
+/** Resolve a `$param` target: recurse into the binding's own scope instance, or report it unbound. */
 const resolveParamTarget = (
   name: string,
   instance: Instance,
@@ -341,11 +251,15 @@ const resolveLocalTarget = (
 }
 
 /**
- * The pure target resolution at the heart of this module — see the "The
- * resolver" section of the module doc comment. `trail` accumulates the
- * reference-key breadcrumb for a "reference, no remainder" hop (recursing
- * into a machine's own `entry:`), so a finding surfacing from deep inside
- * that recursion can still name the reference it went through.
+ * The pure target resolution at the heart of this module: a `$param` looks up
+ * `instance.bindings` and resolves the binding's value starting over at its
+ * own scope; otherwise the target is split on the first `.` — the leading
+ * segment must name a local of `instance` (a state with no remainder
+ * qualifies directly; a reference with no remainder resolves that machine's
+ * own `entry:` recursively; a reference with a remainder recurses into the
+ * child). `trail` accumulates the reference-key breadcrumb for a
+ * "reference, no remainder" hop, so a finding surfacing from deep inside that
+ * recursion can still name the reference it went through.
  */
 const resolveCore = (
   target: string,
@@ -408,8 +322,6 @@ const resolveEntry = (
   errors.push(`"${entryKey}" names "${target}", which is not a state or machine reference`)
   return undefined
 }
-
-// ── Pass 2 — emit ────────────────────────────────────────────────────────────
 
 /** Substitute a WHOLE-value `$param` in any scalar field against `instance`'s own bindings — a literal splice, no scope-aware resolution. */
 const substituteScalar = (
@@ -478,7 +390,6 @@ const emitOn = (
   return out
 }
 
-/** Rewrite a `retry` block's `otherwise` target through the resolver (and pass `max` through). */
 const emitRetry = (
   raw: unknown,
   instance: Instance,
@@ -497,7 +408,6 @@ const emitRetry = (
   return next
 }
 
-/** Clone one instance's own local state, applying `$param` substitution and `on`/`retry` target resolution. */
 const emitState = (
   stateRaw: unknown,
   instance: Instance,
@@ -558,7 +468,6 @@ const resolveInstanceMachineFields = (
   return resolved
 }
 
-/** Walk the instance tree, emitting every instance's own direct states into `states` (qualified). */
 const emitTree = (
   instance: Instance,
   machinesRaw: Record<string, unknown>,
@@ -591,7 +500,6 @@ const emitTree = (
     emitTree(child, machinesRaw, states, scopes, instancesByPath, errors)
 }
 
-/** Project an `Instance` tree into its `MachineNode` visualization tree. */
 const buildTree = (instance: Instance): MachineNode => ({
   key: instance.path === "" ? instance.machine : instance.path,
   machine: instance.machine,
@@ -601,14 +509,14 @@ const buildTree = (instance: Instance): MachineNode => ({
   children: instance.children.map(buildTree),
 })
 
-// ── Entry point ──────────────────────────────────────────────────────────────
-
 /**
- * Flatten a raw `entry:`/`machines:` config into qualified states, resolved
- * entry points, and a visualization tree — see the module doc comment.
+ * Flatten a raw `entry:`/`machines:` config — a tree of reusable,
+ * parameterized "machines" a workflow is authored with — into qualified
+ * states, resolved entry points, and a visualization tree, so the rest of the
+ * compiler and the pure engine only ever see ordinary qualified states.
  * Findings are pushed onto `errors`; a structurally invalid `raw` (not an
- * object, or missing `entry.default`) yields the all-empty/`undefined`
- * shape without attempting the passes.
+ * object, or missing `entry.default`) yields the all-empty/`undefined` shape
+ * without attempting the passes.
  */
 export const flattenMachines = (raw: unknown, errors: string[]): FlattenedWorkflow => {
   const empty: FlattenedWorkflow = { states: {}, entries: undefined, tree: undefined, scopes: {} }

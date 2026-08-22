@@ -1,55 +1,3 @@
-/**
- * Pure parser/validator for the review structure `.gtd/REVIEW.md` must
- * follow — formalizing the shape the unified template's `reviewing` prompt
- * (`src/workflows/unified.yaml`) already tells the agent to write:
- *
- * ```markdown
- * # Review: <short-hash>
- *
- * <!-- base: <full-hash> -->
- *
- * ## <Chunk Title>
- *
- * <What this chunk changes and why>
- *
- * - [ ] ./path/to/file.ts#42
- *   what this hunk does, with room to run to several lines
- * - [ ] ./path/to/file.ts#99 — or the note can trail the pointer on its own line
- * ```
- *
- * Required: the `# Review: <hash>` header (as the document's first non-blank
- * line), the `<!-- base: <hash> -->` comment, and at least one `##` chunk
- * with a non-empty title and at least one `- [ ]` / `- [x]` file pointer.
- *
- * A file pointer's path is ONE whitespace-delimited `./`-relative token, with
- * an optional `#<line>` suffix of that same token — a hyphen (or em/en dash) in
- * a filename is part of the path, never a separator. The explanation may trail
- * the pointer on its own same line, continue on the line(s) below it, or both
- * — same-line text first, then the below-pointer lines, joined with a single
- * space. Every line after a pointer belongs to that pointer as its
- * explanation (`note`), until the next pointer or the next `##` heading;
- * indentation is optional, and a blank line between two continuation
- * paragraphs stays inside the span. Only lines before a chunk's FIRST pointer
- * are chunk-level description. **The one surviving rule: a note never begins
- * with a bare `./path` token** — that parses as a second hunk pointer instead
- * of an explanation, and gtd flags it as a positioned finding rather than
- * silently swallowing the second hunk.
- *
- * **The format's single source of truth.** This module is the EXECUTABLE SPEC
- * of that format — its own unit tests (`ReviewDoc.test.ts`) are the format's
- * spec tests. Both consumers of the format run THIS parser, so there is no
- * second implementation to keep in sync: the `gtd validate` CLI command
- * (`src/program.ts`) parses the resolved state's `review`-mode file and exits
- * non-zero with the `errors` below, and the LSP (`src/Lsp.ts`) publishes the
- * same findings as live diagnostics. The engine (`PatternMachine`/`Edge`/the
- * bundled workflow) itself stays git/filesystem/Effect-dependency-free of this
- * module, and this module stays independent of any particular workflow's shape.
- *
- * No git, no filesystem, no Effect — trivially unit-testable and safe to call
- * from both the LSP's protocol edge (`src/Lsp.ts`) and any other IO layer that
- * wants to read/validate `.gtd/REVIEW.md`.
- */
-
 import type {
   SteeringEdit,
   SteeringFinding,
@@ -73,7 +21,7 @@ export interface Changeset {
   readonly title: string
   readonly description: string
   readonly files: readonly ReviewFile[]
-  /** 0-based line index of this chunk's `##` heading, for editor tooling. */
+  /** 0-based index of this chunk's `##` heading. */
   readonly headingLine: number
 }
 
@@ -85,10 +33,9 @@ export interface ReviewDoc {
 }
 
 /**
- * `REVIEW_FORMAT`'s canonical sample (see `SteeringFormat.sample`'s doc
- * comment) — a minimal, valid `review`-mode document: the header, the base
- * comment, and one chunk with one file pointer. Deliberately not authored to
- * survive any particular formatter.
+ * `REVIEW_FORMAT`'s canonical sample — a minimal, valid `review`-mode
+ * document: the header, the base comment, and one chunk with one file
+ * pointer. Deliberately not authored to survive any particular formatter.
  */
 const REVIEW_SAMPLE = `# Review: sample123
 <!-- base: 0000000000000000000000000000000000000000 -->
@@ -142,7 +89,7 @@ const isPointerToken = (token: string): boolean => {
   return path.length > 2 // `./` with nothing after it is not a path
 }
 
-/** One `- [ ]` / `- [x]` file-pointer line, or `undefined` if `line` isn't one. Text trailing the pointer token on its own line still parses — it becomes the note's inline segment (see the module docstring), not an error. */
+/** One `- [ ]` / `- [x]` file-pointer line, or `undefined` if `line` isn't one. Text trailing the pointer token on its own line still parses as the note's inline segment, not an error. */
 const parseFilePointer = (line: string, sourceLine: number): ParsedPointer | undefined => {
   const match = FILE_POINTER_RE.exec(line)
   if (!match) return undefined
@@ -290,7 +237,6 @@ const parseChunkBody = (
   return { description: descriptionLines.join(" "), files, errors }
 }
 
-/** Splits the document into `##` chunks, each with its title, heading line, and body lines. */
 const splitChunks = (
   lines: readonly string[],
 ): ReadonlyArray<{ title: string; headingLine: number; body: BodyLine[] }> => {
@@ -315,7 +261,6 @@ const splitChunks = (
   return chunks
 }
 
-/** Parses every `##` chunk into a `Changeset`, collecting one error per chunk with no file pointers plus each chunk body's own second-pointer errors. */
 const parseChangesets = (
   lines: readonly string[],
 ): { readonly changesets: readonly Changeset[]; readonly errors: readonly SteeringFinding[] } => {
@@ -331,7 +276,7 @@ const parseChangesets = (
   return { changesets, errors }
 }
 
-/** Shared by `parseReviewDoc` and `REVIEW_FORMAT.validate` — the latter needs each finding's `line` (Task 3), which `ReviewDoc.errors` (plain strings, for backward-compatible callers) drops. */
+/** Shared by `parseReviewDoc` and `REVIEW_FORMAT.validate` — the latter needs each finding's `line`, which `ReviewDoc.errors` (plain strings) drops. */
 const parseReviewFindings = (
   content: string,
 ): {
@@ -517,7 +462,6 @@ const reviewPointerAt = (
   return { path: hunk.path, line: hunk.line !== undefined ? hunk.line - 1 : 0 }
 }
 
-/** The `review` steering format: gtd's own in-process review-checkbox format — validation, outline, code actions, and `pointerAt` (a hunk pointer's go-to-definition target). */
 export const REVIEW_FORMAT: SteeringFormat = {
   sample: REVIEW_SAMPLE,
   validate: (content) => parseReviewFindings(content).findings,

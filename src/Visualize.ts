@@ -20,38 +20,6 @@ import type { ResolvedRest } from "./Edge.js"
 import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
 import visualizeHtml from "./visualize.html"
 
-/**
- * `gtd visualize` — the read-only workflow viewer (see `runVisualizeCommand` in
- * `src/program.ts`). It builds a plain JSON DESCRIPTION of the active workflow
- * (`VizModel`) and serves it, alongside a self-contained HTML page
- * (`src/visualize.html`, bundled as text), from a tiny local HTTP server.
- * `visualize.html` fetches `/workflow.json` and draws the main flow with each
- * sub-machine invocation collapsed into a single opaque black-box node — the
- * "one box per invocation" diagram — plus a separate, real Mermaid diagram per
- * sub-machine (its own member states, true shapes/colours, and a muted ghost
- * node for any edge leaving the group) rendered below (each diagram supporting
- * scroll/drag pan-zoom), and a per-state inspector whose drawer also shows the
- * state's own raw `script`/`prompt`/`message` source (`VizState.content`,
- * omitted for a commit state) — the text that actually instructs the actor,
- * not just the state's shape.
- *
- * A third route, `/state.json`, serves best-effort CURRENT-STATE info: the
- * `CurrentStateModel` built by `buildCurrentStateModel` — where the active
- * process rests right now, which `on` edge would fire on its pending changes,
- * its retry redirect, and the pending changes themselves. The browser fetches
- * it ONCE at page load (no polling — a refresh re-reads) to render a "Current
- * state" panel — including a readout of those pending changes, explaining
- * which edge is about to fire and why — and highlight the resting node in
- * both the main flow and its sub-machine diagram. This route is served by a
- * caller-supplied `resolveCurrent` callback (`startVizServer`'s 4th argument)
- * so this module stays git/Effect-free; `program.ts`'s `runVisualizeCommand`
- * supplies one backed by `resolveRest`.
- *
- * Everything here is a plain function of its inputs — no Effect, no git — so the
- * model builders and the request handler unit-test directly; `program.ts` wires
- * the server (and its `resolveCurrent` callback) into the Effect runtime.
- */
-
 /** One `on` edge, flattened for the viewer. */
 export interface VizEdge {
   readonly pattern: string
@@ -60,13 +28,7 @@ export interface VizEdge {
   readonly action?: string
 }
 
-/**
- * Every `StateDef` field the visualizer presents as a key/value field (as
- * opposed to a boolean flag chip — see `FLAG_KEYS` below): a derived mapped
- * type over `STATE_FIELDS`' own `viz === "field"` entries, so a new field
- * declaring `viz: "field"` shows up here — and in `toVizState`/`FIELD_DOCS`
- * below — with no separate edit.
- */
+/** Every `StateDef` field marked `viz: "field"` in `STATE_FIELDS` (key/value, as opposed to a boolean flag chip — see `FLAG_KEYS`) — derived so a new such field needs no separate edit here. */
 type VizFieldName = {
   [K in keyof StateFieldsTable]: StateFieldsTable[K] extends { viz: "field" } ? K : never
 }[keyof StateFieldsTable]
@@ -94,13 +56,10 @@ export interface VizState extends VizFields {
 export interface VizGroup {
   /** The instance path — e.g. `packages.health`. */
   readonly name: string
-  /** The machine this instance instantiates. */
   readonly machine: string
   /** This instance's DIRECT states only (its descendants get their own entries). */
   readonly states: readonly string[]
-  /** The enclosing instance path — absent for a top-level reference. */
   readonly parent?: string
-  /** `0` for a top-level reference, incrementing with nesting depth. */
   readonly depth: number
   /** This instance's machine's own `model:` (stamped onto every one of its `prompt`-content states — see `Machines.ts`'s `resolveInstanceMachineFields`), read off any one of them. Absent when the machine declares no `model:` or owns no `prompt` state. */
   readonly model?: string
@@ -120,7 +79,7 @@ const VIZ_FIELD_NAMES: readonly string[] = STATE_FIELD_ENTRIES.filter(
   ([, spec]) => spec.viz === "field",
 ).map(([key]) => key)
 
-/** Every state property name marked `viz: "flag"` in `STATE_FIELDS` — the boolean flags that are set. `initial` is NOT among them — it is carried as its own `VizState.initial` field. `entry` is also excluded — it is not a per-state `StateDef` flag but derived from whether the state's name appears in `WorkflowDefinition.entries.manual`, the same way `initial` is derived from `entries.default` (see `toVizState`'s `entries` parameter). */
+/** Every state property marked `viz: "flag"` — excludes `initial` (its own `VizState` field) and `entry` (derived from `entries.manual`, not a `StateDef` field). */
 const FLAG_KEYS: readonly string[] = STATE_FIELD_ENTRIES.filter(
   ([, spec]) => spec.viz === "flag",
 ).map(([key]) => key)
@@ -129,7 +88,7 @@ const fieldOf = (def: StateDef, key: string): unknown => (def as Record<string, 
 
 const flagsOf = (def: StateDef): string[] => FLAG_KEYS.filter((k) => fieldOf(def, k) === true)
 
-/** Every `viz: "field"` value that's actually set on `def`, keyed by field name — `toVizState`'s replacement for five individual `actor`/`model`/`file`/`mode`/`retry` spreads. */
+/** Every `viz: "field"` value actually set on `def`, keyed by field name. */
 const vizFieldsOf = (def: StateDef): Record<string, unknown> => {
   const out: Record<string, unknown> = {}
   for (const key of VIZ_FIELD_NAMES) {
@@ -148,7 +107,7 @@ const stripUndefined = (o: Record<string, unknown>): Record<string, unknown> => 
   return o
 }
 
-/** Describe one compiled state for the viewer (optional fields omitted when unset). `onEdges` is that state's `on`, ALREADY RENDERED against `it.vars` (see `buildVizModel`) — never `def.on` directly, which would show the unrendered literal. `entries` is the workflow's `entries` — `name`'s match against `.default`/`.manual` drives `initial`/the `entry` flag. */
+/** Describe one compiled state for the viewer. `onEdges` must be already rendered against `it.vars` (see `buildVizModel`), never the unrendered `def.on`. */
 const toVizState = (
   name: string,
   def: StateDef,
@@ -169,7 +128,7 @@ const toVizState = (
     group,
   }) as unknown as VizState
 
-/** Render one `on` pattern key against `vars` (see `Edge.ts`'s `renderOnEdges`), falling back to the raw pattern string on a render failure — the viewer is best-effort, unlike a real step (which refuses). */
+/** Render one `on` pattern against `vars`, falling back to the raw string on failure — the viewer is best-effort, unlike a real step (which refuses). */
 const renderPatternOrRaw = (pattern: string, vars: Record<string, string>): string => {
   try {
     return renderStateTemplate(pattern, varsOnlyContext(vars))
@@ -196,20 +155,17 @@ const renderedOnByState = (
     ]),
   )
 
-/** A state's owning instance path, straight from `scopes` (`CompiledWorkflowConfig.scopes`/`ConfigOperations.stateScopes`) — a direct lookup, NOT a string chop off the qualified name (a state's group is not always "everything before the last dot"). `""` (the root instance's own path) means root-owned, reported as `undefined` here — same convention `VizState.group` has always had for a root-owned state. */
+/** A state's owning instance path, from `scopes` — a direct lookup, not a string chop off the qualified name (a state's group isn't always "everything before the last dot"). Root-owned (`""`) reports as `undefined`. */
 const groupOf = (name: string, scopes: Record<StateName, string>): string | undefined => {
   const scope = scopes[name]
   return scope === "" || scope === undefined ? undefined : scope
 }
 
 /**
- * Flatten a `MachineNode` tree (`CompiledWorkflowConfig.tree`, from
- * `src/Machines.ts`'s `flattenMachines`) into `VizModel.groups` — a flat,
- * depth-first array of every instance STRICTLY BELOW the root (the root
- * machine itself is the canvas, never a box). Kept flat (rather than a
- * recursive payload) so every index-based front-end helper
- * (`groupBoxId`/`groupIndexOf`/`scrollToSubmachine`/etc — `src/visualize.html`)
- * keeps working unchanged.
+ * Flatten a `MachineNode` tree into `VizModel.groups` — a flat, depth-first
+ * array of every instance strictly below the root (the root machine is the
+ * canvas, never a box). Kept flat so index-based front-end helpers
+ * (`src/visualize.html`) keep working unchanged.
  */
 const flattenTree = (
   node: MachineNode,
@@ -230,13 +186,9 @@ const flattenTree = (
 }
 
 /**
- * The `model` of one group — a machine instance's own `model:`, read off any
- * ONE of that group's own prompt-content states (by construction every prompt
- * state one machine instance owns carries the identical `def.model` — see
- * `Machines.ts`'s `resolveInstanceMachineFields`/`emitTree`). `undefined` when the
- * group owns no prompt state (e.g. a queue/gate machine of only
- * script/message/commit states) or its machine declares no `model:` — never
- * guessed.
+ * A group's `model:`, read off any one of its prompt-content states (every
+ * prompt state one machine instance owns carries the identical `def.model`).
+ * `undefined` when the group owns no prompt state or declares no `model:`.
  */
 const modelOfGroup = (
   groupName: string,
@@ -250,13 +202,9 @@ const modelOfGroup = (
 }
 
 /**
- * Tooltip/description text for every field the visualizer can show, keyed by
- * field name: every `STATE_FIELDS` entry that declares a `viz` (both the
- * `"field"` key/value fields and the `"flag"` chips), plus two entries with
- * no `viz`-marked `StateFields` counterpart — `entry` (derived from
- * `entries.manual`, not a `StateDef` field, so it needs its own explicit
- * inclusion here) and `initial` (a derived pseudo-flag with no `StateFields`
- * entry at all; kept as the viewer's own hand-written sentence).
+ * Tooltip text for every field the visualizer can show, keyed by field name:
+ * every `viz`-marked `STATE_FIELDS` entry, plus `entry`/`initial` (both
+ * derived pseudo-flags with no `StateFields` entry of their own).
  */
 const FIELD_DOCS: Record<string, string> = {
   ...Object.fromEntries(
@@ -269,16 +217,7 @@ const FIELD_DOCS: Record<string, string> = {
   initial: "The one initial state — an unrecognized HEAD (any non-gtd history) resolves here.",
 }
 
-/**
- * Build the viewer's JSON description from the active COMPILED workflow plus
- * the machine tree its flattening produced (`CompiledWorkflowConfig.tree`)
- * and the memory-scope map its flattening produced alongside it
- * (`CompiledWorkflowConfig.scopes`/`ConfigOperations.stateScopes`) — qualified
- * state name -> the machine-instance path that owns it. `vars` is shown for
- * reference, AND used to render every state's `on` pattern (see
- * `renderedOnByState`) so the diagram shows real paths rather than a
- * repointed var's stale literal.
- */
+/** Build the viewer's JSON description from the compiled workflow, its machine tree, and its scope map. `vars` is shown for reference and used to render every state's `on` pattern to a real path rather than a stale literal. */
 export const buildVizModel = (
   workflow: WorkflowDefinition,
   tree: MachineNode,
@@ -345,16 +284,11 @@ export interface CurrentStateModel {
 }
 
 /**
- * Describe the currently-rested state for the viewer: its `on` edges each
- * flagged with whether it's the one that would fire on the CURRENT pending
- * changes (same first-match semantics `PatternMachine.step` decides a real
- * step with), plus the retry redirect and pending changes verbatim. `onEdges`
- * is the resting state's `on` edges ALREADY RENDERED against `it.vars` (see
- * `Edge.ts`'s `renderOnEdges`) — this function never renders anything itself,
- * it only matches/emits from what it's given (never `rest.stateDef.on`, which
- * would be the unrendered literal). `group` is threaded in by the caller
- * (already computed once by `buildVizModel` from the same workflow) rather
- * than recomputed here.
+ * Describe the currently-rested state: its `on` edges flagged with whether
+ * each is the one that would fire on the current pending changes (same
+ * first-match semantics as a real step), plus retry/pending verbatim.
+ * `onEdges` must already be rendered against `it.vars` — never the unrendered
+ * `rest.stateDef.on`.
  */
 export const buildCurrentStateModel = (
   rest: ResolvedRest,
@@ -383,7 +317,6 @@ export const buildCurrentStateModel = (
   }) as unknown as CurrentStateModel
 }
 
-/** A ready-to-send HTTP response for a viewer route. */
 export interface VizResponse {
   readonly status: number
   readonly contentType: string
@@ -408,17 +341,11 @@ export const handleVizRequest = (pathname: string, model: VizModel): VizResponse
 }
 
 /**
- * Start the viewer's HTTP server, resolving once it is listening with the
- * chosen URL (a `port` of `0` picks a free port). Rejects if the port is in
- * use. The caller owns the returned `server` (closes it on shutdown).
- *
- * `resolveCurrent`, when given, backs an extra `/state.json` route serving
- * where the active process rests right now (resolved fresh on every request
- * — there's no polling on the browser side, just a single fetch at page
- * load). It resolves to `null` when there's no active process to report
- * (not a repo, no commits) — served as `{}`. This route is handled INLINE
- * (not through `handleVizRequest`) because it's async and per-request, unlike
- * the static routes `handleVizRequest` serves synchronously from a fixed model.
+ * Start the viewer's HTTP server (`port: 0` picks a free port). The caller
+ * owns the returned `server`. `resolveCurrent`, when given, backs a
+ * `/state.json` route resolved fresh per request (served as `{}` when there's
+ * no active process) — handled inline rather than via `handleVizRequest`
+ * since it's async, unlike the static routes.
  */
 export const startVizServer = (
   model: VizModel,

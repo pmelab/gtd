@@ -72,7 +72,6 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Then it succeeds
     And the last commit subject is "gtd(check): picking → building"
 
-    # building (task 1): implements it, deletes the task file, back to picking
     Given the file ".gtd/tasks/01-a.md" is deleted
     When I run gtd land
     Then it succeeds
@@ -87,7 +86,6 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Then it succeeds
     And the last commit subject is "gtd(check): picking → building"
 
-    # building (task 2): implements it, deletes the task file, back to picking
     Given the file ".gtd/tasks/02-b.md" is deleted
     When I run gtd land
     Then it succeeds

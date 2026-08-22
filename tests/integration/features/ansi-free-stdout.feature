@@ -57,15 +57,10 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
 
   @inmem
   Scenario: no escape sequence appears in gtd's own stdout for a message, a prompt, a script and a land (in-memory tier)
-    # idle: a plain message rest — gtd next prints the header block, then a
-    # blank line, then the message text (gtd status is gone; this surface
-    # merged into gtd next).
     When I run gtd next
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # working: a prompt rest (agent actor, `prompt:` field) — `gtd next`
-    # prints the prompt text itself.
     Given a file "NOTE.md" with:
       """
       a note
@@ -94,15 +89,10 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
 
   @live
   Scenario: no escape sequence appears in gtd's own stdout for a message, a prompt, a script and a land (live tier)
-    # idle: a plain message rest — gtd next prints the header block, then a
-    # blank line, then the message text (gtd status is gone; this surface
-    # merged into gtd next).
     When I run gtd next
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # working: a prompt rest (agent actor, `prompt:` field) — `gtd next`
-    # prints the prompt text itself.
     Given a file "NOTE.md" with:
       """
       a note

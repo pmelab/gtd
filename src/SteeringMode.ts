@@ -7,53 +7,12 @@ import type { SteeringFinding, SteeringFormat } from "./SteeringFormat.js"
 import { knownModes, type StateMode, type WorkflowDefinition } from "./PatternMachine.js"
 import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 
-/**
- * The steering-file MODE edge: resolving a state's `mode:` to a format/validate
- * pair and performing it.
- *
- * A mode is a pair of operations over ONE file:
- *
- * 1. **format** — rewrite the file in place, so whatever a human or an agent
- *    just wrote is normalized before anything judges it.
- * 2. **validate** — report findings (zero findings = valid).
- *
- * The two halves resolve INDEPENDENTLY, each from the first layer that provides
- * it:
- *
- * - **format** — only ever a `modes:` entry's `format:` SHELL COMMAND. gtd
- *   ships no formatter of its own: a project brings `prettier`, `dprint`, or a
- *   script of its own and plugs it into whichever mode it wants formatted. No
- *   command, no formatting.
- * - **validate** — a `modes:` entry's `validate:` command if declared;
- *   otherwise, for a name the built-in registry knows (`src/SteeringFormats.ts`
- *   — currently `qa`/`review`), that format's own pure parser (`SteeringFormat.
- *   validate`). Those stay in process because `gtd lsp` publishes the same
- *   parsers as live diagnostics/outline/actions. Any OTHER mode name — `prose`,
- *   or any workflow-declared name — is FORMAT-ONLY unless a `modes:` entry
- *   declares its own `validate:` command: it has no in-process parser, so it
- *   validates nothing on its own.
- *
- * That per-half layering is what makes a built-in mode EXTENSIBLE rather than
- * all-or-nothing: `modes: { qa: { format: "npx prettier --write <%= it.file %>" } }`
- * adds formatting to `qa` and keeps gtd's open-questions validation; the same
- * shape on `prose` adds formatting with no validation to add or keep.
- *
- * A command is an Eta template rendered with `it.file` bound to the rendered
- * steering-file path, then executed verbatim via `bash -c`. The contract is the
- * shell's own: for `validate`, exit 0 means valid and a non-zero exit means
- * invalid with its output (stdout then stderr) as the findings; for `format`, a
- * non-zero exit is a hard error (broken tooling, not a malformed file). gtd
- * interprets NOTHING beyond exit code and output — the same discipline the loop
- * driver applies to a scripted check actor, and the ONLY place gtd itself spawns
- * a subprocess (a workflow script is run by the driver, never by gtd).
- */
-
 /** How a resolved mode validates: a shell command, or a built-in format's own in-process parser. */
 export type ResolvedValidator =
   | { readonly kind: "command"; readonly command: string }
   | { readonly kind: "builtin"; readonly format: SteeringFormat }
 
-/** A state's `mode:` resolved against the active definition — each half from the first layer that provides it (see the module docstring). */
+/** A state's `mode:` resolved against the active definition: `format`/`validate` each resolve independently, from the first layer that provides them (a declared `modes:` command, else — for `validate` only — a built-in format's own parser). */
 export interface ResolvedMode {
   readonly mode: StateMode
   /** The built-in `SteeringFormat` registered under this mode's NAME (`src/SteeringFormats.ts`), independent of who ends up validating — present even when a declared `validate:` command overrides the format's own parser (see `resolveSteeringMode`). Absent when the name is not in the built-in registry at all. */
@@ -65,18 +24,14 @@ export interface ResolvedMode {
 }
 
 /**
- * Resolve a `mode:` name against ONLY `def.modes` plus the built-in registry
+ * Resolve a `mode:` name against `def.modes` plus the built-in registry
  * (`src/SteeringFormats.ts`) — half by half: a declared `format:`/`validate:`
  * wins, and an undeclared `validate:` falls back to the built-in format's own
  * parser when the name is registered. `builtIn` is set from the registry
- * ALONE, independent of which half of `validate` ends up winning — so
- * `modes: { qa: { validate: "…" } }` still carries `builtIn: QA_FORMAT`
- * (a declared validator overrides validation, not the format identity;
- * `steeringCapabilities` is what reads `validate.kind` to decide whether the
- * format's own parser is actually live). `undefined` for a name that is
- * neither declared in `def.modes` nor in the built-in registry —
- * `validateDefinition` rejects that at load time, so the edge only ever sees
- * it as a defensive case.
+ * ALONE, independent of which half of `validate` wins — a declared validator
+ * overrides validation, not the format identity. `undefined` for a name
+ * neither declared nor built in; `validateDefinition` rejects that at load
+ * time, so this is a defensive case.
  */
 export const resolveSteeringMode = (
   def: WorkflowDefinition,
@@ -112,20 +67,16 @@ export const resolveBuiltInMode = (mode: StateMode): ResolvedMode | undefined =>
 }
 
 /**
- * What a resolved mode can DO, read off `ResolvedMode` for a consumer (the LSP,
- * the sign-off/answer gates) that only cares about capability, not resolution
- * mechanics: `format` is the built-in format (outline/actions/pointer), present
- * whenever `builtIn` is; `liveValidate` is that format's own `validate`
- * function, present when `builtIn` is present AND the validator is either the
- * built-in kind OR a command that is gtd's OWN SEEDED string for this mode
- * (`src/SteeringFormats.ts`'s `isSeededValidateCommand` — a workflow compiler
- * seeding `qa`/`review`'s own `gtd check <mode> '<file>'` behind the scenes
- * changes nothing about how the file is actually validated, so the LSP must
- * keep publishing live diagnostics rather than switch to an external notice);
- * `externalValidate` is `true` IFF `validate.kind === "command"` AND that
- * command is NOT the seeded string — a genuine user override of a built-in
- * mode's `validate:`, or any command-validated non-built-in mode, which the
- * LSP shows a notice for instead of live diagnostics.
+ * What a resolved mode can DO, for a consumer (the LSP, the sign-off/answer
+ * gates) that only cares about capability, not resolution mechanics:
+ * `liveValidate` is the built-in format's own `validate` function, present
+ * when the validator is either the built-in kind OR a command that is gtd's
+ * own SEEDED string for this mode (`isSeededValidateCommand` — the compiler
+ * seeding `qa`/`review`'s own `gtd check` command behind the scenes changes
+ * nothing about how the file is actually validated). `externalValidate` is
+ * `true` for a genuine user override of a built-in mode's `validate:`, or any
+ * command-validated non-built-in mode — the LSP shows a notice for that
+ * instead of live diagnostics.
  */
 export interface SteeringCapabilities {
   readonly format?: SteeringFormat
@@ -168,9 +119,9 @@ const exitText = (status: number | null): string =>
  * `127` is bash's own convention for "command not found" — the ONE
  * observable "missing binary" site in gtd: a steering mode's `format:`/
  * `validate:` command, the only place gtd itself spawns a subprocess (a
- * workflow `script:` is run by the driver, never by gtd — see the module
- * doc comment above). The resolved `$PATH` bash searched is the remediation
- * detail (`Commentary.ts`'s `GtdError`).
+ * workflow `script:` is run by the driver, never by gtd). The resolved
+ * `$PATH` bash searched is the remediation detail (`Commentary.ts`'s
+ * `GtdError`).
  */
 const MISSING_BINARY_STATUS = 127
 
@@ -278,15 +229,12 @@ export const validateSteeringFile = (
   })
 
 /**
- * Runs `formatSteeringFile` then `validateSteeringFile` in sequence — the
- * ORDER `gtd validate` and the `gtd land` capture gate share (see
- * `src/StepGuards.ts`). `content` is validated VERBATIM, exactly as given: a
- * caller that cares about judging POST-format bytes (every production caller
- * does) must sample `content` after this function's format half has run
- * rather than pass a pre-format snapshot — `src/StepGuards.ts` does this
- * itself via its guard `prepare`/`check` split, so this composed helper is
- * kept for symmetry and for `SteeringMode.test.ts`'s real-bash coverage, not
- * called from production code.
+ * Runs `formatSteeringFile` then `validateSteeringFile` in sequence.
+ * `content` is validated VERBATIM: a caller that cares about POST-format
+ * bytes (every production caller does) must sample `content` after this
+ * function's format half has run. `src/StepGuards.ts` does that itself via
+ * its guard `prepare`/`check` split, so this composed helper exists for
+ * symmetry and `SteeringMode.test.ts`'s real-bash coverage, not production use.
  */
 export const formatAndValidateSteeringFile = (
   resolved: ResolvedMode,
@@ -301,14 +249,10 @@ export const formatAndValidateSteeringFile = (
 
 /**
  * Render a mode's `format:`/`validate:` commands as plain strings, WITHOUT
- * running either — for a caller (an emitter that prints scripts rather than
- * executing them) that wants the commands themselves, not their outcome.
- * Unlike its siblings above, this needs no `CommandRunner`: it shares their
- * `renderCommand` helper for the rendering (and its errors) but never reaches
- * for a runner to execute the result. Order matches `formatAndValidateSteeringFile`
- * (format then validate); a half the mode doesn't declare — no `formatCommand`,
- * or a `validate` that is absent or `"builtin"` (an in-process parser has no
- * shell command to render) — is OMITTED from the result, not rendered as `""`.
+ * running either — for a caller (an emitter that prints scripts) that wants
+ * the commands themselves. Needs no `CommandRunner`. A half the mode doesn't
+ * declare, or a `"builtin"` validator (no shell command to render), is
+ * OMITTED from the result, not rendered as `""`.
  */
 export const renderSteeringCommands = (
   resolved: ResolvedMode,

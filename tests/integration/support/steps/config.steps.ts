@@ -49,13 +49,9 @@ Given("a subdirectory of a test project", (world: GtdWorld) => {
   world.extraCleanupDir = repo
 })
 
-// Writes a gtd config file inside the test repo and commits it. `pathOrDir` is
-// resolved relative to repoDir. A trailing "/" (or ".") means "write `.gtdrc`
-// into that directory"; otherwise it is treated as the literal config
-// filename/path. The docstring body (YAML or JSON) is written verbatim, so the
-// scenario text shows the exact config under test. Committing keeps the working
-// tree clean — an untracked config would otherwise route gtd to the
-// commit-the-uncommitted-changes leaf before the state under test is reached.
+// Commits after writing so the tree stays clean — an untracked config would
+// otherwise route gtd to the commit-the-uncommitted-changes leaf before the
+// state under test is reached.
 Given(
   "a gtd config file at {string} with:",
   // fallow-ignore-next-line complexity

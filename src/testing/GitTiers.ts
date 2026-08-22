@@ -1,15 +1,3 @@
-/**
- * The `GitOperations` contract suite: `gitTiers` (Live + InMemory), and
- * `runGitServiceContract`, which exercises every one of the 21 `GitOperations`
- * methods identically against whichever tier it's handed. `src/Git.test.ts`
- * calls `runGitServiceContract` over `gitTiers`; `src/ReviewWindow.test.ts`
- * (package/step 5) parameterizes over the same tiers for the review checkout
- * window. Imports `vitest` directly (`describe`/`it`/`expect`) — a leak of
- * this module into the shipped CLI bundle would try to inline `vitest` and
- * fail the build loudly (`deps.alwaysBundle` in `tsdown.config.ts`), a second,
- * independent guard alongside the `TEST_DOUBLE_SENTINEL` check.
- */
-
 import {
   mkdtempSync,
   mkdirSync,
@@ -22,6 +10,10 @@ import {
 import { join, dirname, basename } from "node:path"
 import { tmpdir } from "node:os"
 import { execSync, execFileSync } from "node:child_process"
+// Imported directly (not just from *.test.ts) — a leak of this module into
+// the shipped CLI bundle would try to inline `vitest` and fail the build
+// loudly (`deps.alwaysBundle` in `tsdown.config.ts`), a guard alongside the
+// `TEST_DOUBLE_SENTINEL` check.
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
@@ -49,10 +41,6 @@ import {
 import { indexLockError } from "./GitDoubles.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { gitTestLayer } from "./Layers.js"
-
-// ---------------------------------------------------------------------------
-// GitTier
-// ---------------------------------------------------------------------------
 
 export interface GitTierCapabilities {
   /** Assert file BYTES on disk, not just index/HEAD state (`hardResetTo`) — only the Live tier has a real working-tree file to read back. */
@@ -87,7 +75,7 @@ export interface GitTier {
   readonly name: "Live" | "InMemory"
   readonly root: string
   readonly capabilities: GitTierCapabilities
-  /** Provide `GitService` (retry-wrapped, exactly as production wires it) + `ConfigService` (defaulting to the bundled template; pass `workflow` for a custom one — see `ReviewWindow.test.ts`) + a no-op `Narrator`. */
+  /** Provide `GitService` (retry-wrapped, exactly as production wires it) + `ConfigService` (defaulting to the bundled template; pass `workflow` for a custom one) + a no-op `Narrator`. */
   readonly provide: <A>(
     eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
     workflow?: WorkflowDefinition,
@@ -116,12 +104,8 @@ const configLayerFor = (workflow: WorkflowDefinition): Layer.Layer<ConfigService
     }),
   })
 
-/** No-op — these tests assert on git/config behavior, not narration (see `Commentary.test.ts`/`Config.test.ts` for that). */
+/** No-op — these tests assert on git/config behavior, not narration. */
 const noopNarratorLayer = Narrator.layer(() => {}, false)
-
-// ---------------------------------------------------------------------------
-// Live tier
-// ---------------------------------------------------------------------------
 
 const gitExecIn = (dir: string, ...args: string[]): string =>
   execSync(`git ${args.join(" ")}`, { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim()
@@ -199,10 +183,9 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         writeFileSync(join(root, path), content)
       },
       // A plain unlink, NOT `git rm` — the index is left exactly as it stood,
-      // which is the only way to model a reviewer deleting a file the review
-      // window left untracked (`git rm` refuses an untracked pathspec), and
-      // matches what the in-memory tier's worktree-only delete has always
-      // done. Callers that want the deletion staged say `stageAll()`.
+      // the only way to model a reviewer deleting a file the review window
+      // left untracked (`git rm` refuses an untracked pathspec). Callers that
+      // want the deletion staged say `stageAll()`.
       deleteFile: (path) => rmSync(join(root, path), { force: true }),
       commitDeletion: (path, message) => {
         gitExec("rm", path)
@@ -232,18 +215,12 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       setTimeout(() => {
         try {
           rmSync(lock)
-        } catch {
-          // already removed
-        }
+        } catch {}
       }, 50)
     },
     dispose: () => rmSync(root, { recursive: true, force: true }),
   }
 }
-
-// ---------------------------------------------------------------------------
-// InMemory tier
-// ---------------------------------------------------------------------------
 
 const IN_MEM_ROOT = "/repo"
 
@@ -323,18 +300,12 @@ const makeInMemTier = (initialCommit = true): GitTier => {
       existsPath: (path) => repo.hasPath(path),
     },
     induceIndexLockOnce: () => repo.failNextOperations(1, indexLockError),
-    dispose: () => {
-      // No temp resources to clean up.
-    },
+    dispose: () => {},
   }
 }
 
 /** Both tiers, freshly constructed per call — `beforeEach(() => { t = makeTier() })` in every consuming test file. */
 export const gitTiers: ReadonlyArray<() => GitTier> = [makeLiveTier, makeInMemTier]
-
-// ---------------------------------------------------------------------------
-// The contract
-// ---------------------------------------------------------------------------
 
 const runGit = <A>(t: GitTier, f: (g: GitOperations) => Effect.Effect<A, Error>): Promise<A> =>
   t.provide(Effect.flatMap(GitService, f))
@@ -999,10 +970,6 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
   })
 }
 
-// ---------------------------------------------------------------------------
-// The GitScript contract — real bash, real git, no GitOperations port at all
-// ---------------------------------------------------------------------------
-
 /**
  * Runs a `GitScript.ts` builder's output through a REAL shell against `t.root`
  * — the same execution model the eventual driver uses (`bash -c <script>`),
@@ -1026,8 +993,7 @@ const headSubject = (t: GitTier): string => gitExecIn(t.root, "log", "-1", "--pr
  * `GitOperations`, asserted here against `GitScript.ts`'s bash builders
  * instead — driven through real `bash` against a real repo (`makeLiveTier`),
  * never the in-memory fake, since a fake root (`/repo`) has no shell to run
- * against. Proves the script translation preserves every edge case the doc
- * comments in `GitScript.ts` call out, not just the happy path.
+ * against.
  */
 export const runGitScriptContract = (): void => {
   let t: GitTier

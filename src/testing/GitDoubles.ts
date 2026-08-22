@@ -1,11 +1,3 @@
-/**
- * `GitOperations` test doubles: `fakeGitOperations` (backed by `InMemRepo`,
- * the in-memory tier's git implementation) and `strictGitOperations` (a
- * Proxy failing on any method a test didn't override — replaces the
- * hand-maintained 20-method stub literals `Edge.test.ts`/
- * `RetainedHistory.test.ts`/`program.test.ts` used to carry).
- */
-
 import { Effect, Option } from "effect"
 import type { GitOperations, GitReaderOperations, GitWriterOperations } from "../Git.js"
 import { InMemRepo, TEST_DOUBLE_SENTINEL } from "./InMemRepo.js"

@@ -1,70 +1,3 @@
-/**
- * LSP server for `.gtd/` steering files — document symbols, code actions, and
- * go-to-definition over each mapped file's steering FORMAT (see
- * `src/SteeringFormat.ts` / `src/SteeringFormats.ts`), and diagnostics
- * publishing a built-in format's own `validate` findings live — the same
- * findings the `gtd validate` CLI command reports (see `src/OpenQuestions.ts`
- * / `src/ReviewDoc.ts`'s module docs — those formats are each their own
- * single source of truth, shared by this server and the command).
- *
- * GO-TO-DEFINITION (`textDocument/definition`): a format's `pointerAt` (only
- * `review` declares one) resolves the cursor's line to a `{path, line}`
- * pointer, and this module resolves that `./`-relative path against the git
- * toplevel of the file's own directory (`tryGitTopLevel`), falling back to the
- * workspace root — never the document's own `.gtd/` directory — so a
- * repo-root-relative diff path lands correctly even with no workspace folder
- * open; no target is returned when neither anchor resolves. The target file is
- * not stat-ed, so a stale pointer still jumps and the editor reports the miss.
- *
- * CONFIG-DRIVEN: the server
- * locates the active gtd config the SAME way the CLI does (`ConfigService`'s
- * cosmiconfig search — no second config code path), from the `initialize`
- * request's `workspaceFolders`/`rootUri`, falling back to the open document's
- * own directory (`ConfigService`'s own cwd→home walk-up takes it from there).
- * It renders every state's declared `file:` (the vars/env layers of
- * `it.vars` — see `resolveVars`) into an absolute-path → `ResolvedMode` map
- * (`buildSteeringMap`, resolving each state's `mode:` through
- * `src/SteeringMode.ts`'s `resolveSteeringMode`), and dispatches document
- * symbols/code actions/diagnostics on THAT map — first declaring state wins a
- * path conflict, logged as a warning. Config is (re)loaded lazily, fresh per
- * request (no watcher, no cache — v1). A path this map doesn't cover (or no
- * config at all) falls back to today's basename dispatch (`REVIEW.md` →
- * `review`, via `resolveBuiltInMode`), so the server still works standalone
- * with no `.gtdrc` in sight. (`.gtd/TODO.md` is NOT dispatched by basename —
- * the bundled `idle` state NAMES it via `file:` but declares no `mode:`,
- * deliberately: there is no format for a free-form sketch, so neither the
- * config-driven map nor this basename fallback dispatches it, and it gets no
- * outline, no code actions, and no live diagnostics. A custom workflow that
- * wants qa validation on TODO.md declares it with `file:`+`mode: qa`, which
- * the config-driven map covers.)
- *
- * A mode's `validate:` command displacing a built-in format's own parser (a
- * `modes: { qa: { validate: "…" } }` override) still gets outline + actions —
- * `steeringCapabilities(resolved).format` is set from the registry alone,
- * independent of `validate.kind` — but its built-in findings are suppressed:
- * this server never runs a shell command per keystroke over an unsaved
- * buffer. Instead it publishes ONE `Information` diagnostic at line 0 naming
- * the command and pointing at `gtd validate` (`externalValidatorNotice`). A
- * mode with no built-in format at all (a workflow-only name, or a declared
- * `{}` entry) dispatches to no symbols, no actions, and no diagnostics. Either
- * way the file is still formatted and validated by `gtd validate` and the
- * `gtd land` capture gate — just not live in the editor.
- *
- * `gtd.openSteeringFile` (an `executeCommand`) resolves the CURRENT state
- * exactly like the CLI (`resolveRest`/`computeProcessRun`/
- * `buildTemplateContext` — the same `src/Edge.ts` helpers `gtd status`/`gtd
- * next` use, re-adding the git/config wiring the v2 server had), renders its
- * `file:`, and asks the client to show it (`window/showDocument`); a state
- * with no `file:` gets an informational message naming the state instead.
- *
- * Split like the rest of the codebase: pure helpers below (the path→
- * `ResolvedMode` map, the domain→protocol translation, the command's
- * resolution outcome — unit-testable, no protocol/IO), the
- * `vscode-languageserver` wiring at the bottom (the IO edge, including the
- * git/config Effect layers `loadSteeringMap`/`resolveSteeringFile` run
- * against).
- */
-
 import { basename, dirname, resolve as resolvePath } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { Effect, Layer, ManagedRuntime } from "effect"
@@ -127,7 +60,6 @@ export const toDocumentSymbol = (node: SteeringOutlineNode): DocumentSymbol => (
   ...(node.children !== undefined ? { children: node.children.map(toDocumentSymbol) } : {}),
 })
 
-/** A `SteeringAction` → a `CodeAction` scoped to `uri`, one `QuickFix` per action. */
 export const toCodeAction =
   (uri: string) =>
   (action: SteeringAction): CodeAction => ({
@@ -160,7 +92,7 @@ const toDiagnostic =
     source: "gtd",
   })
 
-/** The one `Information` diagnostic a shell-`validate:`d mode gets instead of live findings — see the module docstring. */
+/** The one `Information` diagnostic a shell-`validate:`d mode gets instead of live findings. */
 export const externalValidatorNotice = (mode: StateMode, command: string): Diagnostic => ({
   range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
   message: `mode "${mode}" is validated by a shell command (\`${command}\`) — run \`gtd validate\`; no live diagnostics`,
@@ -186,7 +118,7 @@ export const diagnosticsFor = (
 
 // ── Config-driven path→mode dispatch (pure) ─────────────────────────────────
 
-/** The basename dispatch this server has always had — the fallback for any path the active workflow's `file:` map doesn't cover (or when no config resolves at all). `TODO.md` is intentionally NOT mapped: the bundled `idle` state names it via `file:` but declares no `mode:` (there is no format for a free-form sketch), so no dispatch path — config-driven or basename — covers it. */
+/** Fallback for any path the workflow's `file:` map doesn't cover. `TODO.md` is intentionally not mapped — the bundled `idle` state declares no `mode:` for it. */
 export const basenameFallbackMode = (name: string): ResolvedMode | undefined =>
   name === "REVIEW.md" ? resolveBuiltInMode("review") : undefined
 
@@ -195,18 +127,9 @@ export type FileModeWarning = string
 
 /**
  * Render every state's declared `file:`/`mode:` pair into an absolute-path →
- * `ResolvedMode` map, for a workflow already compiled against `root` (the
- * workspace root, or the open document's directory when no workspace root is
- * known — see `resolveWorkspaceRoot`). `vars` is the already-merged
- * three-layer `it.vars` (`resolveVars`) — the map-building context otherwise
- * carries empty-string commit-ish fields and a `read` that throws (no working
- * tree to read from at map-build time; the JUMP command —
- * `resolveSteeringFile` below — uses the FULL edge context instead). A state
- * whose `file:` fails to render, or whose `mode:` doesn't resolve
- * (`resolveSteeringMode`), is skipped with a warning, not fatal; a path two
- * states both declare keeps the FIRST declaring state's mode, also warning
- * (`Object.entries` preserves the workflow's own declaration order). Pure —
- * no git, no protocol, unit-testable directly.
+ * `ResolvedMode` map. A state whose `file:` fails to render or whose `mode:`
+ * doesn't resolve is skipped with a warning, not fatal; a path two states
+ * both declare keeps the first declaring state's mode, also warning.
  */
 export const buildSteeringMap = (
   def: WorkflowDefinition,
@@ -247,27 +170,17 @@ export const buildSteeringMap = (
   return { map, warnings }
 }
 
-/** The resolved mode a document's URI dispatches to: the config-driven map first, the basename fallback otherwise. */
 export const resolvedModeForDocument = (
   uri: string,
   steeringMap: ReadonlyMap<string, ResolvedMode>,
 ): ResolvedMode | undefined =>
   steeringMap.get(fileURLToPath(uri)) ?? basenameFallbackMode(basename(fileURLToPath(uri)))
 
-/** The capabilities (`format`/`liveValidate`/`externalValidate`) a document's URI dispatches to — `resolvedModeForDocument` fed through `steeringCapabilities`. */
 export const capabilitiesForDocument = (
   uri: string,
   steeringMap: ReadonlyMap<string, ResolvedMode>,
 ) => steeringCapabilities(resolvedModeForDocument(uri, steeringMap))
 
-/**
- * The workspace root to discover config from: the `initialize` request's
- * first `workspaceFolders` entry, falling back to the deprecated `rootUri`,
- * or `undefined` when neither is present (the caller then falls back to the
- * open document's own directory — `ConfigService`'s cwd→home walk-up takes
- * it from there, so no special-casing is needed beyond picking the starting
- * directory).
- */
 export const resolveWorkspaceRoot = (params: {
   readonly workspaceFolders?: ReadonlyArray<{ readonly uri: string }> | null
   readonly rootUri?: string | null
@@ -299,20 +212,17 @@ export const steeringFileOutcome = (
 
 /**
  * Everything protocol-independent `SteeringLanguageService` needs from its
- * environment, so the service is testable against a fake — no real IO, no
- * `vscode-languageserver` connection. `steeringMapFor`/`gitTopLevel`/
- * `currentSteeringFile` may REJECT (a bad `.gtdrc`, no git repo, a repository
- * with no commits, an unresolvable process state); the service catches every
- * rejection itself and degrades
- * gracefully (see `makeSteeringLanguageService`), so an `LspEnv` implementation
- * needn't defend against its own failures.
+ * environment, so the service is testable against a fake. Its methods may
+ * reject (bad config, no git repo, unresolvable process state); the service
+ * catches every rejection and degrades gracefully, so an `LspEnv`
+ * implementation needn't defend against its own failures.
  */
 export interface LspEnv {
-  /** The active workflow's `file:`/`mode:` map for `root` (see `buildSteeringMap`) — config (re)loaded fresh, no cache (v1 freshness). */
+  /** The active workflow's `file:`/`mode:` map for `root` — reloaded fresh, no cache. */
   readonly steeringMapFor: (root: string) => Promise<ReadonlyMap<string, ResolvedMode>>
-  /** The git working-tree root of `dir`, or `undefined` when `dir` is outside any repository — the anchor a `review`-mode hunk's `./`-relative path resolves against. */
+  /** The git working-tree root of `dir`, or `undefined` outside any repository. */
   readonly gitTopLevel: (dir: string) => Promise<string | undefined>
-  /** The CURRENT process state/actor and its rendered `file:`, exactly like the CLI (`gtd status`/`gtd next`), scoped to `root`. */
+  /** The current process state/actor and its rendered `file:`, scoped to `root`. */
   readonly currentSteeringFile: (
     root: string,
   ) => Promise<{ readonly state: string; readonly file: string | undefined }>
@@ -343,14 +253,10 @@ export interface SteeringLanguageService {
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 /**
- * Builds the whole `SteeringLanguageService` over `env` — CONFIG-DRIVEN (see
- * the module docstring): the workspace root is captured at `initialize` time
- * (`resolveWorkspaceRoot`); every document-scoped request falls back to that
- * document's own directory when no workspace root was ever given
- * (`rootFor`). Every `env` call is wrapped in a try/catch that warns
- * (`warn`) and degrades gracefully — an unmapped/failed lookup behaves
- * exactly like "no config resolved" (empty results), never a rejected
- * request.
+ * Builds the whole `SteeringLanguageService` over `env`. Every `env` call is
+ * wrapped in a try/catch that warns and degrades gracefully — an unmapped or
+ * failed lookup behaves like "no config resolved" (empty results), never a
+ * rejected request.
  */
 export const makeSteeringLanguageService = (
   env: LspEnv,
@@ -461,19 +367,12 @@ export type SteeringConnection = Pick<
   | "onDidSaveTextDocument"
 >
 
-/** The subset of `TextDocuments<TextDocument>` `bindSteeringServer` needs. */
 export type SteeringDocuments = Pick<
   TextDocuments<TextDocument>,
   "get" | "onDidOpen" | "onDidChangeContent" | "listen"
 >
 
-/**
- * Wires a `SteeringLanguageService` onto a real (or fake) `Connection` +
- * `TextDocuments` pair: every `connection.window.*` call the service's PURE
- * `ExecuteCommandOutcome` implies lives HERE, never inside the service
- * itself. Both `didOpen` and `didChangeContent` publish diagnostics, exactly
- * like a real editor's open-then-edit lifecycle.
- */
+/** Wires a `SteeringLanguageService` onto a `Connection`/`TextDocuments` pair: every `connection.window.*` call implied by the pure `ExecuteCommandOutcome` lives here, never in the service itself. */
 export const bindSteeringServer = (
   connection: SteeringConnection,
   documents: SteeringDocuments,
@@ -535,11 +434,8 @@ const gitLayerForRoot = (root: string) =>
 const repoFilesLayerForRoot = (root: string) =>
   RepoFiles.Live.pipe(Layer.provide(Layer.merge(Cwd.layer(root), gitLayerForRoot(root))))
 
-// The `GTD_<UPPERCASE-name>` env-override half of `Edge.ts`'s (private)
-// `resolveVars` — this call site has no resolved process (it builds a STATIC
-// path→mode map, not a specific rest's `it.vars`), so there is no `entryVars`
-// layer to merge in; the two-layer workflow/rc merge below plus this override
-// is the whole of what a map-building context needs.
+// Mirrors the `GTD_<NAME>` env-override half of `Edge.ts`'s `resolveVars` —
+// this call site has no resolved process, so there's no `entryVars` layer to merge.
 const GTD_ENV_PREFIX = "GTD_"
 const mergeStaticVars = (
   workflowVars: Record<string, string>,
@@ -554,13 +450,7 @@ const mergeStaticVars = (
   return merged
 }
 
-/**
- * The layers `LspEnv`'s Effects run against, scoped to one root. `Narrator`
- * is permanently a no-op here — the LSP talks stdio JSON-RPC, never a
- * terminal's stderr, so it has no `--verbose` flag and nothing to narrate
- * onto — it's provided only so `ConfigService.load`/`RestRequirements`'
- * shared `Narrator` requirement (see `Commentary.ts`) typechecks here too.
- */
+/** The layers `LspEnv`'s Effects run against. `Narrator` is a permanent no-op — the LSP talks stdio JSON-RPC, with nothing to narrate onto — provided only so the shared `Narrator` requirement typechecks. */
 const layersForRoot = (root: string) =>
   Layer.mergeAll(
     gitLayerForRoot(root),
@@ -576,12 +466,10 @@ type RootRuntime = ManagedRuntime.ManagedRuntime<
 >
 
 /**
- * One `ManagedRuntime` per root, memoised — decision: cache the RUNTIME (the
- * constructed service layer: git executor, cwd, worktree reader), not the
- * CONFIG. Each `LspEnv` method still calls `ConfigService.load` itself, so an
- * edited `.gtdrc` takes effect on the very next request (today's deliberate
- * v1 freshness) — only the expensive layer CONSTRUCTION stops happening on
- * every keystroke.
+ * One `ManagedRuntime` per root, memoised — caches the runtime (the
+ * constructed service layer), not the config: each `LspEnv` method still
+ * calls `ConfigService.load` itself, so an edited `.gtdrc` takes effect on
+ * the next request; only the expensive layer construction is avoided.
  */
 const runtimeCache = new Map<string, RootRuntime>()
 
@@ -593,30 +481,14 @@ const runtimeFor = (root: string): RootRuntime => {
   return runtime
 }
 
-/**
- * Resolve the CURRENT state/actor and its `file:` (rendered), exactly like
- * the CLI (`currentRest` — the same `src/Edge.ts` entry point `gtd status`/
- * `gtd next` use). `file` is `undefined` when the resolved state declares
- * none — see `steeringFileOutcome` for what that means to the command. Carries
- * its requirements (`RestRequirements`, the same four services `layersForRoot`
- * merges) rather than providing them itself — the caller runs it through
- * `runtimeFor(root)`, the memoised runtime, instead of building fresh layers
- * per call.
- */
+/** The current state/actor and its rendered `file:` (`undefined` when the state declares none), exactly like the CLI's `currentRest`. Carries its requirements rather than providing them — the caller runs it through the memoised `runtimeFor(root)`. */
 export const resolveSteeringFile: Effect.Effect<
   { readonly state: string; readonly file: string | undefined },
   Error,
   RestRequirements
 > = currentRest.pipe(Effect.map((rest) => ({ state: rest.state, file: rest.hints.file })))
 
-/**
- * The Node adapter: the only place `LspEnv`'s Effects/layers get built and
- * run. `warn` reports `buildSteeringMap`'s own per-state findings (a `file:`
- * that failed to render, a path two states both declare) — data the map-build
- * step already carries, not a rejection `makeSteeringLanguageService` would
- * otherwise have to translate. Not exported — `startLspServer` is its only
- * caller; a fake `LspEnv` is what commit tests exercise instead.
- */
+/** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. Not exported — `startLspServer` is its only caller; commit tests exercise a fake `LspEnv` instead. */
 const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => ({
   cwd: process.cwd(),
 

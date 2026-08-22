@@ -1,13 +1,3 @@
-/**
- * The whole stderr channel: narration and remediation, the two occupants of
- * gtd's one commentary surface. `Narrator` is an Effect SERVICE, not a
- * threaded parameter — a call site deep in the edge (`Edge.ts`'s rest
- * resolver, `Config.ts`'s config loader, …) can narrate without every caller
- * in between passing a writer down. Narration is gated by `--verbose`
- * (`Cli.ts` builds the service from `CliIo.stderr`, wired to a no-op writer
- * when the flag is absent); `GtdError`'s remediation `detail` is
- * unconditional — `renderFailure` prints it at every verbosity.
- */
 import { Context, Effect, Layer } from "effect"
 
 /** One line of stderr commentary — gated entirely by how the layer was built, never by the call site. */
@@ -56,11 +46,8 @@ export class GtdError extends Error {
  * The stderr text for a CLI failure: a `gtd: ` prefix UNLESS the message
  * already carries one, then one two-space-indented line per `GtdError`
  * detail (none, for a plain `Error`) — unconditional, at every verbosity.
- * Most gtd errors are authored with a `gtd:`/`gtd <cmd>:` prefix of their own
- * (e.g. `gtd init: …`, `gtd: unknown option …`), so a blind prepend would
- * produce a doubled `gtd: gtd: …`. Replaces `Cli.ts`'s old single-line
- * `cliErrorLine` — every caller there still gets exactly one line back for a
- * plain `Error`; only a `GtdError` grows the extra detail lines.
+ * Most gtd errors are authored with a `gtd:`/`gtd <cmd>:` prefix of their own,
+ * so a blind prepend would produce a doubled `gtd: gtd: …`.
  */
 export const renderFailure = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error)

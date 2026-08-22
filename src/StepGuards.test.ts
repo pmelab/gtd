@@ -8,8 +8,6 @@ import type { ResolvedRest } from "./Edge.js"
 import type { PendingChange, StateDef, WorkflowDefinition } from "./PatternMachine.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
-// ── Test fixtures ────────────────────────────────────────────────────────────
-
 const templateContext: TemplateContext = {
   startCommit: "",
   currentCommit: "",
@@ -58,8 +56,6 @@ const guard = (name: string) => {
 const checkOf = async (name: string, context: GuardContext): Promise<string | undefined> =>
   Effect.runPromise(guard(name).check(context) as Effect.Effect<string | undefined, never, never>)
 
-// ── review-doc ───────────────────────────────────────────────────────────────
-
 describe("review-doc guard", () => {
   const reviewState = rest("await-review", {
     actor: "human",
@@ -103,8 +99,6 @@ describe("review-doc guard", () => {
     expect(refusal).toBeUndefined()
   })
 })
-
-// ── feedback-progress ────────────────────────────────────────────────────────
 
 describe("feedback-progress guard", () => {
   const feedbackState = rest("feedback-building", {
@@ -187,8 +181,6 @@ describe("feedback-progress guard", () => {
     expect(refusal).toContain("without addressing its instructions")
   })
 })
-
-// ── answer-completeness ──────────────────────────────────────────────────────
 
 describe("answer-completeness guard", () => {
   const answerState = rest("product-answer", {
@@ -301,8 +293,6 @@ describe("answer-completeness guard", () => {
   })
 })
 
-// ── require-revert ───────────────────────────────────────────────────────────
-
 describe("require-revert guard", () => {
   const reUnwindState = rest("re-unwind", {
     actor: "check",
@@ -311,9 +301,9 @@ describe("require-revert guard", () => {
     requireRevert: true,
   })
 
-  // `check`'s declared type is every guard's shared `GuardRequirements`
-  // (`RepoFiles | GitService`), even though this guard's own body only ever
-  // reaches for `GitService` — an unused `RepoFiles` stub satisfies the type.
+  // `check`'s declared type is the shared `GuardRequirements`
+  // (`RepoFiles | GitService`) even though its body only reaches for
+  // `GitService` — an unused `RepoFiles` stub satisfies the type.
   const unusedRepoFiles = Layer.succeed(RepoFiles, {
     working: () => undefined,
     committed: () => Effect.succeed(undefined),
@@ -341,8 +331,8 @@ describe("require-revert guard", () => {
     repo.writeFile("src/thing.ts", "export const thing = 1\n// TODO: also export doubled\n")
     repo.commitAllWithPrefix("gtd(human): build.review.await-review -> build.review.deciding")
     const rb = repo.resolveRef("HEAD")!
-    // The failed `git apply -R`: the tree is still clean, byte-for-byte the
-    // human's hand-edit, indistinguishable from a legitimate note-only round.
+    // The failed apply leaves the tree clean, byte-for-byte the human's
+    // hand-edit — indistinguishable from a legitimate note-only round.
 
     const exit = await runCheck(
       ctx({
@@ -502,24 +492,20 @@ describe("require-revert guard", () => {
   })
 })
 
-// ── enforceStepGuards runner ─────────────────────────────────────────────────
-
 const repoFilesFrom = (
   files: Record<string, string>,
   committedByRef: Record<string, Record<string, string>> = {},
 ): RepoFilesOps => ({
   working: (path) => files[path],
-  // Keyed by the REF the guard asked for ("HEAD" when it passed none): the
+  // Keyed by the REF the guard asked for ("HEAD" when it passed none) — the
   // review window's saved head is a different ref, and which of the two a
-  // guard reads its "before this step" copy at is exactly what the
-  // open-window scenarios below pin.
+  // guard reads is exactly what the open-window scenarios below pin.
   committed: (path, ref = "HEAD") => Effect.succeed(committedByRef[ref]?.[path]),
 })
 
 // `enforceStepGuards`'s declared requirement is the shared `GuardRequirements`
-// (`RepoFiles | GitService`) even when the resting state applies no
-// `requireRevert` guard — an unused `GitService` layer satisfies the type for
-// every test below that never actually reaches for git.
+// even when the resting state applies no `requireRevert` guard — an unused
+// `GitService` layer satisfies the type for tests that never reach for git.
 const unusedGitService = gitTestLayer(new InMemRepo())
 
 describe("enforceStepGuards", () => {
@@ -637,11 +623,10 @@ describe("enforceStepGuards", () => {
   })
 
   it("refuses a deleted review doc while a review checkout window is open, reading the pre-turn copy at windowHead", async () => {
-    // While the review checkout window is open, real HEAD sits at the review
-    // base — a file the process itself wrote does not exist there. The
-    // review-doc guard's `fileDeleted` branch doesn't need to read `head` at
-    // all, but `windowHead` is still threaded through so a future guard that
-    // does can rely on it.
+    // While the window is open, real HEAD sits at the review base — a file
+    // the process itself wrote doesn't exist there. This guard's
+    // `fileDeleted` branch never reads `head`, but `windowHead` is still
+    // threaded through for a future guard that does.
     const WINDOW_HEAD = "refs/worktree/gtd/review-head"
     const reviewState = rest("await-review", {
       actor: "human",
@@ -677,7 +662,7 @@ describe("enforceStepGuards", () => {
   it("reads the CURRENT working tree as-is — no in-process formatting happens here", async () => {
     // A step script's own `format:` command (run by an external driver) is
     // never invoked by `enforceStepGuards` — it only samples whatever is on
-    // disk right now. An already-answered doc passes with no formatting step.
+    // disk right now.
     const answeredDoc = [
       "Build a thing.",
       "",

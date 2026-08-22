@@ -313,11 +313,9 @@ describe("parseArgv — flag orthogonality", () => {
 })
 
 describe("parseArgv — bare/unknown command under --json", () => {
-  // With no command resolved, `kind` is `undefined` — `--json`'s scope
-  // (`kind === "next" || kind === "land"`) is violated just like any other
-  // scoped flag used standalone (e.g. `--var` with no `--entry`), so its scope
-  // error takes priority over "missing command"/"unknown command" here — no
-  // new special case for `--json` at an unresolved kind.
+  // With no command resolved, `kind` is `undefined` — `--json`'s scope is
+  // violated just like any other scoped flag used standalone, so its scope
+  // error takes priority over "missing command"/"unknown command" here.
   it("bare gtd --json is a usage error with json:true, naming --json's own scope error", () => {
     const plan = parseArgv(["node", "gtd.js", "--json"])
     expect(plan.kind).toBe("usage")
@@ -745,14 +743,6 @@ describe("renderHelp", () => {
   })
 })
 
-// `cliErrorLine`'s own unit tests moved to `Commentary.test.ts` as
-// `renderFailure` — same behavior for a plain `Error`, plus new coverage for
-// a `GtdError`'s multi-line detail.
-
-// ---------------------------------------------------------------------------
-// Runtime tier — through runCli with a capturing CliIo
-// ---------------------------------------------------------------------------
-
 interface Captured {
   readonly stdout: string
   readonly stderr: string
@@ -785,10 +775,8 @@ const capturingIo = (
   return { io, captured: () => ({ stdout, stderr, exitCode, layersBuilt }) }
 }
 
-// A GitService/etc.-shaped Proxy whose every property access returns a
-// method that fails — proves `layers()` is never even asked to build a real
-// service for --version/--help/a usage error, and (for the "never invoked"
-// tests) that `layers()` itself is never called.
+// Fails as soon as any property is accessed — proves `layers()` is never
+// asked to build a real service for --version/--help/a usage error.
 const throwingLayers = (): Layer.Layer<CommandRequirements> =>
   Layer.effectDiscard(
     Effect.sync(() => {
@@ -833,9 +821,8 @@ describe("runCli — exit codes", () => {
   })
 
   it("a command failure that is NOT a usage error still exits EXIT_RUNTIME_ERROR", async () => {
-    // `throwingLayers` fails as soon as anything actually needs the layer —
-    // unlike a usage error (never builds one), a resolved command always
-    // does, so this exercises `report`'s own exit code, not `usagePlan`'s.
+    // Unlike a usage error (never builds a layer), a resolved command
+    // always does, so this exercises `report`'s own exit code.
     const { io, captured } = capturingIo(throwingLayers)
     await Effect.runPromise(runCli(["node", "gtd.js", "next"], io))
     expect(captured().exitCode).toBe(EXIT_RUNTIME_ERROR)
@@ -867,10 +854,8 @@ describe("runCli — --json envelopes", () => {
 })
 
 describe("runCli — stdout stays byte-empty on every failing surface", () => {
-  // The all-or-nothing half `ArtifactOut` buys structurally: a handler may
-  // write through `out` and still fail — `bufferedArtifactOut`'s buffer is
-  // simply never flushed, so `io.stdout` is never called at all. One
-  // scenario per failure surface `Cli.ts`/`program.ts` can produce.
+  // A handler may write through `out` and still fail — `bufferedArtifactOut`'s
+  // buffer is simply never flushed, so `io.stdout` is never called at all.
 
   it("usage error: stdout is byte-empty, the message lands on stderr", async () => {
     const { io, captured } = capturingIo(throwingLayers)
@@ -891,10 +876,9 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
   })
 
   it("runtime error: a handler's own Effect.fail (not the shared repo-root/commit guard) leaves stdout byte-empty", async () => {
-    // `gtd check` needs neither a repository nor a commit (`needsOf("check")
-    // === "fs"`) — this exercises a plain `FileSystem`-only failure inside
-    // the handler itself, distinct from the "refusal" test above (which fails
-    // in the shared guard, before any handler runs at all).
+    // `gtd check` needs neither a repository nor a commit — this exercises a
+    // plain `FileSystem`-only failure inside the handler itself, distinct
+    // from the "refusal" test above (which fails in the shared guard).
     const repo = new InMemRepo()
     repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
     const { io, captured } = capturingIo(() => testLayers(repo))
@@ -916,9 +900,7 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
 
   it("unit: a failing command's collected buffer is never handed to io.stdout", async () => {
     // Same failure as the "runtime error" case above, observed directly
-    // through `io.stdout` itself (a raw call-recording array, not just the
-    // captured string) — `runCli`'s `bufferedArtifactOut` only ever calls
-    // `io.stdout` from the success branch's `flush()`, so a failing run must
+    // through `io.stdout` (a raw call-recording array) — a failing run must
     // produce zero calls, not merely an empty joined string.
     const repo = new InMemRepo()
     repo.writeFile(".gtdrc.json", renderInitConfig())

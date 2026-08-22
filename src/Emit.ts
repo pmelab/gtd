@@ -1,24 +1,3 @@
-/**
- * Assembles the two scripts a `gtd next`-time decision hands the external
- * driver: `required` (everything that decides what lands in git) and
- * `optional` (presentation only — e.g. opening the review checkout window so
- * an editor's diff view has something to show; a driver that skips it loses
- * nothing but that view). Pure, like `src/GitScript.ts`: no git, no
- * filesystem, no `Effect`. Every input string (a `GitScript.ts` builder's
- * output, a steering mode's already-rendered `format:`/`validate:` command)
- * arrives already rendered — this module only concatenates and wraps: once
- * for a `gitWrite` step's index-lock retry (`gtd_retry`), and once for a
- * `command` step's `onFailure` fix prompt (`failurePromptWrapper`), which
- * prints a ready-to-send instruction plus the command's captured output
- * ahead of propagating its exit code.
- *
- * Both halves are meant to stand alone: a driver may run either, both, or
- * only `required`, and a person could paste either into a terminal. That's
- * why each carries its OWN copy of the precondition asserts and the retry
- * helper, rather than the two sharing one preamble a caller has to splice
- * together correctly.
- */
-
 import { shellQuote } from "./GitScript.js"
 import { OUTCOME_PREAMBLE } from "./OutcomeScript.js"
 
@@ -29,32 +8,22 @@ export interface EmittedScripts {
 
 export interface EmitPreconditions {
   /**
-   * The HEAD the deciding read resolved. `""` means the deciding read saw a
-   * repository with NO commits yet — `rest.context.currentCommit`'s own
-   * convention for that case, passed straight through rather than translated
-   * into a hash that stands in for it (an empty tree is a tree, not a commit;
-   * there is no real HEAD to pin to). OMITTED (`undefined`) for a script that
-   * is meant to run AFTER another one already moved HEAD — the `optional`
-   * half of a step that commits and then opens a review window is the one
-   * such case: its own expected HEAD is the commit the `required` half is
-   * about to create, a hash no one can know at decide time. Asserting the
-   * pre-commit hash there would fail the open every single time. Nothing is
-   * lost by omitting it: the open script is presentation-only, re-runnable,
-   * and resolves `HEAD` itself at run time.
+   * The HEAD the deciding read resolved (`""` for an empty repo, mirroring
+   * `rest.context.currentCommit`). Omitted for a script meant to run AFTER
+   * another one already moved HEAD — e.g. the `optional` half of a step that
+   * commits and then opens a review window, whose expected HEAD (the commit
+   * `required` is about to create) can't be known at decide time; that script
+   * resolves `HEAD` itself at run time instead.
    */
   readonly expectedHead?: string
   readonly reviewWindow?: { readonly ref: string; readonly expectedHash: string }
 }
 
 /**
- * A step that IS a git index write (`gitWrite`, routed through the retry
- * helper below) vs. a plain `command` (a steering mode's `format:`/
- * `validate:` line, a `gtd check` script) that never touches git's index and
- * must NOT be retry-wrapped — wrapping a non-git command would silently retry
- * on any output that happens to contain the lock wording, e.g. a check whose
- * own diff mentions "index.lock" in prose — vs. an `outcome` step (a
- * `src/OutcomeScript.ts` builder's call), presentation only, never a git
- * write, rendered verbatim exactly like `command`.
+ * `gitWrite` (routed through the retry helper below) vs. plain `command`
+ * (never retry-wrapped — retrying it could match "index.lock" wording
+ * appearing incidentally in its own output) vs. `outcome` (a
+ * `src/OutcomeScript.ts` builder's call, rendered verbatim like `command`).
  */
 export type EmitStep =
   | { readonly kind: "gitWrite"; readonly command: string }
@@ -62,42 +31,28 @@ export type EmitStep =
       readonly kind: "command"
       readonly command: string
       /**
-       * The prompt text to print, followed by the command's captured
-       * combined output, when this command exits non-zero — the command's
-       * own exit code is then propagated. Omitted for a step that should
-       * fail raw (a `format:` command's own broken-tooling failure, which an
-       * agent can't fix by editing the steering file).
+       * Prompt text printed (with the command's captured output) on a
+       * non-zero exit before propagating that exit code. Omitted for a step
+       * that should fail raw — e.g. a `format:` command's own broken-tooling
+       * failure, which an agent can't fix by editing the steering file.
        */
       readonly onFailure?: string
     }
   | { readonly kind: "outcome"; readonly command: string }
 
 /**
- * The CLI resolves `expectedHead` (and a review window's `expectedHash`) at
- * DECIDE time; the script may RUN later, in a process that never shared
- * memory with the one that decided. This assertion closes that
- * time-of-check/time-of-use gap. A plain `[ ... ] || { ...; exit 1; }`
- * statement, not an `if`/`fi` block, so a line-oriented consumer can still
- * recognize it, and so it stays safe under `set -e`: in an OR list, `-e`
- * exempts every command except the LAST one, so the left-hand `[ ... ]`
- * failing here never trips `set -e` on its own — only the explicit `exit 1`
- * inside the right-hand group does. Exported (alongside `reviewWindowAssertion`)
- * solely so `src/testing/EmittedScriptRecognizer.ts` can re-derive and
- * string-compare this exact shape, the same "call the real builder, never
- * hand-copy its template" discipline it already applies to every
- * `GitScript.ts` builder.
+ * Closes the time-of-check/time-of-use gap between the CLI resolving
+ * `expectedHead` at decide time and the script running later in an unrelated
+ * process. A plain `[ ... ] || { ...; exit 1; }`, not `if`/`fi`, so it stays
+ * safe under `set -e` (an OR list's left side failing never trips `-e` on its
+ * own). Exported so `src/testing/EmittedScriptRecognizer.ts` can re-derive
+ * and string-compare this exact shape.
  *
- * The probe is `git rev-parse --verify --quiet HEAD 2>/dev/null`, not the
- * bare `git rev-parse HEAD` a born repo's assertion could get away with —
- * load-bearing, not cosmetic: against an UNBORN HEAD (a repository with no
- * commits), the bare form prints the literal string `HEAD` to stdout (plus a
- * `fatal:` line to stderr) and exits 128, so `"$(git rev-parse HEAD)"` reads
- * as `"HEAD"`, never `""`, and an `expectedHead === ""` comparison could
- * never pass. `--verify --quiet` makes an unborn HEAD read back as an empty
- * string instead — the same idiom `reviewWindowAssertion` already uses for a
- * missing ref — so `[ "$(…)" = '' ]` is simply the unborn case of the same
- * comparison every born repo already runs; only the `printf` wording
- * branches on it, to avoid naming a hash that doesn't exist.
+ * The probe is `--verify --quiet`, not bare `git rev-parse HEAD` — load-
+ * bearing: against an unborn HEAD (no commits), the bare form prints the
+ * literal string `"HEAD"` and exits 128, so it could never match an
+ * `expectedHead === ""` comparison. `--verify --quiet` reads an unborn HEAD
+ * back as an empty string instead.
  */
 export const headAssertion = (expectedHead: string): string => {
   const q = shellQuote(expectedHead)
@@ -110,29 +65,15 @@ export const headAssertion = (expectedHead: string): string => {
 }
 
 /**
- * `[ -f <file> ] || exit 0` — the OR-list guard `src/program.ts`'s
- * `resolveValidateScript` leads its emitted script with (once the
- * contradiction round-trip/skip notice, if any, has already run): when the
- * declared steering file is absent from the working tree — including at a
- * first-write beat, before the producing agent has written it at all — there
- * is nothing left to format or validate, so the script exits 0 rather than
- * running the mode's commands against a file that doesn't exist. An OR list,
- * never an `if`, for the same `set -eu` reason `headAssertion` documents
- * above: in an OR list, `-e` exempts every command but the last, so the
- * failing `[ ... ]` on the left never trips `set -e` on its own — only the
- * explicit `exit 0` on the right does, and it exits the whole script
- * cleanly. Exported (alongside `headAssertion`/`reviewWindowAssertion`) so
- * `src/testing/EmittedScriptRecognizer.ts` can re-derive and string-compare
- * this exact shape.
+ * `resolveValidateScript`'s guard: when the declared steering file is absent
+ * (e.g. before the producing agent has written it at all), there's nothing
+ * to format or validate, so the script exits 0 cleanly rather than running
+ * the mode's commands against a missing file. An OR list, not `if`, for the
+ * same `set -eu` safety `headAssertion` documents.
  */
 export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file)} ] || exit 0`
 
-/**
- * Same shape as `headAssertion`, for the saved-head ref a review window
- * pins. `--verify --quiet ... 2>/dev/null` makes a MISSING ref read as an
- * empty string rather than erroring the substitution itself — the assertion
- * only needs to compare, never to fail outright before the `[ ... ]` runs.
- */
+/** Same shape as `headAssertion`, for the saved-head ref a review window pins; `--verify --quiet` reads a missing ref as an empty string instead of erroring the substitution. */
 export const reviewWindowAssertion = (ref: string, expectedHash: string): string => {
   const refQ = shellQuote(ref)
   const hashQ = shellQuote(expectedHash)
@@ -144,15 +85,10 @@ export const reviewWindowAssertion = (ref: string, expectedHash: string): string
 }
 
 /**
- * Wraps `command` so that a non-zero exit prints `prompt` (the ready-to-send
- * fix instruction), a blank line, then the command's own captured combined
- * output, before propagating the command's exit code — rather than letting
- * that output escape raw. The `{ … }` GROUP (not a bare command
- * substitution) is what lets a MULTI-LINE `command` be inlined verbatim
- * inside it; the assignment sits on the left of `||`, so `set -e` never trips
- * on the failing command itself. Exported (alongside `headAssertion`) solely
- * so `src/testing/EmittedScriptRecognizer.ts` can re-derive and
- * string-compare this exact shape.
+ * Wraps `command` so a non-zero exit prints `prompt` plus the command's
+ * captured output before propagating that exit code. The `{ … }` group lets
+ * a multi-line `command` be inlined verbatim; the assignment sits on the
+ * left of `||` so `set -e` never trips on the failing command itself.
  */
 export const failurePromptWrapper = (command: string, prompt: string): string => {
   const promptQ = shellQuote(prompt)
@@ -169,25 +105,15 @@ export const failurePromptWrapper = (command: string, prompt: string): string =>
 }
 
 /**
- * `gtd_retry` takes ONE already-`shellQuote`d command string and `eval`s it,
- * mirroring `src/Git.ts`'s `withIndexLockRetry`: retry ONLY on the same two
- * substrings `isIndexLockError` matches, with jittered exponential backoff
- * (~10ms doubling, capped at 6 TOTAL attempts — the initial try plus 5
- * retries), and propagate any other failure on the very first attempt. Output
- * is captured combined (`2>&1`) so the discrimination can inspect it exactly
- * like `commitAllowEmpty`/`restoreStagedFrom` in `src/GitScript.ts` do for
- * their own single-shot retries — this is the same technique, generalized
- * into a loop. `awk` (not the shell, which has no fractional `sleep` builtin
- * and, under POSIX `sh`/`dash`, no `$RANDOM` either) turns the millisecond
- * backoff into the fractional-second argument `sleep` needs AND derives the
- * jitter itself — a deterministic hash of the attempt counter and the current
- * delay (`(attempt * 2654435761) % ms`), so no external entropy source or
- * second `awk`/`date` call is needed; `-v` passes the values in rather than
- * interpolating them into the awk program text, so a variable's value can
- * never be mistaken for awk syntax. POSIX `sh` has no `local`, so every
- * variable here is `gtd_`-prefixed to avoid colliding with anything else in
- * an assembled script, and each is `unset` right before every `return` so
- * nothing leaks into the rest of the script.
+ * `gtd_retry` `eval`s one already-`shellQuote`d command, mirroring
+ * `src/Git.ts`'s `withIndexLockRetry`: retry only on the same two
+ * `isIndexLockError` substrings, jittered exponential backoff (~10ms
+ * doubling, 6 total attempts), propagating any other failure immediately.
+ * `awk` (not the shell — no fractional `sleep`, and no `$RANDOM` under POSIX
+ * `sh`/`dash`) computes both the fractional-second delay and its own jitter
+ * deterministically, so no external entropy source is needed. POSIX `sh` has
+ * no `local`, so every variable is `gtd_`-prefixed and `unset` before each
+ * `return` to avoid leaking into the rest of the assembled script.
  */
 const RETRY_HELPER = [
   `gtd_retry() {`,
@@ -258,14 +184,7 @@ const assembleScript = (
   return sections.join("\n\n")
 }
 
-/**
- * Build both halves from already-rendered command strings. `required`
- * defaults to `[]` (nothing to do), `optional` to `[]` (no review window to
- * open) — either omitted argument, or an explicit empty array, produces the
- * fixed empty-string result `EmittedScripts` documents: a driver checking
- * `if [ -n "$required" ]` (or the JS equivalent) never has to special-case a
- * bare preamble with no body.
- */
+/** Build both halves from already-rendered command strings; an empty (or omitted) array produces the empty-string result, so a driver checking `if [ -n "$required" ]` never has to special-case a bare preamble. */
 export const emitScripts = (
   preconditions: EmitPreconditions,
   required: ReadonlyArray<EmitStep> = [],
@@ -275,17 +194,7 @@ export const emitScripts = (
   optional: assembleScript(preconditions, optional),
 })
 
-/**
- * `gtd`'s own comment lines around the combined script, and the presentation
- * follow-up's swallowed-failure warning — exported (alongside `combinedScript`
- * itself) so `src/testing/EmittedScriptRecognizer.ts` can recognize them by
- * exact string comparison, the same "call the real builder, never hand-copy
- * its template" discipline every other constant here follows. The warning
- * prints via `printf`, not `echo`: `printf`'s format string is never subject
- * to a shell's own backslash-escape quirks across `sh`/`bash`/`dash`, so this
- * is the same portability reasoning every other emitted diagnostic already
- * uses (see `headAssertion`/`reviewWindowAssertion`).
- */
+/** Exported so `src/testing/EmittedScriptRecognizer.ts` can recognize these by exact string comparison. `printf`, not `echo`, avoids shell-specific backslash-escape quirks. */
 export const DID_NOT_RUN_COMMENT =
   "# gtd emitted this and did NOT run it — pipe it into `sh` to land the turn"
 
@@ -295,15 +204,10 @@ export const PRESENTATION_FAILURE_WARNING =
   "printf 'gtd: presentation-only follow-up failed — continuing\\n' >&2"
 
 /**
- * A plain-text (no `--json`) write command's single pasteable script: `gtd
- * land | sh` lands the turn without ever separating `required` from
- * `optional`. `required` runs verbatim (its own `set -eu` aborts
- * before `optional` ever starts if it fails); `optional`, when non-empty, is
- * wrapped in a subshell whose failure is swallowed — presentation-only, so it
- * must never turn a landed turn into a non-zero exit. Empty when `required`
- * is — unreachable in practice today (every caller's `required` is always
- * non-empty, even a genuine no-op's print-only note), kept as the function's
- * own total behavior rather than assumed by every caller.
+ * A plain-text write command's single pasteable script (`gtd land | sh`).
+ * `optional`, when non-empty, is wrapped in a subshell whose failure is
+ * swallowed — presentation-only, so it must never turn a landed turn into a
+ * non-zero exit.
  */
 export const combinedScript = (required: string, optional: string): string => {
   if (required.length === 0) return ""

@@ -48,16 +48,25 @@ commit (`program.ts`'s `steeringModeSteps`), and a state declaring `file:` with
 no `mode:` is caught instead by husky → lint-staged running `oxfmt --write` over
 staged files during the step commit.
 
+## Comments
+
+Keep a comment — module doc comment or per-export JSDoc alike — only where it
+explains an important decision or genuinely unclear code, and keep it as short
+as the fact allows. Everything else (restatement of the code, history, a "what"
+with no "why") gets deleted, not moved. Machine-read lines are exempt: oxlint
+`eslint-disable` pragmas, `shellcheck disable=` directives, and `#!` shebangs
+stay, because tooling reads them. No lint rule or comment-density check enforces
+this — it isn't a countable property, so human review is the gate.
+
 ## Architecture
 
 `CONTEXT.md` is the glossary — the domain language this repo uses (process,
 turn, step, capture, rest, gate vs guard, pattern vs edge). Read it before
-naming anything, and keep it a glossary: architecture lives here and in module
-doc comments, never there.
+naming anything, and keep it a glossary: architecture lives here and in the
+code, never there.
 
-Read the code for the architecture — every module carries a doc comment
-describing its own job. The two boundaries that are decisions rather than
-description, and must be preserved:
+The two boundaries that are decisions rather than description, and must be
+preserved:
 
 - **`src/PatternMachine.ts` is pure.** Definition types, the pattern grammar,
   HEAD resolution, and the step decision. No git, no filesystem, no Effect —
@@ -67,26 +76,32 @@ description, and must be preserved:
   const data and total functions.
 - **Everything IO-shaped lives at the edge.** `src/Edge.ts` (git/templates),
   `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
-  window), `src/StepGuards.ts` (the step-capture guard registry),
-  `src/RepoFiles.ts` (the working-tree/committed content port),
-  `src/CommandRunner.ts` (the subprocess port). There is no driver-scoped
-  git-dir write left at all: `src/Sessions.ts`'s `sessionId`/`resume` are a pure
-  derivation of history (`uuidv5` of the resting state's memory key) and write
-  nothing; no command — `next`, `status`, or `land` — touches the git dir to
-  record that a beat was dispatched. Every write gtd causes happens inside a
-  script it emitted and the driver ran — the review window's own
-  `git reset --mixed` open and close, and the squash finale's soft reset: those
-  are the driver running an emitted script, not a command reaching into git
-  itself. A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`) and
-  hands it to `planStep`/`planEntry` — `src/program.ts` never reaches into
-  `GitService` directly except two narrow exceptions: the `abandon`/`restore`
-  hard/mixed resets (recovery commands that must work even when a `Rest` would
-  refuse — see `runAbandonCommand`'s own doc comment), and the review sign-off/
-  feedback-progress gates' own `readFileAtRef` reads (they need the COMMITTED,
-  pre-turn copy of a file, which a `Rest` snapshot — taken before the turn lands
-  — doesn't carry). The review window and the steering-file gate are
-  deliberately invisible to the pure engine — don't "simplify" them back into
-  it.
+  window — both its open and close sequences are idempotent under re-entry, so a
+  crash at any point recovers on the next invocation), `src/StepGuards.ts` (the
+  step-capture guard registry), `src/RepoFiles.ts` (the working-tree/committed
+  content port), `src/CommandRunner.ts` (the subprocess port). There is no
+  driver-scoped git-dir write left at all: `src/Sessions.ts`'s
+  `sessionId`/`resume` are a pure derivation of history (`uuidv5` of the resting
+  state's memory key) and write nothing — a turn that creates session X but
+  lands no commit re-derives X with the same `resume: false` next time, so a
+  driver must treat `resume` as a HINT and fall back to the other flag on
+  failure, not a contract; no command — `next`, `status`, or `land` — touches
+  the git dir to record that a beat was dispatched. Every write gtd causes
+  happens inside a script it emitted and the driver ran — the review window's
+  own `git reset --mixed` open and close, and the squash finale's soft reset:
+  those are the driver running an emitted script, not a command reaching into
+  git itself. A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`)
+  and hands it to `planStep`/`planEntry`. Never read a `Rest` after a `perform`,
+  and never let one span the review-window bracket — a `Rest` resolved before
+  that bracket resolves against the wrong HEAD. `src/program.ts` never reaches
+  into `GitService` directly except two narrow exceptions: the
+  `abandon`/`restore` hard/mixed resets — recovery commands that must work even
+  when a `Rest` would refuse, so they reset directly instead of resolving one —
+  and the review sign-off/feedback-progress gates' own `readFileAtRef` reads
+  (they need the COMMITTED, pre-turn copy of a file, which a `Rest` snapshot —
+  taken before the turn lands — doesn't carry). The review window and the
+  steering-file gate are deliberately invisible to the pure engine — don't
+  "simplify" them back into it.
 
 - **The review window issues no whole-tree index WRITE, and every git index
   write tolerates `index.lock` contention.** gtd shares one worktree index with
@@ -168,7 +183,13 @@ any OTHER name (including `prose`) needs its own `modes:` entry, or
 path RELATIVE to `.gtd/` — the compiler prepends that directory automatically
 (`PatternConfig.ts`'s `stateFile` compiler), so `file: REVIEW.md` compiles to
 `.gtd/REVIEW.md`; a `..` segment, an absolute path, or an already-declared
-`.gtd/` prefix are all load-time errors. After editing, update:
+`.gtd/` prefix are all load-time errors. Config-shape errors and
+`validateDefinition`'s findings are merged into ONE thrown error, never just the
+first — an unrelated state's bad `on` target can't hide behind an earlier
+violation. A state's content value starting with `./`/`../` is a file reference,
+resolved against the config's directory and auto-inlined at load time; a missing
+file is a load error, never silently treated as inline text. After editing,
+update:
 
 - **`src/workflows/templates.test.ts`** — the invariants the compiled template
   must keep (one `entry.default`, one review window, one review/fix entry, the
@@ -208,7 +229,11 @@ A genuinely new engine capability (a new content kind, a new `on` pattern
 grammar) is a different, much rarer kind of change — that touches
 `src/PatternMachine.ts` (types + `validateDefinition`), `src/PatternConfig.ts`
 (the compiler), and `src/PatternTemplates.ts` or `src/Edge.ts` as needed, plus
-all of the above.
+all of the above. `src/PatternTemplates.ts` itself never touches git or the
+filesystem — every impure value (commit hashes, diff bases, the `read` callback)
+is injected by its caller via `TemplateContext`, and a render error (a malformed
+template, `read()` throwing) propagates uncaught so a failed `commit:` render
+refuses the step.
 
 A new STATE PROPERTY is not one of these anymore: it's one entry in
 `src/StateFields.ts`'s `STATE_FIELDS` table plus its behaviour (a bespoke
@@ -217,6 +242,10 @@ checker or compiler only if the field's rule doesn't fit the table's generic
 the editor JSON schema, and the visualizer's presentation all derive from that
 one table and need no separate edit. Read `STATE_FIELDS` for what a state may
 declare and how each field behaves, rather than any one derivation site.
+`src/Visualize.ts` itself stays git/Effect-free by taking current-state
+resolution as a caller-supplied `resolveCurrent` callback rather than resolving
+a rest itself — `program.ts`'s `runVisualizeCommand` is the one that supplies
+it, backed by `resolveRest`.
 
 A new steering-file FORMAT is neither: `mode:` names a pluggable mode, so a
 workflow declares its own `modes:` entry (a `format:`/`validate:` shell command
@@ -299,11 +328,11 @@ parser, one envelope. The table is the source of truth, not prose:
   unless the state explicitly declares a `C` pattern. A `prompt` rest is the ONE
   exception: a clean tree with no `C` row there commits an EMPTY
   `gtd(<actor>): <state>` ATTEMPT instead of a no-op (`PatternMachine.step`'s
-  `attempt: true`, `StepCommit`'s own doc comment) — a fruitless agent dispatch
-  costs money and must be remembered across restarts (`Edge.ts`'s `stalledAt`),
-  unlike a fruitless check/gate. When adding a state, decide explicitly whether
-  its clean step is a signal (declare a `C` row), an attempt (a `prompt` state's
-  default), or a no-op (a `script`/`message` state declaring no `C` row)
+  `attempt: true`) — a fruitless agent dispatch costs money and must be
+  remembered across restarts (`Edge.ts`'s `stalledAt`), unlike a fruitless
+  check/gate. When adding a state, decide explicitly whether its clean step is a
+  signal (declare a `C` row), an attempt (a `prompt` state's default), or a
+  no-op (a `script`/`message` state declaring no `C` row)
 - A dirty tree matching no declared pattern is a **refusal**, not a no-op —
   distinguish "nothing happened" (clean, no `C` row) from "something happened
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`
@@ -311,7 +340,11 @@ parser, one envelope. The table is the source of truth, not prose:
 - **Step-capture guards (edge, not engine):** `enforceStepGuards` in
   `src/StepGuards.ts` runs a registry of four guards before a normal commit
   lands — the review-doc, feedback-progress, answer-completeness, and
-  require-revert guards each check their own state-flavor condition. A state's
+  require-revert guards each check their own state-flavor condition.
+  `enforceStepGuards` samples the committed/working bytes ONCE, then runs every
+  applicable guard against that one sample — sound only because a mode's
+  `format:` command is normalization-only and must never change what a guard
+  decides, regardless of whether it ran before, after, or not at all. A state's
   `file:`+`mode:` formatting and validation is NOT a guard any more:
   `program.ts`'s `steeringModeSteps` emits the mode's own `format:`/`validate:`
   commands (over `src/SteeringMode.ts`) into the step script for the driver to

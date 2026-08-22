@@ -13,8 +13,6 @@ import { isSeededValidateCommand, seededValidateCommand } from "./SteeringFormat
 import { resolveSteeringMode, renderSteeringCommands } from "./SteeringMode.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
-
 /** The plan's draft/check/revise shape (decision 7): a squashing prompt state feeding a `commit:` final state. */
 const draftCheckRevise = {
   entry: { default: "root" },
@@ -59,8 +57,6 @@ const draftCheckRevise = {
     },
   },
 }
-
-// ── Compilation of a realistic multi-state workflow ──────────────────────────
 
 describe("compileWorkflowConfig — realistic multi-state workflow", () => {
   it("compiles every state with its content kind, actor, and on-edges", () => {
@@ -154,10 +150,9 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       },
       "/config-dir",
     )
-    // A `./`-prefixed COMMAND is never inlined as a file reference the way a
-    // content string is — it is a shell command, kept verbatim. `qa`/`review`
-    // are seeded with their own `validate:` even though this workflow never
-    // mentions them.
+    // A `./`-prefixed COMMAND is never inlined as a file reference — it's a
+    // shell command, kept verbatim. `qa`/`review` are seeded with their own
+    // `validate:` even though this workflow never mentions them.
     expect(definition.modes).toEqual({
       qa: { validate: seededValidateCommand("qa") },
       review: { validate: seededValidateCommand("review") },
@@ -340,8 +335,6 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
   })
 })
 
-// ── `on` declaration-order preservation ──────────────────────────────────────
-
 describe("compileWorkflowConfig — `on` order preservation", () => {
   it("preserves multi-row declaration order as OnEdge tuples", () => {
     const { definition } = compileWorkflowConfig(
@@ -455,8 +448,6 @@ machines:
   })
 })
 
-// ── File references ──────────────────────────────────────────────────────────
-
 describe("compileWorkflowConfig — file references", () => {
   let dir: string
 
@@ -567,8 +558,6 @@ describe("compileWorkflowConfig — file references", () => {
     ).toThrowError(/file reference "\.\/does-not-exist\.sh" does not exist/)
   })
 })
-
-// ── Config-shape validation errors ───────────────────────────────────────────
 
 describe("compileWorkflowConfig — config-shape validation", () => {
   it("rejects a non-object top-level value", () => {

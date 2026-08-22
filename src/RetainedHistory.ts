@@ -1,47 +1,20 @@
 import { Effect, Option } from "effect"
 import type { GitOperations } from "./Git.js"
 
-/**
- * Retention of a squashed (or abandoned) process's turn-by-turn history.
- * Squashing collapses a whole process's turn commits into one; this module
- * records the pre-squash tip so `gtd restore` can bring those turns back.
- */
-
-/**
- * The retained-history ref lives in git's PER-WORKTREE `refs/worktree/gtd/*`
- * namespace — the same one `src/ReviewWindow.ts` uses for `REVIEW_HEAD_REF`/
- * `REVIEW_BASE_REF`, for the same reason: linked worktrees sharing one `.git`
- * must not clobber each other's retained history (issue #118).
- */
+/** Per-worktree (`refs/worktree/gtd/*`, like `ReviewWindow.ts`'s refs) so linked worktrees sharing one `.git` don't clobber each other's retained history. */
 export const HISTORY_REF = "refs/worktree/gtd/history"
 
 const HISTORY_TRAILER_PREFIX = "Gtd-History: "
-// One `Gtd-History: <hash>` trailer line — same shape as `Edge.ts`'s `REVIEW_BASE_TRAILER_RE`.
 const HISTORY_TRAILER_RE = /^Gtd-History:[ \t]*(\S+)[ \t]*$/m
 
-/**
- * Append a `Gtd-History: <hash>` trailer (after a blank line) to a commit
- * `subject` — records the pre-squash tip commit hash so a later `gtd restore`
- * command can read it back. Mirrors `Edge.ts`'s `withEntryTrailers`
- * placement: the subject (first line) is untouched.
- */
+/** Appends a `Gtd-History: <hash>` trailer recording the pre-squash tip, for `gtd restore` to read back later. */
 export const withHistoryTrailer = (subject: string, hash: string): string =>
   `${subject}\n\n${HISTORY_TRAILER_PREFIX}${hash}`
 
-/**
- * The `Gtd-History: <hash>` trailer recorded on a squash commit (see
- * `withHistoryTrailer`), or `undefined` when `message` carries none. Read back
- * by a later `gtd restore` command to recover the pre-squash tip.
- */
 const parseHistoryTrailer = (message: string): string | undefined =>
   HISTORY_TRAILER_RE.exec(message)?.[1]
 
-/**
- * Record the pre-squash tip so a later `gtd restore` can find it. A no-op
- * (the git call is skipped entirely) when `tipHash === startParentHash`: an
- * empty process — no turns were ever committed — has no turn chain worth
- * keeping.
- */
+/** No-op when `tipHash === startParentHash`: an empty process has no turn chain worth keeping. */
 export const retainHistory = (
   git: GitOperations,
   tipHash: string,
@@ -49,29 +22,15 @@ export const retainHistory = (
 ): Effect.Effect<void, Error> =>
   tipHash === startParentHash ? Effect.void : git.updateRef(HISTORY_REF, tipHash)
 
-/** A thin wrapper over `git.readRefOption(HISTORY_REF)`. */
 export const readRetainedHistory = (
   git: GitOperations,
 ): Effect.Effect<Option.Option<string>, Error> => git.readRefOption(HISTORY_REF)
 
 /**
- * The safety predicate deciding whether a future `gtd restore` to `tipHash`
- * would be safe. Accepts exactly two shapes:
- *
- * (a) Fresh squash — HEAD IS the squash commit (a brand-new commit distinct
- *     from `tipHash`, the pre-squash tip it collapsed) and its own message
- *     still carries the `Gtd-History:` trailer pointing at that tip
- *     (`parseHistoryTrailer(headMessage) === tipHash`). Hard-resetting from
- *     here discards only that one squash commit, whose tree equals the tip's
- *     — no content loss. If HEAD's trailer names a DIFFERENT hash (or none),
- *     either a newer squash/abandon has since superseded this ref or HEAD
- *     isn't a squash commit at all, so this falls through to (b) rather than
- *     trusting a stale or absent match.
- * (b) Cleaned abandon / fast-forward — HEAD is an ancestor of the retained
- *     tip (`git.isAncestor(headHash, tipHash)`), i.e. nothing built on top of
- *     the tip would be discarded by resetting back to it.
- *
- * Anything else is refused with a reason naming what would be lost.
+ * Whether resetting to `tipHash` is safe: either HEAD is the squash commit
+ * that still carries the matching `Gtd-History:` trailer (resetting discards
+ * only that one commit), or HEAD is an ancestor of `tipHash` (nothing on top
+ * would be lost). Anything else is refused.
  */
 export const restorability = (
   git: GitOperations,

@@ -1,12 +1,4 @@
-/**
- * The `gtd install` briefing DOCUMENT — string data plus `renderBriefing()`.
- * This module holds no protocol logic and nothing derives behaviour from it;
- * it exists purely so the binary can print, on demand, a complete and
- * self-contained explanation of how to build a gtd driver in any shell
- * or runtime — the self-serve version of README's "Writing your own driver"
- * chapter. `MINIMAL_DRIVER` is pinned equal to that chapter's own fenced
- * bash block by `Install.test.ts`, so the two can never drift.
- */
+// `MINIMAL_DRIVER` is pinned equal to README's "Writing your own driver" fenced bash block by `Install.test.ts`, so the two can never drift.
 import { createRequire } from "node:module"
 
 const _require = createRequire(import.meta.url)

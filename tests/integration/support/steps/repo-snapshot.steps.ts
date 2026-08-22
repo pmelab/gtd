@@ -109,10 +109,6 @@ Then(
   },
 )
 
-// Proves plain `gtd next`'s header-plus-content shape at a non-`prompt` kind
-// still carries the SAME content, verbatim, as its own tail — the header is
-// prepended, never mixed into or replacing the step itself.
-
 // Proves a `--sh` field, recorded from an EARLIER (non-mutating) invocation,
 // holds the SAME text the CURRENT (plain) stdout carries — `shellQuote`
 // (`src/GitScript.ts`) is the exact escaping `src/Sh.ts`'s `renderShDocument`

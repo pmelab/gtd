@@ -67,8 +67,6 @@ Feature: An open review window reports untracked-but-present files by content, n
     When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"
-    # Present on disk with the bytes the window's head committed: no change,
-    # and above all not a deletion.
     And stdout does not contain "D src/calc.ts"
     And the git status contains "?? src/calc.ts"
 

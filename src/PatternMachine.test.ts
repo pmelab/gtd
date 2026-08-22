@@ -367,7 +367,6 @@ describe("resolveState", () => {
   })
 
   it("falls back to the initial state for an actor outside the workflow's closed-world vocabulary", () => {
-    // "nobody" is declared by no state in this workflow at all.
     expect(resolveState(simpleWorkflow, "gtd(nobody): working")).toBe(
       initialStateOf(simpleWorkflow),
     )
@@ -554,7 +553,6 @@ describe("step — out-of-turn refusal", () => {
 
 describe("step — no-match refusal on a dirty tree", () => {
   it("refuses and names the state's declared patterns when nothing matches", () => {
-    // "working" only declares "A DONE.md" and "C" — an unrelated dirty file matches neither.
     const decision = step(simpleWorkflow, "working", "agent", {
       changes: [change("M", "scratch.txt")],
       processTrace: [],
@@ -572,8 +570,6 @@ describe("step — no-match refusal on a dirty tree", () => {
 
 describe("step + resolveState — cross-actor handoff attribution", () => {
   it("a human stepping at a human state into an agent state writes the human's actor, and resolution still hands the turn to the agent", () => {
-    // "idle" is a human state whose "A TODO.md" edge targets "working", an
-    // AGENT state — a cross-actor handoff.
     const decision = step(simpleWorkflow, "idle", "human", {
       changes: [change("A", "TODO.md")],
       processTrace: [],
@@ -655,7 +651,6 @@ describe("step — clean tree", () => {
   })
 
   it("is a no-op when no C event is declared", () => {
-    // "idle" declares no "C" row.
     const decision = step(simpleWorkflow, "idle", "human", { changes: [], processTrace: [] })
     expect(decision).toEqual({ kind: "noop", state: "idle" })
   })
@@ -877,7 +872,6 @@ describe("step — retry redirection", () => {
 
 describe("step — attempt commits (clean tree, no-C prompt state)", () => {
   it("a clean step at a no-C prompt state decides an attempt commit, self-looping", () => {
-    // "fixing" (retryWorkflow) is a prompt state declaring no "C" row.
     const decision = step(retryWorkflow, "fixing", "agent", { changes: [], processTrace: [] })
     expect(decision).toEqual({
       kind: "commit",
@@ -890,7 +884,6 @@ describe("step — attempt commits (clean tree, no-C prompt state)", () => {
   })
 
   it("a declared C row still wins on a clean tree — never an attempt", () => {
-    // "working" (simpleWorkflow) is a prompt state that DOES declare "C".
     const decision = step(simpleWorkflow, "working", "agent", { changes: [], processTrace: [] })
     expect(decision).toEqual({
       kind: "commit",
@@ -1917,7 +1910,6 @@ describe("validateDefinition", () => {
   })
 
   it("reports a whole disconnected cluster as unreachable, not just its entry", () => {
-    // b and c reach each other but nothing reaches the pair from "a".
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {

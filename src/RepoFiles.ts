@@ -4,23 +4,14 @@ import { Context, Effect, Layer } from "effect"
 import { Cwd } from "./Cwd.js"
 import { GitService } from "./Git.js"
 
-/**
- * The content port: reading a repo-root-relative path, working-tree or
- * committed. Replaces `WorktreeReader` — the guards (`src/StepGuards.ts`)
- * need BOTH the pending bytes and the last-committed bytes of the same
- * `file:`, so this widens the old single-purpose read into one port with two
- * halves rather than adding a second tag alongside it.
- */
 export interface RepoFilesOps {
   /**
-   * Working-tree contents of a repo-root-relative path, `undefined` when
-   * absent. SYNCHRONOUS and TOTAL — sync because Eta calls `it.read`
-   * synchronously during a render (the reason `WorktreeReader` existed).
-   * ENOENT reads as `undefined`; any other read failure (a directory in the
-   * file's place, a permissions error) THROWS rather than being swallowed.
+   * Working-tree contents, `undefined` when absent. SYNCHRONOUS and TOTAL —
+   * sync because Eta calls `it.read` synchronously during a render. ENOENT
+   * reads as `undefined`; any other read failure THROWS.
    */
   readonly working: (path: string) => string | undefined
-  /** Contents of `path` at `ref` (default `"HEAD"`), `undefined` when not present there — git cannot distinguish a missing path from a missing ref without a second call, and every caller already treats both alike. */
+  /** Contents of `path` at `ref` (default `"HEAD"`), `undefined` when not present there. */
   readonly committed: (path: string, ref?: string) => Effect.Effect<string | undefined, Error>
 }
 
@@ -47,10 +38,9 @@ export class RepoFiles extends Context.Tag("RepoFiles")<RepoFiles, RepoFilesOps>
 }
 
 /**
- * `TemplateContext.read`: re-adds the ENOENT throw `RepoFiles.working`
- * deliberately drops, because a template's `it.read(missing)` throwing IS the
- * commit-refusal mechanism (`PatternTemplates.ts`'s render-failure contract) —
- * the one caller that wants the throw back.
+ * Re-adds the ENOENT throw `RepoFiles.working` drops: a template's
+ * `it.read(missing)` throwing IS the commit-refusal mechanism
+ * (`PatternTemplates.ts`'s render-failure contract).
  */
 export const templateRead =
   (files: RepoFilesOps) =>

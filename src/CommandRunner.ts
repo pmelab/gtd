@@ -9,25 +9,19 @@ export interface CommandOutcome {
 }
 
 /**
- * The subprocess port: run one shell command in the repo root. Replaces
- * `SteeringMode.ts`'s private `spawnSync` call so a mode's `format:`/
- * `validate:` command can be driven by a scripted double in the `@inmem` e2e
- * tier — the only place gtd itself spawns a subprocess (a workflow `script:`
- * is run by the DRIVER, never by gtd).
+ * The subprocess port: run one shell command in the repo root — the only place
+ * gtd itself spawns a subprocess (a workflow `script:` is run by the DRIVER,
+ * never by gtd). Lets a mode's `format:`/`validate:` command be driven by a
+ * scripted double in the `@inmem` e2e tier.
  */
 export class CommandRunner extends Context.Tag("CommandRunner")<
   CommandRunner,
   {
-    /**
-     * `bash -c <command>` in the repo root. A SPAWN failure (no `bash`, an
-     * unreadable cwd) fails the Effect; a non-zero EXIT is a value — that is
-     * how a mode command says "invalid" (`validate:`) or "broken" (`format:`),
-     * for the caller to interpret.
-     */
+    /** A SPAWN failure (no `bash`, unreadable cwd) fails the Effect; a non-zero EXIT is a value — how a mode command reports "invalid"/"broken" for the caller to interpret. */
     readonly bash: (command: string) => Effect.Effect<CommandOutcome, Error>
   }
 >() {
-  /** A test layer over a canned `bash` implementation — no subprocess. Real-bash edge cases (huge output, a genuine spawn failure) belong against `Live` instead. */
+  /** A test layer over a canned `bash` implementation — no subprocess. */
   static readonly layer = (
     bash: (command: string) => Effect.Effect<CommandOutcome, Error>,
   ): Layer.Layer<CommandRunner> => Layer.succeed(CommandRunner, { bash })
@@ -54,10 +48,7 @@ export class CommandRunner extends Context.Tag("CommandRunner")<
                 [
                   collect(process.stdout),
                   collect(process.stderr),
-                  // A signal death (e.g. `kill -9`) fails `process.exitCode`
-                  // rather than resolving to `null` the way `spawnSync` did —
-                  // mapped back to `null` here so `CommandOutcome.status`
-                  // keeps `spawnSync`'s contract for every caller.
+                  // A signal death fails process.exitCode; map to null to match spawnSync's contract.
                   process.exitCode.pipe(
                     Effect.map((code): number | null => code),
                     Effect.catchAll(() => Effect.succeed(null)),

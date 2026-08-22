@@ -1,51 +1,3 @@
-/**
- * The pattern machine — gtd's state-machine core. This module is the pure
- * engine: definition types, the pattern grammar's
- * parser/matcher, HEAD resolution, and step decisions (refusals, no-ops,
- * commits, retry redirection, and the commit-state squash decision).
- *
- * A workflow here is nothing but named **states**: no gates, no guard
- * functions, no actor kinds, no counters-as-trailers, no interrupt/fallback
- * ladders. Every state declares who acts there (`actor`, absent on commit
- * states), exactly one content kind (`script` | `prompt` | `message` |
- * `commit`, all opaque strings — template rendering is NOT this module's
- * job), an ordered `on` map of change-patterns to next states (absent on
- * commit states), and an optional `retry` cap. A `WorkflowDefinition`
- * separately declares `entries` — the state names a process may START at
- * (`default`, plus `manual` — every state declaring `entry: true`, enterable
- * via `gtd --entry <state>`). A definition
- * may also declare `modes:` —
- * named pairs of format/validate shell commands a state's `mode:` can point
- * at (see `ModeDef`); they are inert data here too, rendered and executed
- * only at the edge (`src/SteeringMode.ts`).
- *
- * This module is intentionally pure — no git, no filesystem, no Effect, no
- * IO of any kind: every export is a plain function of its arguments.
- * Rendering templates (`src/PatternTemplates.ts`), walking git history for
- * the process trace (`src/Edge.ts`), and emitting the commit/squash scripts
- * a driver runs (`src/Edge.ts`/`src/Emit.ts`) are all EDGE concerns.
- *
- * Its one import is `./StateFields.js` — the state-field vocabulary
- * (`Actor`, `StateName`, `ContentKind`, `StateMode`, `OnEdge`, `RetryDef`,
- * `StateDef`, `isCommitState`) and the `STATE_FIELDS` table every state
- * property's declaration, compilation, validation, editor schema, and
- * visualizer presentation derive from, itself a zero-import leaf of `const`
- * data and total functions. Read that table for what a state may declare —
- * this module no longer enumerates the field vocabulary itself, only
- * re-exports it.
- */
-
-// ── Definition types ─────────────────────────────────────────────────────────
-//
-// The field vocabulary (`Actor`, `StateName`, `ContentKind`, `StateMode`,
-// `OnEdge`, `RetryDef`, `StateDef`, `isCommitState`) lives in
-// `src/StateFields.ts` — a zero-import leaf of `const` data (`STATE_FIELDS`)
-// plus total functions that every compilation/validation/schema/visualizer
-// site derives from, so a new state property is one table entry plus its
-// behaviour rather than an eight-site edit. Re-exported here (erased at
-// build time by `verbatimModuleSyntax`) so every existing
-// `from "./PatternMachine.js"` import keeps working unchanged.
-
 import {
   CONTENT_FIELDS,
   STATE_FIELD_ENTRIES,
@@ -73,55 +25,40 @@ export {
 
 /**
  * One steering-file mode: the two SHELL COMMANDS that format and validate a
- * file of this format. Both are Eta templates rendered with the state's usual
- * template context plus `it.file` (the rendered steering-file path — see
- * `PatternTemplates.ModeCommandContext`), and both are entirely EDGE concerns:
- * the pure engine never renders or executes either (`src/SteeringMode.ts`
- * does, for `gtd validate` and the `gtd land` capture gate). At least one of
- * the two must be declared; the halves resolve INDEPENDENTLY, so declaring one
- * leaves the other at whatever the layer beneath provides (a built-in
- * validator, or nothing at all).
+ * file of this format, both Eta templates rendered with `it.file` bound to
+ * the steering-file path. Both are EDGE concerns — the pure engine never
+ * renders or executes either (`src/SteeringMode.ts` does). At least one must
+ * be declared; the halves resolve INDEPENDENTLY, so declaring one leaves the
+ * other at whatever the layer beneath provides.
  *
- * - `format` runs FIRST and is expected to rewrite the file in place. A
- *   non-zero exit is a hard error (the tooling is broken, not the file). gtd
- *   ships NO formatter of its own — a project brings its own (`prettier`,
- *   `dprint`, a script) by declaring it here.
- * - `validate` runs SECOND: exit 0 means valid; a non-zero exit means invalid,
- *   and its output (stdout then stderr) carries the findings, one per line.
+ * - `format` runs FIRST and rewrites the file in place; a non-zero exit is a
+ *   hard error (the tooling is broken, not the file). gtd ships no formatter
+ *   of its own.
+ * - `validate` runs SECOND: exit 0 means valid, non-zero means invalid with
+ *   findings on stdout/stderr, one per line.
  */
 export interface ModeDef {
   readonly format?: string
   readonly validate?: string
 }
 
-/** Every mode name `def` declares in `modes:` (empty when it declares none) — the whole vocabulary a state's `mode:` may name, per this module (see `StateMode`'s doc comment for where the registry names come from). */
 export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
   Object.keys(def.modes ?? {})
 
 /**
- * The engine's own plumbing directory — gtd's scratch/bookkeeping directory
- * (the review window's revert pathspec, the step guards' code-vs-plumbing
- * test) and the prefix `PatternConfig.ts`'s `stateFile` compiler prepends onto
- * every state's `file:` declaration. A plain const, not a workflow-level
- * declaration: there is nothing left to relocate it to, and the three sites
- * that must agree on it — the compiler that prepends, the validator that
- * re-checks, and the runtime guard that tests the prefix — all import this
- * one value rather than re-deriving a prefix string of their own.
+ * The engine's own plumbing directory — the prefix `PatternConfig.ts`'s
+ * `stateFile` compiler prepends onto every state's `file:` declaration. A
+ * plain const, not a workflow-level declaration: the compiler, the
+ * validator, and the runtime guard all import this one value rather than
+ * re-deriving their own prefix string.
  */
 export const STATE_DIR = ".gtd"
 
 /**
  * The state names a process may START at. `default` is where an ordinary
- * "no active process" rest resumes (see `initialStateOf`) — required, so there
- * is always a value. `manual` is every OTHER state a process may start at:
- * every state that declared `entry: true` in the source config, qualified and
- * sorted by the compiler, empty when the workflow declares none. A manual
- * entry is reached via `gtd --entry <state>` (`src/program.ts`)
- * — a DELIBERATE, distinct starting point from `default` (e.g. a review or a
- * fix process that begins somewhere other than the ordinary rest).
- * `validateDefinition`'s `validateEntries` guarantees `default` and every
- * `manual` entry each name a defined, non-commit state, that no `manual`
- * entry equals `default`, and that `manual` carries no duplicate.
+ * "no active process" rest resumes. `manual` is every state that declared
+ * `entry: true`, reached via `gtd --entry <state>` — a DELIBERATE, distinct
+ * starting point from `default` (e.g. a review or fix process).
  */
 export interface WorkflowEntries {
   readonly default: StateName
@@ -129,29 +66,19 @@ export interface WorkflowEntries {
   readonly manual: readonly StateName[]
 }
 
-/** A workflow: named states, the entry points a process may start at, plus the optional steering-file `modes:` they may name. */
 export interface WorkflowDefinition {
   readonly states: Readonly<Record<StateName, StateDef>>
   readonly entries: WorkflowEntries
   /**
-   * The steering-file modes available to this workflow's states — mode name ->
-   * its format/validate commands (see `ModeDef`). Already the MERGE of
-   * `src/SteeringFormats.ts`'s built-in registry (seeded as empty entries),
-   * the workflow's own `modes:`, and the top-level `.gtdrc` `modes:` layer
-   * over that (`PatternConfig.compileWorkflowConfig`/`mergeModes`, per half),
-   * so the engine sees one flat map with no privileged names of its own — a
-   * `qa` entry declaring only `format:` keeps that format's built-in `qa`
-   * validation (resolved at the edge, see `src/SteeringMode.ts`) because the
-   * registry seed is still present underneath, not because this module knows
-   * the name `qa`. Absent (or empty) is possible only for a hand-built
-   * `WorkflowDefinition` that skipped the compiler (e.g. a test fixture) —
-   * every COMPILED definition always carries at least the registry's seeded
-   * entries.
+   * The steering-file modes available to this workflow's states — already the
+   * MERGE of `src/SteeringFormats.ts`'s built-in registry, the workflow's own
+   * `modes:`, and the top-level `.gtdrc` `modes:` layer, so the engine sees
+   * one flat map with no privileged names of its own. Absent (or empty) only
+   * for a hand-built `WorkflowDefinition` that skipped the compiler.
    */
   readonly modes?: Readonly<Record<StateMode, ModeDef>>
 }
 
-/** Which content kind a state declares, or `undefined` if none (a validation error). */
 export const contentKindOf = (state: StateDef): ContentKind | undefined => {
   if (state.script !== undefined) return "script"
   if (state.prompt !== undefined) return "prompt"
@@ -164,15 +91,15 @@ export const contentKindOf = (state: StateDef): ContentKind | undefined => {
 export const contentOf = (state: StateDef): string | undefined =>
   state.script ?? state.prompt ?? state.message
 
-/** True when a rest at `state` should open the review checkout window (see `StateDef.reviewWindow`). Safe for an unknown state name (returns `false`). */
+/** True when a rest at `state` should open the review checkout window. Safe for an unknown state name (returns `false`). */
 export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewWindow === true
 
-/** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). The string/template form of `reviewBase` is NOT a window anchor — this stays narrowed to `=== true` on purpose, never truthy. */
+/** True when `state` anchors the review window's diff base. Safe for an unknown state name (returns `false`). The string/template form of `reviewBase` is NOT a window anchor — this stays narrowed to `=== true` on purpose, never truthy. */
 export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewBase === true
 
-/** The named state's `reviewBase` when it is a STRING (an Eta template rendering a commitish that fixes the whole process's diff base — see `StateDef.reviewBase`) — `undefined` when `reviewBase` is `true`, absent, or `state` doesn't exist. Pure accessor only: rendering the template is an edge concern. */
+/** The named state's `reviewBase` when it is a STRING (an Eta template rendering a commitish that fixes the whole process's diff base) — `undefined` when `reviewBase` is `true`, absent, or `state` doesn't exist. Pure accessor only: rendering the template is an edge concern. */
 export const entryBaseTemplateOf = (
   def: WorkflowDefinition,
   state: StateName,
@@ -181,25 +108,20 @@ export const entryBaseTemplateOf = (
   return typeof reviewBase === "string" ? reviewBase : undefined
 }
 
-/** True when a step at `state` must be refused if its only change is deleting the state's `file:` (see `StateDef.requireProgress`). Safe for an unknown state name (returns `false`). */
 export const isRequireProgressState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.requireProgress === true
 
-/** True when a step at `state` must be refused unless every open question in its `qa`-mode file is answered (see `StateDef.answerGate`). Safe for an unknown state name (returns `false`). */
 export const isAnswerGateState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.answerGate === true
 
-/** True when a step at `state` must be refused unless the human's review-round paths have actually been reverted from the working tree (see `StateDef.requireRevert`). Safe for an unknown state name (returns `false`). */
 export const isRequireRevertState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.requireRevert === true
 
 /**
- * Every declared state that is NOT a commit state, sorted (plain string
- * sort). This is intentionally ALL non-commit states, not just ones that
- * declared `entry: true` — `entry: true` is a reachability/visualizer
- * concern (it seeds `entries.manual`), while this drives the CLI's
- * `--entry <state>` guard and its error message (naming every legal choice),
- * a broader set on purpose.
+ * Every declared state that is NOT a commit state, sorted. Intentionally ALL
+ * non-commit states, not just ones that declared `entry: true` — this drives
+ * the CLI's `--entry <state>` guard and its error message, a broader set on
+ * purpose.
  */
 export const enterableStates = (def: WorkflowDefinition): readonly StateName[] =>
   Object.keys(def.states)
@@ -208,26 +130,23 @@ export const enterableStates = (def: WorkflowDefinition): readonly StateName[] =
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
-/** The ` → ` that separates a transition subject's source state from its target. */
 const TRANSITION_SEP = " → "
 
 /**
- * `gtd(<actor>): <from> → <to>` — the subject a step commit carries. Per
- * decision 2, `<actor>` is WHO AUTHORED THE STEP (the invoker); `<to>` is the
- * state being ENTERED and `<from>` the state the authored changes were made
- * in, so the subject reads as what this commit DID, not just where the machine
- * is headed. `from` is optional: when it is omitted or equals `to` (a
- * self-loop, or a manual entry like `gtd --entry <state>` that
- * has no meaningful source), the subject collapses to the bare
- * `gtd(<actor>): <to>` form.
- * `resolveState` reads back only `<to>` — the ` → ` prefix is human context.
+ * `gtd(<actor>): <from> → <to>` — the subject a step commit carries.
+ * `<actor>` is WHO AUTHORED THE STEP (the invoker); `<to>` is the state being
+ * ENTERED and `<from>` the state the changes were made in, so the subject
+ * reads as what this commit DID. `from` is optional: omitted or equal to
+ * `to` (a self-loop, or a manual entry with no meaningful source) collapses
+ * to the bare `gtd(<actor>): <to>` form. `resolveState` reads back only
+ * `<to>` — the ` → ` prefix is human context.
  */
 export const stateSubject = (actor: Actor, to: StateName, from?: StateName): string =>
   from === undefined || from === to
     ? `gtd(${actor}): ${to}`
     : `gtd(${actor}): ${from}${TRANSITION_SEP}${to}`
 
-/** A parsed `gtd(<actor>): <from> → <to>` subject — `actor` is the step's author (the invoker), not necessarily `state`'s own declared actor; `state` is the entered state (`<to>`), `from` the source when the subject carried one. */
+/** A parsed `gtd(<actor>): <from> → <to>` subject — `state` is the entered state (`<to>`), `from` the source when the subject carried one. */
 export interface ParsedStateSubject {
   readonly actor: Actor
   readonly state: StateName
@@ -238,11 +157,10 @@ const SUBJECT_RE = /^gtd\(([^()]+)\): (.+)$/
 
 /**
  * Parse a raw commit subject as `gtd(<actor>): <from> → <to>` (or the bare
- * `gtd(<actor>): <to>` form). Returns `undefined` for anything else (non-gtd,
- * malformed, or missing either half) — never throws. Trims surrounding
- * whitespace before matching. `state` is always the ENTERED state (`<to>`, the
- * segment after the last ` → `); the pre-arrow segment, when present, is
- * surfaced as `from` for display but is never consulted by `resolveState`.
+ * `gtd(<actor>): <to>` form). Returns `undefined` for anything else, never
+ * throws. `state` is always the ENTERED state (`<to>`); the pre-arrow
+ * segment, when present, is surfaced as `from` but never consulted by
+ * `resolveState`.
  */
 export const parseStateSubject = (subject: string): ParsedStateSubject | undefined => {
   const match = SUBJECT_RE.exec(subject.trim())
@@ -260,7 +178,6 @@ export const parseStateSubject = (subject: string): ParsedStateSubject | undefin
 
 // ── Resolve ──────────────────────────────────────────────────────────────────
 
-/** The workflow's declared initial state (`entries.default` — required, so there is always a value). */
 export const initialStateOf = (def: WorkflowDefinition): StateName => def.entries.default
 
 /**
@@ -277,29 +194,20 @@ const declaredActors = (def: WorkflowDefinition): ReadonlySet<Actor> => {
 }
 
 /**
- * Resolve HEAD's commit subject to a state name — by STATE NAME ALONE, per
- * decision 2: "History is an attributed state trace; resolution = read
- * HEAD's state name." The subject's actor names WHO AUTHORED the step (the
- * invoker), not who is now awaited — so it is checked only against the
- * workflow's closed-world actor vocabulary (`declaredActors`), never against
- * the resolved state's OWN declared actor. This is what makes a cross-actor
- * handoff resolve correctly: a human stepping out of a human state into an
- * agent state writes `gtd(human): <agent-state>`, and the NEXT invocation
- * must still resolve that subject to `<agent-state>` so the agent (that
- * state's own declared actor) is the one now recognized as awaited.
+ * Resolve HEAD's commit subject to a state name — by STATE NAME ALONE. The
+ * actor is checked only against the workflow's closed-world actor vocabulary
+ * (`declaredActors`), never against the resolved state's own declared actor —
+ * that's what makes a cross-actor handoff resolve correctly: a human stepping
+ * into an agent state writes `gtd(human): <agent-state>`, and the next
+ * invocation must still resolve to `<agent-state>` so the agent is the one
+ * now awaited.
  *
- * An unrecognized subject — non-`gtd(...)`, malformed, naming a state not
- * defined in this workflow, naming an actor outside the closed-world
- * vocabulary, or naming a commit state — resolves to the INITIAL state; that
- * is the entry point by design (old v1/v2 histories, and every completed
- * process's squash commit, all land here).
- *
- * Commit states are excluded explicitly (`isCommitState`), not via an
- * actor-mismatch trick: entering a commit state always squashes, so no
- * `gtd(<actor>): <commit-state>` subject is ever written by `step` — but a
- * hand-authored one could still appear (e.g. malformed test fixtures), and
- * resolution must never rest AT a commit state regardless, matching the
- * plan's `gtd next` contract (`kind: commit` never appears there).
+ * An unrecognized subject — non-`gtd(...)`, malformed, naming an undefined
+ * state, an actor outside the vocabulary, or a commit state — resolves to the
+ * INITIAL state (old histories and every completed process's squash commit
+ * land here). Commit states are excluded explicitly rather than via an
+ * actor-mismatch trick, since a hand-authored subject could still name one
+ * even though `step` never writes one.
  */
 export const resolveState = (def: WorkflowDefinition, headSubject: string): StateName => {
   const parsed = parseStateSubject(headSubject)
@@ -313,16 +221,13 @@ export const resolveState = (def: WorkflowDefinition, headSubject: string): Stat
 
 // ── Pattern grammar: parser ──────────────────────────────────────────────────
 
-/** A pending working-tree change, as `git status --porcelain` would report it. */
 export type ChangeStatus = "A" | "M" | "D"
 
-/** One pending change: its status letter and repo-relative path. */
 export interface PendingChange {
   readonly status: ChangeStatus
   readonly path: string
 }
 
-/** A parsed pattern: either the bare clean-tree event, or a status+glob row. */
 export type ParsedPattern =
   | { readonly kind: "clean" }
   | { readonly kind: "diff"; readonly status: ChangeStatus | "*"; readonly glob: string }
@@ -331,17 +236,11 @@ const STATUSES = new Set(["A", "M", "D", "*"])
 
 /**
  * Parse one `on`-row pattern string: `<status> <glob>` (status ∈ `A|M|D|*`)
- * or the bare token `C` (clean tree). Returns `undefined` for anything else
- * — an unparseable status letter, no glob after the status, or an empty
- * glob. Whitespace around the whole pattern, and between the status and the
- * glob, is tolerated (trimmed); the glob itself is taken verbatim after that
- * (so a glob containing further spaces, e.g. a path with a literal space in
- * it, is preserved intact — only the FIRST space is the status/glob
- * separator). Operates on the ALREADY-Eta-RENDERED pattern string — a
- * workflow author may write `"A <%= it.vars.feedbackFile %>"` in `on:`, but
- * by the time it reaches this parser (or `matchesPattern` below) the edge
- * (`src/Edge.ts`'s `renderOnEdges`) has already substituted `it.vars`; this
- * module never renders anything itself.
+ * or the bare token `C` (clean tree). `undefined` for anything else. Only the
+ * FIRST space separates status from glob, so a glob containing further spaces
+ * (e.g. a path with a literal space) is preserved intact. Operates on the
+ * ALREADY-Eta-RENDERED pattern string — the edge substitutes `it.vars` before
+ * this parser ever sees it.
  */
 export const parsePattern = (raw: string): ParsedPattern | undefined => {
   const trimmed = raw.trim()
@@ -356,29 +255,15 @@ export const parsePattern = (raw: string): ParsedPattern | undefined => {
 
 // ── Pattern grammar: glob matcher ────────────────────────────────────────────
 //
-// Deliberate, tested semantics (the plan doc leaves these as "decide and
-// test"):
-//  - `*` matches within ONE path segment: it never crosses a `/`. So a
-//    single-segment glob like `*` matches `TODO.md` but NOT `.gtd/FEEDBACK.md`
-//    (that path has a segment separator the lone `*` can't cross).
+//  - `*` matches within ONE path segment: it never crosses a `/`. So `*`
+//    matches `TODO.md` but NOT `.gtd/FEEDBACK.md`.
 //  - `**` matches across segments, including zero of them: `**` alone
-//    matches any path at any depth (`TODO.md` AND `.gtd/FEEDBACK.md`).
-//    `src/**/*.ts` matches both `src/a.ts` (the `**/` segment matches
-//    nothing) and `src/sub/dir/a.ts` (it matches `sub/dir/`).
-//  - Dotfiles/dot-directories are NOT special-cased: `*`/`**` match a
-//    leading `.` in a path segment the same as any other character (this is
-//    a diff-path matcher over `git status` output, not a shell glob with
-//    dotglob semantics).
-//  - IMPORTANT documented discrepancy: the plan doc's prose calls `"* *"`
-//    "the catch-all for any dirty tree" — but per the single-segment rule
-//    above, glob `*` does NOT match nested paths. `"* *"` is only a true
-//    catch-all when every tracked path is a repo-root file; a workflow that
-//    ever touches a subdirectory (e.g. `.gtd/FEEDBACK.md`, `src/x.ts`) needs
-//    `"* **"` to catch every dirty tree unconditionally. This module
-//    implements the literal single-segment-vs-cross-segment grammar the
-//    plan spells out in decision 5 and leaves the `"* *"` prose as
-//    imprecise shorthand rather than silently special-casing `*` to mean
-//    `**` at the catch-all position.
+//    matches any path at any depth. `src/**/*.ts` matches both `src/a.ts`
+//    and `src/sub/dir/a.ts`.
+//  - Dotfiles are NOT special-cased: `*`/`**` match a leading `.` like any
+//    other character (this is a diff-path matcher, not a shell glob).
+//  - `"* *"` is NOT a catch-all for every dirty tree — a workflow that ever
+//    touches a subdirectory needs `"* **"` to catch it unconditionally.
 
 const ESCAPE_RE = /[.+^${}()|[\]\\]/g
 
@@ -413,13 +298,7 @@ const globToRegExp = (glob: string): RegExp => {
   return new RegExp(pattern)
 }
 
-/**
- * Does `pattern` fire against this pending diff? A clean-tree pattern fires
- * iff there are no pending changes; a diff pattern fires iff ANY pending
- * change both matches the status (or `"*"` for any status) and whose path
- * matches the glob in full (contains-match over the CHANGE LIST, not a
- * substring match within one path).
- */
+/** Fires if any pending change matches both status and glob in full — a contains-match over the change list, not a substring match within one path. */
 export const matchesPattern = (
   pattern: ParsedPattern,
   changes: readonly PendingChange[],
@@ -434,14 +313,12 @@ export const matchesPattern = (
 
 // ── Step semantics ───────────────────────────────────────────────────────────
 
-/** The `step` inputs beyond the definition/state/invoker: the pending diff and the current process's state trace. */
 export interface StepPayload {
   readonly changes: readonly PendingChange[]
   /** State names entered since the current process started, oldest → newest (does NOT include the prospective new entry). */
   readonly processTrace: readonly StateName[]
 }
 
-/** `step` refused: either the wrong actor invoked (out-of-turn), or a dirty tree matched none of the state's declared patterns. */
 export type StepRefusal =
   | {
       readonly kind: "refusal"
@@ -463,16 +340,9 @@ export interface StepNoOp {
 }
 
 /**
- * Commit everything pending as `gtd(<actor>): <from> → <to>` (the target after
- * any retry redirection). `actor` is the INVOKER who authored this step — per
- * decision 2, the subject records "the state being ENTERED and who authored
- * the step", now prefixed with the `<from>` source so the message describes the
- * committed changes rather than only the destination. This works for a
- * cross-actor handoff (a transition whose target
- * is awaited by a different actor than `from`'s) because `resolveState`
- * resolves by STATE NAME ALONE: it never compares the subject's actor against
- * `to`'s own declared actor, so the next invocation lands on `to` regardless
- * of which actor's name the subject carries.
+ * Commit everything pending as `gtd(<actor>): <from> → <to>` (the target
+ * after any retry redirection). `actor` is the INVOKER who authored this
+ * step, not `to`'s own declared actor.
  */
 export interface StepCommit {
   readonly kind: "commit"
@@ -481,16 +351,13 @@ export interface StepCommit {
   readonly from: StateName
   readonly to: StateName
   /**
-   * `true` for a fruitless `prompt`-state dispatch: the resting state declared
-   * no `C` row, the tree came back clean, and the state's own actor is the
-   * invoker — so this commit's diff is EMPTY. Landing it anyway (rather than
-   * the old inert no-op) is what makes a stall a pure fold over history (see
-   * `Edge.ts`'s `stalledAt`); the flag rides along so the two places that must
-   * treat an attempt differently from an ordinary self-loop capture — the
-   * initial-state collapse (`Edge.ts`'s `collapsesWith`) and the step-capture
-   * guards (`StepGuards.ts`) — can tell the two apart without re-deriving
-   * "empty diff" themselves. Present (`true`) only when it applies; never
-   * `false`.
+   * `true` for a fruitless `prompt`-state dispatch whose diff is EMPTY (no `C`
+   * row, clean tree, invoker is the state's own actor). Landed anyway (rather
+   * than an inert no-op) so a stall is a pure fold over history (`Edge.ts`'s
+   * `stalledAt`); the flag lets the initial-state collapse and the
+   * step-capture guards tell an attempt apart from an ordinary capture
+   * without re-deriving "empty diff" themselves. Present only when it
+   * applies; never `false`.
    */
   readonly attempt?: true
 }
@@ -504,7 +371,6 @@ export interface StepSquash {
 
 export type StepDecision = StepRefusal | StepNoOp | StepCommit | StepSquash
 
-/** First `on`-row whose pattern fires against `changes`, or `undefined` if none do. */
 const matchOn = (
   onEdges: readonly OnEdge[],
   changes: readonly PendingChange[],
@@ -550,21 +416,12 @@ const episodeVisits = (
 
 /**
  * Apply retry redirection to a raw `on`-match target: if the target has a
- * `retry` cap and has already been entered `max` times in `trace`, redirect
- * to `otherwise` — and if `otherwise` itself carries a `retry` cap, apply
- * the same check to IT, recursively. `visited` guards against a redirect
- * cycle (A's otherwise is B, B's otherwise is A, both over their caps): once
- * a target is seen twice in one redirect chain, the chain stops there and
- * that target is accepted as final rather than looping forever. This is a
- * documented choice — the plan leaves "recursively?" open; a config that
- * builds such a cycle is almost certainly a bug, but the engine must still
- * terminate rather than hang.
- *
- * "Entered `max` times" now counts an EPISODE, not the whole process trace:
- * `episodeVisits` above resets to zero at the first trace entry of a state
- * that is neither `target` itself nor one of `target`'s structural sources
- * (`sourcesOf`) — so a red caused by an unrelated part of the process no
- * longer spends this target's budget.
+ * `retry` cap and has already been entered `max` times in this EPISODE (see
+ * `episodeVisits` — an unrelated red no longer spends this target's budget),
+ * redirect to `otherwise`, recursively. `visited` guards against a redirect
+ * cycle (A's otherwise is B, B's otherwise is A, both over cap): once a target
+ * is seen twice, the chain stops and that target is accepted as final rather
+ * than looping forever.
  */
 const applyRetry = (
   def: WorkflowDefinition,
@@ -581,38 +438,25 @@ const applyRetry = (
 }
 
 /**
- * A plain string-prefix test: is `state` inside `scope`'s subtree? Sound
- * because `src/Machines.ts` already refuses any local name containing a
- * `.` (a compile-time error), so a qualified name's dotted path segments are
- * unambiguous — no tree walk or parent map needed. `scope === ""` is the
- * root scope and matches every state. Otherwise it's an exact match, or a
- * TRUE dotted descendant (`state.startsWith(scope + ".")`) — a same-prefix
- * SIBLING is deliberately not a match: `inScope("packages.itemx.building",
- * "packages.item")` is `false`, because `"packages.itemx"` merely starts
- * with the characters `"packages.item"` without the `.` separator that
- * would make it an actual descendant.
+ * Is `state` inside `scope`'s subtree? `scope === ""` is the root scope,
+ * matching every state; otherwise an exact match or a TRUE dotted descendant
+ * (`state.startsWith(scope + ".")`) — a same-prefix SIBLING is deliberately
+ * not a match: `inScope("packages.itemx.building", "packages.item")` is
+ * `false`, since `"packages.itemx"` lacks the `.` separator.
  */
 export const inScope = (state: string, scope: string): boolean =>
   scope === "" || state === scope || state.startsWith(`${scope}.`)
 
 /**
  * Resolve the memory scope for `state`, given the process `trace` so far.
- * This is a pure primitive a later package's memory-key computation is
- * built on — it never touches git or the filesystem.
- *
- * `undefined` means `state` itself isn't in `scopes` — memory is an
- * optimization, never a correctness input, so this ambiguous case resolves
- * toward "fresh" by refusing to resolve at all. Otherwise the result always
- * carries `state`'s own scope `M = scopes[state]`, plus an `entryIndex`:
- * the trace position where the CURRENT unbroken run of "in `M`'s subtree"
- * rows began, so a state's own conversation can dip into child scopes
- * (`packages.item.health`, `packages.item.spec`, ...) and back without
- * losing its place — only a trace row whose scope is a sibling or ancestor
- * of `M` (not inside `M`'s subtree) breaks the run. `entryIndex: -1` covers
- * both an empty `trace` and a `trace` with nothing ever inside `M`'s
- * subtree — both are "fresh", just for different reasons. A trace row
- * naming a state absent from `scopes` is skipped rather than thrown on —
- * treated as not-in-scope for both membership and run-continuity.
+ * `undefined` means `state` isn't in `scopes` — memory is an optimization,
+ * never a correctness input, so this resolves toward "fresh". Otherwise the
+ * result carries `state`'s scope `M` plus `entryIndex`: the trace position
+ * where the CURRENT unbroken run of "in `M`'s subtree" rows began, so a
+ * state's conversation can dip into child scopes and back without losing its
+ * place — only a row whose scope is a sibling or ancestor of `M` breaks the
+ * run. `entryIndex: -1` covers both an empty trace and one with nothing ever
+ * inside `M`'s subtree.
  */
 export const memoryScopeAt = (
   scopes: Readonly<Record<StateName, string>>,
@@ -636,27 +480,17 @@ export const memoryScopeAt = (
 /**
  * Decide what invoking `invoker` at `state` does — a pure decision, not an
  * effect. Refusals: `invoker` isn't `state`'s declared actor (out-of-turn),
- * or the tree is dirty and no `on` pattern matches (no-match, naming the
- * declared patterns so the CLI can print them). A clean tree with no
- * matching pattern is a plain no-op at a `script`/`message` rest — the loop
- * protocol's clean steps are the default, silent case there — but at a
- * `prompt` rest it is an ATTEMPT instead: the state itself becomes the raw
- * target, so it falls through the same retry/commit-state tail as a real
- * match, tagged `attempt: true` on the resulting `"commit"` (never on a
- * `"squash"`, which a redirect straight into a commit state still produces
- * unchanged) — see `StepCommit.attempt`'s doc comment for why a fruitless
- * dispatch is committed at all, and `wouldAttempt` for the "would another
- * dispatch just repeat this" question a step itself doesn't need to ask. A
- * match's target (or an attempt's self-target) is retry-redirected
- * (`applyRetry`) before being classified: a commit-state target yields a
- * `"squash"` decision carrying its `commit` template verbatim; anything
- * else yields a `"commit"` decision naming the `gtd(<invoker>): <from> → <to>`
- * subject to write — `<invoker>` is who authored this step, per decision 2, not
- * `to`'s own declared actor (see `StepCommit`'s doc comment). Throws only on a
- * structurally invalid call (an undefined
- * `state`, or a commit-state `state` — stepping AT a commit state is a
- * caller error: a commit state ends the process, `resolveState` never rests
- * there).
+ * or the tree is dirty and no `on` pattern matches. A clean tree with no
+ * matching pattern is a plain no-op at a `script`/`message` rest, but at a
+ * `prompt` rest it's an ATTEMPT instead: the state itself becomes the raw
+ * target, falling through the same retry/commit-state tail as a real match,
+ * tagged `attempt: true` on the resulting `"commit"` — a fruitless `prompt`
+ * dispatch still costs money and must be remembered across restarts, so it's
+ * committed rather than treated as an inert no-op. The target (or attempt's
+ * self-target) is retry-redirected (`applyRetry`) before being classified: a
+ * commit-state target yields `"squash"`; anything else yields `"commit"`.
+ * Throws only on a structurally invalid call — an undefined `state`, or a
+ * commit-state `state` (stepping AT a commit state is a caller error).
  */
 export const step = (
   def: WorkflowDefinition,
@@ -677,15 +511,9 @@ export const step = (
   const onEdges = stateDef.on ?? []
   const rawTarget = matchOn(onEdges, payload.changes)
 
-  // A clean tree matching no declared `C` row is a plain no-op at a
-  // `script`/`message` rest (unchanged), but at a `prompt` rest it is an
-  // ATTEMPT: the dispatch cost something and produced nothing, so it must be
-  // remembered across restarts (see `Edge.ts`'s `stalledAt`) rather than
-  // vanish silently. Treating the resting state itself as the raw target and
-  // falling through the ordinary retry/commit-state tail below means
-  // `retry:` on this state counts attempts exactly like any other entry, and
-  // a capped retry redirects an attempt to `otherwise` exactly like it would
-  // redirect a real transition.
+  // Using the resting state itself as the raw target means `retry:` on this
+  // state counts an attempt exactly like any other entry, redirecting to
+  // `otherwise` once capped just like a real transition would.
   let target = rawTarget
   let attempt = false
   if (target === undefined) {
@@ -713,18 +541,13 @@ export const step = (
   }
 
   // A validated definition guarantees a non-commit state declares an actor;
-  // an unvalidated one surfaces the gap as a thrown structural error,
-  // matching the throws above. (This check no longer drives the written
-  // subject — see StepCommit's doc comment — but a target state with no
-  // actor at all is still a malformed definition worth failing loudly on.)
+  // an unvalidated one surfaces the gap as a thrown structural error, matching
+  // the throws above. A target state with no actor at all is still a
+  // malformed definition worth failing loudly on.
   if (targetDef.actor === undefined) {
     throw new Error(`step: "${finalTarget}" is not a commit state but declares no actor`)
   }
 
-  // The written subject names WHO AUTHORED THIS STEP (`invoker`), not the
-  // entered state's own declared actor — see StepCommit's doc comment — and
-  // carries the `<from> → <to>` transition so the message reads as what the
-  // commit DID, not just the state it lands in.
   return {
     kind: "commit",
     subject: stateSubject(invoker, finalTarget, state),
@@ -736,16 +559,11 @@ export const step = (
 }
 
 /**
- * Would a clean step (an empty change set) at `state`, invoked by its own
- * declared actor, record ANOTHER attempt that stays AT `state` — "another
- * dispatch would just record another attempt" (see `Edge.ts`'s `stalledAt`,
- * the derived stall's other half). Runs `step` itself rather than
+ * Would a clean step at `state`, invoked by its own declared actor, record
+ * ANOTHER attempt that stays AT `state`? Runs `step` itself rather than
  * restating its retry-redirect precedence: a capped `retry` that would
- * redirect the attempt to `otherwise` (or squash it into a commit state)
- * makes this `false` — a further dispatch would actually escalate, not
- * repeat the same fruitless turn. `false` for an unknown/commit state, or
- * any state whose clean step is a signal (`C`) or a plain no-op
- * (`script`/`message`).
+ * redirect the attempt elsewhere makes this `false` — a further dispatch
+ * would actually escalate, not repeat the same fruitless turn.
  */
 export const wouldAttempt = (
   def: WorkflowDefinition,
@@ -765,15 +583,6 @@ export const wouldAttempt = (
 // deliberately flat/composable rather than one large function, to stay under
 // fallow's complexity gate as much as for readability.
 
-/**
- * `entries.default` names a defined, non-commit state. Every entry in
- * `entries.manual`, when present, must likewise name a defined, non-commit
- * state distinct from `entries.default` — a manual entry is a DELIBERATE,
- * distinct starting point from the workflow's ordinary "no active process"
- * rest (a manual entry requires resting at the default entry before it acts
- * — see `src/program.ts`), so the two must stay distinguishable — and
- * `entries.manual` must carry no duplicate state name within itself.
- */
 const validateEntries = (def: WorkflowDefinition, names: readonly string[]): string[] => {
   const errors: string[] = []
   const checkEntry = (key: "default" | "manual", state: StateName) => {
@@ -800,7 +609,6 @@ const validateEntries = (def: WorkflowDefinition, names: readonly string[]): str
   return errors
 }
 
-/** Exactly one of script/prompt/message/commit. */
 const validateContentKind = (name: string, state: StateDef): string[] => {
   const kindCount = CONTENT_FIELDS.filter(
     (key) => (state as unknown as Record<string, unknown>)[key] !== undefined,
@@ -812,7 +620,6 @@ const validateContentKind = (name: string, state: StateDef): string[] => {
       ]
 }
 
-/** Commit states carry no actor/`on`; every other state must carry an actor. */
 const validateActorShape = (name: string, state: StateDef): string[] => {
   if (!isCommitState(state)) {
     return state.actor === undefined
@@ -826,14 +633,10 @@ const validateActorShape = (name: string, state: StateDef): string[] => {
 }
 
 /**
- * The `modes:` map itself: a declared mode's `format`/`validate`, when
- * present, may not be blank (a whitespace-only shell command would run and
- * "succeed", silently disabling the gate). An empty entry (`{}`) is legal — the
- * FORMAT-ONLY tier any workflow can use for a name with no gtd-side schema
- * (e.g. a project's own `modes: { adr: {} }` before it plugs in any command
- * at all). The compiler
- * (`src/PatternConfig.ts`) enforces the TYPES; these are the semantic rules,
- * collected alongside every other finding.
+ * A declared mode's `format`/`validate`, when present, may not be blank (a
+ * whitespace-only shell command would run and "succeed", silently disabling
+ * the gate). An empty entry (`{}`) is legal — the FORMAT-ONLY tier any
+ * workflow can use for a name with no gtd-side schema.
  */
 const validateModes = (def: WorkflowDefinition): string[] => {
   const errors: string[] = []
@@ -850,15 +653,9 @@ const validateModes = (def: WorkflowDefinition): string[] => {
 }
 
 /**
- * `mode`, when present, must NAME a mode this definition knows — i.e. a key of
- * `def.modes`, which the compiler seeds with `src/SteeringFormats.ts`'s
- * built-in registry names before layering `modes:` over them, so this module
- * blesses no name of its own. Load-time on purpose: a typo'd mode would
- * otherwise silently disable both the capture guard and the LSP's diagnostics
- * for that file. The "forbidden on a commit state" and "requires a sibling
- * `file:`" halves are `STATE_FIELDS.mode`'s generic `commit`/`requires` rules
- * (see `validateFieldRules`) — this bespoke checker only owns the name
- * resolution a generic rule can't express.
+ * `mode`, when present, must NAME a mode this definition knows (a key of
+ * `def.modes`). Load-time on purpose: a typo'd mode would otherwise silently
+ * disable both the capture guard and the LSP's diagnostics for that file.
  */
 const validateKnownMode = (def: WorkflowDefinition, name: string, state: StateDef): string[] => {
   const known = knownModes(def)
@@ -871,12 +668,10 @@ const validateKnownMode = (def: WorkflowDefinition, name: string, state: StateDe
 }
 
 /**
- * When `reviewBase` is a STRING (the template form — see `StateDef.reviewBase`),
- * its source must be non-blank: a literal `reviewBase: ""` (or whitespace-only)
- * is an authoring error, distinct from the runtime concern of the RENDERED
- * result coming out blank (that refusal lives at the edge, at CLI time — not
- * checked here). Deliberately does NOT check that the template mentions a
- * declared var: a base may legitimately be a literal commitish like `main`.
+ * When `reviewBase` is a STRING, its source must be non-blank — distinct from
+ * the runtime concern of the RENDERED result coming out blank (checked at
+ * the edge, not here). Deliberately does NOT check that the template mentions
+ * a declared var: a base may legitimately be a literal commitish like `main`.
  */
 const validateReviewBaseTemplate = (name: string, state: StateDef): string[] => {
   if (typeof state.reviewBase !== "string") return []
@@ -886,11 +681,9 @@ const validateReviewBaseTemplate = (name: string, state: StateDef): string[] => 
 }
 
 /**
- * A compiled `file:` must sit under `STATE_DIR` (`.gtd`) — `PatternConfig.ts`'s
- * `stateFile` compiler already guarantees this for anything it compiles by
- * prepending the directory itself, so this can only fire for a definition
- * built directly in TypeScript (a hand-authored test fixture) that skipped
- * the compiler entirely.
+ * A compiled `file:` must sit under `STATE_DIR` — the compiler already
+ * guarantees this for anything it compiles, so this can only fire for a
+ * definition hand-built in TypeScript that skipped the compiler entirely.
  */
 const validateFileUnderStateDir = (name: string, state: StateDef): string[] => {
   const file = state.file
@@ -900,7 +693,6 @@ const validateFileUnderStateDir = (name: string, state: StateDef): string[] => {
     : [`state "${name}": "file" must be under "${STATE_DIR}/" (got "${file}")`]
 }
 
-/** Every `on` row parses, and its target names a defined state. */
 const validateOnEdges = (name: string, state: StateDef, names: readonly string[]): string[] => {
   const errors: string[] = []
   for (const [patternStr, target] of state.on ?? []) {
@@ -914,7 +706,6 @@ const validateOnEdges = (name: string, state: StateDef, names: readonly string[]
   return errors
 }
 
-/** `retry.otherwise` names a defined state; `retry.max` is a non-negative integer. */
 const validateRetry = (name: string, state: StateDef, names: readonly string[]): string[] => {
   if (state.retry === undefined) return []
   const errors: string[] = []
@@ -931,24 +722,15 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
 
 /**
  * Every state is reachable from an ENTRY ROOT by walking `on` targets and
- * `retry.otherwise` redirects (a redirect ENTERS its `otherwise` state exactly
- * like an `on` match enters its target — see `applyRetry` — so both are real
- * edges). The roots are `def.entries` — `default` PLUS every state named in
- * `entries.manual`: a manual entry is entered directly (`gtd --entry
- * <state>`), so a state reachable only from one of them is
- * legitimately reachable, not dead config (without seeding them, e.g. a
- * manual entry whose only inbound path is `--entry` would be wrongly
- * flagged). Plain BFS; targets naming undefined states are skipped here (they
- * are `validateOnEdges`/`validateRetry` findings of their own). Only called
- * when `validateEntries` found no problem: with an invalid `entries` there is
- * no well-defined start to walk from, and reporting every state as
- * unreachable would bury the real finding.
- *
- * An unreachable state is an ERROR, not a warning: a workflow is bound to a
- * project and edited as a project-wide change, so "kept on purpose for entry
- * via a hand-authored subject" is not a supported authoring pattern — an
- * unreachable state is a typo'd rename or a leftover, and silently-dead
- * config is exactly what load-time validation exists to catch.
+ * `retry.otherwise` redirects (both are real edges — a redirect ENTERS its
+ * `otherwise` state exactly like an `on` match enters its target). The roots
+ * are `default` PLUS every `entries.manual` state, since a manual entry is
+ * entered directly (`gtd --entry <state>`) — a state reachable only from one
+ * of them is legitimately reachable, not dead config. Only called when
+ * `validateEntries` found no problem, since an invalid `entries` has no
+ * well-defined start to walk from. An unreachable state is an ERROR, not a
+ * warning: silently-dead config is exactly what load-time validation exists
+ * to catch.
  */
 const validateReachability = (def: WorkflowDefinition, names: readonly string[]): string[] => {
   const roots = [def.entries.default, ...def.entries.manual]
@@ -973,13 +755,10 @@ const validateReachability = (def: WorkflowDefinition, names: readonly string[])
 }
 
 /**
- * The per-field checks that a generic `validateFieldRules` walk can't
- * express, keyed by the field they own — a LOOKUP, not an enumeration: it
- * does not grow when a new field is added to `STATE_FIELDS`, only when a new
- * field needs a bespoke rule (a pattern parsing, a name resolving against
- * dynamic vocabulary, a template being non-blank). Every survivor here is
- * called BEFORE that same field's generic rules in `validateState`'s table
- * walk, matching each field's own historical check order.
+ * The per-field checks a generic `validateFieldRules` walk can't express,
+ * keyed by the field they own — a LOOKUP, not an enumeration: it grows only
+ * when a new field needs a bespoke rule. Called BEFORE that field's generic
+ * rules in `validateState`'s table walk.
  */
 const BESPOKE: Readonly<
   Record<
@@ -996,11 +775,9 @@ const BESPOKE: Readonly<
 
 /**
  * All per-state rule checkers, run over one state: the two group-rule
- * checkers that don't fit the field table (`validateContentKind`,
- * `validateActorShape` — both span multiple fields at once), then every
- * `STATE_FIELDS` entry in table order, each running its bespoke check (if
- * any, from `BESPOKE`) before its generic `nonEmpty`/`commit`/`requires`
- * rules (`validateFieldRules`).
+ * checkers that don't fit the field table (both span multiple fields at
+ * once), then every `STATE_FIELDS` entry in table order, each running its
+ * bespoke check (if any) before its generic rules.
  */
 const validateState = (
   def: WorkflowDefinition,
@@ -1020,32 +797,13 @@ const validateState = (
 
 /**
  * Validate a `WorkflowDefinition`, returning human-readable error strings
- * (empty = valid). Pure — Phase 2 calls this at config-load time. Checks:
- * at least one state; `entries.default` names a defined, non-commit state,
- * and every entry in `entries.manual`, when present, names a defined,
- * non-commit state distinct from `entries.default` with no duplicate within
- * `entries.manual` itself (see `validateEntries`); every state declares
- * exactly one content kind; commit states carry no `actor` and no `on`;
- * non-commit states carry an `actor`; every `modes:` entry declares at least
- * one non-blank `format`/`validate` command; a compiled `file:` sits under
- * `STATE_DIR` (`validateFileUnderStateDir` — the compiler's `stateFile` kind
- * already guarantees this for anything it compiles, so this only fires for a
- * hand-built definition that skipped the compiler); every state is reachable
- * from an entry root (`def.entries` — `default` plus every `entries.manual`
- * state) by walking `on` targets and `retry.otherwise` redirects (checked
- * only when `validateEntries` itself found no problem — see
- * `validateReachability`).
- *
- * Every OTHER per-field rule (`on`/`retry` targets resolving, `retry.max`
- * being a non-negative integer, a text field's non-empty/commit-forbidden
- * shape, `mode` naming a known vocabulary and requiring a sibling `file`,
- * `reviewWindow`/`reviewBase`/`requireProgress`/`answerGate` each being
- * forbidden on a commit state and (where declared) requiring a `file`, a
- * string-form `reviewBase` template not being blank) is declared ONCE, in
- * `src/StateFields.ts`'s `STATE_FIELDS` table — see that module for the
- * authoritative per-field contract; `validateState` walks it via
- * `validateFieldRules` plus the small `BESPOKE` set of checks a generic rule
- * can't express.
+ * (empty = valid). Pure — called at config-load time. Checks at least one
+ * state, `entries` shape (`validateEntries`), per-state content/actor/mode/
+ * file shape (`validateState`), `modes:` shape, and reachability from an
+ * entry root (`validateReachability`, only when entries validated clean).
+ * Every per-field rule not listed above (`on`/`retry` targets resolving,
+ * `mode` naming a known vocabulary, etc.) is declared once in
+ * `src/StateFields.ts`'s `STATE_FIELDS` table instead.
  */
 export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
   const names = Object.keys(def.states)
