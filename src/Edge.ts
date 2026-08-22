@@ -697,8 +697,16 @@ const renderOnEdgesOrFail = (
  * A shallow clone of `def` whose `state`'s `on` is replaced by
  * `renderedOnEdges` — used to feed `PatternMachine.step`, which matches only
  * `def.states[state].on` for the state it's invoked at. Only the RESTING
- * state needs patching: `step`'s retry/target logic keys on state NAMES, not
- * on any other state's `on`, so every other state is left as-is.
+ * state needs patching, even though `step`'s retry counter now reads every
+ * state's `on` targets (plus `retry.otherwise`) to derive a capped state's
+ * source set. That's still sound because `renderOnEdges` renders a pattern
+ * KEY only and passes each edge's `target` through verbatim — the source-set
+ * computation reads only `target` strings, never pattern keys, so every
+ * other state's un-patched, unrendered-key `on` still reports the right
+ * targets. Warning: if a future change ever templated a state's `on`
+ * TARGET (not just its pattern key), that would silently mis-scope every
+ * retry budget, because the source-set computation reads targets from every
+ * state, and `withRenderedOn` patches only the one being rested at.
  */
 const withRenderedOn = (
   def: WorkflowDefinition,

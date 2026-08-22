@@ -1084,6 +1084,29 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.health.escalate"
+    # The human takes the escalate gate's own "Retry check" edge — any change
+    # at all routes back to build.health.check ("* **": check), restoring
+    # build.fix's spent budget: build.health.escalate's only "on" target is
+    # "check", so it is not one of build.fix's sources, and per the
+    # per-episode retry rule an intervening non-source entry resets the count.
+    Given a file ".gtd/marker2.md" with:
+      """
+      retrying after escalation
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.health.escalate → build.health.check"
+    # A second red run: if the budget were still process-pooled (the OLD
+    # whole-trace rule), this would see build.fix's 3 prior visits and bounce
+    # straight back to build.health.escalate. Reaching build.fix instead is
+    # the proof the human gate genuinely restored it.
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 5 failed
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.fix"
 
   @inmem
   Scenario: deleting REVIEW.md at await-review is refused — sign off by leaving no comment, not by deleting

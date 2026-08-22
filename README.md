@@ -28,9 +28,12 @@ No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 - **Harness agnostic.** gtd emits prompts to stdout (or JSON). Claude Code, a
   bash loop, a CI job, or you reading it out loud — the workflow doesn't care
   who executes it.
-- **Bounded, not runaway.** Fix attempts are capped (`retry` on a state). When
-  the cap is hit, gtd redirects to a human gate instead of burning tokens
-  rewriting the same test for the 47th time.
+- **Bounded, not runaway.** A check/fix loop's fix attempts are capped per red
+  episode (`retry` on a state) — the count resets once the process moves on and
+  a later red starts fresh. When the cap is hit, gtd redirects to a human gate
+  instead of burning tokens rewriting the same test for the 47th time. Not every
+  loop in the bundled workflow carries a cap, though: the per-package
+  spec-review loop has none, and spins until it's satisfied.
 - **Your call on history.** Every intermediate `gtd(actor): from → to` commit is
   a real, attributed commit — the subject names both the state the work was done
   in and where it advanced to, nothing hidden in chat. Squash them into one

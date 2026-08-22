@@ -2,9 +2,9 @@
 # gtd check turn (the package closer) — remove the just-reviewed package
 # file (its path is in NEXT.md) plus any leftover spec feedback and
 # already-satisfied evidence, so `picking` selects the NEXT package (or
-# falls through to review when the queue is empty). Reached on approval
-# (spec review clean) and on the spec review retry cap (force-close,
-# deferring the concern to the tail).
+# falls through to review when the queue is empty). Reached only on
+# spec-review approval — the spec-review loop carries no retry cap,
+# so there is no force-close path here.
 set +e
 pkg=$(cat .gtd/NEXT.md 2>/dev/null)
 [ -n "$pkg" ] && rm -f "$pkg"
