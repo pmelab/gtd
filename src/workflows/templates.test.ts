@@ -2,6 +2,7 @@ import { parse as parseYaml } from "yaml"
 import { describe, expect, it } from "vitest"
 import { validateDefinition } from "../PatternMachine.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
+import { renderStateTemplate, varsOnlyContext } from "../PatternTemplates.js"
 import type { MachineNode } from "../Machines.js"
 import {
   compileTemplate,
@@ -504,27 +505,87 @@ describe("the bundled unified workflow template", () => {
     expect(authorPrompt).toContain(bias)
   })
 
-  it("neither the vertical/distinct-acceptance prose nor the footprint/merge prose states a package count as a digit (package 01)", () => {
+  it("neither the vertical/distinct-acceptance prose nor the footprint/merge prose states a package count as a digit (package 01, 02)", () => {
     const { definition } = compileTemplate()
 
-    // Slice out just the new prose (between stable anchors), rather than the
-    // whole prompt — both prompts legitimately carry unrelated digits
-    // elsewhere (design.triage's own numbered steps "1."-"4.").
+    // Slice out just the new prose, bounded by the `## ` lap headings a
+    // reword cannot move — both prompts carry unrelated digits elsewhere.
     const triagePrompt = definition.states["design.triage"]!.prompt!
-    const triageStart = triagePrompt.indexOf("Two more tests sit beside")
-    const triageEnd = triagePrompt.indexOf("2. Classify each concern")
+    const triageStart = triagePrompt.indexOf("## First lap")
+    const triageEnd = triagePrompt.indexOf("## Return lap")
     expect(triageStart).toBeGreaterThan(-1)
     expect(triageEnd).toBeGreaterThan(triageStart)
     const triageSlice = triagePrompt.slice(triageStart, triageEnd)
     expect(triageSlice).not.toMatch(/[0-9]/)
 
     const authorPrompt = definition.states["architecture.author"]!.prompt!
-    const authorStart = authorPrompt.indexOf("You now know the *how*")
-    const authorEnd = authorPrompt.indexOf("For every open TECHNICAL point")
+    const authorStart = authorPrompt.indexOf("## First lap")
+    const authorEnd = authorPrompt.indexOf("## Return lap")
     expect(authorStart).toBeGreaterThan(-1)
     expect(authorEnd).toBeGreaterThan(authorStart)
     const authorSlice = authorPrompt.slice(authorStart, authorEnd)
     expect(authorSlice).not.toMatch(/[0-9]/)
+  })
+
+  it("both planner prompts carry their three/two lap headers (package 02)", () => {
+    const { definition } = compileTemplate()
+    const triagePrompt = definition.states["design.triage"]!.prompt!
+    expect(triagePrompt).toMatch(/## First lap/)
+    expect(triagePrompt).toMatch(/## Return lap/)
+    expect(triagePrompt).toMatch(/## Review loop-back/)
+    // Order matters: first, then return, then review loop-back.
+    const firstIdx = triagePrompt.indexOf("## First lap")
+    const returnIdx = triagePrompt.indexOf("## Return lap")
+    const loopBackIdx = triagePrompt.indexOf("## Review loop-back")
+    expect(firstIdx).toBeLessThan(returnIdx)
+    expect(returnIdx).toBeLessThan(loopBackIdx)
+    // The old numbered steps are gone — renumbered as sub-headings instead.
+    expect(triagePrompt).not.toMatch(/^\s*\d+\.\s/m)
+
+    const authorPrompt = definition.states["architecture.author"]!.prompt!
+    expect(authorPrompt).toMatch(/## First lap/)
+    expect(authorPrompt).toMatch(/## Return lap/)
+    expect(authorPrompt.indexOf("## First lap")).toBeLessThan(authorPrompt.indexOf("## Return lap"))
+  })
+
+  // Package 01 (shared prompt vars): a misspelt `it.vars.<name>` tag or a
+  // blanked override renders the literal string `undefined` into an agent's
+  // prompt — silently, with no throw and no warning (Eta just stringifies
+  // the missing lookup). Rendering every prompt/system value against the
+  // bundled `vars:` defaults is the only automated defence against that.
+  it("renders every prompt/system value against the bundled vars defaults with no leaked `undefined` (package 01)", () => {
+    const { definition, vars } = compileTemplate()
+    const context = { ...varsOnlyContext(vars), read: () => "stub file content" }
+    for (const [name, state] of Object.entries(definition.states)) {
+      const fields = { script: state.script, prompt: state.prompt, message: state.message }
+      for (const [field, content] of Object.entries(fields)) {
+        if (content === undefined) continue
+        const rendered = renderStateTemplate(content, context)
+        expect(rendered, `state "${name}" field "${field}"`).not.toMatch(/undefined/)
+      }
+    }
+    for (const [machineName, machine] of Object.entries(
+      parseYaml(unifiedYaml).machines as Record<string, { system?: string }>,
+    )) {
+      if (machine.system === undefined) continue
+      const rendered = renderStateTemplate(machine.system, context)
+      expect(rendered, `machine "${machineName}" system`).not.toMatch(/undefined/)
+    }
+  })
+
+  it("a misspelt `it.vars` tag renders the literal `undefined` — proving the assertion above would catch one (package 01)", () => {
+    const { vars } = compileTemplate()
+    const context = { ...varsOnlyContext(vars), read: () => "stub file content" }
+    expect(renderStateTemplate("A <%~ it.vars.thisNameDoesNotExist %> B", context)).toBe(
+      "A undefined B",
+    )
+  })
+
+  it("a checkbox-few-shot pin on questionBar, the shared open-questions block (package 01)", () => {
+    const { vars } = compileTemplate()
+    expect(vars.questionBar).toMatch(/- \[ ] <first option.*rationale>/)
+    expect(vars.questionBar).toMatch(/- \[ ] <second option>/)
+    expect(vars.questionBar).toMatch(/- \[ ] _your answer_/)
   })
 })
 
