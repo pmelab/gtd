@@ -621,7 +621,11 @@ default template ships six such personas already, one per prompt-bearing machine
 `builderPersona`, `finisherPersona` — and, like any other bundled var, each is
 overridable through a top-level `.gtdrc` `vars:` key or a `GTD_<NAME>`-style
 environment variable (e.g. `GTD_DESIGNPERSONA`) — gtd's existing, generic
-vars-override mechanism, nothing new.
+vars-override mechanism, nothing new. Each persona var carries only that
+machine's own role paragraph; a shared `agentConduct` var (tool-use conduct,
+orienting with git since there is no injected status block, and inspecting what
+the turn's own message names) is appended after it at all six sites, so the six
+identities differ only in role, never in how they're told to behave.
 
 Memory is **entry-scoped to a machine**, not a state-authored label: each
 machine instance (a node in the `machines:` tree, e.g. `build`, `build.health`,
@@ -1468,11 +1472,11 @@ top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
   (`packages.item.spec.review`), and `.gtd/COMMIT_MSG.md` (`build.squashing`) —
   plus the four machine-parsed states named in the next bullet. Blanking
   `GTD_STYLEBLOCK` strips the voice from all seven, including the machine-parsed
-  ones, not only the free-prose three. In short: why density matters before any
-  rule, answer-first with no preamble or restatement, blunt and imperative,
-  plain words, bold carries the load, ship the artifact bare, compressing is not
-  dropping, one idea per block, flag risk in one blunt line, never narrate the
-  work — and never-trim outranks every other rule in the set.
+  ones, not only the free-prose three. In short: it's a deliverable, not a chat
+  reply, so size follows the work; answer-first with no restatement; blunt and
+  imperative; plain words; bold carries the load; ship the artifact bare;
+  compressing is not dropping; one idea per block; flag risk in one blunt line;
+  never narrate the work — and never-trim outranks every other rule in the set.
 - **`styleFormatContract`** — the structural override for machine-parsed files:
   the format contract (headings, checkbox rows, marker lines) outranks the
   voice, and a violation refuses the turn. It renders at the top of the prompt,
@@ -1490,6 +1494,24 @@ stamp — the tool's content, not gtd's prose), `.gtd/NEXT.md` (a bare path, no
 prose to style), and `.gtd/REVIEW_RAW.md` (gtd's own prose, hand-tightened in
 the voice directly in `build.review.deciding`'s script rather than templated in
 through either variable).
+
+Three more vars exist purely to dedup wording repeated across several prompts —
+they carry no voice, just shared instructions — and, like every bundled var, are
+overridable via `.gtdrc` `vars:` or a `GTD_<NAME>` environment variable:
+
+- **`stateFileRules`** — the "this workflow steers itself through its own state
+  files, treat them as a private scratchpad" opener, injected as the first line
+  of every prompt that touches a `.gtd/` file directly.
+- **`questionBar`** — the open-questions warrant test, the decide-it-yourself
+  sink, the `## Open Questions` checkbox shape, and the return-lap fold-in
+  instruction shared by `design.triage` and `architecture.author`. Each site
+  still states its own phase scope (product-only vs. TECHNICAL) locally, since
+  that's where the two genuinely disagree.
+- **`fixFeedbackPrompt`** — the body `packages.item.fix-suite` and `build.fix`
+  share byte for byte: read `.gtd/FEEDBACK.md`, fix the code, leave it
+  uncommitted. `fix-suite` appends one extra sentence about implementing a later
+  package's work when that's the only way to green the suite; `build.fix` does
+  not.
 
 ### Lookup and precedence
 

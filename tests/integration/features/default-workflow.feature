@@ -832,7 +832,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "You do NOT resume the design conversation"
+    And stdout contains "You do not resume the design conversation"
 
     Given the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
