@@ -1,298 +1,37 @@
-# The unified gtd workflow template — gtd's BUILT-IN DEFAULT workflow. When no
-# `workflow:` key is configured anywhere in the cwd→home config chain,
-# src/Config.ts runs this template directly, so a state command works with no
-# configuration at all. `gtd init` seeds only the settings a project tunes
-# (vars.testCommand + a modes: formatting suggestion), never the workflow
-# itself. See the README's "How it works" and "Driving the loop" sections for
-# the full walkthrough.
+# gtd's BUILT-IN DEFAULT workflow — used when no `workflow:` key is
+# configured anywhere in the cwd→home config chain; `gtd init` seeds only
+# vars.testCommand + a modes: suggestion, never this file. Compiled through
+# the same `compileWorkflowConfig` a user's own `workflow:` goes through — no
+# privileged path. See skills/authoring/SKILL.md for how to read or edit it
+# (machines, patterns, templates) and the README for how a driver runs it.
 #
-# Compiled through the exact same `compileWorkflowConfig` a user's `.gtdrc`
-# `workflow:` key goes through — no privileged code path
-# (src/workflows/templates.ts does the compiling). Every content string below
-# is INLINE (no `./`-relative file references): the bundled template ships
-# inside a single-file build (`dist/gtd.bundle.mjs`), so its content must
-# already be resolved at BUILD time. `renderInitConfig` (src/workflows/
-# templates.ts) can MATERIALIZE this raw source into a `.gtdrc.json`
-# `workflow:` value — the way to eject/customize the machine, and the hermetic
-# test fixture — but `gtd init` itself no longer writes the workflow.
-#
-# ── Authored with MACHINES (entry:/machines:) ───────────────────────────────
-#
-# This template is written as a tree of reusable, parameterized MACHINES (see
-# src/Machines.ts) — a gate/loop written once and instantiated several times
-# with different `with:` bindings (dedup), or a complex cluster grouped under
-# one name for source comprehension (encapsulation). Every reference below is
-# an ordinary `{ machine: <name>, with: { ... } }` local, expanded at
-# compile-time into concrete, qualified states before the pure engine ever
-# sees the definition — no runtime footprint.
-#
-# MACHINE BOUNDARIES LINE UP WITH CONVERSATIONAL IDENTITY: a machine that holds
-# an identity (a planner or a coder persona) declares its own `model:` ONCE, at
-# the machine level (stamped onto every one of its own `prompt` states — see
-# src/Machines.ts's `resolveInstanceMachineFields`), instead of repeating `model:` on
-# every state; no state anywhere declares `model:` or `memory:` directly any
-# more (the memory key is computed from the machine tree — see
-# src/PatternMachine.ts's `memoryScopeAt` / src/Edge.ts's `memoryKeyFor`).
-#
-#   * entryGate (dedup ×2)    — the green-baseline gate (check + human blocked)
-#                               guarding the single start (`start-gate`) and
-#                               the review (`review-gate`) entries. Its check
-#                               script IS the shared `&suiteCheck` anchor
-#                               (also aliased by `fix-precheck`, outside this
-#                               machine) — every entry blocks on any red tree,
-#                               full stop; there is no baseline-aware second
-#                               run any more, since `unwind` (below) already
-#                               put the tree back to the baseline before this
-#                               gate ever runs. Identity-free.
-#   * healthGate (dedup ×2)   — the check/escalate health pair shared by the
-#                               build tail's own tail (`build.health.*`) and
-#                               the per-package build's own tail
-#                               (`packages.item.health.*`) — each caller's OWN
-#                               `fix` state (a coder-identity action) lives
-#                               beside this machine, not inside it, since
-#                               fixing IS a coder action and this machine has
-#                               no identity of its own. Identity-free.
-#   * questionGate (dedup ×2) — the check/answer pair shared by the design and
-#                               architecture phases' own open-questions gate
-#                               (`design.gate.*` / `architecture.gate.*`): a
-#                               shared probe script decides whether the
-#                               phase's steering file still has unanswered
-#                               questions, and only then rests the process at
-#                               a human answer gate. Identity-free.
-#   * designPlan (encap)      — the triage phase's one conversation: group the
-#                               diff that started the process into ordered,
-#                               classified concerns and resolve the PRODUCT
-#                               ones' open questions that clear the bar — a
-#                               genuine fork, not already settled, worth
-#                               surviving to review — deciding every
-#                               sub-threshold point itself instead
-#                               (`design.*`: triage, gate.check,
-#                               gate.answer). ▸ planner.
-#   * archPlan (encap)        — the technical phase's one conversation: a COLD
-#                               read of the settled concerns, resolving the
-#                               TECHNICAL open questions that clear the same
-#                               bar (same decide-it-yourself sink below it),
-#                               then a mechanical decomposition into package
-#                               files (`architecture.*`: author, gate.check,
-#                               gate.answer, decompose). A separate machine
-#                               from `designPlan` (not one fused machine) —
-#                               its own memory scope, since there may be a
-#                               handover between the user-facing and the
-#                               technical phase. ▸ planner.
-#   * humanReview (encap)     — the shared review tail, nested INSIDE
-#                               `buildTail` (`build.review.*`: reviewing →
-#                               await-review → deciding → collecting) — see
-#                               "Why humanReview is nested, not a root sibling"
-#                               below. ▸ planner — `collecting` only judges
-#                               whether the round is actionable; there is no
-#                               coder-identity follow-through inside this
-#                               machine any more (see the root's own
-#                               `re-unwind` state).
-#   * specReview (encap)      — the per-package agentic review, a SINGLE
-#                               state (`packages.item.spec.review`) — a
-#                               machine whose entire job is to be a separate
-#                               mind from the implementer. ▸ planner — fixing
-#                               the reviewer's own findings is a coder action,
-#                               so it lives in `packages.item.fix-spec`
-#                               instead.
-#   * packageLoop (encap)     — the per-package build queue
-#                               (`packages.picking`). Identity-free — the
-#                               actual per-package build identity lives in its
-#                               own `item` child (packageItem, below).
-#   * packageItem (encap)     — the per-package build identity (`packages.
-#                               item.*`: building, fix-suite, fix-spec,
-#                               closing), plus its own `health` and `spec`
-#                               children. ▸ coder.
-#   * buildTail (encap)       — the process's build identity (`build.*`:
-#                               squashing, fix), plus its own `health` child
-#                               AND its own `review` child
-#                               (humanReview, above). No monolithic "build the
-#                               whole plan" state any more — every package is
-#                               built inside `packages.item`, and the queue
-#                               drains straight into `build.review`. ▸ coder.
-#
-# ── Why humanReview is nested, not a root sibling ───────────────────────────
-#
-# `humanReview` sits UNDER `buildTail` (`build.review`) rather than beside it
-# at the root, because a machine's memory scope is its dotted instance path
-# (see src/PatternMachine.ts's `memoryScopeAt`): entering a DESCENDANT scope
-# never breaks the parent's unbroken run, but entering a sibling does. On the
-# ORDINARY path (packages -> build.review -> squashing) that buys nothing —
-# `build`'s own scope has no prior turn to resume, since every package is
-# built inside `packages.item` instead. The one concrete case where it
-# matters is `gtd --entry fix-precheck`: a red suite drops into `build.fix`,
-# which opens `build`'s own scope, and the whole run from there —
-# `build.fix` -> `build.health.check` -> `build.review.*` -> `build.squashing`
-# — stays inside that one subtree, so `build.squashing` drafts the finale
-# from the SAME session that made the fixes, instead of a root-level sibling
-# forcing it to re-derive the range from scratch on every pass through the
-# tail. That one benefit is worth keeping over hoisting `humanReview` back to
-# a root sibling, which would otherwise be a repo-wide rename with no
-# behavioural gain. (The OTHER coder turn a feedback round used to resume —
-# the implementer's own follow-through on review feedback — is retired
-# outright: a hand-edit made during review is now re-planned from scratch via
-# the root's own `re-unwind` state, never built upon, so there is no
-# continuity to preserve on that path any more.)
-# The reviewer itself is unaffected either way: `build.review.*` is its own
-# scope regardless of where it's nested, so it never resumes the builder's
-# session.
-#
-# ── One flow: triage into concerns, then packages, then the shared tail ────
-#
-# ANY change to the tree starts the process — a hand-edit to real code, a
-# scratch note, anything at all — because it's a SKETCH, not finished work:
-# there is no fork on which steering file the human happened to create;
-# `idle` has exactly one outgoing edge, into `unwind`, which reverts that
-# whole diff back out of the working tree before planning starts (its intent
-# survives in history for `design.triage` to read; the squash finale means it
-# never reaches the final commit either way). `unwind` itself has exactly one
-# outgoing edge, into `start-gate`.
-#
-# EVERY entry gates on a green baseline before proceeding, and all three now
-# keep the exact same plain rule: block on any red tree, full stop. A red run
-# at any of them halts at a human blocked gate (fix the failures and re-run,
-# exactly like the escalate states). `start-gate` needs no baseline-aware
-# second run any more — by the time it runs, `unwind` has already put the
-# tree back to the baseline, so ONE suite run there IS the baseline verdict.
-#
-# Once green, `design.triage` reads the diff that started the process (never
-# rendered into the prompt — it names the start commit and reads the range up
-# to the unwind commit itself) and groups it into an ORDERED list of
-# CONCERNS, each one leaving the suite green on its own, classifying each as
-# PRODUCT or TECHNICAL. It raises open questions for the product ones only,
-# and folds EVERYTHING the start diff added into the concerns — a scratch
-# sketch and a real hand-edit alike, since `unwind` already emptied the tree
-# of both; nothing is left to delete. `design.gate` is a shared check+answer
-# pair: its check probes `REQUIREMENTS.md` for unanswered questions and only
-# rests the process at a human answer gate when some remain — a
-# question-free phase skips the human stop entirely.
-#
-# Once the product questions are settled, `architecture.author` picks up as a
-# COLD reader (a separate machine, a separate memory scope — it reads
-# `REQUIREMENTS.md` in full rather than resuming design's conversation; COLD
-# means no memory of that conversation, never no git access — it still reads
-# the entry commit from history), develops the *how* for each settled
-# concern, and — now that it knows each concern's file footprint — may
-# re-merge concerns whose footprints coincide (never split), recording every
-# merge under its own `## Merged Concerns` heading and raising a TECHNICAL
-# open question only when it clears the same three-part bar triage does,
-# deciding every sub-threshold point itself — routed through the same shared
-# `questionGate` shape (`architecture.gate`) over `ARCHITECTURE.md`. Once
-# those are settled, `architecture.decompose` is a purely mechanical
-# write-out: one package file per concern, in the settled — possibly
-# coarsened — order, with no merge/split judgement of its own.
-#
-# From there the per-package build queue (`packages.*`) and the shared review
-# + squash tail (`build.*`) are UNCHANGED from before this restructure — see
-# their own machine doc comments below for the per-package build/review/
-# health mechanics.
-#
-# A second entry, `gtd --entry review-gate.check`, jumps there directly and,
-# once green, to `build.review.reviewing` to review a foreign branch through
-# the same shared tail. A third, `gtd --entry fix-precheck`, jumps there: a
-# red suite drops straight into the shared `build.fix` loop and out through the
-# review + squash tail; a green suite is a no-op back to `idle`. Both states
-# declare `entry: true` — otherwise unreachable from `entries.default`.
-#
-# All entries converge at `build.review.reviewing` -> `build.review.await-review`.
-# Ticking a REVIEW.md box means only "I reviewed this hunk"; a COMMENT (not an
-# unticked box) is what asks for changes. Every human step at
-# `build.review.await-review` goes to `build.review.deciding`, which CAPTURES
-# the raw material (never interprets it) and routes on the step's shape —
-# THREE edges out of the review tail, not one:
-#   * the SIGN-OFF edge: no comment at all (no REVIEW.md note, no code edit)
-#     -> the diff is a bare REVIEW.md deletion ->
-#     build.squashing -> done (the whole process collapses into one commit).
-#   * the NON-ACTIONABLE edge: some comment exists, but `build.review.collecting`
-#     judges it non-actionable (the human left only an approving remark, e.g. a
-#     compliment with no code edit and no substantive note) -> CONSUMES the raw
-#     capture (deletes it, the only change this turn) -> straight to
-#     build.squashing too, WITHOUT spending a design lap producing nothing, and
-#     with nothing left over to leak into the finale. The outcome is encoded by
-#     which paths `collecting`'s own diff touches, never by a sentinel a file
-#     pattern can't tell apart from real content — and never by a CLEAN turn
-#     either, which stays the ordinary fruitless-dispatch attempt (no `C` row
-#     here), not a verdict.
-#   * the ACTIONABLE edge: `collecting` judges the round actionable (a note in
-#     REVIEW.md, or a hand-edit to code) -> marks the raw capture (a real
-#     edit) -> the root's own `re-unwind` state reverts the human's
-#     review-round commit out of the working tree, scoped to real code (never
-#     the review file, already gone, and never `.gtd/`) -> `design.triage`
-#     re-derives the work from that history as intent only — the human's
-#     hand-edit is a SKETCH to be re-planned, never built upon. This is a full
-#     development lap (triage -> gate -> architecture -> gate -> packages ->
-#     build.review again), not a quick fix-and-re-review; there is no
-#     baseline check on the way back in (`re-unwind` is not an entry, so
-#     `entryGate` never runs on this path).
-# One dead end never commits: the review-doc guard (src/StepGuards.ts) REFUSES
-# a deleted REVIEW.md — restore it, or leave a note (or edit code) to request
-# changes. A tick only records that a hunk was read; it never gates a land.
-#
-# The shared health pair (`build.health.check`/`.escalate`, plus its own
-# `build.fix`) no longer serves a feedback loop at all — with the implementer's
-# own coder-identity follow-through retired, the only edge into it is
-# `gtd --entry fix-precheck`'s red branch; they are not dead code, just
-# reachable from one place instead of two. The
-# per-package loop keeps its OWN health pair (`packages.item.health.check`/
-# `.escalate`, plus `packages.item.fix-suite`) because its green edge targets
-# the per-package `packages.item.spec.review` gate instead.
-#
+# One flow: any change to the tree starts the process. `idle` -> `unwind`
+# reverts that diff (intent survives only in history) -> a green-baseline
+# gate -> `design.triage` groups the reverted diff into ordered, classified
+# concerns and resolves the PRODUCT ones' open questions (`design.gate`) ->
+# `architecture.author` works out the *how* and resolves the TECHNICAL ones
+# (`architecture.gate`) -> `architecture.decompose` writes one package file
+# per concern -> the per-package queue (`packages.*`) builds and reviews each
+# -> the shared tail (`build.review.*`) decides sign-off (-> `build.squashing`
+# -> `done`, one commit) vs. actionable feedback (-> `re-unwind` -> back to
+# `design.triage`, a full re-plan lap that never builds on the human's
+# hand-edit). `--entry review-gate.check --var reviewBase=<commitish>` and
+# `--entry fix-precheck` are the two other entries into this same flow.
 vars:
   testCommand: npm test
-  # The two opaque model tiers every agent state draws from — repoint them here
-  # (or via a top-level `.gtdrc` `vars:` key / a `GTD_PLANNERMODEL` env var)
-  # to change every state on that tier at once. `plannerModel` (default "smart")
-  # is the heavier tier for the one-shot triage/design/review turns;
-  # `coderModel` (default "base") is the tier for the build/fix turns.
+  # plannerModel: the heavier tier for one-shot triage/design/review turns.
+  # coderModel: the tier for build/fix turns. Both repointable via a
+  # top-level `vars:` key or a `GTD_<NAME>` env var, like any other var.
   plannerModel: smart
   coderModel: base
-  # The fixed diff base for `gtd --entry review-gate.check --var
-  # reviewBase=<commitish>` — a plain non-gtd branch reviewed against that
-  # commitish rather than the process start. Declared here (rather than left
-  # undeclared) so `--var reviewBase=...` passes the CLI's declared-name
-  # check; the default empty string renders blank, which the entry command
-  # refuses (a review entry always requires an explicit base).
+  # Declared (not left undeclared) so `--var reviewBase=...` passes the CLI's
+  # declared-name check; blank renders empty, which the review entry refuses.
   reviewBase: ""
-  # gtd's own voice for the files it generates — a specialisation of the
-  # "Spartan" output style from alexgreensh/attention-span
-  # (https://github.com/alexgreensh/attention-span), licensed AGPL-3.0,
-  # written from a reading of that project's version 0.6. Rewritten in gtd's
-  # own words for deliverables rather than chat replies; no upstream text
-  # ships. A point-in-time derivation with no refresh mechanism — it will go
-  # stale and nothing will notice.
-  #
-  # Keep/adapt/drop ledger — seventeen items reconciled: eight upstream rules
-  # carried, five added, three dropped, rationale kept.
-  #
-  # Carried (six rules below cover eight upstream rules — two of them each
-  # carry two upstream rules):
-  #   - the answer-first rule below carries both upstream's answer-first
-  #     rule and its cut-ruthlessly rule
-  #   - the never-trim rule below carries both upstream's
-  #     cut-elaboration-never-a-warning rule and its
-  #     numbers-and-thresholds-are-exact rule
-  #   - the deliverable rule carries upstream's answer-versus-deliverable
-  #     rule, minus its "can't tell which? treat it as an answer" tie-break —
-  #     gtd has no ambiguity to break, every injection site authors a file
-  #   - the blunt-and-imperative rule, the plain-words rule, and the bold
-  #     rule map one-to-one to upstream's equivalents
-  #
-  # Added and sharpened:
-  #   - five rules with no upstream equivalent: ship the artifact bare,
-  #     compressing is not dropping, one idea per block, flag risk in one
-  #     blunt line, never narrate the work
-  #   - two carried rules sharpened past upstream: the bold rule gains a
-  #     bold-only-reading test, and the plain-words rule gains a five-word
-  #     cap on defining an unavoidable term
-  #
-  # Dropped, each for its own reason:
-  #   - the arrow-point paragraph format: four of the seven voice-bearing
-  #     states are machine-parsed and their grammars require literal
-  #     `- [ ]` rows
-  #   - the go-deeper escape hatch: a state's own prompt is the request and
-  #     there is no channel to ask through
-  #   - the confirm-before-acting rule: every prompt is an instruction and
-  #     the actor's only output channel is the file
+  # gtd's own voice for generated files — adapted from the "Spartan" output
+  # style (https://github.com/alexgreensh/attention-span, AGPL-3.0, version 0.6),
+  # rewritten in gtd's own words for deliverables rather than chat replies;
+  # no upstream text ships. A point-in-time derivation with no refresh
+  # mechanism.
   styleBlock: |-
     This block opens with why density matters, not with rule one: the reader
     has a finite attention budget, and burying the line that mattered fails as
@@ -351,22 +90,11 @@ vars:
     The voice rules above still govern the prose that sits between these
     structural elements. They do not govern the elements themselves.
 
-  # The bundled default PERSONAS — one per prompt-bearing machine below. Each
-  # is a machine's `system:` value (see src/StateFields.ts's `system` entry):
-  # emitted verbatim as that machine's agent-CLI system prompt, stamped onto
-  # every one of its own `prompt` states the same way `model:` is. Like every
-  # other var, each is overridable via a top-level `.gtdrc` `vars:` key (e.g.
-  # `vars: { builderPersona: "..." }`) or a `GTD_<NAME>`-style environment
-  # variable — nothing below is privileged.
-  #
-  # `--system-prompt` REPLACES a harness's entire default system prompt; it
-  # does not append to it, and it drops the harness's own injected cwd/env/
-  # memory-path/git-status block. Each persona is therefore written as a
-  # complete, self-contained system prompt: it states the role, gives tool-use
-  # conduct (act, don't ask permission — this runs unattended), and tells the
-  # agent to orient itself with real commands (there is no injected status
-  # block) and to go inspect the commit range or path its turn's own prompt
-  # names, rather than expect a diff pasted into the conversation.
+  # One persona per prompt-bearing machine below, stamped as its `system:`
+  # (see src/StateFields.ts's `system`). `--system-prompt` REPLACES a
+  # harness's default system prompt — including its injected cwd/env/
+  # git-status block — so each persona is written self-contained, restating
+  # that context explicitly rather than relying on it.
   designPersona: |-
     You are the product-facing planning voice in an autonomous build pipeline
     called gtd. Your job is to turn a raw, half-formed sketch — a hand-edit to
@@ -549,12 +277,8 @@ entry:
   default: unified
 
 machines:
-  # ── DEDUP: the green-baseline entry gate (identity-free) ──────────────────
-  # Runs the suite before any work starts — both `start-gate` and
-  # `review-gate` reach this one check, and its script IS the shared
-  # `&suiteCheck` anchor (defined once, right here, and aliased by
-  # `fix-precheck` and `healthGate.check` below); the `on` rules turn the
-  # result into "halt at blocked" vs "proceed to $onGreen".
+  # Shared green-baseline gate — start-gate/review-gate/fix-precheck all
+  # alias this script via &suiteCheck.
   entryGate:
     params: [onGreen, blockedMessage, blockedDescribe, checkLabel, blockedLabel, reviewBase]
     entry: check
@@ -564,15 +288,11 @@ machines:
         label: $checkLabel
         script: &suiteCheck |
           #!/usr/bin/env sh
-          # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
-          # green run cleans it up. The `on` rules decide what that means.
           set +e
           mkdir -p .gtd
-          # Sweep the raw review capture — no path from `deciding`/`collecting`
-          # reaches this check; this is a leftover sweeper for a capture an
-          # earlier, abandoned process may have left committed here (see the
-          # `D .gtd/REVIEW_RAW.md` rows below). A no-op when it is already gone
-          # or never existed.
+          # Sweep a raw review capture an earlier, abandoned process may have
+          # left behind — no ordinary path from deciding/collecting reaches
+          # this check.
           rm -f .gtd/REVIEW_RAW.md
           <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
           code=$?
@@ -583,28 +303,19 @@ machines:
               rm -f .gtd/.check-output
               printf 'the test command failed with exit code %s and produced no output.' "$code" > .gtd/FEEDBACK.md
             fi
-            # A repeat identical failure would otherwise leave FEEDBACK.md
-            # byte-identical to its committed copy — no diff, so the check would
-            # look GREEN. Stamp each red run with the current HEAD (which always
-            # advances between checks) so a still-red re-run always re-registers
-            # as an M/A edit and takes the red edge.
+            # Stamp with HEAD so a repeat identical failure still re-registers
+            # as an M/A edit instead of looking byte-identical (GREEN).
             printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/FEEDBACK.md
           else
             rm -f .gtd/.check-output
             rm -f .gtd/FEEDBACK.md
           fi
-        # `entry: true` on the shared local marks both `entryGate` instances
-        # (start-gate/review-gate) as manual entries — only `review-gate.check`
-        # actually needs the reachability root (it is otherwise unreachable
-        # from `entries.default`), but the shared dedup makes marking one mark
-        # both. Accepted as correct: both ARE the workflow's entry gates.
+        # Marks BOTH entryGate instances (start-gate/review-gate); only
+        # review-gate strictly needs it, but the shared dedup makes marking
+        # one mark both — both ARE entry gates.
         entry: true
-        # `reviewBase: $reviewBase` — only `review-gate` binds a real
-        # template (`<%= it.vars.reviewBase %>`), fixing the whole process's
-        # diff base to whatever `gtd --entry review-gate.check --var
-        # reviewBase=<commitish>` supplies. `start-gate` binds the literal
-        # empty string, which compiles away to "no base" here — it is reached
-        # from `idle`, never manually entered with a base.
+        # Only review-gate binds a real reviewBase (via --var); start-gate
+        # binds "" (no base), since it's reached from idle, never entered.
         reviewBase: $reviewBase
         on:
           "A .gtd/FEEDBACK.md": blocked
@@ -615,11 +326,6 @@ machines:
       blocked:
         actor: human
         label: $blockedLabel
-        # `file:` is the one field with an implicit prefix: the compiler
-        # resolves it under `.gtd/` automatically, so `file: FEEDBACK.md` here
-        # sits beside `on: "A .gtd/FEEDBACK.md"` above on purpose — every OTHER
-        # path in this template (an `on` pattern, a script body, a prompt/
-        # message) still spells `.gtd/` in full.
         file: FEEDBACK.md
         message: $blockedMessage
         on:
@@ -628,16 +334,8 @@ machines:
             action: Retry check
             describe: $blockedDescribe
 
-  # ── DEDUP: the check/escalate health pair (identity-free) ─────────────────
-  # Runs the suite; a red run records `.gtd/FEEDBACK.md` and routes to
-  # the caller's OWN fixer (`$onRed` — a coder-identity action that lives
-  # beside this machine, not inside it, since fixing IS a coder action and this
-  # machine has no identity); a green run cleans it up and routes to
-  # `$onGreen`. Escalation redirects here after the caller's fixer has retried
-  # `max` times without success. Instantiated for the build tail's own tail
-  # (`build.health.*`, caller's fixer is `build.fix`) and the per-package
-  # build's own tail (`packages.item.health.*`, caller's fixer is
-  # `packages.item.fix-suite`).
+  # Shared check/escalate pair for build.health.*/packages.item.health.* —
+  # the caller's own coder fix-state ($onRed), not this machine, handles red.
   healthGate:
     params: [onGreen, onRed, escalateDescribe, checkLabel, escalateLabel]
     entry: check
@@ -670,18 +368,10 @@ machines:
             action: Retry check
             describe: $escalateDescribe
 
-  # ── DEDUP: the open-questions check/answer pair (identity-free) ───────────
-  # Shared by design and architecture's own gate (`design.gate`/
-  # `architecture.gate`): `check`'s script probes whichever of
-  # REQUIREMENTS.md/ARCHITECTURE.md currently exists (see the script's own
-  # comment) with `gtd check qa --open-questions` and stamps/removes
-  # `QUESTIONS.md` on the result; only when it's present does the process
-  # rest at `answer`, a human gate. A question-free phase never rests here at
-  # all — `check`'s own `on` rows skip straight to `$onNone`. Takes NO `file:`
+  # Shared check/answer pair for design.gate/architecture.gate. No `file:`
   # PARAM for the probe script itself: machine `$param` substitution is
-  # whole-value only, so a path cannot be spliced into a shared script body —
-  # `file` is instead the PARAM `answer` renders as its own `file:` (the
-  # human-facing gate), a different use entirely from the probe.
+  # whole-value only, so a path can't be spliced into a shared script body —
+  # `file` here is instead the `answer` param's own `file:` (the human gate).
   questionGate:
     params: [file, message, onNone, onRevise, checkLabel, answerLabel]
     entry: check
@@ -691,15 +381,9 @@ machines:
         label: $checkLabel
         script: |
           #!/usr/bin/env sh
-          # gtd check turn — probe the current phase's steering file for
-          # unanswered questions; an answered/empty result removes the marker
-          # (.gtd/QUESTIONS.md), an unanswered one stamps it fresh. Design and
-          # architecture share this one probe: whichever of
-          # .gtd/REQUIREMENTS.md/.gtd/ARCHITECTURE.md exists ON DISK right now
-          # IS this phase's steering file — unambiguous because
-          # architecture.author deletes .gtd/REQUIREMENTS.md in the same turn
-          # it writes .gtd/ARCHITECTURE.md, so exactly one of the two exists
-          # here.
+          # Exactly one of REQUIREMENTS.md/ARCHITECTURE.md exists on disk at
+          # a time — architecture.author deletes the former in the same turn
+          # it writes the latter — so this probe is unambiguous either way.
           set +e
           mkdir -p .gtd
           file=.gtd/REQUIREMENTS.md
@@ -736,27 +420,12 @@ machines:
               fold your answers in. Delete a question to skip it, or delete
               the whole `## Open Questions` section to accept the plan as-is.
 
-  # ── ENCAPSULATION: the triage phase's one conversation ─────────────────────
-  # Groups the diff that started the process into ordered, classified
-  # concerns and resolves the PRODUCT ones' open questions that clear the
-  # bar — deciding every sub-threshold point itself instead — one machine
-  # identity across the whole back-and-forth, so the agent explores the
-  # codebase once and the human's answer rationale survives every return lap.
-  # `triage`'s prompt reads THREE laps off the requirements file's own
-  # content, never off which edge landed here (the resting state is the same
-  # either way): FIRST (the file is absent), RETURN (a ticked/answered
-  # question waiting to be folded), and REVIEW LOOP-BACK (concerns already
-  # present, nothing ticked-but-unfolded — `re-unwind` put them there, not an
-  # answer). The loop-back lap also runs the suite itself and files any
-  # breakage it finds as its own FIRST concern: `re-unwind` sits between
-  # `build.review.deciding` and here with no `entryGate` in between, so a red
-  # the revert causes is otherwise ambient. Left for
-  # `packages.item.health.check` to trip over instead, it would spend one of
-  # `packages.item.fix-suite`'s (per-episode) retry attempts on breakage the
-  # package itself never caused.
-  # ▸ planner identity — `model:` declared once here, stamped onto `triage`
-  # (its only prompt state; `gate.answer` is a human turn and carries no
-  # prompt).
+  # The triage phase — one conversation across the whole back-and-forth (the
+  # human's answer rationale survives every return lap). A review loop-back
+  # lap runs the suite itself and files any breakage as its own FIRST
+  # concern, rather than spending one of packages.item.fix-suite's
+  # (per-episode) retries on breakage the package didn't cause.
+  # ▸ planner identity.
   designPlan:
     model: <%= it.vars.plannerModel %>
     system: <%~ it.vars.designPersona %>
@@ -768,10 +437,8 @@ machines:
         label: Triaging the change
         file: REQUIREMENTS.md
         mode: qa
-        # An agent that deletes the assembled review input without folding it
-        # in is the original "captured then discarded" bug, now against THIS
-        # state's own file — the retired `build.addressing` state was the
-        # guard's only user before this restructure; this is its new one.
+        # Guards against discarding assembled review input without folding
+        # it in (the original bug this guard was added for).
         requireProgress: true
         prompt: |
           <%~ it.vars.styleBlock %>
@@ -940,22 +607,10 @@ machines:
             <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
             <% } }) %>
 
-  # ── ENCAPSULATION: the technical phase's one conversation ──────────────────
-  # A separate machine from `designPlan` — its own memory scope, since there
-  # may be a handover between the user-facing and the technical phase: this
-  # phase does NOT resume design's conversation, it reads
-  # `.gtd/REQUIREMENTS.md` cold — COLD means no memory of that conversation,
-  # never no git access; it still finds and reads the entry commit from
-  # history the same way triage does. Resolves the TECHNICAL open questions
-  # that clear the same bar triage's own do, deciding every sub-threshold
-  # point itself instead, then decomposes the settled concerns into package
-  # files. Merge authority lives HERE, in `author` — it is the first state
-  # that knows the *how*, so it alone may re-merge concerns whose file
-  # footprints coincide (never split); `decompose` remains the mechanical
-  # write-out, carrying `author`'s settled — possibly coarsened — grouping
-  # over verbatim. ▸ planner identity — `model:` declared once here, stamped
-  # onto `author` and `decompose` (its own prompt states; `gate.answer` is a
-  # human turn and carries no prompt).
+  # A separate machine from designPlan (its own memory scope — a COLD read,
+  # not a resumed conversation). Merge authority lives in `author`, the first
+  # state that knows the *how*: it alone may re-merge concerns, never split;
+  # `decompose` carries that grouping over verbatim. ▸ planner identity.
   archPlan:
     model: <%= it.vars.plannerModel %>
     system: <%~ it.vars.architectPersona %>
@@ -1127,15 +782,16 @@ machines:
         on:
           "* .gtd/packages/**": $onPackages
 
-  # ── ENCAPSULATION: the shared review tail ──────────────────────────────────
-  # ▸ planner identity — `model:` declared once here, stamped onto `reviewing`
-  # and `collecting` (its only prompt states). `collecting` JUDGES whether a
-  # round is actionable and, when it is, CLASSIFIES it straight into
-  # `REQUIREMENTS.md` as ordered, PRODUCT/TECHNICAL concerns — the same
-  # artifact `design.triage` develops — never an instruction list, and never a
-  # build. An actionable round still leaves this machine entirely (the root's
-  # own `re-unwind`, then `design.triage` folds the concerns in cold), so
-  # there is no coder-identity follow-through inside this machine any more.
+  # The shared review tail. ▸ planner identity — `collecting` only judges/
+  # classifies feedback; there's no coder follow-through inside this machine.
+  #
+  # Nested inside buildTail (build.review), not a root sibling: a machine's
+  # memory scope is its dotted instance path, so nesting keeps `build.fix ->
+  # build.health.check -> build.review.* -> build.squashing` (the `--entry
+  # fix-precheck` path) inside one scope, so `build.squashing` drafts the
+  # finale from the same session that made the fixes. The ordinary path
+  # (packages -> build.review -> squashing) gets nothing from this either
+  # way, since `build`'s own scope has no prior turn to resume there.
   humanReview:
     model: <%= it.vars.plannerModel %>
     system: <%~ it.vars.reviewerPersona %>
@@ -1146,12 +802,9 @@ machines:
         label: Reviewing
         file: REVIEW.md
         mode: review
-        # `gtd --entry review-gate.check` (a plain non-gtd branch, e.g. a
-        # colleague's PR) does NOT enter here directly — it enters
-        # `review-gate.check` first, which runs the green-baseline gate and,
-        # once green, transitions here. The `Gtd-Review-Base:` trailer rides on that
-        # entry commit (the process's oldest), so everything below still reuses
-        # the same reviewing/await-review/feedback machinery over <commitish>..HEAD.
+        # `gtd --entry review-gate.check` enters via review-gate.check first
+        # (never straight here), which sets the Gtd-Review-Base trailer this
+        # tail reuses.
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -1207,18 +860,9 @@ machines:
         label: Awaiting your review
         file: REVIEW.md
         mode: review
-        # While the process rests here, gtd opens a "review checkout window": raw HEAD
-        # is rewound to the review base (the most-recent `deciding` commit — so a
-        # feedback round shows only `last-review..HEAD` — or the process start on
-        # the first review) with the working tree untouched, surfacing the diff
-        # as ordinary uncommitted changes. It closes on the next invocation.
-        #
-        # Every human step here routes to `deciding`, which decides sign-off vs.
-        # feedback from the step's CONTENT (a comment, not a tick). Ticking a box
-        # only records "I reviewed this hunk" — it never gates a land, whatever the
-        # boxes say. The one dead end that CAN'T be told apart by a file-pattern
-        # edge is a deleted REVIEW.md, so the review-doc guard
-        # (`src/StepGuards.ts`) catches it BEFORE the step commits and refuses.
+        # Opens the review checkout window (src/ReviewWindow.ts) while
+        # resting here. Deleting REVIEW.md is refused by the review-doc
+        # guard (src/StepGuards.ts).
         reviewWindow: true
         message: |
           `.gtd/REVIEW.md` holds the review record for the process — one
@@ -1250,38 +894,24 @@ machines:
         label: Reviewing
         file: REVIEW.md
         mode: review
-        # Anchors the INCREMENTAL review base: its most-recent in-process commit is
-        # the point the previous review round ended, so the next `reviewing` turn
-        # (and the review checkout window) covers only the changes since then. On
-        # the first review there is no such commit, so the base is the process start.
+        # Anchors the INCREMENTAL review base to the most-recent in-process
+        # commit (the process start on the first review).
         reviewBase: true
         script: |
           #!/usr/bin/env sh
-          # gtd check turn — decide the human's review step from its CONTENT. HEAD is
-          # the human's `await-review -> deciding` commit; HEAD^ is the `reviewing`
-          # commit that wrote the agent's original REVIEW.md (`await-review`'s single
-          # `"* **": deciding` edge means EVERY human step there lands here, so
-          # `deciding` is entered exactly once per round — nothing else commits in
-          # between). It is FEEDBACK when the human left
-          # a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]" tick) OR a
-          # hand-edit to any file this round outside `.gtd/` (every gtd steering
-          # file, including REVIEW.md itself, lives there). Otherwise it is a
-          # clean sign-off. This turn only CAPTURES the raw material into
-          # REVIEW_RAW.md (the `collecting` agent then judges whether it's
-          # actionable); it does NOT interpret it. Either way, remove REVIEW.md;
-          # what the resulting diff MEANS is decided by this state's own `on`
-          # rules — the A/M REVIEW_RAW.md rows are declared BEFORE the D
-          # REVIEW.md row so a feedback round (which also deletes REVIEW.md) is
-          # captured as feedback, not mistaken for a sign-off.
+          # FEEDBACK iff the human left a REVIEW.md note (any edit beyond a
+          # checkbox tick) or hand-edited any file this round outside .gtd/;
+          # otherwise a clean sign-off. This turn only CAPTURES the raw
+          # material into REVIEW_RAW.md — collecting judges actionability.
+          # A/M REVIEW_RAW.md rows are declared before D REVIEW.md so a
+          # feedback round (which also deletes REVIEW.md) isn't mistaken for
+          # sign-off.
           set +e
           mkdir -p .gtd
           head=$(git rev-parse HEAD)
-          # A note is any REVIEW.md change beyond a checkbox flip: normalize every
-          # "[ ]"/"[x]" to a placeholder, then compare the agent's original (HEAD^)
-          # against the human's version (HEAD).
+          # Normalize [ ]/[x] before diffing, so only a real note counts.
           before=$(git show "HEAD^:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
           after=$(git show "HEAD:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
-          # Did the human hand-edit anything this round besides .gtd/?
           if git diff-tree --no-commit-id --name-only -r HEAD -- . ":(exclude).gtd" \
                | grep -q . \
              || [ "$before" != "$after" ]; then
@@ -1299,31 +929,15 @@ machines:
           "M .gtd/REVIEW_RAW.md": collecting
           "D .gtd/REVIEW.md": $onSignoff
 
-      # Judges actionability and, when actionable, classifies straight into
-      # `REQUIREMENTS.md` — an ordered, PRODUCT/TECHNICAL concern list, never
-      # an instruction list for a builder (the actionable path re-plans from
-      # history via `re-unwind` + `design.triage`; it never builds on the
-      # human's own edit). The outcome is encoded by which paths ITS OWN diff
-      # touches, never by a sentinel: writing `REQUIREMENTS.md` (`A`/`M`) IS
-      # the actionable case — row ORDER matters, since an actionable round's
-      # diff is `A REQUIREMENTS.md` + `D REVIEW_RAW.md` together, so the
-      # requirements rows must be declared first or every round would
-      # short-circuit to sign-off. CONSUMING `REVIEW_RAW.md` alone (deleting
-      # it, the only change this turn) is the non-actionable short-circuit —
-      # the same trick `deciding` already uses, one state earlier; it reuses
-      # `$onSignoff` (already bound to `build.squashing`) rather than a new
-      # param, because the short-circuit IS a sign-off. Declaring no `C` row
-      # and no `* **` row is deliberate: a clean turn here is a fruitless
-      # dispatch (a crash, a refusal, a context-limit cutoff), never a
-      # verdict, so it falls through to the ordinary `prompt`-state default
-      # instead — an empty ATTEMPT commit, remembered as a stall
-      # (`Edge.ts`'s `stalledAt`) rather than silently misread as "the human's
-      # feedback was non-actionable" — and a dirty tree matching neither row
-      # is a REFUSAL (you classify, you do not build). `REQUIREMENTS.md`
-      # survives `re-unwind` (it lives under `.gtd/`, excluded from its own
-      # revert pathspec) for `design.triage` to fold in cold; a consumed
-      # `REVIEW_RAW.md` with no requirements written is gone before
-      # `build.squashing` ever runs, so nothing leaks into the finale.
+      # Outcome is by which paths THIS diff touches: writing REQUIREMENTS.md
+      # (A/M) is the actionable case, so those rows are declared before "D
+      # REVIEW_RAW.md" — an actionable round's diff is both together, and
+      # the wrong order would short-circuit every round to sign-off.
+      # Consuming REVIEW_RAW.md alone is the non-actionable short-circuit,
+      # reusing $onSignoff since that IS a sign-off. No `C`/`"* **"` row: a
+      # clean turn here is a fruitless dispatch (falls through to the
+      # ordinary attempt default), never a verdict; a dirty tree matching
+      # neither row is a refusal.
       collecting:
         actor: agent
         label: Collecting your feedback
@@ -1395,13 +1009,8 @@ machines:
           "M .gtd/REQUIREMENTS.md": $onFeedback
           "D .gtd/REVIEW_RAW.md": $onSignoff
 
-  # ── ENCAPSULATION: the per-package agentic review ──────────────────────────
-  # A single state: a machine whose entire job is to be a separate MIND from
-  # the implementer, distinct from the coder identity that builds/fixes the
-  # package (`packages.item.*`). ▸ planner identity — `model:` declared once
-  # here, stamped onto `review` (its only prompt state). Fixing the reviewer's
-  # own findings is a coder action, not a reviewer one — it lives in
-  # `packages.item.fix-spec` (`$onFix`), not inside this machine.
+  # The per-package review — a separate MIND from the implementer. ▸ planner
+  # identity; fixing findings is a coder action (packages.item.fix-spec).
   specReview:
     model: <%= it.vars.plannerModel %>
     system: <%~ it.vars.specReviewerPersona %>
@@ -1411,11 +1020,11 @@ machines:
       review:
         actor: agent
         label: Reviewing the package
-        # No retry cap here: the loop only ever re-enters through
-        # `fix-spec`/`health.check`, so under the per-episode retry rule this
-        # state's episode count can never exceed 1 and a cap could never fire.
-        # The spec-review loop is genuinely unbounded — see the README's
-        # "Bounded, not runaway" bullet and this package's own risk note.
+        # No retry cap: the loop only re-enters through
+        # `fix-spec`/`health.check`, so under the per-episode rule this state's
+        # episode count can never exceed 1 and a cap could never fire. The
+        # spec-review loop is genuinely unbounded — see the README's "Bounded,
+        # not runaway".
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -1452,9 +1061,8 @@ machines:
           "D .gtd/SPEC_FEEDBACK.md": $onApproved
           "C": $onApproved
 
-  # ── ENCAPSULATION: the per-package build queue ─────────────────────────────
-  # Identity-free (a bookkeeping queue, not a builder) — the actual per-package
-  # build identity lives in its own `item` child (packageItem, below).
+  # The per-package build queue — identity-free; build identity lives in
+  # packageItem (below).
   packageLoop:
     params: [onDrained]
     entry: picking
@@ -1464,29 +1072,16 @@ machines:
         label: Picking the next package
         script: |
           #!/usr/bin/env sh
-          # gtd check turn (the package queue arbiter) — the loop driver executes
-          # this verbatim, then steps the check actor. Mechanics only: take the
-          # first package file (by name) under the packages dir into NEXT.md, or
-          # remove NEXT.md when the queue is empty. What NEXT.md's presence/absence
-          # MEANS (another package to build vs. the queue closing out to review) is
-          # decided by this state's own `on` rules at capture time — never here.
+          # Mechanics only — NEXT.md's presence/absence is interpreted by
+          # the `on` rows below, never here.
           set +e
           mkdir -p .gtd
-          # Sweep the design/architecture phases' spent steering files:
-          # REQUIREMENTS.md is consumed by architecture.author, ARCHITECTURE.md
-          # by architecture.decompose, and QUESTIONS.md by whichever gate ran
-          # last — all three are gone by the time the package queue starts.
-          # REVIEW_RAW.md is swept here too: the review loop-back
-          # (re-unwind) excludes .gtd from its revert, so an actionable
-          # feedback round's MARKED raw capture (see humanReview's own
-          # `collecting` state) rides through design and architecture
-          # untouched — this is the ONLY sweeper on that path
-          # before the queue (and eventually the squash finale) would
-          # otherwise pick it up as stray content. No-op if already removed.
+          # Sweep spent design/architecture steering files (gone by now) and
+          # any REVIEW_RAW.md the review loop-back left behind — the only
+          # sweeper on that path before it would leak into the squash finale.
           rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md
-          # Package file names are gtd-authored (architecture.decompose writes
-          # NN-name.md), never containing whitespace/newlines that would break
-          # ls | head.
+          # Names are gtd-authored, never containing whitespace — safe to
+          # disable SC2012.
           # shellcheck disable=SC2012
           next=$(ls .gtd/packages/*.md 2>/dev/null | head -n 1)
           if [ -n "$next" ]; then
@@ -1499,21 +1094,14 @@ machines:
           "* .gtd/NEXT.md": item.building
           "C": $onDrained
 
-      # The per-package build identity — its own coder machine (below), so
-      # deleting a package file's own lifecycle stays inside `item` while the
-      # queue itself (`packages`) stays a single state.
+      # Its own coder machine (below) keeps `packages` itself a single state.
       item:
         machine: packageItem
         with:
           onNext: picking
 
-  # ── ENCAPSULATION: the per-package build identity ──────────────────────────
-  # ▸ coder identity — `model:` declared once here, stamped onto `building`,
-  # `fix-suite`, and `fix-spec` (its own prompt states). `closing` ends that
-  # package file's own lifecycle; keeping it here (not in the queue) keeps
-  # `packages` itself to a single state. `packages.item.closing` -> `picking`
-  # is the ONE upward-resolving target in the whole file, so it MUST be a
-  # param (`$onNext`, bound by `packages` — see the machine's own reference).
+  # The per-package build identity. ▸ coder identity. packages.item.closing
+  # -> picking is the one upward-resolving target in the file, hence $onNext.
   packageItem:
     model: <%= it.vars.coderModel %>
     system: <%~ it.vars.builderPersona %>
@@ -1617,12 +1205,10 @@ machines:
         label: Closing out the package
         script: |
           #!/usr/bin/env sh
-          # gtd check turn (the package closer) — remove the just-reviewed package
-          # file (its path is in NEXT.md) plus any leftover spec feedback and
-          # already-satisfied evidence, so `picking` selects the NEXT package (or
-          # falls through to review when the queue is empty). Reached only on
-          # spec-review approval — the spec-review loop carries no retry cap,
-          # so there is no force-close path here.
+          # Removes the just-reviewed package file (path in NEXT.md) plus
+          # leftover spec feedback/evidence, so picking selects the next.
+          # Reached only on spec-review approval — that loop carries no retry
+          # cap, so there is no force-close path here.
           set +e
           pkg=$(cat .gtd/NEXT.md 2>/dev/null)
           [ -n "$pkg" ] && rm -f "$pkg"
@@ -1630,8 +1216,6 @@ machines:
         on:
           "* **": $onNext
 
-      # Per-package health pair: packages.item.health.check/.escalate ->
-      # packages.item.spec.review (green) or packages.item.fix-suite (red).
       health:
         machine: healthGate
         with:
@@ -1643,35 +1227,20 @@ machines:
           checkLabel: Running checks
           escalateLabel: Escalating to a human
 
-      # Per-package agentic review: packages.item.spec.review -> closing
-      # (approved), or packages.item.fix-spec (findings — re-verify via the
-      # full health check before re-reviewing).
       spec:
         machine: specReview
         with:
           onApproved: closing
           onFix: fix-spec
 
-  # ── ENCAPSULATION: the process's build identity ─────────────────────────────
-  # ▸ coder identity — `model:` declared once here, stamped onto `squashing`
-  # and `fix` (its own prompt states). There is no monolithic "build the whole
-  # plan" state any more — every package is built inside `packages.item`, and
-  # the queue drains straight into `build.review`. There is no coder-identity
-  # follow-through on review feedback here any more — an actionable round
-  # leaves this machine entirely, via `$onFeedback` bound at the root's own
-  # `build:` reference to the root-local `re-unwind` state (see the header
-  # comment's "Why humanReview is nested" section for why the review tail
-  # still stays nested here even so). `humanReview` is nested HERE (not at the
-  # root) so `build.squashing` — the one coder turn a sign-off still resumes —
-  # stays inside the builder's own scope.
+  # The process's build identity. ▸ coder identity — model/system stamped
+  # onto squashing/fix.
   buildTail:
     model: <%= it.vars.coderModel %>
     system: <%~ it.vars.finisherPersona %>
     params: [onDone, onFeedback]
-    # Nothing resolves this machine BARE (every reference into it names a
-    # specific descendant, e.g. `build.review` / `build.fix`) — but a machine
-    # must still declare an `entry:` local per its own grammar, so this names
-    # an arbitrary one of its own states.
+    # entry: is required by the machine grammar even though nothing resolves
+    # this machine bare; `fix` is an arbitrary pick.
     entry: fix
     states:
       squashing:
@@ -1739,8 +1308,6 @@ machines:
         on:
           "* **": health.check
 
-      # Shared health pair: build.health.check/.escalate -> build.review.reviewing
-      # (green) or build.fix (red).
       health:
         machine: healthGate
         with:
@@ -1752,32 +1319,22 @@ machines:
           checkLabel: Running checks
           escalateLabel: Escalating to a human
 
-      # The shared review tail, nested HERE (not at the root) so `squashing`
-      # stays inside the builder's own scope on sign-off — see the header
-      # comment. Sign-off -> squashing; feedback -> $onFeedback, bound at the
-      # root's own `build:` reference to `re-unwind` (a root-local, not a
-      # descendant of this machine — the review tail's own scope ends here on
-      # the actionable path).
+      # Nested here (not root) so `squashing` stays inside the builder's own
+      # scope on sign-off — see humanReview above.
       review:
         machine: humanReview
         with:
           onSignoff: squashing
           onFeedback: $onFeedback
 
-  # The root machine — the whole one-flow tree described in this file's
-  # header comment. WIRING ONLY: no identity of its own, just the shared
-  # entry/exit states and the top-level machine tree.
+  # WIRING ONLY — the root ties together the machine tree above.
   unified:
     entry: idle
     states:
-      # ── Shared entry ────────────────────────────────────────────────────────
       idle:
         actor: human
         label: Idle
         file: TODO.md
-        # Every human-gate `message:` below closes with the same rendered "What
-        # each change does next" list, built from `it.edges` (the resting state's
-        # own `on` edges — each edge's `describe:` is the single source of truth).
         message: |
           No active gtd process.
 
@@ -1807,13 +1364,8 @@ machines:
               before building each concern's package (**unwind** ->
               **start-gate.check**).
 
-      # ── Green-baseline gate: `gtd --entry fix-precheck` entry ─────────────────
-      # `gtd --entry fix-precheck` enters HERE: run the suite, then a red run
-      # drops straight into the shared `build.fix` loop (-> build.health.check ->
-      # review + squash tail); a green run is a no-op back to `idle` (nothing
-      # to fix). Aliases the `&suiteCheck` anchor defined on `entryGate.check`'s
-      # own `script:` above — the same plain suite check `start-gate`/
-      # `review-gate` run.
+      # --entry fix-precheck: a red suite drops into build.fix (-> health ->
+      # review + squash tail); a green suite is a no-op back to idle.
       fix-precheck:
         actor: check
         label: Checking the baseline
@@ -1826,7 +1378,6 @@ machines:
           "D .gtd/FEEDBACK.md": idle
           "C": idle
 
-      # ── Shared tail: the finale ─────────────────────────────────────────────
       done:
         commit: |
           <%~ it.read(".gtd/COMMIT_MSG.md") %>
@@ -1836,90 +1387,42 @@ machines:
           - <%= m.model %>: <%= m.cost %>
           <% }) %>
 
-      # ── Unwind: revert the entry commit's diff before planning starts ──────
-      # Kept a SEPARATE state rather than folded into `start-gate.check`'s own
-      # script: the `blocked -> check` retry edge re-runs the gate, so a
-      # revert living there would discard the human's own baseline repair and
-      # would need an idempotence guard. With exactly one inbound edge (from
-      # `idle`), `unwind` is structurally reached once per process and needs
-      # no guard at all. Names the reverted commit via `it.currentCommit`
-      # (they're the same commit here), NOT a bare `HEAD` — pinning the
-      # render-time hash keeps the script correct even if a driver runs it
-      # late.
+      # Separate from start-gate.check: that gate's blocked -> check retry
+      # edge would otherwise re-run a revert here and discard a human's
+      # baseline repair. One inbound edge (from idle) means unwind runs
+      # exactly once, so it needs no idempotence guard itself.
       unwind:
         actor: check
         label: Unwinding your input
         script: |
           #!/usr/bin/env sh
-          # gtd check turn — revert the entry commit's diff out of the working
-          # tree. Its content survives in history for design.triage to read.
           set +e
-          # Hoist the commit hash once, at the TOP: Eta's autoTrim eats the
-          # newline after an interpolation tag, so no tag may be the last
-          # token on a line.
+          # Hoisted here, at the TOP: Eta's autoTrim eats the newline after
+          # an interpolation tag, so no tag may be the last token on a line.
+          # Uses it.currentCommit (render-time), not bare HEAD, so a
+          # late-running driver still reverts the right commit.
           commit="<%~ it.currentCommit %>"
           git revert --no-commit "$commit"
         on:
           "* **": start-gate
 
-      # ── Re-unwind: revert an actionable review round's hand-edit before ────
-      # re-planning starts. A SECOND unwind-shaped state, not a second inbound
-      # edge on `unwind` above: `unwind`'s own doc comment turns on it having
-      # exactly one inbound edge (from `idle`), which is why it carries no
-      # idempotence guard — adding a second caller there would break that
-      # invariant. Names the reverted commit via `it.reviewBase`, never
-      # `it.currentCommit` (by now that names the assembly turn's own commit)
-      # and never a bare `HEAD`: `reviewBaseFor` walks the process trace
-      # backwards for the last commit that ENTERED a `reviewBase: true` state
-      # — `build.review.deciding` is the template's only one — which is
-      # exactly the human's own `await-review -> deciding` commit, the same
-      # hash the next review round's incremental base already uses.
+      # Reverts the human's own review-round hand-edit before re-planning,
+      # scoped to real code (`.gtd/` excluded — REVIEW.md is already gone by
+      # now). Names the commit via it.reviewBase (reviewBaseFor's own
+      # `await-review -> deciding` commit), never bare HEAD.
       #
-      # SCOPED, not wholesale: `deciding` already `rm -f`'d the review file,
-      # so a plain `git revert --no-commit` would resurrect it (and conflict
-      # on it). Instead this renders that ONE commit's diff with `.gtd/`
-      # excluded from the pathspec (REVIEW.md lives there too) and
-      # reverse-applies it. The apply is EXPECTED to succeed —
-      # nothing between that commit and now touches a code path — but it can
-      # still FAIL: a clean-filter round-trip, a drifted worktree, or a binary
-      # path can all make `git apply -R` a no-op on an otherwise-clean tree,
-      # indistinguishable from a legitimate note-only round. `requireRevert`
-      # (below) is what catches that: its step-capture guard
-      # (`src/StepGuards.ts`) re-establishes the fact from the tree itself —
-      # comparing the human's own commit's paths against the review base's
-      # parent — and refuses the step while residue remains, rather than
-      # trusting the script's swallowed exit code. A note-only round's patch
-      # is EMPTY, and `git apply` on empty input FAILS ("No valid patches in
-      # input"), hence the `-s` guard rather than `--allow-empty` (which would
-      # impose git >= 2.35). The apply is worktree-only, no `--index`: the
-      # emitted step script's own `git add -A && git commit` stages it, and
-      # `changedPaths` answers by CONTENT, so an unstaged revert is still the
-      # pending diff the pattern matches — one fewer index write in a
-      # worktree gtd shares with the editor's SCM. The patch file lives under
-      # `.gtd/` (excluded from its own pathspec, the same precedent as the
-      # check scripts' own `.check-output`) and is removed before the step
-      # lands.
+      # requireRevert (below) re-checks the tree itself and refuses the step
+      # if residue remains, rather than trusting the script's exit code — a
+      # clean-filter round-trip or binary path can make `git apply -R` a
+      # silent no-op. Both `on` rows below target `design`: a hand-edited
+      # round leaves a dirty tree, a note-only round's patch is empty and
+      # leaves the tree clean — both are legitimate outcomes here, not a
+      # stall.
       #
-      # Both `on` rows target the SAME place (`design`) because either shape
-      # is a legitimate outcome here, never a stall: a hand-edited round's
-      # patch is non-empty, so the revert leaves a dirty tree (the `"* **"`
-      # row); a note-only round's patch is empty, so nothing to apply leaves
-      # a CLEAN tree — and a clean tree at a `script` state with no `C` row
-      # would otherwise be a silent no-op that never advances. Declaring `C`
-      # here makes that the expected, terminating case instead.
-      #
-      # `file: REVIEW.md` + `requireRevert: true` exist ONLY
-      # to give the require-revert guard the path it must exempt from residue
-      # (the engine blesses no variable names, so the guard reads `Rest.hints.
-      # file`, never this literal itself) — the review file is already
-      # gone two commits earlier, so this state never renders it. The accepted
-      # presentational cost: `gtd next --json`/`gtd land --json` carry that
-      # already-deleted path as this state's `file:` hint, and the visualizer
-      # labels `re-unwind` with it too. Bounded — `Lsp.ts`'s `buildSteeringMap`
-      # skips a mode-less state, so `re-unwind` contributes no path→mode entry
-      # and raises no "already mapped by an earlier state" warning against
-      # `await-review`/`deciding`, which declare the same rendered path with
-      # `mode: review`.
+      # `file: REVIEW.md` + `requireRevert: true` exist only to give that
+      # guard the path to exempt (it reads Rest.hints.file, never this
+      # literal) — REVIEW.md is already gone two commits earlier, so this
+      # state never renders it.
       re-unwind:
         actor: check
         label: Re-unwinding your review edit
@@ -1927,23 +1430,13 @@ machines:
         requireRevert: true
         script: |
           #!/usr/bin/env sh
-          # gtd check turn — revert the human's own review edit out of the
-          # working tree, scoped to real code: everything under `.gtd/` is
-          # excluded, because the review file is already gone by this point
-          # and reverting it would resurrect it. The human's intent survives
-          # in their own commit for the triage phase to read. The apply is
-          # EXPECTED to succeed — nothing between that commit and now touches
-          # a code path — but it can still fail on a clean-filter round-trip,
-          # a drifted worktree, or a binary path: the `requireRevert`
-          # step-capture guard (src/StepGuards.ts) catches that by
-          # re-checking the tree itself before this step is allowed to land.
-          # The guard's own residue scoping (`isCodePath`) re-derives the same
-          # `.gtd/` exemption this pathspec renders — keep the two together
-          # when either changes.
+          # Scoped revert of the human's review-round edit — .gtd/ excluded
+          # (the guard's isCodePath re-derives the same exemption; keep both
+          # in sync). Expected to succeed; requireRevert catches a silent
+          # apply failure.
           set +e
-          # Hoist the reverted commit once, at the TOP: Eta's autoTrim eats the
-          # newline after an interpolation tag, so no tag may be the last token
-          # on a line.
+          # Hoisted here, at the TOP: Eta's autoTrim eats the newline after
+          # an interpolation tag, so no tag may be the last token on a line.
           commit="<%~ it.reviewBase %>"
           patch=.gtd/.re-unwind.patch
           mkdir -p .gtd
@@ -1956,11 +1449,6 @@ machines:
           "* **": design # a code hand-edit was reverted
           "C": design # note-only round: nothing to revert
 
-      # ── Green-baseline gate: the single start entry. ───────────────────────
-      # Runs on the tree AFTER `unwind`, so this is now just the ordinary
-      # green-baseline check `review-gate`/`fix-precheck` also run — no
-      # baseline-aware second run, no detached checkout, no HEAD move
-      # anywhere in gtd's emitted scripts any more.
       start-gate:
         machine: entryGate
         with:
@@ -1982,7 +1470,6 @@ machines:
           checkLabel: Checking the baseline
           blockedLabel: Baseline is red
 
-      # ── Green-baseline gate: `gtd --entry review-gate.check` entry -> build.review.reviewing. ─
       review-gate:
         machine: entryGate
         with:
@@ -2002,26 +1489,21 @@ machines:
           checkLabel: Checking the baseline
           blockedLabel: Baseline is red
 
-      # ── The triage phase (design.triage -> design.gate.check/.answer -> architecture). ──
       design:
         machine: designPlan
         with:
           onArchitecture: architecture
 
-      # ── The technical phase (architecture.author -> architecture.gate.check/.answer ─
-      # -> architecture.decompose -> packages). ──────────────────────────────
       architecture:
         machine: archPlan
         with:
           onPackages: packages
 
-      # ── The per-package build queue (packages.* -> build.review). ─────────────
       packages:
         machine: packageLoop
         with:
           onDrained: build.review
 
-      # ── The process's build identity (build.* -> build.review -> done). ───────
       build:
         machine: buildTail
         with:

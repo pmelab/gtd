@@ -1,9 +1,8 @@
 #!/usr/bin/env sh
-# gtd check turn — revert the entry commit's diff out of the working
-# tree. Its content survives in history for design.triage to read.
 set +e
-# Hoist the commit hash once, at the TOP: Eta's autoTrim eats the
-# newline after an interpolation tag, so no tag may be the last
-# token on a line.
+# Hoisted here, at the TOP: Eta's autoTrim eats the newline after
+# an interpolation tag, so no tag may be the last token on a line.
+# Uses it.currentCommit (render-time), not bare HEAD, so a
+# late-running driver still reverts the right commit.
 commit="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 git revert --no-commit "$commit"

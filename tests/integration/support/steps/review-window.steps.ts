@@ -2,8 +2,6 @@ import { Then } from "quickpickle"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
-// ── Review checkout window: refs + surfaced status ────────────────────────────
-
 Then("the git ref {string} exists", (world: GtdWorld, ref: string) => {
   assert.ok(world.gitRefExists(ref), `Expected the git ref "${ref}" to exist.`)
 })

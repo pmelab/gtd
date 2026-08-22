@@ -1,10 +1,3 @@
-/**
- * The `@inmem` tier's `CliIo` — routes `gtd`'s whole CLI shell (`runCli`)
- * through the in-memory layers instead of a real repo/process. Captures
- * stdout/stderr/exit into plain values `world.ts` reads back into
- * `lastResult`, exactly mirroring what a real `gtd` invocation's
- * stdout/stderr/exit code would look like.
- */
 import type { CliIo } from "../Cli.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import { testLayers, type ScriptedCommand } from "./Layers.js"

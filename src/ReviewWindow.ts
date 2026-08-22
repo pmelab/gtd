@@ -5,90 +5,21 @@ import { reviewBaseFor, type ProcessRun } from "./Edge.js"
 import { deleteRef, mixedResetTo, restoreStagedFrom, updateRef } from "./GitScript.js"
 
 /**
- * The review checkout window (v3 re-introduction).
- * While a process RESTS at a state declaring `reviewWindow: true` (the
- * bundled default's `await-review`), HEAD and the index are temporarily
- * rewound to the review base with the working tree untouched, so the entire
- * `base..HEAD` diff surfaces as ordinary uncommitted changes in any editor's
- * standard git integration (SCM panel, gutters, per-file diffs, discard-hunk).
- *
- * v2 hard-wired this to a single `awaiting-review` gate; v3 drives it purely
- * from the DECLARATIVE `reviewWindow`/`reviewBase` state properties (see
- * `PatternMachine.StateDef`) — the pure engine never observes an open window,
- * exactly as before.
- *
- * Lifecycle — driven from the program edge (`src/program.ts`), which DECIDES
- * with this module's pure/read-only halves and assembles the actual writes
- * into the two scripts a `gtd` command hands the external driver:
- *
- * - The CLOSE sequence (`decideCloseWindow` + `buildCloseWindowScript`) is
- *   read-only in this module — it decides whether a window is open and safe
- *   to close, keyed solely on `REVIEW_HEAD_REF` existing (the same
- *   reviewed-branch/legacy-containment guards described below) — and
- *   `program.ts`'s `buildRequiredScript` splices the resulting
- *   `mixedResetTo`/`deleteRef`/`deleteRef` bash in as the LEAD steps of the
- *   `required` script, ahead of the commit/squash steps themselves. Nothing
- *   reads or mutates state until the driver actually runs that script; once
- *   it does, HEAD/index are restored exactly, leaving only the reviewer's own
- *   edits dirty (captured by the resting state's own `on` patterns like any
- *   other pending change) — the pure machine never sees the window.
- * - The OPEN sequence (`decideOpenWindow` + `buildOpenWindowScript`) is
- *   likewise read-only — it self-guards on the STEP'S OWN target state
- *   declaring `reviewWindow: true` — and `program.ts`'s `openWindowScript`
- *   turns that into the `optional` script's `updateRef`/`updateRef`/
- *   `mixedResetTo`/`restoreStagedFrom` bash: saving HEAD to `REVIEW_HEAD_REF`
- *   (the base to `REVIEW_BASE_REF`), then rewinding to the base. The driver
- *   runs it AFTER the required script has already landed the new commit
- *   (`buildOpenWindowScript`'s own doc comment explains why it pins the
- *   literal string `"HEAD"`, never a resolved hash). It re-arms after
- *   read-only commands (`gtd next` / `gtd status`) and refused invocations
- *   too, so the editor's diff view stays consistent no matter which command
- *   the loop last ran.
- *
- * Every close/open sequence is idempotent under re-entry, so a crash at any
- * point is recovered by the next invocation's close (the saved ref also keeps
- * the real head GC-reachable for the window's whole lifetime).
- */
-
-/**
- * The window's two state refs live in git's PER-WORKTREE `refs/worktree/*`
- * namespace, so linked worktrees sharing one `.git` (`git worktree add`) each
- * get their OWN window: a review resting in one worktree is invisible to — and
- * un-clobberable by — every other one, and git drops the refs with the
- * worktree.
- *
- * gtd ≤ 7.1 kept them in the SHARED `refs/gtd/*` namespace (the legacy names
- * below), which made a second worktree's very first gtd invocation close the
- * FIRST worktree's window: its `git reset --mixed` moved the second worktree's
- * branch onto the other worktree's saved head, and every later invocation
- * refused with "a process is already underway" (issue #118).
+ * Per-worktree (`refs/worktree/*`) so linked worktrees sharing one `.git`
+ * don't clobber each other's window.
  */
 export const REVIEW_HEAD_REF = "refs/worktree/gtd/review-head"
 export const REVIEW_BASE_REF = "refs/worktree/gtd/review-base"
 
-/**
- * The pre-7.2 SHARED refs. gtd never writes them any more; `decideCloseWindow`
- * only reads them to finish a window an older gtd left open across the upgrade
- * — and only when HEAD is still contained in the saved head, since a shared ref
- * may belong to a sibling worktree (see `openWindowRefs`).
- */
+/** The pre-7.2 shared refs — gtd never writes them, only reads them to finish a window an older gtd left open across the upgrade. */
 export const LEGACY_REVIEW_HEAD_REF = "refs/gtd/review-head"
 export const LEGACY_REVIEW_BASE_REF = "refs/gtd/review-base"
 
-// git's empty-tree object — `computeProcessRun`'s `startParentHash` when a
-// process covers the whole history with no earlier commit. There is no real
-// commit to rewind to, so the window simply does not open in that case.
+// git's empty-tree object — `startParentHash` when a process covers the whole
+// history with no earlier commit to rewind to, so the window stays closed.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-/**
- * The ref pair an open window is recorded under, plus whether it is the
- * legacy shared pair. Exported so the pure close builder below and its
- * effectful "read + guard" counterpart (`decideCloseWindow`) can share the
- * exact shape `openWindowRefs`'s own guards already gather — `headHash`/
- * `legacy` are carried through even though the close SCRIPT itself (see
- * `buildCloseWindowScript`) only needs `headRef`/`baseRef`, so a caller that
- * received this record from the read half never has to re-derive it.
- */
+/** The ref pair an open window is recorded under, plus whether it is the legacy shared pair. */
 export interface WindowRefs {
   readonly headRef: string
   readonly baseRef: string
@@ -128,22 +59,12 @@ const openWindowRefs = (git: GitOperations): Effect.Effect<Option.Option<WindowR
   })
 
 /**
- * Whether a caller should run the close sequence, and (when so) the resolved
- * `WindowRefs` `buildCloseWindowScript` needs. Read-only: it reads the same
- * refs `openWindowRefs` does and runs the same two guards a close must
- * satisfy (the reviewed-branch containment check, and — for a legacy shared
- * pair — the sibling-worktree containment check), keyed on the saved-head
- * ref's existence, NOT on any config or machine state — so `program.ts`'s
- * `buildRequiredScript` can always call it first and the pure machine never
- * sees the window. Fails loudly — refs left in place — when HEAD is no longer
- * on the reviewed branch (the base is not an ancestor of HEAD, e.g. after a
- * branch switch): a mixed reset there would rewrite the wrong branch's tip.
- * Manual commits on top of the base pass the guard: the reset keeps their
- * content in the working tree, where the next turn's capture picks it up as
- * review feedback. Performs no write itself — `program.ts`'s
- * `buildRequiredScript` is the one caller, and it only splices
- * `buildCloseWindowScript`'s bash into the assembled script when
- * `shouldClose` comes back true.
+ * Whether a caller should run the close sequence, keyed on the saved-head
+ * ref's existence alone, so `program.ts` can always call this first without
+ * the pure machine ever seeing the window. Fails (refs left in place) when
+ * HEAD has moved off the reviewed branch — a mixed reset there would rewrite
+ * the wrong branch's tip. Manual commits on top of the base still pass: the
+ * reset keeps their content in the working tree as review feedback.
  */
 export type CloseWindowDecision =
   | { readonly shouldClose: false }
@@ -195,36 +116,19 @@ export const decideCloseWindow: Effect.Effect<CloseWindowDecision, Error, GitSer
  * builder performs none of them, only the write sequence for the case where
  * they did.
  *
- * The reset target is `refs.headHash` — the RESOLVED hash, not `refs.headRef`
- * by name — precisely so the sequence stays idempotent once the ref itself is
- * gone: the very next statement deletes `headRef`, so a script naming the ref
- * for the reset would fail on re-entry (the ref `git reset --mixed` would
- * need is the one the script just deleted). A hash stays resolvable
- * regardless, so a second run's reset is a true no-op (HEAD is already
- * there) and both deletes tolerate an already-missing ref. `legacy` on `refs`
- * goes unused here — the script only needs `headRef`/`baseRef`/`headHash` —
- * but the parameter carries the whole `WindowRefs` record so a caller can
- * pass `decideCloseWindow`'s resolved `refs` straight through.
+ * Resets to `refs.headHash` (the resolved hash), not `refs.headRef` by name —
+ * the very next statement deletes that ref, so naming it for the reset would
+ * fail on re-entry. A hash stays resolvable regardless, keeping the sequence
+ * idempotent.
  */
 export const buildCloseWindowScript = (refs: WindowRefs): string =>
   [mixedResetTo(refs.headHash), deleteRef(refs.headRef), deleteRef(refs.baseRef)].join(" &&\n")
 
 /**
- * Whether a window should open, and at what base/head — PURE, answerable for
- * an ARBITRARY target state the caller names (not just whatever `currentRest`
- * currently resolves to), because the caller — a step about to land a commit
- * — knows the target from the matched pattern before that commit exists (see
- * `program.ts`'s `openWindowScript`, which calls this then `execScript`s
- * `buildOpenWindowScript`'s output as the `optional` script). Self-guarded,
- * exactly the shape a caller can invoke unconditionally after every state
- * subcommand: `isReviewWindowState` on the target, then `reviewBaseFor` (the
- * most-recent in-process `reviewBase` commit, or absent one the process's
- * diff base — `run.diffBase`, the process start unless a `gtd review
- * <commitish>` entry commit overrode it via a `Gtd-Review-Base:` trailer, see
- * `computeProcessRun`), then the same "no real base" / "empty process" no-op
- * checks against the prospective new head hash — when that resolves to the
- * empty tree (a process with no prior commit) or to `head` itself (an empty
- * process), there is nothing to surface and the window stays closed.
+ * Whether a window should open, and at what base/head. Takes `target`
+ * explicitly rather than resolving it itself, since the caller (a step about
+ * to land a commit) knows the matched-pattern target before that commit
+ * exists.
  */
 export type OpenWindowDecision =
   | { readonly shouldOpen: false }
@@ -245,30 +149,18 @@ export const decideOpenWindow = (
 }
 
 /**
- * PURE: the open sequence's bash text — base-ref write, head-ref write,
- * mixed-reset-to-base, then the `.gtd/` restore-staged-from pin, built from
- * `src/GitScript.ts`'s `updateRef`/`mixedResetTo`/`restoreStagedFrom`, in the
- * same crash-safe order `openReviewWindow` uses (base ref → head ref → mixed
- * reset → `.gtd/` pin). Deliberately no `git add --intent-to-add` anywhere —
- * new files stay untracked, for the exact two reasons `openReviewWindow`'s
- * own doc comment records — and no whole-tree index write: `restoreStagedFrom`
- * is scoped to `.gtd/` alone.
+ * The open sequence's bash text: base-ref write, head-ref write,
+ * mixed-reset-to-base, then a `.gtd/`-scoped `restoreStagedFrom` pin. No `git
+ * add --intent-to-add` — that both loses the index-lock race and truncates
+ * discarded files to zero bytes — so new files stay untracked; new files
+ * outside `.gtd/` stay unpinned too, since `restoreStagedFrom` is scoped
+ * there alone. Idempotent under re-entry.
  *
- * Idempotent under re-entry: `updateRef`/`mixedResetTo` re-pointing at the
- * same target is a no-op, and `restoreStagedFrom` re-pinning an already-pinned
- * path is a no-op.
- *
- * `".gtd"` stays a LITERAL, deliberately, rather than being derived from
- * states' own `file:` declarations (every one of which is compiled under
- * `.gtd/` anyway — see `PatternConfig.ts`'s `stateFile` compiler). The pin
- * exists to keep gtd's PLUMBING out of the reviewer's editor, and `.gtd/` is
- * the conventional directory it lives in — including the parts no state
- * declares (a check script's temp output), which a `file:`-derived list would
- * miss. Making the list dynamic would also cost the in-memory tier its trust
- * property — the recognizer
- * (`src/testing/EmittedScriptRecognizer.ts`'s `recognizeReviewWindowOpen`)
- * re-derives this exact string and compares, which only works while the paths
- * are fixed. Don't trade that for cosmetics.
+ * `".gtd"` is a deliberate literal, not derived from states' `file:`
+ * declarations — it must also cover paths no state declares (a check
+ * script's temp output), and `src/testing/EmittedScriptRecognizer.ts`'s
+ * `recognizeReviewWindowOpen` re-derives this exact string to recognize the
+ * script, which only works while it's fixed.
  */
 export const buildOpenWindowScript = (decision: {
   readonly base: string

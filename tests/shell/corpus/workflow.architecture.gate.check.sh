@@ -1,13 +1,7 @@
 #!/usr/bin/env sh
-# gtd check turn — probe the current phase's steering file for
-# unanswered questions; an answered/empty result removes the marker
-# (.gtd/QUESTIONS.md), an unanswered one stamps it fresh. Design and
-# architecture share this one probe: whichever of
-# .gtd/REQUIREMENTS.md/.gtd/ARCHITECTURE.md exists ON DISK right now
-# IS this phase's steering file — unambiguous because
-# architecture.author deletes .gtd/REQUIREMENTS.md in the same turn
-# it writes .gtd/ARCHITECTURE.md, so exactly one of the two exists
-# here.
+# Exactly one of REQUIREMENTS.md/ARCHITECTURE.md exists on disk at
+# a time — architecture.author deletes the former in the same turn
+# it writes the latter — so this probe is unambiguous either way.
 set +e
 mkdir -p .gtd
 file=.gtd/REQUIREMENTS.md

@@ -61,10 +61,8 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the git ref "refs/worktree/gtd/review-base" exists
     # HEAD rests at the review base: the process boundary.
     And the last commit subject is "chore: init gtd workflow"
-    # The whole package diff is visible as uncommitted changes…
     And the git status contains "src/calc.ts"
     And the git status contains "src/other.ts"
-    # …while `.gtd/` plumbing stays out of the untracked noise.
     And the git status does not contain "?? .gtd/"
 
   @inmem
@@ -146,9 +144,6 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
 
   @inmem
   Scenario: Read-only commands leave an open window exactly as they found it
-    # Neither command touches git at all now — no close, no re-arm, no reset.
-    # The window they resolve through survives both invocations untouched, and
-    # the second one still sees exactly what the first did.
     Given I run gtd land
     When I run gtd next
     Then it succeeds

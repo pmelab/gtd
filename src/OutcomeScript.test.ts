@@ -92,7 +92,6 @@ describe("renderFormat", () => {
   })
 })
 
-/** A subject containing printf conversion specs and quotes must survive both the plain and script paths untouched. */
 describe("%-safety and quoting", () => {
   it("a subject containing %s survives transitionOutcome/commitOutcome round-tripped through printf", () => {
     const tricky = "gtd(agent): 50%s off deal's price"

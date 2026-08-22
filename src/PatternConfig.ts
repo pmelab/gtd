@@ -20,123 +20,6 @@ import {
 import { flattenMachines, type InstancePath, type MachineNode } from "./Machines.js"
 import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
 
-/**
- * The v3 `.gtdrc` `workflow:` config compiler. This
- * module turns the raw, unknown-shaped YAML value of the `workflow:` key into
- * a `PatternMachine` `WorkflowDefinition` — the ONLY definition source in v3
- * (no `extends`, no merge-over-a-built-in: the bundled default workflow is
- * itself a YAML asset compiled through this same function, a
- * concern). Purely a compiler: no git, no Effect, no CLI wiring — those are
- * later phases.
- *
- * ## Schema
- *
- * ```yaml
- * vars:                 # optional — the workflow's own declared `it.vars` defaults
- *   anyKey: anyScalarValue
- * modes:                # optional — steering-file modes a state's `mode:` may name
- *   <name>:
- *     format: <shell command>    # at least one of format/validate
- *     validate: <shell command>
- * entry:
- *   default: <machine name>     # which machine is the ROOT instance
- * machines:
- *   <name>:
- *     params: [<param>, ...]?   # advisory only — documents which $params a caller may bind
- *     model: <string>?          # optional, opaque harness hint — stamped onto every one of THIS machine's own `prompt` states; a state may NOT declare its own
- *     system: <string>?         # optional, machine-level only — the agent harness system prompt stamped onto every one of THIS machine's own `prompt` states; a "./" or "../" value is inlined from the declaring config file's directory (package 02); a state may NOT declare its own
- *     entry: <local or ref key> # this machine's OWN default local, resolved recursively
- *     states:
- *       <local>:                # an ordinary state
- *         actor: <string>    # forbidden on a commit state, required otherwise
- *         script: <string>   # exactly one of script/prompt/message/commit
- *         on:                # a mapping, DECLARATION ORDER PRESERVED — each <pattern> KEY is itself an Eta template, rendered against `it.vars` at the edge (src/Edge.ts's renderOnEdges) before the pure engine ever sees it
- *           "<pattern>": <targetState>                    # short form
- *           "<pattern>": { to: <targetState>, describe: <sentence> }  # with a human-readable route description (describe is NEVER Eta-rendered, unlike the pattern key)
- *         retry:
- *           max: <number>
- *           otherwise: <targetState>
- *         label: <string>     # optional, opaque display name — never on a commit state
- *         file: <string>      # optional, an Eta template naming the state's steering file RELATIVE to ".gtd/" (the compiler prepends it automatically) — never on a commit state
- *         mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
- *         entry: true         # optional — an EXTRA reachability root (WorkflowEntries.manual), enterable via `gtd --entry <this state's qualified name>`; distinct from the top-level `entry:` key above
- *       <local>: { machine: <name>, with: { ... } }       # a REFERENCE — instantiates <name> as a child, see src/Machines.ts
- * ```
- *
- * The raw `entry:`/`machines:` value is flattened by `src/Machines.ts`'s
- * `flattenMachines` into qualified states plus resolved entry points BEFORE any
- * per-state compilation below ever runs — this module never sees an unresolved
- * `$param` or a bare reference path.
- *
- * ## `vars:` — one of `it.vars`'s three layers
- *
- * A sibling `vars:` key INSIDE the `workflow:` value declares the workflow's
- * OWN defaults for the merged `it.vars` template map (see
- * `PatternTemplates.TemplateContext.vars`) — the lowest-precedence of its
- * three layers (a top-level `.gtdrc` `vars:` key, then `GTD_<UPPERCASE-name>`
- * environment variables, both assembled by `src/Edge.ts`'s `resolveVars`,
- * override it here). Every value must be a YAML scalar (string/number/
- * boolean) — `compileVarsMap` coerces it to a string; an object/array value
- * is a config-shape load error, collected alongside every other finding
- * rather than guessed at. This compiler's only input is the `workflow:`
- * key's own raw value (per the Phase 2 brief) — it never sees the rest of the
- * `.gtdrc` document, so the top-level `vars:` layer is entirely
- * `ConfigService`'s concern (`src/Config.ts`), not this module's.
- *
- * ## `modes:` — the steering-file modes a state's `mode:` may name
- *
- * A sibling `modes:` key INSIDE the `workflow:` value declares this workflow's
- * own steering-file modes (see `PatternMachine.ModeDef`), each a `format:`
- * and/or `validate:` SHELL COMMAND. Like `vars:`, it has a second layer this
- * compiler does not read for itself: the top-level `.gtdrc` `modes:` key, which
- * `ConfigService` compiles through this module's `compileModesMap` and hands
- * back in as `rcModes`, merged per half by `mergeModes`. Underneath BOTH layers
- * this compiler seeds `src/SteeringFormats.ts`'s built-in registry names (`qa`/
- * `review`) with that module's own `seededValidateCommand(name)` template as
- * their `validate:`, so every compiled definition's `modes` map always carries
- * a usable `validate:` command for them and a workflow never has to declare
- * them just to use gtd's own validators — a workflow (or `.gtdrc`) may still
- * override either half per name, and `src/SteeringFormats.ts`'s
- * `isSeededValidateCommand` lets the edge (`src/SteeringMode.ts`) tell gtd's
- * own seeding apart from a genuine user override.
- *
- * ## `file:` — resolved under `.gtd/` automatically
- *
- * A state's `file:` names a path RELATIVE to `PatternMachine.STATE_DIR`
- * (`.gtd`) — the `stateFile` field kind (`compileStateFile`, below) prepends
- * the directory after rejecting a `..` segment, an absolute path, or a
- * declared `.gtd/` prefix (each a load-time error, never silently rewritten).
- * There is no per-workflow relocation knob any more: `.gtd` is a fixed
- * literal every consumer (the review window's revert pathspec, the step
- * guards' code-vs-plumbing test) agrees on.
- *
- * ## File references
- *
- * A content value (`script`/`prompt`/`message`/`commit`) is a FILE REFERENCE
- * iff it starts with `./` or `../` — resolved relative to `configDir` (the
- * config file's own directory, supplied by the caller) and auto-inlined at
- * load time. A missing or unreadable file is a LOAD ERROR: it is collected
- * into this function's thrown error, never silently treated as inline
- * template text. Any other string (including one that merely contains a `/`,
- * or an absolute path) is inline template source, used verbatim.
- *
- * ## Validation
- *
- * Config-shape errors (unknown keys, wrong types, unreadable file
- * references) are collected; whenever `states` itself parses into
- * per-state objects (however messy — a truly unassemblable `workflow:` value,
- * e.g. not an object, or a missing/empty `states`, is the only case that
- * throws early with just the shape errors), the assembled
- * `WorkflowDefinition` is ADDITIONALLY run through the engine's
- * `validateDefinition` (exactly one initial state, exactly one content kind
- * per state, `on`/`retry` targets all resolve, commit states carry no
- * actor/`on`, etc), and both lists of findings are merged (de-duplicating
- * identical messages) into ONE thrown error — never just the first problem
- * found, so an unrelated state's bad `on` target is never hidden behind an
- * earlier state's content-kind violation. A bad config fails LOUDLY at load
- * time — `compileWorkflowConfig` throws — and never at step time.
- */
-
 // ── Small helpers ────────────────────────────────────────────────────────────
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
@@ -148,7 +31,6 @@ const describeType = (v: unknown): string => {
   return typeof v
 }
 
-/** A content value is a file reference iff it starts with `./` or `../`. */
 const isFileReference = (value: string): boolean =>
   value.startsWith("./") || value.startsWith("../")
 
@@ -157,13 +39,10 @@ const isScalar = (v: unknown): v is string | number | boolean =>
 
 /**
  * Compile a flat `name -> scalar` map — the `vars:` shape shared by a
- * workflow's own declared defaults (this module) and the top-level `.gtdrc`
- * `vars:` key (`src/Config.ts`, which imports this same function so the two
- * layers validate identically). `undefined` (the key absent) compiles to
- * `{}`. A non-object value, or any individual value that isn't a YAML scalar
- * (string/number/boolean), pushes a load error onto `errors` — the whole
- * value or just that key is dropped, never guessed at — and the well-formed
- * keys still compile. Every scalar is coerced to its string form.
+ * workflow's own declared defaults and the top-level `.gtdrc` `vars:` key
+ * (`src/Config.ts` imports this same function so both layers validate
+ * identically). A malformed value pushes a load error onto `errors` and is
+ * dropped; the well-formed keys still compile.
  */
 export const compileVarsMap = (raw: unknown, errors: string[]): Record<string, string> => {
   if (raw === undefined) return {}
@@ -186,20 +65,11 @@ const MODE_COMMAND_KEYS = ["format", "validate"] as const
 
 /**
  * Compile the `modes:` map — mode name -> `{ format?, validate? }` shell
- * commands (see `PatternMachine.ModeDef`). An absent key compiles to
- * `undefined` — the definition then carries no `modes` at all, leaving only the
- * built-ins. A non-object value, an entry that isn't an object, an
- * unknown key inside an entry, or a non-string command each push a load error
- * — the offending value is dropped, never guessed at, and the well-formed
- * entries still compile. The SEMANTIC rules (at least one command per mode,
- * neither blank) belong to `validateDefinition`, which sees the assembled
- * definition.
- *
- * A command is NEVER treated as a `./`-relative file reference the way content
- * strings are (see `resolveContent`): `./scripts/check.sh` is a perfectly good
- * shell command, so inlining it as template text would break the obvious
- * reading. Commands are Eta templates, rendered at the edge with `it.file`
- * bound to the rendered steering-file path (`src/SteeringMode.ts`).
+ * commands. Malformed entries push a load error and are dropped; the
+ * semantic rules (at least one command per mode) belong to
+ * `validateDefinition`. A command is never treated as a `./`-relative file
+ * reference the way content strings are: `./scripts/check.sh` is a perfectly
+ * good shell command.
  */
 export const compileModesMap = (
   raw: unknown,
@@ -242,12 +112,10 @@ export const compileModesMap = (
 }
 
 /**
- * Layer one `modes:` map over another, PER HALF: an override entry's
- * `format:`/`validate:` wins, and a half it leaves out keeps the base's. This
- * is how the top-level `.gtdrc` `modes:` key plugs a formatter into a mode the
- * workflow (or gtd itself) already validates — `{ qa: { format: "..." } }` adds
- * formatting to `qa` without touching its validation. Both arguments may be
- * `undefined` (an absent key); the result is `undefined` only when both are.
+ * Layer one `modes:` map over another, per half: an override's `format:`/
+ * `validate:` wins, and a half it leaves out keeps the base's. This is how
+ * the top-level `.gtdrc` `modes:` key plugs a formatter into a mode gtd
+ * already validates without touching its validation.
  */
 export const mergeModes = (
   base: Readonly<Record<string, ModeDef>> | undefined,
@@ -261,7 +129,6 @@ export const mergeModes = (
   return merged
 }
 
-/** Every state property a flattened state may carry — `STATE_FIELDS`'s own key set, in table order. */
 const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set(Object.keys(STATE_FIELDS))
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
@@ -273,7 +140,7 @@ const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set([
 ])
 const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with"])
 
-/** A state-level key removed by the `entry:`/`machines:` rewrite (or, for `memory`, by the machine-scoped-memory restructure), naming its replacement so a stale config's error points somewhere useful instead of a bare "unknown key". The state-level `model` case is instead caught pre-flatten by `LEGACY_AUTHORED_STATE_KEY_HINTS`/`validateMachineStateKeys`, because by the time a state reaches `KNOWN_STATE_KEYS`/`compileState` its `model` may be a legitimately machine-stamped key. */
+/** A state-level key removed by an earlier rewrite, naming its replacement so a stale config's error points somewhere useful. The `model` case is instead caught pre-flatten by `LEGACY_AUTHORED_STATE_KEY_HINTS`, since by the time a state reaches `compileState` its `model` may be a legitimately machine-stamped key. */
 const LEGACY_STATE_KEY_HINTS: Readonly<Record<string, string>> = {
   initial: `"initial" no longer exists — declare this state's qualified path in the top-level "entry.default" instead`,
   reviewEntry: `"reviewEntry" no longer exists — declare "entry: true" on this state instead`,
@@ -281,23 +148,21 @@ const LEGACY_STATE_KEY_HINTS: Readonly<Record<string, string>> = {
   memory: `"memory" no longer exists — a machine's memory scope is derived from its position in the tree and starts fresh on every entry`,
 }
 
-/** A reference-level key from the old `use:` invocation shape, naming its replacement. */
 const LEGACY_REF_KEY_HINTS: Readonly<Record<string, string>> = {
   as: `"as" no longer exists — a reference's local name (the key itself) IS the concrete name; there is nothing left to rename`,
   name: `"name" no longer exists — a reference's local name (the key itself) names the instance`,
   set: `"set" no longer exists — bind extra per-instance values via "with:" instead`,
 }
 
-/** Render an unknown-key list, appending a legacy-key hint in parentheses for any key `hints` recognizes. */
 const formatUnknownKeys = (
   keys: readonly string[],
   hints: Readonly<Record<string, string>>,
 ): string => keys.map((k) => (hints[k] !== undefined ? `${k} (${hints[k]})` : k)).join(", ")
 
 /**
- * A top-level key from the pre-Package-02 raw shape (flat `states:`, or the
- * sub-machine expander's `submachines:`/`use:`). Detected and thrown FIRST, before
- * any other validation, so a stale config produces only this migration table —
+ * A top-level key from the legacy flat `states:` shape, or the sub-machine
+ * expander's `submachines:`/`use:`. Detected and thrown FIRST, before any
+ * other validation, so a stale config produces only this migration table —
  * never forty downstream "machines is required"-style findings piled on top.
  */
 const LEGACY_TOP_KEY_MESSAGES: Readonly<Record<string, string>> = {
@@ -314,11 +179,8 @@ const detectLegacyShape = (raw: Record<string, unknown>): void => {
 
 /**
  * A top-level `entry.review`/`entry.fix` key from the pre-`entry: true`
- * shape. Detected and thrown FIRST — right after `detectLegacyShape`, before
- * `flattenMachines` (or anything else) ever runs — so a stale config
- * migrating off the named review/fix entry points gets ONLY this message,
- * never mixed with `detectLegacyShape`'s own unrelated top-level findings or
- * any generic downstream complaint about an unknown key inside `entry:`.
+ * shape. Detected and thrown right after `detectLegacyShape`, before
+ * anything else runs, so a stale config gets only this message.
  */
 const LEGACY_ENTRY_KEY_MESSAGES: Readonly<Record<string, string>> = {
   review: `entry.review is no longer supported — declare \`entry: true\` on that state and enter it with \`gtd --entry <state>\``,
@@ -333,18 +195,6 @@ const detectLegacyEntryKeys = (raw: Record<string, unknown>): void => {
   throw new Error(formatErrors(found.map((k) => LEGACY_ENTRY_KEY_MESSAGES[k]!)))
 }
 
-/**
- * Structural validation over the raw `machines:` map that `src/Machines.ts`'s
- * `flattenMachines` does not itself perform: unknown keys on a machine
- * (`KNOWN_MACHINE_KEYS`), keys that have MOVED off a state
- * (`LEGACY_AUTHORED_STATE_KEY_HINTS`), and unknown keys on a reference local
- * (`KNOWN_REF_KEYS`), the last surfacing the old `use:` invocation's
- * `as`/`name`/`set` keys through `LEGACY_REF_KEY_HINTS` rather than a bare
- * "unknown key". Findings are pushed onto `errors`; a malformed shape (not an
- * object, a non-object machine/state) is left for `flattenMachines`/
- * `compileState` to report — this pass only adds what they don't already cover.
- */
-/** Validate one machine's own reference locals against `KNOWN_REF_KEYS`, pushing findings onto `errors`. */
 const validateMachineRefs = (
   machineName: string,
   machineRaw: Record<string, unknown>,
@@ -364,12 +214,10 @@ const validateMachineRefs = (
 }
 
 /**
- * A key an author may no longer put on a STATE, mapped to the hint naming its
- * replacement. Checked against the AUTHORED `machines.<name>.states` map rather
- * than through `KNOWN_STATE_KEYS`/`compileState`, because those two see the
- * FLATTENED shape — where `src/Machines.ts` has already stamped the owning
- * machine's own `model` onto each of its `prompt` states, and a `model` key is
- * exactly what a well-formed emitted state carries.
+ * A key an author may no longer put on a state, mapped to the hint naming its
+ * replacement. Checked against the AUTHORED map, not the flattened one, since
+ * by the flattened shape `src/Machines.ts` has already stamped these fields
+ * onto their owning machine's `prompt` states.
  */
 const LEGACY_AUTHORED_STATE_KEY_HINTS: Readonly<Record<string, (machineName: string) => string>> =
   Object.fromEntries(
@@ -380,7 +228,6 @@ const LEGACY_AUTHORED_STATE_KEY_HINTS: Readonly<Record<string, (machineName: str
     ]),
   )
 
-/** Flag any `LEGACY_AUTHORED_STATE_KEY_HINTS` key declared on one machine's own (non-reference) states. */
 const validateMachineStateKeys = (
   machineName: string,
   machineRaw: Record<string, unknown>,
@@ -399,15 +246,7 @@ const validateMachineStateKeys = (
   }
 }
 
-/**
- * Every machine-authored field (`MACHINE_FIELD_ENTRIES`) — the ONLY place any
- * of them may be authored (`validateMachineStateKeys`, above, rejects the
- * state-level form): a non-empty string, else a load error naming the
- * machine. Validates the value a machine stamps onto its own `prompt` states
- * (`src/Machines.ts`'s `resolveInstanceMachineFields`/`emitTree`); the
- * per-state `compileText` (below) is then only the type guard
- * over that STAMPED value.
- */
+/** Every machine-authored field: a non-empty string, else a load error naming the machine — the only place any of them may be authored (`validateMachineStateKeys` rejects the state-level form). */
 const validateMachineFieldValues = (
   machineName: string,
   machineRaw: Record<string, unknown>,
@@ -422,7 +261,7 @@ const validateMachineFieldValues = (
   }
 }
 
-/** Does `machineRaw` declare at least one of its OWN (non-reference) states with content kind `prompt`? Mirrors exactly which states `src/Machines.ts` stamps a machine-authored field onto — a reference local's states belong to the CHILD machine, never this one. */
+/** Does `machineRaw` declare at least one of its own (non-reference) states with content kind `prompt`? A reference local's states belong to the child machine, never this one. */
 const machineHasPromptState = (machineRaw: Record<string, unknown>): boolean => {
   const statesRaw = machineRaw["states"]
   if (!isPlainObject(statesRaw)) return false
@@ -431,12 +270,7 @@ const machineHasPromptState = (machineRaw: Record<string, unknown>): boolean => 
   )
 }
 
-/**
- * A machine declaring a machine-authored field with no `prompt`-content state
- * anywhere among its own states is a load error, not a silent no-op — see
- * this module's "BOUNDARY CORRECTION" note in package 02: the field would
- * never land on any emitted state, so the declaration does nothing.
- */
+/** A machine declaring a machine-authored field with no `prompt`-content state anywhere is a load error, not a silent no-op — the field would never land on any emitted state. */
 const validateMachineFieldsTakeEffect = (
   machineName: string,
   machineRaw: Record<string, unknown>,
@@ -475,14 +309,13 @@ const validateMachinesShape = (raw: unknown, errors: string[]): void => {
 
 // ── Compilation result ───────────────────────────────────────────────────────
 
-/** What `compileWorkflowConfig` produces: the compiled definition, plus the workflow's own declared `it.vars` defaults. */
 export interface CompiledWorkflowConfig {
   readonly definition: WorkflowDefinition
-  /** The compiled `vars:` map (scalar-coerced) — the lowest-precedence layer of the merged `it.vars` (see `src/Edge.ts`'s `resolveVars`). `{}` when absent. */
+  /** The lowest-precedence layer of the merged `it.vars` (see `src/Edge.ts`'s `resolveVars`). `{}` when absent. */
   readonly vars: Record<string, string>
-  /** The machine-instance tree `flattenMachines` (`src/Machines.ts`) built while compiling — a compilation OUTPUT for tooling (`gtd visualize`), never part of the pure `WorkflowDefinition` the engine reads. */
+  /** The machine-instance tree built while compiling — a compilation output for tooling (`gtd visualize`), never part of the pure `WorkflowDefinition` the engine reads. */
   readonly tree: MachineNode
-  /** Qualified state name -> the machine-instance path (`InstancePath`) that owns it, straight from `FlattenedWorkflow.scopes` — the memory-scope lookup a future package (`src/Edge.ts`) threads through. Its key set is asserted (below, in `compileWorkflowConfig`) to exactly match `definition.states`'s key set. */
+  /** Qualified state name -> the machine-instance path that owns it — the memory-scope lookup `src/Edge.ts` threads through. Asserted (below) to exactly match `definition.states`'s key set. */
   readonly scopes: Record<StateName, InstancePath>
 }
 
@@ -494,10 +327,10 @@ const formatErrors = (errors: readonly string[]): string =>
 /**
  * The filesystem seam behind `./`/`../` content file references
  * (`resolveContent`). `nodeFileRefReader` is the production adapter (real
- * `fs`); every threading function below defaults to it so every existing call
- * site compiles unchanged — `src/testing/` injects a repo-backed reader
- * instead, so an in-memory `.gtdrc`'s file references resolve against the
- * FAKE worktree rather than the real filesystem.
+ * `fs`); every threading function below defaults to it. `src/testing/`
+ * injects a repo-backed reader instead, so an in-memory `.gtdrc`'s file
+ * references resolve against the FAKE worktree rather than the real
+ * filesystem.
  */
 export interface FileRefReader {
   readonly exists: (path: string) => boolean
@@ -546,41 +379,16 @@ const isRefRaw = (v: unknown): v is Record<string, unknown> =>
   isPlainObject(v) && typeof v["machine"] === "string"
 
 /**
- * Machine-authored fields whose `./`/`../` value is a file reference
- * (`FieldSpec.fileRef`), derived from `MACHINE_FIELD_ENTRIES` rather than
- * hand-listed — the declarative escape hatch for a field whose behaviour
- * doesn't fit `nonEmpty`/`commit`/`requires`. Deliberately NOT every
- * machine-authored field: `model` is an opaque harness hint today, and
- * looping it here would turn `model: ./tiers/fast.txt` into a file read — a
- * load error for a value that used to work.
+ * Machine-authored fields whose `./`/`../` value is a file reference,
+ * derived from `MACHINE_FIELD_ENTRIES` rather than hand-listed. Deliberately
+ * NOT every machine-authored field: `model` is an opaque harness hint today,
+ * and looping it here would turn `model: ./tiers/fast.txt` into a file read
+ * — a load error for a value that used to work.
  */
 const MACHINE_FILE_REF_FIELDS: readonly string[] = MACHINE_FIELD_ENTRIES.filter(
   ([, spec]) => spec.fileRef === true,
 ).map(([key]) => key)
 
-/**
- * Inline every `./`/`../` content file reference in ONE raw `workflow:` value
- * against `configDir` — the directory of the `.gtdrc` that DECLARED it — and
- * return a copy with those references replaced by the referenced file's text.
- *
- * Used by `src/Config.ts`'s `loadMerged` to resolve each config level's
- * references against its OWN file's directory BEFORE the levels are
- * deep-merged. The merge collapses every level into one anonymous object, so it
- * erases which file a given `machines.x.states.y.prompt` came from; resolving up
- * front, per level, is the only way `./gtd-prompts/x.md` in a parent `.gtdrc`
- * resolves against the parent (not the cwd a child repo runs from).
- * `compileWorkflowConfig` is then invoked with `inlineFileRefs: false` on the
- * merged result. Walks `machines[*].states[*]`, skipping reference entries (an
- * object carrying a `machine` key) — a reference has no content of its own to
- * inline.
- *
- * Malformed shapes (a non-object workflow, non-object `machines`, a non-object
- * machine/state, a non-string content value) pass through untouched —
- * `compileWorkflowConfig`/`validateDefinition` own those findings; this pass
- * only rewrites the strings it recognizes as file references, collecting a load
- * error (via `resolveContent`) for any that is missing or unreadable.
- */
-/** Inline one ordinary (non-reference) state's own content file references; a reference passes through untouched. */
 const inlineStateFileRefs = (
   def: Record<string, unknown>,
   machineName: string,
@@ -607,12 +415,10 @@ const inlineStateFileRefs = (
 }
 
 /**
- * Inline a machine's own file-reference fields (`MACHINE_FILE_REF_FIELDS`,
- * e.g. `system: ./persona.md`) plus every state's content file references;
- * a malformed machine shape passes through untouched. The machine-level pass
- * runs FIRST and unconditionally — only the states loop is gated on a
- * well-formed `states:` — so a machine with a malformed `states:` still gets
- * its own `system:` reference resolved (and its missing-file error reported)
+ * Inline a machine's own file-reference fields plus every state's content
+ * file references. The machine-level pass runs first and unconditionally —
+ * only the states loop is gated on a well-formed `states:` — so a machine
+ * with a malformed `states:` still gets its own `system:` reference resolved
  * rather than skipping inlining entirely.
  */
 const inlineMachineFileRefs = (
@@ -649,6 +455,17 @@ const inlineMachineFileRefs = (
   return next
 }
 
+/**
+ * Inline every `./`/`../` content file reference in one raw `workflow:`
+ * value against `configDir` (the directory of the `.gtdrc` that declared it).
+ * Used by `src/Config.ts`'s `loadMerged` to resolve each config level's
+ * references against its OWN directory before the levels are deep-merged —
+ * the merge collapses every level into one anonymous object, erasing which
+ * file a given path came from, so resolving up front is the only way a
+ * parent `.gtdrc`'s reference resolves against the parent, not a child
+ * repo's cwd. `compileWorkflowConfig` then runs with `inlineFileRefs: false`
+ * on the merged result.
+ */
 export const inlineWorkflowFileRefs = (
   rawWorkflow: unknown,
   configDir: string,
@@ -678,11 +495,6 @@ const KNOWN_EDGE_KEYS: ReadonlySet<string> = new Set(["to", "describe", "action"
 /** A missing/malformed field's failure sentinel, distinct from a legitimate `undefined` value. */
 const INVALID = Symbol("invalid edge field")
 
-/**
- * Validate one optional string field (`describe` or `action`) off an edge
- * object, pushing a finding and returning `INVALID` when it's present but not
- * a string.
- */
 const compileOptionalEdgeField = (
   value: unknown,
   pattern: string,
@@ -735,16 +547,11 @@ const compileOnEdge = (
   if (actionField === INVALID) return undefined
   // `describe` may be `undefined` here even though `action` is set (an edge
   // wanting an `action` but no `describe` passes an explicit `undefined`
-  // placeholder in slot 3 — see `OnEdge`'s positional-coupling doc).
+  // placeholder in slot 3, since `OnEdge` is a positional tuple).
   if (actionField !== undefined) return [pattern, to, describeField, actionField]
   return describeField !== undefined ? [pattern, to, describeField] : [pattern, to]
 }
 
-/**
- * The `on` mapping: pattern -> edge, preserving declaration order as `OnEdge`
- * tuples. Each row's value is compiled by `compileOnEdge` (a target string or
- * a `{ to, describe }` object).
- */
 const compileOn = (raw: unknown, name: string, errors: string[]): readonly OnEdge[] | undefined => {
   if (raw === undefined) return undefined
   if (!isPlainObject(raw)) {
@@ -759,7 +566,6 @@ const compileOn = (raw: unknown, name: string, errors: string[]): readonly OnEdg
   return edges
 }
 
-/** `{ max, otherwise }`, both required and type-checked. */
 const compileRetry = (raw: unknown, name: string, errors: string[]): RetryDef | undefined => {
   if (raw === undefined) return undefined
   if (!isPlainObject(raw)) {
@@ -778,13 +584,6 @@ const compileRetry = (raw: unknown, name: string, errors: string[]): RetryDef | 
   return maxOk && otherwiseOk ? { max, otherwise } : undefined
 }
 
-/**
- * One text field (`actor`/`model`/`label`/`file`/`mode`): a plain string, or
- * undefined (either absent or invalid — the type mismatch is its own error).
- * Vocabulary/shape rules (non-empty, forbidden on a commit state, requires a
- * sibling field, naming a known mode) are `STATE_FIELDS`'/
- * `validateDefinition`'s concern, not this compiler's.
- */
 const compileText = (
   raw: Record<string, unknown>,
   key: string,
@@ -801,24 +600,16 @@ const compileText = (
 }
 
 /**
- * `file:` — a plain string (`compileText`'s own shape), then prepended under
- * `STATE_DIR` after three load-time rejections: a `..` segment (an escape), a
- * leading `/` (an absolute path), or an already-declared `STATE_DIR` prefix
- * (what would otherwise silently double up into `.gtd/.gtd/...`). None of
- * these is a rewrite — a leading `./` or a doubled `//` is neither accepted
- * nor normalized, since reintroducing canonical-spelling machinery for `file:`
- * buys nothing when removing it is the point. A blank value is left alone
- * (returned as `""`, not prepended) so the field's own generic `nonEmpty` rule
- * (`STATE_FIELDS.file`, walked by `validateFieldRules`) still catches it —
- * prepending onto blank would hide the blank behind a non-empty
- * `"${STATE_DIR}/"` string. `undefined` (absent, or the type mismatch
- * `compileText` already reported) short-circuits with nothing left to check.
+ * `file:` — prepended under `STATE_DIR` after rejecting (never rewriting) a
+ * `..` segment, a leading `/`, or an already-declared `STATE_DIR` prefix (the
+ * last would otherwise silently double up into `.gtd/.gtd/...`). A blank
+ * value is left alone, unprepended, so the field's own `nonEmpty` rule still
+ * catches it rather than hiding behind a non-empty `"${STATE_DIR}/"` string.
  *
  * A templated `file:` (e.g. `file: <%= it.vars.x %>`) is checked against its
  * SOURCE, not its rendered form — a var supplying `../REVIEW.md` at runtime
  * passes every one of these checks and renders outside `.gtd/` at the edge.
- * Accepted, not guarded: see this module's own `file:` section for the
- * rationale.
+ * Accepted, not guarded.
  */
 const compileStateFile = (
   raw: Record<string, unknown>,
@@ -848,12 +639,10 @@ const compileStateFile = (
 }
 
 /**
- * A boolean state flag (`reviewWindow`/`requireProgress`/`answerGate`/
- * `entry`): `true` only when the raw value is the literal `true`; a
- * non-boolean is a config error; `false` (or absent) compiles away to
- * `undefined` so it never lands in the `StateDef` — `false` and "unset" mean
- * the same thing for every such flag. `reviewBase` no longer goes through
- * this — see `compileBooleanOrTemplateFlag`.
+ * A boolean state flag: `true` only for the literal `true`; a non-boolean is
+ * a config error; `false` (or absent) compiles away to `undefined`, since
+ * `false` and "unset" mean the same thing for every such flag. `reviewBase`
+ * goes through `compileBooleanOrTemplateFlag` instead.
  */
 const compileBooleanFlag = (
   raw: Record<string, unknown>,
@@ -870,14 +659,6 @@ const compileBooleanFlag = (
   return value === true ? true : undefined
 }
 
-/**
- * `reviewBase`'s own flag shape: the literal `true`, OR a non-blank string (an
- * Eta template rendering a commitish, returned verbatim — no trimming, just a
- * blank-after-trim rejection) — see `StateDef.reviewBase`'s widened type.
- * `false`, a number, an object, or a blank string are all rejected with the
- * same finding shape `compileBooleanFlag` uses; `undefined` (absent) passes
- * through untouched.
- */
 const compileBooleanOrTemplateFlag = (
   raw: Record<string, unknown>,
   key: string,
@@ -893,16 +674,12 @@ const compileBooleanOrTemplateFlag = (
 }
 
 /**
- * One content field (`script`/`prompt`/`message`/`commit`): a string,
- * file-refs auto-inlined. `ctx.inlineFileRefs` is `false` only when the
- * caller (`src/Config.ts`'s `loadMerged`) has ALREADY inlined every
- * reference per declaring file — the content is then taken verbatim, so a
- * `script:` whose inlined text happens to begin with `./` is never mistaken
- * for a second file reference and re-resolved. The "exactly one content
- * kind" rule is NOT checked here — it's owned solely by the engine's
- * `validateDefinition` (`validateContentKind`), which runs over the fully
- * assembled definition alongside every other shape error (see
- * `compileWorkflowConfig`'s aggregation).
+ * One content field: a string, file-refs auto-inlined. `ctx.inlineFileRefs`
+ * is `false` only when the caller (`src/Config.ts`'s `loadMerged`) has
+ * already inlined every reference per declaring file, so the content is then
+ * taken verbatim — a `script:` whose inlined text happens to begin with `./`
+ * is never mistaken for a second file reference. The "exactly one content
+ * kind" rule is the engine's `validateDefinition` concern, not this one's.
  */
 const compileContentRef = (
   raw: Record<string, unknown>,
@@ -920,7 +697,6 @@ const compileContentRef = (
   return resolveContent(value, ctx.configDir, `state "${name}" (${key})`, ctx.errors, ctx.fileRefs)
 }
 
-/** Per-state compile context threaded through `COMPILE` — bundles what a field compiler needs beyond the raw state object and its own key. */
 interface CompileCtx {
   readonly errors: string[]
   readonly configDir: string
@@ -954,14 +730,10 @@ const COMPILE: Record<FieldKind, FieldCompiler> = {
 }
 
 /**
- * Assemble the compiled field values into a `StateDef`: every field whose
- * `surface` is `"def"`, spread only when defined — the shared "omit rather
- * than write `undefined`" pattern `exactOptionalPropertyTypes` needs.
- * `entry` (`surface: "authoring-only"`) is structurally excluded here —
- * `COMPILE` still validates its shape like any other field (see
- * `compileState`), but it never lands on the compiled `StateDef`;
- * `compileWorkflowConfig` reads the RAW `entry: true` flag directly off
- * each qualified state to build `WorkflowEntries.manual` instead.
+ * `entry` (`surface: "authoring-only"`) is excluded here — `COMPILE` still
+ * validates its shape, but `compileWorkflowConfig` reads the raw `entry:
+ * true` flag directly off each qualified state to build `WorkflowEntries.manual`
+ * instead.
  */
 const assembleStateDef = (compiled: Record<string, unknown>): StateDef => {
   const def: Record<string, unknown> = {}
@@ -976,15 +748,8 @@ const assembleStateDef = (compiled: Record<string, unknown>): StateDef => {
 /**
  * One state's full shape: every `STATE_FIELDS` entry, compiled through
  * `COMPILE`'s per-kind dispatch. Operates on a QUALIFIED state entry from
- * `FlattenedWorkflow.states` (`src/Machines.ts`) — `$param`s already
- * substituted, every `on`/`retry.otherwise` target already an absolute
- * qualified name — so this is exactly the flat compilation the
- * pre-`entry:`/`machines:` compiler already did. The old named entry-point
- * flags (`initial`/`reviewEntry`/`fixEntry`) are gone from this shape
- * entirely: the flattener resolves `entry.default` directly into
- * `WorkflowDefinition.entries.default`, and a state's own `entry: true` flag
- * (compiled here, collected by the caller) seeds `entries.manual` instead —
- * neither ever lands on the compiled `StateDef`.
+ * `FlattenedWorkflow.states` — `$param`s already substituted, every
+ * `on`/`retry.otherwise` target already an absolute qualified name.
  */
 const compileState = (
   name: string,
@@ -1017,13 +782,10 @@ const compileState = (
 
 /**
  * Compiler invariant, not a workflow-author finding: `flattenMachines`
- * (`src/Machines.ts`) promises a `scopes` entry for EVERY state it emits (see
- * that module's doc comment, "Bindings carry their scope") — a mismatch here
- * means the flattener itself missed a state, which must fail loudly rather
- * than silently produce a memory key that reads as "outside every scope".
- * Exported so this invariant is directly testable against a contrived
- * `scopes` map, independent of whether `flattenMachines` itself can currently
- * be made to violate its own guarantee.
+ * promises a `scopes` entry for every state it emits — a mismatch here means
+ * the flattener itself missed a state, which must fail loudly rather than
+ * silently produce a memory key that reads as "outside every scope". Exported
+ * so this invariant is directly testable against a contrived `scopes` map.
  */
 export const assertScopesCoverStates = (
   stateNames: readonly string[],
@@ -1041,34 +803,13 @@ export const assertScopesCoverStates = (
 
 /**
  * Compile the raw, decoded `workflow:` YAML value into a `WorkflowDefinition`
- * plus the workflow's own compiled `vars:` map and its machine tree. `configDir`
- * is the config file's own directory, used to resolve `./`/`../` file
- * references. `rcModes` is the already-compiled top-level `.gtdrc` `modes:` key
- * (`src/Config.ts`), layered over the workflow's own `modes:` per half BEFORE
- * validation — so a state may name a mode either layer declares.
- * `inlineFileRefs` (default `true`) inlines content file references against
- * `configDir`; the real config path (`src/Config.ts`'s `loadMerged`) passes
- * `false` because it has already inlined every reference per declaring file
- * across the merge chain, so `configDir` is then irrelevant. Throws a single
- * `Error` (message: `"workflow config:\n  - ..."`, one line per finding) on ANY
- * config-shape problem or `validateDefinition` finding — never partially
- * succeeds.
- *
- * Four error-sequencing rules, in order:
- *
- * 1. `detectLegacyShape` short-circuits first — a stale pre-`entry:`/`machines:`
- *    config throws with ONLY the migration findings, never mixed with
- *    downstream noise.
- * 2. `detectLegacyEntryKeys` short-circuits next — a stale top-level
- *    `entry.review`/`entry.fix` key (the pre-`entry: true` named entry points)
- *    throws with ONLY its own migration findings, before `flattenMachines`
- *    (or anything else) has a chance to notice those same keys some other way.
- * 3. Unassemblable throws early: `flattenMachines`'s `entries` coming back
- *    `undefined` (no `entry.default`, no `machines`, an unresolvable root)
- *    means there is no definition for `validateDefinition` to add findings to
- *    — throw immediately with whatever findings exist so far.
- * 4. Otherwise the flattener's findings and `validateDefinition`'s findings
- *    merge into one de-duplicated, thrown error.
+ * plus the workflow's own compiled `vars:` map and its machine tree.
+ * `rcModes` (the already-compiled top-level `.gtdrc` `modes:` key) is layered
+ * over the workflow's own `modes:` per half before validation. `inlineFileRefs`
+ * defaults to `true`; `src/Config.ts`'s `loadMerged` passes `false` because it
+ * has already inlined every reference per declaring file across the merge
+ * chain. Throws one `Error` (one line per finding) on any config-shape
+ * problem or `validateDefinition` finding — never partially succeeds.
  */
 export const compileWorkflowConfig = (
   raw: unknown,
@@ -1095,8 +836,7 @@ export const compileWorkflowConfig = (
   const seeded = Object.fromEntries(
     builtInModeNames().map((name) => [name, { validate: seededValidateCommand(name) }]),
   )
-  // `mergeModes` is `undefined` only when BOTH arguments are — `seeded` never
-  // is, so this merge (and the one layering `rcModes` over it) always resolves.
+  // `mergeModes` is `undefined` only when both arguments are; `seeded` never is.
   const modes = mergeModes(mergeModes(seeded, compileModesMap(raw.modes, errors)), rcModes)!
   validateMachinesShape(raw.machines, errors)
 
@@ -1112,22 +852,15 @@ export const compileWorkflowConfig = (
   const manualSet = new Set<string>()
   for (const [name, s] of Object.entries(flattened.states)) {
     states[name] = compileState(name, s, configDir, errors, inlineFileRefs, fileRefs)
-    // A state's own `entry: true` (distinct from the top-level `entry:`
-    // machine-tree key of the same name) is authoring-only — `compileState`
-    // validates its shape but never carries it onto the `StateDef`. Collected
-    // here, off the RAW (pre-compile) qualified state value, into a sorted,
-    // deduped `entries.manual` — see `PatternMachine.WorkflowEntries`.
+    // A state's own `entry: true` is authoring-only — collected off the raw
+    // (pre-compile) value into a sorted, deduped `entries.manual`.
     if (isPlainObject(s) && s["entry"] === true) manualSet.add(name)
   }
   const manual = Array.from(manualSet).sort()
 
-  // A definition can still be assembled (however messy) whenever the flattener
-  // resolved `entries` — so run `validateDefinition` unconditionally and merge
-  // its findings with the shape errors collected above into ONE thrown error,
-  // rather than stopping at the first shape problem and hiding everything
-  // `validateDefinition` would otherwise have caught (e.g. a bad content kind
-  // in an unrelated state). De-duplicate identical messages (both passes can
-  // independently notice the same problem).
+  // Run validateDefinition unconditionally and merge its findings with the
+  // shape errors above into one error, rather than stopping at the first
+  // shape problem and hiding what validateDefinition would otherwise catch.
   const entries = { default: flattened.entries.default, manual }
   const definition: WorkflowDefinition = {
     states,
@@ -1141,9 +874,7 @@ export const compileWorkflowConfig = (
   const allErrors = Array.from(new Set([...errors, ...definitionErrors]))
   if (allErrors.length > 0) throw new Error(formatErrors(allErrors))
 
-  // `flattened.tree` is `undefined` only when the root machine itself could not
-  // be instantiated (`src/Machines.ts`'s `flattenMachines`) — which is exactly
-  // the case already ruled out by the `entries === undefined` throw above,
-  // since `entries` can only resolve once the root instantiated.
+  // `flattened.tree` is undefined only when the root machine failed to
+  // instantiate — already ruled out by the `entries === undefined` throw above.
   return { definition, vars, tree: flattened.tree!, scopes: flattened.scopes }
 }

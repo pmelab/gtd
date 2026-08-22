@@ -18,48 +18,34 @@ import { applyEmittedScript } from "../../../src/testing/EmittedScriptRecognizer
 import { EXIT_OK } from "../../../src/ExitCodes.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
-// Exported so `hooks.ts`'s PATH shim (a `gtd` shell script on the live tier's
-// PATH, for anything the spawned process itself shells out to by name — see
-// `pathShimDir` below) execs this SAME bundle, never a globally-installed gtd.
+// Exported so hooks.ts's PATH shim execs this SAME bundle, never a globally-installed gtd.
 export const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 
 export type Tier = "live" | "inmem"
 
 /**
- * The tokens whose command no longer performs its git effect itself but
- * PRINTS it as a `required`/`optional` script pair for a driver to run
- * (`land`, `abandon`, `restore`, and the bare `gtd --entry <state>` short
- * form — the only form `--entry` has: landing and entering are different
- * verbs, so `gtd land --entry <state>` is a usage error, not a write command
- * of its own). Everything else is a read command with nothing to drive.
+ * Commands that print a `required`/`optional` script for a driver to run
+ * instead of performing their git effect directly (`land`, `abandon`,
+ * `restore`, bare `gtd --entry <state>`). Everything else is a read command
+ * with nothing to drive.
  */
 const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore", "--entry"])
 
 /**
- * `--json`/`--sh` on `gtd land` (in scope alongside `gtd next` now) print a
- * STRUCTURED document, not the runnable script itself — `stdout` there is
- * JSON/`gtd_`-prefixed shell assignments, never something `driveWriteCommand`
- * should feed to `sh` as-is (the runnable script is `gtd_script`/`.script`,
- * one field inside it). A scenario that wants to land under `--json`/`--sh`
- * extracts that field itself and runs it explicitly, exactly like a real
- * driver would.
+ * `--json`/`--sh` print a structured document, not the runnable script
+ * itself — never something `driveWriteCommand` should feed to `sh` as-is.
  */
 const requestsStructuredOutput = (args: readonly string[]): boolean =>
   args.includes("--json") || args.includes("--sh")
 
-/** `--entry` takes both spellings (`--entry <state>` and `--entry=<state>`), so the bare short form has to be recognized either way. */
+/** `--entry` takes both spellings, `--entry <state>` and `--entry=<state>`. */
 const isWriteCommand = (args: readonly string[]): boolean => {
   if (requestsStructuredOutput(args)) return false
   const first = args[0] ?? ""
   return WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--entry=")
 }
 
-/**
- * `gtd land`'s own exit code no longer overloads whose turn is next — it's
- * `EXIT_OK` (0) on any successful landing (whatever `next --json`'s `kind`
- * says comes after), and only a genuine refusal (`EXIT_RUNTIME_ERROR`, 1) or
- * a usage error (`EXIT_USAGE_ERROR`, 2) has nothing to drive.
- */
+/** `gtd land` exits `EXIT_OK` on any successful landing; only a refusal or usage error has nothing to drive. */
 const landExitDrivable = (exitCode: number): boolean => exitCode === EXIT_OK
 
 /** The one line of a possibly multi-document stdout that parses as a JSON object (`gtd check --json`'s failing shape emits two). */
@@ -81,13 +67,12 @@ const stringField = (json: Record<string, unknown>, key: string): string =>
 /** `gtd validate`'s own "nothing to run" plain-text line — `program.ts`'s `runValidateCommand`. */
 const NOTHING_TO_VALIDATE_RE = /^nothing to validate at "/
 
-/** What running one emitted script produced — a real `sh` exit + combined output on the live tier, the recognizer's verdict on the in-memory one. */
+/** A real `sh` exit + combined output on the live tier, or the recognizer's verdict on the in-memory one. */
 interface EmittedRun {
   readonly exitCode: number
   readonly output: string
 }
 
-/** A rejected `execFile` promise, read back as an `EmittedRun`. */
 const execFailure = (err: unknown): EmittedRun => {
   const e = err as { code?: unknown; stdout?: string; stderr?: string }
   return {
@@ -96,7 +81,7 @@ const execFailure = (err: unknown): EmittedRun => {
   }
 }
 
-/** A rejected `execFile` promise, read back as a `GtdWorld.lastResult` (stdout/stderr kept separate, unlike `execFailure`'s combined `output`). */
+/** Like `execFailure`, but keeps stdout/stderr separate for `GtdWorld.lastResult`. */
 const execFailureResult = (err: unknown): { exitCode: number; stdout: string; stderr: string } => {
   const e = err as { code?: unknown; stdout?: string; stderr?: string }
   return {
@@ -107,12 +92,9 @@ const execFailureResult = (err: unknown): { exitCode: number; stdout: string; st
 }
 
 /**
- * In-memory tier: apply an emitted script to the fake through
- * `EmittedScriptRecognizer`. Its refusal on a block it does not know is
- * THROWN rather than returned as an exit code — that refusal is the property
- * keeping the fake honest (a builder added without teaching the recognizer
- * must fail the suite loudly, never masquerade as a script that legitimately
- * failed).
+ * A refusal on an unrecognized script block is THROWN rather than returned
+ * as an exit code, so a builder added without teaching the recognizer fails
+ * the suite loudly instead of masquerading as a legitimate script failure.
  */
 const applyScriptToFake = (
   repo: InMemRepo,
@@ -131,28 +113,21 @@ const applyScriptToFake = (
   return { exitCode: 1, output: `${error}\n` }
 }
 
-/** One file's identity for `RepoSnapshot` purposes: path, size, and mtime — a rewrite that lands the same bytes still bumps mtime, so this catches a write a content-only diff would miss. */
+/** Includes mtime, not just content, since a rewrite that lands the same bytes still bumps it. */
 interface FileFingerprint {
   readonly path: string
   readonly size: number
   readonly mtimeMs: number
 }
 
-/**
- * A point-in-time fingerprint of the whole repository — every file under the
- * git dir (fingerprinted, not just listed, since a same-content rewrite is
- * still a write), `git status --porcelain`, and the full worktree file
- * listing. Two snapshots of an untouched repository compare
- * `assert.deepStrictEqual`. `@live` only: the in-memory tier has no git dir
- * for this to observe.
- */
+/** A point-in-time fingerprint of the repo. `@live` only: the in-memory tier has no git dir to observe. */
 export interface RepoSnapshot {
   readonly gitDirFiles: readonly FileFingerprint[]
   readonly gitStatus: string
   readonly worktreeFiles: readonly string[]
 }
 
-/** Every regular file under `root`, as paths relative to `root`, sorted for a stable comparison. */
+/** Sorted so two snapshots compare deterministically. */
 const listFiles = (root: string): string[] =>
   readdirSync(root, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
@@ -165,12 +140,7 @@ const fingerprintFiles = (root: string): FileFingerprint[] =>
     return { path, size: stat.size, mtimeMs: stat.mtimeMs }
   })
 
-/**
- * The POSIX-style `$?` a shell reads off a `ChildProcess` "exit" event's own
- * `(code, signal)` pair — 128 + the signal's number on a signal death, `code`
- * (0 if somehow null) otherwise. Split out of `spawnGtdNextAndSignal` as a
- * plain function of its two inputs so that method stays a thin orchestrator.
- */
+/** The POSIX-style `$?` for a `(code, signal)` exit pair: 128 + the signal's number on a signal death, `code` otherwise. */
 const signalExitStatus = (code: number | null, signal: NodeJS.Signals | null): number =>
   signal !== null ? 128 + (osConstants.signals[signal] ?? 0) : (code ?? 0)
 
@@ -189,9 +159,8 @@ const validateVerdict = (
 
 export class GtdWorld extends QuickPickleWorld {
   // Under `moduleResolution: nodenext`, a bare subclass of `QuickPickleWorld`
-  // loses its base class's members from TS's view entirely (a resolution
-  // quirk with this package's dual CJS/ESM `exports` map) — re-declaring the
-  // one field `hooks.ts`'s `Before` callback reads restores it.
+  // loses its base class's members from TS's view entirely (a dual CJS/ESM
+  // `exports` map quirk) — re-declaring this field restores it.
   declare info: QuickPickleWorldInterface["info"]
 
   constructor(context: TestContext, info: InfoConstructor) {
@@ -199,11 +168,10 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   repoDir!: string
-  /** An extra directory (an ancestor of `repoDir`) the After hook must also remove — set when a scenario nests the repo under a purpose-built parent. */
+  /** An extra ancestor directory the After hook must also remove, set when a scenario nests the repo under a purpose-built parent. */
   extraCleanupDir: string | undefined = undefined
-  /** In-memory repo for the `inmem` tier. When set, file/git ops use this instead of repoDir. */
+  /** When set, file/git ops use this in-memory repo instead of `repoDir`. */
   repo: InMemRepo | undefined = undefined
-  /** Which execution tier is active for this scenario. Set by the Before hook. */
   tier: Tier = "inmem"
 
   lastResult: { exitCode: number; stdout: string; stderr: string } = {
@@ -212,83 +180,67 @@ export class GtdWorld extends QuickPickleWorld {
     stderr: "",
   }
   /**
-   * The combined output of the `required`/`optional` scripts the last write
-   * command (`land`/`--entry`/`abandon`/`restore`) drove — distinct from
-   * `lastResult.stdout`, which carries gtd's OWN plain-text line, not what a
-   * driven script printed. Only meaningful on the LIVE tier: a script's
-   * outcome lines (`src/OutcomeScript.ts`'s `gtd_report_*` calls) are printed
-   * by real `sh`, which the in-memory tier's `applyEmittedScript` never
-   * runs (see its own module doc comment's "outcome blocks are inert"
-   * decision) — reset to `""` at the start of every `driveWriteCommand` call,
-   * so a scenario never reads a STALE prior command's output.
+   * What the last driven write command's `required`/`optional` scripts
+   * printed — distinct from `lastResult.stdout` (gtd's own plain-text line).
+   * LIVE tier only: the in-memory `applyEmittedScript` never runs outcome
+   * blocks. Reset at the start of every `driveWriteCommand` call so a
+   * scenario never reads a stale prior command's output.
    */
   lastScriptOutput: string = ""
   savedCommitCount: number | undefined = undefined
-  /** Named JSON fields captured from a prior `gtd next --json`/`gtd status --json` output (`world.lastResult.stdout`) — for scenarios that must prove two turns' values for the SAME field are the SAME (a memory key's scope, a resumed session id) or DIFFERENT (a fresh scope, a freshly minted id) without knowing the exact value in advance. Keyed by the label a scenario names it, not by field — one vocabulary for any `next --json`/`status --json` field. */
+  /** Named JSON fields captured from a prior `--json` output — lets a scenario prove two turns' values for the same field are the same or different without knowing the exact value in advance. */
   recordedJsonFields: Record<string, string | undefined> = {}
-  /** Named sets of top-level JSON keys captured from a prior `--json` command's stdout — for a drift guard proving a later document (e.g. `gtd install`'s briefing) still names every field a real command emits. Keyed by the label a scenario names it, same vocabulary as `recordedJsonFields`. */
+  /** Named sets of top-level JSON keys captured from a prior `--json` stdout — for a drift guard proving a later document (e.g. `gtd install`'s briefing) still names every field a real command emits. */
   recordedJsonKeys: Record<string, readonly string[]> = {}
-  /** Raw `lastResult.stdout` captured verbatim under a scenario-chosen label — for a poll-safety proof that two runs of the same read command answer byte-identically, not just field-by-field. */
+  /** Raw `lastResult.stdout` captured under a scenario-chosen label — for a poll-safety proof that two runs of the same read command answer byte-identically. */
   recordedStdout: Record<string, string | undefined> = {}
-  /** A `snapshotRepo()` result saved for later comparison — the repo-mutation counterpart of `recordedStdout`. */
+  /** A `snapshotRepo()` result saved for later comparison. */
   savedSnapshot: RepoSnapshot | undefined = undefined
   /**
-   * The `(code, signal)` pair Node's `ChildProcess` "exit" event reported for
-   * the last `spawnGtdNextAndSignal` call, plus the POSIX-style `status` a
-   * shell's `$?` would read off that same death (128 + the signal's number).
-   * `code === null && signal` set is what tells a re-raised signal apart from
-   * a `process.exit(130)` that merely reuses the same number (`code === 130,
-   * signal === null`) — see `spawnGtdNextAndSignal`'s own doc comment. `@live`
-   * only.
+   * The `(code, signal)` pair from the last `spawnGtdNextAndSignal` call,
+   * plus the POSIX-style `status` a shell's `$?` would read off that death.
+   * `code === null && signal` set distinguishes a re-raised signal from a
+   * `process.exit(130)` that reuses the same number. `@live` only.
    */
   lastSignalExit:
     | { code: number | null; signal: NodeJS.Signals | null; status: number }
     | undefined = undefined
-  /** Byte count of `gtd next`'s stdout redirected straight to a file (`bash -c "gtd next > file"`, no reader-side delay) — the baseline `runGtdNextRedirectedAndPiped`'s piped byte count is compared against, to prove a large artifact is never truncated. `@live` only. */
+  /** Baseline byte count `runGtdNextRedirectedAndPiped`'s piped count is compared against, to prove a large artifact is never truncated. `@live` only. */
   directRedirectByteCount: number | undefined = undefined
-  /** Byte count of `gtd next`'s stdout that reached a deliberately slow pipe consumer (`bash -c "gtd next | { sleep 2; cat; } > file"`). Set alongside `directRedirectByteCount` by `runGtdNextRedirectedAndPiped`. `@live` only. */
+  /** Byte count reaching a deliberately slow pipe consumer, set alongside `directRedirectByteCount`. `@live` only. */
   pipedByteCount: number | undefined = undefined
-  /** Path to a stub agent script for `readme-driver` scenarios (@live only) — the `claude` shim on the scenario's PATH translates the README driver's own argv into this stub's `$GTD_LOOP_*` env. */
+  /** Path to a stub agent script for `readme-driver` scenarios (@live only) — the `claude` shim translates the README driver's argv into this stub's `$GTD_LOOP_*` env. */
   stubAgentPath: string | undefined = undefined
-  /** Explicit `$GTD_TESTCOMMAND` value a scenario wants exported — overrides the bundled template's `vars.testCommand` for a real `checking`/`fix-precheck` script run (@live only). */
+  /** Explicit `$GTD_TESTCOMMAND` override for a real `checking`/`fix-precheck` script run (@live only). */
   gtdTestCommandOverride: string | undefined = undefined
-  /** A scenario-scoped temp dir holding a `gtd` shim (see hooks.ts's `Before`) so a bare `gtd` invoked BY NAME — e.g. a seeded steering-mode `validate:` command (`gtd check <mode> <file>`) — resolves to this build, not a globally-installed gtd. Set by the Before hook, live tier only. */
+  /** A scenario-scoped temp dir holding a `gtd` shim so a bare `gtd` invoked by name resolves to this build, not a globally-installed one. Live tier only. */
   pathShimDir: string | undefined = undefined
-  /** A temp dir OUTSIDE the repo holding the README's extracted driver script — proves the paste needs nothing inside the project. Set by "Given the driver pasted from README.md" (`readme-driver.steps.ts`), removed by the After hook alongside `repoDir`. */
+  /** A temp dir OUTSIDE the repo holding the README's extracted driver script — proves the paste needs nothing inside the project. */
   readmeDriverDir: string | undefined = undefined
-  /** Absolute path to the extracted driver script inside `readmeDriverDir`, chmod'd executable — what "When I run the README driver" spawns. */
+  /** Absolute path to the extracted driver script inside `readmeDriverDir`, chmod'd executable. */
   readmeDriverPath: string | undefined = undefined
 
-  /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_<UPPERCASE-name>` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
+  /** Env vars the in-memory tier's `EnvVars` layer exposes — never mutates the real `process.env`. */
   envVars: Record<string, string> = {}
 
-  /** Extra env vars merged into every LIVE-tier subprocess's environment (`spawnEnv()`), overriding `process.env` — e.g. a scenario-relocated `$GIT_DIR`/`$TMPDIR` (`tmpdir-gitdir.steps.ts`). Never mutates the real `process.env`: the test process itself must never export `$GIT_DIR` (see hooks.ts's scrub), only the spawned gtd. `@live` only. */
+  /** Extra env vars merged into every LIVE-tier subprocess's environment, overriding `process.env` — never the real `process.env` itself. `@live` only. */
   liveEnvOverrides: Record<string, string> = {}
-  /** The relocated git dir a `tmpdir-gitdir.steps.ts` scenario moved `<repoDir>/.git` to — outside the worktree, so gtd can only find it by honoring `$GIT_DIR`. `@live` only. */
+  /** The relocated git dir a scenario moved `<repoDir>/.git` to, outside the worktree, so gtd can only find it via `$GIT_DIR`. `@live` only. */
   customGitDir: string | undefined = undefined
-  /** The scratch directory a `tmpdir-gitdir.steps.ts` scenario points `$TMPDIR` at — checked empty afterward to prove nothing writes there. `@live` only. */
+  /** The scratch directory a scenario points `$TMPDIR` at — checked empty afterward to prove nothing writes there. `@live` only. */
   customTmpDir: string | undefined = undefined
 
-  /** Canned `bash` command behaviors for the in-memory tier's `CommandRunner` — real subprocess execution is unreachable against an in-memory worktree. Keyed by the rendered command string; set by `Given the shell command "..." ...` (@inmem steering-mode scenarios only). */
+  /** Canned `bash` command behaviors for the in-memory tier's `CommandRunner`, since real subprocess execution is unreachable against an in-memory worktree. */
   scriptedCommands: Map<string, ScriptedCommand> = new Map()
 
   /**
-   * The e2e DRIVER — the test-suite counterpart of a real driver (the
-   * README's minimal driver, or your own). gtd's write commands no longer
-   * perform their own git effect: they print a `required`
-   * (and sometimes `optional`) POSIX sh script for a driver to run, and `gtd
-   * validate` likewise prints the script that formats-then-validates rather
-   * than doing it. Every scenario's assertions are about what those scripts
-   * DO — the resulting commits, the reformatted file, the findings — so the
-   * world has to be the thing that runs them.
-   *
-   * Invoke the command exactly as the scenario asked (so `lastResult` carries
-   * gtd's own wording and exit code verbatim), then drive whatever it
-   * emitted. A read command (`next`, `visualize`, `lsp`, `check`, `init`)
-   * emits nothing and falls straight through regardless of its own exit code
-   * — every command exits 0 on success now, whatever `next --json`'s `kind`
-   * says comes after. Only a genuine refusal (`EXIT_RUNTIME_ERROR`) or usage
-   * error skips driving `gtd land`'s emitted script.
+   * The e2e DRIVER — the test-suite counterpart of a real driver. gtd's write
+   * commands print a script rather than performing their git effect
+   * themselves, so the world has to be the thing that runs them: invoke the
+   * command as the scenario asked (`lastResult` carries gtd's own wording and
+   * exit code verbatim), then drive whatever it emitted. A read command emits
+   * nothing and falls straight through; only a refusal or usage error skips
+   * driving `gtd land`'s emitted script.
    */
   async runGtd(...args: string[]): Promise<void> {
     await this.invokeGtd(...args)
@@ -297,7 +249,6 @@ export class GtdWorld extends QuickPickleWorld {
     else if (args[0] === "validate") await this.driveValidateCommand()
   }
 
-  /** Raw invocation: routes to the live or in-process implementation based on this.tier, with no script driving. */
   private async invokeGtd(...args: string[]): Promise<void> {
     if (this.tier === "inmem") {
       await this.runGtdInMem(...args)
@@ -307,13 +258,11 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * `land`/`--entry`/`abandon`/`restore`: run the WHOLE of `lastResult.stdout`
-   * as one script — `Emit.ts`'s `combinedScript`, the plain (never `--json`/
-   * `--sh`, see `isWriteCommand`) artifact each of these commands prints,
-   * sequencing required before optional itself and swallowing the optional
-   * half's own failure. gtd's own plain-text line stays as `lastResult`; only
-   * a FAILING script overrides it, since a scenario asserting "it succeeds"
-   * must not pass when the work never landed.
+   * Runs the whole of `lastResult.stdout` as one script (required then
+   * optional, swallowing the optional half's failure). gtd's own plain-text
+   * line stays as `lastResult`; only a FAILING script overrides it, since a
+   * scenario asserting "it succeeds" must not pass when the work never
+   * landed.
    */
   private async driveWriteCommand(): Promise<void> {
     this.lastScriptOutput = ""
@@ -330,13 +279,10 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * `validate`: gtd prints the format-then-validate script as plain text (or
-   * `nothing to validate at "<state>"` when there's nothing to run) — the
-   * verdict lives in that script's exit code, not the command's. Run it and
-   * report the verdict the way a driver does (`validateVerdict`). `validate`
-   * itself no longer names the file structurally (`--json` is `gtd next`'s
-   * surface alone now), so the file name for the verdict message is probed
-   * off a `gtd next --json` call against the SAME rest instead.
+   * gtd prints the format-then-validate script as plain text — the verdict
+   * lives in that script's exit code, not the command's. `validate` doesn't
+   * name the file itself, so the file name for the verdict message is probed
+   * off a `gtd next --json` call against the same rest instead.
    */
   private async driveValidateCommand(): Promise<void> {
     const script = this.lastResult.stdout
@@ -346,12 +292,7 @@ export class GtdWorld extends QuickPickleWorld {
     this.lastResult = validateVerdict(file, run)
   }
 
-  /**
-   * Probes `gtd next --json`'s `file` field — the resolved rest `gtd
-   * validate` just emitted a script for — restoring `lastResult` to gtd's own
-   * `validate` output afterwards, exactly like the old `--json` re-invoke
-   * this replaces (see AGENTS.md's "one structured surface" decision).
-   */
+  /** Probes `gtd next --json`'s `file` field, restoring `lastResult` to gtd's own `validate` output afterwards. */
   private async currentValidateFile(): Promise<string> {
     const reported = this.lastResult
     await this.invokeGtd("next", "--json")
@@ -361,14 +302,13 @@ export class GtdWorld extends QuickPickleWorld {
     return parsed !== undefined ? stringField(parsed, "file") : ""
   }
 
-  /** Executes one emitted script against whichever repo the tier owns. */
   private async runEmittedScript(script: string): Promise<EmittedRun> {
     return this.repo !== undefined
       ? applyScriptToFake(this.repo, this.scriptedCommands, script)
       : this.runScriptWithSh(script)
   }
 
-  /** Live tier: real `sh` (gtd's own emitted scripts are POSIX sh), in the real worktree, with the PATH shim in scope so a script's bare `gtd` resolves to this build. */
+  /** Real `sh`, with the PATH shim in scope so a script's bare `gtd` resolves to this build. */
   private async runScriptWithSh(script: string): Promise<EmittedRun> {
     try {
       const { stdout, stderr } = await execFile("sh", ["-c", script], {
@@ -385,14 +325,8 @@ export class GtdWorld extends QuickPickleWorld {
 
   /**
    * The environment every live-tier subprocess gets. Prepends the PATH shim
-   * dir (see hooks.ts's Before) so a bare `gtd` invoked BY NAME — by the
-   * process spawned here, or by anything IT spawns — resolves to this same
-   * build under test rather than a stray global install. Applies
-   * `$GTD_TESTCOMMAND` when a scenario set one (readme-driver.steps.ts's
-   * "GTD_TESTCOMMAND is set to"), so both a direct `--entry fix-precheck`
-   * invocation and the required/optional script it emits see the override.
-   * `liveEnvOverrides` layers on last, highest precedence — e.g. a
-   * scenario-relocated `$GIT_DIR`/`$TMPDIR` (tmpdir-gitdir.steps.ts).
+   * dir so a bare `gtd` invoked by name resolves to this build, not a stray
+   * global install. `liveEnvOverrides` layers on last, highest precedence.
    */
   private spawnEnv(): NodeJS.ProcessEnv {
     const pathEnv = this.pathShimDir
@@ -411,7 +345,6 @@ export class GtdWorld extends QuickPickleWorld {
     }
   }
 
-  /** Async execFile implementation — used for the live tier. */
   // fallow-ignore-next-line complexity
   async runGtdLive(...args: string[]): Promise<void> {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
@@ -441,20 +374,12 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * `@live` only: proves the CAPTURE-THEN-PIPE landing form (driver
-   * obligation 8) — not the bare `gtd land | sh` one-liner it deliberately
-   * replaces. A bare pipe needs `bash`'s `set -o pipefail` to make the
-   * pipeline's own exit status track gtd's, and POSIX `sh` (dash) has no
-   * `pipefail` at all — the whole reason the README's driver and this test
-   * both capture `gtd land`'s exit code BEFORE running anything. This
-   * mirrors the ported reference driver's own `gtd_land()` exactly: capture
-   * `gtd land`'s stdout and exit code first, then pipe the captured script
-   * into `sh` — if THAT fails, its exit status overrides (something was run
-   * and it broke); otherwise gtd's own captured status stands, whether that
-   * is a drivable 0/10/20 or a refusal/usage error that produced no script
-   * at all (piping empty input into `sh` succeeds and leaves gtd's own
-   * status untouched). `lastResult.exitCode` is that final status, so
-   * `it settles`/`it succeeds` read it exactly like any other invocation.
+   * `@live` only: proves the CAPTURE-THEN-PIPE landing form, not the bare
+   * `gtd land | sh` one-liner it replaces — POSIX `sh` (dash) has no
+   * `pipefail`, so the exit code must be captured before piping. Mirrors the
+   * reference driver's `gtd_land()`: capture stdout and exit code first, then
+   * pipe the script into `sh`; if that fails, its status overrides, otherwise
+   * gtd's own captured status stands.
    */
   async runGtdLandPiped(): Promise<void> {
     const pipeline = `gtd_land_script="$(${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)} land)"; gtd_land_status=$?; printf '%s\n' "$gtd_land_script" | sh || gtd_land_status=$?; exit "$gtd_land_status"`
@@ -473,23 +398,13 @@ export class GtdWorld extends QuickPickleWorld {
 
   /**
    * `@live` only — proves a large `gtd next` prompt survives its own exit
-   * through a pipe under backpressure, the property task 3 of
-   * `05-flush-stdout-before-exit.md` exists to pin. Runs the SAME command two
-   * ways, each a REAL `bash -c` shell redirect (not this world's own
-   * `runGtd`/`driveWriteCommand` machinery, which never touches a real OS
-   * pipe):
-   *
-   *  - direct: `gtd next > <file>` — no reader-side delay, nothing queues;
-   *    this is the byte count "nothing was truncated" is measured against
-   *  - piped: `gtd next | { sleep 2; cat; } > <file>` — the sleep holds the
-   *    reader off long enough that a fixture sized past the OS pipe buffer
-   *    forces `process.stdout.write` to queue, exactly the condition
-   *    `nodeCliIo.exit` used to race
-   *
-   * Both byte counts are read back with `statSync` — bash's own redirect
-   * writes straight to disk, never back through this process — and
-   * `lastResult` is set from the PIPED run's own exit so `it succeeds` reads
-   * it exactly like any other invocation.
+   * through a pipe under backpressure. Runs the same command two real
+   * `bash -c` shell redirects: direct (`gtd next > file`, the truncation
+   * baseline) and piped (`gtd next | { sleep 2; cat; } > file`, where the
+   * sleep holds the reader off long enough to force `process.stdout.write`
+   * to queue under backpressure). Byte counts are read back with `statSync`
+   * since bash's redirect writes straight to disk, never through this
+   * process.
    */
   async runGtdNextRedirectedAndPiped(): Promise<void> {
     const bin = `${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)}`
@@ -518,22 +433,16 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * `@live` only — spawns `gtd next` directly (never through this world's
-   * `runGtd`/bash driving, which never leaves a signal-deliverable child
-   * process alive to sign) against a prompt padded past the OS pipe buffer,
-   * so its own `stdout` write blocks once nothing drains the pipe — the same
-   * backpressure `runGtdNextRedirectedAndPiped` relies on, reused here to
-   * guarantee the process is still alive (not racing its own natural exit)
-   * when the signal arrives. Delivers `signal` to the spawned process
-   * itself, not a shell wrapper around it — a signal sent to a wrapper's own
-   * pid never reaches a plain (non-`exec`'d) child.
+   * `@live` only — spawns `gtd next` directly against a prompt padded past
+   * the OS pipe buffer, so its `stdout` write blocks with nothing draining
+   * the pipe, guaranteeing the process is still alive when the signal
+   * arrives. Delivers `signal` to the spawned process itself, not a shell
+   * wrapper — a signal sent to a wrapper's pid never reaches a plain
+   * (non-`exec`'d) child.
    *
-   * Records the POSIX-style `status` a shell's `$?` reads off a signal death
-   * (128 + the signal's number) into `lastSignalExit`, alongside the raw
-   * `(code, signal)` Node's own "exit" event reported — `code === null` with
-   * `signal` set is what tells a re-raised signal apart from a
-   * `process.exit(130)` that merely reuses the same number (`code === 130`,
-   * `signal === null`), even though both read back the same `status`.
+   * `code === null && signal` set is what distinguishes a re-raised signal
+   * from a `process.exit(130)` that reuses the same number, even though both
+   * read back the same POSIX `status`.
    */
   async spawnGtdNextAndSignal(signal: NodeJS.Signals): Promise<void> {
     const child = spawn(process.execPath, [GTD_BIN, "next"], {
@@ -553,12 +462,11 @@ export class GtdWorld extends QuickPickleWorld {
     this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
   }
 
-  /** In-process implementation — runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
+  /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
   async runGtdInMem(...args: string[]): Promise<void> {
     const repo = this.repo!
     const { io, result } = makeCapturingCliIo(repo, this.envVars, this.scriptedCommands)
 
-    // Compose argv: ["node", "gtd.js", ...args]
     const argv = ["node", "gtd.js", ...args]
 
     await Effect.runPromise(runCli(argv, io))
@@ -572,7 +480,7 @@ export class GtdWorld extends QuickPickleWorld {
     return existsSync(join(this.repoDir, path))
   }
 
-  /** The working-tree contents of `path` (empty string when absent). Mirrors `repoFileExists`'s tier split. */
+  /** Empty string when `path` is absent. */
   readRepoFile(path: string): string {
     if (this.repo !== undefined) return this.repo.readFile(path) ?? ""
     return existsSync(join(this.repoDir, path))
@@ -583,7 +491,6 @@ export class GtdWorld extends QuickPickleWorld {
   gitLog(): string {
     if (this.repo !== undefined) {
       const history = this.repo.commitHistory()
-      // Render in oneline format: "<hash_short> <message>" newest→oldest
       return (
         history
           .slice()
@@ -624,7 +531,7 @@ export class GtdWorld extends QuickPickleWorld {
 
   lastCommitBody(): string {
     if (this.repo !== undefined) {
-      // InMemRepo stores only the full message; extract body (lines after first)
+      // InMemRepo stores only the full message; body is everything after the first line.
       const history = this.repo.commitHistory()
       if (history.length === 0) throw new Error("No commits in in-memory repo")
       const last = history[history.length - 1]!
@@ -641,9 +548,8 @@ export class GtdWorld extends QuickPickleWorld {
     if (this.repo !== undefined) {
       return this.repo.commitHistory().length
     }
-    // An unborn HEAD (a `git init`'d repository with no commits yet) makes
-    // `git rev-list --count HEAD` fail outright rather than print "0" — treat
-    // that failure as zero commits rather than letting it throw.
+    // An unborn HEAD makes `git rev-list --count HEAD` fail rather than print
+    // "0" — treat that failure as zero commits.
     try {
       return parseInt(
         execSync("git rev-list --count HEAD", {
@@ -670,13 +576,11 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * Settles git's own "racy git" protection before a `RepoSnapshot` baseline
-   * is taken: a freshly committed repo has tracked files whose mtime sits in
-   * the same (coarse) tick as `.git/index`'s own mtime, so git can't yet
-   * trust its cached stat info and REWRITES the index on every `git status`
-   * until real wall-clock time moves the index's mtime past the files' — a
-   * plain git behavior with nothing to do with gtd, but one that would
-   * otherwise make an "unchanged" snapshot comparison flake. `@live` only.
+   * Settles git's "racy git" protection before a `RepoSnapshot` baseline: a
+   * freshly committed repo has tracked files whose mtime sits in the same
+   * coarse tick as `.git/index`'s, so git rewrites the index on every
+   * `git status` until wall-clock time moves past it — this would otherwise
+   * make an "unchanged" snapshot comparison flake. `@live` only.
    */
   async settleGitIndex(): Promise<void> {
     this.gitStatus()
@@ -685,14 +589,12 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * See `RepoSnapshot`'s own doc comment. `@live` only — throws against the
-   * in-memory tier, which has no real git dir. `--git-dir` (not
-   * `--absolute-git-dir`) resolved AGAINST `repoDir` — never
-   * `realpathSync(repoDir)` — so the excluded prefix lands in the same
+   * `@live` only — throws against the in-memory tier, which has no real git
+   * dir. Resolves `--git-dir` against `repoDir`, never
+   * `realpathSync(repoDir)`, so the excluded prefix lands in the same
    * (possibly symlinked, e.g. macOS's `/var` -> `/private/var`) namespace
-   * `listFiles(repoDir)` itself walks in; comparing a realpath-resolved git
-   * dir against un-resolved worktree paths would never match, silently
-   * folding the whole `.git` tree into `worktreeFiles`.
+   * `listFiles(repoDir)` walks — otherwise the comparison never matches and
+   * the whole `.git` tree silently folds into `worktreeFiles`.
    */
   snapshotRepo(): RepoSnapshot {
     const gitDirRel = execSync("git rev-parse --git-dir", {
@@ -709,7 +611,6 @@ export class GtdWorld extends QuickPickleWorld {
     }
   }
 
-  /** Whether a repo-local ref (e.g. `refs/gtd/review-head`) resolves to a commit. */
   gitRefExists(ref: string): boolean {
     if (this.repo !== undefined) {
       return this.repo.resolveRef(ref) !== null

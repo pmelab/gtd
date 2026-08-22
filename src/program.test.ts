@@ -566,7 +566,6 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     "",
   ].join("\n")
 
-  /** A repo whose current rest is `idle` (a `message` beat) — no second commit at all. */
   const seededAtIdle = (): InMemRepo => {
     const repo = new InMemRepo()
     repo.writeFile(".gtdrc.yaml", workflow)
@@ -574,7 +573,6 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     return repo
   }
 
-  /** A repo whose current rest is named by `lastCommitSubject`'s target state. */
   const seededAt = (lastCommitSubject: string): InMemRepo => {
     const repo = seededAtIdle()
     repo.writeFile("NOTE.md", "a note\n")
@@ -582,7 +580,6 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
     return repo
   }
 
-  /** Lands `gtd land`'s emitted script onto `repo` — the attempt commit itself. */
   const landAgentStep = async (repo: InMemRepo): Promise<void> => {
     const { stdout } = await run(repo, "land")
     const applied = applyEmittedScript(repo, new Map(), stdout)
@@ -1052,7 +1049,6 @@ describe("gtd next — refuses when HEAD names a state the current workflow no l
     expect(stdout).toContain("gtd_report_abandoned 'renamedAway'")
     expect(repo.commitHistory()).toHaveLength(before)
 
-    // Applying the emitted script is what actually performs it.
     const applied = applyEmittedScript(repo, new Map(), stdout)
     expect(applied.ok).toBe(true)
     expect(repo.commitHistory()).toHaveLength(before - 1)
@@ -2021,7 +2017,6 @@ describe("a step that DELETES its state's own steering file", () => {
     const { stdout, exitCode } = await run(repo, "land")
     expect(exitCode).toBe(0)
     expect(stdout).not.toContain("fmt-notes")
-    // And the emitted script is what actually performs the step.
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting → idle")
   })

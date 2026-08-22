@@ -76,7 +76,6 @@ function handleResponse(client: LspClient, message: JsonRpcResponse): void {
   client.pending.delete(message.id)
 }
 
-/** Dispatches one decoded message to whichever of the two handlers above applies. */
 function dispatch(client: LspClient, message: JsonRpcResponse): void {
   if (message.method !== undefined) {
     handleServerRequest(client, message)
@@ -85,7 +84,6 @@ function dispatch(client: LspClient, message: JsonRpcResponse): void {
   }
 }
 
-/** Consumes every complete frame currently sitting in the client's buffer, dispatching each in turn. */
 function drain(client: LspClient): void {
   for (;;) {
     const popped = popFrame(client.buffer)

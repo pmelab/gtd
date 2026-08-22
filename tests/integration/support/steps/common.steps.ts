@@ -14,24 +14,20 @@ const _require = createRequire(import.meta.url)
 
 Given("a test project", (world: GtdWorld) => {
   if (world.tier === "inmem") {
-    // Seed the in-memory repo with the same initial state as createTestProject:
-    // .gitignore, README.md, one "chore: initial commit".
+    // Mirrors createTestProject's initial state, so both tiers start identical.
     const repo = world.repo!
     repo.writeFile(".gitignore", "node_modules\n")
     repo.writeFile("README.md", "# test project\n")
     repo.commitAllWithPrefix("chore: initial commit")
-    // repoDir is not used for inmem tier, but set a sentinel to avoid undefined errors
+    // repoDir is unused for the inmem tier; set a sentinel to avoid undefined errors.
     world.repoDir = "/inmem"
   } else {
     world.repoDir = createTestProject()
   }
 })
 
-// The unborn-HEAD case "a test project" deliberately doesn't cover: no
-// initial commit at all, so `git rev-parse HEAD` has nothing to resolve.
-// Inmem: the Before hook's `new InMemRepo()` is already commit-less — nothing
-// to seed. Live: `git init` plus the author identity `commit --allow-empty`
-// needs, and nothing else.
+// The unborn-HEAD case "a test project" doesn't cover: no initial commit at
+// all, so `git rev-parse HEAD` has nothing to resolve.
 Given("a git repository with no commits", (world: GtdWorld) => {
   if (world.tier === "inmem") {
     world.repoDir = "/inmem"
@@ -67,14 +63,9 @@ Given("{string} is modified to:", (world: GtdWorld, path: string, content: strin
 })
 
 /**
- * A deterministic way to make a file cross a size threshold without inlining
- * an unreviewable blob in a `.feature` docstring: repeats a fixed, readable
- * line — `line 000000: the quick brown fox jumps over the lazy dog` — with an
- * incrementing counter until the content reaches at least `minBytes`. Generic
- * and composable, like the other file-write steps above — any future
- * scenario that needs a large-but-readable fixture (e.g. to size a prompt
- * past an OS pipe buffer) can reuse this rather than growing its own
- * one-off blob.
+ * Repeats a fixed, readable line with an incrementing counter until the
+ * content reaches at least `minBytes` — a way to cross a size threshold
+ * without inlining an unreviewable blob in a `.feature` docstring.
  */
 function paddedRepeatingContent(minBytes: number): string {
   let content = ""
@@ -93,18 +84,16 @@ Given(
   },
 )
 
-// Plain working-tree deletion — what an editor's "delete file" does. Distinct
-// from "a deleted committed file" (git rm), which refuses when the index entry
-// differs from HEAD.
+// Plain working-tree deletion, distinct from "a deleted committed file" (git
+// rm), which refuses when the index entry differs from HEAD.
 Given("the file {string} is deleted", (world: GtdWorld, path: string) => {
   world.deleteWorktreeFile(path)
 })
 
 // ── Committed history (one step = one commit) ────────────────────────────────
 
-// The workhorse commit builder: stage exactly `path` with the given content and
-// commit it under the verbatim subject. Scenarios spell out the flat `gtd: …`
-// subject and the file content, so the landed history is visible in the text.
+// The workhorse commit builder: stage exactly `path` with the given content
+// and commit it under the verbatim subject.
 Given(
   "a commit {string} that adds {string} with:",
   (world: GtdWorld, message: string, path: string, content: string) => {
@@ -122,9 +111,8 @@ Given(
   },
 )
 
-// A commit that changes NOTHING — subject only, no file touched (like a gtd
-// workflow turn that only advances state). Maps to one `git commit
-// --allow-empty`; composable anywhere the commit-builder steps are.
+// A commit that changes nothing — subject only, no file touched (like a gtd
+// workflow turn that only advances state).
 Given("an empty commit {string}", (world: GtdWorld, message: string) => {
   if (world.tier === "inmem") {
     world.repo!.commitAllWithPrefix(message)
@@ -139,8 +127,6 @@ Given("an empty commit {string}", (world: GtdWorld, message: string) => {
 // Commits everything currently in the working tree under one chore commit —
 // the "I've reviewed the scaffold, now commit it" move a human makes after
 // `gtd init`, so the machine starts from a clean tree at the initial state.
-// Composable with any preceding file edits (e.g. editing an extracted
-// `gtd-prompts/*.md` before committing).
 Given("the working tree is committed", (world: GtdWorld) => {
   if (world.tier === "inmem") {
     world.repo!.commitAllWithPrefix("chore: commit working tree")
@@ -154,9 +140,8 @@ Given("the working tree is committed", (world: GtdWorld) => {
 })
 
 // Like the step above, but under a caller-supplied subject — for building a
-// SINGLE commit out of several preceding working-tree edits (a file write plus
-// a deletion, say) that each need to land together, e.g. simulating a real
-// gtd turn's own multi-path commit.
+// single commit out of several preceding working-tree edits that need to
+// land together.
 Given("the working tree is committed as {string}", (world: GtdWorld, message: string) => {
   if (world.tier === "inmem") {
     world.repo!.commitAllWithPrefix(message)
@@ -169,12 +154,9 @@ Given("the working tree is committed as {string}", (world: GtdWorld, message: st
   }
 })
 
-// Bookmarks the CURRENT commit under a name a later step can reference as a
-// `<commitish>` (e.g. `gtd review <name>`) — a repo-local ref, exactly like
-// `git branch <name>` (real git) or a plain named ref (in-memory). Composable
-// with everything else here: scenarios build normal history around the mark
-// with the ordinary commit-builder steps, then refer back to it by name
-// regardless of how far HEAD has since moved.
+// Bookmarks the current commit under a name a later step can reference as a
+// `<commitish>` (e.g. `gtd review <name>`) — a repo-local ref, regardless of
+// how far HEAD has since moved.
 Given("I mark the current commit as {string}", (world: GtdWorld, name: string) => {
   if (world.tier === "inmem") {
     world.repo!.updateRef(name, "HEAD")
@@ -183,11 +165,9 @@ Given("I mark the current commit as {string}", (world: GtdWorld, name: string) =
   }
 })
 
-// `git reset --hard <name>` — moves HEAD, the index, AND the worktree back to
-// a previously-marked commit (see the step above), so the NEXT commit-builder
-// step starts a sibling history off that same point rather than continuing
-// the current tip. Used to build two diverging branches off one shared base
-// (e.g. to prove a commit on one is NOT an ancestor of the other).
+// Moves HEAD, the index, and the worktree back to a previously-marked
+// commit, so the next commit-builder step starts a sibling history off that
+// point — used to build two diverging branches off one shared base.
 Given("I hard-reset to {string}", (world: GtdWorld, name: string) => {
   if (world.tier === "inmem") {
     world.repo!.hardResetTo(name)
@@ -197,12 +177,10 @@ Given("I hard-reset to {string}", (world: GtdWorld, name: string) => {
 })
 
 // @live only — points every bare `sh` the driver and its emitted scripts
-// resolve (via world.ts's `spawnEnv`/`driverEnv`, which both prepend
-// `pathShimDir` to PATH) at real `dash`, not whatever `/bin/sh` the test
-// host happens to have. On macOS `/bin/sh` is bash running in POSIX mode,
-// which still accepts `local`/`$'...'`/process substitution — piping a
-// script into it proves nothing about portability to a genuinely POSIX-only
-// shell (see tests/integration/features/emitted-scripts-under-dash.feature).
+// resolve at real `dash`, not whatever `/bin/sh` the test host has. On
+// macOS `/bin/sh` is bash in POSIX mode, which still accepts
+// `local`/`$'...'`/process substitution — piping a script into it proves
+// nothing about portability to a genuinely POSIX-only shell.
 Given("real dash runs every emitted script", (world: GtdWorld) => {
   assert.ok(
     world.pathShimDir,
@@ -288,10 +266,9 @@ When("I run gtd status with {string}", async (world: GtdWorld, arg: string) => {
 
 // ── Assertions ───────────────────────────────────────────────────────────────
 
-// The whole exit-code table (`src/ExitCodes.ts`) is closed at {0, 1, 2, 130,
-// 143} now, uniformly across every command — whose turn is next lives in
-// `gtd next --json`'s own `kind` field, never in the exit code. `it succeeds`
-// is strictly 0; only 1 (refusal) or 2 (usage error) fail it.
+// Whose turn is next lives in `gtd next --json`'s own `kind` field, never in
+// the exit code — `it succeeds` is strictly 0; only 1 (refusal) or 2 (usage
+// error) fail it.
 Then("it succeeds", (world: GtdWorld) => {
   assert.strictEqual(
     world.lastResult.exitCode,
@@ -300,10 +277,9 @@ Then("it succeeds", (world: GtdWorld) => {
   )
 })
 
-// An alias for `it succeeds` at a landing that settles (a script rest's
-// no-op, or a collapse back to the initial state) — both read the same exit
-// code now; the `settled` distinction itself lives in `gtd land --json`'s own
-// `settled` field or the emitted script's content, not the exit code.
+// An alias for `it succeeds` at a landing that settles — the `settled`
+// distinction lives in `gtd land --json`'s own `settled` field, not the exit
+// code.
 Then("it settles", (world: GtdWorld) => {
   assert.strictEqual(
     world.lastResult.exitCode,
@@ -320,10 +296,8 @@ Then("it fails", (world: GtdWorld) => {
   )
 })
 
-// See `GtdWorld.runGtdNextRedirectedAndPiped`'s own doc comment: proves a
-// large artifact reaches a slow pipe consumer with the same byte count as the
-// same command redirected straight to a file — nothing was truncated at the
-// non-zero exit.
+// See `GtdWorld.runGtdNextRedirectedAndPiped` — proves nothing was truncated
+// under a slow pipe consumer.
 Then("the direct and piped byte counts are equal", (world: GtdWorld) => {
   assert.strictEqual(
     world.directRedirectByteCount,
@@ -333,8 +307,8 @@ Then("the direct and piped byte counts are equal", (world: GtdWorld) => {
   )
 })
 
-// Confirms the fixture actually cleared the OS pipe buffer it's meant to
-// prove something about, rather than silently fitting inside it.
+// Confirms the fixture actually cleared the OS pipe buffer, rather than
+// silently fitting inside it.
 Then("the direct byte count exceeds {int} bytes", (world: GtdWorld, n: number) => {
   assert.ok(
     world.directRedirectByteCount !== undefined && world.directRedirectByteCount > n,
@@ -363,13 +337,10 @@ Then("stdout does not contain {string}", (world: GtdWorld, text: string) => {
   )
 })
 
-// A real ESC byte (0x1b) — the thing a terminal actually interprets — as
-// opposed to the printed SOURCE TEXT of an escape sequence (the ASCII
-// characters `\033[`), which gtd's own emitted scripts legitimately contain
-// as `printf` literals (see src/OutcomeScript.ts's OUTCOME_PREAMBLE). This
-// step is gtd's own-stdout regression guard (ansi-free-stdout.feature): gtd
-// never emits the real byte itself, only ever the text a driver's shell
-// later interprets into one.
+// A real ESC byte (0x1b), as opposed to the printed source text of an escape
+// sequence (`\033[`), which gtd's emitted scripts legitimately contain as
+// `printf` literals — gtd never emits the real byte itself, only ever text a
+// driver's shell later interprets into one.
 const ESC_BYTE = String.fromCharCode(0x1b)
 
 Then("stdout contains no ANSI escape sequence", (world: GtdWorld) => {
@@ -379,11 +350,9 @@ Then("stdout contains no ANSI escape sequence", (world: GtdWorld) => {
   )
 })
 
-// Counts NON-OVERLAPPING occurrences of `text` in stdout — used to prove a
+// Counts non-overlapping occurrences of `text` in stdout — used to prove a
 // transition line was printed exactly once even when the review checkout
-// window rewinds HEAD between beats (each transition's own required script
-// prints it exactly once, at the turn that produced it — see
-// src/OutcomeScript.ts).
+// window rewinds HEAD between beats.
 Then(
   "stdout contains {string} exactly {int} times",
   (world: GtdWorld, text: string, count: number) => {
@@ -403,14 +372,11 @@ Then(
 )
 
 /**
- * Asserts on `world.lastScriptOutput` — what the last driven write command's
- * `required`/`optional` scripts themselves printed (`src/OutcomeScript.ts`'s
- * `gtd_report_*` calls), distinct from `world.lastResult.stdout` (gtd's own
- * plain-text line). LIVE tier only: the in-memory tier's `applyEmittedScript`
- * treats an outcome block as inert and prints nothing (see its own module
- * doc comment's "outcome blocks are inert" decision), so a scenario tagged
- * `@inmem` asking this question would silently prove nothing — this fails
- * loudly instead, naming the tier, rather than passing on an empty string.
+ * Asserts on `world.lastScriptOutput`, distinct from `world.lastResult.stdout`
+ * (gtd's own plain-text line). LIVE tier only: the in-memory tier's
+ * `applyEmittedScript` treats an outcome block as inert and prints nothing,
+ * so a scenario tagged `@inmem` asking this would silently prove nothing —
+ * this fails loudly instead, naming the tier.
  */
 Then("the emitted script printed {string}", (world: GtdWorld, text: string) => {
   assert.strictEqual(
@@ -438,9 +404,8 @@ Then("stderr contains {string}", (world: GtdWorld, text: string) => {
   )
 })
 
-// Reads package.json's own `version` at run time (same technique as
-// Cli.ts's GTD_VERSION) rather than a literal string, so this assertion
-// doesn't go stale across semantic-release bumps.
+// Reads package.json's own `version` at run time rather than a literal
+// string, so this assertion doesn't go stale across semantic-release bumps.
 Then("stderr contains the gtd version under test", (world: GtdWorld) => {
   const { version } = _require("../../../../package.json") as { version: string }
   assert.ok(
@@ -456,9 +421,8 @@ Then("stderr does not contain {string}", (world: GtdWorld, text: string) => {
   )
 })
 
-// Post-loop observables. Edge-driven auto states emit no prompt — a single `gtd`
-// run performs the git action(s) and drives the loop forward — so assert the
-// landed commit subject instead of a retired prompt string.
+// Edge-driven auto states emit no prompt, so assert the landed commit
+// subject instead.
 Then("the last commit subject is {string}", (world: GtdWorld, subject: string) => {
   assert.strictEqual(
     world.lastCommitSubject(),
@@ -477,15 +441,13 @@ Then("the git log does not contain {string}", (world: GtdWorld, subject: string)
   assert.ok(!log.includes(subject), `Expected git log NOT to contain "${subject}". Got:\n${log}`)
 })
 
-// The last commit's body (everything after the subject line) — where a
-// `Gtd-Cost:` trailer lands, and where a squash template's rendered body sits.
+// Everything after the subject line — where a `Gtd-Cost:` trailer lands.
 Then("the last commit body contains {string}", (world: GtdWorld, text: string) => {
   const body = world.lastCommitBody()
   assert.ok(body.includes(text), `Expected last commit body to contain "${text}". Got:\n${body}`)
 })
 
-// Resolves `name` (a mark from "I mark the current commit as ..." — or any
-// other commitish) to its full hash, per tier.
+// Resolves `name` (a mark, or any other commitish) to its full hash, per tier.
 function resolveHash(world: GtdWorld, name: string): string {
   const hash =
     world.tier === "inmem"
@@ -495,8 +457,7 @@ function resolveHash(world: GtdWorld, name: string): string {
   return hash!
 }
 
-// Checks `name`'s hash appears in the last commit's body — e.g. the
-// `Gtd-Review-Base: <hash>` trailer `gtd review <name>` writes.
+// E.g. the `Gtd-Review-Base: <hash>` trailer `gtd review <name>` writes.
 Then("the last commit body contains the hash of {string}", (world: GtdWorld, name: string) => {
   const hash = resolveHash(world, name)
   const body = world.lastCommitBody()
@@ -506,9 +467,8 @@ Then("the last commit body contains the hash of {string}", (world: GtdWorld, nam
   )
 })
 
-// Checks `name`'s hash appears in stdout — e.g. a prompt naming a diff base
-// (`it.reviewBase`/`it.retainedBase`/`it.startCommit`) for the agent to `git
-// diff` itself, rather than inlining diff content.
+// E.g. a prompt naming a diff base for the agent to `git diff` itself, rather
+// than inlining diff content.
 Then("stdout contains the hash of {string}", (world: GtdWorld, name: string) => {
   const hash = resolveHash(world, name)
   assert.ok(
@@ -525,8 +485,8 @@ Then("stdout does not contain the hash of {string}", (world: GtdWorld, name: str
   )
 })
 
-// Checks `name`'s hash appears in a repo file — e.g. a captured manifest
-// naming the commit it was captured from, rather than inlining a diff.
+// E.g. a captured manifest naming the commit it was captured from, rather
+// than inlining a diff.
 Then("{string} contains the hash of {string}", (world: GtdWorld, path: string, name: string) => {
   const hash = resolveHash(world, name)
   const content = world.readRepoFile(path)
@@ -572,15 +532,12 @@ Then("{string} does not contain {string}", (world: GtdWorld, path: string, text:
   )
 })
 
-// Full-history assertion for journey scenarios: the exact commit subject
-// sequence, oldest → newest, one subject per docstring line.
 Then("the commit subjects from oldest to newest are:", (world: GtdWorld, doc: string) => {
   const actual =
     world.tier === "inmem"
       ? world
           .repo!.commitHistory()
-          // Subject line only — commit bodies are not part of the sequence
-          // assertion, matching the subprocess tier's `--format=%s`.
+          // Subject line only, matching the subprocess tier's `--format=%s`.
           .map((c) => c.message.split("\n")[0] ?? "")
           .join("\n")
       : execFileSync("git", ["log", "--reverse", "--format=%s"], {
@@ -607,13 +564,9 @@ Then("the commit count is unchanged", (world: GtdWorld) => {
   )
 })
 
-// Pulls an arbitrary field off the most recent `gtd next --json`/
-// `gtd status --json` stdout (`world.lastResult.stdout`) — for scenarios
-// comparing a COMPUTED value (the `<scope>#<hash>` memory key, a minted
-// session id) across turns without knowing its exact value. `field` may be a
-// dot path (e.g. "session.id") to reach into a nested object — the beat
-// document's own dispatch block (`session: {id, resume}`) is the reason this
-// walks rather than doing a single flat lookup.
+// Pulls an arbitrary field off the most recent `--json` stdout, for scenarios
+// comparing a computed value across turns without knowing its exact value.
+// `field` may be a dot path (e.g. "session.id") to reach into a nested object.
 const currentJsonField = (world: GtdWorld, field: string): string | undefined => {
   const value = field
     .split(".")
@@ -660,8 +613,8 @@ Then(
 )
 
 // The top-level keys of the most recent `--json` command's stdout — for a
-// drift guard proving a later document (`gtd install`'s briefing) still names
-// every field a real command emits, without hand-listing them twice.
+// drift guard proving a later document still names every field a real
+// command emits.
 const currentJsonKeys = (world: GtdWorld): readonly string[] =>
   Object.keys(JSON.parse(world.lastResult.stdout) as Record<string, unknown>)
 

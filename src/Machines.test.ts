@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { flattenMachines } from "./Machines.js"
 
-// A minimal state shared by scenarios that don't care about content.
 const agentState = (on: Record<string, unknown>) => ({ actor: "agent", prompt: "p", on })
 const checkState = (on: Record<string, unknown>) => ({ actor: "check", script: "s", on })
 const commitState = (msg = "chore: done") => ({ commit: msg })

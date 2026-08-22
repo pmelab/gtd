@@ -1,45 +1,7 @@
-/**
- * Applies an EMITTED bash script (the text `src/GitScript.ts`'s builders
- * produce, assembled into one script by `src/Emit.ts`) onto an `InMemRepo`,
- * so the `@inmem` e2e tier keeps observing commits once a command starts
- * printing a script instead of writing git directly. This is `world.ts`'s
- * ONE bridge from a `gtd`-emitted `required`/`optional` script back onto the
- * fake repo — it exists so a scenario asserting on `gitLog()`/`gitStatus()`/
- * etc. after a plain (non-`--json`) `gtd land`/`gtd --entry` keeps working
- * once that command stops writing git itself and starts only PRINTING what a
- * driver should run.
- *
- * The recognized vocabulary is closed and small: the 9 `GitScript.ts`
- * builders (both bare, and wrapped in `src/Emit.ts`'s `gtd_retry` retry
- * helper — see `recognizeRetryWrappedGitWrite`), the two compound
- * `src/ReviewWindow.ts` open/close sequences (bare or retry-wrapped — see
- * `recognizeReviewWindowOpen`/`Close`), `src/Emit.ts`'s real preamble
- * (`set -euo pipefail`, the HEAD assertion, the optional review-window-ref
- * assertion, the `gtd_retry` function definition itself), a `gtd check <mode>
- * <file>` line, `src/OutcomeScript.ts`'s `OUTCOME_PREAMBLE` and its
- * `gtd_report_*` calls (recognized LOOSELY — see `recognizeOutcomePreamble`/
- * `recognizeOutcomeCall` — since an outcome block only prints and changes
- * nothing, unlike every git-effecting block above where an exact match is
- * load-bearing), `src/Emit.ts`'s `failurePromptWrapper` around a `command`
- * step's `onFailure` fix prompt (see `recognizeFailurePromptWrapper`), one
- * invented placeholder precondition shape (see
- * `preconditionHeadEquals` — kept only because some unit tests below still
- * hand-build scripts with it; no production emitter writes it any more), and
- * anything else must be an EXACT hit in the scripted-command table
- * (`ScriptedCommand`, `Layers.ts`). Recognition works by SPLITTING the script
- * into blocks on blank lines, then matching each block in turn — this is
- * deliberately not a general bash parser, only a recognizer for gtd's own
- * known emission shapes. A git builder block (or an `src/Emit.ts` assertion)
- * is verified by RE-RUNNING the same builder function against the values
- * extracted from the block and comparing strings, rather than duplicating
- * each builder's template as a second regex — so this module can never drift
- * from its source of truth.
- *
- * An unrecognized block is the safety property this module exists for: it
- * must fail loudly (naming the offending line), never silently pass through,
- * so "someone added a builder without teaching the recognizer" fails a test
- * instead of producing a green run that proves nothing.
- */
+// Each block is recognized by RE-RUNNING the same `GitScript.ts`/`Emit.ts`
+// builder against values extracted from it and comparing strings — never by
+// duplicating a builder's template as a regex — so an unrecognized block
+// fails loudly instead of silently passing through.
 
 import {
   commitAll,
@@ -137,18 +99,16 @@ type BlockOutcome =
    */
   | { readonly kind: "stopped" }
 
-/** Bash's own no-op preamble decoration — never a failure, never applies anything. */
 const SET_FLAGS_RE = /^set\s+-\S+(\s+\S+)*$/
 
 const recognizeSetFlags = (block: string): BlockOutcome | undefined =>
   SET_FLAGS_RE.test(block) ? { kind: "noop" } : undefined
 
 /**
- * This module's OWN invented precondition-assertion shape — a placeholder for
- * whatever preamble `src/Emit.ts` finalizes later, not a real gtd convention.
- * A `[ ... ] || { ...; exit 1; }` guard on the CURRENT `HEAD`, matching
- * `set -euo pipefail` semantics: a tripped precondition must stop the script,
- * exactly like a failed builder line would.
+ * This module's own invented precondition-assertion shape, not a real gtd
+ * convention: a `[ ... ] || { ...; exit 1; }` guard on the current `HEAD`,
+ * matching `set -euo pipefail` semantics — a tripped precondition must stop
+ * the script, exactly like a failed builder line would.
  */
 export const preconditionHeadEquals = (hash: string): string =>
   `[ "$(git rev-parse HEAD)" = '${hash}' ] || { echo "precondition failed: HEAD moved" >&2; exit 1; }`
@@ -325,11 +285,10 @@ const recognizeReviewWindowRefAssertion = (
 
 /**
  * `src/Emit.ts`'s REAL `fileExistsGuard` block — `src/program.ts`'s
- * `resolveValidateScript` leads every emitted validate script with it now
- * (package 2: the `fs.exists` short-circuit moved OUT of TS-land and into
- * the script itself). Re-derives the block from the extracted path and
- * compares full strings, same discipline as `recognizeHeadAssertion`. Unlike
- * every OTHER guard in this file, a tripped `fileExistsGuard` does not fail
+ * `resolveValidateScript` leads every emitted validate script with it.
+ * Re-derives the block from the extracted path and compares full strings,
+ * same discipline as `recognizeHeadAssertion`. Unlike every OTHER guard in
+ * this file, a tripped `fileExistsGuard` does not fail
  * the script — a real `exit 0` there ends it successfully right there — so
  * this is the one recognizer that can report `{ kind: "stopped" }`.
  */
@@ -404,23 +363,9 @@ const recognizeReviewWindowClose = (repo: InMemRepo, block: string): BlockOutcom
  * `src/ReviewWindow.ts`'s `buildOpenWindowScript` — the compound
  * `updateRef(base) && updateRef(head) && mixedResetTo(base) &&
  * restoreStagedFrom(.gtd)` sequence a step landing at a `reviewWindow: true`
- * state emits alongside its commit. `program.ts` (concurrent work) always
- * renders the HEAD ref update with the LITERAL string `'HEAD'` rather than a
- * resolved hash — the real hash isn't known until the required script's own
- * commit has actually landed, and real `git update-ref <ref> HEAD` resolves
- * the symbolic name at run time — so this recognizer only ever needs to match
- * that one literal shape (never an arbitrary resolved head). `InMemRepo.
- * updateRef` already resolves a symbolic value itself (`resolveRef(hash) ??
- * hash`), so passing `"HEAD"` straight through applies correctly with no
- * special-casing here. Same split-on-`" &&\n"` + re-derive-and-compare
- * discipline as `recognizeReviewWindowClose`; the fourth part
- * (`restoreStagedFrom`) needs no separate extraction since
- * `buildOpenWindowScript` hard-codes its ref/paths (`REVIEW_HEAD_REF`,
- * `[".gtd"]`) — the whole-string comparison verifies it for free. That
- * `[".gtd"]` stays a literal deliberately (`buildOpenWindowScript`'s own doc
- * comment argues the case) — this recognizer's whole-string comparison is
- * exactly why: it only works while the path stays fixed, so making it
- * dynamic would cost this recognizer its trust property.
+ * state emits. `program.ts` always renders the head ref update with the
+ * literal string `'HEAD'`, never a resolved hash, so this recognizer only
+ * ever needs to match that one shape.
  */
 const recognizeReviewWindowOpen = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const parts = block.split(" &&\n")
@@ -538,38 +483,6 @@ const recognizeModeContradictionSkipNotice = (block: string): BlockOutcome | und
   return { kind: "noop" }
 }
 
-/**
- * `src/ModeContradiction.ts`'s `buildModeContradictionCheck` — the
- * contradiction round-trip block `src/program.ts`'s `resolveValidateScript`
- * emits ahead of `fileExistsGuard` for a mode with a LIVE built-in validator
- * and a declared `format:` (package 2, Requirement B). The block carries no
- * blank line of its own, so it always arrives here as ONE block.
- *
- * Extraction, in order: `extractQuotedTokens` pulls the sample (the printf
- * line's SECOND quoted argument, after its literal `'%s'` format string) and
- * the scratch path (its third) off the WHOLE block — reliable regardless of
- * how many literal newlines the sample itself carries, the same property the
- * multi-line git builders above rely on. The scratch path is then enough to
- * build its own `shellQuote`d form
- * and find the fixed `<pathQ> >/dev/null 2>&1 || {\n` suffix that follows
- * `gtd check <mode> ` — walking backward from there recovers `mode`, and
- * everything between the printf line and that same line is the mode's
- * rendered `format:` command. Every extracted piece is then confirmed by
- * RE-RUNNING `buildModeContradictionCheck` and comparing the full block
- * string, exactly like every other builder-backed recognizer here — so a
- * wrong guess anywhere in the extraction just fails to recognize (returns
- * `undefined`) rather than mis-simulating.
- *
- * Simulation: writes the sample to the scratch path, runs the extracted
- * `format:` command through `recognizeScriptedCommand` (the ONLY way a
- * command can execute against the in-memory tier — real bash is
- * unreachable there), re-validates whatever ended up at the scratch path
- * with the format's own parser, and cleans the scratch path up either way —
- * mirroring the real script's `rm -f` on both the failure and success paths.
- * An unscripted `format:` command fails loudly (mirroring
- * `makeScriptedCommandRunner`'s own "unscripted command" error) rather than
- * silently succeeding.
- */
 /** Everything `parseModeContradictionCheck` recovers from a matched block — enough for `simulateModeContradictionCheck` to run it, with no further parsing. */
 interface ParsedModeContradictionCheck {
   readonly mode: string
@@ -579,16 +492,6 @@ interface ParsedModeContradictionCheck {
   readonly format: SteeringFormat
 }
 
-/**
- * Parses `block` back into `buildModeContradictionCheck`'s own inputs, or
- * `undefined` when it isn't one — split out of `recognizeModeContradictionCheck`
- * so extraction (many small guards, no repo effects) and simulation (few
- * guards, all the effects) each stay simple enough to read as their own
- * function. Confirmed, like every other builder-backed recognizer here, by
- * RE-RUNNING `buildModeContradictionCheck` on the recovered pieces and
- * requiring a byte-for-byte match — a wrong guess anywhere just fails to
- * parse rather than mis-simulating.
- */
 /** The printf line's own pieces — the sample bytes, the scratch path, and the literal PREFIX text (up to and including that path) — or `undefined` when `block` doesn't open with `printf '%s' ...`. */
 const parsePrintfPrefix = (
   block: string,
@@ -621,6 +524,16 @@ const parseModeAndFormatCommand = (
   return { mode, formatCommand: block.slice(prefix.length + 1, lineStart) }
 }
 
+/**
+ * Parses `block` back into `buildModeContradictionCheck`'s own inputs, or
+ * `undefined` when it isn't one — split out of `recognizeModeContradictionCheck`
+ * so extraction (many small guards, no repo effects) and simulation (few
+ * guards, all the effects) each stay simple enough to read as their own
+ * function. Confirmed, like every other builder-backed recognizer here, by
+ * RE-RUNNING `buildModeContradictionCheck` on the recovered pieces and
+ * requiring a byte-for-byte match — a wrong guess anywhere just fails to
+ * parse rather than mis-simulating.
+ */
 const parseModeContradictionCheck = (block: string): ParsedModeContradictionCheck | undefined => {
   const prefixParts = parsePrintfPrefix(block)
   if (prefixParts === undefined) return undefined
@@ -678,6 +591,13 @@ const simulateModeContradictionCheck = (
   }
 }
 
+/**
+ * `src/ModeContradiction.ts`'s `buildModeContradictionCheck` — the
+ * contradiction round-trip block `resolveValidateScript` (`src/program.ts`)
+ * emits ahead of `fileExistsGuard` for a mode with a live built-in validator
+ * and a declared `format:`. Carries no blank line of its own, so it always
+ * arrives here as ONE block.
+ */
 const recognizeModeContradictionCheck = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
@@ -717,10 +637,9 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
 
 /**
  * `Emit.ts`'s `combinedScript` leading comment — `gtd land`/`gtd --entry`'s
- * whole plain-text artifact now opens with this line ahead of the required
- * script, so recognizing it (as a no-op, like the retry-helper function
- * definition) is a hard prerequisite for the `@inmem` tier staying green once
- * `world.ts` runs a command's WHOLE stdout as one script.
+ * whole plain-text artifact opens with this line ahead of the required
+ * script, so recognizing it as a no-op (like the retry-helper function
+ * definition) keeps the `@inmem` tier green.
  */
 const recognizeDidNotRunComment = (block: string): BlockOutcome | undefined =>
   block === DID_NOT_RUN_COMMENT ? { kind: "noop" } : undefined
@@ -823,7 +742,6 @@ const nextSubshellDepth = (trimmedLine: string, depth: number): number => {
   return depth
 }
 
-/** Splits `script` into blocks on blank lines, tracking quote state (`trackQuoteState`) and subshell depth (`nextSubshellDepth`) so neither a quoted blank line nor one inside an open subshell splits a block apart. */
 const splitBlocks = (script: string): readonly string[] => {
   const blocks: string[] = []
   let current = ""
@@ -844,20 +762,7 @@ const splitBlocks = (script: string): readonly string[] => {
   return blocks
 }
 
-/**
- * Applies `script` to `repo` block by block, stopping at the first failure —
- * an unrecognized block, a tripped precondition, a failing `gtd check`, or a
- * non-zero scripted-command exit — exactly like `set -euo pipefail` stops a
- * real script. No block after the failing one is applied.
- */
-/**
- * Every recognizer `applyEmittedScript` tries, in order — pulled out of that
- * function's own body (which used to be one long `??` chain) into a plain
- * array so trying each one is a single loop rather than N branches: the
- * behavior is identical (first non-`undefined` wins), but a flat loop over
- * data keeps `applyEmittedScript` itself simple regardless of how many
- * recognizers this module accumulates.
- */
+/** Every recognizer `applyEmittedScript` tries, first match wins — `recognizeScriptedCommand` stays last since it's the exact-hit fallback for anything the rest don't claim. */
 const recognizersFor = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
@@ -883,7 +788,6 @@ const recognizersFor = (
   (block) => recognizeScriptedCommand(repo, commands, block),
 ]
 
-/** The first recognizer (in `recognizersFor`'s declared order) that recognizes `block`, or `undefined` when none does. */
 const recognizeBlock = (
   recognizers: ReadonlyArray<(block: string) => BlockOutcome | undefined>,
   block: string,
@@ -895,6 +799,12 @@ const recognizeBlock = (
   return undefined
 }
 
+/**
+ * Applies `script` to `repo` block by block, stopping at the first failure —
+ * an unrecognized block, a tripped precondition, a failing `gtd check`, or a
+ * non-zero scripted-command exit — exactly like `set -euo pipefail` stops a
+ * real script. No block after the failing one is applied.
+ */
 export const applyEmittedScript = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,

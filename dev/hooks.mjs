@@ -1,10 +1,6 @@
-// Dev-only ESM hooks so `node` can run the TypeScript sources directly:
-//   - resolve relative `./Foo.js` specifiers to the on-disk `./Foo.ts`
-//     (the build uses `allowImportingTsExtensions`; native Node does not)
-//   - import `*.yaml` files as their raw text default export, mirroring
-//     tsdown's `loader: { ".yaml": "text" }` (src/workflows/unified.yaml)
-// Node strips the TypeScript types natively; these hooks only fill the two
-// gaps tsdown would otherwise cover.
+// ESM hooks filling the two gaps native Node (which strips TS types itself)
+// leaves vs. tsdown: resolving `./Foo.js` specifiers to on-disk `./Foo.ts`,
+// and loading `*.yaml` files as their raw text default export.
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath, URL } from "node:url"
@@ -14,7 +10,7 @@ export async function resolve(specifier, context, nextResolve) {
   if ((specifier.startsWith("./") || specifier.startsWith("../")) && specifier.endsWith(".js")) {
     const tsUrl = new URL(specifier.slice(0, -3) + ".ts", context.parentURL)
     if (existsSync(fileURLToPath(tsUrl))) {
-      // Omit `format` so Node detects the `.ts` extension and strips types.
+      // Omit `format` so Node detects `.ts` and strips types itself.
       return { url: tsUrl.href, shortCircuit: true }
     }
   }

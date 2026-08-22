@@ -95,7 +95,6 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       - [ ] ./src/calc.ts#1
       new add function
       """
-    # await-review: the human leaves a note (a change beyond a tick) → feedback
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -110,7 +109,6 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
-    # build.review.deciding: CAPTURES raw material into REVIEW_RAW.md, removes REVIEW.md
     Given a file ".gtd/REVIEW_RAW.md" with:
       """
       Raw review material captured for classification.
@@ -124,11 +122,6 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
 
-    # build.review.collecting: JUDGES the round actionable — CLASSIFIES it
-    # straight into REQUIREMENTS.md (never an instruction list) and consumes
-    # the raw capture -> re-unwind, which reverts the human's own commit and
-    # hands off to design.triage to re-derive the work from history, never
-    # building on top of it here
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Rename `add` to `sum`

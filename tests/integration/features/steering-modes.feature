@@ -60,8 +60,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-      # The validate command above prints one finding per missing section and
-      # then exits non-zero only when it printed something.
     And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -234,9 +232,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-      # The format command promotes "status: draft" to "status: accepted"; the
-      # validate command demands the promoted form. Validation therefore passes
-      # only because formatting ran FIRST, in place.
+      # Validation therefore passes only because formatting ran FIRST, in place.
     And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -707,9 +703,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                 on:
                   "* **": idle
       """
-      # The workflow declares `adr`'s validator; the project's own top-level
-      # `modes:` adds the formatter. Validation passes only because both halves
-      # survived the merge and ran in order.
+      # Validation passes only because both halves survived the merge and ran in order.
     And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
       """
       status: draft
@@ -762,7 +756,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # format-only mode (no in-process parser at all, so no round-trip and no
     # skip notice either) now still gets a real script: the existence guard
     # plus its own format: command, evaluated once the script actually runs.
-    # Inspected via the unexecuted `gtd next --sh` text.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """

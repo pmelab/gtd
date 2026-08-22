@@ -21,9 +21,8 @@ import { deleteRef, mixedResetTo, restoreStagedFrom, updateRef } from "./GitScri
 import type { WorkflowDefinition } from "./PatternMachine.js"
 import { gitTiers, type GitTier } from "./testing/GitTiers.js"
 
-// git's empty-tree object, mirrored from `src/ReviewWindow.ts`'s own private
-// constant — a pure-decision test needs to name it without reaching into the
-// module's internals.
+// git's empty-tree hash, mirrored from `src/ReviewWindow.ts`'s own private
+// constant so this pure-decision test can name it without touching internals.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 /** Only the Live tier has a real filesystem/shell to run a generated script against. */
@@ -38,33 +37,19 @@ const makeLiveTier = (): GitTier => {
   return make()
 }
 
-/**
- * Runs a generated script through a REAL shell against `t.root` — the same
- * execution model the eventual driver uses (`bash -c <script>`), mirroring
- * `src/testing/GitTiers.ts`'s own (unexported) `execScript` helper for its
- * `runGitScriptContract`.
- */
+/** Runs a generated script through a real shell against `t.root` — the same execution model the eventual driver uses (`bash -c <script>`). */
 const execScript = (t: GitTier, script: string): void => {
   execFileSync("bash", ["-c", script], { cwd: t.root, stdio: "pipe" })
 }
 
 /**
- * The review checkout window, parameterized over both `GitOperations` tiers
- * (`src/testing/GitTiers.ts`) for its DECIDE-only coverage
+ * Parameterized over both `GitOperations` tiers for the DECIDE-only coverage
  * (`decideCloseWindow`/`decideOpenWindow`, both read-only through
- * `GitService` — no write). The git contract (package/step 4) covers every
- * reader primitive a decision uses (`isAncestor`, `readRefOption`), so a
- * no-op/refusal decision is exercised identically on Live and InMemory.
- *
- * The actual WRITE — the mixed-reset open/close round trip, `reviewBase`
- * base-narrowing observed after a real open, legacy-ref cleanup, idempotent
- * re-entry — only makes sense against a real shell running the emitted bash
- * (an in-memory fake root has no shell to run it against), so it lives in its
- * own Live-only describe block below (`the emitted open/close scripts`),
- * mirroring `runGitScriptContract`'s own scoping in `src/testing/GitTiers.ts`.
- * The linked-worktree group (`git worktree add` — `t.capabilities.
- * linkedWorktrees`) stays nested inside this parametrized loop, but is itself
- * Live-only via that capability's own skip.
+ * `GitService`). The actual WRITE — the mixed-reset round trip, idempotent
+ * re-entry — only makes sense against a real shell, so it lives in its own
+ * Live-only describe block below (`the emitted open/close scripts`). The
+ * linked-worktree group stays nested here but is itself Live-only via its own
+ * capability skip.
  */
 
 // A workflow: idle → building → gate (a reviewWindow rest), with an optional
@@ -152,20 +137,19 @@ for (const makeTier of gitTiers) {
           )
           if (!openDecision.shouldOpen) throw new Error("expected the window to open")
           execScript(t, buildOpenWindowScript(openDecision))
-          // The window's refs live in the per-worktree namespace, so the
-          // sibling sharing this `.git` cannot even see them…
+          // Refs live in the per-worktree namespace — the sibling sharing
+          // this `.git` cannot see them…
           expect(t.observe.refExists(REVIEW_HEAD_REF)).toBe(true)
           expect(() =>
             gitIn(sibling, "rev-parse", "--verify", "--quiet", REVIEW_HEAD_REF),
           ).toThrow()
 
-          // …and its own gtd invocations decide to close nothing: pre-7.2
-          // this reset the sibling's branch onto THIS worktree's saved head.
+          // …and its own invocation decides to close nothing too: pre-7.2
+          // this reset the sibling's branch onto this worktree's saved head.
           const siblingDecision = await decideCloseWindowInDir(sibling)
           expect(siblingDecision.shouldClose).toBe(false)
           expect(gitIn(sibling, "rev-parse", "HEAD")).toBe(siblingHead)
 
-          // This worktree's window survived the sibling's invocation untouched.
           expect(await headSubject(t)).toBe("init: first commit")
           expect(t.observe.refExists(REVIEW_HEAD_REF)).toBe(true)
 
@@ -189,19 +173,18 @@ for (const makeTier of gitTiers) {
           await expect(decideCloseWindowInDir(sibling)).rejects.toThrow(
             /does not belong to this worktree/,
           )
-          // Nothing moved, nothing was deleted — the owning worktree can
-          // still recover with the commands the message spells out.
+          // Nothing moved or was deleted — the owning worktree can still
+          // recover with the commands the message spells out.
           expect(gitIn(sibling, "rev-parse", "HEAD")).toBe(siblingHead)
           expect(t.observe.refExists(LEGACY_REVIEW_HEAD_REF)).toBe(true)
           expect(t.observe.refExists(LEGACY_REVIEW_BASE_REF)).toBe(true)
         })
 
-        // `decideCloseWindow` run against an arbitrary directory (the sibling
-        // worktree) rather than `t`'s own root — only meaningful for the Live
-        // tier, where a directory maps onto a real, independently-`cwd`-able
-        // git worktree, so this bypasses `GitTier.provide` (fixed to `t.root`)
-        // and wires `GitService.Live` directly, mirroring the pre-tiered
-        // test's own `runIn` helper. `decideCloseWindow` needs only
+        // Run against an arbitrary directory (the sibling worktree) rather
+        // than `t`'s own root — only meaningful for the Live tier, where a
+        // directory maps onto a real, independently-`cwd`-able git worktree,
+        // so this bypasses `GitTier.provide` (fixed to `t.root`) and wires
+        // `GitService.Live` directly. `decideCloseWindow` needs only
         // `GitService`, unlike `decideOpenWindow` (a plain pure function) —
         // no `ConfigService` layer.
         function decideCloseWindowInDir(dir: string) {
@@ -221,9 +204,7 @@ for (const makeTier of gitTiers) {
 /**
  * The pure decision/builder half of the window: a decision — "should a
  * window open/close, and with what" — and a script builder. No git, no
- * `Effect` — plain functions of their arguments (`buildCloseWindowScript`/
- * `buildOpenWindowScript` take the already-decided values and never resolve
- * anything themselves).
+ * `Effect` — plain functions of their arguments.
  */
 describe("buildCloseWindowScript / buildOpenWindowScript — pure builders", () => {
   it("buildCloseWindowScript emits the mixed-reset (to the resolved head HASH) then the two ref deletes, in order", () => {
@@ -333,9 +314,8 @@ describe("decideOpenWindow — answerable for a target state the caller names", 
 
   it("is answerable for an arbitrary target the caller names, independent of any currently-resolved rest", () => {
     // The trace records a `checkpoint` (reviewBase) turn after `building` —
-    // `reviewBaseFor` narrows to it. The caller asks about `gate` directly,
-    // as the state a step is about to land ON per the matched pattern —
-    // nothing here reads HEAD's subject or resolves a "current" rest at all.
+    // `reviewBaseFor` narrows to it — yet nothing here reads HEAD's subject
+    // or resolves a "current" rest at all.
     const run: ProcessRun = {
       ...emptyRun,
       trace: [
@@ -353,14 +333,9 @@ describe("decideOpenWindow — answerable for a target state the caller names", 
 
 /**
  * The window's actual WRITE effect: real bash, real git (Live tier only — an
- * in-memory fake root has no shell to run a script against, mirroring
- * `runGitScriptContract`'s own scoping in `src/testing/GitTiers.ts`). Every
- * scenario here decides with `decideCloseWindow`/`decideOpenWindow`, builds
- * the bash with `buildCloseWindowScript`/`buildOpenWindowScript`, and executes
- * it exactly as the external driver would (`execScript`, `bash -c <script>`),
- * then asserts on the resulting repository state directly — there is no more
- * separate performer Effect to compare the emitted script against; the
- * emitted script is the only path left that writes anything.
+ * in-memory fake root has no shell to run a script against). Every scenario
+ * decides, builds the bash, and executes it exactly as an external driver
+ * would, then asserts on the resulting repository state directly.
  */
 describe("the emitted open/close scripts — real bash, real git", () => {
   const seedWindowFixture = (t: GitTier): void => {
@@ -368,7 +343,6 @@ describe("the emitted open/close scripts — real bash, real git", () => {
     t.seed.commit("gtd(human): gate", { "src/other.ts": "export const x = 1\n" })
   }
 
-  /** Decide + build + execute the open sequence against `target` (default `"gate"`, the fixture's own reviewWindow state). */
   const openWindow = async (t: GitTier, target = "gate"): Promise<void> => {
     const run = await t.provide(currentRun, def)
     const head = t.observe.resolveRef("HEAD")
@@ -377,7 +351,6 @@ describe("the emitted open/close scripts — real bash, real git", () => {
     execScript(t, buildOpenWindowScript(decision))
   }
 
-  /** Decide + build + execute the close sequence, returning the resolved refs. */
   const closeWindow = async (t: GitTier): Promise<WindowRefs> => {
     const decision = await t.provide(decideCloseWindow, def)
     if (!decision.shouldClose) throw new Error("expected an open window to close")

@@ -6,10 +6,9 @@ import { describe, expect, it } from "vitest"
 // anywhere in src/ (see .gtd/packages/11-interaction-and-colour.md). If
 // interaction is ever added it must go to /dev/tty, never stderr — mixing a
 // question into stderr's existing narration/remediation traffic would
-// deadlock a driver that never reads it. This test is the guard rail: it
-// fails the moment src/ gains a readline import, a literal "/dev/tty"
-// reference, or a call into an interactive prompt facility, so that change
-// has to be a deliberate, reviewed decision rather than an accidental import.
+// deadlock a driver that never reads it. This test guards that: any of the
+// violations below must be a deliberate, reviewed decision, not an
+// accidental import.
 //
 // The bare word "prompt" is deliberately NOT matched — it's gtd's own domain
 // vocabulary for a content kind (`prompt:` config keys, `PromptContent`

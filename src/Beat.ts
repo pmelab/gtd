@@ -1,29 +1,3 @@
-/**
- * The beat: the ONE place the wire shape of `gtd next`'s structured output
- * lives, and (below) the land document, `gtd land`'s own counterpart — the
- * two structured surfaces gtd has. PURE — no git, no filesystem, no Effect;
- * `program.ts` gathers everything this module needs (a rendered rest, the
- * derived `stalled` verdict, an optional prompt session/validate script, the
- * pending-change/next-edge preview, the recorded cost) and hands it to
- * `beatFields` to assemble ONE fields object. `renderBeatJson` and
- * `renderBeatSh` (over `src/Sh.ts`'s wire format) both render from that one
- * object, so a field can land in one encoding and miss the other only if
- * it's missing from `beatFields` itself.
- *
- * `BeatKind` supersedes the old boolean `stalled` field: it's the one
- * question a driver asks per beat — what to DO with this rest, not merely
- * whether dispatching it is safe. `beatKindOf` derives it in precedence
- * order (see its own doc comment); `beatFields` assembles the kind plus the
- * rendered rest's own fields, gating the "dispatch block" (`session`/
- * `validate`) to `kind === "prompt"` alone. The fields carry no version
- * field — the field set itself is the contract, and a breaking change to it
- * is a major release.
- *
- * `renderBeatPlain` is `gtd next`'s plain-text encoder — the third rendering
- * alongside `renderBeatJson`/`renderBeatSh`, all three reading from the same
- * `BeatFields` object. See its own doc comment for the header-suppression
- * rule and the self-validation pairing it owns.
- */
 import type { RenderedRest, ModelCost } from "./Edge.js"
 import type { Actor, ContentKind, StateMode, StateName } from "./PatternMachine.js"
 import type { TemplateEdge } from "./PatternTemplates.js"
@@ -31,22 +5,12 @@ import { renderShDocument, type ShRecord, type ShShapeFor } from "./Sh.js"
 
 // ---------------------------------------------------------------------------
 // The land document — `gtd land`'s `--json`/`--sh` counterpart to the beat
-// above. Co-located here (not in program.ts) for the same reason the beat is:
-// this is already "the place the wire shape lives" — one file to check when
-// adding a field to either document.
+// above, co-located here for the same reason.
 // ---------------------------------------------------------------------------
 
 /**
- * `gtd land`'s whole field set — the ONE object both `renderLandJson` and
- * `renderLandSh` render from. `program.ts`'s `planLanding` is the only
- * producer (a `LandResult`); `landFields` below assembles this object in a
- * fixed key order (`script`, `settled`, `idle`, `state`, `subject`, `cost`,
- * `model`) — the JSON key order too, since it's built via object literal.
- * Nothing here is derived beyond `LandResult`'s own fields: `script` is
- * `Emit.ts`'s `combinedScript(required, optional)` computed once in
- * `planLanding`, and plain `gtd land`'s stdout is that same string — the
- * byte-identity `gtd land | sh` depends on is unrepresentable-otherwise, not
- * merely tested. `subject`/`cost`/`model` are `null` (never omitted) for a
+ * `gtd land`'s whole field set, in the object's own key order (also the JSON
+ * key order). `subject`/`cost`/`model` are `null` (never omitted) for a
  * genuine no-op, mirroring `LandResult` itself.
  */
 export interface LandFields {
@@ -70,7 +34,7 @@ export const landFields = (input: LandFields): LandFields => ({
   model: input.model,
 })
 
-/** `--sh`'s shape for `LandFields`: one entry per field, derived so a field added to `LandFields` with no matching entry here is a compile error (`ShShapeFor`'s own doc comment). */
+/** `--sh`'s shape for `LandFields`: one entry per field, so a field added to `LandFields` with no matching entry here is a compile error. */
 const LAND_SH_SHAPE: ShShapeFor<LandFields> = {
   script: "scalar",
   settled: "bool",
@@ -81,22 +45,13 @@ const LAND_SH_SHAPE: ShShapeFor<LandFields> = {
   model: "scalar",
 }
 
-/** `gtd land --json`'s JSON encoding — a newline-terminated line. */
 export const renderLandJson = (fields: LandFields): string => JSON.stringify(fields) + "\n"
 
 /**
- * `gtd land --json`'s shell-sourceable counterpart, `--sh` — see `src/Sh.ts`
- * for the wire format. Its `unset` preamble (`shVarNames`, driven by
- * `LAND_SH_SHAPE` alone) only names THIS document's own leaves, so evaluating
- * it never clears `gtd_content`/`gtd_log`/`gtd_session_id` — a beat-only
- * document a driver may still be relying on after the land (e.g. `$gtd_log`).
- *
- * `gtd_state`, `gtd_cost`, `gtd_model` and `gtd_idle` are the four names BOTH
- * documents declare (same `"gtd"` prefix): evaluating this document's own
- * `unset`+reassign clears and resets exactly those four, so after a land they
- * describe the LANDING (the state it now rests at, the cost/model just
- * recorded, whether that rest is idle) — never stale, but never the next
- * beat's either. Re-read `gtd next --sh` for beat facts.
+ * `gtd land --json`'s shell-sourceable counterpart (see `src/Sh.ts`). Its
+ * `unset` preamble only names this document's own leaves, so it never clears
+ * `gtd_content`/`gtd_log`/`gtd_session_id` — beat-only names a driver may
+ * still rely on after the land.
  */
 export const renderLandSh = (fields: LandFields): string =>
   renderShDocument("gtd", LAND_SH_SHAPE, fields as unknown as ShRecord)
@@ -109,13 +64,11 @@ export interface StatusChange {
 }
 
 /**
- * The first declared `on` edge that would fire right now — `gtd next
- * --json`'s `next` key, before `nextField` maps it to its emitted shape.
- * `action` is `string | undefined` rather than an optional (`action?:`)
- * property: with `exactOptionalPropertyTypes` on, an optional property
- * cannot be assigned an explicit `undefined` — this stays a plain nullable
- * field so `computeNextMatch`'s destructured, possibly-absent `action` can be
- * spread straight in.
+ * The first declared `on` edge that would fire right now. `action` is
+ * `string | undefined` rather than optional (`action?:`) because
+ * `exactOptionalPropertyTypes` forbids assigning an explicit `undefined` to
+ * an optional property, and `computeNextMatch`'s destructured `action` needs
+ * to spread straight in.
  */
 export interface NextMatch {
   readonly action: string | undefined
@@ -123,7 +76,7 @@ export interface NextMatch {
   readonly target: string
 }
 
-/** `gtd next --json`'s `next` key — `null` on no match, else the matched edge's pattern/target plus its `action` when declared (omitted via conditional spread, never emitted as an explicit `undefined` — `exactOptionalPropertyTypes` forbids that assignment outright, so this can't regress to it). */
+/** `gtd next --json`'s `next` key — `null` on no match, else the matched edge's fields (`action` omitted, never an explicit `undefined`, when unset). */
 const nextField = (
   next: NextMatch | null,
 ): { action?: string; pattern: string; target: string } | null =>
@@ -135,7 +88,7 @@ const nextField = (
         target: next.target,
       }
 
-/** The whole beat vocabulary a driver acts on — see the module doc comment. */
+/** The whole beat vocabulary a driver acts on — what to DO with a rest, not merely whether dispatching it is safe. */
 export type BeatKind = "capture" | "message" | "script" | "prompt" | "stalled"
 
 /**
@@ -183,14 +136,7 @@ export const stallDiagnosis = (state: StateName, actor: Actor): string =>
   `  - declare a "C" pattern on the state, if it can legitimately finish with\n` +
   `    nothing to change\n`
 
-/**
- * One beat's whole field set — the ONE object both `renderBeatJson` and
- * `renderBeatSh` render from, so a field can't land in one encoding and miss
- * the other. Property insertion order (built by `beatFields`) IS the JSON
- * key order: `kind`, `content`, `idle`, `session`, `model`, `system`,
- * `validate`, `log`, `state`, `actor`, `label`, `memory`, `file`, `mode`,
- * `edges`, `changes`, `next`, `cost`, `costByModel`.
- */
+/** One beat's whole field set — the ONE object both `renderBeatJson` and `renderBeatSh` render from. Property insertion order (built by `beatFields`) is the JSON key order. */
 export interface BeatFields {
   readonly kind: BeatKind
   readonly content: string
@@ -218,26 +164,13 @@ export interface BeatFields {
 }
 
 /**
- * Assemble one beat's fields — the ONLY place `gtd next --json`'s wire
- * shape is built; both `renderBeatJson` and `renderBeatSh` render from its
- * output.
- *
- * `session`/`validate` are the DISPATCH BLOCK: dropped unless `kind ===
- * "prompt"`, even if the caller passed one in — the gate lives here (not
- * only in the caller that computes them) so it can never drift. `content` is
- * the rendered rest's own content, except at `kind === "stalled"`, where
- * it's `stallDiagnosis`'s text instead. `idle` is `restIsIdle` verbatim —
- * always present, `true`/`false`, never omitted. `model`/`memory`/`file`/
- * `mode`/`label`/`edges` are plain facts about the resting state and are
- * emitted at EVERY kind — omitted (never `null`) when their source is unset.
- * `system` is the same, EXCEPT it is also omitted when its rendered value is
- * the empty string: unlike `model`, an empty system prompt reaching a driver
- * as `--system-prompt ""` silently deletes the harness's own default instead
- * of failing loudly, so a render-to-empty is treated as unset.
- * `changes` and `next` are always present (the headline conclusion, never
- * omit-vs-null — a `null` `next` means no declared pattern matches).
- * `cost`/`costByModel` are emitted only when a cost has actually been
- * recorded (`cost > 0`).
+ * Assemble one beat's fields — the ONLY place `gtd next --json`'s wire shape
+ * is built. `session`/`validate` (the dispatch block) are dropped unless
+ * `kind === "prompt"`, even if the caller passed one in, so the gate can
+ * never drift out of sync with a caller. `system` is omitted when its
+ * rendered value is the empty string (unlike `model`): an empty
+ * `--system-prompt ""` would silently delete the harness's own default
+ * instead of failing loudly.
  */
 export const beatFields = (input: {
   readonly rendered: RenderedRest
@@ -278,7 +211,7 @@ export const beatFields = (input: {
   }
 }
 
-/** `--sh`'s shape for `BeatFields`: one entry per field, derived so a field added to `BeatFields` with no matching entry here is a compile error (`ShShapeFor`'s own doc comment). */
+/** `--sh`'s shape for `BeatFields`: one entry per field, so a field added to `BeatFields` with no matching entry here is a compile error. */
 const BEAT_SH_SHAPE: ShShapeFor<BeatFields> = {
   kind: "scalar",
   content: "scalar",
@@ -301,10 +234,8 @@ const BEAT_SH_SHAPE: ShShapeFor<BeatFields> = {
   costByModel: "list",
 }
 
-/** `gtd next --json`'s JSON encoding — a newline-terminated line, byte-identical to the old `beatDocument`'s output. */
 export const renderBeatJson = (fields: BeatFields): string => JSON.stringify(fields) + "\n"
 
-/** `gtd next --json`'s shell-sourceable counterpart, `--sh` — see `src/Sh.ts` for the wire format. */
 export const renderBeatSh = (fields: BeatFields): string =>
   renderShDocument("gtd", BEAT_SH_SHAPE, fields as unknown as ShRecord)
 
@@ -318,16 +249,15 @@ export const renderBeatSh = (fields: BeatFields): string =>
  * (a lone `unspecified` bucket just restates the total, so it's suppressed).
  *
  * The literal below must match `Edge.ts`'s `UNATTRIBUTED_MODEL` — duplicated
- * rather than imported as a VALUE, since this module's only import from
- * `Edge.ts` is type-only (see the module doc comment: no git, no filesystem,
- * no Effect); a real import here would pull `Edge.ts`'s whole runtime module
- * graph into this otherwise-pure module.
+ * rather than imported as a value, since this module's only import from
+ * `Edge.ts` is type-only and this module is otherwise pure (no git, no
+ * filesystem, no Effect); a real import would pull in `Edge.ts`'s whole
+ * runtime module graph.
  */
 const UNATTRIBUTED_MODEL = "unspecified"
 const breakdownIsInformative = (byModel: readonly ModelCost[]): boolean =>
   byModel.length > 1 || (byModel.length === 1 && byModel[0]!.model !== UNATTRIBUTED_MODEL)
 
-/** The plain-text `Cost:` line(s) — empty when nothing recorded, plus an indented per-model split when informative. */
 const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] => {
   if (cost <= 0) return []
   const lines = [`Cost: ${cost}`]
@@ -337,7 +267,6 @@ const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] 
   return lines
 }
 
-/** The `Pending:` block — `(clean)` when nothing is pending, else one indented line per change. */
 const pendingStatusLines = (statusChanges: readonly StatusChange[]): string[] =>
   statusChanges.length === 0
     ? ["Pending: (clean)"]
@@ -346,7 +275,6 @@ const pendingStatusLines = (statusChanges: readonly StatusChange[]): string[] =>
         ...statusChanges.map((c) => `  ${c.status} ${c.path} -> ${c.pattern ?? "(no match)"}`),
       ]
 
-/** The `Next:` line — the plain-text counterpart to `nextField` above. */
 const nextStatusLine = (next: BeatFields["next"]): string =>
   next === null
     ? "Next: (no match — nothing would happen)"
@@ -385,16 +313,10 @@ const beatHeaderLines = (fields: BeatFields): string[] => {
 }
 
 /**
- * The self-validation instruction gtd APPENDS to a `prompt` beat's plain
- * output when its state declares both `file:` and `mode:` — i.e. a state
- * whose actor hands over a steering file some command validates. Appended
- * ONLY here (for a human or a simple driver who reads the prompt and hands it
- * to an agent, so the agent self-validates); withheld from `--json`/`--sh`,
- * where a driving loop instead runs the `validate` field itself and
- * re-prompts on findings (see the README's minimal driver). This is
- * advisory: `gtd land` embeds that same command ahead of its own commit and
- * REFUSES a turn whose steering file is invalid, so a malformed file is
- * never captured whether or not this instruction was followed.
+ * The self-validation instruction appended to a `prompt` beat's plain output
+ * only — a structured (`--json`/`--sh`) driver runs the `validate` field
+ * itself instead. Advisory either way: `gtd land` refuses a turn whose
+ * steering file is invalid regardless of whether this was followed.
  */
 const selfValidateInstruction = (command: string, file: string): string =>
   `\nBefore finishing your turn, run \`${command}\` — it checks ${file} — and fix ` +
@@ -402,33 +324,13 @@ const selfValidateInstruction = (command: string, file: string): string =>
   `still reports violations.\n`
 
 /**
- * `gtd next`'s plain-text encoding — the third rendering alongside
- * `renderBeatJson`/`renderBeatSh`, all three reading from the same
- * `BeatFields`. Shape: the status header (`State:`/`Awaits:`/…/`Pending:`/
- * `Next:`), a blank line, then `content` verbatim — EXCEPT at
- * `kind === "prompt"`, which drops the header entirely and is `content` plus
- * the self-validation instruction (naming `selfValidateCommand`, when given)
- * and nothing else.
- *
- * **The header is suppressed at `kind === "prompt"` because those bytes ARE
- * the agent's input** — state name, edges and pending-change lines are gtd
- * bookkeeping the prompt never asked for, and prefixing them would change
- * what every existing agent turn receives. The header shows at every other
- * kind (`script`/`message`/`capture`/`stalled`), whose plain output a human
- * or a driver reads, never an agent.
- *
- * **The self-validation pairing rule:** `fields.content` is `rendered.content`
- * untouched in every encoding (`beatFields` never appends to it); this
- * function is the ONLY place `selfValidateInstruction` is appended. The prose
- * instruction and the JSON/`--sh` `validate` field are one fact for two
- * audiences — plain has no deterministic runner to invoke, so it tells the
- * agent to run the check itself, while a structured loop runs `validate`
- * itself instead. Don't fold the instruction into `content`: that would send
- * it to agents that were already going to have `validate` run on their
- * behalf, duplicating the gate.
- *
- * `selfValidateCommand` is the already-RESOLVED command string — this
- * function is pure and never resolves it itself.
+ * `gtd next`'s plain-text encoding. At `kind === "prompt"` the status header
+ * is suppressed and only `content` plus the self-validation instruction is
+ * emitted — those bytes ARE the agent's input, so gtd's own bookkeeping
+ * (state name, edges, pending changes) must not be prefixed onto it. Every
+ * other kind gets the header, since its plain output is read by a human or
+ * driver, never an agent. `selfValidateCommand` is already resolved; this
+ * function never resolves it itself.
  */
 export const renderBeatPlain = (fields: BeatFields, selfValidateCommand?: string): string => {
   const content = fields.content.endsWith("\n") ? fields.content : fields.content + "\n"

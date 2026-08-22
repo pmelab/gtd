@@ -1,19 +1,8 @@
-/**
- * The shape of a steering-file FORMAT — what a file of some kind (`qa`,
- * `review`, ...) IS: how it validates, what its editor outline looks like,
- * which edits a code action can make, and (for a format whose entries point
- * elsewhere, like `review`'s hunk pointers) where a cursor position resolves
- * to. Zero imports on purpose: this module is pure vocabulary, shared by the
- * built-in registry (`src/SteeringFormats.ts`) and the LSP's translation
- * layer (`src/Lsp.ts`) without either pulling in the other's dependencies.
- *
- * A steering MODE (see `src/SteeringMode.ts`) is a format PLUS who validates
- * it — a mode may point at a built-in format's shell command instead of its
- * parser. The format is what the file is; the mode is that name plus how a
- * particular workflow validates it.
- */
+// Zero imports on purpose: this module is pure vocabulary, shared by the built-in
+// registry (`src/SteeringFormats.ts`) and the LSP's translation layer
+// (`src/Lsp.ts`) without either pulling in the other's dependencies.
 
-/** A single-range text replacement — the same shape `vscode-languageserver`'s `TextEdit` carries, kept format-side so this module stays protocol-independent. */
+/** The same shape `vscode-languageserver`'s `TextEdit` carries, kept format-side so this module stays protocol-independent. */
 export interface SteeringEdit {
   readonly range: {
     readonly start: { readonly line: number; readonly character: number }
@@ -22,7 +11,6 @@ export interface SteeringEdit {
   readonly newText: string
 }
 
-/** One offered code action: a human-readable title plus the edits it would make. */
 export interface SteeringAction {
   readonly title: string
   readonly edits: readonly SteeringEdit[]
@@ -73,16 +61,14 @@ export interface SteeringFinding {
 export interface SteeringFormat {
   /**
    * A canonical, hand-authored example of this format — the CLEAREST minimal
-   * document that satisfies its own `validate`, nothing more. Required (not
-   * optional) so a new built-in format can't ship without one:
-   * `src/SteeringFormats.test.ts` asserts `validate(sample)` returns zero
-   * findings for every registry entry, and `src/ModeContradiction.ts` round-
-   * trips this exact string through a mode's `format:` command to catch a
-   * formatter that breaks its own validator (see that module's doc comment).
-   * Deliberately NOT authored to survive any particular formatter — a
-   * formatter that reflows this sample into something invalid IS the
-   * contradiction the round-trip exists to find, so designing the sample
-   * around one would hide the very bug it reports.
+   * document that satisfies its own `validate`, nothing more. Required so a
+   * new built-in format can't ship without one: `src/SteeringFormats.test.ts`
+   * asserts `validate(sample)` returns zero findings for every registry entry,
+   * and `src/ModeContradiction.ts` round-trips this exact string through a
+   * mode's `format:` command to catch a formatter that breaks its own
+   * validator. Deliberately NOT authored to survive any particular formatter
+   * — a formatter that reflows this sample into something invalid IS the
+   * contradiction the round-trip exists to find.
    */
   readonly sample: string
   readonly validate: (content: string) => readonly SteeringFinding[]

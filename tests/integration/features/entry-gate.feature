@@ -37,7 +37,6 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(check): unwind → start-gate.check"
 
-    # A clean tree at the gate = tests pass = green -> design.triage.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): start-gate.check → design.triage"
@@ -59,7 +58,6 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(check): unwind → start-gate.check"
 
-    # Simulate a red run: the check script left the failing output behind.
     Given a file ".gtd/FEEDBACK.md" with:
       """
       1 test failing: baseline broken
@@ -67,12 +65,10 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): start-gate.check → start-gate.blocked"
-    # The halt message tells the human the baseline is red and names the fix entry.
     When I run gtd next
     Then it succeeds
     And stdout contains "test baseline is red"
     And stdout contains "gtd --entry fix-precheck"
-    # The human repairs the baseline in place: delete the feedback and land a fix.
     Given the file ".gtd/FEEDBACK.md" is deleted
     And a file "src/baseline-fix.ts" with:
       """
@@ -81,7 +77,6 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start-gate.blocked → start-gate.check"
-    # Re-run the gate: now green -> design.triage.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): start-gate.check → design.triage"

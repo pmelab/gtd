@@ -25,11 +25,9 @@ for (const makeTier of gitTiers) {
 
 /**
  * `resolveRef`'s own validation, unit-tested directly rather than through a
- * real git repo — `git rev-parse --verify` exiting non-zero for a genuinely
- * missing ref is a plain `Error` from `exec` itself (covered by the contract
- * above's "errors on invalid ref"); this is the rarer, defensive branch where
- * the command SUCCEEDS but its output isn't a 40-hex-char hash — a corrupted
- * ref, gtd's one `GtdError` site in `Git.ts`.
+ * real git repo — this is the rarer, defensive branch where the command
+ * SUCCEEDS but its output isn't a 40-hex-char hash: a corrupted ref, gtd's
+ * one `GtdError` site in `Git.ts`.
  */
 describe("resolvedRefOrCorrupted", () => {
   it("succeeds with a genuine 40-hex-char hash", async () => {

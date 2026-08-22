@@ -135,8 +135,6 @@ function loopLogPath(_world: GtdWorld): string {
   return ".git/gtd-loop.log"
 }
 
-// Asserts on the loop's log file — where the agent turn and the check
-// script's own output land instead of the terminal.
 Then("the log file contains {string}", (world: GtdWorld, text: string) => {
   const path = join(world.repoDir, loopLogPath(world))
   const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
@@ -155,9 +153,8 @@ Then("the log file does not contain {string}", (world: GtdWorld, text: string) =
   )
 })
 
-// Counts NON-OVERLAPPING occurrences — used to prove a recovered retry ran,
-// which a plain "contains" assertion can't distinguish from a single
-// occurrence.
+// Non-overlapping count — proves a recovered retry ran, which a plain
+// "contains" check can't distinguish from a single occurrence.
 Then(
   "the log file contains {string} {int} times",
   (world: GtdWorld, text: string, count: number) => {

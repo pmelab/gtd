@@ -13,7 +13,6 @@ function writeFile(dir: string, path: string, content: string) {
   writeFileSync(full, content)
 }
 
-/** Initialise `dir` as a bare-bones git repo with one initial commit. */
 function initGitRepo(dir: string): void {
   git(dir, "init", "-q")
   git(dir, "config", "user.name", "Test")
@@ -27,10 +26,6 @@ function initGitRepo(dir: string): void {
   git(dir, "commit", "-q", "-m", "chore: initial commit")
 }
 
-/**
- * Bare-bones git repo with one initial commit. Tests build on top using the
- * `Given …` steps.
- */
 export function createTestProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "gtd-test-"))
   initGitRepo(dir)
@@ -40,8 +35,7 @@ export function createTestProject(): string {
 /**
  * Like `createTestProject`, but the repo lives one level DOWN inside a fresh
  * outer directory carrying its own `.gtdrc.json` — modelling a global/ancestor
- * gtd config (e.g. `~/.gtdrc`) sitting above a repo. Returns both dirs so the
- * caller drives gtd from `repo` and cleans up `outer`. The ancestor config is a
+ * gtd config (e.g. `~/.gtdrc`) sitting above a repo. The ancestor config is a
  * non-empty object (so cosmiconfig counts it as present) that `gtd init` must
  * ignore, since it scaffolds the repo's OWN config, not the ancestor's.
  */
@@ -63,10 +57,9 @@ export function createPlainDirectory(): string {
 }
 
 /**
- * A git repo with a nested subdirectory, returned as `{ repo, sub }` — for
- * exercising `gtd init`'s refusal to scaffold into a repository subdirectory
- * (where the upward config walk would never find it). `sub` is created under
- * the repo root.
+ * A git repo with a nested subdirectory — for exercising `gtd init`'s refusal
+ * to scaffold into a repository subdirectory (where the upward config walk
+ * would never find it).
  */
 export function createTestProjectWithSubdir(): { repo: string; sub: string } {
   const repo = createTestProject()

@@ -1,49 +1,6 @@
 import { Schema } from "effect"
 import { MACHINE_FIELD_ENTRIES, STATE_FIELD_ENTRIES, type FieldKind } from "./StateFields.js"
 
-/**
- * v3's `.gtdrc` config shape: three blessed top-level keys — `workflow:` (the
- * whole machine definition, compiled by `./PatternConfig.js`), `vars:` (a
- * flat `name -> scalar` map, one of the three layers merged into every
- * template's `it.vars` — see `./Config.js`'s `toOperations` and
- * `./Edge.js`'s `resolveVars`), and `modes:` (steering-file modes layered over
- * the active workflow's own `modes:` and gtd's built-in validators, so a
- * project can plug its formatter into the BUNDLED default without re-declaring
- * the workflow). There are no other blessed config keys (see `./Config.js`'s
- * module docstring for why).
- *
- * All three keys decode as `Schema.Unknown`: the shape is validated structurally
- * by the workflow compiler (`src/PatternConfig.ts`), not by effect/schema —
- * the shape is deep and recursive, and the compiler's errors carry rule
- * coordinates a flat schema error cannot. The `jsonSchema` ANNOTATIONS below
- * exist for one consumer only: `scripts/generate-schema.ts`, which publishes
- * `schema.json` for editor-side autocompletion/validation
- * (yaml-language-server et al). They describe the same shape the compiler
- * enforces, minus the rules JSON Schema cannot express (exactly one content
- * kind per state, exactly one `initial: true` across the workflow, `on`/
- * `retry.otherwise` targets naming defined states, reachability) — the
- * compiler stays the source of truth; the annotation is the editor's first
- * net, never a second validator to keep behaviorally in sync.
- *
- * `stateJsonSchema`'s `properties` is DERIVED from `src/StateFields.ts`'s
- * `STATE_FIELD_ENTRIES` (every field whose `authored` is `"state"`, in table
- * order) rather than hand-listed — this is the fix for the bug that motivated
- * `STATE_FIELDS` existing at all: `answerGate` shipped ten commits without
- * ever being added here (this module had no test), silently rejecting valid
- * configs. A new state property is now automatically part of this schema the
- * moment it's added to the table; `ConfigSchema.test.ts` asserts the derived
- * property set stays exactly the `authored: "state"` keys.
- *
- * Kept in its own module, separate from `./Config.js`, so `scripts/generate-
- * schema.ts` (run via `jiti`, a plain TS-via-Babel loader with no bundler-
- * style pluggable per-extension loaders) can import JUST the schema without
- * risking a transitive pull into the bundled workflow templates
- * (`./workflows/templates.js`, which imports `unified.yaml` as
- * raw text via tsdown's/vitest's `.yaml`-as-text loader — something `jiti` has
- * no equivalent for and doesn't need here): the schema shape never depends on
- * any workflow's content.
- */
-
 /** The `vars:` shape (top-level AND inside `workflow:`): a flat name -> scalar map (`compileVarsMap` coerces every scalar to a string). */
 const varsJsonSchema = {
   type: "object",
@@ -180,7 +137,7 @@ const entryJsonSchema = {
   },
 } as const
 
-/** The whole `workflow:` value — see `PatternConfig.ts`'s module docstring for the authoritative schema. */
+/** The whole `workflow:` value; `PatternConfig.ts`'s compiler is the authoritative schema, this is the editor's first net. */
 const workflowJsonSchema = {
   type: "object",
   description:

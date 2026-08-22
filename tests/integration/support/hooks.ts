@@ -82,9 +82,8 @@ Before(async (world: GtdWorld) => {
   }
 })
 
-// Live tier: remove the temp repo dir (and any purpose-built ancestor dir),
-// honoring KEEP_TEST_REPO — then always remove the PATH shim dir regardless
-// (it's harness scaffolding, not part of the test repo KEEP_TEST_REPO is for).
+// The PATH shim dir is always removed regardless of KEEP_TEST_REPO — it's
+// harness scaffolding, not part of the test repo the flag preserves.
 function cleanupLiveTier(world: GtdWorld): void {
   const keep = process.env["KEEP_TEST_REPO"] === "1"
   const dirs = [world.repoDir, world.extraCleanupDir, world.readmeDriverDir].filter(

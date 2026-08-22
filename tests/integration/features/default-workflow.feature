@@ -47,7 +47,6 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): unwind → start-gate.check"
 
-    # start-gate.check: green baseline gate -> design.triage
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): start-gate.check → design.triage"
@@ -90,8 +89,6 @@ Feature: The bundled unified workflow — one flow, end to end
     And the git log does not contain "design.gate.answer"
     And the git log does not contain "architecture.gate.answer"
 
-    # architecture.decompose: one package file per concern, mechanically,
-    # deletes ARCHITECTURE.md
     Given the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-greeting.md" with:
       """
@@ -102,7 +99,6 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): architecture.decompose → packages.picking"
 
-    # packages.picking: takes the first (only) package file into NEXT.md
     Given a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-greeting.md
@@ -121,7 +117,6 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
 
-    # packages.item.health.check (red): a failing run -> packages.item.fix-suite
     Given a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -130,18 +125,15 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.health.check → packages.item.fix-suite"
 
-    # packages.item.fix-suite: fixes it, deletes FEEDBACK.md -> health.check
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.fix-suite → packages.item.health.check"
 
-    # packages.item.health.check (green) -> packages.item.spec.review
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
 
-    # packages.item.spec.review (issues) -> packages.item.fix-spec
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
       """
       greet() should be documented with a doc comment.
@@ -150,23 +142,19 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
 
-    # packages.item.fix-spec: addresses it, deletes SPEC_FEEDBACK.md -> health.check
     Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.fix-spec → packages.item.health.check"
 
-    # packages.item.health.check (green) -> packages.item.spec.review again
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
 
-    # packages.item.spec.review (clean = approval) -> packages.item.closing
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
 
-    # packages.item.closing: removes the package file and NEXT.md -> picking
     Given the file ".gtd/packages/01-greeting.md" is deleted
     And the file ".gtd/NEXT.md" is deleted
     When I run gtd land
@@ -178,7 +166,6 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): packages.picking → build.review.reviewing"
 
-    # build.review.reviewing: writes REVIEW.md and hands to await-review
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -610,7 +597,6 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it fails
     And stderr contains "not answered"
     And stderr contains "Which storage backend?"
-    # tick exactly one option -> loops back to design.triage to fold it in
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget.
@@ -685,7 +671,6 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it fails
     And stderr contains "not answered"
-    # replace the placeholder with real text -> answered, loops to architecture.author
     Given ".gtd/ARCHITECTURE.md" is modified to:
       """
       Modules: widget.ts, store.ts.
@@ -904,9 +889,6 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): packages.picking → packages.item.building"
 
-    # packages.item.building: an earlier package's fix turn already
-    # implemented the widget factory — the agent records evidence instead of
-    # implementing anything
     Given a file ".gtd/SATISFIED.md" with:
       """
       - [x] add src/widget.ts — already present, see commit
@@ -916,7 +898,6 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
 
-    # packages.item.health.check (green) -> packages.item.spec.review
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
@@ -928,8 +909,6 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
 
-    # packages.item.closing: removes the package file, NEXT.md, and the
-    # satisfied evidence -> packages.picking
     Given the file ".gtd/packages/01-widget.md" is deleted
     And the file ".gtd/NEXT.md" is deleted
     And the file ".gtd/SATISFIED.md" is deleted
@@ -1146,7 +1125,6 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] ./src/a.ts#1
       - [ ] ./src/b.ts#1
       """
-    # Tick only the first item, leave the second, add no note and no code edit.
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234

@@ -71,10 +71,6 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("declares exactly one review checkout window and one review entry", () => {
-    // The process runs to a human review gate, so it must declare exactly one
-    // `reviewWindow: true` state (the gate that opens the editor's checkout
-    // window) and exactly one manual entry named `review-gate.check` (the
-    // `gtd --entry review-gate.check` entry point) — see src/ReviewWindow.ts.
     const { definition } = compileTemplate()
     const states = Object.values(definition.states)
     expect(states.filter((s) => s.reviewWindow === true)).toHaveLength(1)
@@ -109,26 +105,23 @@ describe("the bundled unified workflow template", () => {
     const idle = definition.states.idle!
     const targets = (idle.on ?? []).map(([, to]) => to)
     expect(targets).toEqual(["unwind"])
-    // unwind has exactly one inbound edge (idle's) and one outbound edge,
-    // into the single start gate — the single inbound edge is what makes an
-    // idempotence guard unnecessary there (see unified.yaml's own comment).
+    // unwind's single inbound edge (from idle) means it's structurally
+    // reached once per process, so it needs no idempotence guard.
     const inbound = Object.entries(definition.states).flatMap(([from, s]) =>
       (s.on ?? []).filter(([, to]) => to === "unwind").map(() => from),
     )
     expect(inbound).toEqual(["idle"])
     const unwindTargets = (definition.states.unwind!.on ?? []).map(([, to]) => to)
     expect(unwindTargets).toEqual(["start-gate.check"])
-    // The gate proceeds to triage once green.
     expect((definition.states["start-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
       "design.triage",
     )
   })
 
   it("declares exactly the three qualified entryGate/fix-precheck states as manual entries", () => {
-    // Both `entryGate` instances (start-gate/review-gate) declare `entry:
-    // true` on their shared `check` local — the dedup means marking one
-    // marks both, even though only `review-gate.check` actually needs the
-    // reachability root — plus `fix-precheck`'s own.
+    // Both `entryGate` instances share one `check` local declaring `entry:
+    // true`, so the dedup marks both even though only `review-gate.check`
+    // needs the reachability root.
     const { definition } = compileTemplate()
     const { default: def, manual } = definition.entries
     expect(def).toBeTruthy()
@@ -140,9 +133,8 @@ describe("the bundled unified workflow template", () => {
 
   it("the entry gate's check and fix-precheck each sweep a leftover review capture, ordered after the FEEDBACK rows", () => {
     // A swept run's diff carries the sweep's `D .gtd/REVIEW_RAW.md` alongside
-    // whatever the suite wrote (`src/PatternMachine.ts`'s `changes.some`
-    // matches ANY pending change), so a red run that also swept must still
-    // route through the FEEDBACK rows, not the sweep row — package 03.
+    // whatever the suite wrote, so a red run that also swept must still route
+    // through the FEEDBACK rows, not the sweep row.
     const { definition } = compileTemplate()
     for (const name of ["start-gate.check", "review-gate.check", "fix-precheck"]) {
       const patterns = (definition.states[name]!.on ?? []).map(([pattern]) => pattern)
@@ -155,7 +147,7 @@ describe("the bundled unified workflow template", () => {
       expect(sweepIndex, name).toBeGreaterThan(-1)
       expect(sweepIndex, name).toBeGreaterThan(Math.max(...feedbackIndexes))
     }
-    // The health gate's shared check needs no new row: its existing `"* **"`
+    // The health gate's shared check needs no row of its own: its existing
     // green catch-all already absorbs the sweep's deletion.
     expect(
       (definition.states["start-gate.check"]!.script as string).match(
@@ -165,10 +157,8 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("compiles exactly one template-form reviewBase, and no truthy reviewBase on start-gate", () => {
-    // `review-gate.check` fixes the whole process's diff base to a
-    // manually-supplied commitish (a template string, via its `$reviewBase`
-    // binding). `start-gate.check` binds the same param to the literal empty
-    // string, which compiles away to "field absent".
+    // `start-gate.check` binds the same `$reviewBase` param to the literal
+    // empty string, which compiles away to "field absent".
     const { definition } = compileTemplate()
     const states = definition.states
     const templateReviewBase = Object.entries(states).filter(
@@ -180,9 +170,7 @@ describe("the bundled unified workflow template", () => {
 
   it("declares exactly two questionGate instances, each `check` with the mandatory C row and each `answer` with no C row", () => {
     const { definition } = compileTemplate()
-    // Pinned by COUNT (mirrors the entryGate manual-entries pin above) — a
-    // third `.gate.check` added later without updating this test would
-    // otherwise pass silently.
+    // Pinned by count so a third `.gate.check` added later fails loudly.
     const gateChecks = Object.keys(definition.states)
       .filter((name) => name.endsWith(".gate.check"))
       .sort()
@@ -208,9 +196,6 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("exposes the compiled default as the built-in fallback (definition + its own vars)", () => {
-    // `src/Config.ts` and the in-memory test layer fall back to these when no
-    // `workflow:` is configured — so they must be the same compiled shape the
-    // template produces, with the template's own `vars:` defaults intact.
     expect(validateDefinition(defaultWorkflowDefinition)).toEqual([])
     expect(defaultWorkflowDefinition).toEqual(compileTemplate().definition)
     expect(defaultWorkflowVars).toEqual(compileTemplate().vars)
@@ -218,9 +203,6 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("exposes defaultStateScopes covering every state in the compiled default", () => {
-    // src/Config.ts exposes this as ConfigOperations.stateScopes for the
-    // built-in default — it must be the same scopes map the template
-    // produces, with an entry for every single compiled state.
     expect(defaultStateScopes).toEqual(compileTemplate().scopes)
     expect(Object.keys(defaultStateScopes).sort()).toEqual(
       Object.keys(defaultWorkflowDefinition.states).sort(),
@@ -228,9 +210,6 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("renders the full workflow config with the $schema key first (renderInitConfig)", () => {
-    // renderInitConfig materializes the built-in default into a `workflow:`
-    // config — the way to eject/customize the machine, and the hermetic
-    // `Given the workflow` test fixture (modes-free).
     const rendered = renderInitConfig()
     const parsed = JSON.parse(rendered) as { $schema: string; workflow: unknown; modes?: unknown }
     expect(parsed.$schema).toBe(SCHEMA_URL)
@@ -251,7 +230,6 @@ describe("the bundled unified workflow template", () => {
       expect(parsed.$schema).toBe(SCHEMA_URL)
       expect(parsed.vars).toEqual(INIT_VARS)
       expect(parsed.modes).toEqual(MODES_SUGGESTION)
-      // The workflow is built in — init never writes it.
       expect(parsed.workflow).toBeUndefined()
       expect(config.endsWith("\n")).toBe(true)
     })
@@ -272,9 +250,8 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("packages.item.building declares an escape hatch for a package whose work already landed (issue #152)", () => {
-    // A package whose acceptance criteria are already met (an earlier
-    // package's fix turn pulled the work in) must have a legal, non-empty way
-    // to say so, rather than dead-ending in an empty attempt + stall.
+    // An earlier package's fix turn may already satisfy this one's acceptance
+    // criteria; without this edge that dead-ends in an empty attempt + stall.
     const { definition } = compileTemplate()
     const building = definition.states["packages.item.building"]!
     const edges = building.on ?? []
@@ -285,13 +262,12 @@ describe("the bundled unified workflow template", () => {
     expect(satisfiedMod?.[1]).toBe(satisfiedAdd?.[1])
   })
 
-  // The three unstructured-file authoring prompts (package 02) — voice only,
-  // no structural override, since nothing parses their output.
+  // Voice only, no structural override, since nothing parses their output.
   const PROSE_PROMPTS = ["architecture.decompose", "packages.item.spec.review", "build.squashing"]
 
-  // The four machine-parsed prompts (package 03) — the only states that
-  // interpolate both a `file:` and a `mode:` of `qa`/`review` — get BOTH the
-  // voice and the structural override that outranks it.
+  // The only states that interpolate both a `file:` and a `mode:` of
+  // `qa`/`review` — get both the voice and the structural override that
+  // outranks it.
   const PARSED_PROMPTS = [
     "design.triage",
     "architecture.author",
@@ -300,9 +276,6 @@ describe("the bundled unified workflow template", () => {
   ]
 
   it("declares the styleBlock/styleFormatContract voice variables, non-empty, styleFormatContract on-message (package 01)", () => {
-    // Settled shape: two independently-overridable vars, one for the free
-    // prose sites and one for the machine-parsed override — see
-    // .gtd/packages/01-style-vars-and-attribution.md.
     const { vars } = compileTemplate()
     expect(vars.styleBlock).toBeTruthy()
     expect(vars.styleFormatContract).toBeTruthy()
@@ -313,7 +286,6 @@ describe("the bundled unified workflow template", () => {
     expect(vars.styleFormatContract).toMatch(/renumber or\s+rename/)
     expect(vars.styleFormatContract).toMatch(/refuses the turn|refused/)
 
-    // Attribution: upstream name, URL, licence, and the version derived from.
     expect(unifiedYaml).toMatch(/attention-span/)
     expect(unifiedYaml).toMatch(/https:\/\/github\.com\/alexgreensh\/attention-span/)
     expect(unifiedYaml).toMatch(/AGPL-3\.0/)
@@ -383,13 +355,10 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("every script-content state is POSIX sh, not bash — the driver runs it via `sh -c`", () => {
-    // The shebang line is inert (the driver runs the script through whatever
-    // shell it invokes, never by exec-ing the script itself), but it is also
-    // documentation of what syntax the body may use — so it must say `sh`,
-    // and the body must actually stay POSIX. Iterate every script-content
-    // state generically (not just today's known six-turned-eight blocks) so a
-    // future workflow change that adds a new script state and accidentally
-    // reintroduces a bashism fails here automatically.
+    // The shebang is inert (the driver runs the script via whatever shell it
+    // invokes) but still documents the syntax the body may use. Iterate every
+    // script-content state generically so a future one that reintroduces a
+    // bashism fails here automatically.
     const { definition } = compileTemplate()
     const scriptStates = Object.entries(definition.states).filter(
       (entry): entry is [string, { script: string }] => entry[1].script !== undefined,
@@ -411,10 +380,6 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  // The six persona-carrying machines (package 04) — each declares its own
-  // `system:` (the agent harness system prompt, stamped onto every one of its
-  // own `prompt` states) built from its own `*Persona` var, mirroring the
-  // `model:` identity table above.
   const PERSONA_MACHINES = [
     { machine: "designPlan", states: ["design.triage"], personaVar: "designPersona" },
     {
@@ -480,7 +445,6 @@ describe("the bundled unified workflow template", () => {
     const expectedStates = PERSONA_MACHINES.flatMap((m) => m.states).sort()
     expect(systemBearing).toEqual(expectedStates)
 
-    // Exactly the six distinct persona vars are referenced — no more, no fewer.
     const referencedVars = new Set(
       Object.values(definition.states)
         .map((s) => s.system?.match(/it\.vars\.(\w+Persona)\b/)?.[1])
@@ -500,25 +464,18 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  // Package 01 (decomposition granularity rules): design.triage's grouping
-  // step gains a vertical-slicing test and a distinct-acceptance test beside
-  // the green floor, and architecture.author gains footprint-based merge
-  // authority — both carry the same literal fewer-larger-packages bias, and
-  // neither states it as a number. Pinned by stable keyword, never a whole
-  // sentence, so a later reword doesn't red this suite for no reason.
+  // Pinned by stable keyword, never a whole sentence, so a later reword
+  // doesn't red this suite for no reason.
 
   it("design.triage's grouping step states the vertical-slicing test and the distinct-acceptance test (package 01)", () => {
     const { definition } = compileTemplate()
     const prompt = definition.states["design.triage"]!.prompt!
 
-    // Vertical, not horizontal: slice by capability, never by layer; a
-    // prep-only concern (types, scaffolding, renames) folds into its consumer.
     expect(prompt).toMatch(/vertical/i)
     expect(prompt).toMatch(/capability/i)
     expect(prompt).toMatch(/never by layer/i)
     expect(prompt).toMatch(/scaffolding/i)
 
-    // Distinct acceptance: an observable check that fails before, passes after.
     expect(prompt).toMatch(/fails\s+before it and passes after/i)
     expect(prompt).toMatch(/merge it into\s+its neighbour/i)
   })
@@ -532,7 +489,6 @@ describe("the bundled unified workflow template", () => {
     expect(prompt).toMatch(/merge only, never to split/i)
     expect(prompt).toMatch(/carrying both merged requirements\s+verbatim/i)
     expect(prompt).toMatch(/raises no open question and stops for no\s+human/i)
-    // It explicitly refuses to route a merge to architecture.gate for a veto.
     expect(prompt).toMatch(/do not route it to `architecture\.gate` for a veto/i)
   })
 
@@ -551,10 +507,9 @@ describe("the bundled unified workflow template", () => {
   it("neither the vertical/distinct-acceptance prose nor the footprint/merge prose states a package count as a digit (package 01)", () => {
     const { definition } = compileTemplate()
 
-    // Slice out just the new prose in each prompt (between stable anchors
-    // either side of it), rather than the whole prompt — both prompts
-    // legitimately carry unrelated digits elsewhere (design.triage's own
-    // numbered steps "1."-"4.").
+    // Slice out just the new prose (between stable anchors), rather than the
+    // whole prompt — both prompts legitimately carry unrelated digits
+    // elsewhere (design.triage's own numbered steps "1."-"4.").
     const triagePrompt = definition.states["design.triage"]!.prompt!
     const triageStart = triagePrompt.indexOf("Two more tests sit beside")
     const triageEnd = triagePrompt.indexOf("2. Classify each concern")
@@ -575,12 +530,10 @@ describe("the bundled unified workflow template", () => {
 
 describe("the bundled template's machine boundaries line up with conversational identity (package 08/02)", () => {
   // These invariants are about the RAW `machines:` source, not the compiled
-  // (flattened) definition — the compiler STAMPS a machine-level `model:`
-  // onto every one of its own `prompt` states (src/Machines.ts's
-  // `resolveInstanceMachineFields`), so by the time a state is compiled it always
-  // carries a `model` whether it was declared machine-level or (the thing
-  // this restructure eliminates) state-level. Only the raw source can tell
-  // the two apart.
+  // (flattened) definition — the compiler stamps a machine-level `model:`
+  // onto every one of its own `prompt` states, so a compiled state always
+  // carries a `model` regardless of where it was declared. Only the raw
+  // source can tell machine-level from state-level.
   const raw = parseYaml(unifiedYaml) as {
     readonly machines: Readonly<
       Record<
@@ -677,11 +630,10 @@ describe("the bundled template's machine boundaries line up with conversational 
   })
 
   it("`build.review` is nested inside `build`'s own scope, so the review round-trip never breaks the builder's session", () => {
-    // The load-bearing point of this restructure: humanReview is instantiated
-    // as a descendant of buildTail (not a root sibling), so a full round of
-    // health -> review -> feedback stays within one memoryScopeAt run. A
-    // future refactor that hoists the review tail back to the root would
-    // silently undo this — pin it here.
+    // humanReview is instantiated as a descendant of buildTail (not a root
+    // sibling), so a full round of health -> review -> feedback stays within
+    // one memoryScopeAt run. A future refactor hoisting the review tail back
+    // to the root would silently undo this.
     const { scopes } = compileTemplate()
     expect(scopes["build.review.reviewing"]).toMatch(/^build\./)
     for (const state of ["fix", "squashing"]) {
@@ -699,19 +651,14 @@ describe("the bundled template's machine boundaries line up with conversational 
   })
 
   it("no machine contains BOTH a review-content prompt state AND an implementer-content prompt state — the planner/coder identities never overlap within one machine", () => {
-    // Planner machines: every one of their OWN prompt states is a
-    // plan-development/review action, never a write-code one.
     expect(ownPromptStates("designPlan")).toEqual(["triage"])
     expect(ownPromptStates("archPlan")).toEqual(["author", "decompose"])
     expect(ownPromptStates("humanReview")).toEqual(["collecting", "reviewing"])
     expect(ownPromptStates("specReview")).toEqual(["review"])
 
-    // Coder machines: every one of their OWN prompt states is a
-    // write/fix-code action, never a plan-development/review one.
     expect(ownPromptStates("packageItem")).toEqual(["building", "fix-spec", "fix-suite"])
     expect(ownPromptStates("buildTail")).toEqual(["fix", "squashing"])
 
-    // Identity-free gate/queue machines own no prompt state at all.
     expect(ownPromptStates("entryGate")).toEqual([])
     expect(ownPromptStates("healthGate")).toEqual([])
     expect(ownPromptStates("questionGate")).toEqual([])

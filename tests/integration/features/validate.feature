@@ -168,10 +168,6 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And the git status is clean
 
   Scenario: the step gate runs format + validate after a human edits the steering file — a malformed edit is refused
-    # A human answers at design.gate.answer but leaves a `### ` question
-    # heading with no question text. Stepping runs the same gate the producing
-    # agent gets, so the malformed edit is refused and nothing is committed —
-    # the evaluation happens after a human edit too.
     Given a test project
     And the workflow
     And a commit "gtd(human): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:

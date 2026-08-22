@@ -41,7 +41,6 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     When I run gtd with args "--entry fix-precheck"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
-    # Simulate a red run: the check script left the failing output behind.
     Given a file ".gtd/FEEDBACK.md" with:
       """
       1 test failing
@@ -49,7 +48,6 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): fix-precheck → build.fix"
-    # fixing: the agent addresses the feedback and deletes it.
     Given the file ".gtd/FEEDBACK.md" is deleted
     And a file "src/repair.ts" with:
       """
@@ -58,7 +56,6 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
-    # A now-green check hands off to the shared review + squash tail.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"

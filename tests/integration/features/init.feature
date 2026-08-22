@@ -20,7 +20,6 @@ Feature: gtd init — seed a minimal .gtdrc.json (default vars + formatting)
     And stdout contains "commit"
     And ".gtdrc.json" exists
     And ".gtdrc.json" contains "\"$schema\""
-    # Seeds the test command as a ready-to-edit top-level var.
     And ".gtdrc.json" contains "\"vars\""
     And ".gtdrc.json" contains "\"testCommand\""
     And ".gtdrc.json" contains "npm test"
@@ -62,8 +61,6 @@ Feature: gtd init — seed a minimal .gtdrc.json (default vars + formatting)
     And ".gtdrc.json" exists
     And ".gtdrc.json" contains "\"testCommand\""
 
-  # gtd ships a built-in default workflow, so a state command works with no
-  # config at all — no init required.
   Scenario: a state command with no config runs on the built-in default workflow
     Given a test project
     When I run gtd next

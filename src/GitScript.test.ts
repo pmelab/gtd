@@ -89,7 +89,6 @@ describe("commitAll", () => {
     const { binDir, counterFile } = withFakeGit(`exit 1`)
     const result = runWithFakeGit(commitAll("msg"), binDir)
     expect(result.status).not.toBe(0)
-    // Only `git add -A` ran — the commit (which would bump the counter to 2+) never fired.
     expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("1")
   })
 })
@@ -118,7 +117,6 @@ describe("commitAllowEmpty retry discrimination (via commitAsIs)", () => {
     const { binDir, counterFile } = withFakeGit(`echo "some other failure" >&2; exit 1`)
     const result = runWithFakeGit(commitAsIs("msg"), binDir)
     expect(result.status).not.toBe(0)
-    // Only ran once — no retry on a failure that isn't the hook rejection.
     expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("1")
   })
 })

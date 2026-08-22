@@ -187,9 +187,7 @@ describe("buildVizModel", () => {
   })
 
   it("computes incoming edges (routes in from)", () => {
-    // start.check green (C) -> planning
     expect(stateNamed("planning").incoming).toContainEqual({ from: "start.check", pattern: "C" })
-    // idle -> start.check
     expect(stateNamed("start.check").incoming).toContainEqual({ from: "idle", pattern: "* **" })
   })
 

@@ -32,7 +32,7 @@ that fully REPLACES the default (there is no `extends`/merge), so start from the
 default's own source and edit it:
 
 ```bash
-# The built-in default's source, heavily commented — copy from it, don't start blank:
+# The built-in default's source — copy from it, don't start blank:
 src/workflows/unified.yaml
 ```
 
@@ -98,6 +98,10 @@ your own freely; the set of valid actors is derived from what your states
 declare.
 
 ### `model` lives on the machine, not the state — and there is no `memory:`
+
+A **machine**, not an individual state, is the unit of conversational identity:
+its `model:` stamps every one of its own `prompt` states, and its memory scope
+is keyed off its own position in the machine tree, not off any per-state field.
 
 A state never declares its own `model:` — the opaque harness hint is declared
 **once**, on the state's OWNING machine (`machines.<name>.model`), and is
@@ -227,8 +231,12 @@ a rendered diff into a template; the context doesn't carry one.
 
 A content value starting with `./` or `../` is a **file reference** — read
 relative to the config file at load time (a missing file is a load error).
-Anything else is inline template source. Bundled templates must be inline (they
-ship in a single-file build); a user's own `.gtdrc` may use `./` refs.
+Anything else is inline template source. The bundled
+`src/workflows/unified.yaml` must be inline, with no `./` refs at all: it ships
+as a raw string inside the single-file `dist/gtd.bundle.mjs` build, so every
+content string must already be resolved at BUILD time, not read from disk at
+runtime. A user's own `.gtdrc` has no such constraint and may use `./` refs
+freely.
 
 > **Critical caveat: `on` pattern keys are NOT Eta-rendered.** If you drive
 > steering-file paths from `it.vars` (e.g. `file: <%= it.vars.todoFile %>`), the
@@ -409,4 +417,4 @@ state is orphaned.
   authoring contract stays in sync with the compiler it targets.
 - Where this file and the code disagree, the code wins: `src/PatternMachine.ts`
   (engine + `validateDefinition`), `src/PatternConfig.ts` (compiler),
-  `src/workflows/unified.yaml` (the bundled workflow, heavily commented).
+  `src/workflows/unified.yaml` (the bundled workflow).

@@ -36,9 +36,7 @@ Feature: gtd abandon — end the process underway without completing it
     # deciding; this only proves the script calls the right outcome function
     # with the right resting state.
     And stdout contains "gtd_report_abandoned 'unwind'"
-    # HEAD is back at the process boundary: the config commit before the process.
     And the last commit subject is "chore: init gtd workflow"
-    # The plan the process committed is kept, now as a pending change.
     And the git status contains "NOTE.md"
     And "NOTE.md" contains "Build a thing."
     When I run gtd next
@@ -102,14 +100,10 @@ Feature: gtd abandon — end the process underway without completing it
     And the git ref "refs/worktree/gtd/review-head" does not exist
     And the git ref "refs/worktree/gtd/review-base" does not exist
     And the last commit subject is "feat: add calculator"
-    # The reviewed changeset stays committed; only the review doc is pending.
     And the git status contains ".gtd/REVIEW.md"
     And the git status does not contain "src/calc.ts"
 
   Scenario: reports the abandoned process and the state it returned to, in plain text
-    # No more --json here (abandon is plain-text only now, see AGENTS.md) —
-    # the printed script names the resting state it abandoned, and a
-    # follow-up "gtd next" confirms it rewound to idle.
     Given a file "NOTE.md" with:
       """
       Build a thing.

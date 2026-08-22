@@ -55,7 +55,6 @@ const commandsDef = (modes: NonNullable<WorkflowDefinition["modes"]>): WorkflowD
   entries: { default: "x", manual: [] },
 })
 
-/** One recorded call into a scripted `CommandRunner`. */
 interface RecordedCall {
   readonly command: string
 }
@@ -93,7 +92,6 @@ const runWith = <A>(
   layer: Layer.Layer<CommandRunner>,
 ) => Effect.runPromise(eff.pipe(Effect.provide(Layer.merge(layer, envVarsLayer))))
 
-/** Same as `runWith`, but returns the `Exit` so a failure can be asserted on. */
 const runExitWith = <A>(
   eff: Effect.Effect<A, Error, CommandRunner | EnvVars>,
   layer: Layer.Layer<CommandRunner>,
