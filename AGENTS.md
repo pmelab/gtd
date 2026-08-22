@@ -33,6 +33,21 @@ stale green: the canonical example is `README.md` in both e2e tasks' `inputs`,
 because `tests/integration/features/readme-driver.feature` runs it as executable
 code — omitting it would let a broken doc pass on a cached result.
 
+### `.gtd/` is formatted, not ignored
+
+`.gtd/` carries no `.prettierignore` entry — every file under it, steering files
+included, is oxfmt-formatted and covered by `format:check` like the rest of the
+repository. A committed steering file that is not an oxfmt fixed point reds
+every gate that runs the test suite: `start-gate`, `review-gate`, and
+`fix-precheck` alike.
+
+Two mechanisms keep files there conforming, and neither is new code: a state
+declaring both `file:` and `mode:` gets that mode's own
+`npx oxfmt --write <%= it.file %>` emitted into its step script ahead of the
+commit (`program.ts`'s `steeringModeSteps`), and a state declaring `file:` with
+no `mode:` is caught instead by husky → lint-staged running `oxfmt --write` over
+staged files during the step commit.
+
 ## Architecture
 
 `CONTEXT.md` is the glossary — the domain language this repo uses (process,

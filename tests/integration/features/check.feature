@@ -71,6 +71,23 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stdout is empty
 
   @inmem
+  Scenario: a review file with notes on the pointer's own line validates cleanly and exits 0 silently
+    Given a file "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add thing.ts
+
+      - [x] ./src/thing.ts#1 — new export
+      - [ ] ./src/other.ts#7 — reworks the validator
+        to also accept the one-line form
+      """
+    When I run gtd with args "check review REVIEW.md"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
   Scenario: a malformed review file prints the parser's findings on stderr and fails
     Given a file "REVIEW.md" with:
       """

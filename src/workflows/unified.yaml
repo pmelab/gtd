@@ -1175,17 +1175,23 @@ machines:
             (same feature/refactor/fix, even across files) — a short explanation of
             what changed and why, then one file pointer per hunk (checkboxes are
             for the human to tick, not you; every path is `./`-relative, with an
-            optional `#line`). The explanation can go on the line(s) beneath the
-            pointer, or trail it on the same line after a dash — both forms are
-            valid:
+            optional `#line`). Put the note's opening line right on the
+            pointer's own line, after a dash — the reflow-proof shape:
 
-                - [ ] ./path/to/file.ts#42
-                  what this hunk does, with room to run to several lines
+                - [ ] ./path/to/file.ts#42 — what this hunk does
 
-                - [ ] ./path/to/other.ts#7 — shorter note, same line as the pointer
+            If the note needs more than one line, continue it on the line(s)
+            below the pointer, indented exactly two spaces — never four or
+            more, which after a blank line reads as an indented code block
+            and never reflows:
 
-            Either way, the explanation itself must never START with a bare
-            `./path` token — that parses as a second hunk pointer, not a note.
+                - [ ] ./path/to/file.ts#42 — what this hunk does
+                  and here is more detail, continued below it
+
+            A note that sits entirely on the line(s) beneath the pointer is
+            also valid. Either way, the explanation itself must never START
+            with a bare `./path` token — that parses as a second hunk pointer,
+            not a note.
 
           This prompt carries no diff — read the changes yourself. The range runs
           from `<%= it.reviewBase %>` to the working tree (committed turns plus

@@ -202,14 +202,17 @@ The process converges on that same shared tail: an agent hands you a
 `.gtd/REVIEW.md` checkbox review of the diff — the prompt never inlines the diff
 itself; it names the commit the changes are based at and the agent runs
 `git diff` to read the range before writing the review. Each hunk is a
-`- [ ] ./path/to/file.ts#42` pointer, and its explanation can either sit on the
-line(s) below it or trail the pointer on the same line — both forms are equally
-valid:
+`- [ ] ./path/to/file.ts#42` pointer, and its explanation can either trail the
+pointer on the same line after a dash or sit on the line(s) below it — both
+forms are equally valid, but the same-line form is the reflow-proof one, since a
+continuation line has to be indented exactly two spaces (four or more, after a
+blank line, reads as an indented code block and never reflows):
 
 ```
-- [ ] ./path/to/file.ts#42
-  what this hunk does, with room to run to several lines
-- [ ] ./path/to/file.ts#99 — a same-line note works too
+- [ ] ./path/to/file.ts#42 — what this hunk does, with room to run to
+  several lines
+- [ ] ./path/to/file.ts#99
+  a note on the line below the pointer works too
 ```
 
 The one rule an explanation must follow either way: it must never itself START
