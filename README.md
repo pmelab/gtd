@@ -30,9 +30,14 @@ Paste this into your coding agent:
 ```
 
 It prints a self-contained briefing that teaches the agent to set the project
-up, build a gtd driver for itself in whatever shell or runtime it runs, and ask
+up, build two commands for itself in whatever shell or runtime it runs, and ask
 you what you want before it starts driving. You get one prompt to paste, not a
-state name to choose.
+state name to choose. The two commands: a **loop command** that drives beats
+until the process rests, and an **edit command** that opens the steering file
+the process is waiting on right now — falling back to `.gtd/TODO.md` when the
+resting state declares none. That fallback is also how you begin: on a clean
+repository the edit command opens the empty `.gtd/TODO.md`, and whatever you
+write there is the first sketch the whole process gets planned from.
 
 Writing a driver by hand instead? See
 [Driving the loop](https://github.com/pmelab/gtd/blob/main/docs/driver.md) for

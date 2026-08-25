@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
-import { MINIMAL_DRIVER, renderBriefing } from "./Install.js"
+import { EDIT_COMMAND, MINIMAL_DRIVER, renderBriefing } from "./Install.js"
 
 const _require = createRequire(import.meta.url)
 const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
@@ -57,5 +57,27 @@ describe("renderBriefing", () => {
 
   it("instructs committing the config before the first drive", () => {
     expect(renderBriefing()).toMatch(/commit (it|the config).{0,40}before.{0,20}drive/is)
+  })
+
+  it("names the edit command's default path", () => {
+    expect(renderBriefing()).toContain("~/.local/bin/gtd-edit")
+  })
+
+  it("names the `file` field the edit command reads", () => {
+    expect(renderBriefing()).toMatch(/`?file`?/)
+    expect(renderBriefing()).toContain("gtd_file")
+  })
+
+  it("names the .gtd/TODO.md fallback", () => {
+    expect(renderBriefing()).toContain(".gtd/TODO.md")
+  })
+
+  it("names the initial-instruction use of the edit command", () => {
+    expect(renderBriefing()).toMatch(/initial state/i)
+    expect(renderBriefing()).toMatch(/sketch/i)
+  })
+
+  it("EDIT_COMMAND contains no jq", () => {
+    expect(EDIT_COMMAND).not.toMatch(/jq/)
   })
 })
