@@ -13,7 +13,7 @@ export default defineConfig({
       "./tests/integration/support/steps/common.steps.ts",
       "./tests/integration/support/steps/config.steps.ts",
       "./tests/integration/support/steps/formatting.steps.ts",
-      "./tests/integration/support/steps/readme-driver.steps.ts",
+      "./tests/integration/support/steps/driver-doc.steps.ts",
       "./tests/integration/support/steps/lsp.steps.ts",
       "./tests/integration/support/steps/review-signoff.steps.ts",
       "./tests/integration/support/steps/review-window.steps.ts",

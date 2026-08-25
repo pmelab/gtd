@@ -2,21 +2,21 @@ const SECTION_HEADING = "### A complete minimal driver"
 const NEXT_HEADING = /\n#{2,3} /
 
 /**
- * Pulls the ```bash fenced block out of README.md's "A complete minimal
+ * Pulls the ```bash fenced block out of docs/driver.md's "A complete minimal
  * driver" section, verbatim — the doc-tested proof that this exact paste is
- * what `readme-driver.feature` runs. Throws if the heading is gone (renamed
+ * what `driver-doc.feature` runs. Throws if the heading is gone (renamed
  * or removed) or the section doesn't carry exactly one bash fence (more than
  * one would mean the paste isn't self-contained, which is exactly the claim
  * under test).
  */
 // fallow-ignore-next-line complexity
-export function extractMinimalDriver(readme: string): string {
-  const headingIndex = readme.indexOf(`\n${SECTION_HEADING}\n`)
+export function extractMinimalDriver(doc: string): string {
+  const headingIndex = doc.indexOf(`\n${SECTION_HEADING}\n`)
   if (headingIndex === -1) {
-    throw new Error(`README.md is missing the "${SECTION_HEADING}" heading`)
+    throw new Error(`docs/driver.md is missing the "${SECTION_HEADING}" heading`)
   }
   const sectionStart = headingIndex + `\n${SECTION_HEADING}\n`.length
-  const rest = readme.slice(sectionStart)
+  const rest = doc.slice(sectionStart)
   const nextHeading = rest.match(NEXT_HEADING)
   const section = nextHeading ? rest.slice(0, nextHeading.index) : rest
 

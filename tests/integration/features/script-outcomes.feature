@@ -2,8 +2,8 @@
 Feature: Emitted required/optional scripts print their own outcome lines
 
   A `gtd land`/`gtd abandon`/`gtd restore` invocation no longer performs its
-  own git write, and the driver that DOES (this suite's own `world.ts`, or the
-  README's minimal driver) no longer re-derives the commit grammar or
+  own git write, and the driver that DOES (this suite's own `world.ts`, or
+  docs/driver.md's minimal driver) no longer re-derives the commit grammar or
   re-prints the write commands' wording itself either: the emitted `required`
   script prints its own human-facing outcome line (`src/OutcomeScript.ts`'s
   `gtd_report_*` calls), so ANY driver — this suite, a real driver, or a human

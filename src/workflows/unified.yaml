@@ -3,7 +3,7 @@
 # vars.testCommand + a modes: suggestion, never this file. Compiled through
 # the same `compileWorkflowConfig` a user's own `workflow:` goes through — no
 # privileged path. See skills/authoring/SKILL.md for how to read or edit it
-# (machines, patterns, templates) and the README for how a driver runs it.
+# (machines, patterns, templates) and docs/driver.md for how a driver runs it.
 #
 # One flow: any change to the tree starts the process. `idle` -> `unwind`
 # reverts that diff (intent survives only in history) -> a green-baseline
@@ -945,8 +945,8 @@ machines:
         # No retry cap: the loop only re-enters through
         # `fix-spec`/`health.check`, so under the per-episode rule this state's
         # episode count can never exceed 1 and a cap could never fire. The
-        # spec-review loop is genuinely unbounded — see the README's "Bounded,
-        # not runaway".
+        # spec-review loop is genuinely unbounded — see docs/configuration.md's
+        # `retry` documentation.
         prompt: |
           <%~ it.vars.styleBlock %>
 

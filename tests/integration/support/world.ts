@@ -209,16 +209,16 @@ export class GtdWorld extends QuickPickleWorld {
   directRedirectByteCount: number | undefined = undefined
   /** Byte count reaching a deliberately slow pipe consumer, set alongside `directRedirectByteCount`. `@live` only. */
   pipedByteCount: number | undefined = undefined
-  /** Path to a stub agent script for `readme-driver` scenarios (@live only) — the `claude` shim translates the README driver's argv into this stub's `$GTD_LOOP_*` env. */
+  /** Path to a stub agent script for `driver-doc` scenarios (@live only) — the `claude` shim translates the docs/driver.md driver's argv into this stub's `$GTD_LOOP_*` env. */
   stubAgentPath: string | undefined = undefined
   /** Explicit `$GTD_TESTCOMMAND` override for a real `checking`/`fix-precheck` script run (@live only). */
   gtdTestCommandOverride: string | undefined = undefined
   /** A scenario-scoped temp dir holding a `gtd` shim so a bare `gtd` invoked by name resolves to this build, not a globally-installed one. Live tier only. */
   pathShimDir: string | undefined = undefined
-  /** A temp dir OUTSIDE the repo holding the README's extracted driver script — proves the paste needs nothing inside the project. */
-  readmeDriverDir: string | undefined = undefined
-  /** Absolute path to the extracted driver script inside `readmeDriverDir`, chmod'd executable. */
-  readmeDriverPath: string | undefined = undefined
+  /** A temp dir OUTSIDE the repo holding docs/driver.md's extracted driver script — proves the paste needs nothing inside the project. */
+  driverDocDir: string | undefined = undefined
+  /** Absolute path to the extracted driver script inside `driverDocDir`, chmod'd executable. */
+  driverDocPath: string | undefined = undefined
 
   /** Env vars the in-memory tier's `EnvVars` layer exposes — never mutates the real `process.env`. */
   envVars: Record<string, string> = {}

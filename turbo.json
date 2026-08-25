@@ -38,7 +38,8 @@
         "tests/tooling/**",
         "tests/vitest.*.ts",
         "vitest.config.ts",
-        "turbo.json"
+        "turbo.json",
+        "docs/**"
       ],
       "outputs": []
     },
@@ -48,7 +49,7 @@
         "tests/integration/**",
         "tests/vitest.*.ts",
         "vitest.config.ts",
-        "README.md"
+        "docs/**"
       ],
       "outputs": []
     },
@@ -59,7 +60,7 @@
         "tests/integration/**",
         "tests/vitest.*.ts",
         "vitest.config.ts",
-        "README.md"
+        "docs/**"
       ],
       "outputs": []
     }

@@ -124,7 +124,7 @@ export const beatKindOf = (input: {
  * The `stalled` beat's own content: a diagnosis naming the stuck state and
  * the three ways out. The first line is shaped so a stderr grep for
  * `stalled at "<state>"` stays a stable substring (see
- * `tests/integration/features/readme-driver.feature`).
+ * `tests/integration/features/driver-doc.feature`).
  */
 export const stallDiagnosis = (state: StateName, actor: Actor): string =>
   `stalled at "${state}": the last gtd(${actor}): ${state} turn landed an empty ` +

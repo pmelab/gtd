@@ -16,7 +16,7 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
   emitted scripts resolve at real `dash` (via a PATH shim ahead of the
   test's own PATH — see `Given real dash runs every emitted script` in
   `tests/integration/support/steps/common.steps.ts`), then drives the
-  README's own minimal driver through a full beat that lands an agent
+  docs/driver.md's own minimal driver through a full beat that lands an agent
   turn, opens the review checkout window, closes it again on a feedback
   round, and reopens it — exercising the retry-wrapped git writes
   (`gtd_retry`), the review-window open/close sequences, and the outcome
@@ -86,10 +86,10 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
           ;;
       esac
       """
-    And the driver pasted from README.md
+    And the driver pasted from docs/driver.md
 
   Scenario: A full beat — agent turn, review-window open, a feedback round that closes and reopens it — all under dash
-    When I run the README driver
+    When I run the driver from the docs
     Then it succeeds
     # `working` landed and opened the window (no prior window to close) —
     # the review-window open sequence, the gtd_retry-wrapped commit, and the
@@ -100,7 +100,7 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
       """
       handle negative numbers too
       """
-    When I run the README driver
+    When I run the driver from the docs
     Then it succeeds
     # The capture landed the feedback note (closing the window), the agent's
     # "revising" turn deleted it and landed again (reopening the window) —
@@ -115,7 +115,7 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
     # Re-running with nothing changed is itself the sign-off decision (the
     # "C" edge above) — this beat's own land closes the window one last time
     # and squashes the whole process into one commit, all under dash.
-    When I run the README driver
+    When I run the driver from the docs
     Then it succeeds
     And the git ref "refs/worktree/gtd/review-head" does not exist
     And the git log contains "chore: calculator done"

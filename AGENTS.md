@@ -10,13 +10,13 @@
   text — don't hide setup behind abstract step names
 - inline setup logic into step definitions rather than chaining helpers; each
   step maps to one commit
-- README.md's "A complete minimal driver" section is DOC-TESTED, not just prose:
-  `tests/integration/features/readme-driver.feature` extracts its fenced bash
-  block verbatim (`tests/integration/helpers/readme-driver.ts`) and runs it as a
-  real driver. The heading text and the single fence are load-bearing — renaming
-  the heading or splitting the paste across more than one fence fails the
-  extraction, not just a stale doc. The extracted script is spawned with only
-  `$PATH` (a shim dir first) and `$HOME` — any new env dependency the paste
+- `docs/driver.md`'s "A complete minimal driver" section is DOC-TESTED, not just
+  prose: `tests/integration/features/driver-doc.feature` extracts its fenced
+  bash block verbatim (`tests/integration/helpers/driver-doc.ts`) and runs it as
+  a real driver. The heading text and the single fence are load-bearing —
+  renaming the heading or splitting the paste across more than one fence fails
+  the extraction, not just a stale doc. The extracted script is spawned with
+  only `$PATH` (a shim dir first) and `$HOME` — any new env dependency the paste
   grows must be documented in its own Prerequisites section, and is a scenario
   failure until it is
 
@@ -29,9 +29,10 @@ rules a future change must not break: adding a check means adding all three of a
 `package.json` script, a `turbo.json` task with an explicit `inputs` array, and
 that task's name to the `test` script's task list — a task missing any of the
 three fails `tests/tooling/turbo.test.ts`. And under-declared `inputs` cache a
-stale green: the canonical example is `README.md` in both e2e tasks' `inputs`,
-because `tests/integration/features/readme-driver.feature` runs it as executable
-code — omitting it would let a broken doc pass on a cached result.
+stale green: the canonical example is `docs/**` in `test:unit` and both e2e
+tasks' `inputs`, because `tests/integration/features/driver-doc.feature` runs
+`docs/driver.md` as executable code — omitting it would let a broken doc pass on
+a cached result.
 
 ### `.gtd/` is formatted, not ignored
 
@@ -197,15 +198,14 @@ update:
   the `design`/`architecture` scope split)
 - **e2e feature files** that assert on the bundled template's shape (they set it
   up with the `Given the workflow` step —
-  `tests/integration/features/default-workflow.feature`,
-  `readme-driver.feature`, `driver-json-status.feature`, `smoke.feature`,
-  `validate.feature`, `init.feature`, `review-window.feature`,
-  `initial-state-entry.feature`, `templates-vars.feature`, `entry-gate.feature`
-  (the green-baseline gate on every entry), `fix-entry.feature`
-  (`--entry fix-precheck`), `entry.feature` (`--entry <state>`),
-  `entry-vars.feature`, `prompt-diff-ranges.feature`, `land.feature` (the
-  exit-code contract: 0/3/settled/1; `readme-driver.feature`'s own
-  `--entry fix-precheck` collapse scenario asserts on the bundled template's
+  `tests/integration/features/default-workflow.feature`, `driver-doc.feature`,
+  `driver-json-status.feature`, `smoke.feature`, `validate.feature`,
+  `init.feature`, `review-window.feature`, `initial-state-entry.feature`,
+  `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
+  every entry), `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
+  (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
+  `land.feature` (the exit-code contract: 0/3/settled/1; `driver-doc.feature`'s
+  own `--entry fix-precheck` collapse scenario asserts on the bundled template's
   shape too)
 - A workflow change must keep the DRIVER contract true, not just the engine's:
   every state a process can rest at must resolve to exactly one `kind` a driver
@@ -272,9 +272,9 @@ name gtd interprets. Don't add a blessed config key for one.
 Checks are just an ordinary actor's turns at a `script`-content state (the
 bundled template's `build.health.check` state, awaited by the `check` actor) —
 **the engine NEVER executes anything itself**. `gtd next` renders and prints the
-script; the DRIVER (the README's minimal driver, your own, or any loop harness)
-executes it verbatim via `bash`. The only place gtd spawns a subprocess at all
-is a steering-file mode's own `format:`/`validate:` command.
+script; the DRIVER (docs/driver.md's minimal driver, your own, or any loop
+harness) executes it verbatim via `bash`. The only place gtd spawns a subprocess
+at all is a steering-file mode's own `format:`/`validate:` command.
 
 Mechanics belong in the script; which `on` pattern the resulting diff matches is
 the only thing that decides the outcome. In e2e, simulate a check's outcome by
@@ -294,7 +294,7 @@ parser, one envelope. The table is the source of truth, not prose:
   plain-text degrade)
 - `renderHelp()` is a derived view of the flag/command tables, not
   hand-maintained prose — a flag or command's help text lives in its own row
-  (`help`/`details`), and the README's `## Commands` block is pinned equal to
+  (`help`/`details`), and `docs/cli.md`'s `## Commands` block is pinned equal to
   `renderHelp()`'s output
 - Adding an escape hatch (a new flag, a new command, a new scope exception) is a
   table edit, not a new `if` — `Cli.test.ts`'s property test forces every

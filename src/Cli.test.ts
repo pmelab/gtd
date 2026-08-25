@@ -325,13 +325,13 @@ describe("parseArgv — bare/unknown command under --json", () => {
     }
   })
 
-  it("bare gtd's missing-command message (no --json) points at the README's minimal driver, not a bundled loop", () => {
+  it("bare gtd's missing-command message (no --json) points at gtd install, not a bundled loop", () => {
     const plan = parseArgv(["node", "gtd.js"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
       expect(plan.message).toContain("missing command")
       expect(plan.message).toContain("gtd decides and prints")
-      expect(plan.message).toContain("README")
+      expect(plan.message).toContain("gtd install")
       expect(plan.message).toContain("A complete minimal driver")
     }
   })
@@ -603,13 +603,13 @@ describe("parseArgv — removed subcommands", () => {
     }
   })
 
-  it("`gtd loop` points at the README's minimal driver — not the old bash loop", () => {
+  it("`gtd loop` points at gtd install — not the old bash loop", () => {
     const plan = parseArgv(["node", "gtd.js", "loop"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
       expect(plan.message).toContain("gtd loop")
       expect(plan.message).toContain("gone")
-      expect(plan.message).toContain("README")
+      expect(plan.message).toContain("gtd install")
       expect(plan.message).toContain("A complete minimal driver")
       expect(plan.message).not.toContain("unknown command")
     }
@@ -724,16 +724,16 @@ describe("renderHelp", () => {
     for (const name of FLAG_NAMES) expect(optionsBlock).toContain(name)
   })
 
-  it("the README Commands fenced block equals renderHelp()", () => {
-    const readme = readFileSync(resolve(import.meta.dirname, "../README.md"), "utf8")
-    const match = readme.match(/## Commands\n\n```\n([\s\S]*?)\n```/)
+  it("the docs/cli.md Commands fenced block equals renderHelp()", () => {
+    const doc = readFileSync(resolve(import.meta.dirname, "../docs/cli.md"), "utf8")
+    const match = doc.match(/## Commands\n\n```\n([\s\S]*?)\n```/)
     expect(match).not.toBeNull()
     expect(match![1] + "\n").toBe(renderHelp())
   })
 
-  it("the README's Exit codes table, pinned beside the rendered help output, is exactly ExitCodes.ts's closed set", () => {
-    const readme = readFileSync(resolve(import.meta.dirname, "../README.md"), "utf8")
-    const match = readme.match(/### Exit codes\n\n[^\n]*\n[^\n]*\n\n((?:\|.*\n)+)/)
+  it("docs/cli.md's Exit codes table, pinned beside the rendered help output, is exactly ExitCodes.ts's closed set", () => {
+    const doc = readFileSync(resolve(import.meta.dirname, "../docs/cli.md"), "utf8")
+    const match = doc.match(/### Exit codes\n\n[^\n]*\n[^\n]*\n\n((?:\|.*\n)+)/)
     expect(match).not.toBeNull()
     const table = match![1] ?? ""
     const codes = [...table.matchAll(/\|\s*(\d+)(?:\s*\/\s*(\d+))?\s*\|/g)].flatMap(([, a, b]) =>

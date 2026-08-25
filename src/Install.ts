@@ -1,4 +1,4 @@
-// `MINIMAL_DRIVER` is pinned equal to README's "Writing your own driver" fenced bash block by `Install.test.ts`, so the two can never drift.
+// `MINIMAL_DRIVER` is pinned equal to https://github.com/pmelab/gtd/blob/main/docs/driver.md's "Writing your own driver" fenced bash block by `Install.test.ts`, so the two can never drift.
 import { createRequire } from "node:module"
 
 const _require = createRequire(import.meta.url)
@@ -272,24 +272,42 @@ const referenceImplementation = (): string =>
 
 The obligations above are the contract; the sh block below is one WORKED
 EXAMPLE of it. Do not copy it blindly, and do not guess the user's setup —
-INTERVIEW them, then build a driver shaped by their answers. Ask (offering
-the default when they have no preference):
+INVESTIGATE first, then INTERVIEW, then build a driver shaped by both. Hold
+ONE conversation, not two: the setup steps below come first, because a repo
+that is not set up yet cannot be driven, and the driver-shape questions
+follow in the same numbered list.
 
-1. **Which agent should run the turns?** Whatever coding-agent CLI they
+1. **Investigate the repository and ask the user what they want before
+   driving anything.** Look at what is already there (a \`.gtd/\` directory,
+   existing config, the project's own README/docs) and ask the user what
+   they're trying to accomplish with gtd here — don't assume a fresh
+   install or silently start a process on their behalf.
+2. **Run \`gtd init\`, and treat an "a gtd config already exists" refusal as
+   success.** Do not hand-roll your own check for \`.gtdrc\`/\`.gtdrc.json\`/
+   etc. first — gtd accepts six different config filenames at the
+   repository root, and only gtd itself knows how to recognize all of
+   them; asking it via \`gtd init\` and reading its answer is the only
+   check that can't drift from gtd's own rule.
+3. **Commit the config before the first drive.** \`gtd init\` leaves its
+   written file uncommitted on purpose (its own message says so) — an
+   uncommitted config is a pending change, so starting a process without
+   committing it first turns the config into the very first thing the
+   process plans against. Commit it, THEN start driving.
+4. **Which agent should run the turns?** Whatever coding-agent CLI they
    already use (default: \`claude\`). Map \`gtd_session_id\`/
    \`gtd_session_resume\` onto THAT agent's continuation mechanism
    (obligation 5); an agent with no session concept just ignores them —
    memory is an optimization, every prompt is self-contained.
-2. **Under which permission model?** Fully autonomous turns (e.g.
+5. **Under which permission model?** Fully autonomous turns (e.g.
    \`--dangerously-skip-permissions\`), a sandbox, or the agent's default
    prompting — their risk tolerance, their call. Also whether the workflow's
    own \`gtd_model\` hints should be honored (default: yes).
-3. **How do they want to invoke it?** A command on PATH (default:
+6. **How do they want to invoke it?** A command on PATH (default:
    \`~/.local/bin/gtd-loop\`), a project task-runner entry, a CI job step —
    or no artifact at all: YOU drive the beats yourself, following the
    obligations directly. Pick the runtime to match: bash, their language of
    choice, anything that parses \`--json\`/\`--sh\` and spawns subprocesses.
-4. **What should happen at the boundaries?** Where the log goes (obligation
+7. **What should happen at the boundaries?** Where the log goes (obligation
    4), and whether halting at a human gate should do anything richer than
    print — desktop notification, terminal-multiplexer status, editor focus —
    which belongs in their wrapper, never in gtd.

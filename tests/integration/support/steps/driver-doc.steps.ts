@@ -6,16 +6,16 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
-import { extractMinimalDriver } from "../../helpers/readme-driver.js"
+import { extractMinimalDriver } from "../../helpers/driver-doc.js"
 
 const execFile = promisify(execFileCb)
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 
-// The `claude` argv translator: the README's driver is run byte-for-byte
+// The `claude` argv translator: docs/driver.md's driver is run byte-for-byte
 // verbatim (no substitution of its `claude` lines), so the stub agent stands
 // in as a real `claude` binary on $PATH instead. It parses the flags the
-// README's paste actually uses (-p, --session-id, --resume, --model,
+// docs/driver.md's paste actually uses (-p, --session-id, --resume, --model,
 // --dangerously-skip-permissions) into the $GTD_LOOP_* env the stub script
 // reads, then execs the stub. The prompt itself no longer arrives as `-p`'s
 // argv value (the paste pipes it on stdin instead, to stay under argv's cap
@@ -47,7 +47,7 @@ exec bash "${stubPath}"
 }
 
 // The stub stands in for a real coding agent CLI: it reads $GTD_LOOP_PROMPT
-// (set by the `claude` shim above translating the README driver's own argv)
+// (set by the `claude` shim above translating the docs/driver.md driver's own argv)
 // and reacts however the docstring says to, so the scenario text shows
 // exactly what the "agent" does for each prompt it sees.
 Given("a stub agent script that responds to prompts with:", (world: GtdWorld, script: string) => {
@@ -64,18 +64,18 @@ Given("a stub agent script that responds to prompts with:", (world: GtdWorld, sc
   }
 })
 
-// Extracts README.md's "A complete minimal driver" fenced block and writes it
-// to a fresh temp dir OUTSIDE the repo — proving the paste needs nothing
-// inside the project it drives.
-Given("the driver pasted from README.md", (world: GtdWorld) => {
-  const readme = readFileSync(join(PROJECT_ROOT, "README.md"), "utf-8")
-  const script = extractMinimalDriver(readme)
-  const dir = mkdtempSync(join(tmpdir(), "gtd-readme-driver-"))
+// Extracts docs/driver.md's "A complete minimal driver" fenced block and
+// writes it to a fresh temp dir OUTSIDE the repo — proving the paste needs
+// nothing inside the project it drives.
+Given("the driver pasted from docs\\/driver.md", (world: GtdWorld) => {
+  const doc = readFileSync(join(PROJECT_ROOT, "docs/driver.md"), "utf-8")
+  const script = extractMinimalDriver(doc)
+  const dir = mkdtempSync(join(tmpdir(), "gtd-driver-doc-"))
   const scriptPath = join(dir, "gtd-loop.sh")
   writeFileSync(scriptPath, script)
   chmodSync(scriptPath, 0o755)
-  world.readmeDriverDir = dir
-  world.readmeDriverPath = scriptPath
+  world.driverDocDir = dir
+  world.driverDocPath = scriptPath
 })
 
 function toFailedResult(err: unknown): { exitCode: number; stdout: string; stderr: string } {
@@ -111,9 +111,9 @@ function driverEnv(world: GtdWorld): Record<string, string> {
 // driver's `#!/usr/bin/env sh` shebang is the thing actually resolving and
 // running it — the most faithful proof the ported script's shebang is
 // correct, not just that *some* shell can execute the paste.
-When("I run the README driver", async (world: GtdWorld) => {
-  const path = world.readmeDriverPath
-  assert.ok(path, 'no README driver — run "Given the driver pasted from README.md" first')
+When("I run the driver from the docs", async (world: GtdWorld) => {
+  const path = world.driverDocPath
+  assert.ok(path, 'no driver — run "Given the driver pasted from docs/driver.md" first')
   try {
     const { stdout, stderr } = await execFile(path, [], {
       cwd: world.repoDir,
@@ -129,8 +129,8 @@ When("I run the README driver", async (world: GtdWorld) => {
 
 // The loop's log file path, as the driver resolves it from `gtd status --json`'s
 // own `.log` field — always the default ".git/gtd-loop.log" here (every
-// scenario runs against a plain, non-worktree test project, and the README
-// driver never exports a $GTD_LOOP_LOG of its own).
+// scenario runs against a plain, non-worktree test project, and the
+// docs/driver.md driver never exports a $GTD_LOOP_LOG of its own).
 function loopLogPath(_world: GtdWorld): string {
   return ".git/gtd-loop.log"
 }

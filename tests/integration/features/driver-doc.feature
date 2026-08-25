@@ -1,12 +1,12 @@
 @live
-Feature: The README's minimal driver — doc-tested against the loop protocol
+Feature: docs/driver.md's minimal driver — doc-tested against the loop protocol
 
-  README.md's "Writing your own driver" section ends in "A complete minimal
-  driver": a ~40-line paste small enough to own outright, and the loop's
-  ONLY shipped driver — gtd itself is a pure planner with nothing to
+  docs/driver.md's "Writing your own driver" section ends in "A complete
+  minimal driver": a ~40-line paste small enough to own outright, and the
+  loop's ONLY shipped driver — gtd itself is a pure planner with nothing to
   execute. Nothing else runs the paste, so it can rot silently. These
   scenarios extract the fenced block VERBATIM (see
-  `tests/integration/helpers/readme-driver.ts`) and run it as the driver
+  `tests/integration/helpers/driver-doc.ts`) and run it as the driver
   under test: chained turns, the capture beat, settling vs. stalling, the
   self-validation gate and its fix cap, check-script log redirection, and
   session continuity across laps. A real `claude` CLI is never invoked: a
@@ -70,8 +70,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
           ;;
       esac
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And stdout contains "write NOTE.md to start a process"
     And the git log contains "chore: calculator done"
@@ -136,8 +136,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
           ;;
       esac
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And stdout contains "sign off to finish"
     And the last commit subject is "gtd(check): checking → reviewing"
@@ -201,8 +201,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
           ;;
       esac
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And "src/calc.ts" exists
     And the git log contains "chore: calculator done"
@@ -240,8 +240,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
       Build a calculator.
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And stdout contains "heads up: work is starting"
 
@@ -285,8 +285,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
       Build a calculator.
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the git log contains "chore: planned"
     And stdout does not contain "read PLAN.md"
@@ -343,8 +343,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
           ;;
       esac
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And stdout contains "read PLAN.md"
     And the git log does not contain "chore: planned"
@@ -375,8 +375,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
       note
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And stdout does not contain "write NOTE.md"
 
@@ -415,8 +415,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
       : # does nothing — the build prompt is never acted on
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it fails
     And stderr contains "stalled at \"working\""
 
@@ -471,8 +471,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
       : # does nothing — the build prompt is never acted on
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the last commit subject is "gtd(agent): working → blocked"
     And stdout contains "stuck — the agent made no progress"
@@ -507,8 +507,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
       looks good
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the last commit subject is "gtd(reviewer): confirm → done"
     And stdout contains "all done"
@@ -584,8 +584,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
           ;;
       esac
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the log file contains "AGENT: first draft"
     And the log file contains "AGENT: fixing the plan"
@@ -644,8 +644,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       Forgot to write the question.
       PLAN
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it fails
     And stderr contains "has no question text"
     And the git log does not contain "chore: planned"
@@ -678,8 +678,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
       note
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And stdout does not contain "CHECK: verifying the tree"
     And the log file contains "CHECK: verifying the tree"
@@ -717,8 +717,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
       a note
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the log file contains "CHECK BOOM"
     And the last commit subject is "gtd(check): checking → reviewing"
@@ -760,9 +760,9 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       echo "BOOM: agent exploded" >&2
       exit 3
       """
-    And the driver pasted from README.md
+    And the driver pasted from docs/driver.md
     And I record the commit count
-    When I run the README driver
+    When I run the driver from the docs
     Then it fails
     And the log file contains "BOOM: agent exploded"
     And the commit count is unchanged
@@ -849,8 +849,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
           ;;
       esac
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the log file matches "AGENT SESSION=[0-9a-f-]{36} RESUME=0" 2 times
     And the log file matches "AGENT SESSION=[0-9a-f-]{36} RESUME=1" 1 times
@@ -941,8 +941,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
           ;;
       esac
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the log file matches "AGENT SESSION=[0-9a-f-]{36} RESUME=0" 2 times
     And the log file matches "AGENT SESSION=[0-9a-f-]{36} RESUME=1" 1 times
@@ -1005,8 +1005,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       mkdir -p src
       echo 'export const add = (a, b) => a + b' > src/calc.ts
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the log file contains "gtd-loop test stub: session id already in use"
     And "src/calc.ts" exists
@@ -1075,8 +1075,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
         echo 'export const subtract = (a, b) => a - b' > src/calc.ts
       fi
       """
-    And the driver pasted from README.md
-    When I run the README driver
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the log file contains "gtd-loop test stub: no conversation found with session id"
     And "src/calc.ts" exists
@@ -1106,8 +1106,8 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
       """
     When I run gtd with args "--entry fix-precheck"
     Then it succeeds
-    Given the driver pasted from README.md
-    When I run the README driver
+    Given the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And stdout contains "The agent could not get the check to pass after repeated attempts."
     And the git log does not contain "build.health.check → build.review"
@@ -1123,7 +1123,7 @@ Feature: The README's minimal driver — doc-tested against the loop protocol
     And I record the commit count
     When I run gtd with args "--entry fix-precheck"
     Then it succeeds
-    Given the driver pasted from README.md
-    When I run the README driver
+    Given the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And the commit count is unchanged

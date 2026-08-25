@@ -38,9 +38,10 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["test:e2e:live"].dependsOn).toContain("build")
   })
 
-  it("lists README.md as an input to both e2e tasks", () => {
-    expect(turbo.tasks["test:e2e:inmem"].inputs).toContain("README.md")
-    expect(turbo.tasks["test:e2e:live"].inputs).toContain("README.md")
+  it("lists docs/** as an input to test:unit and both e2e tasks", () => {
+    expect(turbo.tasks["test:unit"].inputs).toContain("docs/**")
+    expect(turbo.tasks["test:e2e:inmem"].inputs).toContain("docs/**")
+    expect(turbo.tasks["test:e2e:live"].inputs).toContain("docs/**")
   })
 
   it("declares an explicit inputs array for every task except format:check", () => {
