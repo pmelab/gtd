@@ -442,10 +442,10 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     details: [
       "Print a complete, self-contained briefing that teaches an",
       "agent (or a human) to build a gtd driver in any shell or",
-      "runtime — the self-serve version of README's 'Writing",
-      "your own driver'. Writes nothing: this installs knowledge",
-      "into the calling agent's context, not files on disk. Runs",
-      "from any directory, in or out of a repository",
+      "runtime — the self-serve version of",
+      "https://github.com/pmelab/gtd/blob/main/docs/driver.md's",
+      "'Writing your own driver'. Writes nothing: this installs",
+      "knowledge into the calling agent's context, not files on disk.",
     ],
   },
 ]
@@ -473,8 +473,9 @@ const REMOVED: Readonly<Record<string, string>> = {
     "unknown <fix-state> to see this workflow's own enterable states",
   loop:
     "gtd: `gtd loop` is gone — gtd decides and prints, a driver executes. " +
-    'Copy the driver from the README\'s "A complete minimal driver" section ' +
-    "and run that instead",
+    "Run `gtd install`, or copy the reference driver from " +
+    "https://github.com/pmelab/gtd/blob/main/docs/driver.md's " +
+    '"A complete minimal driver" section and run that instead',
   status: "gtd: `gtd status` is gone — run `gtd next` instead; --json moved with it",
 }
 
@@ -749,8 +750,10 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     if (first === undefined) {
       return usagePlan(
         "gtd: missing command — gtd decides and prints, a driver executes; " +
-          'copy one from the README\'s "A complete minimal driver" section ' +
-          "and run that, or see usage above (`gtd --help`)",
+          "run `gtd install`, or copy one from " +
+          "https://github.com/pmelab/gtd/blob/main/docs/driver.md's " +
+          '"A complete minimal driver" section and run that, or see usage ' +
+          "above (`gtd --help`)",
         jsonSeen,
         renderHelp(),
       )

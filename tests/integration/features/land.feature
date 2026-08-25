@@ -2,7 +2,7 @@ Feature: gtd land — the one landing verb, actorless
 
   `gtd land` derives who acts from the resolved rest itself — no actor
   argument, no `--if-resting`. Its exit code is the same uniform table every
-  command now shares (see README's "Exit codes"): 0 on success — whatever the
+  command now shares (see docs/cli.md's "Exit codes"): 0 on success — whatever the
   post-land rest turns out to be, `capture`/`message`/`script`/`prompt`/
   `stalled` included — 1 for a refusal, 2 for a usage error (nothing emitted
   either way). Whose turn is next lives entirely in the FOLLOWING

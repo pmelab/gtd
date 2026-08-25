@@ -975,7 +975,7 @@ describe("gtd validate — the mode-contradiction round-trip (package 2, Require
   it("gtd validate the COMMAND still exits 0 even when the emitted SCRIPT would fail if run", async () => {
     // gtd itself never runs the script — it only prints it — so a
     // contradiction inside the printed script never surfaces as gtd
-    // validate's own exit code (see the README's closed five-number
+    // validate's own exit code (see docs/cli.md's closed five-number
     // exit-code table).
     const repo = seededRepoAtWorking(
       ["    qa:", '      format: "my-formatter <%= it.file %>"'].join("\n"),

@@ -21,10 +21,10 @@ import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 //   driver's log path instead of resolving the tmp repo's own, breaking every
 //   log-path assertion. Scrubbing the whole GTD_LOOP_ prefix also drops any
 //   other leaked driver runtime state; scenarios that WANT one set it
-//   explicitly via world overrides in readme-driver.steps.ts.
+//   explicitly via world overrides in driver-doc.steps.ts.
 //
 // Mutating process.env here keeps every child spawn and `{ ...process.env }`
-// spread (world.ts, readme-driver.steps.ts, project-setup.ts) hermetic from
+// spread (world.ts, driver-doc.steps.ts, project-setup.ts) hermetic from
 // one place. The vitest runner itself needs none of these vars. This runs once
 // per WORKER (module load, not per-test), so it stays safe under the
 // `e2e-inmem` project's `fileParallelism: true` — but it IS a mutation of
@@ -86,7 +86,7 @@ Before(async (world: GtdWorld) => {
 // harness scaffolding, not part of the test repo the flag preserves.
 function cleanupLiveTier(world: GtdWorld): void {
   const keep = process.env["KEEP_TEST_REPO"] === "1"
-  const dirs = [world.repoDir, world.extraCleanupDir, world.readmeDriverDir].filter(
+  const dirs = [world.repoDir, world.extraCleanupDir, world.driverDocDir].filter(
     Boolean,
   ) as string[]
   for (const dir of dirs) {
