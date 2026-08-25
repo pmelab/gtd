@@ -80,6 +80,15 @@ while :; do
   beat=$((beat + 1))
 done`
 
+export const EDIT_COMMAND = `#!/usr/bin/env sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+out="$(gtd next --sh)"
+eval "$out"
+f="\${gtd_file:-.gtd/TODO.md}"
+mkdir -p "$(dirname "$f")"
+exec "\${EDITOR:-vi}" "$f"`
+
 const HEADER = (): string =>
   `gtd ${GTD_VERSION} — driver protocol\n` +
   `\n` +
@@ -311,6 +320,11 @@ follow in the same numbered list.
    4), and whether halting at a human gate should do anything richer than
    print — desktop notification, terminal-multiplexer status, editor focus —
    which belongs in their wrapper, never in gtd.
+8. **Which editor should the edit command spawn?** Default \`$EDITOR\`, never
+   a hardcoded editor.
+9. **What should the edit command be named?** Suggest
+   \`~/.local/bin/gtd-edit\`, matching the loop command's own default
+   (\`~/.local/bin/gtd-loop\`) — the interview can override either name.
 
 Then build it, and verify safely before the first real drive:
 \`gtd next --sh\`/\`gtd next\` are both pure reads — eval/parse them, check
@@ -323,6 +337,40 @@ lines are what answers 1–2 replace):
 
 \`\`\`bash
 ${MINIMAL_DRIVER}
+\`\`\`
+`
+
+const editCommand = (): string =>
+  `
+## Building the user's edit command
+
+The loop command above drives beats; it never opens a file for the human. Add
+a second artifact to the same interview (questions 8–9 above): an edit
+command that opens the steering file the process is resting at right now,
+suggested at \`~/.local/bin/gtd-edit\`.
+
+\`gtd next --sh\` already reports \`file\` (\`gtd_file\` under \`--sh\`) for every
+state that declares one — the edit command needs no new engine surface, just
+a read and an editor spawn. \`file\` is an OPTIONAL field: it is genuinely
+unset under \`--sh\` at a state that declares no \`file:\`, so read it as
+\`\${gtd_file:-.gtd/TODO.md}\`, never bare — a bare read, or a
+\`gtd next --json | jq .file\` recipe (the idea, never the recipe: \`--json\`
+needs \`jq\`, and \`jq .file\` prints the string \`null\` on an unset field, which
+opens a file literally named \`null\` in the repository root), ships that bug
+to every user.
+
+This is also how a human starts a process at all: at the initial \`idle\`
+state the resting file IS \`.gtd/TODO.md\`, so on a clean repository the edit
+command opens the empty scratch file, and whatever the human writes there is
+the first sketch the whole process gets planned from. The same command does
+the same thing at every rest, whether or not a state declares a \`file:\`.
+
+The edit command stops when the editor exits — it never drives the loop. It
+opens a file and returns; the human runs the loop command themselves when
+they are ready.
+
+\`\`\`bash
+${EDIT_COMMAND}
 \`\`\`
 `
 
@@ -348,4 +396,5 @@ export const renderBriefing = (): string =>
   DRIVER_OBLIGATIONS +
   RECOVERY +
   referenceImplementation() +
+  editCommand() +
   PREREQUISITES
