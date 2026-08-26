@@ -553,9 +553,8 @@ const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
 /**
  * Render `resolved`'s format:/validate: commands as `EmitStep[]`, wrapping
  * the last one with `onFailure: fixPromptInstruction(file)` when the
- * validator is a command — shared by `resolveValidateScript` and
- * `steeringModeSteps` so the two never drift on which command gets the
- * routable fix prompt.
+ * validator is a command — `resolveValidateScript`'s own helper, split out
+ * so its render logic isn't inlined into that function's body.
  */
 const renderSteeringModeCommandSteps = (
   resolved: ResolvedMode,

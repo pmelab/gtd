@@ -69,7 +69,9 @@ while :; do
     script) sh -c "$gtd_content" ;;
     prompt) printf '%s' "$gtd_content" | your-agent ;;
   esac
-  gtd land
+  out="$(gtd land --sh)"
+  eval "$out"
+  printf '%s\n' "$gtd_script" | sh
 done
 ```
 

@@ -423,14 +423,6 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * `@live` only: proves the CAPTURE-THEN-PIPE landing form, not the bare
-   * `gtd land | sh` one-liner it replaces — POSIX `sh` (dash) has no
-   * `pipefail`, so the exit code must be captured before piping. Mirrors the
-   * reference driver's `gtd_land()`: capture stdout and exit code first, then
-   * pipe the script into `sh`; if that fails, its status overrides, otherwise
-   * gtd's own captured status stands.
-   */
-  /**
    * `gtd land --sh` (never bare `gtd land`, which prints prose since
    * package 02) piped through `sh`, exactly as `docs/driver.md`'s reference
    * driver does: capture the `--sh` document, `eval` it to bind `$gtd_script`,
