@@ -8,55 +8,29 @@ the HEAD-moving case goes away.**
 **No package adds a dependency, a CLI flag, a config key, or a turbo task.**
 Every one of them is net-negative code.
 
-## Open Questions
+## Answered Questions
 
 ### Does `GitOperations.changedPathsSince` get deleted along with the collapse?
 
-`retainsNothing` is its only production caller. Delete the collapse and the port
-operation has none — only `src/testing/GitTiers.ts`'s 19-operation contract
-still exercises it. fallow's reachability walk starts at `src/main.ts` and finds
-the method through `GitService.Live`, so **the `deadcode` task will not flag it
-either way** — this is a judgement call, not a forced one.
-
-- [x] Delete it — drop to an 18-operation contract, editing `src/Git.ts`,
-      `src/testing/GitDoubles.ts`, `src/testing/GitTiers.ts` and
-      `src/testing/InMemRepo.ts`. Package 1 grows by four files; nothing tested
-      is uncalled.
-- [ ] Keep it — package 1 stays confined to the landing path. The contract keeps
-      testing an operation no command calls, ready for the next caller.
-- [ ] _your answer_
+Yes. `retainsNothing` was its only production caller, so the port operation goes
+with the collapse and the `GitOperations` contract drops from 19 operations
+to 18. Nothing tested stays uncalled.
 
 ### How does the e2e harness drive a landing once plain `gtd land` prints prose?
 
-`tests/integration/support/world.ts`'s `driveWriteCommand` runs
-`lastResult.stdout` verbatim as the script. **36 feature files invoke
-`gtd land`**, so prose on plain stdout breaks every one of them until the
-harness reads the script from somewhere else.
-
-- [x] `When I run gtd land` invokes `gtd land --sh` under the hood and drives
-      `$gtd_script`; a new explicit step covers the prose assertions. One
-      `world.ts` change, and only `land.feature` gains steps — but the phrase "I
-      run gtd land" then no longer names the command it runs.
-- [ ] Keep `When I run gtd land` literal and add a separate `--sh` step, then
-      change every state-advancing scenario to the new step. Scenario text stays
-      honest about what it runs, at the price of touching ~36 feature files.
-- [ ] _your answer_
+`When I run gtd land` invokes `gtd land --sh` under the hood and drives
+`$gtd_script`, so the 36 feature files that advance state through it need no
+edit. A new explicit step covers the prose assertions in `land.feature`. The
+price: the step phrase "I run gtd land" no longer names the command it runs.
 
 ### Where does `validateDefinition`'s warning channel go?
 
-`validateDefinition` today returns `readonly string[]` — errors only, merged
-into the one thrown load-time error. Package 3 needs warnings that never throw.
-
-- [x] Change the return type to `{ errors, warnings }`. One source of truth for
-      every finding, at the cost of editing every call site
-      (`src/PatternConfig.ts`, `src/Visualize.ts`, `src/Lsp.ts` and their
-      tests).
-- [ ] Add a sibling pure function `warnDefinition(def): readonly string[]` in
-      the same module. Purely additive — no existing call site changes — but a
-      future reader has two places to look for a rule.
-- [ ] _your answer_
-
-## Answered Questions
+`validateDefinition` changes its return type to `{ errors, warnings }` — one
+source of truth for every finding. The cost lands almost entirely in tests, not
+production: **`src/PatternConfig.ts:919` is its only production call site**, but
+`src/PatternMachine.test.ts` asserts on it about 60 times (mostly `toEqual([])`)
+and `src/workflows/templates.test.ts` twice, and every one of those assertions
+changes shape.
 
 ### Should `gtd land` stop emitting the steering-file `format:`/`validate:` commands?
 
@@ -262,8 +236,18 @@ instead of awaiting `collapsesToInitialState`; `buildRequiredScript` drops its
 
 `src/OutcomeScript.ts` — delete `COLLAPSED_TEXT` (Edge.ts was its only caller).
 
-**Data model:** no type changes. `StepPlan`, `LandResult` and `EmittedScripts`
-keep their shapes; only `settled`'s documented meaning narrows.
+**The `changedPathsSince` port operation goes too**, since `retainsNothing` was
+its only production caller: delete the method from `GitOperations` and its Live
+implementation (`src/Git.ts`), its fake (`src/testing/GitDoubles.ts:64`), and
+its name plus its contract group from `src/testing/GitTiers.ts`'s operation list
+— **19 operations become 18**. `InMemRepo.changedPathsBetween` loses its own
+only caller in the same move, so it goes with it. **`AGENTS.md:147` says
+"19-operation" as a literal number and must be edited in the same commit**, or
+the doc lies about the contract it is describing.
+
+**Data model:** one type shrinks — `GitOperations` loses a method. `StepPlan`,
+`LandResult` and `EmittedScripts` keep their shapes; only `settled`'s documented
+meaning narrows.
 
 **Error handling:** strictly fewer failure modes. Two git reads leave the
 landing path, and `renderDecision` becomes total. Nothing new can fail.
@@ -271,15 +255,17 @@ landing path, and `renderDecision` becomes total. Nothing new can fail.
 **Library choices:** none. This package only deletes.
 
 **Primary paths:** `src/Edge.ts`, `src/program.ts`, `src/RetainedHistory.ts`,
-`src/OutcomeScript.ts` — plus `src/Install.ts`'s briefing (the `settled` "two
-shapes" line at 186), `AGENTS.md`'s `collapsesWith` paragraph,
-`docs/configuration.md`, `docs/driver.md:519`, and the tests:
-`src/Edge.test.ts`, `src/program.test.ts`, `src/RetainedHistory.test.ts`,
-`src/OutcomeScript.test.ts`, and `land.feature`, `retained-history.feature`,
-`smoke.feature`, `fix-entry.feature`, `driver-doc.feature`,
-`driver-json-status.feature`, `machine-memory.feature`, `summary.feature`,
-`deciding-signoff.feature`. Explicitly NOT
-`src/testing/EmittedScriptRecognizer.ts` (see above), and NOT `abandon.feature`.
+`src/OutcomeScript.ts`, `src/Git.ts`, `src/testing/GitDoubles.ts`,
+`src/testing/GitTiers.ts`, `src/testing/InMemRepo.ts` — plus `src/Install.ts`'s
+briefing (the `settled` "two shapes" line at 186), `AGENTS.md`'s `collapsesWith`
+paragraph and its "19-operation" count at line 147, `docs/configuration.md`,
+`docs/driver.md:519`, and the tests: `src/Edge.test.ts`, `src/program.test.ts`,
+`src/RetainedHistory.test.ts`, `src/OutcomeScript.test.ts`, `src/Git.test.ts`,
+and `land.feature`, `retained-history.feature`, `smoke.feature`,
+`fix-entry.feature`, `driver-doc.feature`, `driver-json-status.feature`,
+`machine-memory.feature`, `summary.feature`, `deciding-signoff.feature`.
+Explicitly NOT `src/testing/EmittedScriptRecognizer.ts` (see above), and NOT
+`abandon.feature`.
 
 **The prices, stated plainly and not to be traded away:**
 
@@ -317,6 +303,15 @@ ANSI-free.
 prose, `--json`/`--sh` carry the script. No flag row is added, so the flag table
 and its property test are untouched.
 
+`tests/integration/support/steps/common.steps.ts:225` — `When I run gtd land`
+invokes `gtd land --sh`, and `world.ts`'s `driveWriteCommand` drives
+`$gtd_script` out of that document instead of running `lastResult.stdout`
+verbatim. **The 36 feature files that only advance state through `gtd land` need
+no edit.** `land.feature` gains one new explicit step for the prose assertions.
+**The step phrase "I run gtd land" now runs `gtd land --sh`, not `gtd land`** —
+a scenario reading that line cannot tell which of the two it got, which is the
+accepted price of the one-file change.
+
 **Data model:** no type changes. `LandResult` keeps `script`; plain output stops
 reading it, `--json`/`--sh` keep it byte-identical.
 
@@ -331,8 +326,8 @@ with the commands themselves.
 **Primary paths:** `src/program.ts`, `src/OutcomeScript.ts`, `src/Cli.ts` — plus
 `docs/cli.md`'s `## Commands` block (pinned equal to `renderHelp()`),
 `docs/driver.md` (the two `gtd land | sh` mentions at 230 and 317),
-`src/Install.ts`'s briefing, and `tests/integration/support/world.ts` (whichever
-shape the harness open question settles on). Tests: `src/program.test.ts`,
+`src/Install.ts`'s briefing, `tests/integration/support/world.ts` and
+`tests/integration/support/steps/common.steps.ts`. Tests: `src/program.test.ts`,
 `src/Cli.test.ts`, `src/OutcomeScript.test.ts`, `land.feature`,
 `steering-modes.feature`, `review-signoff-format-skip.feature`,
 `formatting.feature`, `styled-steering.feature`, `ansi-free-stdout.feature`.
@@ -352,6 +347,15 @@ initial state. Both exclusions are load-bearing: a `prompt` state's clean step
 is an ATTEMPT by design, and a `C` row on the initial state would author a
 commit on every bare driver invocation.
 
+**The return type (`src/PatternMachine.ts`):** `validateDefinition` returns
+`{ errors, warnings }` instead of `readonly string[]` — one source of truth for
+every finding. `src/PatternConfig.ts:919` is its only production call site and
+reads `.errors` where it reads the array today; `compileWorkflowConfig`'s
+merge-into-one-thrown-error rule is unchanged, because warnings never reach it.
+**The cost is test churn, not production churn: about 60 assertions in
+`src/PatternMachine.test.ts` (mostly `toEqual([])`) plus 2 in
+`src/workflows/templates.test.ts` all change shape.**
+
 **The channel (`src/Commentary.ts`):** add `warn` to the `Narrator` service,
 written to the same stderr sink **ungated** — unlike `narrate`, it ignores the
 `verbose` flag the layer was built with. One method on a service every command
@@ -363,8 +367,9 @@ narration and errors into.
 `needsOf(kind) === "state"` block, one line per warning, ahead of `dispatch`.
 Exactly once per invocation, no dedupe needed.
 
-**Data model:** one new `Narrator` method; the warning itself is a plain string,
-like every `validateDefinition` finding.
+**Data model:** `validateDefinition`'s return type becomes a two-field object,
+and `Narrator` gains one method. A warning is a plain string, like every
+`validateDefinition` error.
 
 **Error handling: never an error.** The no-op is a legitimate authoring choice,
 so this surfaces the decision — it does not force one. Exit code stays 0 and
@@ -373,7 +378,8 @@ stdout stays byte-clean.
 **Library choices:** none.
 
 **Primary paths:** `src/PatternMachine.ts`, `src/Commentary.ts`,
-`src/program.ts` — plus tests: `src/PatternMachine.test.ts`,
+`src/PatternConfig.ts`, `src/program.ts` — plus tests:
+`src/PatternMachine.test.ts`, `src/workflows/templates.test.ts`,
 `src/program.test.ts`, a `Commentary` test for the ungated write, and one new
 e2e feature (a workflow whose non-initial `script` state declares no `C` row).
 No `turbo.json` task, no `inputs` change, no `src/Cli.ts` edit.
