@@ -15,24 +15,24 @@ process retained nothing" and emit a retain-history + mixed-reset instead of a
 commit. That whole path is deleted, so no emitted script moves HEAD any more.
 `settled` now has exactly one shape: a no-op at a `script` rest.
 
-- [ ] ./src/Edge.ts#924 — `collapsesWith`, `collapsesToInitialState`,
+- [x] ./src/Edge.ts#924 — `collapsesWith`, `collapsesToInitialState`,
       `retainsNothing` and `retainHistoryStep` all deleted; `renderDecision` is
       now a pure synchronous function of its arguments with no git read and no
       failure mode
-- [ ] ./src/Edge.ts#1001 — `planStep` drops from `Effect.gen` to `Effect.sync`
+- [x] ./src/Edge.ts#1001 — `planStep` drops from `Effect.gen` to `Effect.sync`
       and no longer pulls `GitService`. Its signature still declares
       `RestRequirements` in the R channel, so callers see no change.
-- [ ] ./src/program.ts#284 — `planLanding` hardcodes `settled: false` for every
+- [x] ./src/program.ts#284 — `planLanding` hardcodes `settled: false` for every
       commit decision
-- [ ] ./src/Git.ts#65 — `changedPathsSince` removed from the
+- [x] ./src/Git.ts#65 — `changedPathsSince` removed from the
       `GitReaderOperations` port, with its in-memory double and its whole 7-case
       contract group
-- [ ] ./src/testing/GitTiers.ts#328 — contract drops from 20 to 19 operations.
+- [x] ./src/testing/GitTiers.ts#328 — contract drops from 20 to 19 operations.
       The count in the doc comment was updated to match, which is the thing that
       usually rots here.
-- [ ] ./src/RetainedHistory.ts#7 — `retainHistory` deleted;
+- [x] ./src/RetainedHistory.ts#7 — `retainHistory` deleted;
       `refs/worktree/gtd/history` is now written by `gtd abandon` alone
-- [ ] ./src/workflows/unified.yaml#1176 — `packages.item.closing` gains a `"C"`
+- [x] ./src/workflows/unified.yaml#1176 — `packages.item.closing` gains a `"C"`
       row routing to `$onNext`, so an already-clean sweep proceeds instead of
       stalling. This is a real behavior fix independent of the collapse removal.
 
@@ -43,9 +43,9 @@ previously left none, and the driver halts at the following `idle` message rest
 rather than exiting on `settled`. Four scenarios were rewritten to assert
 exactly that — the trade is deliberate and documented, not accidental.
 
-- [ ] ./tests/integration/features/fix-entry.feature#26 —
+- [x] ./tests/integration/features/fix-entry.feature#26 —
       `commit count increased by 2` replaces `commit count is unchanged`
-- [ ] ./tests/integration/features/driver-doc.feature#1089 — same flip in the
+- [x] ./tests/integration/features/driver-doc.feature#1089 — same flip in the
       doc-tested driver scenario
 
 ## Package 2, Requirement A — steering-file format/validate left the landing script
@@ -54,13 +54,13 @@ exactly that — the trade is deliberate and documented, not accidental.
 HEAD assertion plus the commit, nothing else. Formatting and validating a
 `file:`+`mode:` steering file is a driver contract, run ahead of `gtd land`.
 
-- [ ] ./src/program.ts#209 — `buildRequiredScript` collapses to a single
+- [x] ./src/program.ts#209 — `buildRequiredScript` collapses to a single
       `Effect.succeed` over `renderDecision`
-- [ ] ./src/StepGuards.ts#45 — `deletesFile` un-exported; its
+- [x] ./src/StepGuards.ts#45 — `deletesFile` un-exported; its
       `steeringModeSteps` caller is gone, and with it the "skip format when the
       diff deletes the file" special case that existed only because
       `prettier --write` exits non-zero on a missing path
-- [ ] ./docs/configuration.md#443 — states plainly that a driver skipping this
+- [x] ./docs/configuration.md#443 — states plainly that a driver skipping this
       can land a malformed or unformatted steering file
 
 **Risk, and the sharpest one here: the shipped reference driver never validates
@@ -73,17 +73,17 @@ editing `.gtd/REQUIREMENTS.md` at `design.gate.answer` (mode `qa`) rests at a
 `gtd land` no longer checks. The only tool that catches it is the standalone
 `gtd validate`, which nothing in the shipped loop calls.
 
-- [ ] ./src/program.ts#550 — `emitsValidatablePrompt`, the gate that makes the
+- [x] ./src/program.ts#550 — `emitsValidatablePrompt`, the gate that makes the
       documented mitigation unavailable at exactly the rests where a human
       hand-edits a mode-carrying file
-- [ ] ./tests/integration/features/validate.feature#170 — pins the new behavior:
+- [x] ./tests/integration/features/validate.feature#170 — pins the new behavior:
       the malformed `design.gate.answer` edit _lands_, and `gtd validate` run
       separately is what fails. Read this scenario as the specification of the
       gap, not as coverage of it.
-- [ ] ./docs/configuration.md#446 — says to run it "off `gtd next --json`'s own
+- [x] ./docs/configuration.md#446 — says to run it "off `gtd next --json`'s own
       `validate` field (or `gtd validate`)". The parenthetical is the only
       accurate half at a `capture` rest; consider stating that explicitly.
-- [ ] ./docs/driver.md#280 — the `capture` arm is documented as "the human
+- [x] ./docs/driver.md#280 — the `capture` arm is documented as "the human
       already acted — just land it", unchanged. If the intent is that drivers
       validate capture beats, this loop is the place that has to say so.
 
@@ -93,7 +93,7 @@ now rests entirely on husky → lint-staged running over the emitted
 does not care about `mode:`. It does not hold for _validity_, which nothing in
 the landing path checks any more.
 
-- [ ] ./AGENTS.md#45 — the rewritten "One mechanism" paragraph is accurate about
+- [x] ./AGENTS.md#45 — the rewritten "One mechanism" paragraph is accurate about
       what gtd does, but reads as if husky only covers `file:`-without-`mode:`
       states. It covers both; the mode-carrying case just loses validation, not
       formatting.
@@ -102,14 +102,14 @@ Six scenarios flip from "refuses" to "lands", each with an inline comment naming
 the package. Their titles were rewritten too, so a future reader will not
 mistake them for regressions.
 
-- [ ] ./tests/integration/features/steering-modes.feature#298 — an invalid
+- [x] ./tests/integration/features/steering-modes.feature#298 — an invalid
       custom-mode file lands
-- [ ] ./tests/integration/features/steering-modes.feature#448 — a broken
+- [x] ./tests/integration/features/steering-modes.feature#448 — a broken
       `format:` command can no longer block a commit
-- [ ] ./tests/integration/features/formatting.feature#64 — `gtd validate`
+- [x] ./tests/integration/features/formatting.feature#64 — `gtd validate`
       inserted before `gtd land` in three scenarios; the long line now survives
       the capture
-- [ ] ./tests/integration/features/review-signoff-format-skip.feature#1 —
+- [x] ./tests/integration/features/review-signoff-format-skip.feature#1 —
       retitled and rewritten; the scenario now proves the removal rather than
       the old skip
 
@@ -118,11 +118,11 @@ mistake them for regressions.
 Plain `gtd land` prints one sentence naming the commit subject. `--json`/`--sh`
 carry the byte-identical script they always did.
 
-- [ ] ./src/OutcomeScript.ts#33 — `landProseText`; `COLLAPSED_TEXT` deleted
-- [ ] ./src/program.ts#361 — plain branch prints
+- [x] ./src/OutcomeScript.ts#33 — `landProseText`; `COLLAPSED_TEXT` deleted
+- [x] ./src/program.ts#361 — plain branch prints
       `landProseText(result.subject)`, or `noopText(result.state)` when nothing
       landed
-- [ ] ./README.md#69 — the quick-start loop switches to `gtd land --sh` +
+- [x] ./README.md#69 — the quick-start loop switches to `gtd land --sh` +
       `eval` + pipe
 
 **This is a silent breaking change for any existing driver.** `gtd land | sh`
@@ -139,20 +139,20 @@ commits a message with no `gtd-cost:` trailer, so `it.processCost` and
 `it.processCostByModel` under-count for the whole process — silently, and
 unrecoverably once the commit lands.
 
-- [ ] ./src/Edge.ts#939 — `commitAll(withCostTrailer(...))`, the trailer the
+- [x] ./src/Edge.ts#939 — `commitAll(withCostTrailer(...))`, the trailer the
       script path adds
-- [ ] ./src/program.ts#364 — `landProseText(result.subject)`, the prose path
+- [x] ./src/program.ts#364 — `landProseText(result.subject)`, the prose path
       that does not
 
 Doc sync for this requirement is thorough — the flag table's `help` rows, the
 pinned `docs/cli.md` block, `gtd install`'s driver protocol text, and
 `docs/driver.md`'s four affected paragraphs all moved together.
 
-- [ ] ./src/Cli.ts#331 — the `land` row's `details`, pinned equal to
+- [x] ./src/Cli.ts#331 — the `land` row's `details`, pinned equal to
       `docs/cli.md`'s `## Commands` block
-- [ ] ./src/Install.ts#93 — the header no longer claims gtd spawns a steering
+- [x] ./src/Install.ts#93 — the header no longer claims gtd spawns a steering
       mode's `format:`/`validate:` subprocess
-- [ ] ./docs/driver.md#218 — the "prints ONE POSIX sh script" paragraph now
+- [x] ./docs/driver.md#218 — the "prints ONE POSIX sh script" paragraph now
       carves out plain `gtd land` as the exception
 
 ## Package 3 — the missing-`C`-row warning
@@ -161,21 +161,21 @@ pinned `docs/cli.md` block, `gtd install`'s driver protocol text, and
 array. One warning exists: a non-`prompt`, non-initial, non-`human`-actor state
 that declares no `"C"` row. It never fails a load.
 
-- [ ] ./src/PatternMachine.ts#756 — `validateHasCRow`, with all three exemptions
+- [x] ./src/PatternMachine.ts#756 — `validateHasCRow`, with all three exemptions
       justified in its doc comment. The `human`-actor exemption is the
       non-obvious one and the comment earns it: the driver protocol lands a
       human gate's opening beat on every restart, so a `C` row there would
       author a real commit before the human acted.
-- [ ] ./src/PatternMachine.ts#797 — the `{ errors, warnings }` return; every
+- [x] ./src/PatternMachine.ts#797 — the `{ errors, warnings }` return; every
       caller updated
-- [ ] ./src/PatternConfig.ts#918 — `CompiledWorkflowConfig.warnings`, threaded
+- [x] ./src/PatternConfig.ts#918 — `CompiledWorkflowConfig.warnings`, threaded
       out of `compileWorkflowConfig`
-- [ ] ./src/Commentary.ts#8 — `Narrator` gains `warn`, ungated by `verbose`, so
+- [x] ./src/Commentary.ts#8 — `Narrator` gains `warn`, ungated by `verbose`, so
       a warning is not suppressed by default output mode
-- [ ] ./src/workflows/unified.yaml#877 — `build.review.deciding` documents why
+- [x] ./src/workflows/unified.yaml#877 — `build.review.deciding` documents why
       it accepts the warning: a clean tree there means `REVIEW.md` was never
       provisioned, and a `C` row would let it auto-approve an unreviewed round
-- [ ] ./src/workflows/unified.yaml#1316 — `unwind` documents its own: under
+- [x] ./src/workflows/unified.yaml#1316 — `unwind` documents its own: under
       `set +e`, `git revert --no-commit` leaves a clean tree on both a genuine
       no-op and a hard failure, and advancing would run the baseline check
       against an un-reverted tree
@@ -188,12 +188,12 @@ The bundled template emits exactly two warnings — `unwind` and
 `build.review.deciding` — and that is pinned in three places. This is the kind
 of comment AGENTS.md says to delete rather than leave wrong.
 
-- [ ] ./src/Config.ts#46 —
+- [x] ./src/Config.ts#46 —
       `"[]" for the built-in default, which ships with none`
-- [ ] ./src/Config.ts#283 — `just happens to pass clean today`
-- [ ] ./src/workflows/templates.test.ts#44 — pins the two warnings the comments
+- [x] ./src/Config.ts#283 — `just happens to pass clean today`
+- [x] ./src/workflows/templates.test.ts#44 — pins the two warnings the comments
       deny exist
-- [ ] ./docs/configuration.md#436 — documents them correctly, which is what
+- [x] ./docs/configuration.md#436 — documents them correctly, which is what
       makes the comments' disagreement a clear defect rather than a judgment
       call
 
@@ -206,9 +206,9 @@ explains the workaround honestly; the cleaner fix is threading warnings out of
 template now writes two stderr lines, forever, and the reference driver does not
 redirect gtd's stderr. `docs/configuration.md` calls the repetition intentional.
 
-- [ ] ./src/program.ts#1163 — the extra load, its `Narrator` override, and the
+- [x] ./src/program.ts#1163 — the extra load, its `Narrator` override, and the
       warning emission
-- [ ] ./docs/configuration.md#432 — "repeats on every invocation … that
+- [x] ./docs/configuration.md#432 — "repeats on every invocation … that
       repetition is intentional, not a bug"
 
 ## Test harness — driving `land` off a second `--sh` call
@@ -217,18 +217,18 @@ Because plain `gtd land` no longer emits a script, the e2e world drives every
 bare `land` through a second, `--sh`-suffixed invocation and shell-unquotes
 `gtd_script` out of the document.
 
-- [ ] ./tests/integration/support/world.ts#51 — `unquoteShAssignment`, a regex
+- [x] ./tests/integration/support/world.ts#51 — `unquoteShAssignment`, a regex
       reversal of `Sh.ts`'s `shQuote`. It is a second, independent
       implementation of that quoting rule living in the test harness — if
       `shQuote` ever changes, nothing points here.
-- [ ] ./tests/integration/support/world.ts#278 — `driveLandWrite` invokes gtd
+- [x] ./tests/integration/support/world.ts#278 — `driveLandWrite` invokes gtd
       twice per landing and restores the first call's `lastResult` so scenario
       assertions still describe the invocation they asked for. Sound only
       because plain `gtd land` performs no write; worth a glance to confirm you
       agree it stays that way.
-- [ ] ./tests/integration/support/steps/common.steps.ts#391 — new
+- [x] ./tests/integration/support/steps/common.steps.ts#391 — new
       `stderr contains {string} exactly {int} times` step, which is what proves
       the warning prints once per invocation rather than once per internal load
-- [ ] ./tests/integration/features/missing-c-row-warning.feature#1 — new
+- [x] ./tests/integration/features/missing-c-row-warning.feature#1 — new
       feature, two scenarios: one custom workflow with one warning, and the
       bundled template's exactly-two
