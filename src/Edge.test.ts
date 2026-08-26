@@ -21,7 +21,6 @@ import {
 import type { WorkflowDefinition } from "./PatternMachine.js"
 import { commitAll, shellQuote } from "./GitScript.js"
 import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
-import { fakeGitOperations } from "./testing/GitDoubles.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { testLayers } from "./testing/Layers.js"
 import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
@@ -914,7 +913,7 @@ describe("planStep", () => {
     expect(repo.hasPath("PLAN.md")).toBe(true)
   })
 
-  it("a green re-entry into the initial state retaining nothing is mixed-reset, not committed", async () => {
+  it("a green re-entry into the initial state retaining nothing lands an ordinary commit, not a rewind", async () => {
     const repo = seededStepRepo()
     const entryRest = await provide(currentRest, repo)
     const entryPlan = await provide(
@@ -923,9 +922,10 @@ describe("planStep", () => {
     )
     if (entryPlan.kind !== "entry") throw new Error("expected an entry plan")
     land(repo, entryPlan.scripts)
+    const afterEntry = repo.resolveRef("HEAD")
 
     // Resting at "fixing" with a clean tree: "C": idle, and the entry commit
-    // above produced no net diff — retainsNothing is true.
+    // above produced no net diff.
     const rest = await provide(currentRest, repo)
     expect(rest.state).toBe("fixing")
     const plan = await provide(planStep(rest), repo)
@@ -933,22 +933,15 @@ describe("planStep", () => {
     if (plan.kind !== "commit") throw new Error("expected a commit plan")
 
     land(repo, plan.scripts)
-    // Resolves back at idle, the entry commit rewound rather than piled on.
+    // Lands an ordinary commit on top — HEAD never moves backward, and both
+    // the entry commit and this probe commit stay in the log.
     const after = await provide(currentRest, repo)
     expect(after.state).toBe("idle")
-    // The collapse branch lands no commit, so it reports itself via a plain
-    // note rather than a commit report — there is no commit to list files for.
-    expect(plan.scripts.required).toContain("gtd_report_note")
-    expect(plan.scripts.required).toContain(
-      "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",
-    )
+    expect(repo.resolveRef("HEAD")).not.toBe(afterEntry)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): fixing → idle")
   })
 
-  it("an attempt at a prompt state that IS the initial state does not collapse/reset (decision 5)", async () => {
-    // A minimal workflow whose default entry is itself a no-C prompt state —
-    // every criterion `collapsesWith` otherwise checks (target === initial
-    // state, a real prior commit, nothing retained) is satisfied here, so
-    // only the `attempt` flag stops it from wrongly rewinding the attempt.
+  it("an attempt at a prompt state that IS the initial state lands an ordinary attempt commit", async () => {
     const ATTEMPT_INITIAL_WORKFLOW = [
       "workflow:",
       "  entry:",
@@ -1128,10 +1121,8 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
       throw new Error("expected a commit plan")
     }
 
-    // Direct call — `renderDecision` never reads `RestRequirements`, only the
-    // `GitOperations` it's handed, so it needs no `provide`.
-    const git = fakeGitOperations(repo)
-    const steps = await Effect.runPromise(renderDecision(git, rest, plan.decision, 7, "haiku"))
+    // Direct call — `renderDecision` is pure, no `provide` needed.
+    const steps = renderDecision(rest, plan.decision, 7, "haiku")
     const expectedMessage = `${plan.decision.subject}\n\nGtd-Cost: 7 haiku`
     expect(steps).toEqual([
       { kind: "gitWrite", command: commitAll(expectedMessage) },
@@ -1151,11 +1142,10 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(agent): working")
     const rest = await provide(currentRest, repo)
-    const git = fakeGitOperations(repo)
     // Hand-built rather than decided by `planStep`: `STEP_WORKFLOW` has no
     // declared self-loop, but `renderDecision` only reads `decision.from`/
-    // `to`/`subject` plus `rest.def`/`rest.run` — a synthetic `StepCommit`
-    // exercises its from === to branch directly.
+    // `to`/`subject` — a synthetic `StepCommit` exercises its from === to
+    // branch directly.
     const decision = {
       kind: "commit" as const,
       subject: "gtd(agent): working",
@@ -1163,7 +1153,7 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
       from: "working",
       to: "working",
     }
-    const steps = await Effect.runPromise(renderDecision(git, rest, decision, undefined, undefined))
+    const steps = renderDecision(rest, decision, undefined, undefined)
     expect(steps).toEqual([
       { kind: "gitWrite", command: commitAll(decision.subject) },
       { kind: "outcome", command: commitOutcome("gtd(agent): working") },

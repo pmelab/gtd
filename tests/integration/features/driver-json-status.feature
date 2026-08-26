@@ -19,12 +19,10 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
   `Label:`, `Model:`, `Memory:`, `File:`, `Mode:`, `Pending:`, `Next:`) are
   observable in plain text ONLY at a non-`prompt` rest; at a `prompt` rest
   they only ever show up in `--json`/`--sh`. `gtd land`'s own "settled" signal
-  (a `script` rest's no-op, or a collapse back to the initial state, is
-  terminal) is a `--json`/`--sh` field (`settled`) — never the exit code,
-  which is 0 on every successful landing regardless — and it also shows in
-  the emitted script's own content (a genuine no-op prints "nothing to do"
-  with no `git commit`; a collapse prints a rewind with no `git commit`
-  either).
+  (a `script` rest's no-op is terminal) is a `--json`/`--sh` field
+  (`settled`) — never the exit code, which is 0 on every successful landing
+  regardless — and it also shows in the emitted script's own content (a
+  genuine no-op prints "nothing to do" with no `git commit`).
 
   Scenario: gtd next --json reports kind "script" for a check-actor state
     Given a test project
@@ -875,7 +873,7 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     Then it succeeds
     And stdout contains "\"settled\":false"
 
-  Scenario: gtd land settles for a green re-entry that collapses back to the initial state — no commit lands
+  Scenario: gtd land lands an ordinary commit for a green re-entry into the initial state — HEAD never moves backward
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -900,6 +898,6 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And I record the commit count
     And an empty commit "gtd(check): checking"
     When I run gtd land
-    Then it settles
-    And the commit count is unchanged
-    And the git log does not contain "gtd("
+    Then it succeeds
+    And the commit count increased by 2
+    And the last commit subject is "gtd(check): checking → idle"

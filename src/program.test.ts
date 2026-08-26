@@ -1729,8 +1729,9 @@ describe("gtd land — the settled signal (exit code, script content, and now th
 
   // Identical to SETTLED_WORKFLOW, but "checking" also declares a "C": idle
   // row — adding that row to SETTLED_WORKFLOW itself would turn its own no-op
-  // tests above into commits, so the collapse gets its own workflow constant.
-  const COLLAPSE_WORKFLOW = [
+  // tests above into commits, so this re-entry-into-initial-state case gets
+  // its own workflow constant.
+  const REENTRY_WORKFLOW = [
     "workflow:",
     "  entry:",
     "    default: root",
@@ -1757,33 +1758,27 @@ describe("gtd land — the settled signal (exit code, script content, and now th
     "",
   ].join("\n")
 
-  const seededCollapseRepo = (lastCommitSubject: string): InMemRepo => {
+  const seededReentryRepo = (lastCommitSubject: string): InMemRepo => {
     const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", COLLAPSE_WORKFLOW)
+    repo.writeFile(".gtdrc.yaml", REENTRY_WORKFLOW)
     repo.commitAllWithPrefix("chore: add custom workflow")
     repo.commitAllWithPrefix(lastCommitSubject)
     return repo
   }
 
-  it("a clean tree at `checking` after an empty commit collapses back to idle — settled, no commit", async () => {
-    const repo = seededCollapseRepo("gtd(check): checking")
+  it("a clean tree at `checking` re-entering idle lands an ordinary commit, not a rewind", async () => {
+    const repo = seededReentryRepo("gtd(check): checking")
     const { stdout, exitCode } = await run(repo, "land")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("git reset --mixed")
-    expect(stdout).toContain("nothing to retain")
-    expect(stdout).not.toContain("git commit")
+    expect(stdout).toContain("git commit")
+    expect(stdout).not.toContain("git reset --mixed")
+    expect(stdout).not.toContain("nothing to retain")
   })
 
-  it("the same rest with a pending change that retains something is not settled — proves it's the rewind, not the target state, that settles", async () => {
-    const repo = seededCollapseRepo("gtd(check): checking")
+  it("the same rest with a pending change lands an ordinary commit too — proves the target state doesn't change the shape", async () => {
+    const repo = seededReentryRepo("gtd(check): checking")
     repo.writeFile("OUT.txt", "all green\n")
     const { stdout, exitCode } = await run(repo, "land")
-    // Both this case and the one above target the initial state (`idle`) —
-    // exit code is 0 either way, whether or not the landing settles — so exit
-    // code alone can't tell a genuine collapse apart from an ordinary commit
-    // that happens to land there; the script's own content (a real
-    // `git commit`, no rewind) is what proves it's the REWIND, not the
-    // target state, that settles.
     expect(exitCode).toBe(0)
     expect(stdout).toContain("git commit")
     expect(stdout).not.toContain("nothing to retain")
@@ -1817,8 +1812,8 @@ describe("gtd land — the settled signal (exit code, script content, and now th
     expect(parsed.script).toContain("nothing to do")
   })
 
-  it("gtd land --json a decision that collapses back to the initial state reports settled:true, idle:true, state:idle", async () => {
-    const repo = seededCollapseRepo("gtd(check): checking")
+  it("gtd land --json a decision that re-enters the initial state reports settled:false, idle:true, state:idle", async () => {
+    const repo = seededReentryRepo("gtd(check): checking")
     const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
     const parsed = JSON.parse(stdout) as {
@@ -1826,7 +1821,7 @@ describe("gtd land — the settled signal (exit code, script content, and now th
       readonly idle: boolean
       readonly state: string
     }
-    expect(parsed.settled).toBe(true)
+    expect(parsed.settled).toBe(false)
     expect(parsed.idle).toBe(true)
     expect(parsed.state).toBe("idle")
   })

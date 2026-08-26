@@ -33,10 +33,9 @@ import {
   type TemplateContext,
   type TemplateEdge,
 } from "./PatternTemplates.js"
-import { HISTORY_REF } from "./RetainedHistory.js"
-import { commitAll, mixedResetTo, updateRef } from "./GitScript.js"
+import { commitAll } from "./GitScript.js"
 import { emitScripts, type EmitPreconditions, type EmitStep, type EmittedScripts } from "./Emit.js"
-import { COLLAPSED_TEXT, commitOutcome, noteOutcome, transitionOutcome } from "./OutcomeScript.js"
+import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
 
 // git's empty-tree object — the diff/reset base when a process (or the whole
 // repo) has no earlier commit to compare against.
@@ -680,22 +679,6 @@ export const summaryTemplateContext = (
     )
   })
 
-/**
- * True when this process would retain NOTHING: nothing pending and no net
- * change between its trace/retry boundary and HEAD. Used by `planStep`'s
- * "returned to the initial state retaining nothing" mixed-reset branch.
- */
-const retainsNothing = (
-  git: GitOperations,
-  run: ProcessRun,
-  changes: readonly PendingChange[],
-): Effect.Effect<boolean, Error> =>
-  Effect.gen(function* () {
-    if (changes.length > 0) return false
-    const touched = yield* git.changedPathsSince(run.startParentHash)
-    return touched.length === 0
-  })
-
 // ── The resolved rest, fully assembled ───────────────────────────────────────
 
 export type RestRequirements = GitService | ConfigService | RepoFiles | EnvVars | Narrator
@@ -928,10 +911,6 @@ const formatStepRefusal = (refusal: StepRefusal): string =>
         refusal.patterns.length > 0 ? refusal.patterns.join(", ") : "(none)"
       }`
 
-/** `updateRef(HISTORY_REF, tip)` as a single-element (or empty) step list — OMITTED when `tip === startParentHash`, mirroring `retainHistory`'s own no-op check. Used by the commit branch's collapse case below. */
-const retainHistoryStep = (tip: string, startParentHash: string): readonly EmitStep[] =>
-  tip === startParentHash ? [] : [{ kind: "gitWrite", command: updateRef(HISTORY_REF, tip) }]
-
 /** The commit branch's own trailing outcome: a bare `commitOutcome` for a self-loop (`from === to`), else a `transitionOutcome` naming both states. */
 const commitDecisionOutcome = (decision: {
   readonly subject: string
@@ -946,81 +925,20 @@ const commitDecisionOutcome = (decision: {
 })
 
 /**
- * True for a `"commit"` decision that is the "green re-entry into the initial
- * state retaining nothing" collapse — target is the initial state, the
- * process started somewhere other than the empty tree, and nothing pending or
- * already-committed since its start parent survives (`retainsNothing`).
- * Always `false` for an ATTEMPT: an agent that did nothing must never rewind
- * a process, and an attempt landing at a prompt state that's also the initial
- * state would otherwise satisfy every other criterion identically to a
- * genuine collapse.
- */
-const collapsesWith = (
-  git: GitOperations,
-  rest: Rest,
-  decision: ExecutableDecision,
-): Effect.Effect<boolean, Error> =>
-  Effect.gen(function* () {
-    if (decision.attempt === true) return false
-    const target = parseStateSubject(decision.subject)?.state
-    return (
-      target === initialStateOf(rest.def) &&
-      rest.run.startParentHash !== EMPTY_TREE &&
-      (yield* retainsNothing(git, rest.run, rest.changes))
-    )
-  })
-
-/**
- * The service-requiring twin of `collapsesWith`, for `program.ts` to ask
- * instead of reaching into `GitService` itself — the boundary AGENTS.md pins.
- * `planLanding` calls this to fill `LandResult.settled` for a `"commit"`/
- * `"commit"` plan, off the same `rest`/`decision` `renderDecision` already
- * decided against, so the two git reads (`changedPathsSince` + `resolveRef`)
- * can never disagree with each other.
- */
-export const collapsesToInitialState = (
-  rest: Rest,
-  decision: ExecutableDecision,
-): Effect.Effect<boolean, Error, GitService> =>
-  Effect.gen(function* () {
-    const git = yield* GitService
-    return yield* collapsesWith(git, rest, decision)
-  })
-
-/**
  * Render a `"commit"` decision as the `EmitStep`s the external driver runs to
  * produce its git effect — the ONE place a decision becomes git commands.
- * Every git call here is a READ; nothing is written — gtd itself never writes
- * git, only a driven script does.
- *
- * One non-obvious case: a commit whose target is the workflow's INITIAL
- * state, from a process that retained nothing, is a no-op probe
- * (`gtd --entry fix-precheck` against a green suite is the shipped example)
- * and must leave no trace — it emits retain-history plus a mixed reset to the
- * process start instead of a commit, so the entry commit and the probe
- * collapse away together rather than dirtying the log with a round trip to
- * `idle`.
+ * Pure: no git read, no failure mode — a commit decision always becomes an
+ * ordinary commit plus its outcome report.
  */
 export const renderDecision = (
-  git: GitOperations,
   rest: Rest,
   decision: ExecutableDecision,
   cost: number | undefined,
   model: string | undefined,
-): Effect.Effect<readonly EmitStep[], Error> =>
-  Effect.gen(function* () {
-    const run = rest.run
-    if (yield* collapsesWith(git, rest, decision)) {
-      const tip = yield* git.resolveRef("HEAD")
-      return [
-        ...retainHistoryStep(tip, run.startParentHash),
-        { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
-        { kind: "outcome", command: noteOutcome(COLLAPSED_TEXT) },
-      ]
-    }
-    const command = commitAll(withCostTrailer(decision.subject, cost, model))
-    return [{ kind: "gitWrite", command }, commitDecisionOutcome(decision)]
-  })
+): readonly EmitStep[] => {
+  const command = commitAll(withCostTrailer(decision.subject, cost, model))
+  return [{ kind: "gitWrite", command }, commitDecisionOutcome(decision)]
+}
 
 /**
  * The `EmitPreconditions` a step's/entry's assembled scripts assert against:
@@ -1030,27 +948,17 @@ const buildPreconditions = (rest: Rest): EmitPreconditions => ({
   expectedHead: rest.context.currentCommit,
 })
 
-/**
- * The `EmittedScripts` a `"commit"` `StepPlan` carries alongside `perform` —
- * built from the SAME `renderDecision` output, but a render failure collapses
- * to an EMPTY script (`emitScripts` with no steps) instead of failing this
- * Effect: `perform` stays the one place a render failure is ever reported to
- * a caller, unchanged by this addition.
- */
+/** The `EmittedScripts` a `"commit"` `StepPlan` carries alongside `perform` — built from `renderDecision`'s output. */
 const buildStepScripts = (
-  git: GitOperations,
   rest: Rest,
   decision: ExecutableDecision,
   cost: number | undefined,
   model: string | undefined,
-): Effect.Effect<EmittedScripts, Error> =>
-  Effect.gen(function* () {
-    const preconditions = buildPreconditions(rest)
-    const steps = yield* renderDecision(git, rest, decision, cost, model).pipe(
-      Effect.catchAll(() => Effect.succeed<readonly EmitStep[]>([])),
-    )
-    return emitScripts(preconditions, steps)
-  })
+): EmittedScripts => {
+  const preconditions = buildPreconditions(rest)
+  const steps = renderDecision(rest, decision, cost, model)
+  return emitScripts(preconditions, steps)
+}
 
 /**
  * Decide a step — WITHOUT performing it. gtd never writes git: the decision
@@ -1093,7 +1001,7 @@ export const planStep = (
   rest: Rest,
   opts: { readonly cost?: number; readonly model?: string } = {},
 ): Effect.Effect<StepPlan, Error, RestRequirements> =>
-  Effect.gen(function* () {
+  Effect.sync(() => {
     const decision = step(rest.stepDef, rest.state, rest.actor, {
       changes: rest.changes,
       // The pure engine's retry-entry counting only compares state NAMES,
@@ -1109,8 +1017,7 @@ export const planStep = (
     }
 
     const { cost, model } = opts
-    const git = yield* GitService
-    const scripts = yield* buildStepScripts(git, rest, decision, cost, model)
+    const scripts = buildStepScripts(rest, decision, cost, model)
 
     return { kind: decision.kind, state: rest.state, decision, scripts }
   })

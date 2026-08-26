@@ -206,14 +206,6 @@ export class InMemRepo {
     return c.files.get(path) ?? null
   }
 
-  changedPathsBetween(refA: string, refB: string): Array<{ path: string; status: string }> {
-    const hashA = this.resolveRef(refA)
-    const hashB = this.resolveRef(refB)
-    const treeA = hashA ? (this.getCommit(hashA)?.files ?? new Map()) : new Map<string, string>()
-    const treeB = hashB ? (this.getCommit(hashB)?.files ?? new Map()) : new Map<string, string>()
-    return diffTrees(treeA, treeB)
-  }
-
   /**
    * `base` (default HEAD) mirrors the port's own optional base. Tree-vs-worktree
    * comparison already subsumes production's untracked-file filtering: a path

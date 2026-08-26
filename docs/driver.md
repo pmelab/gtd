@@ -515,8 +515,8 @@ non-zero-looking exits are not a failure at all:
 - **`gtd land` succeeds (exit 0) but doesn't settle.** This is NOT a failure:
   whose turn is next lives in the FOLLOWING `gtd next`'s own `kind` field, not
   in `gtd land`'s exit code (see [Exit codes](./cli.md#exit-codes)) — and
-  `gtd land`'s own stdout still carries a script (a print-only note, or a
-  genuine retain+rewind, or an ordinary commit) that a driver must still run.
+  `gtd land`'s own stdout still carries a script (a print-only note, or an
+  ordinary commit) that a driver must still run.
 - **An emitted script exits non-zero when YOU run it.** Something may have
   partially happened — e.g. a `gtd_retry`-wrapped git write landed but a later
   step in the same script failed.

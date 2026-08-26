@@ -134,7 +134,7 @@ Feature: gtd land — the one landing verb, actorless
     And stdout contains "nothing to do at \"checking\""
 
   @inmem
-  Scenario: the green --entry fix-precheck collapse (a mixed-reset no-op) settles at exit 0 with the commit count unchanged
+  Scenario: the green --entry fix-precheck probe lands an ordinary commit at exit 0, HEAD never moving backward
     Given a test project
     And the workflow
     And I record the commit count
@@ -142,8 +142,9 @@ Feature: gtd land — the one landing verb, actorless
     Then it succeeds
     When I run gtd land
     Then the exit code is 0
-    And the commit count is unchanged
-    And the git log does not contain "gtd("
+    And the commit count increased by 2
+    And the git log contains "gtd(human): fix-precheck"
+    And the git log contains "gtd(check): fix-precheck → idle"
 
   @inmem
   Scenario: a dirty no-match exits 1 authoring nothing
@@ -237,7 +238,7 @@ Feature: gtd land — the one landing verb, actorless
     And the last commit subject is "gtd(human): idle → working"
 
   @inmem
-  Scenario: gtd land --json reports settled:true, idle:true for the green --entry fix-precheck collapse, without landing it
+  Scenario: gtd land --json reports settled:false, idle:true for the green --entry fix-precheck probe, without landing it
     Given a test project
     And the workflow
     When I run gtd with args "--entry fix-precheck"
@@ -245,7 +246,7 @@ Feature: gtd land — the one landing verb, actorless
     And I record the commit count
     When I run gtd land with "--json"
     Then the exit code is 0
-    And stdout contains "\"settled\":true"
+    And stdout contains "\"settled\":false"
     And stdout contains "\"idle\":true"
     And stdout contains "\"state\":\"idle\""
     And the commit count is unchanged

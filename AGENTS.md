@@ -86,10 +86,8 @@ preserved:
   and fall back to the other flag on failure, not a contract; no command —
   `next`, `status`, or `land` — touches the git dir to record that a beat was
   dispatched. Every write gtd causes happens inside a script it emitted and the
-  driver ran — the initial-state collapse's own mixed reset (`collapsesWith`) is
-  the driver running an emitted script, not a command reaching into git itself.
-  A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`) and hands
-  it to `planStep`/`planEntry`. Never read a `Rest` after a `perform`.
+  driver ran. A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`)
+  and hands it to `planStep`/`planEntry`. Never read a `Rest` after a `perform`.
   `src/program.ts` never reaches into `GitService` directly except two narrow
   exceptions: the `abandon`/`restore` hard/mixed resets — recovery commands that
   must work even when a `Rest` would refuse, so they reset directly instead of
@@ -144,7 +142,7 @@ preserved:
 a build-time bundle-content assertion both guard the boundary) and is imported
 only from `src/**/*.test.ts` and `tests/**`. The fake is trustworthy only
 because `src/testing/GitTiers.ts`'s `runGitServiceContract` runs the same
-19-operation `GitOperations` contract against BOTH the fake and a real git repo
+18-operation `GitOperations` contract against BOTH the fake and a real git repo
 — treat the contract, not the fake's internals, as the source of truth when the
 fake and production ever disagree.
 
@@ -192,8 +190,8 @@ update:
   `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
   (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
   `land.feature` (the exit-code contract: 0/3/settled/1; `driver-doc.feature`'s
-  own `--entry fix-precheck` collapse scenario asserts on the bundled template's
-  shape too)
+  own `--entry fix-precheck` scenario asserts on the bundled template's shape
+  too)
 - A workflow change must keep the DRIVER contract true, not just the engine's:
   every state a process can rest at must resolve to exactly one `kind` a driver
   already handles (`capture`/`message`/`script`/`prompt`/`stalled`) — there is

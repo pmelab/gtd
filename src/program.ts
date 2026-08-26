@@ -13,7 +13,6 @@ import { CommandRunner } from "./CommandRunner.js"
 import { resolveSession } from "./Sessions.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
-  collapsesToInitialState,
   currentRest,
   currentRun,
   planEntry,
@@ -174,7 +173,7 @@ interface LandResult {
   readonly cost: number | null
   readonly model: string | null
   readonly script: string
-  /** True for either terminal shape: a no-op at a `script` rest, or a decision that collapses back to the initial state retaining nothing. */
+  /** True for the one terminal shape: a no-op at a `script` rest. */
   readonly settled: boolean
   readonly idle: boolean
 }
@@ -248,11 +247,10 @@ const buildRequiredScript = (
   model: string | undefined,
 ): Effect.Effect<string, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const git = yield* GitService
     const isAttempt = isAttemptDecision(decision)
     const steps: EmitStep[] = [
       ...(isAttempt ? [] : yield* steeringModeSteps(rest)),
-      ...(yield* renderDecision(git, rest, decision, cost, model)),
+      ...renderDecision(rest, decision, cost, model),
     ]
     return emitScripts(headPreconditions(rest.context.currentCommit), steps).required
   })
@@ -314,7 +312,6 @@ const planLanding = (
     })
 
     const restingState = decision.to
-    const settled = yield* collapsesToInitialState(rest, decision)
     const required = yield* buildRequiredScript(rest, decision, opts.cost, opts.model)
     return {
       state: restingState,
@@ -322,7 +319,7 @@ const planLanding = (
       cost: opts.cost ?? null,
       model: opts.model ?? null,
       script: normalizeScriptNewline(combinedScript(required, "")),
-      settled,
+      settled: false,
       idle: restingState === initialStateOf(rest.def),
     }
   })

@@ -65,10 +65,6 @@ export interface GitReaderOperations {
   readonly changedPaths: (
     base?: string,
   ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
-  /** Paths-only counterpart of `changedPaths` for the range `ref..HEAD` — used to decide whether a process would retain anything, without rendering a diff. */
-  readonly changedPathsSince: (
-    ref: string,
-  ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
 }
 
 export interface GitWriterOperations {
@@ -360,11 +356,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       ),
 
     readFileAtRef: (ref: string, path: string) => exec("git", "show", `${ref}:${path}`),
-
-    changedPathsSince: (ref: string) =>
-      exec("git", "diff", "--name-status", "-z", ref, "HEAD").pipe(
-        Effect.map((out) => parseNameStatus(splitNul(out))),
-      ),
 
     changedPaths: (base?: string) =>
       Effect.gen(function* () {

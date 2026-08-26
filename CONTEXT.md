@@ -107,10 +107,10 @@ equivalent is an [attempt](#attempt), not a no-op.
 
 **Settled**: A step with nothing left to land — a no-op at a `script` rest (the
 check ran, left nothing any pattern claims, and re-running it cannot change
-that), or a rewind back to the initial state retaining nothing. Reported as exit
-3 (and `settled: true` under `--json`) by `gtd land` so a loop exits rather than
-spins. An attempt at a `prompt` rest is not settled but stalled. _Avoid_: done,
-finished, idle
+that). Reported as exit 3 (and `settled: true` under `--json`) by `gtd land` so
+a loop exits rather than spins. An attempt at a `prompt` rest is not settled but
+stalled; a commit decision — even one re-entering the initial state — is never
+settled either, since `gtd land` never moves HEAD. _Avoid_: done, finished, idle
 
 **Gate**: A state whose actor is `human` — the process rests there until a
 person acts. _Avoid_: checkpoint, approval, the bare "the gate"
@@ -163,10 +163,9 @@ scope, not a session.
 declared `reviewBase`, falling back to the process start.
 
 **Retained history**: A rewound process's turn-by-turn commits, kept behind a
-ref so `gtd restore` can bring them back — written when `gtd abandon` rewinds an
-in-flight process, and on the initial-state collapse path (a green
-`--entry fix-precheck` probe's mixed-reset no-op). No longer written for a
-squash, since there is no squash.
+ref so `gtd restore` can bring them back — written only when `gtd abandon`
+rewinds an in-flight process. `gtd land` never moves HEAD, so it never writes
+this ref.
 
 **Vars**: A workflow's own declared values, readable from any template as
 `it.vars`. The engine blesses no names: `testCommand` is the bundled workflow's

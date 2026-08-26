@@ -4,14 +4,6 @@ import type { GitOperations } from "./Git.js"
 /** Per-worktree (`refs/worktree/gtd/*`) so linked worktrees sharing one `.git` don't clobber each other's retained history. */
 export const HISTORY_REF = "refs/worktree/gtd/history"
 
-/** No-op when `tipHash === startParentHash`: an empty process has no turn chain worth keeping. */
-export const retainHistory = (
-  git: GitOperations,
-  tipHash: string,
-  startParentHash: string,
-): Effect.Effect<void, Error> =>
-  tipHash === startParentHash ? Effect.void : git.updateRef(HISTORY_REF, tipHash)
-
 export const readRetainedHistory = (
   git: GitOperations,
 ): Effect.Effect<Option.Option<string>, Error> => git.readRefOption(HISTORY_REF)

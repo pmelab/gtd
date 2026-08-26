@@ -183,12 +183,11 @@ file, \`validate\` (the script that formats then validates it). When set:
 recorded (a prior \`gtd land --cost=<n>\`): \`cost\`, \`costByModel\`.
 
 \`gtd land\` fields, in fixed order: \`script\` (the POSIX sh to run —
-\`gtd_script\` under \`--sh\`), \`settled\` (true for either terminal shape: a
-no-op at a \`script\` rest, or a decision that collapses back to the initial
-state retaining nothing — stop immediately, nothing more to read), \`idle\`
-(true iff the state landing rests at is the workflow's initial state),
-\`state\`, \`subject\`, \`cost\`, \`model\` (the last three \`null\`, never
-omitted, for a genuine no-op).
+\`gtd_script\` under \`--sh\`), \`settled\` (true for a no-op at a \`script\`
+rest — stop immediately, nothing more to read), \`idle\` (true iff the state
+landing rests at is the workflow's initial state), \`state\`, \`subject\`,
+\`cost\`, \`model\` (the last three \`null\`, never omitted, for a genuine
+no-op).
 
 ### The error envelope
 
