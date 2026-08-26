@@ -18,7 +18,7 @@ rewrite has no `--json=kind` to read until package 1 ships, and
 a naive runtime walk cannot separate them. The settled requirement forbids a
 second field table that can _drift_ out of sync with `BeatFields`.
 
-- [ ] Make every optional key explicitly present with an `undefined` value —
+- [x] Make every optional key explicitly present with an `undefined` value —
       change `label?: string` to `label: string | undefined` (the idiom
       `NextMatch.action` already uses for `exactOptionalPropertyTypes`), and
       replace `beatFields`/`landFields`' spread-conditionals with plain
