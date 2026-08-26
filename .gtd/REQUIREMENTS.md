@@ -26,7 +26,8 @@ selector flags in one non-green-able step.
 - [ ] Delete `--json` too — one output surface only (prose + selectors), no JSON
       encoder, no `renderBeatJson`/`renderLandJson`. Costs a full e2e rewrite
       and loses the structured error envelope.
-- [ ] _your answer_
+- [x] lets make json accept an optional selector instead that can reduce to a
+      simple value
 
 ### How do `gtd land`'s selector flags avoid colliding with its existing `--cost=<n>` / `--model=<name>` inputs?
 
@@ -43,7 +44,7 @@ precisely the magic being deleted.
 - [ ] Drop `cost`/`model` from `land`'s selector set entirely — a driver that
       just passed `--cost=<n>` in already knows both values, so there is nothing
       to read back. No new names, no collision.
-- [ ] _your answer_
+- [x] see above
 
 ## Answered Questions
 
