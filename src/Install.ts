@@ -93,9 +93,10 @@ const HEADER = (): string =>
   `gtd ${GTD_VERSION} — driver protocol\n` +
   `\n` +
   `gtd decides and prints; the driver executes. gtd never runs git, never runs\n` +
-  `your agent, and never runs a check script. The one subprocess gtd ever spawns\n` +
-  `itself is a steering mode's own format:/validate: command, during a\n` +
-  `land-capture guard.\n`
+  `your agent, never runs a check script, and never runs a steering mode's own\n` +
+  `format:/validate: command either — that pair is text in the script gtd next\n` +
+  `--json's validate field (or gtd validate) prints, for the driver to run\n` +
+  `itself ahead of gtd land.\n`
 
 const BEAT_PROTOCOL = `
 ## The beat protocol

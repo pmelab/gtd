@@ -422,31 +422,28 @@ the compiler's job at load time.
 
 ### The normalization-only contract on `format:`
 
+`gtd land`'s own emitted script never runs a mode's `format:`/`validate:` pair —
+it's only the HEAD assertion and the commit. Formatting and validating a
+steering file is a driver contract instead: run it explicitly, ahead of
+`gtd land`, off `gtd next --json`'s own `validate` field (or `gtd validate`,
+which prints the same script). A driver that skips this can land a malformed or
+unformatted steering file — `gtd land` itself no longer stops it.
+
 A mode's `format:` command may reformat a steering file — whitespace, wrapping,
 reordering — but must NEVER change what a land-capture guard would decide. gtd's
 guards (the review-doc check, the feedback-progress check, the
 answer-completeness check, the require-revert check — `src/StepGuards.ts`)
-decide ONCE, against whichever bytes are on disk at the moment `gtd land` runs,
-which may be before OR after an emitted script's own `format:` line has run (the
-script runs `format:` then `validate:` then the commit — see
-`src/SteeringMode.ts`'s `renderSteeringCommands` — but gtd's decision and the
-driver's script execution are different processes at different times, so there's
-no guaranteed ordering between "gtd decided" and "the script formatted"). That's
-only safe because every built-in guard judges only the content it explicitly
-cares about, not incidental formatting around it — the feedback-progress guard,
-for instance, only checks whether a deleted file's trimmed first line is the
-`NOTHING ACTIONABLE` sentinel, so reindenting the rest of it changes nothing the
-guard reads. If you plug in your own `format:` command, the same rule binds it:
-a formatter that also changes meaning — stripping a paragraph a guard reads —
-makes the guard's decision and the file's actual content disagree, and gtd will
-not catch that for you.
-
-One case never runs your `format:` (or `validate:`) at all: a step whose diff
-DELETES the state's own `file:`. Deleting it is a legitimate outcome — a review
-sign-off's whole diff is the review doc's deletion — and there is nothing left
-to format. Emitting the command anyway would make such a step unlandable, since
-`format:` is the first line of a `set -eu` script and a formatter like
-`prettier --write` exits non-zero on a path that is not there.
+decide ONCE, against whichever bytes are on disk at the moment `gtd land` runs —
+which may be before OR after a driver's own separate `format:` run, since that's
+a different process at a different time with no guaranteed ordering against "gtd
+decided". That's only safe because every built-in guard judges only the content
+it explicitly cares about, not incidental formatting around it — the
+feedback-progress guard, for instance, only checks whether a deleted file's
+trimmed first line is the `NOTHING ACTIONABLE` sentinel, so reindenting the rest
+of it changes nothing the guard reads. If you plug in your own `format:`
+command, the same rule binds it: a formatter that also changes meaning —
+stripping a paragraph a guard reads — makes the guard's decision and the file's
+actual content disagree, and gtd will not catch that for you.
 
 ### Built-in steering formats are ordinary modes
 
