@@ -13,7 +13,7 @@ HEAD-moving case goes away.**
 
 ### Should `gtd land` stop emitting the steering-file `format:`/`validate:` commands?
 
-- [ ] Drop them — `land`'s script becomes nothing but the commit. The driver
+- [x] Drop them — `land`'s script becomes nothing but the commit. The driver
       already runs `gtd next --json`'s `validate` field in a fix loop before
       landing, so validation still happens on the happy path; it just becomes a
       driver contract instead of a gtd guarantee.
@@ -27,14 +27,14 @@ HEAD-moving case goes away.**
 - [ ] A new flag (`gtd land --prose`) — plain `gtd land` keeps printing the
       script verbatim, so `gtd land | sh`, `docs/driver.md`'s doc-tested minimal
       driver, and every existing driver keep working untouched.
-- [ ] Plain `gtd land` prints prose and the script moves behind `--sh`/`--json`
+- [x] Plain `gtd land` prints prose and the script moves behind `--sh`/`--json`
       only — a human running `gtd land` by hand gets an explanation instead of
       bash, at the price of a breaking change to every piping driver.
 - [ ] _your answer_
 
 ### Where does the missing-`C`-row warning surface?
 
-- [ ] On stderr, every time a workflow is loaded — the author sees it on the
+- [x] On stderr, every time a workflow is loaded — the author sees it on the
       next command they run, at the price of repeating on every invocation until
       the workflow is fixed.
 - [ ] Only through `gtd lsp` diagnostics on the workflow file — zero CLI noise,
