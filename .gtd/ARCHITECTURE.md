@@ -9,31 +9,6 @@ Package 2 consumes package 1's interface and cannot land first: the driver
 rewrite has no `--json=kind` to read until package 1 ships, and
 `driver-doc.feature` executes that doc's paste for real.
 
-## Open Questions
-
-### How does the selector tell an ABSENT optional field apart from an UNKNOWN key, when `beatFields` omits absent optionals from the object entirely?
-
-`--json=label` at a rest with no `label:` must print nothing and exit 0;
-`--json=nope` must exit 2. Today both are a missing key on the built object, so
-a naive runtime walk cannot separate them. The settled requirement forbids a
-second field table that can _drift_ out of sync with `BeatFields`.
-
-- [x] Make every optional key explicitly present with an `undefined` value —
-      change `label?: string` to `label: string | undefined` (the idiom
-      `NextMatch.action` already uses for `exactOptionalPropertyTypes`), and
-      replace `beatFields`/`landFields`' spread-conditionals with plain
-      assignments. `JSON.stringify` drops `undefined`-valued keys, so
-      `gtd next --json`'s bytes and key order are unchanged. Key present →
-      absent; key missing → unknown. Cost: restructures both field builders and
-      relaxes the types that today make omission visible in the signature.
-- [ ] Add `const BEAT_KEYS: Record<keyof BeatFields, true>` (and the same for
-      `LandFields` and each nested shape) in `src/Select.ts`. A mapped type over
-      `keyof T` cannot drift — a field added to `BeatFields` with no entry is a
-      compile error, exactly the guarantee `ShShapeFor` gave. The field builders
-      are untouched. Cost: one line per field to maintain, which is the shape
-      the requirement was wary of even though this variant is compiler-enforced.
-- [ ] _your answer_
-
 ## Package 1 — `--json=<selector>` and the prose default
 
 Merged from concerns 1 and 2 (see `## Merged Concerns`). Both center on
@@ -75,6 +50,32 @@ segment that is all digits is an ordinary key name and will simply be unknown.
 remaining path.** `--json=session.id` at a `script` rest prints nothing and
 exits 0; it does not try to prove `id` is a real key of a `session` that is not
 there. Document this in the `--json` row's help.
+
+**Absent and unknown are told apart by whether the key is PRESENT with an
+`undefined` value.** `beatFields`/`landFields` stop omitting absent optionals
+and assign `undefined` instead: `label?: string` becomes
+`label: string | undefined`, the idiom `NextMatch.action` already uses under
+`exactOptionalPropertyTypes`. Both builders lose their spread-conditionals in
+favour of plain assignments. **`JSON.stringify` drops `undefined`-valued keys,
+so `gtd next --json`'s bytes and key order are unchanged** — the byte-identical
+acceptance criterion holds without a golden-file exception. `selectPath` then
+reads a present key as `absent` and a missing key as `unknown`.
+
+**Risk: the relaxed types no longer make omission visible in a signature.**
+`label: string | undefined` reads as "always there, sometimes empty", which is
+the opposite of the wire truth. Every one of `BeatFields`' optional fields —
+`session`, `model`, `system`, `validate`, `label`, `memory`, `file`, `mode`,
+`edges`, `cost`, `costByModel` — and `LandFields`' `subject`/`cost`/`model`
+needs its doc comment to say the key is dropped from the JSON when `undefined`,
+or the next reader adds a field with `?:` and silently makes it unselectable.
+
+**`beatFields`' two conditional gates survive the rewrite as explicit
+`undefined`s, not as dropped keys.** `session`/`validate` are still forced to
+`undefined` unless `kind === "prompt"`, and `system` is still `undefined` when
+its rendered value is the empty string — an empty `--system-prompt ""` would
+silently delete the harness's own default instead of failing loudly. Turning
+those into unconditional assignments is the one way this refactor changes
+behaviour.
 
 ### `src/Cli.ts` — a third generic arity mode
 
@@ -343,6 +344,16 @@ the way to get the script.
 output. That pin must be re-expressed against `--json`, not deleted.
 
 ## Answered Questions
+
+### How does the selector tell an ABSENT optional field apart from an UNKNOWN key, when `beatFields` omits absent optionals from the object entirely?
+
+Every optional key is made explicitly present with an `undefined` value:
+`label?: string` becomes `label: string | undefined`, and
+`beatFields`/`landFields`' spread-conditionals become plain assignments.
+`JSON.stringify` drops `undefined`-valued keys, so `gtd next --json`'s bytes and
+key order are unchanged. A present key reads as absent, a missing key as
+unknown. No key table is introduced, so nothing can drift out of sync with
+`BeatFields`.
 
 ### Does `--json` survive, or go away with `--sh`?
 
