@@ -26,7 +26,9 @@ non-`prompt`, non-initial state that declares no `C` row.
 
 Acceptance: a workflow whose non-initial `script` state declares no `C` row
 loads successfully, exits 0, prints one warning naming that state on stderr and
-nothing extra on stdout; the bundled `unified.yaml` produces none.
+nothing extra on stdout; the bundled `unified.yaml` produces exactly two —
+`unwind` and `build.review.deciding` — both deliberately left unrouted (see Task
+2's exclusions and its acceptance line below).
 
 ## Tasks
 
@@ -60,24 +62,42 @@ Paths: `src/PatternMachine.ts`, `src/PatternMachine.test.ts`,
 
 ### Task 2 — Add the missing-`C`-row rule
 
-A state warns when all three hold: it declares no `C` row, its content kind is
-not `prompt`, and it is not the workflow's initial state.
+A state warns when all four hold: it declares no `C` row, its content kind is
+not `prompt`, it is not the workflow's initial state, and its actor is not
+`human`.
 
-**Both exclusions are load-bearing.** A `prompt` state's clean step is an
+**All three exclusions are load-bearing.** A `prompt` state's clean step is an
 ATTEMPT by design — a clean tree with no `C` row there commits an empty
 `gtd(<actor>): <state>` attempt, which is a real signal `stalledAt` reads. A `C`
 row on the initial state would author a commit on every bare driver invocation.
+A `human`-actor state is the same hazard generalized: `docs/driver.md`'s driver
+protocol lands a human gate's OPENING beat unconditionally on every restart
+while a process rests there, specifically because today that's a harmless no-op
+when the state has no `C` row — a `C` row there would turn every such restart
+into a real commit before the human has acted at all.
 
 **Never a load-time error.** The no-op is a legitimate authoring choice, so this
 surfaces the decision — it does not force one.
 
-- [ ] a non-`prompt`, non-initial state with no `C` row produces exactly one
-      warning naming that state
+- [ ] a non-`prompt`, non-initial, non-`human`-actor state with no `C` row
+      produces exactly one warning naming that state
 - [ ] a `prompt` state with no `C` row produces no warning
 - [ ] the workflow's initial state with no `C` row produces no warning
+- [ ] a `human`-actor state with no `C` row produces no warning
 - [ ] a state with a `C` row produces no warning
-- [ ] the bundled `src/workflows/unified.yaml` produces **zero** warnings
+- [ ] the bundled `src/workflows/unified.yaml` produces exactly **two** warnings
+      — `unwind` and `build.review.deciding` — each deliberately left unrouted:
+      routing `unwind`'s clean case would mask a `git revert` failure silently
+      swallowed by its `set +e` script (a completed revert and a failed one both
+      leave a clean tree), and routing `build.review.deciding`'s clean case
+      would auto-approve a review round whose `REVIEW.md` was never provisioned,
+      rather than one a human actually signed off on. That repeating noise is
+      accepted — do not chase zero by adding a `C` row to either.
 - [ ] no warning is ever returned as an error
+
+`packages.item.closing`'s own `"C": $onNext` row stands on its own merits, not
+on this checklist: without it, a clean sweep (nothing left to remove) leaves the
+process no-oping at `closing` forever, regardless of any warning target.
 
 Paths: `src/PatternMachine.ts`, `src/PatternMachine.test.ts`,
 `src/workflows/templates.test.ts`
@@ -140,7 +160,8 @@ Adding a feature file needs no `turbo.json` edit — the e2e tasks already glob
 - [ ] the workflow loads successfully and the command exits 0
 - [ ] exactly one warning naming that state appears on stderr
 - [ ] nothing extra appears on stdout
-- [ ] a scenario using the bundled workflow observes no warning
+- [ ] a scenario using the bundled workflow observes exactly its two accepted
+      warnings (`unwind`, `build.review.deciding`)
 - [ ] `npm test` is green
 
 Paths: `tests/integration/features/`, `tests/integration/support/steps/`
