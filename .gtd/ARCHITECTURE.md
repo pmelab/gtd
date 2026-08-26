@@ -18,7 +18,7 @@ still exercises it. fallow's reachability walk starts at `src/main.ts` and finds
 the method through `GitService.Live`, so **the `deadcode` task will not flag it
 either way** — this is a judgement call, not a forced one.
 
-- [ ] Delete it — drop to an 18-operation contract, editing `src/Git.ts`,
+- [x] Delete it — drop to an 18-operation contract, editing `src/Git.ts`,
       `src/testing/GitDoubles.ts`, `src/testing/GitTiers.ts` and
       `src/testing/InMemRepo.ts`. Package 1 grows by four files; nothing tested
       is uncalled.
@@ -33,7 +33,7 @@ either way** — this is a judgement call, not a forced one.
 `gtd land`**, so prose on plain stdout breaks every one of them until the
 harness reads the script from somewhere else.
 
-- [ ] `When I run gtd land` invokes `gtd land --sh` under the hood and drives
+- [x] `When I run gtd land` invokes `gtd land --sh` under the hood and drives
       `$gtd_script`; a new explicit step covers the prose assertions. One
       `world.ts` change, and only `land.feature` gains steps — but the phrase "I
       run gtd land" then no longer names the command it runs.
@@ -47,7 +47,7 @@ harness reads the script from somewhere else.
 `validateDefinition` today returns `readonly string[]` — errors only, merged
 into the one thrown load-time error. Package 3 needs warnings that never throw.
 
-- [ ] Change the return type to `{ errors, warnings }`. One source of truth for
+- [x] Change the return type to `{ errors, warnings }`. One source of truth for
       every finding, at the cost of editing every call site
       (`src/PatternConfig.ts`, `src/Visualize.ts`, `src/Lsp.ts` and their
       tests).
