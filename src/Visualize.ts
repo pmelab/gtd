@@ -43,7 +43,7 @@ export interface VizState extends VizFields {
   /** The state's raw template source (script/prompt/message), verbatim. */
   readonly content?: string
   readonly initial?: boolean
-  /** Boolean state flags that are set: reviewWindow/reviewBase/entry/requireProgress/answerGate. */
+  /** Boolean state flags that are set: reviewBase/entry/requireProgress/answerGate. */
   readonly flags: readonly string[]
   readonly on: readonly VizEdge[]
   /** Every edge (and retry redirect) that targets this state — computed, for the "routes in from" view. */

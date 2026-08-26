@@ -32,9 +32,8 @@ const land = (repo: InMemRepo, scripts: { readonly required: string }): void => 
   if (!applied.ok) throw new Error(applied.error ?? "emitted script failed")
 }
 
-// The review checkout window's saved-head ref — duplicated here for the same
-// reason `Edge.ts` duplicates it from `ReviewWindow.ts` rather than importing
-// it (see `Edge.ts`'s own `REVIEW_HEAD_REF` doc comment).
+// A ref name gtd no longer writes or reads at all — kept as a literal here
+// only to pin that `restAt` genuinely ignores a stray ref under this name.
 const REVIEW_HEAD_REF = "refs/worktree/gtd/review-head"
 
 /**
@@ -1196,21 +1195,18 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
   })
 })
 
-// ── restAt — window-aware read (Part C) ──────────────────────────────────────
+// ── restAt — always resolves against real HEAD (Part C) ─────────────────────
 
-describe("restAt — the review checkout window's saved-head ref as HEAD", () => {
-  it("currentRest resolves against the window's saved head — state, trace, and startParentHash all follow it", async () => {
+describe("restAt — resolves against real HEAD, with no window ref to consult", () => {
+  it("currentRest resolves against real HEAD even when a stray refs/worktree/gtd/review-head ref exists", async () => {
     const { repo, boundary } = seededTraceRepo()
     repo.commitAllWithPrefix("gtd(human): grilling")
     const grilling = repo.resolveRef("HEAD")!
     repo.commitAllWithPrefix("gtd(agent): building")
-    const building = repo.resolveRef("HEAD")!
 
-    // Simulate an OPEN review checkout window exactly as `openReviewWindow`
-    // leaves it: the saved-head ref pins the real pre-window HEAD, while real
-    // HEAD itself has been rewound (`git reset --mixed`) to an earlier commit.
-    repo.updateRef(REVIEW_HEAD_REF, building)
-    repo.mixedResetTo(grilling)
+    // A ref under this name is no longer written or read by anything — this
+    // pins that `restAt` genuinely ignores it, not just that nothing sets it.
+    repo.updateRef(REVIEW_HEAD_REF, grilling)
 
     const rest = await provide(currentRest, repo)
     expect(rest.state).toBe("building")
@@ -1218,25 +1214,11 @@ describe("restAt — the review checkout window's saved-head ref as HEAD", () =>
     expect(rest.run.startParentHash).toBe(boundary)
   })
 
-  it("falls through to today's exact behavior (real HEAD) when no window ref exists", async () => {
-    const { repo } = seededTraceRepo()
-    repo.commitAllWithPrefix("gtd(human): grilling")
-    const rest = await provide(currentRest, repo)
-    expect(rest.state).toBe("grilling")
-    expect(rest.run.trace.map((e) => e.state)).toEqual(["grilling"])
-  })
-
-  it("restAt(ref) — visualize's own call pattern — never consults the window ref", async () => {
+  it("restAt(ref) resolves at the given ref", async () => {
     const { repo, boundary } = seededTraceRepo()
     repo.commitAllWithPrefix("gtd(human): grilling")
-    const grilling = repo.resolveRef("HEAD")!
     repo.commitAllWithPrefix("gtd(agent): building")
-    const building = repo.resolveRef("HEAD")!
-    repo.updateRef(REVIEW_HEAD_REF, building)
-    repo.mixedResetTo(grilling)
 
-    // Even with a window ref recorded, an EXPLICIT ref resolves at that ref,
-    // exactly as before this package — this path is deliberately untouched.
     const atBoundary = await provide(restAt(boundary), repo)
     expect(atBoundary.state).toBe("idle")
   })

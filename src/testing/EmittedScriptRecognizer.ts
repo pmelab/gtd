@@ -10,7 +10,6 @@ import {
   discardPending,
   hardResetTo,
   mixedResetTo,
-  restoreStagedFrom,
   shellQuote,
   softResetTo,
   updateRef,
@@ -22,7 +21,6 @@ import {
   headAssertion,
   PRESENTATION_FAILURE_WARNING,
   PRESENTATION_ONLY_COMMENT,
-  reviewWindowAssertion,
 } from "../Emit.js"
 import {
   buildModeContradictionCheck,
@@ -30,13 +28,6 @@ import {
   modeContradictionSkipNotice,
 } from "../ModeContradiction.js"
 import { OUTCOME_PREAMBLE } from "../OutcomeScript.js"
-import {
-  buildCloseWindowScript,
-  buildOpenWindowScript,
-  REVIEW_BASE_REF,
-  REVIEW_HEAD_REF,
-  type WindowRefs,
-} from "../ReviewWindow.js"
 import { steeringFormatFor } from "../SteeringFormats.js"
 import type { SteeringFormat } from "../SteeringFormat.js"
 import type { InMemRepo } from "./InMemRepo.js"
@@ -129,7 +120,7 @@ const recognizePrecondition = (repo: InMemRepo, block: string): BlockOutcome | u
 }
 
 /**
- * The 9 `GitScript.ts` builders. Each branch checks a cheap literal PREFIX
+ * The 8 `GitScript.ts` builders. Each branch checks a cheap literal PREFIX
  * first (to pick which builder to try), then re-derives the builder's
  * arguments from the block's quoted tokens and confirms the match by calling
  * the SAME builder and comparing strings — so a block is only ever "applied"
@@ -152,14 +143,13 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
     return { kind: "applied" }
   }
 
-  // The three multi-line if/case/fi builders below re-quote their message
-  // (and `restoreStagedFrom`'s retry `printf '%s\n'` literal) past their
-  // opening `if ! out=$(...` statement — tokens are extracted from THAT
-  // statement only, or a quoted fragment further down (e.g. `'%s\n'`) would
-  // pollute the extracted args. Sliced by its `2>&1); then` terminator rather
-  // than taken as one LINE, because a commit message is routinely multi-line
-  // (every trailer-carrying subject is) and its later lines are part of the
-  // same quoted argument.
+  // The two multi-line if/case/fi builders below re-quote their message past
+  // their opening `if ! out=$(...` statement — tokens are extracted from THAT
+  // statement only, or a quoted fragment further down would pollute the
+  // extracted args. Sliced by its `2>&1); then` terminator rather than taken
+  // as one LINE, because a commit message is routinely multi-line (every
+  // trailer-carrying subject is) and its later lines are part of the same
+  // quoted argument.
   const conditionLine = conditionStatement(block)
 
   if (block.startsWith("git add -A &&\n")) {
@@ -175,15 +165,6 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
     const [message] = extractQuotedTokens(conditionLine)
     if (message !== undefined && commitAsIs(message) === block) {
       repo.commitAsIs(message)
-      return { kind: "applied" }
-    }
-    return undefined
-  }
-
-  if (block.startsWith("if ! out=$(git restore --staged --source=")) {
-    const [source, ...paths] = extractQuotedTokens(conditionLine)
-    if (source !== undefined && restoreStagedFrom(source, paths) === block) {
-      repo.restoreStagedFrom(source, paths)
       return { kind: "applied" }
     }
     return undefined
@@ -260,30 +241,6 @@ const recognizeHeadAssertion = (repo: InMemRepo, block: string): BlockOutcome | 
 }
 
 /**
- * `src/Emit.ts`'s REAL `reviewWindowAssertion` block — present only when the
- * target state declares `reviewWindow: true` AND a window is currently open.
- * Same re-derive-and-compare discipline as `recognizeHeadAssertion`; the ref
- * itself (never a hash) is read back via `resolveRef`, which is `null` for a
- * missing ref exactly like the real `git rev-parse --verify --quiet ...
- * 2>/dev/null` the block runs.
- */
-const recognizeReviewWindowRefAssertion = (
-  repo: InMemRepo,
-  block: string,
-): BlockOutcome | undefined => {
-  const [ref, hash] = extractQuotedTokens(block)
-  if (ref === undefined || hash === undefined || reviewWindowAssertion(ref, hash) !== block) {
-    return undefined
-  }
-  const actual = repo.resolveRef(ref)
-  if (actual === hash) return { kind: "noop" }
-  return {
-    kind: "failed",
-    error: `gtd: review window ref ${ref} changed since this script was generated (expected ${hash}, got ${actual ?? "(missing)"})`,
-  }
-}
-
-/**
  * `src/Emit.ts`'s REAL `fileExistsGuard` block — `src/program.ts`'s
  * `resolveValidateScript` leads every emitted validate script with it.
  * Re-derives the block from the extracted path and compares full strings,
@@ -334,54 +291,6 @@ const recognizeOutcomeCall = (block: string): BlockOutcome | undefined =>
   block.startsWith("gtd_report_") ? { kind: "noop" } : undefined
 
 /**
- * `src/ReviewWindow.ts`'s `buildCloseWindowScript` — the compound `mixedResetTo
- * && deleteRef && deleteRef` sequence `openReviewWindow`'s script-emitting
- * twin writes to close a review checkout window. Its three `&&`-joined lines
- * split cleanly on the exact `" &&\n"` separator `buildCloseWindowScript`
- * itself joins with (no existing builder's OWN output contains that
- * substring), so each part is handed to `extractQuotedTokens` alone —
- * exactly like `recognizeGitBuilders`'s single-builder cases — then the whole
- * block is re-derived via `buildCloseWindowScript` and string-compared,
- * rather than validating each part's shape separately.
- */
-const recognizeReviewWindowClose = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
-  const parts = block.split(" &&\n")
-  if (parts.length !== 3) return undefined
-  const [headHash] = extractQuotedTokens(parts[0]!)
-  const [headRef] = extractQuotedTokens(parts[1]!)
-  const [baseRef] = extractQuotedTokens(parts[2]!)
-  if (headHash === undefined || headRef === undefined || baseRef === undefined) return undefined
-  const refs: WindowRefs = { headRef, baseRef, headHash, legacy: false }
-  if (buildCloseWindowScript(refs) !== block) return undefined
-  repo.mixedResetTo(headHash)
-  repo.deleteRef(headRef)
-  repo.deleteRef(baseRef)
-  return { kind: "applied" }
-}
-
-/**
- * `src/ReviewWindow.ts`'s `buildOpenWindowScript` — the compound
- * `updateRef(base) && updateRef(head) && mixedResetTo(base) &&
- * restoreStagedFrom(.gtd)` sequence a step landing at a `reviewWindow: true`
- * state emits. `program.ts` always renders the head ref update with the
- * literal string `'HEAD'`, never a resolved hash, so this recognizer only
- * ever needs to match that one shape.
- */
-const recognizeReviewWindowOpen = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
-  const parts = block.split(" &&\n")
-  if (parts.length !== 4) return undefined
-  const [, base] = extractQuotedTokens(parts[0]!)
-  const [, head] = extractQuotedTokens(parts[1]!)
-  if (base === undefined || head === undefined) return undefined
-  if (buildOpenWindowScript({ base, head }) !== block) return undefined
-  repo.updateRef(REVIEW_BASE_REF, base)
-  repo.updateRef(REVIEW_HEAD_REF, head)
-  repo.mixedResetTo(base)
-  repo.restoreStagedFrom(REVIEW_HEAD_REF, [".gtd"])
-  return { kind: "applied" }
-}
-
-/**
  * `src/Emit.ts`'s `renderStep` wraps every `"gitWrite"` step as `gtd_retry
  * '<shellQuote-escaped whole command>'` — a SINGLE quoted argument, however
  * many physical lines the escaped command itself spans (a compound builder's
@@ -391,8 +300,7 @@ const recognizeReviewWindowOpen = (repo: InMemRepo, block: string): BlockOutcome
  * builders already rely on), so unwrapping is: extract the one token,
  * confirm the round trip via `shellQuote` (never hand-parse the escaping a
  * second time), then re-dispatch the UNWRAPPED command through the ordinary
- * git-builder/review-window recognizers — exactly as if it had never been
- * wrapped.
+ * git-builder recognizer — exactly as if it had never been wrapped.
  */
 const GTD_RETRY_PREFIX = "gtd_retry "
 
@@ -403,11 +311,7 @@ const recognizeRetryWrappedGitWrite = (
   if (!block.startsWith(GTD_RETRY_PREFIX)) return undefined
   const [inner] = extractQuotedTokens(block)
   if (inner === undefined || `${GTD_RETRY_PREFIX}${shellQuote(inner)}` !== block) return undefined
-  return (
-    recognizeGitBuilders(repo, inner) ??
-    recognizeReviewWindowClose(repo, inner) ??
-    recognizeReviewWindowOpen(repo, inner)
-  )
+  return recognizeGitBuilders(repo, inner)
 }
 
 /**
@@ -771,12 +675,9 @@ const recognizersFor = (
   (block) => recognizeDidNotRunComment(block),
   (block) => recognizePrecondition(repo, block),
   (block) => recognizeHeadAssertion(repo, block),
-  (block) => recognizeReviewWindowRefAssertion(repo, block),
   (block) => recognizeFileExistsGuard(repo, block),
   (block) => recognizeRetryHelperDefinition(block),
   (block) => recognizeGitBuilders(repo, block),
-  (block) => recognizeReviewWindowClose(repo, block),
-  (block) => recognizeReviewWindowOpen(repo, block),
   (block) => recognizeRetryWrappedGitWrite(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block),

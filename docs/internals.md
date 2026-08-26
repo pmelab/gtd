@@ -93,36 +93,34 @@ than a note. If a styled `.gtd/REVIEW.md` ever comes out malformed some other
 way (a paragraph where a `- [ ] ./path#line` row belongs), `gtd check review`
 refuses the step the same way: the file stays exactly as written in the working
 tree, unlanded, and re-running the same prompt is the recovery — nothing is
-lost. While the process rests at that gate, the landing script opens a **review
-checkout window**: HEAD is rewound to the review base with the working tree
-untouched, so the whole reviewable change shows up as ordinary uncommitted
-changes in your editor's normal git integration (and files added during the
-process show up as ordinary untracked files, so discarding one deletes it — an
-untracked file you leave alone is not a pending change, and only actually
-removing it from disk counts as a deletion). The next landing's own script
-closes the window before it commits. Tick a box as you review each hunk (ticking
-just records "I read this"), and leave a **comment** to request changes: a note
-on a line, an inline `// TODO`-style comment in the code, or a direct code edit.
-A comment sends a FULL development lap, not a quick fix-and-re-review: an agent
-first judges whether your comment is actually actionable (a genuinely approving
-remark with no code edit short-circuits straight to sign-off instead), and an
-actionable round is re-planned from scratch through triage, architecture, and
-the package queue again — a hand-edit you made during review is treated as a
-**sketch**, the same as any other change that starts a process, not a fix the
-agent builds on: it is reverted out of the tree first, and your intent survives
-only in your own review-round commit for triage to read. There is no baseline
-check on the way back into planning. The review tail is nested inside that build
-identity rather than sitting beside it, so a late-breaking fix and the review
-turns that follow it all resume the SAME session that built the feature — an
-actionable round leaves that identity entirely, so it starts a fresh session
-like any other process. Landing the sign-off itself is a plain check step, not a
-prompt turn, so no session drafts anything there: a comment is what asks for
-changes; landing with no comment signs off, whatever the boxes say, which lands
-one more ordinary `gtd(...)` commit entering the workflow's initial state —
-every turn commit this process made stays on the branch. Run `gtd summary`
-afterward for a closing-message prompt — a cold read of the commits it names,
-not a resumed conversation. Deleting `.gtd/REVIEW.md` is refused — the guard
-only asks whether the step's diff deletes the file.
+lost. Nothing is checked out and no ref is written while the process rests at
+that gate — `gtd next`/`gtd land` there leave `HEAD` exactly where it is.
+`gtd base` prints the review's diff base bare, so `git diff $(gtd base)` (or any
+other tool pointed at that same hash) is how you read the reviewable change,
+with whatever diff view you already use. Tick a box as you review each hunk
+(ticking just records "I read this"), and leave a **comment** to request
+changes: a note on a line, an inline `// TODO`-style comment in the code, or a
+direct code edit. A comment sends a FULL development lap, not a quick
+fix-and-re-review: an agent first judges whether your comment is actually
+actionable (a genuinely approving remark with no code edit short-circuits
+straight to sign-off instead), and an actionable round is re-planned from
+scratch through triage, architecture, and the package queue again — a hand-edit
+you made during review is treated as a **sketch**, the same as any other change
+that starts a process, not a fix the agent builds on: it is reverted out of the
+tree first, and your intent survives only in your own review-round commit for
+triage to read. There is no baseline check on the way back into planning. The
+review tail is nested inside that build identity rather than sitting beside it,
+so a late-breaking fix and the review turns that follow it all resume the SAME
+session that built the feature — an actionable round leaves that identity
+entirely, so it starts a fresh session like any other process. Landing the
+sign-off itself is a plain check step, not a prompt turn, so no session drafts
+anything there: a comment is what asks for changes; landing with no comment
+signs off, whatever the boxes say, which lands one more ordinary `gtd(...)`
+commit entering the workflow's initial state — every turn commit this process
+made stays on the branch. Run `gtd summary` afterward for a closing-message
+prompt — a cold read of the commits it names, not a resumed conversation.
+Deleting `.gtd/REVIEW.md` is refused — the guard only asks whether the step's
+diff deletes the file.
 
 A second entry, the same review tail's own direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -184,9 +182,9 @@ To inspect or change the machine itself, see [Configuration](./configuration.md)
   may even run outside a repository to seed a shared parent-dir config).
 - **Linked worktrees are independent.** N `git worktree` worktrees of one
   repository (sharing a single `.git`) each run their own gtd process: state is
-  derived from that worktree's own HEAD, and the review checkout window's refs
-  live in git's per-worktree `refs/worktree/gtd/*` namespace, so a review
-  resting in one worktree neither blocks nor rewrites any other.
+  derived from that worktree's own HEAD, and the abandon/restore retained-tip
+  ref lives in git's per-worktree `refs/worktree/gtd/*` namespace, so a process
+  underway in one worktree neither blocks nor rewrites any other.
 
 ## Editor integration
 

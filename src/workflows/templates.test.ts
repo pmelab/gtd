@@ -69,10 +69,12 @@ describe("the bundled unified workflow template", () => {
     expect(definition.modes?.["review"]).toEqual({ validate: seededValidateCommand("review") })
   })
 
-  it("declares exactly one review checkout window and one review entry", () => {
+  it("declares no review checkout window state, and exactly one review entry", () => {
     const { definition } = compileTemplate()
     const states = Object.values(definition.states)
-    expect(states.filter((s) => s.reviewWindow === true)).toHaveLength(1)
+    expect(
+      states.filter((s) => (s as { reviewWindow?: boolean }).reviewWindow === true),
+    ).toHaveLength(0)
     expect(definition.entries.manual).toContain("review-gate.check")
   })
 

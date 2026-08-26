@@ -23,10 +23,6 @@ function makeHash(message: string, parent: string | null, tree: Map<string, stri
   return sha1(`${message}\n${parent ?? "null"}\n${treeStr}`)
 }
 
-/** True when `key` is exactly `p` or nested under `p/` — one path's directory-prefix match. */
-const isUnder = (key: string, p: string): boolean =>
-  key === p || key.startsWith(p.endsWith("/") ? p : `${p}/`)
-
 export class InMemRepo {
   // fallow-ignore-next-line unused-class-member -- data-only marker read by no code path; embeds the sentinel in every instance so a leaked object still carries it
   readonly testDouble = TEST_DOUBLE_SENTINEL
@@ -400,7 +396,7 @@ export class InMemRepo {
   /**
    * `git reset --mixed <ref>` — move HEAD and the index to `ref`'s commit,
    * leaving the working tree untouched (so committed work re-surfaces as
-   * pending changes). The open/close primitive of the review checkout window.
+   * pending changes).
    */
   mixedResetTo(ref: string): void {
     if (ref === InMemRepo.EMPTY_TREE) {
@@ -427,25 +423,6 @@ export class InMemRepo {
       cur = this.getCommit(cur)?.parent ?? null
     }
     return false
-  }
-
-  /**
-   * `git restore --staged --source=<source> -- <paths…>` — set the index
-   * entries under each path to their state at `source` (setting or removing),
-   * leaving HEAD and the working tree untouched. Pins `.gtd/` plumbing back to
-   * the real head while the review window is open.
-   */
-  restoreStagedFrom(source: string, paths: ReadonlyArray<string>): void {
-    const hash = this.resolveRef(source)
-    const tree = hash
-      ? (this.getCommit(hash)?.files ?? new Map<string, string>())
-      : new Map<string, string>()
-    const candidates = new Set([...this.index.keys(), ...tree.keys()])
-    for (const key of candidates) {
-      if (!paths.some((p) => isUnder(key, p))) continue
-      if (tree.has(key)) this.index.set(key, tree.get(key)!)
-      else this.index.delete(key)
-    }
   }
 }
 

@@ -3,7 +3,6 @@ import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { REVIEW_HEAD_REF } from "./ReviewWindow.js"
 import {
   combinedScript,
   DID_NOT_RUN_COMMENT,
@@ -79,10 +78,7 @@ describe("emitScripts — both halves populated", () => {
   const optional: ReadonlyArray<EmitStep> = [
     { kind: "command", command: "some-format-command --check FEEDBACK.md" },
   ]
-  const preconditions: EmitPreconditions = {
-    expectedHead: HEAD,
-    reviewWindow: { ref: REVIEW_HEAD_REF, expectedHash: "b".repeat(40) },
-  }
+  const preconditions: EmitPreconditions = { expectedHead: HEAD }
   const result = emitScripts(preconditions, required, optional)
 
   it("both halves are non-empty", () => {
@@ -93,14 +89,6 @@ describe("emitScripts — both halves populated", () => {
   it("both halves independently begin with set -eu", () => {
     expect(result.required.split("\n")[0]).toBe("set -eu")
     expect(result.optional.split("\n")[0]).toBe("set -eu")
-  })
-
-  it("both halves independently assert the review-window ref when reviewWindow is supplied", () => {
-    for (const script of [result.required, result.optional]) {
-      expect(script).toContain(REVIEW_HEAD_REF)
-      expect(script).toContain("b".repeat(40))
-      expect(script).toContain("re-run gtd")
-    }
   })
 
   it("both halves are syntactically valid POSIX sh", () => {
@@ -161,15 +149,6 @@ describe("emitScripts — outcome steps", () => {
   })
 })
 
-describe("emitScripts — no reviewWindow means no extra ref assertion", () => {
-  const steps: ReadonlyArray<EmitStep> = [{ kind: "command", command: "echo hi" }]
-  const { required } = emitScripts(basePreconditions, steps)
-
-  it("does not mention a review-head ref at all", () => {
-    expect(required).not.toContain("refs/worktree/gtd/review-head")
-  })
-})
-
 describe("emitScripts — POSIX sh portability of the emitted output", () => {
   const steps: ReadonlyArray<EmitStep> = [
     { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
@@ -215,7 +194,7 @@ describe("fileExistsGuard", () => {
     expect(runShCheckSyntax(fileExistsGuard(".gtd/REVIEW.md"))).toBe(0)
   })
 
-  it("exits 0 (not 1) when the guard trips, unlike headAssertion/reviewWindowAssertion", () => {
+  it("exits 0 (not 1) when the guard trips, unlike headAssertion", () => {
     const result = spawnSync("sh", ["-c", fileExistsGuard("/no/such/file-for-sure")])
     expect(result.status).toBe(0)
   })

@@ -28,7 +28,6 @@ import {
   discardPending,
   updateRef,
   deleteRef,
-  restoreStagedFrom,
 } from "../GitScript.js"
 import { ConfigService } from "../Config.js"
 import { Cwd } from "../Cwd.js"
@@ -175,7 +174,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         gitExec("add", "-A")
         // --allow-empty: a caller passing `files: {}` (no prior staged
         // change either) means a deliberate empty commit — the state-entry
-        // shape most `ReviewWindow.test.ts` seeding relies on.
+        // shape many test seeders rely on.
         gitExec(`commit --allow-empty -m "${message}"`)
       },
       writeFile: (path, content) => {
@@ -337,7 +336,6 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "deleteRef",
   "mixedResetTo",
   "hardResetTo",
-  "restoreStagedFrom",
 ])
 
 /**
@@ -811,16 +809,16 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       ])
     })
 
-    // The review checkout window's own shape: `git reset --mixed <base>` drops
-    // every path the reviewed range ADDED out of the index, leaving it
-    // untracked but present on disk. An index-based answer calls each of those
-    // a deletion (`git diff --name-status <base>` compares base to the INDEX),
-    // which made the review-doc guard refuse every sign-off whose
-    // `reviewFile` the window does not pin back. The port answers by CONTENT
-    // instead — these four cases are that contract.
+    // `requireRevertGuard` (src/StepGuards.ts) calls `changedPaths(reviewBase~1)`
+    // to check a review-round hand-edit was reverted: `git reset --mixed
+    // <base>` drops every path a commit added out of the index, leaving it
+    // untracked but present on disk. An index-based answer calls each of
+    // those a deletion (`git diff --name-status <base>` compares base to the
+    // INDEX), which would make the guard see a phantom revert. The port
+    // answers by CONTENT instead — these four cases are that contract.
     describe("with a base, over paths the index no longer carries", () => {
-      /** Commit `REVIEW.md` on top of a seed commit, then rewind the index to that seed — the window's own state. Returns the saved head the window would measure against. */
-      const openWindowOver = (content: string): string => {
+      /** Commit `REVIEW.md` on top of a seed commit, then mixed-reset the index back to that seed. Returns the head the caller measures against. */
+      const commitThenRewindIndex = (content: string): string => {
         t.seed.commit("chore: seed", { "kept.txt": "seed" })
         const base = t.observe.resolveRef("HEAD")
         t.seed.commit("gtd(agent): reviewing", { "REVIEW.md": content })
@@ -830,20 +828,20 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       }
 
       it("omits an untracked path whose bytes match the base — present and unchanged is not a change", async () => {
-        const head = openWindowOver("- [ ] one\n")
+        const head = commitThenRewindIndex("- [ ] one\n")
         expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([])
       })
 
       it("reports an untracked path edited since the base as M, never D", async () => {
-        const head = openWindowOver("- [ ] one\n")
+        const head = commitThenRewindIndex("- [ ] one\n")
         t.seed.writeFile("REVIEW.md", "- [x] one\n")
         expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([
           { path: "REVIEW.md", status: "M" },
         ])
       })
 
-      it("reports an untracked path REMOVED from disk as D — the deletion the review-doc guard must catch", async () => {
-        const head = openWindowOver("- [ ] one\n")
+      it("reports an untracked path REMOVED from disk as D — the deletion the require-revert guard must catch", async () => {
+        const head = commitThenRewindIndex("- [ ] one\n")
         t.seed.deleteFile("REVIEW.md")
         expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([
           { path: "REVIEW.md", status: "D" },
@@ -851,7 +849,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       })
 
       it("still reports a genuinely new untracked path as A", async () => {
-        const head = openWindowOver("- [ ] one\n")
+        const head = commitThenRewindIndex("- [ ] one\n")
         t.seed.writeFile("NOTE.md", "a reviewer's note\n")
         expect(await runGit(t, (g) => g.changedPaths(head))).toEqual([
           { path: "NOTE.md", status: "A" },
@@ -930,33 +928,6 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
         }
       },
     )
-  })
-
-  describe("restoreStagedFrom", () => {
-    it("pins the index for the given paths back to their state at source, leaving HEAD/worktree untouched", async () => {
-      const base = t.observe.resolveRef("HEAD")
-      t.seed.commit("feat: touch plumbing", { ".gtd/TODO.md": "sketch" })
-      const beforeHead = t.observe.resolveRef("HEAD")
-      await runGit(t, (g) => g.restoreStagedFrom(base, [".gtd"]))
-      expect(t.observe.resolveRef("HEAD")).toBe(beforeHead)
-      // The plumbing file is pinned out of the index — surfaces as a staged
-      // deletion (present at HEAD, absent from `base`, so restored to absent).
-      expect(t.observe.statusPorcelain()).toContain(".gtd/TODO.md")
-    })
-
-    it("is tolerant of a path absent at source (best-effort plumbing pin)", async () => {
-      const base = t.observe.resolveRef("HEAD")
-      const result = await runGitExit(t, (g) => g.restoreStagedFrom(base, [".gtd/never-existed"]))
-      expect(Exit.isSuccess(result)).toBe(true)
-    })
-
-    it("survives an induced index.lock (the step-2 catchIf narrowing)", async () => {
-      const base = t.observe.resolveRef("HEAD")
-      t.seed.commit("feat: touch plumbing", { ".gtd/TODO.md": "sketch" })
-      t.induceIndexLockOnce()
-      const result = await runGitExit(t, (g) => g.restoreStagedFrom(base, [".gtd"]))
-      expect(Exit.isSuccess(result)).toBe(true)
-    })
   })
 
   describe("retry wiring — an operation obtained from the layer survives induceIndexLockOnce()", () => {
@@ -1102,24 +1073,6 @@ export const runGitScriptContract = (): void => {
     it("deleteRef tolerates a ref that was never created", () => {
       expect(() => execScript(t, deleteRef("refs/gtd/never-created"))).not.toThrow()
       expect(t.observe.refExists("refs/gtd/never-created")).toBe(false)
-    })
-  })
-
-  describe("restoreStagedFrom", () => {
-    it("pins the index for the given paths back to source, leaving HEAD/worktree untouched", () => {
-      const base = t.observe.resolveRef("HEAD")
-      t.seed.commit("feat: touch plumbing", { ".gtd/TODO.md": "sketch" })
-      const beforeHead = t.observe.resolveRef("HEAD")
-      execScript(t, restoreStagedFrom(base, [".gtd"]))
-      expect(t.observe.resolveRef("HEAD")).toBe(beforeHead)
-      // Present at HEAD, absent from `base` — pinning to `base` surfaces as a
-      // staged deletion, mirroring `restoreStagedFrom`'s existing port test.
-      expect(t.observe.statusPorcelain()).toContain(".gtd/TODO.md")
-    })
-
-    it("is tolerant of a path absent at source (best-effort plumbing pin)", () => {
-      const base = t.observe.resolveRef("HEAD")
-      expect(() => execScript(t, restoreStagedFrom(base, [".gtd/never-existed"]))).not.toThrow()
     })
   })
 }

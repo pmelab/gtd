@@ -62,19 +62,16 @@ describe("review-doc guard", () => {
     prompt: "review",
     file: ".gtd/REVIEW.md",
     mode: "review",
-    reviewWindow: true,
   })
 
-  it("applies only to a review-window state with mode: review", () => {
+  it("applies only to a human-actor state with mode: review", () => {
     expect(guard("review-doc").appliesTo(reviewState)).toBe(true)
     expect(
-      guard("review-doc").appliesTo(
-        rest("await-review", { actor: "human", prompt: "x", reviewWindow: true }),
-      ),
+      guard("review-doc").appliesTo(rest("await-review", { actor: "human", prompt: "x" })),
     ).toBe(false)
     expect(
       guard("review-doc").appliesTo(
-        rest("drafting", { actor: "human", prompt: "x", mode: "review" }),
+        rest("deciding", { actor: "check", prompt: "x", mode: "review" }),
       ),
     ).toBe(false)
   })
@@ -497,9 +494,8 @@ const repoFilesFrom = (
   committedByRef: Record<string, Record<string, string>> = {},
 ): RepoFilesOps => ({
   working: (path) => files[path],
-  // Keyed by the REF the guard asked for ("HEAD" when it passed none) — the
-  // review window's saved head is a different ref, and which of the two a
-  // guard reads is exactly what the open-window scenarios below pin.
+  // Keyed by the REF the guard asked for — always "HEAD" in practice, now
+  // that a guard's pre-turn read is always the real HEAD.
   committed: (path, ref = "HEAD") => Effect.succeed(committedByRef[ref]?.[path]),
 })
 
@@ -537,7 +533,6 @@ describe("enforceStepGuards", () => {
         file: noFile.stateDef.file,
         context: templateContext,
         changes: [],
-        windowHead: undefined,
         kind: "commit",
         attempt: false,
       }).pipe(
@@ -555,7 +550,6 @@ describe("enforceStepGuards", () => {
         file: noGuard.stateDef.file,
         context: templateContext,
         changes: [],
-        windowHead: undefined,
         kind: "commit",
         attempt: false,
       }).pipe(
@@ -572,7 +566,6 @@ describe("enforceStepGuards", () => {
         file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
-        windowHead: undefined,
         kind: "commit",
         attempt: false,
       }).pipe(
@@ -600,33 +593,31 @@ describe("enforceStepGuards", () => {
     ])
   })
 
-  it("refuses a deleted review doc while a review checkout window is open, reading the pre-turn copy at windowHead", async () => {
-    // While the window is open, real HEAD sits at the review base — a file
-    // the process itself wrote doesn't exist there. This guard's
-    // `fileDeleted` branch never reads `head`, but `windowHead` is still
-    // threaded through for a future guard that does.
-    const WINDOW_HEAD = "refs/worktree/gtd/review-head"
+  // Pins the review-doc guard's `appliesTo` end to end through
+  // `enforceStepGuards`: with `reviewWindow` gone, an `await-review`-shaped
+  // state (human actor, mode: review, no reviewWindow field at all) must
+  // still be selected — an inert `appliesTo` would pass every happy-path
+  // assertion above while silently letting this deletion through.
+  it("refuses deleting .gtd/REVIEW.md at await-review through enforceStepGuards", async () => {
     const reviewState = rest("await-review", {
       actor: "human",
       message: "review",
-      file: "REVIEW.md",
+      file: ".gtd/REVIEW.md",
       mode: "review",
-      reviewWindow: true,
     })
     const exit = await Effect.runPromiseExit(
       enforceStepGuards({
         rest: reviewState,
         file: reviewState.stateDef.file,
         context: templateContext,
-        changes: [{ path: "REVIEW.md", status: "D" }],
-        windowHead: WINDOW_HEAD,
+        changes: [{ path: ".gtd/REVIEW.md", status: "D" }],
         kind: "commit",
         attempt: false,
       }).pipe(
         Effect.provide(
           Layer.merge(
             unusedGitService,
-            Layer.succeed(RepoFiles, repoFilesFrom({}, { [WINDOW_HEAD]: { "REVIEW.md": "doc" } })),
+            Layer.succeed(RepoFiles, repoFilesFrom({}, { HEAD: { ".gtd/REVIEW.md": "doc" } })),
           ),
         ),
       ),
@@ -635,6 +626,47 @@ describe("enforceStepGuards", () => {
     if (Exit.isFailure(exit)) {
       expect(String(exit.cause)).toContain("was deleted")
     }
+  })
+
+  // Pins `feedbackProgressGuard`'s `NOTHING ACTIONABLE` read through
+  // `enforceStepGuards`'s real wiring: a wrong ref here would read an empty
+  // file (or the wrong content) and let every deletion through silently.
+  it("allows a NOTHING ACTIONABLE sentinel deletion through enforceStepGuards, reading it at real HEAD", async () => {
+    const feedbackState = rest("feedback-building", {
+      actor: "agent",
+      prompt: "address feedback",
+      file: ".gtd/REVIEW_FEEDBACK.md",
+      requireProgress: true,
+    })
+    const exit = await Effect.runPromiseExit(
+      enforceStepGuards({
+        rest: feedbackState,
+        file: feedbackState.stateDef.file,
+        context: templateContext,
+        changes: [{ path: ".gtd/REVIEW_FEEDBACK.md", status: "D" }],
+        kind: "commit",
+        attempt: false,
+      }).pipe(
+        Effect.provide(
+          Layer.merge(
+            unusedGitService,
+            Layer.succeed(
+              RepoFiles,
+              repoFilesFrom(
+                {},
+                {
+                  HEAD: {
+                    ".gtd/REVIEW_FEEDBACK.md":
+                      "NOTHING ACTIONABLE — the human left only an approving remark.\n",
+                  },
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
   })
 
   it("reads the CURRENT working tree as-is — no in-process formatting happens here", async () => {
@@ -659,7 +691,6 @@ describe("enforceStepGuards", () => {
         file: answerState.stateDef.file,
         context: templateContext,
         changes: [],
-        windowHead: undefined,
         kind: "commit",
         attempt: false,
       }).pipe(

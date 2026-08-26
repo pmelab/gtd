@@ -159,10 +159,6 @@ conversation across turns in one scope. The one place "session" is the right
 word — the _Avoid_ on **Memory scope** stands: gtd's own span is still a memory
 scope, not a session.
 
-**Review window**: The temporary rewind of HEAD and the index to the review base
-while a process rests at a `reviewWindow: true` state, so a whole process's diff
-surfaces as ordinary uncommitted changes in any editor's git integration.
-
 **Review base**: The commit a review is measured against — the last state that
 declared `reviewBase`, falling back to the process start.
 

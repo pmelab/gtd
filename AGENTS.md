@@ -76,69 +76,55 @@ preserved:
   `src/StateFields.ts`, the state-field table, itself a zero-import leaf of
   const data and total functions.
 - **Everything IO-shaped lives at the edge.** `src/Edge.ts` (git/templates),
-  `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
-  window — both its open and close sequences are idempotent under re-entry, so a
-  crash at any point recovers on the next invocation), `src/StepGuards.ts` (the
-  step-capture guard registry), `src/RepoFiles.ts` (the working-tree/committed
-  content port), `src/CommandRunner.ts` (the subprocess port). There is no
-  driver-scoped git-dir write left at all: `src/Sessions.ts`'s
-  `sessionId`/`resume` are a pure derivation of history (`uuidv5` of the resting
-  state's memory key) and write nothing — a turn that creates session X but
-  lands no commit re-derives X with the same `resume: false` next time, so a
-  driver must treat `resume` as a HINT and fall back to the other flag on
-  failure, not a contract; no command — `next`, `status`, or `land` — touches
-  the git dir to record that a beat was dispatched. Every write gtd causes
-  happens inside a script it emitted and the driver ran — the review window's
-  own `git reset --mixed` open and close, and the initial-state collapse's own
-  mixed reset (`collapsesWith`): those are the driver running an emitted script,
-  not a command reaching into git itself. A command resolves ONE `Rest`
-  (`Edge.ts`'s `currentRest`/`restAt`) and hands it to `planStep`/`planEntry`.
-  Never read a `Rest` after a `perform`, and never let one span the
-  review-window bracket — a `Rest` resolved before that bracket resolves against
-  the wrong HEAD. `src/program.ts` never reaches into `GitService` directly
-  except two narrow exceptions: the `abandon`/`restore` hard/mixed resets —
-  recovery commands that must work even when a `Rest` would refuse, so they
-  reset directly instead of resolving one — and the review
-  sign-off/feedback-progress gates' own `readFileAtRef` reads (they need the
-  COMMITTED, pre-turn copy of a file, which a `Rest` snapshot — taken before the
-  turn lands — doesn't carry). The review window and the steering-file gate are
-  deliberately invisible to the pure engine — don't "simplify" them back into
-  it.
+  `src/SteeringMode.ts` (mode commands), `src/StepGuards.ts` (the step-capture
+  guard registry), `src/RepoFiles.ts` (the working-tree/committed content port),
+  `src/CommandRunner.ts` (the subprocess port). There is no driver-scoped
+  git-dir write left at all: `src/Sessions.ts`'s `sessionId`/`resume` are a pure
+  derivation of history (`uuidv5` of the resting state's memory key) and write
+  nothing — a turn that creates session X but lands no commit re-derives X with
+  the same `resume: false` next time, so a driver must treat `resume` as a HINT
+  and fall back to the other flag on failure, not a contract; no command —
+  `next`, `status`, or `land` — touches the git dir to record that a beat was
+  dispatched. Every write gtd causes happens inside a script it emitted and the
+  driver ran — the initial-state collapse's own mixed reset (`collapsesWith`) is
+  the driver running an emitted script, not a command reaching into git itself.
+  A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`) and hands
+  it to `planStep`/`planEntry`. Never read a `Rest` after a `perform`.
+  `src/program.ts` never reaches into `GitService` directly except two narrow
+  exceptions: the `abandon`/`restore` hard/mixed resets — recovery commands that
+  must work even when a `Rest` would refuse, so they reset directly instead of
+  resolving one — and the review sign-off/feedback-progress gates' own
+  `readFileAtRef` reads (they need the COMMITTED, pre-turn copy of a file at
+  real `HEAD`, which a `Rest` snapshot — taken before the turn lands — doesn't
+  carry). The steering-file gate is deliberately invisible to the pure engine —
+  don't "simplify" it back into it.
 
-- **The review window issues no whole-tree index WRITE, and every git index
-  write tolerates `index.lock` contention.** gtd shares one worktree index with
-  the reviewer's editor SCM, `gtd lsp`, and git-aware prompts, which all write
-  the index to refresh their stat cache when the window's `git reset --mixed`
-  wakes them. So `openReviewWindow` leaves new files UNTRACKED (never
-  `git add --intent-to-add .` — that both lost the lock race and truncated
-  discarded files to zero bytes). The `index.lock` retry is a property of the
-  `GitOperations` PORT (`src/Git.ts`'s `withIndexLockRetries`), applied ONCE
-  above the whole service — both `GitService.Live` and the in-memory layer
-  (`src/testing/Layers.ts`'s `gitTestLayer`) build their service through it, so
-  a raw `exec` added inside a writer can no longer bypass it. Never construct a
-  `GitOperations` and hand it straight to `Layer.succeed` — go through
-  `withIndexLockRetries`.
+- **Every git index write tolerates `index.lock` contention.** gtd shares one
+  worktree index with the reviewer's editor SCM, `gtd lsp`, and git-aware
+  prompts, which all write the index to refresh their stat cache. The
+  `index.lock` retry is a property of the `GitOperations` PORT (`src/Git.ts`'s
+  `withIndexLockRetries`), applied ONCE above the whole service — both
+  `GitService.Live` and the in-memory layer (`src/testing/Layers.ts`'s
+  `gitTestLayer`) build their service through it, so a raw `exec` added inside a
+  writer can no longer bypass it. Never construct a `GitOperations` and hand it
+  straight to `Layer.succeed` — go through `withIndexLockRetries`.
 
-- **Because the window un-tracks things, `changedPaths` answers by CONTENT, not
-  by the index: a path that EXISTS in the working tree is never reported `D`.**
-  The window's `git reset --mixed` leaves every file the reviewed range added
-  untracked-but-present, and `git diff --name-status <base>` compares `base` to
-  the INDEX — so the index view calls each of them deleted. That phantom `D`
-  made the review-doc guard refuse every sign-off in a repo whose `reviewFile`
-  sits outside `.gtd/` (the one directory the window pins back into the index).
-  `src/Git.ts`'s `classifyUntracked` therefore classifies each untracked path
-  against the base tree by blob id: absent → `A`, different → `M`, identical →
-  no change. Don't "simplify" it back to the index's answer. The worktree side
-  is hashed WITH the repo's clean filters (plain `git hash-object -- <paths>`,
-  which looks each file's attributes up from its own path) — never
-  `--no-filters`, or a `text=auto` repo reports every untouched CRLF file `M`,
-  and a spurious `M` on such a file (never the review doc itself, which
-  `hasCodeChange` excludes by exact path) flips a clean sign-off onto the
-  feedback edge in `deciding`'s classification script and the feedback-progress
-  guard. The in-memory double has always compared the base tree to the worktree
-  directly, so only the Live tier of `runGitServiceContract`'s `changedPaths`
-  base-case group can fail on this — and an @inmem e2e scenario cannot (hence
-  `@live` `review-window-untracked.feature`).
+- **`changedPaths` answers by CONTENT, not by the index: a path that EXISTS in
+  the working tree is never reported `D`.** Its one caller, `StepGuards.ts`'s
+  `requireRevertGuard`, compares the current tree against `reviewBase~1` — an
+  index-based answer would call a present-but-untracked path `D` (deleted)
+  whenever the index doesn't match the working tree, which would make the guard
+  allow every un-reverted tree. `src/Git.ts`'s `classifyUntracked` therefore
+  classifies each untracked path against the base tree by blob id: absent → `A`,
+  different → `M`, identical → no change. Don't "simplify" it back to the
+  index's answer. The worktree side is hashed WITH the repo's clean filters
+  (plain `git hash-object -- <paths>`, which looks each file's attributes up
+  from its own path) — never `--no-filters`, or a `text=auto` repo reports every
+  untouched CRLF file `M`, and a spurious `M` there would flip a clean sign-off
+  onto the feedback edge in `deciding`'s classification script and the
+  feedback-progress guard. The in-memory double has always compared the base
+  tree to the worktree directly, so only the Live tier of
+  `runGitServiceContract`'s `changedPaths` base-case group can fail on this.
 
 - **No emitted script moves HEAD.** `unified.yaml`'s `unwind` state reverts the
   entry commit's diff (`git revert --no-commit`) before planning ever starts, so
@@ -158,7 +144,7 @@ preserved:
 a build-time bundle-content assertion both guard the boundary) and is imported
 only from `src/**/*.test.ts` and `tests/**`. The fake is trustworthy only
 because `src/testing/GitTiers.ts`'s `runGitServiceContract` runs the same
-20-operation `GitOperations` contract against BOTH the fake and a real git repo
+19-operation `GitOperations` contract against BOTH the fake and a real git repo
 — treat the contract, not the fake's internals, as the source of truth when the
 fake and production ever disagree.
 
@@ -174,15 +160,15 @@ gtd works out of the box with no config. `gtd init` seeds only
 
 To change what it does, edit `src/workflows/unified.yaml` (`entry:`/`machines:`,
 each machine's `model`, each state's `actor`, exactly one content kind, `on`
-edges, `retry`, `file`/`mode`, `reviewWindow`/`reviewBase`). It compiles through
-the same `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through
-(which flattens `entry:`/`machines:` via `src/Machines.ts`'s `flattenMachines`
-before any per-state compilation), so it never needs its own logic. A state's
-`mode:` must name an entry the workflow's own top-level `modes:` map declares
-(an empty `{}` entry is enough) — the compiler seeds `qa`/`review` for you, but
-any OTHER name (including `prose`) needs its own `modes:` entry, or
-`validateDefinition` rejects the state at load time. A state's `file:` names a
-path RELATIVE to `.gtd/` — the compiler prepends that directory automatically
+edges, `retry`, `file`/`mode`, `reviewBase`). It compiles through the same
+`compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through (which
+flattens `entry:`/`machines:` via `src/Machines.ts`'s `flattenMachines` before
+any per-state compilation), so it never needs its own logic. A state's `mode:`
+must name an entry the workflow's own top-level `modes:` map declares (an empty
+`{}` entry is enough) — the compiler seeds `qa`/`review` for you, but any OTHER
+name (including `prose`) needs its own `modes:` entry, or `validateDefinition`
+rejects the state at load time. A state's `file:` names a path RELATIVE to
+`.gtd/` — the compiler prepends that directory automatically
 (`PatternConfig.ts`'s `stateFile` compiler), so `file: REVIEW.md` compiles to
 `.gtd/REVIEW.md`; a `..` segment, an absolute path, or an already-declared
 `.gtd/` prefix are all load-time errors. Config-shape errors and
@@ -194,16 +180,16 @@ file is a load error, never silently treated as inline text. After editing,
 update:
 
 - **`src/workflows/templates.test.ts`** — the invariants the compiled template
-  must keep (one `entry.default`, one review window, one review/fix entry, the
-  single `idle` edge into `start-gate.check`, the two `questionGate` instances,
-  the `design`/`architecture` scope split)
+  must keep (one `entry.default`, one review/fix entry, the single `idle` edge
+  into `start-gate.check`, the two `questionGate` instances, the
+  `design`/`architecture` scope split)
 - **e2e feature files** that assert on the bundled template's shape (they set it
   up with the `Given the workflow` step —
   `tests/integration/features/default-workflow.feature`, `driver-doc.feature`,
   `driver-json-status.feature`, `smoke.feature`, `validate.feature`,
-  `init.feature`, `review-window.feature`, `initial-state-entry.feature`,
-  `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
-  every entry), `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
+  `init.feature`, `initial-state-entry.feature`, `templates-vars.feature`,
+  `entry-gate.feature` (the green-baseline gate on every entry),
+  `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
   (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
   `land.feature` (the exit-code contract: 0/3/settled/1; `driver-doc.feature`'s
   own `--entry fix-precheck` collapse scenario asserts on the bundled template's
@@ -362,11 +348,8 @@ parser, one envelope. The table is the source of truth, not prose:
   `format:` like `prettier --write` exits non-zero on a missing path, which
   aborted the whole `set -euo pipefail` script before the commit and made the
   step unlandable
-- **One property of a guard's INPUTS that makes a guard silently INERT rather
-  than loudly wrong when broken:** the pre-turn copy of a `file:` is read at
-  `Rest.windowHead` — the open review window's saved head — never at real
-  `HEAD`, which the window has rewound to the review base, where a file the
-  process itself wrote does not exist yet
+- **A guard's pre-turn copy of a `file:` is read at real `HEAD`** —
+  `enforceStepGuards` never rewinds anything to read it
 - The require-revert guard compares the current tree against `reviewBase~1`
   intersected with the human's own review-round commit's touched paths, and it
   exempts gtd's own plumbing by a literal `.gtd/` prefix (`src/StepGuards.ts`'s

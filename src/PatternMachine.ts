@@ -90,11 +90,7 @@ export const contentKindOf = (state: StateDef): ContentKind | undefined => {
 export const contentOf = (state: StateDef): string | undefined =>
   state.script ?? state.prompt ?? state.message
 
-/** True when a rest at `state` should open the review checkout window. Safe for an unknown state name (returns `false`). */
-export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): boolean =>
-  def.states[state]?.reviewWindow === true
-
-/** True when `state` anchors the review window's diff base. Safe for an unknown state name (returns `false`). The string/template form of `reviewBase` is NOT a window anchor — this stays narrowed to `=== true` on purpose, never truthy. */
+/** True when `state` anchors the review's diff base. Safe for an unknown state name (returns `false`). The string/template form of `reviewBase` is NOT this anchor form — this stays narrowed to `=== true` on purpose, never truthy. */
 export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewBase === true
 

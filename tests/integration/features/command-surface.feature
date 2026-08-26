@@ -58,6 +58,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout contains "visualize"
     And stdout contains "check <mode> <file>"
     And stdout contains "--open-questions"
+    And stdout contains "base "
     And stdout does not contain "review <commitish>"
 
   Scenario: --version prints the version and exits 0

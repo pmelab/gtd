@@ -155,7 +155,7 @@ describe("gtd --entry <state> — a custom workflow declaring `entry: true`", ()
 })
 
 describe("gtd --entry <state> — the bundled unified template", () => {
-  // Full downstream coverage (the review checkout window, feedback laps, the
+  // Full downstream coverage (the review round, feedback laps, the
   // fix-precheck green-baseline gate) lives in entry.feature/
   // fix-entry.feature; these pin only the entry commit itself — the same
   // happy-path shape the old `gtd review`/`gtd fix` tests pinned.
@@ -2069,6 +2069,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
     install: { kind: "install" },
     summary: { kind: "summary" },
+    base: { kind: "base" },
   }
 
   const stateKinds = (Object.keys(commandFor) as Command["kind"][]).filter(
@@ -2078,9 +2079,9 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the seven non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the eight non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
-      ["abandon", "entry", "land", "next", "restore", "summary", "validate"].sort(),
+      ["abandon", "base", "entry", "land", "next", "restore", "summary", "validate"].sort(),
     )
   })
 
@@ -2244,5 +2245,132 @@ describe("gtd summary — replaces the automatic squash finale (package 01)", ()
     const { stdout } = await run(repo, "summary")
     expect(stdout).not.toContain("git reset --mixed")
     expect(stdout).not.toContain("git commit")
+  })
+})
+
+describe("gtd base — prints the review anchor hash (package 01)", () => {
+  // `deciding` declares `reviewBase: true`, so its own commit anchors the
+  // NEXT round's diff base — mirroring the bundled workflow's `deciding`
+  // state without needing its full shape.
+  const BASE_WORKFLOW = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": deciding',
+    "        deciding:",
+    "          actor: human",
+    "          reviewBase: true",
+    "          message: decide",
+    "          on:",
+    '            "A FEEDBACK.md": working',
+    '            "C": idle',
+    "",
+  ].join("\n")
+
+  it("refuses when the resolved run has an empty trace — HEAD is a foreign commit unrelated to any gtd process", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", BASE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const before = repo.commitHistory().length
+    const { exitCode, stdout, stderr } = await run(repo, "base")
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain("gtd base: refused —")
+    expect(stdout).toBe("")
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("prints the process's diff base before the first review round lands, including mid-planning", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", BASE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const boundaryHash = repo.commitHistory()[repo.commitHistory().length - 1]!.hash
+    repo.commitAllWithPrefix("gtd(agent): working")
+
+    const { exitCode, stdout } = await run(repo, "base")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe(`${boundaryHash}\n`)
+  })
+
+  it("prints the most-recent reviewBase-declared commit once one has landed this process", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", BASE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+    repo.commitAllWithPrefix("gtd(human): deciding")
+    const decidingHash = repo.commitHistory()[repo.commitHistory().length - 1]!.hash
+
+    const { exitCode, stdout } = await run(repo, "base")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe(`${decidingHash}\n`)
+  })
+
+  it("on a second, incremental round prints the previous round's boundary, not the process start", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", BASE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+    repo.commitAllWithPrefix("gtd(human): deciding")
+    const firstDecidingHash = repo.commitHistory()[repo.commitHistory().length - 1]!.hash
+    // A feedback round: FEEDBACK.md sends the process back to `working`.
+    repo.writeFile("FEEDBACK.md", "please change this\n")
+    repo.commitAllWithPrefix("gtd(human): working")
+
+    const { exitCode, stdout } = await run(repo, "base")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe(`${firstDecidingHash}\n`)
+  })
+
+  it("refuses once the process has closed and HEAD rests at the initial state again", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", BASE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+    repo.commitAllWithPrefix("gtd(human): deciding")
+    // A clean sign-off: `"C": idle` fires since the tree is clean.
+    repo.commitAllWithPrefix("gtd(human): idle")
+
+    const { exitCode, stdout, stderr } = await run(repo, "base")
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain("gtd base: refused —")
+    expect(stdout).toBe("")
+  })
+
+  it("writes nothing to git — no commit lands and HEAD is unchanged", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", BASE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+    const before = repo.commitHistory()
+    const headBefore = before[before.length - 1]!.hash
+
+    const { exitCode } = await run(repo, "base")
+    expect(exitCode).toBe(0)
+
+    const after = repo.commitHistory()
+    expect(after).toHaveLength(before.length)
+    expect(after[after.length - 1]!.hash).toBe(headBefore)
+  })
+
+  it("prints a bare hash plus a trailing newline — no label, no surrounding text", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", BASE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+
+    const { stdout } = await run(repo, "base")
+    expect(stdout).toMatch(/^[0-9a-f-]+\n$/)
   })
 })

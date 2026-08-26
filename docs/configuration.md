@@ -88,8 +88,7 @@ workflow:
           label: <string> # optional, opaque display name passed through `gtd next --json`
           file: <string> # optional, an Eta template naming the state's steering file RELATIVE to ".gtd/" — the compiler prepends that directory automatically
           mode: <modeName> # optional, requires "file" — must be declared in `modes:` (qa/review are seeded for you; everything else, including prose, you declare)
-          reviewWindow: true # optional — open the review checkout window at rest here
-          reviewBase: true # optional — anchor the review window's diff base to this state's most-recent commit
+          reviewBase: true # optional — anchor the review's diff base (printed by `gtd base`) to this state's most-recent commit
           # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
           requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
           answerGate: true # optional, requires "file" — refuse a turn until every open question in the (qa-mode) `file:` is answered

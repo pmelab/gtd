@@ -62,6 +62,18 @@ Given("{string} is modified to:", (world: GtdWorld, path: string, content: strin
   writeRepoFile(world, path, content, false)
 })
 
+// Writes real, resolved content — not a hand-typed stand-in — wherever
+// `token` appears in the docstring, so a later assertion against the same
+// mark (e.g. `"{string} contains the hash of {string}"`) checks an
+// independently-derived value instead of the string the scenario itself typed.
+Given(
+  "a file {string} with the hash of {string} substituted for {string}:",
+  (world: GtdWorld, path: string, name: string, token: string, content: string) => {
+    const hash = resolveHash(world, name)
+    writeRepoFile(world, path, content.split(token).join(hash))
+  },
+)
+
 /**
  * Repeats a fixed, readable line with an incrementing counter until the
  * content reaches at least `minBytes` — a way to cross a size threshold
@@ -495,6 +507,32 @@ Then("{string} contains the hash of {string}", (world: GtdWorld, path: string, n
     `Expected "${path}" to contain the hash of "${name}" (${hash}). Got:\n${content}`,
   )
 })
+
+// The actual range check a diff base is FOR — runs `git diff --name-only`
+// against the marked commit and compares it (order-independent) to the
+// docstring's paths, one per line. Works in both tiers: `@inmem` diffs the
+// fake's own worktree/tree state, `@live` shells out to real git. Excludes
+// `.gtd/` paths, same as `StepGuards.ts`'s plumbing exclusion — the review
+// doc itself is always part of any diff against its own base (it's a new
+// file), but it isn't reviewable content the doc's own hunk pointers name.
+Then(
+  "git diff --name-only against {string} names exactly:",
+  (world: GtdWorld, name: string, doc: string) => {
+    const hash = resolveHash(world, name)
+    const actual = world.diffNameOnly(hash).filter((path) => !path.startsWith(".gtd/"))
+    const expected = doc
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .sort()
+    assert.deepStrictEqual(
+      actual,
+      expected,
+      `Expected git diff --name-only against "${name}" (${hash}), excluding .gtd/, to name ` +
+        `exactly ${JSON.stringify(expected)}. Got:\n${JSON.stringify(actual)}`,
+    )
+  },
+)
 
 Then("the last commit body does not contain {string}", (world: GtdWorld, text: string) => {
   const body = world.lastCommitBody()
