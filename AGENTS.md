@@ -142,7 +142,7 @@ preserved:
 a build-time bundle-content assertion both guard the boundary) and is imported
 only from `src/**/*.test.ts` and `tests/**`. The fake is trustworthy only
 because `src/testing/GitTiers.ts`'s `runGitServiceContract` runs the same
-18-operation `GitOperations` contract against BOTH the fake and a real git repo
+19-operation `GitOperations` contract against BOTH the fake and a real git repo
 — treat the contract, not the fake's internals, as the source of truth when the
 fake and production ever disagree.
 

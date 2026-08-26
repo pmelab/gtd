@@ -985,9 +985,9 @@ export type StepPlan =
  * `settled` signal). A `prompt` rest can't produce a no-op at all (a clean
  * tree with no `C` row there commits an ATTEMPT instead; `stalledAt` is its
  * own signal for that). A no-op at a `message` rest is a human gate the loop
- * already halts on. This is one of TWO settled shapes — the other is the
- * initial-state collapse, decided independently by `program.ts`'s
- * `planLanding`.
+ * already halts on. This is the ONLY settled shape — `gtd land` never moves
+ * HEAD, so a commit decision is never settled, even one re-entering the
+ * initial state.
  */
 const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "script"
 

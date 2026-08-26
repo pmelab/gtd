@@ -340,10 +340,9 @@ export interface StepCommit {
    * `true` for a fruitless `prompt`-state dispatch whose diff is EMPTY (no `C`
    * row, clean tree, invoker is the state's own actor). Landed anyway (rather
    * than an inert no-op) so a stall is a pure fold over history (`Edge.ts`'s
-   * `stalledAt`); the flag lets the initial-state collapse and the
-   * step-capture guards tell an attempt apart from an ordinary capture
-   * without re-deriving "empty diff" themselves. Present only when it
-   * applies; never `false`.
+   * `stalledAt`); the flag lets the step-capture guards tell an attempt apart
+   * from an ordinary capture without re-deriving "empty diff" themselves.
+   * Present only when it applies; never `false`.
    */
   readonly attempt?: true
 }

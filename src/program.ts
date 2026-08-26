@@ -491,8 +491,7 @@ const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
   })
 
 /**
- * `gtd restore`: hard-reset HEAD back to the tip `gtd abandon` (or the
- * initial-state collapse's own mixed reset) retained.
+ * `gtd restore`: hard-reset HEAD back to the tip `gtd abandon` retained.
  *
  * Guarded by `restorability` so it never discards work it didn't create:
  * refuses on a dirty working tree, no retained history, or HEAD having

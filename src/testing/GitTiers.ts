@@ -352,7 +352,7 @@ const PATHOLOGICAL_PATHS: ReadonlyArray<{ label: string; path: string }> = [
 ]
 
 /**
- * Exercise all 18 `GitOperations` methods identically against `makeTier()` —
+ * Exercise all 19 `GitOperations` methods identically against `makeTier()` —
  * called once per tier by `src/Git.test.ts`. A capability-gated group
  * (`t.capabilities.X`) is skipped, not faked, on a tier that can't support it.
  */

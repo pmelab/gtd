@@ -102,7 +102,7 @@ export interface GitWriterOperations {
   readonly updateRef: (ref: string, hash: string) => Effect.Effect<void, Error>
   /** Idempotent: deleting a missing ref is a no-op. */
   readonly deleteRef: (ref: string) => Effect.Effect<void, Error>
-  /** Used by `gtd abandon`'s reset and the initial-state collapse's own reset. */
+  /** Used by `gtd abandon`'s reset. */
   readonly mixedResetTo: (ref: string) => Effect.Effect<void, Error>
   readonly hardResetTo: (ref: string) => Effect.Effect<void, Error>
 }
