@@ -19,6 +19,23 @@ const toSelection = (value: unknown): Selection => {
   return { kind: "value", text: String(value) }
 }
 
+/** A segment that resolves to no key at all (missing from an object, or numeric/absent against an array) — distinct from a present key holding `undefined`. */
+const NOT_FOUND: unique symbol = Symbol("not-found")
+
+/** One step of the walk: looks `segment` up on `current`, or reports `NOT_FOUND` for a key that was never there (no array indexing; a primitive has no keys). */
+const resolveSegment = (current: unknown, segment: string): unknown => {
+  if (Array.isArray(current)) {
+    return ALL_DIGITS.test(segment) || !(segment in current)
+      ? NOT_FOUND
+      : (current as unknown as Record<string, unknown>)[segment]
+  }
+  if (typeof current === "object" && current !== null) {
+    const record = current as Record<string, unknown>
+    return segment in record ? record[segment] : NOT_FOUND
+  }
+  return NOT_FOUND
+}
+
 /**
  * Walks `fields` by dotted key path. Never throws — any unwalkable shape
  * (a primitive mid-path, an array indexed by a numeric segment) degrades to
@@ -28,30 +45,12 @@ const toSelection = (value: unknown): Selection => {
  */
 export const selectPath = (fields: unknown, path: string): Selection => {
   try {
-    const segments = path.split(".")
     let current: unknown = fields
-
-    for (const segment of segments) {
-      if (Array.isArray(current)) {
-        if (ALL_DIGITS.test(segment) || !(segment in current)) {
-          return { kind: "unknown", path }
-        }
-        current = (current as unknown as Record<string, unknown>)[segment]
-      } else if (typeof current === "object" && current !== null) {
-        const record = current as Record<string, unknown>
-        if (!(segment in record)) {
-          return { kind: "unknown", path }
-        }
-        current = record[segment]
-      } else {
-        return { kind: "unknown", path }
-      }
-
-      if (current === undefined) {
-        return { kind: "absent" }
-      }
+    for (const segment of path.split(".")) {
+      current = resolveSegment(current, segment)
+      if (current === NOT_FOUND) return { kind: "unknown", path }
+      if (current === undefined) return { kind: "absent" }
     }
-
     return toSelection(current)
   } catch {
     return { kind: "unknown", path }
