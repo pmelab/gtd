@@ -7,7 +7,11 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
   files use — a top-level `.gtdrc` `modes:` key layered over the configured
   workflow is enough, without re-declaring that mode on the workflow itself
   (see docs/configuration.md's "modes:" section). Formatting runs where
-  validation runs: `gtd validate`, and the `gtd land` capture gate.
+  validation runs: `gtd validate`, and `gtd next --json`'s own `validate`
+  field — never `gtd land`'s own emitted script any more (package 2,
+  Requirement A): that script is only the HEAD assertion and the commit, so a
+  driver that wants a steering file formatted before it lands must run the
+  mode's format/validate script itself first.
 
   A git `pre-commit` hook remains a perfectly good alternative, and the last
   scenarios pin that it still works — gtd never fights it.
@@ -57,7 +61,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     And stdout contains ".gtd/TODO.md: valid"
     And ".gtd/TODO.md" has no lines longer than 80 characters
 
-  Scenario: the step capture gate formats with the same command before committing the turn
+  Scenario: gtd land no longer formats before committing the turn — gtd validate is what still runs the mode's format command
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
@@ -101,10 +105,16 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       A plan. This answer line is deliberately far longer than eighty characters so that the formatter has to rewrap it before the turn is captured.
       """
+    # Package 2, Requirement A: `gtd land`'s own emitted script carries no
+    # format command any more, so the long line survives the capture as-is —
+    # a driver wanting it wrapped first must run `gtd validate` (or
+    # `gtd next --json`'s own `validate` field) ahead of `gtd land`.
+    When I run gtd with args "validate"
+    Then it succeeds
+    And ".gtd/TODO.md" has no lines longer than 80 characters
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): grilling-answer → grilling"
-    And ".gtd/TODO.md" has no lines longer than 80 characters
 
   Scenario: Pre-commit hook wraps long lines in TODO.md
     Given a test project
@@ -148,10 +158,12 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     When I commit with message "review: test formatting"
     Then ".gtd/REVIEW.md" has no lines longer than 80 characters
 
-  Scenario: prettier plugged into the bundled default's qa mode via a top-level modes: key formats the agent-authored requirements at design.triage
+  Scenario: prettier plugged into the bundled default's qa mode via a top-level modes: key formats the agent-authored requirements at design.triage, when gtd validate runs it first
     # No `workflow:` re-declaration: the bundled default already gives
     # `design.triage` `mode: qa` (see unified.yaml); a top-level `modes:` key
-    # alone is enough to plug a formatter into it.
+    # alone is enough to plug a formatter into it. `gtd land` itself no
+    # longer runs the format command (package 2, Requirement A) — a driver
+    # wanting the file wrapped first runs `gtd validate` ahead of `gtd land`.
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
@@ -164,12 +176,14 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
       """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): design.triage → design.gate.check"
-    And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
 
-  Scenario: prettier plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer
+  Scenario: prettier plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer, when gtd validate runs it first
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
@@ -186,10 +200,12 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       A plan. This edited line is deliberately far longer than eighty characters so the formatter has to rewrap it before the turn is captured.
       """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.gate.answer → design.triage"
-    And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
 
   Scenario: gtd validate formats the requirements file at design.triage and reports it valid — plain prose with no Open Questions passes the qa validator trivially
     Given a test project

@@ -226,6 +226,11 @@ When("I run gtd land", async (world: GtdWorld) => {
   await world.runGtd("land")
 })
 
+/** Undriven — plain `gtd land`'s own prose carries no script to run (package 02, Requirement B); see `runGtdLandPlain`'s own doc comment. */
+When("I run plain gtd land", async (world: GtdWorld) => {
+  await world.runGtdLandPlain()
+})
+
 When("I run gtd land with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd("land", arg)
 })

@@ -35,6 +35,21 @@ const run = async (
   return result()
 }
 
+/**
+ * Lands via `gtd land --json` and applies the emitted `script` field to
+ * `repo` — the unit-test twin of `driveWriteCommand`'s `--sh` read (package
+ * 02 dropped plain `gtd land`'s script output; `--json`/`--sh` still carry
+ * it byte-identically).
+ */
+const landAndApply = async (
+  repo: InMemRepo,
+): Promise<{ readonly exitCode: number; readonly script: string }> => {
+  const { stdout, exitCode } = await run(repo, "land", "--json")
+  const script = exitCode === 0 ? (JSON.parse(stdout) as { readonly script: string }).script : ""
+  if (exitCode === 0) expect(applyEmittedScript(repo, new Map(), script).ok).toBe(true)
+  return { exitCode, script }
+}
+
 describe("gtd --entry <state> — a custom workflow declaring `entry: true`", () => {
   // The generic entry mechanism that replaced `gtd review`/`gtd fix`: any
   // declared, non-commit state may be entered directly via `--entry`, not
@@ -507,9 +522,8 @@ describe("gtd next --json — memory key emission", () => {
     expect(first.session?.resume).toBe(false)
 
     const applyLand = async (): Promise<void> => {
-      const { stdout, exitCode } = await run(repo, "land")
+      const { exitCode } = await landAndApply(repo)
       expect(exitCode).toBe(0)
-      expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     }
 
     repo.writeFile("NOTE.md", "the agent did the work\n")
@@ -581,9 +595,7 @@ describe("gtd next --json — stall detection (attempt commits)", () => {
   }
 
   const landAgentStep = async (repo: InMemRepo): Promise<void> => {
-    const { stdout } = await run(repo, "land")
-    const applied = applyEmittedScript(repo, new Map(), stdout)
-    expect(applied.ok).toBe(true)
+    await landAndApply(repo)
   }
 
   it("is not kind stalled before the attempt lands", async () => {
@@ -1088,13 +1100,21 @@ describe("outcome scripts — step no-op / abandon no-op / restore", () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
 
-    const { stdout, exitCode } = await run(repo, "land")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain(noteOutcome(noopText("idle")))
+    const script = (JSON.parse(stdout) as { readonly script: string }).script
+    expect(script).toContain(noteOutcome(noopText("idle")))
 
-    const applied = applyEmittedScript(repo, new Map(), stdout)
+    const applied = applyEmittedScript(repo, new Map(), script)
     expect(applied.ok).toBe(true)
     expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("plain gtd land at the same clean-tree no-op prints the prose no-op line, not the script", async () => {
+    const repo = seededRepo()
+    const { stdout, exitCode } = await run(repo, "land")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe(noopText("idle"))
   })
 
   it("gtd abandon with nothing underway emits a print-only required script carrying the same wording", async () => {
@@ -1172,10 +1192,8 @@ describe("gtd land — StepPayload.processTrace still receives plain state names
     repo.commitAllWithPrefix("gtd(human): looping")
     repo.writeFile("src/fix.ts", "export const x = 1\n")
 
-    const { stdout, exitCode } = await run(repo, "land")
+    const { exitCode } = await landAndApply(repo)
     expect(exitCode).toBe(0)
-    const applied = applyEmittedScript(repo, new Map(), stdout)
-    expect(applied.ok).toBe(true)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): looping → idle")
   })
 })
@@ -1721,10 +1739,11 @@ describe("gtd land — the settled signal (exit code, script content, and now th
   it("a dirty tree matching the script rest's own pattern is not settled — proves it's the no-op, not the state, that settles", async () => {
     const repo = seededRepo("gtd(check): checking")
     repo.writeFile("OUT.txt", "all green\n")
-    const { stdout, exitCode } = await run(repo, "land")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
-    expect(stdout).not.toBe("")
-    expect(stdout).toContain("git commit")
+    const script = (JSON.parse(stdout) as { readonly script: string }).script
+    expect(script).not.toBe("")
+    expect(script).toContain("git commit")
   })
 
   // Identical to SETTLED_WORKFLOW, but "checking" also declares a "C": idle
@@ -1768,32 +1787,39 @@ describe("gtd land — the settled signal (exit code, script content, and now th
 
   it("a clean tree at `checking` re-entering idle lands an ordinary commit, not a rewind", async () => {
     const repo = seededReentryRepo("gtd(check): checking")
-    const { stdout, exitCode } = await run(repo, "land")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("git commit")
-    expect(stdout).not.toContain("git reset --mixed")
-    expect(stdout).not.toContain("nothing to retain")
+    const script = (JSON.parse(stdout) as { readonly script: string }).script
+    expect(script).toContain("git commit")
+    expect(script).not.toContain("git reset --mixed")
+    expect(script).not.toContain("nothing to retain")
   })
 
   it("the same rest with a pending change lands an ordinary commit too — proves the target state doesn't change the shape", async () => {
     const repo = seededReentryRepo("gtd(check): checking")
     repo.writeFile("OUT.txt", "all green\n")
-    const { stdout, exitCode } = await run(repo, "land")
+    const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("git commit")
-    expect(stdout).not.toContain("nothing to retain")
+    const script = (JSON.parse(stdout) as { readonly script: string }).script
+    expect(script).toContain("git commit")
+    expect(script).not.toContain("nothing to retain")
   })
 
-  it("gtd land --sh's gtd_script is byte-identical to plain gtd land's stdout for the same rest", async () => {
+  it("gtd land --sh's gtd_script is byte-identical to gtd land --json's own script field — the two structured encodings never drift", async () => {
     const repo = seededRepo("gtd(check): checking")
-    const plain = await run(repo, "land")
+    const json = await run(repo, "land", "--json")
     const sh = await run(repo, "land", "--sh")
-    expect(sh.exitCode).toBe(plain.exitCode)
-    // `shQuote` is total and deterministic — the exact quoted assignment gtd
-    // land --sh must emit for `gtd_script` is reconstructible from plain
-    // land's own stdout, so this is a byte-identity check, not a substring
-    // heuristic.
-    expect(sh.stdout).toContain(`gtd_script=${shellQuote(plain.stdout)}`)
+    expect(sh.exitCode).toBe(json.exitCode)
+    const script = (JSON.parse(json.stdout) as { readonly script: string }).script
+    expect(sh.stdout).toContain(`gtd_script=${shellQuote(script)}`)
+  })
+
+  it("plain gtd land prints the prose sentence, never the script — --json/--sh alone carry it", async () => {
+    const repo = seededReentryRepo("gtd(check): checking")
+    const { stdout, exitCode } = await run(repo, "land")
+    expect(exitCode).toBe(0)
+    expect(stdout).not.toContain("git commit")
+    expect(stdout).toMatch(/^commit everything with this message: /)
   })
 
   it("gtd land --json a no-op at a script rest reports settled:true, idle:false (checking isn't the initial state)", async () => {
@@ -1961,14 +1987,12 @@ describe("gtd land — exit code no longer names the post-land rest's owner (pac
   })
 })
 
-describe("a step that DELETES its state's own steering file", () => {
-  // The `format:`/`validate:` pair a state's `mode:` declares is emitted into
-  // the step script ahead of the commit. When the step's own diff is that
-  // file's DELETION — a legitimate outcome, e.g. the bundled template's review
-  // sign-off, whose whole diff is a bare REVIEW.md deletion — there is nothing
-  // left to format, and emitting the command anyway made the step UNLANDABLE:
-  // it is the script's first command under `set -euo pipefail`, and a real
-  // formatter (`prettier --write`) exits non-zero on a path that is not there.
+describe("gtd land — the landing script is only the commit (package 02, Requirement A)", () => {
+  // The `format:`/`validate:` pair a state's `mode:` declares is NOT part of
+  // the landing script any more — `buildRequiredScript` no longer calls into
+  // `steeringModeSteps` (deleted). Formatting/validating a steering file is a
+  // driver contract now (`gtd next --json`'s own `validate` field), not a gtd
+  // guarantee baked into `gtd land`'s emitted script.
 
   const NOTES_WORKFLOW = [
     "workflow:",
@@ -2006,42 +2030,34 @@ describe("a step that DELETES its state's own steering file", () => {
     return repo
   }
 
-  it("emits no format command, and still lands the commit", async () => {
+  it("at a dirty steering file (file: + mode:), the emitted script carries no format/validate command — only the HEAD assertion and the commit", async () => {
+    const repo = restingAtDrafting()
+    repo.writeFile(".gtd/NOTES.md", "# notes\n\nsecond draft\n")
+    const { exitCode, script } = await landAndApply(repo)
+    expect(exitCode).toBe(0)
+    expect(script).not.toContain("fmt-notes")
+    expect(script).not.toContain("oxfmt")
+    expect(script).not.toContain("prettier")
+    expect(script).not.toContain("gtd check")
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting")
+  })
+
+  it("still lands a step that deletes that file, with no format command either", async () => {
     const repo = restingAtDrafting()
     repo.deleteFile(".gtd/NOTES.md")
-    const { stdout, exitCode } = await run(repo, "land")
+    const { exitCode, script } = await landAndApply(repo)
     expect(exitCode).toBe(0)
-    expect(stdout).not.toContain("fmt-notes")
-    expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
+    expect(script).not.toContain("fmt-notes")
     expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting → idle")
   })
 
-  it("still emits it when the same step MODIFIES that file — the skip is the deletion, not the state", async () => {
+  it("`gtd next --json`'s `validate` field is untouched — still built from `resolveSelfValidateCommand`", async () => {
     const repo = restingAtDrafting()
     repo.writeFile(".gtd/NOTES.md", "# notes\n\nsecond draft\n")
-    const { stdout, exitCode } = await run(repo, "land")
+    const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("fmt-notes .gtd/NOTES.md")
-  })
-
-  it("emits no format command when the file was never written at all — not deleted this step, genuinely absent since the process started", async () => {
-    // NOTES.md never touches disk here: `drafting` is reached by a step whose
-    // diff is some OTHER file entirely (still matched by the catch-all
-    // `"* **": drafting` row, so the step still lands). `deletesFile` can't see
-    // this case — NOTES.md is absent from `changes`, not present as a `D` row
-    // — which is exactly why `steeringModeSteps` needs its own
-    // `RepoFiles.working` check alongside it.
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", NOTES_WORKFLOW)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    repo.writeFile("OTHER.md", "unrelated\n")
-    repo.commitAllWithPrefix("gtd(agent): drafting")
-    repo.writeFile("OTHER.md", "unrelated, again\n")
-    const { stdout, exitCode } = await run(repo, "land")
-    expect(exitCode).toBe(0)
-    expect(stdout).not.toContain("fmt-notes")
-    expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
-    expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting")
+    const parsed = JSON.parse(stdout) as { validate?: string }
+    expect(parsed.validate).toContain("fmt-notes .gtd/NOTES.md")
   })
 })
 

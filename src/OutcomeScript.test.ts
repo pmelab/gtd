@@ -9,6 +9,7 @@ import {
   abandonNoopOutcome,
   abandonNoopText,
   commitOutcome,
+  landProseText,
   noopText,
   noteOutcome,
   OUTCOME_PREAMBLE,
@@ -79,6 +80,17 @@ describe("plain-text twins", () => {
     expect(abandonNoopText("idle")).toBe(
       'no gtd process is underway (resting at "idle") — nothing to abandon\n',
     )
+  })
+
+  it("landProseText names the commit subject, newline-terminated", () => {
+    expect(landProseText("gtd(human): idle → working")).toBe(
+      "commit everything with this message: gtd(human): idle → working\n",
+    )
+  })
+
+  it("landProseText carries no ANSI escape sequence", () => {
+    // eslint-disable-next-line no-control-regex -- asserting the ABSENCE of an escape byte
+    expect(landProseText("gtd(agent): drafting")).not.toMatch(/\x1b/)
   })
 })
 

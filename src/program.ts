@@ -40,7 +40,7 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
-import { deletesFile, enforceStepGuards } from "./StepGuards.js"
+import { enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
 import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
 import type { SteeringFinding } from "./SteeringFormat.js"
@@ -90,6 +90,7 @@ import {
 import {
   abandonedOutcome,
   abandonNoopOutcome,
+  landProseText,
   noopText,
   noteOutcome,
   restoredOutcome,
@@ -196,36 +197,7 @@ const headPreconditions = (currentCommit: string): EmitPreconditions => ({
   expectedHead: currentCommit,
 })
 
-/**
- * The resting state's own steering-mode format/validate commands, embedded
- * ahead of the commit. Empty for a state declaring no `file:`+`mode:` pair;
- * an unknown mode name is a refusal.
- *
- * Also empty when the step deletes that file, or when it's absent from the
- * working tree — either way there's nothing left to format/validate.
- * Emitting `format:` anyway would make the step unlandable for a formatter
- * that errors on a missing path (e.g. `prettier --write`), since it's the
- * first command in a `set -euo pipefail` script and would abort the whole
- * thing — window close, commit and all — before anything could land.
- */
-const steeringModeSteps = (
-  rest: Rest,
-): Effect.Effect<readonly EmitStep[], Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const file = rest.hints.file
-    const mode = rest.stateDef.mode
-    if (file === undefined || mode === undefined) return []
-    if (deletesFile(rest.changes, file)) return []
-    const files = yield* RepoFiles
-    if (files.working(file) === undefined) return []
-    const resolved = resolveSteeringMode(rest.def, mode)
-    if (resolved === undefined) {
-      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
-    }
-    return yield* renderSteeringModeCommandSteps(resolved, file, rest.context)
-  })
-
-/** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag both `enforceStepGuards` and `buildRequiredScript` bypass their own steps for (see each call site). */
+/** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag `enforceStepGuards` bypasses its own steps for (see its call site). */
 const isAttemptDecision = (decision: ExecutableDecision): boolean =>
   decision.kind === "commit" && decision.attempt === true
 
@@ -234,11 +206,10 @@ const previewSubject = (decision: ExecutableDecision): Effect.Effect<string | nu
   Effect.succeed(decision.subject)
 
 /**
- * The `required` half: the resting state's own steering-mode commands, then
- * the commit steps. The steering-mode step is skipped for an attempt commit —
- * nothing to format/validate in an empty diff, and running `format:` ahead of
- * the commit could dirty the tree and turn an "empty" attempt non-empty,
- * breaking `stalledAt`'s derivation.
+ * The `required` half: the HEAD assertion plus the commit steps, nothing
+ * else. The steering-file format/validate pair is no longer part of the
+ * landing script — that's a driver contract now (`gtd next --json`'s
+ * `validate` field), not a gtd guarantee (see `resolveSelfValidateCommand`).
  */
 const buildRequiredScript = (
   rest: Rest,
@@ -246,14 +217,12 @@ const buildRequiredScript = (
   cost: number | undefined,
   model: string | undefined,
 ): Effect.Effect<string, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const isAttempt = isAttemptDecision(decision)
-    const steps: EmitStep[] = [
-      ...(isAttempt ? [] : yield* steeringModeSteps(rest)),
-      ...renderDecision(rest, decision, cost, model),
-    ]
-    return emitScripts(headPreconditions(rest.context.currentCommit), steps).required
-  })
+  Effect.succeed(
+    emitScripts(
+      headPreconditions(rest.context.currentCommit),
+      renderDecision(rest, decision, cost, model),
+    ).required,
+  )
 
 /** `gtd land`'s own flags, threaded as one bag rather than growing `planLanding`/`runLandCommand`'s positional list. */
 interface LandOptions {
@@ -372,10 +341,13 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
 /**
  * `gtd land [--cost=<n>] [--model=<name>]`: land whatever the tree shows at
  * the currently resolved rest, authenticated as the rest's own actor.
- * Plain output writes `result.script` verbatim so `gtd land | sh` keeps
- * working; `--json`/`--sh` emit `script` alongside `settled`/`idle`/`state`/
- * `subject`/`cost`/`model`. Exit code is uniformly `EXIT_OK` on success —
- * whose turn is next lives in the following `gtd next --json`'s `kind` field.
+ * Plain output prints one human-readable sentence — `landProseText`'s commit
+ * subject, or `result.script`'s existing no-op note when nothing landed —
+ * never the script; `--json`/`--sh` emit `script` (byte-identical to before)
+ * alongside `settled`/`idle`/`state`/`subject`/`cost`/`model`, so they stay
+ * the machine path a driver pipes to `sh`. Exit code is uniformly `EXIT_OK`
+ * on success — whose turn is next lives in the following `gtd next --json`'s
+ * `kind` field.
  */
 const runLandCommand = (
   opts: LandOptions,
@@ -389,8 +361,10 @@ const runLandCommand = (
       out.write(renderLandJson(landFields(result)))
     } else if (sh) {
       out.write(renderLandSh(landFields(result)))
+    } else if (result.subject !== null) {
+      out.write(landProseText(result.subject))
     } else {
-      out.write(result.script)
+      out.write(noopText(result.state))
     }
   })
 

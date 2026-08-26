@@ -1,21 +1,22 @@
 @live
-Feature: A step whose diff deletes its own file: skips a mode's format: command
+Feature: A review sign-off lands even when its mode declares a format: command that fails on a missing file
 
-  A mode's `format:`/`validate:` pair is emitted into the step script AHEAD of
-  the commit (`src/program.ts`'s `steeringModeSteps`) — but a step whose whole
-  diff IS that `file:`'s deletion (a review sign-off's only change is deleting
-  `.gtd/REVIEW.md`) has nothing left to format, and running the formatter
-  anyway makes the step UNLANDABLE: `format:` is the first command in a
-  `set -euo pipefail` script, and a real formatter (`prettier --write`,
-  modelled below) exits non-zero on a path that is not there, aborting the
-  whole script before the commit. A driver would see only a non-zero exit with
-  the failure buried in its log. `steeringModeSteps` skips the format/validate
-  pair for exactly this case (`deletesFile`, shared with the step-capture
-  guards) — see AGENTS.md's "Step-capture guards" section.
+  Package 2, Requirement A removed the mode's `format:`/`validate:` pair from
+  `gtd land`'s own emitted script entirely — that script is only the HEAD
+  assertion and the commit now, for every step regardless of whether its diff
+  deletes the state's own `file:` (a review sign-off's only change is deleting
+  `.gtd/REVIEW.md`). Before that package, a formatter that exits non-zero on a
+  missing path (`prettier --write`, modelled below) would have made a
+  sign-off's step UNLANDABLE — `format:` was the first command in a
+  `set -euo pipefail` script, and its failure aborted the whole script before
+  the commit. `deletesFile` (`src/StepGuards.ts`) still exists and is still
+  shared by the step-capture guards (see AGENTS.md's "Step-capture guards"
+  section) — it just no longer has a `steeringModeSteps` caller to skip a
+  format command for, since there is no such caller left in the landing path.
 
   This scenario actually EXECUTES the rendered script (`I execute the printed
-  check script`) rather than simulating its outcome by hand — the bug lives in
-  the emitted script itself, which `@inmem` scenarios never run.
+  check script`) rather than simulating its outcome by hand — `@inmem`
+  scenarios never run the emitted script at all.
 
   Scenario: the sign-off still lands when the review mode declares a format command that fails on a missing file
     Given a test project

@@ -377,7 +377,7 @@ const PREREQUISITES = `
 ## Prerequisites and portability
 
 - A POSIX \`sh\` (dash, ash, bash's own POSIX mode, etc.) — gtd's own emitted
-  scripts (\`gtd land\`, \`gtd --entry <state>\`, \`gtd abandon\`,
+  scripts (\`gtd land --sh\`, \`gtd --entry <state>\`, \`gtd abandon\`,
   \`gtd restore\`) are POSIX sh; captured, then piped into it (see obligation
   8 above). \`eval\`ing \`gtd next --sh\`/\`gtd land --sh\`'s own output needs
   nothing beyond the same POSIX \`sh\`.

@@ -234,8 +234,37 @@ Feature: gtd land — the one landing verb, actorless
     And stdout contains "\"model\":null"
     When I run gtd land
     Then the exit code is 0
-    And the current stdout equals the sh field "script" recorded as "sh"
     And the last commit subject is "gtd(human): idle → working"
+
+  @inmem
+  Scenario: plain gtd land prints one prose sentence, never the script — --json/--sh alone carry it
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do it"
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run plain gtd land
+    Then the exit code is 0
+    And stdout contains "commit everything with this message: gtd(human): idle → working"
+    And stdout does not contain "git commit"
 
   @inmem
   Scenario: gtd land --json reports settled:false, idle:true for the green --entry fix-precheck probe, without landing it

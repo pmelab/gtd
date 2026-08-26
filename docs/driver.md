@@ -218,38 +218,40 @@ the engine itself is a supported public surface, and anything below holds for
 any driver you write against it. gtd decides and prints; it never touches git
 itself. The four commands that change anything — `gtd land`,
 `gtd --entry <state>`, `gtd abandon`, and `gtd restore` — perform no git write
-when run: each one prints ONE POSIX sh script for YOU to execute
-(`src/Emit.ts`'s `combinedScript`) — a leading comment ("gtd emitted this and
-did NOT run it — pipe it into `sh` to land the turn"), then the REQUIRED half
-verbatim, then, only when there's a presentation-only follow-up, a second
-comment ("presentation only — safe to skip") and the OPTIONAL half wrapped in a
-subshell whose own non-zero exit is swallowed (reported to stderr as a warning,
-never turning a landed turn into a failing one). Printing gtd's output and never
-running it is not driving anything; a driver must pipe or execute what gtd
-prints — e.g. the capture-then-pipe form the reference driver below uses — never
-a bare `gtd land | sh`, which would hand an empty script to a shell on a refusal
-instead of stopping first (see the reference driver's own use of `gtd land --sh`
-below).
+when run: each one's `--json`/`--sh` form carries ONE POSIX sh script for YOU to
+execute (`src/Emit.ts`'s `combinedScript`) — a leading comment ("gtd emitted
+this and did NOT run it — pipe it into `sh` to land the turn"), then the
+REQUIRED half verbatim, then, only when there's a presentation-only follow-up, a
+second comment ("presentation only — safe to skip") and the OPTIONAL half
+wrapped in a subshell whose own non-zero exit is swallowed (reported to stderr
+as a warning, never turning a landed turn into a failing one). Plain `gtd land`
+is the one exception: it prints a human-readable sentence, never a script (see
+below) — a driver reads the script from `--json`/`--sh` instead. Printing gtd's
+output and never running it is not driving anything; a driver must pipe or
+execute what gtd prints — e.g. the capture-then-pipe form the reference driver
+below uses, via `gtd land --sh`.
 
-Every script gtd emits — `gtd land`, `gtd --entry <state>`, `gtd abandon`,
-`gtd restore`, and the format/validate script `gtd validate` prints — is POSIX
-`sh`, portable to `dash`: a driver may run any of them with any POSIX-compliant
-shell, not specifically bash. The same convention extends to the workflow's own
-`vars.testCommand` (what a `script`-content check state actually executes): it
-is expected to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION
-only — gtd never inspects or validates `testCommand`'s shell dialect itself, it
-only renders the value into a script and hands it to whatever shell the driver
-invokes that script with.
+Every script gtd emits — `gtd land --json`/`--sh`, `gtd --entry <state>`,
+`gtd abandon`, `gtd restore`, and the format/validate script `gtd validate`
+prints — is POSIX `sh`, portable to `dash`: a driver may run any of them with
+any POSIX-compliant shell, not specifically bash. The same convention extends to
+the workflow's own `vars.testCommand` (what a `script`-content check state
+actually executes): it is expected to be POSIX sh-compatible too, but this is a
+DOCUMENTED CONVENTION only — gtd never inspects or validates `testCommand`'s
+shell dialect itself, it only renders the value into a script and hands it to
+whatever shell the driver invokes that script with.
 
 - **The required half** is everything that decides what lands in git — the
-  resting state's own steering-mode `format:`/`validate:` commands, the commit
-  itself (`gtd land` and `gtd --entry <state>`), or the ref update and reset
-  that undo a process (`gtd abandon`, `gtd restore`) — and, last, a printed line
-  naming what just landed (`src/OutcomeScript.ts`'s `gtd_report_*` calls): a
-  transition or capture's changed-file rows, or the abandon/restore prose,
-  resolved from the repository AFTER the write above it. Its own exit code IS
-  the printed script's exit code — skipping it means the turn never lands, and
-  you never see what it did.
+  commit itself (`gtd land` and `gtd --entry <state>`), or the ref update and
+  reset that undo a process (`gtd abandon`, `gtd restore`) — and, last, a
+  printed line naming what just landed (`src/OutcomeScript.ts`'s `gtd_report_*`
+  calls): a transition or capture's changed-file rows, or the abandon/restore
+  prose, resolved from the repository AFTER the write above it. Its own exit
+  code IS the printed script's exit code — skipping it means the turn never
+  lands, and you never see what it did. A resting state's own steering-mode
+  `format:`/`validate:` commands are NOT part of this script — they're a
+  separate driver contract via `gtd next --json`'s own `validate` field (see
+  `gtd install`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No emitter
@@ -269,16 +271,18 @@ invokes that script with.
   output to it and truncates once at the start of a run, exactly like the driver
   above does.
 
-Even a genuine no-op `gtd land` (a clean tree matching no `on` pattern) prints a
-PRINT-ONLY script: no git write, just the same `nothing to do at "<state>"` line
-the script prints when a driver runs it. Every encoding (plain, `--json`,
-`--sh`) carries that same script verbatim in its `script` field — running it is
-never optional, whichever encoding a driver reads it from. The script is
-self-contained (it carries its own precondition assert and retry helper) and
-safe to run standalone, in sequence, or not at all — paste it into a terminal
-and it does exactly what it says, printed output included: it detects its own
-tty/`NO_COLOR` at RUN time (not at the moment gtd generated it), so the
-fancy/plain rendering always matches wherever you actually run it.
+Even a genuine no-op `gtd land` (a clean tree matching no `on` pattern) has a
+PRINT-ONLY script under `--json`/`--sh`: no git write, just the same
+`nothing to do at "<state>"` line the script prints when a driver runs it —
+`--json`/`--sh` carry that same script verbatim in their `script` field, running
+it is never optional, whichever of the two a driver reads it from. Plain
+`gtd land` at the same no-op prints that identical line directly, with no script
+wrapper at all. The `--json`/`--sh` script is self-contained (it carries its own
+precondition assert and retry helper) and safe to run standalone, in sequence,
+or not at all — paste it into a terminal and it does exactly what it says,
+printed output included: it detects its own tty/`NO_COLOR` at RUN time (not at
+the moment gtd generated it), so the fancy/plain rendering always matches
+wherever you actually run it.
 
 A driver has no opening move. It does not need to know whose turn it is before
 it starts — `gtd next --json`/`--sh` tells it, and a human's pending edit
@@ -312,13 +316,13 @@ instead of settling.
 The protocol above is JSON in (from `gtd next --json` alone), subprocesses out —
 sh is one convenient shape, not the only one. A **program** parses
 `gtd next --json`, switches on `kind`, and runs `gtd next`'s (plain-text) output
-and `gtd land`'s (POSIX sh) output as subprocesses — no sh anywhere in it. A
-**human** runs plain `gtd next` (there is no JSON form of it at all), does what
-it says, and pastes `gtd land | sh`: plain-text output exists for exactly this,
-printing the combined script ready to paste. An **agent** gets `gtd install` as
-its instructions — the same protocol, in a form built to be pasted into a
-context window rather than read. A **CI job** is the program case with the
-`prompt` arm pointed at a headless agent CLI, and
+and `gtd land --sh`'s (POSIX sh) output as subprocesses — no sh anywhere in it.
+A **human** runs plain `gtd next` (there is no JSON form of it at all), does
+what it says, then plain `gtd land`, which names the commit subject in one
+sentence — no script to paste, no shell to pipe into. An **agent** gets
+`gtd install` as its instructions — the same protocol, in a form built to be
+pasted into a context window rather than read. A **CI job** is the program case
+with the `prompt` arm pointed at a headless agent CLI, and
 `kind: "message"`/`kind: "stalled"` mapped onto "stop and report".
 
 ### A complete minimal driver
@@ -515,8 +519,8 @@ non-zero-looking exits are not a failure at all:
 - **`gtd land` succeeds (exit 0) but doesn't settle.** This is NOT a failure:
   whose turn is next lives in the FOLLOWING `gtd next`'s own `kind` field, not
   in `gtd land`'s exit code (see [Exit codes](./cli.md#exit-codes)) — and
-  `gtd land`'s own stdout still carries a script (a print-only note, or an
-  ordinary commit) that a driver must still run.
+  `gtd land --sh`'s own `gtd_script` still carries a script (a print-only note,
+  or an ordinary commit) that a driver must still run.
 - **An emitted script exits non-zero when YOU run it.** Something may have
   partially happened — e.g. a `gtd_retry`-wrapped git write landed but a later
   step in the same script failed.

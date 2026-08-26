@@ -167,7 +167,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And the git status is clean
 
-  Scenario: the step gate runs format + validate after a human edits the steering file — a malformed edit is refused
+  Scenario: gtd land no longer runs format/validate — a malformed edit lands, and gtd validate is what still catches it
     Given a test project
     And the workflow
     And a commit "gtd(human): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
@@ -184,17 +184,19 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       The human deleted the question text.
       """
-    When I run gtd land
+    When I run gtd with args "validate"
     Then it fails
-    # The step's own required script runs the same validation ahead of its
-    # commit, so the refusal is the checker's findings and a non-zero exit —
-    # nothing is committed. Package 2, Requirement A: the landing script's
-    # own validate command now carries the SAME routable fix prompt
-    # `gtd validate`'s script does — the human/agent reading stderr gets a
-    # ready-to-send instruction, not bare findings.
     And stderr contains "does not pass its own validation script"
     And stderr contains "has no question text"
-    And the last commit subject is "gtd(human): design.gate.answer"
+    # Package 2, Requirement A: the landing script itself carries no
+    # format/validate command any more — only the HEAD assertion and the
+    # commit — so the same malformed edit lands regardless. Catching it is a
+    # driver contract now (running `gtd next --json`'s own `validate` field,
+    # or `gtd validate`, ahead of `gtd land`), not a gtd guarantee baked into
+    # `gtd land` itself.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.answer → design.triage"
 
   Scenario: the step gate captures a human's valid edit (routing it back to design.triage)
     Given a test project
