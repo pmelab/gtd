@@ -1,9 +1,7 @@
 /**
- * Runs via `jiti`, which can't load `../src/workflows/templates.js` or
- * `../src/ReviewWindow.js` (both transitively import `unified.yaml` as raw
- * text through a loader jiti has no equivalent for) — so this script reads
- * the yaml directly and reimplements the two review-window sequences from
- * `src/GitScript.ts`'s builders instead of importing them.
+ * Runs via `jiti`, which can't load `../src/workflows/templates.js` (it
+ * transitively imports `unified.yaml` as raw text through a loader jiti has
+ * no equivalent for) — so this script reads the yaml directly instead.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -17,7 +15,6 @@ import {
   discardPending,
   hardResetTo,
   mixedResetTo,
-  restoreStagedFrom,
   softResetTo,
   updateRef,
 } from "../src/GitScript.js"
@@ -71,36 +68,12 @@ const gitBuilders: Record<string, string> = {
   discardPending: discardPending(),
   updateRef: updateRef("refs/worktree/gtd/history", SAMPLE_HEAD),
   deleteRef: deleteRef("refs/worktree/gtd/history"),
-  restoreStagedFrom: restoreStagedFrom(SAMPLE_HEAD, [".gtd"]),
 }
 
 for (const [name, bare] of Object.entries(gitBuilders)) {
   add(`git.${name}.bare.sh`, bare)
   add(`git.${name}.retry.sh`, retryWrapped(bare))
 }
-
-// ── 2. Both review-window sequences, open and close ─────────────────────────
-// Replicates src/ReviewWindow.ts's buildOpenWindowScript/buildCloseWindowScript
-// bodies; these two refs mirror its REVIEW_HEAD_REF/REVIEW_BASE_REF constants.
-const SAMPLE_REVIEW_HEAD_REF = "refs/worktree/gtd/review-head"
-const SAMPLE_REVIEW_BASE_REF = "refs/worktree/gtd/review-base"
-
-const openBare = [
-  updateRef(SAMPLE_REVIEW_BASE_REF, SAMPLE_HEAD),
-  updateRef(SAMPLE_REVIEW_HEAD_REF, "HEAD"),
-  mixedResetTo(SAMPLE_HEAD),
-  restoreStagedFrom(SAMPLE_REVIEW_HEAD_REF, [".gtd"]),
-].join(" &&\n")
-add("review-window.open.bare.sh", openBare)
-add("review-window.open.retry.sh", retryWrapped(openBare))
-
-const closeBare = [
-  mixedResetTo(SAMPLE_HEAD_2),
-  deleteRef(SAMPLE_REVIEW_HEAD_REF),
-  deleteRef(SAMPLE_REVIEW_BASE_REF),
-].join(" &&\n")
-add("review-window.close.bare.sh", closeBare)
-add("review-window.close.retry.sh", retryWrapped(closeBare))
 
 add(
   "failure-prompt-wrapper.sh",
@@ -124,10 +97,15 @@ for (const [name, call] of Object.entries(outcomeCalls)) {
 const combinedRequired = retryWrapped(commitAll("gtd(agent): sample"))
 add("combined.required-only.sh", combinedScript(combinedRequired, ""))
 
-const combinedOptional = emitScripts({}, [], [{ kind: "gitWrite", command: openBare }]).optional
+const combinedOptionalBare = updateRef("refs/worktree/gtd/history", SAMPLE_HEAD_2)
+const combinedOptional = emitScripts(
+  {},
+  [],
+  [{ kind: "gitWrite", command: combinedOptionalBare }],
+).optional
 add("combined.with-optional.sh", combinedScript(combinedRequired, combinedOptional))
 
-// ── 5. Every `script` state of the bundled workflow, rendered against a
+// ── 2. Every `script` state of the bundled workflow, rendered against a
 // fixture context. Qualified state names only use [a-z0-9.-], already safe as
 // a filename component, so no sanitizing is needed — `tests/tooling/
 // shell-corpus.test.ts` relies on this exact "workflow.<qualified-name>.sh"
@@ -159,7 +137,7 @@ for (const [name, state] of Object.entries(compiled.definition.states)) {
   add(`workflow.${name}.sh`, renderStateTemplate(state.script, context))
 }
 
-// ── 6. The beat document, rendered in `--sh` form ───────────────────────────
+// ── 3. The beat document, rendered in `--sh` form ───────────────────────────
 // A fixture exercising as many `BeatFields` kinds as possible. `rendered` is a
 // plain object literal shaped like `src/Edge.ts`'s `RenderedRest`, not an
 // import — `Edge.js` transitively imports `unified.yaml` as raw text too,
@@ -202,7 +180,7 @@ const beatFixtureFields = beatFields({
 
 addAssignmentOnly("beat.sh", renderBeatSh(beatFixtureFields))
 
-// ── 7. The land document, rendered in `--sh` form ───────────────────────────
+// ── 4. The land document, rendered in `--sh` form ───────────────────────────
 // `script` reuses the combined land script built above, normalized with the
 // same single-trailing-newline rule as `program.ts`'s `normalizeScriptNewline`
 // (duplicated here — `program.ts` is unloadable under `jiti`).

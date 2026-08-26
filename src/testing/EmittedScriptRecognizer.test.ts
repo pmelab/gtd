@@ -6,7 +6,6 @@ import {
   discardPending,
   hardResetTo,
   mixedResetTo,
-  restoreStagedFrom,
   softResetTo,
   updateRef,
 } from "../GitScript.js"
@@ -15,15 +14,8 @@ import {
   emitScripts,
   fileExistsGuard,
   headAssertion,
-  reviewWindowAssertion,
   type EmitStep,
 } from "../Emit.js"
-import {
-  buildCloseWindowScript,
-  buildOpenWindowScript,
-  REVIEW_BASE_REF,
-  REVIEW_HEAD_REF,
-} from "../ReviewWindow.js"
 import { commitOutcome, noteOutcome, OUTCOME_PREAMBLE } from "../OutcomeScript.js"
 import { buildModeContradictionCheck, modeContradictionSkipNotice } from "../ModeContradiction.js"
 import { applyEmittedScript, preconditionHeadEquals } from "./EmittedScriptRecognizer.js"
@@ -41,7 +33,7 @@ const snapshot = (repo: InMemRepo) => ({
 
 const NO_COMMANDS: ReadonlyMap<string, ScriptedCommand> = new Map()
 
-describe("applyEmittedScript — the 9 GitScript builders", () => {
+describe("applyEmittedScript — the 8 GitScript builders", () => {
   it("commitAll: stages the worktree and commits, like commitAllWithPrefix", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
@@ -188,41 +180,6 @@ describe("applyEmittedScript — the 9 GitScript builders", () => {
     expect(result).toEqual({ ok: true })
     expect(repo.resolveRef("refs/gtd/base")).toBeNull()
     expect(snapshot(repo)).toEqual(snapshot(twin))
-  })
-
-  it("restoreStagedFrom: resets index entries under given paths to their content at source, leaving HEAD and worktree untouched", () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtd/TODO.md", "base")
-    repo.commitAllWithPrefix("chore: base")
-    const base = repo.resolveRef("HEAD")!
-    repo.writeFile(".gtd/TODO.md", "changed")
-    repo.stageAll()
-    const twin = new InMemRepo()
-    twin.writeFile(".gtd/TODO.md", "base")
-    twin.commitAllWithPrefix("chore: base")
-    twin.writeFile(".gtd/TODO.md", "changed")
-    twin.stageAll()
-
-    const result = applyEmittedScript(repo, NO_COMMANDS, restoreStagedFrom(base, [".gtd/"]))
-    twin.restoreStagedFrom(base, [".gtd/"])
-
-    expect(result).toEqual({ ok: true })
-    expect(snapshot(repo)).toEqual(snapshot(twin))
-    // Index restored to base content, worktree still holds the pending edit.
-    expect(repo.statusPorcelain()).toContain(".gtd/TODO.md")
-    expect(repo.readFile(".gtd/TODO.md")).toBe("changed")
-  })
-
-  it("restoreStagedFrom emits nothing for an empty paths list — an empty script applies cleanly as a no-op", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
-    const before = snapshot(repo)
-
-    const result = applyEmittedScript(repo, NO_COMMANDS, restoreStagedFrom("HEAD", []))
-
-    expect(result).toEqual({ ok: true })
-    expect(snapshot(repo)).toEqual(before)
   })
 })
 
@@ -521,45 +478,6 @@ describe("applyEmittedScript — src/Emit.ts's real head assertion", () => {
   })
 })
 
-describe("applyEmittedScript — src/Emit.ts's review-window-ref assertion", () => {
-  it("a satisfied assertion is a no-op", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
-    const head = repo.resolveRef("HEAD")!
-    repo.updateRef(REVIEW_HEAD_REF, head)
-
-    const script = [
-      headAssertion(head),
-      reviewWindowAssertion(REVIEW_HEAD_REF, head),
-      commitAll("gtd(agent): second"),
-    ].join("\n\n")
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result).toEqual({ ok: true })
-    expect(repo.lastCommitMessage()).toBe("gtd(agent): second")
-  })
-
-  it("a moved/missing ref fails the script", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
-    const head = repo.resolveRef("HEAD")!
-    // REVIEW_HEAD_REF deliberately left unset — the assertion expects a hash.
-
-    const script = [
-      headAssertion(head),
-      reviewWindowAssertion(REVIEW_HEAD_REF, head),
-      commitAll("gtd(agent): should never land"),
-    ].join("\n\n")
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain("review window ref")
-    expect(repo.lastCommitMessage()).toBe("chore: first")
-  })
-})
-
 describe("applyEmittedScript — a realistic src/Emit.ts-assembled script (gtd_retry-wrapped)", () => {
   it("commitAll wrapped in gtd_retry applies exactly like commitAllWithPrefix", () => {
     const repo = new InMemRepo()
@@ -609,118 +527,6 @@ describe("applyEmittedScript — a realistic src/Emit.ts-assembled script (gtd_r
     expect(repo.resolveRef("refs/worktree/gtd/history")).toBe(tip)
     expect(repo.lastCommitMessage()).toBe("chore: squashed")
     expect(repo.hasPath(".gtd/TODO.md")).toBe(false)
-  })
-})
-
-describe("applyEmittedScript — src/ReviewWindow.ts's compound open/close scripts", () => {
-  it("buildCloseWindowScript (bare) restores HEAD and drops both refs", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: base")
-    const base = repo.resolveRef("HEAD")!
-    repo.writeFile("b.txt", "2")
-    repo.commitAllWithPrefix("chore: real head")
-    const realHead = repo.resolveRef("HEAD")!
-    repo.updateRef(REVIEW_BASE_REF, base)
-    repo.updateRef(REVIEW_HEAD_REF, realHead)
-    repo.mixedResetTo(base) // simulate an already-open window
-
-    const script = buildCloseWindowScript({
-      headRef: REVIEW_HEAD_REF,
-      baseRef: REVIEW_BASE_REF,
-      headHash: realHead,
-      legacy: false,
-    })
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result).toEqual({ ok: true })
-    expect(repo.resolveRef("HEAD")).toBe(realHead)
-    expect(repo.resolveRef(REVIEW_HEAD_REF)).toBeNull()
-    expect(repo.resolveRef(REVIEW_BASE_REF)).toBeNull()
-  })
-
-  it("buildCloseWindowScript wrapped in gtd_retry applies identically", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: base")
-    const base = repo.resolveRef("HEAD")!
-    repo.writeFile("b.txt", "2")
-    repo.commitAllWithPrefix("chore: real head")
-    const realHead = repo.resolveRef("HEAD")!
-    repo.updateRef(REVIEW_BASE_REF, base)
-    repo.updateRef(REVIEW_HEAD_REF, realHead)
-    repo.mixedResetTo(base)
-
-    const steps: readonly EmitStep[] = [
-      {
-        kind: "gitWrite",
-        command: buildCloseWindowScript({
-          headRef: REVIEW_HEAD_REF,
-          baseRef: REVIEW_BASE_REF,
-          headHash: realHead,
-          legacy: false,
-        }),
-      },
-    ]
-    const { required } = emitScripts({ expectedHead: base }, steps)
-    const result = applyEmittedScript(repo, NO_COMMANDS, required)
-
-    expect(result).toEqual({ ok: true })
-    expect(repo.resolveRef("HEAD")).toBe(realHead)
-    expect(repo.resolveRef(REVIEW_HEAD_REF)).toBeNull()
-    expect(repo.resolveRef(REVIEW_BASE_REF)).toBeNull()
-  })
-
-  it("buildOpenWindowScript (bare) with the literal 'HEAD' head resolves against the repo's own current head", () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtd/REVIEW.md", "base copy")
-    repo.commitAllWithPrefix("chore: base")
-    const base = repo.resolveRef("HEAD")!
-    repo.writeFile("a.txt", "1")
-    repo.writeFile(".gtd/REVIEW.md", "head copy")
-    repo.commitAllWithPrefix("gtd(agent): await-review")
-    const realHead = repo.resolveRef("HEAD")!
-
-    const script = buildOpenWindowScript({ base, head: "HEAD" })
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result).toEqual({ ok: true })
-    expect(repo.resolveRef(REVIEW_BASE_REF)).toBe(base)
-    expect(repo.resolveRef(REVIEW_HEAD_REF)).toBe(realHead)
-    expect(repo.resolveRef("HEAD")).toBe(base)
-    // `.gtd/`'s index entry is pinned back to the real head's content, which
-    // still reads as staged-modified relative to the rewound (base) HEAD —
-    // exactly like `review-window.feature`'s own scenarios, this only asserts
-    // it's never UNTRACKED (an editor's default unstaged-diff view stays
-    // clean for it either way, since worktree already matches the pinned
-    // index). The new file added since the base surfaces as an ORDINARY
-    // UNTRACKED file — deliberate, since `buildOpenWindowScript` avoids `git
-    // add --intent-to-add` (it loses the index-lock race and truncates
-    // discarded files to zero bytes) and only pins `.gtd/` back.
-    expect(repo.statusPorcelain()).toContain("?? a.txt")
-    expect(repo.statusPorcelain()).not.toContain("?? .gtd/REVIEW.md")
-  })
-
-  it("buildOpenWindowScript wrapped in gtd_retry applies identically", () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtd/REVIEW.md", "base copy")
-    repo.commitAllWithPrefix("chore: base")
-    const base = repo.resolveRef("HEAD")!
-    repo.writeFile("a.txt", "1")
-    repo.writeFile(".gtd/REVIEW.md", "head copy")
-    repo.commitAllWithPrefix("gtd(agent): await-review")
-    const realHead = repo.resolveRef("HEAD")!
-
-    const steps: readonly EmitStep[] = [
-      { kind: "gitWrite", command: buildOpenWindowScript({ base, head: "HEAD" }) },
-    ]
-    const { required } = emitScripts({ expectedHead: realHead }, steps)
-    const result = applyEmittedScript(repo, NO_COMMANDS, required)
-
-    expect(result).toEqual({ ok: true })
-    expect(repo.resolveRef(REVIEW_BASE_REF)).toBe(base)
-    expect(repo.resolveRef(REVIEW_HEAD_REF)).toBe(realHead)
-    expect(repo.resolveRef("HEAD")).toBe(base)
   })
 })
 
@@ -826,7 +632,7 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     // command with blank lines) — the realistic shape this recognizer must
     // keep intact as ONE block.
     const optional = emitScripts({}, [
-      { kind: "gitWrite", command: updateRef(REVIEW_HEAD_REF, "HEAD") },
+      { kind: "gitWrite", command: updateRef("refs/gtd/marker", "HEAD") },
     ]).required
     expect(optional).toContain("\n\n")
     const script = combinedScript(required, optional)
@@ -835,7 +641,7 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
 
     expect(result).toEqual({ ok: true })
     expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
-    expect(repo.resolveRef(REVIEW_HEAD_REF)).toBe(repo.resolveRef("HEAD"))
+    expect(repo.resolveRef("refs/gtd/marker")).toBe(repo.resolveRef("HEAD"))
   })
 
   it("a failing optional half is swallowed — the combined script as a whole still applies ok", () => {

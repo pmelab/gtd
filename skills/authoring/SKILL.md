@@ -83,7 +83,6 @@ states:
     retry: { max: <int>, otherwise: <targetState> } # optional cap (see "Retry")
     file: <string> # optional steering file this state is about (Eta-rendered)
     mode: <modeName> # optional, REQUIRES file: — must be declared in modes: (qa/review are seeded automatically)
-    reviewWindow: true # optional — open the review checkout window at rest here
     reviewBase: true # optional — anchor the review diff base to this state
     # reviewBase: <Eta template> # OR a template — see "Retry and review"
     entry: true # optional — an extra `gtd --entry <state>` reachability root (see below)
@@ -271,17 +270,16 @@ well-formed files. It is a no-op when the file is absent.
   process; once over the cap, a transition INTO it is redirected to `otherwise`
   (typically a human `escalate` gate). Bounds fix loops so agents can't burn
   tokens forever. `otherwise` must name a defined state.
-- **`reviewWindow: true`** — while resting here, gtd rewinds HEAD/index to the
-  review base (working tree untouched) so the whole process diff shows up as
-  uncommitted changes in the editor. `reviewBase: true` anchors that base to
-  this state's own most-recent in-process commit; absent one, it defaults to the
-  process start.
+- **`reviewBase: true`** — anchors the review diff base (the hash `gtd base`
+  prints) to this state's own most-recent in-process commit; absent one, it
+  defaults to the process start. gtd never checks anything out or moves HEAD —
+  reviewing is on the human, with whatever diff tool they like, pointed at that
+  hash.
 - **`reviewBase: <Eta template>`** — a different shape from `reviewBase: true`:
   a string is rendered (only meaningful when the state is entered via `--entry`)
-  to a commitish that fixes the WHOLE PROCESS's diff base, not just the review
-  window's. This is how a manual entry reviews an arbitrary `<commitish>..HEAD`
-  (e.g. a colleague's PR branch) — the replacement for the old
-  `gtd review <commitish>` command:
+  to a commitish that fixes the WHOLE PROCESS's diff base. This is how a manual
+  entry reviews an arbitrary `<commitish>..HEAD` (e.g. a colleague's PR branch)
+  — the replacement for the old `gtd review <commitish>` command:
 
   ```yaml
   vars:

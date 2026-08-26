@@ -231,16 +231,7 @@ const STATE_FIELDS = {
     doc: "The steering file's format: the name of a built-in mode (qa/review, validated in-process by gtd) or of a `modes:` entry. gtd formats and validates the file with that mode before capturing a turn out of this state, and the LSP dispatches live diagnostics on the built-in names. Requires a sibling `file:`.",
   },
 
-  /** This module's pure functions never read this flag — the window is opened/closed entirely at the edge (`src/ReviewWindow.ts`). */
-  reviewWindow: {
-    kind: "flag",
-    surface: "def",
-    authored: "state",
-    viz: "flag",
-    doc: "When true, gtd opens a review checkout window while the machine rests here — HEAD/index are rewound to the review base so the whole base..HEAD diff surfaces as uncommitted changes in the editor.",
-  },
-
-  /** Like `reviewWindow`, the engine never reads this — it's history-derived edge data. `isReviewBaseState` never treats a string value as the `true`/window-anchor form. */
+  /** The engine never reads this — it's history-derived edge data. `isReviewBaseState` never treats a string value as the `true`/window-anchor form. */
   reviewBase: {
     kind: "flagOrTemplate",
     surface: "def",

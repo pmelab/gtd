@@ -241,24 +241,22 @@ only — gtd never inspects or validates `testCommand`'s shell dialect itself, i
 only renders the value into a script and hands it to whatever shell the driver
 invokes that script with.
 
-- **The required half** is everything that decides what lands in git — closing
-  an open review checkout window, the resting state's own steering-mode
-  `format:`/`validate:` commands, the commit itself (`gtd land` and
-  `gtd --entry <state>`), or the ref update and reset that undo a process
-  (`gtd abandon`, `gtd restore`) — and, last, a printed line naming what just
-  landed (`src/OutcomeScript.ts`'s `gtd_report_*` calls): a transition or
-  capture's changed-file rows, or the abandon/restore prose, resolved from the
-  repository AFTER the write above it. Its own exit code IS the printed script's
-  exit code — skipping it means the turn never lands, and you never see what it
-  did.
-- **The optional half** is presentation only: re-opening the review checkout
-  window (the `<<<<<<< HEAD` diff view) after `gtd land` lands at a
-  `reviewWindow: true` state, so an editor's diff view has something to show.
-  Its own failure is swallowed by the wrapping subshell (a warning on stderr,
-  nothing more) — skip it (or let it fail) and you lose nothing but that view,
-  the workflow is still driven correctly. `gtd abandon`/`gtd restore` never
-  carry one — there is no window to reopen after either, so their printed
-  artifact is the required half alone, with no trailing comment/subshell at all.
+- **The required half** is everything that decides what lands in git — the
+  resting state's own steering-mode `format:`/`validate:` commands, the commit
+  itself (`gtd land` and `gtd --entry <state>`), or the ref update and reset
+  that undo a process (`gtd abandon`, `gtd restore`) — and, last, a printed line
+  naming what just landed (`src/OutcomeScript.ts`'s `gtd_report_*` calls): a
+  transition or capture's changed-file rows, or the abandon/restore prose,
+  resolved from the repository AFTER the write above it. Its own exit code IS
+  the printed script's exit code — skipping it means the turn never lands, and
+  you never see what it did.
+- **The optional half** is presentation only, wrapped in a subshell whose own
+  failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
+  fail) and the workflow is still driven correctly either way. No emitter
+  currently populates it (it's always the empty string, from every command), so
+  `combinedScript`'s optional-half wrapping is dead weight in practice today;
+  it's kept as a stable slot in `EmittedScripts`/`combinedScript` for a future
+  presentation-only follow-up, not removed as unreachable.
 
 `gtd next --json` carries one more field worth a custom driver's attention:
 
@@ -527,18 +525,17 @@ Recovery is the same in every case: **ask gtd again** (`gtd next`, then land).
 It re-reads the real repository state fresh every time — never a cached plan —
 and emits whatever still needs to happen from there. This works because every
 emitted script opens by asserting its own precondition
-(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = <expected> ] || { ...; exit 1; }`,
-and the same shape for a review window's saved ref — see `src/Emit.ts`'s
-`headAssertion`/`reviewWindowAssertion`), so a script generated against a
+(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = <expected> ] || { ...; exit 1; }`
+— see `src/Emit.ts`'s `headAssertion`), so a script generated against a
 repository state that has since moved refuses loudly instead of corrupting
 anything. **Emitted scripts are re-runnable**: this is the single most important
 property for a driver's recovery logic. Re-running a script that already fully
-applied is a no-op (its git writes are `--allow-empty` commits, idempotent ref
-updates, and tolerant staged-restore calls), and re-running one that only
-partially applied resumes correctly, because the precondition either still holds
-(nothing landed yet — safe to retry verbatim) or gtd's next invocation reads the
-new real state and emits a fresh script for what remains. A driver never needs
-its own retry/resume logic beyond "if the script failed, ask gtd again."
+applied is a no-op (its git writes are `--allow-empty` commits and idempotent
+ref updates), and re-running one that only partially applied resumes correctly,
+because the precondition either still holds (nothing landed yet — safe to retry
+verbatim) or gtd's next invocation reads the new real state and emits a fresh
+script for what remains. A driver never needs its own retry/resume logic beyond
+"if the script failed, ask gtd again."
 
 ### Prerequisites
 

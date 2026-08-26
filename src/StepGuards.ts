@@ -4,7 +4,6 @@ import { GitService } from "./Git.js"
 import { pathspec } from "./GitScript.js"
 import {
   isAnswerGateState,
-  isReviewWindowState,
   isRequireProgressState,
   isRequireRevertState,
   STATE_DIR,
@@ -29,13 +28,7 @@ export interface GuardContext {
   /** True when this step touches a path outside gtd's plumbing directory (`STATE_DIR`) — the human edited something real. */
   readonly hasCodeChange: boolean
   readonly template: TemplateContext
-  /**
-   * `file`'s contents at the PRE-TURN head, `undefined` if absent there.
-   * Real `HEAD` normally, but the review window's saved head
-   * (`Rest.windowHead`) while a window is open — real HEAD is rewound to the
-   * review base there, where a file the process itself added doesn't exist
-   * yet, so a guard reaching for real `HEAD` instead would see it as absent.
-   */
+  /** `file`'s contents at the PRE-TURN head (real `HEAD`), `undefined` if absent there. */
   readonly head: Effect.Effect<string | undefined, Error>
   /** `file`'s CURRENT working-tree contents — whatever is on disk right now, pre- or post- an external driver's own `format:` run. Cached. */
   readonly worktree: Effect.Effect<string | undefined, Error>
@@ -66,10 +59,10 @@ const isCodePath = (path: string): boolean => !isPlumbingPath(path)
 /** The `mode:` name of gtd's built-in REVIEW.md checkbox format — the only mode the review-doc guard understands. */
 const REVIEW_MODE = "review"
 
+/** Selects exactly the human review gate (`await-review` in the bundled template) — a human-actor state declaring `mode: review`. */
 const reviewDocGuard: StepGuard = {
   name: "review-doc",
-  appliesTo: (rest) =>
-    isReviewWindowState(rest.def, rest.state) && rest.stateDef.mode === REVIEW_MODE,
+  appliesTo: (rest) => rest.stateDef.actor === "human" && rest.stateDef.mode === REVIEW_MODE,
   check: (ctx) =>
     Effect.succeed(
       ctx.fileDeleted
@@ -168,8 +161,6 @@ export const enforceStepGuards = (input: {
   /** The state's ALREADY-RENDERED `file:` — `Rest.hints.file`, rendered once when the snapshot was built rather than re-rendered per guard. */
   readonly file: string | undefined
   readonly changes: readonly PendingChange[]
-  /** `Rest.windowHead` — the open review window's saved head, the ref `head` reads `file` at. `undefined` (real `HEAD`) when no window is open. */
-  readonly windowHead: string | undefined
   readonly kind: ExecutableDecision["kind"]
   /**
    * True for an ATTEMPT commit — a fruitless `prompt`-state dispatch whose
@@ -200,7 +191,7 @@ export const enforceStepGuards = (input: {
     }
 
     const files = yield* RepoFiles
-    const head = yield* Effect.cached(files.committed(file, input.windowHead))
+    const head = yield* Effect.cached(files.committed(file))
     const worktree = yield* Effect.cached(Effect.try(() => files.working(file)))
     const ctx: GuardContext = { ...base, head, worktree }
 

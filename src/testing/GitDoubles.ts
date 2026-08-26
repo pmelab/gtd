@@ -102,9 +102,6 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => {
     deleteRef: guarded((ref: string) => repo.deleteRef(ref)),
     mixedResetTo: guarded((ref: string) => repo.mixedResetTo(ref)),
     hardResetTo: guarded((ref: string) => repo.hardResetTo(ref)),
-    restoreStagedFrom: guarded((source: string, paths: ReadonlyArray<string>) =>
-      repo.restoreStagedFrom(source, paths),
-    ),
   }
 }
 

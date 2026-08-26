@@ -180,7 +180,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the git ref "refs/worktree/gtd/review-head" exists
+    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
     When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"
@@ -1115,10 +1115,27 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it fails
     And stderr contains "was deleted"
     # Nothing committed, and a refusal emits no script at all — the process
-    # stays at the gate for the reviewer to restore + tick. (What a refusal
-    # does to an OPEN review window is review-window.feature's subject; no
-    # step has landed at the gate here, so there is none.)
+    # stays at the gate for the reviewer to restore + tick.
     And the commit count is unchanged
+
+  @live
+  Scenario: gtd next at await-review leaves HEAD untouched and writes no worktree ref
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+
+      - [ ] ./src/thing.ts#1
+      """
+    Given I mark the current commit as "before"
+    When I run gtd next
+    Then it succeeds
+    And the current commit is the same as "before"
+    And no ref under "refs/worktree/gtd/" was created
 
   @inmem
   Scenario: a sign-off lands even with a box still unticked — a tick only records that a hunk was read

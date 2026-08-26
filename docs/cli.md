@@ -31,10 +31,9 @@ Commands:
                    Starts a new process authenticated as human, e.g.
                    'gtd --entry <state>'
   abandon          End the process currently underway without completing it:
-                   close any open review checkout window, then rewind HEAD to
-                   the commit the process started from, keeping everything it
-                   produced as uncommitted changes. A no-op when no process is
-                   underway
+                   rewind HEAD to the commit the process started from,
+                   keeping everything it produced as uncommitted changes. A
+                   no-op when no process is underway
   restore          Hard-reset HEAD back to the tip retained by the last
                    abandon (refs/worktree/gtd/history), bringing back an
                    abandoned process's turns. Refuses on a dirty working
@@ -98,6 +97,13 @@ Commands:
                    template, or when the resolved run has no commits to name
                    — runnable any time before the next thing lands on the
                    branch
+  base             Print the review anchor hash — the diff base an external
+                   tool (a diff, a PR tool, another agent) should point at —
+                   bare, newline-terminated, and nothing else. Writes nothing:
+                   no git, no state transition, no session identity. Before
+                   the first review round it's the process's diff base;
+                   afterward it's the most-recent review round's boundary.
+                   Refuses (exit 1) when no process is underway.
   version          Print version and exit
   help             Print this help and exit
 
@@ -123,8 +129,8 @@ Options:
                    non-zero when any remain
   --verbose        enable stderr narration for this invocation: which rest
                    resolved, which declared pattern each pending change
-                   matched, which review-window action was emitted, and how
-                   config resolved across layers. Aliased to -v
+                   matched, and how config resolved across layers. Aliased
+                   to -v
   --version, -V    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -264,10 +270,9 @@ gated by `--verbose`/`-v`, and REMEDIATION, unconditional.
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
 command's dispatch already computes — which rest resolved, which declared
-pattern each pending change matched, which review-window action was emitted, and
-how config resolved across `.gtdrc` layers. Without it, none of this is printed;
-stdout is never touched either way — narration is a stderr-only concern, exactly
-like the error envelope above.
+pattern each pending change matched, and how config resolved across `.gtdrc`
+layers. Without it, none of this is printed; stdout is never touched either way
+— narration is a stderr-only concern, exactly like the error envelope above.
 
 A failure's remediation detail is unconditional — it prints at every verbosity,
 on the line(s) right after the `gtd: `-prefixed message, each indented two

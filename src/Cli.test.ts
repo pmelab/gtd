@@ -695,6 +695,7 @@ describe("renderHelp", () => {
     expect(help).toContain("visualize")
     expect(help).toContain("check <mode> <file>")
     expect(help).toContain("install")
+    expect(help).toContain("base ")
     expect(help).toContain("version")
     expect(help).toContain("help")
     expect(help).toContain("--json")

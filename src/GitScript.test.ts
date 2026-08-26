@@ -12,7 +12,6 @@ import {
   hardResetTo,
   mixedResetTo,
   pathspec,
-  restoreStagedFrom,
   shellQuote,
   softResetTo,
   updateRef,
@@ -73,8 +72,6 @@ const allBuilders: ReadonlyArray<[string, string]> = [
   ["discardPending", discardPending()],
   ["updateRef", updateRef("refs/worktree/gtd/review-head", "abc123")],
   ["deleteRef", deleteRef("refs/worktree/gtd/review-head")],
-  ["restoreStagedFrom (with paths)", restoreStagedFrom("HEAD", [".gtd/TODO.md"])],
-  ["restoreStagedFrom (no paths)", restoreStagedFrom("HEAD", [])],
 ]
 
 describe("commitAll", () => {
@@ -167,43 +164,6 @@ describe("deleteRef", () => {
     expect(deleteRef("refs/worktree/gtd/review-head")).toBe(
       "git update-ref -d 'refs/worktree/gtd/review-head'",
     )
-  })
-})
-
-describe("restoreStagedFrom", () => {
-  it("emits git restore --staged --source=<source> -- <paths...>", () => {
-    const script = restoreStagedFrom("HEAD", [".gtd/TODO.md", ".gtd/REVIEW.md"])
-    expect(script).toContain("git restore --staged --source='HEAD' --")
-    expect(script).toContain("'.gtd/TODO.md'")
-    expect(script).toContain("'.gtd/REVIEW.md'")
-  })
-
-  it("emits a harmless empty script when no paths are given", () => {
-    const script = restoreStagedFrom("HEAD", [])
-    expect(script).toBe("")
-    expect(runBashCheckSyntax(script)).toBe(0)
-  })
-
-  it("tolerates a no-matching-path failure", () => {
-    const { binDir } = withFakeGit(
-      `echo "error: pathspec 'x' did not match any file(s)" >&2; exit 1`,
-    )
-    const result = runWithFakeGit(restoreStagedFrom("HEAD", [".gtd/TODO.md"]), binDir)
-    expect(result.status).toBe(0)
-  })
-
-  it("does NOT tolerate index.lock contention — it must still fail the script", () => {
-    const { binDir } = withFakeGit(
-      `echo "fatal: Unable to create '/repo/.git/index.lock': File exists." >&2; exit 128`,
-    )
-    const result = runWithFakeGit(restoreStagedFrom("HEAD", [".gtd/TODO.md"]), binDir)
-    expect(result.status).not.toBe(0)
-  })
-
-  it("does NOT tolerate the 'another git process' lock message either", () => {
-    const { binDir } = withFakeGit(`echo "Another git process seems to be running" >&2; exit 128`)
-    const result = runWithFakeGit(restoreStagedFrom("HEAD", [".gtd/TODO.md"]), binDir)
-    expect(result.status).not.toBe(0)
   })
 })
 

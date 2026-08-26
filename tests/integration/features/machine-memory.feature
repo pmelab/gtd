@@ -240,11 +240,9 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And the json field "memory" differs from the one recorded as "the builder's turn"
     And I record the json field "memory" as "the reviewer's turn"
 
-    # `await-review` declares `reviewWindow: true` — querying `gtd next` while
-    # resting there would OPEN the review checkout window (a mutating side
-    # effect on git state, see src/ReviewWindow.ts), so this scenario never
-    # queries at that exact rest; it only builds the commit and moves straight
-    # on to the next state, which is where the assertions resume.
+    # This scenario never queries `gtd next` at `await-review` itself — it
+    # only builds the commit and moves straight on to the next state, which
+    # is where the assertions resume.
     Given a commit "gtd(agent): build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234

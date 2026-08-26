@@ -48,6 +48,7 @@ export type Command =
     }
   | { readonly kind: "install" }
   | { readonly kind: "summary" }
+  | { readonly kind: "base" }
 
 export type CliPlan =
   | { readonly kind: "output"; readonly stdout: string }
@@ -70,9 +71,9 @@ export type CliPlan =
 /**
  * What a command kind needs before it may run. `pure`/`removed` never reach
  * `io.layers()` at all (they resolve to `output`/`usage` plans). `state`
- * marks the six kinds sharing the repo-root guard, the at-least-one-commit
- * guard, and the review-window bracket — a repository with no commits has no
- * HEAD to derive workflow state from. `needsOf`/`standaloneKinds` live in
+ * marks the six kinds sharing the repo-root guard and the at-least-one-commit
+ * guard — a repository with no commits has no HEAD to derive workflow state
+ * from. `needsOf`/`standaloneKinds` live in
  * `program.ts` (re-exported here) rather than here, since a value import the
  * other way would make the two modules circular.
  */
@@ -267,8 +268,8 @@ const FLAGS: readonly FlagRow[] = [
     help: [
       "enable stderr narration for this invocation: which rest",
       "resolved, which declared pattern each pending change",
-      "matched, which review-window action was emitted, and how",
-      "config resolved across layers. Aliased to -v",
+      "matched, and how config resolved across layers. Aliased",
+      "to -v",
     ],
   },
 ]
@@ -345,10 +346,9 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: "none",
     details: [
       "End the process currently underway without completing it:",
-      "close any open review checkout window, then rewind HEAD to",
-      "the commit the process started from, keeping everything it",
-      "produced as uncommitted changes. A no-op when no process is",
-      "underway",
+      "rewind HEAD to the commit the process started from,",
+      "keeping everything it produced as uncommitted changes. A",
+      "no-op when no process is underway",
     ],
   },
   {
@@ -465,6 +465,20 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "template, or when the resolved run has no commits to name",
       "— runnable any time before the next thing lands on the",
       "branch",
+    ],
+  },
+  {
+    token: "base",
+    kind: "base",
+    arity: "none",
+    details: [
+      "Print the review anchor hash — the diff base an external",
+      "tool (a diff, a PR tool, another agent) should point at —",
+      "bare, newline-terminated, and nothing else. Writes nothing:",
+      "no git, no state transition, no session identity. Before",
+      "the first review round it's the process's diff base;",
+      "afterward it's the most-recent review round's boundary.",
+      "Refuses (exit 1) when no process is underway.",
     ],
   },
 ]
@@ -882,7 +896,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "next"
       | "validate"
       | "install"
-      | "summary",
+      | "summary"
+      | "base",
   }
   return { kind: "command", command, json, sh, verbose }
 }

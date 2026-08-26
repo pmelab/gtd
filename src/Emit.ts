@@ -10,13 +10,11 @@ export interface EmitPreconditions {
   /**
    * The HEAD the deciding read resolved (`""` for an empty repo, mirroring
    * `rest.context.currentCommit`). Omitted for a script meant to run AFTER
-   * another one already moved HEAD — e.g. the `optional` half of a step that
-   * commits and then opens a review window, whose expected HEAD (the commit
+   * another one already moved HEAD, whose expected HEAD (the commit
    * `required` is about to create) can't be known at decide time; that script
    * resolves `HEAD` itself at run time instead.
    */
   readonly expectedHead?: string
-  readonly reviewWindow?: { readonly ref: string; readonly expectedHash: string }
 }
 
 /**
@@ -72,17 +70,6 @@ export const headAssertion = (expectedHead: string): string => {
  * same `set -eu` safety `headAssertion` documents.
  */
 export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file)} ] || exit 0`
-
-/** Same shape as `headAssertion`, for the saved-head ref a review window pins; `--verify --quiet` reads a missing ref as an empty string instead of erroring the substitution. */
-export const reviewWindowAssertion = (ref: string, expectedHash: string): string => {
-  const refQ = shellQuote(ref)
-  const hashQ = shellQuote(expectedHash)
-  return (
-    `[ "$(git rev-parse --verify --quiet ${refQ} 2>/dev/null)" = ${hashQ} ] || ` +
-    `{ printf 'gtd: review window ref %s changed since this script was generated ` +
-    `(expected %s) — re-run gtd\\n' ${refQ} ${hashQ} >&2; exit 1; }`
-  )
-}
 
 /**
  * Wraps `command` so a non-zero exit prints `prompt` plus the command's
@@ -164,14 +151,6 @@ const assembleScript = (
   const sections: Array<string> = ["set -eu"]
   if (preconditions.expectedHead !== undefined) {
     sections.push(headAssertion(preconditions.expectedHead))
-  }
-  if (preconditions.reviewWindow) {
-    sections.push(
-      reviewWindowAssertion(
-        preconditions.reviewWindow.ref,
-        preconditions.reviewWindow.expectedHash,
-      ),
-    )
   }
   if (steps.some((step) => step.kind === "gitWrite")) {
     sections.push(RETRY_HELPER)

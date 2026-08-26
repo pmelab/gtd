@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect"
+import { Effect } from "effect"
 import { Narrator } from "./Commentary.js"
 import { GitService, type GitOperations } from "./Git.js"
 import { ConfigService } from "./Config.js"
@@ -10,7 +10,6 @@ import {
   entryBaseTemplateOf,
   initialStateOf,
   isReviewBaseState,
-  isReviewWindowState,
   memoryScopeAt,
   parseStateSubject,
   resolveState,
@@ -42,14 +41,6 @@ import { COLLAPSED_TEXT, commitOutcome, noteOutcome, transitionOutcome } from ".
 // git's empty-tree object — the diff/reset base when a process (or the whole
 // repo) has no earlier commit to compare against.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
-/**
- * The review checkout window's saved-head ref — duplicated from
- * `src/ReviewWindow.ts`'s own `REVIEW_HEAD_REF` rather than imported, to avoid
- * a circular module dependency (`ReviewWindow.ts` imports FROM this module).
- * Read (never written) here; the window itself is opened/closed elsewhere.
- */
-const REVIEW_HEAD_REF = "refs/worktree/gtd/review-head"
 
 const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").trim()
 
@@ -215,12 +206,9 @@ export const resolveRestFrom = (def: WorkflowDefinition, headSubject: string): R
 
 // ── Pending changes ──────────────────────────────────────────────────────────
 
-const pendingChanges = (
-  git: GitOperations,
-  base?: string,
-): Effect.Effect<readonly PendingChange[], Error> =>
+const pendingChanges = (git: GitOperations): Effect.Effect<readonly PendingChange[], Error> =>
   git
-    .changedPaths(base)
+    .changedPaths()
     .pipe(
       Effect.map((entries) =>
         entries.map((e) => ({ status: normalizeStatus(e.status), path: e.path })),
@@ -243,9 +231,9 @@ export interface ProcessRun {
   /** The parent of the run's first commit — `EMPTY_TREE` when the run covers the whole history. This is the process's TRACE/retry boundary, never overridden by a `Gtd-Review-Base:` trailer. */
   readonly startParentHash: string
   /**
-   * The base `it.startCommit` renders, and the review checkout window's
-   * default base compares against: normally identical to `startParentHash`,
-   * but overridden to a `Gtd-Review-Base: <hash>` trailer's hash when the
+   * The base `it.startCommit` renders, and the review's default diff base:
+   * normally identical to `startParentHash`, but overridden to a
+   * `Gtd-Review-Base: <hash>` trailer's hash when the
    * process's FIRST (oldest) commit carries one (see
    * `withEntryTrailers`/`parseReviewBaseTrailer` — written by `planEntry`).
    * The trace/retry boundary itself is untouched by this; only which commit a
@@ -369,12 +357,11 @@ const walkProcessBoundary = (
 const computeProcessRun = (
   git: GitOperations,
   def: WorkflowDefinition,
-  head?: string,
   includeClosingBoundary = false,
 ): Effect.Effect<ProcessRun, Error> =>
   Effect.gen(function* () {
     const initialState = initialStateOf(def)
-    const history = yield* git.commitHistory(undefined, head) // oldest -> newest, full first-parent history
+    const history = yield* git.commitHistory() // oldest -> newest, full first-parent history
     const { boundaryIndex: i, closingHash } = walkProcessBoundary(
       history,
       initialState,
@@ -407,39 +394,29 @@ const computeProcessRun = (
   })
 
 /**
- * The run alone, WITHOUT resolving a rest — `gtd abandon`'s escape hatch (it
+ * The run alone, WITHOUT resolving a rest — `gtd abandon`'s escape hatch: it
  * must still work when HEAD names a state `currentRest` would refuse on,
- * since abandon IS the recovery command for that case) and the review
- * window's re-arm, which degrades gracefully (stays closed) rather than
- * erroring on the same kind of foreign/refused rest.
- *
- * Window-aware on exactly the same terms as `restAt`: while a review checkout
- * window is open, real HEAD is rewound to the review base, so walking the
- * trace from literal HEAD would see a process that has not started. Both
- * callers need the REAL head, so the saved head is the walk's origin.
+ * since abandon IS the recovery command for that case.
  */
 export const currentRun: Effect.Effect<ProcessRun, Error, GitService | ConfigService | Narrator> =
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const windowHead = Option.getOrUndefined(yield* git.readRefOption(REVIEW_HEAD_REF))
-    return yield* computeProcessRun(git, config.workflow, windowHead)
+    return yield* computeProcessRun(git, config.workflow)
   })
 
 /**
  * The process HEAD closes or sits inside — `gtd summary`'s run resolution.
- * Window-aware on the same terms as `currentRun`. Identical to `currentRun`
- * for a process still in flight; for a finished process (HEAD is itself a
- * commit entering the initial state), the closing commit is folded back into
- * the trace and its hash recorded as `closingHash` — see
- * `computeProcessRun`'s `includeClosingBoundary` flag.
+ * Identical to `currentRun` for a process still in flight; for a finished
+ * process (HEAD is itself a commit entering the initial state), the closing
+ * commit is folded back into the trace and its hash recorded as
+ * `closingHash` — see `computeProcessRun`'s `includeClosingBoundary` flag.
  */
 export const summaryRun: Effect.Effect<ProcessRun, Error, GitService | ConfigService | Narrator> =
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const windowHead = Option.getOrUndefined(yield* git.readRefOption(REVIEW_HEAD_REF))
-    return yield* computeProcessRun(git, config.workflow, windowHead, true)
+    return yield* computeProcessRun(git, config.workflow, true)
   })
 
 /**
@@ -742,8 +719,7 @@ export type RestHints = {
 
 /**
  * Where the process rests right now, fully resolved. ONE SNAPSHOT, taken
- * before any mutation — see AGENTS.md: never read a `Rest` after a `perform`,
- * and never let one span the review-window bracket.
+ * before any mutation — see AGENTS.md: never read a `Rest` after a `perform`.
  */
 export interface Rest extends ResolvedRest {
   readonly run: ProcessRun
@@ -754,19 +730,6 @@ export interface Rest extends ResolvedRest {
   /** `def` with `on` patched onto the resting state — what `PatternMachine.step` must be fed. */
   readonly stepDef: WorkflowDefinition
   readonly changes: readonly PendingChange[]
-  /**
-   * The open review checkout window's SAVED HEAD (`REVIEW_HEAD_REF`), when one
-   * is open — the commit this snapshot's state, trace and `changes` were all
-   * resolved against, because real git HEAD is rewound to the review base
-   * while the window is open. `undefined` when no window is open, or when the
-   * rest was resolved at an explicit `ref`.
-   *
-   * Carried on the snapshot rather than re-read per caller: it is the
-   * PRE-TURN head that a guard's `readFileAtRef` read (`src/StepGuards.ts`)
-   * must resolve against, not real `HEAD` — which is rewound to the review
-   * base there, where a file the process itself wrote does not exist yet.
-   */
-  readonly windowHead: string | undefined
   readonly memory: string | undefined
   /** `memoryResumedFor`'s verdict — `false` for a non-`prompt` rest or one whose scope doesn't resolve, exactly like `memory` but never `undefined` (there is always an answer, even when there is no key to answer about). */
   readonly memoryResumed: boolean
@@ -783,17 +746,7 @@ const omitUndefined = <T extends Record<string, unknown>>(
     [K in keyof T]?: Exclude<T[K], undefined>
   }
 
-/**
- * Resolve `Rest` at an arbitrary ref (`gtd visualize` reading the review
- * window's saved head via `REVIEW_HEAD_REF`, or `undefined` for HEAD itself).
- *
- * Window-aware ONLY at `ref === undefined`: when the review checkout window's
- * saved-head ref resolves, its hash is used as the effective head for
- * `lastCommitSubject` and `computeProcessRun`'s trace walk — real git HEAD
- * has been rewound to the review base while the window is open, so reading
- * literal `HEAD` there would resolve state/trace/memory against the wrong
- * commit.
- */
+/** Resolve `Rest` at an arbitrary ref, or `undefined` for HEAD itself. */
 export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
@@ -802,27 +755,18 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const envVars = yield* EnvVars
     const def = config.workflow
 
-    let windowHead: string | undefined
-    if (ref === undefined) {
-      windowHead = Option.getOrUndefined(yield* git.readRefOption(REVIEW_HEAD_REF))
-    }
-    const effectiveRef = windowHead ?? ref
-
-    const headSubject = yield* git.lastCommitSubject(effectiveRef)
+    const headSubject = yield* git.lastCommitSubject(ref)
     const resolution = resolveRestFrom(def, headSubject)
     if (!resolution.ok) return yield* Effect.fail(resolution.error)
     const resolved = resolution.rest
     yield* (yield* Narrator).narrate(`rest resolved: ${resolved.state} (awaits ${resolved.actor})`)
 
-    const run = yield* computeProcessRun(git, def, windowHead)
+    const run = yield* computeProcessRun(git, def)
     const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
     const on = yield* renderOnEdgesOrFail(resolved.stateDef.on, vars)
     const stepDef = withRenderedOn(def, resolved.state, on)
     const reviewBase = reviewBaseFor(def, run)
-    // Measure pending changes against the open window's saved head, not real
-    // HEAD (rewound to the review base) — else the whole reviewed diff reads
-    // as pending, and a reviewer's deletion of a window-staged file is missed.
-    const changes = yield* pendingChanges(git, windowHead)
+    const changes = yield* pendingChanges(git)
     const context = yield* buildTemplateContext(
       git,
       templateRead(files),
@@ -846,7 +790,6 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       on,
       stepDef,
       changes,
-      windowHead,
       memory,
       memoryResumed,
       hints,
@@ -1082,25 +1025,10 @@ export const renderDecision = (
 /**
  * The `EmitPreconditions` a step's/entry's assembled scripts assert against:
  * `expectedHead` is the resolved HEAD hash the `Rest` snapshot was taken at.
- * When `targetState` declares `reviewWindow: true` and a window is currently
- * open, the script also pins the window's saved-head hash — a later run whose
- * window has since closed or moved must re-decide rather than trust a stale
- * script.
  */
-const buildPreconditions = (
-  git: GitOperations,
-  rest: Rest,
-  targetState: StateName,
-): Effect.Effect<EmitPreconditions, Error> =>
-  Effect.gen(function* () {
-    const expectedHead = rest.context.currentCommit
-    if (!isReviewWindowState(rest.def, targetState)) {
-      return { expectedHead }
-    }
-    const windowHead = yield* git.readRefOption(REVIEW_HEAD_REF)
-    if (Option.isNone(windowHead)) return { expectedHead }
-    return { expectedHead, reviewWindow: { ref: REVIEW_HEAD_REF, expectedHash: windowHead.value } }
-  })
+const buildPreconditions = (rest: Rest): EmitPreconditions => ({
+  expectedHead: rest.context.currentCommit,
+})
 
 /**
  * The `EmittedScripts` a `"commit"` `StepPlan` carries alongside `perform` —
@@ -1117,7 +1045,7 @@ const buildStepScripts = (
   model: string | undefined,
 ): Effect.Effect<EmittedScripts, Error> =>
   Effect.gen(function* () {
-    const preconditions = yield* buildPreconditions(git, rest, decision.to)
+    const preconditions = buildPreconditions(rest)
     const steps = yield* renderDecision(git, rest, decision, cost, model).pipe(
       Effect.catchAll(() => Effect.succeed<readonly EmitStep[]>([])),
     )
@@ -1308,8 +1236,7 @@ export const planEntry = (
     })
     // The outcome step names the bare subject, never `message` (which may
     // carry the trailers) — same discipline as `renderDecision`'s commit branch.
-    const scriptsGit = yield* GitService
-    const preconditions = yield* buildPreconditions(scriptsGit, rest, entryState)
+    const preconditions = buildPreconditions(rest)
     const scripts = emitScripts(preconditions, [
       { kind: "gitWrite", command: commitAll(message) },
       { kind: "outcome", command: commitOutcome(subject) },

@@ -635,7 +635,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "actor" must be a string/)
   })
 
-  it("rejects a non-boolean reviewWindow", () => {
+  it("rejects reviewWindow as an unknown key — the field no longer exists", () => {
     expect(() =>
       compileWorkflowConfig(
         {
@@ -643,39 +643,13 @@ describe("compileWorkflowConfig — config-shape validation", () => {
           machines: {
             root: {
               entry: "a",
-              states: { a: { actor: "human", message: "hi", reviewWindow: "yes" } },
+              states: { a: { actor: "human", message: "hi", reviewWindow: true } },
             },
           },
         },
         "/dir",
       ),
-    ).toThrowError(/state "a": "reviewWindow" must be a boolean/)
-  })
-
-  it("compiles a reviewWindow boolean onto the StateDef (false omitted)", () => {
-    const { definition } = compileWorkflowConfig(
-      {
-        entry: { default: "root" },
-        machines: {
-          root: {
-            entry: "a",
-            states: {
-              a: { actor: "human", message: "hi", on: { "* *": "b" } },
-              b: {
-                actor: "human",
-                message: "review",
-                reviewWindow: true,
-                on: { C: "a" },
-              },
-            },
-          },
-        },
-      },
-      "/dir",
-    )
-    expect(definition.states.b!.reviewWindow).toBe(true)
-    // `false`/absent compiles away — never lands on the StateDef.
-    expect("reviewWindow" in definition.states.a!).toBe(false)
+    ).toThrowError(/state "a": unknown key\(s\) reviewWindow/)
   })
 
   it("compiles reviewBase's boolean-or-template shape: `true` verbatim, a non-blank string verbatim", () => {

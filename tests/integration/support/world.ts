@@ -643,6 +643,15 @@ export class GtdWorld extends QuickPickleWorld {
       timeout: 120_000,
     })
   }
+
+  /** `git diff --name-only <base>` (base tree vs. the current working tree), sorted — per tier. */
+  diffNameOnly(base: string): readonly string[] {
+    const paths =
+      this.repo !== undefined
+        ? this.repo.changedPathsWorktree(base).map((e) => e.path)
+        : this.execInRepo("git", ["diff", "--name-only", base]).split("\n").filter(Boolean)
+    return [...paths].sort()
+  }
 }
 
 setWorldConstructor(GtdWorld)

@@ -804,15 +804,18 @@ machines:
         label: Awaiting your review
         file: REVIEW.md
         mode: review
-        # Opens the review checkout window (src/ReviewWindow.ts) while
-        # resting here. Deleting REVIEW.md is refused by the review-doc
-        # guard (src/StepGuards.ts).
-        reviewWindow: true
         message: |
           `.gtd/REVIEW.md` holds the review record for the process — one
           `- [ ]` checkbox per reviewable item, grouped into chunks. Tick a box
           (`- [x]`) as you review each hunk; ticking only records that you've read
           it, it is not sign-off.
+
+          Review the diff yourself, with whatever tool you like — gtd checks
+          nothing out and touches no ref; `gtd base` prints this same hash any
+          time you need it again. The range runs from the review base to the
+          working tree:
+
+              git diff <%= it.reviewBase %>
 
           When you've been through the whole diff, run `gtd land`:
 

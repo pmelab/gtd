@@ -65,24 +65,3 @@ Feature: The stderr narration channel, and the -v/-V swap
     Then it succeeds
     And stderr contains "pending:"
 
-  Scenario: --verbose narrates the review-window action a land emits
-    Given a test project
-    And the workflow
-    And a commit "gtd(agent): building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And an empty commit "gtd(check): build.review.reviewing"
-    And a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-      - [ ] ./src/calc.ts#1
-      new add function
-      """
-    When I run gtd with args "land --verbose"
-    Then it succeeds
-    And stderr contains "review-window: open"

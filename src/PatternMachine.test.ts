@@ -8,7 +8,6 @@ import {
   initialStateOf,
   inScope,
   isReviewBaseState,
-  isReviewWindowState,
   matchesPattern,
   memoryScopeAt,
   parsePattern,
@@ -170,7 +169,7 @@ describe("contentOf", () => {
   })
 })
 
-describe("isReviewWindowState / isReviewBaseState", () => {
+describe("isReviewBaseState", () => {
   const workflow: WorkflowDefinition = def(
     {
       idle: {
@@ -179,17 +178,11 @@ describe("isReviewWindowState / isReviewBaseState", () => {
         reviewBase: true,
         on: [["* *", "gate"]],
       },
-      gate: { actor: "human", message: "review", reviewWindow: true, on: [["C", "idle"]] },
+      gate: { actor: "human", message: "review", on: [["C", "idle"]] },
       plain: { actor: "agent", prompt: "x", on: [["* *", "idle"]] },
     },
     "idle",
   )
-
-  it("reports the reviewWindow flag by state name", () => {
-    expect(isReviewWindowState(workflow, "gate")).toBe(true)
-    expect(isReviewWindowState(workflow, "plain")).toBe(false)
-    expect(isReviewWindowState(workflow, "idle")).toBe(false)
-  })
 
   it("reports the reviewBase flag by state name", () => {
     expect(isReviewBaseState(workflow, "idle")).toBe(true)
@@ -197,7 +190,6 @@ describe("isReviewWindowState / isReviewBaseState", () => {
   })
 
   it("is false for an unknown state name", () => {
-    expect(isReviewWindowState(workflow, "ghost")).toBe(false)
     expect(isReviewBaseState(workflow, "ghost")).toBe(false)
   })
 })
@@ -1572,7 +1564,7 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": "mode" requires "file"')
   })
 
-  it("accepts a state declaring `reviewWindow`/`reviewBase`", () => {
+  it("accepts a state declaring `reviewBase`", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
@@ -1582,7 +1574,7 @@ describe("validateDefinition", () => {
           reviewBase: true,
           on: [["* *", "b"]],
         },
-        b: { actor: "h", message: "review", reviewWindow: true, on: [["C", "a"]] },
+        b: { actor: "h", message: "review", on: [["C", "a"]] },
       },
     })
     expect(errors).toEqual([])

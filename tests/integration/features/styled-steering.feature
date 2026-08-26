@@ -79,14 +79,7 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       """
     When I run gtd land
     Then it succeeds
-    # build.review.await-review declares reviewWindow: true, so landing INTO
-    # it opens the review checkout window: HEAD rewinds to the review base in
-    # the SAME land command's optional script (see review-window.feature), so
-    # "the last commit subject" would name the base, not this transition.
-    # Assert through `gtd next`, which resolves the true rest by reading
-    # THROUGH the open window, the same way review-window.feature's own
-    # "The machine never sees the window" scenario does.
-    And the git ref "refs/worktree/gtd/review-head" exists
+    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
     When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"

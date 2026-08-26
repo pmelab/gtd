@@ -49,23 +49,3 @@ export const updateRef = (ref: string, hash: string): string =>
 
 /** `git update-ref -d <ref>` — idempotent: deleting a missing ref is already a no-op in real git. */
 export const deleteRef = (ref: string): string => `git update-ref -d ${shellQuote(ref)}`
-
-/**
- * `git restore --staged --source=<source> -- <paths…>`, tolerant of a missing
- * ref or no path matching at `source` (mirrors `Git.ts`'s `restoreStagedFrom`)
- * but NOT of `index.lock` contention — swallowing that here would silently
- * skip the `.gtd/` index pin and leak plumbing into the review diff. Empty
- * `paths` emits nothing, mirroring the Effect implementation's own skip.
- */
-export const restoreStagedFrom = (source: string, paths: ReadonlyArray<string>): string => {
-  if (paths.length === 0) return ""
-  const pathArgs = pathspec(paths)
-  return [
-    `if ! out=$(git restore --staged --source=${shellQuote(source)} -- ${pathArgs} 2>&1); then`,
-    `  case "$out" in`,
-    `    *"index.lock"*|*"Another git process seems to be running"*) printf '%s\\n' "$out" >&2; exit 1 ;;`,
-    `    *) : ;;`,
-    `  esac`,
-    `fi`,
-  ].join("\n")
-}

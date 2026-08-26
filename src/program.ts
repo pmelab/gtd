@@ -21,6 +21,7 @@ import {
   renderDecision,
   renderRest,
   restAt,
+  reviewBaseFor,
   stalledAt,
   summaryRun,
   summaryTemplateContext,
@@ -30,14 +31,6 @@ import {
   type RestRequirements,
 } from "./Edge.js"
 import { buildSummary } from "./Summary.js"
-import {
-  buildCloseWindowScript,
-  buildOpenWindowScript,
-  decideCloseWindow,
-  decideOpenWindow,
-  REVIEW_HEAD_REF,
-  type OpenWindowDecision,
-} from "./ReviewWindow.js"
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
 import {
@@ -233,46 +226,6 @@ const steeringModeSteps = (
     return yield* renderSteeringModeCommandSteps(resolved, file, rest.context)
   })
 
-/**
- * The `optional` half: re-open the review checkout window when the step
- * lands at a `reviewWindow: true` state, `""` otherwise. Takes the
- * already-decided `OpenWindowDecision` rather than deciding itself, since
- * narration belongs at the caller.
- *
- * `"HEAD"` is deliberately the literal string, not a resolved hash — git
- * resolves it when this script runs, after the required script has already
- * landed the new commit. For the same reason it carries no `expectedHead`
- * precondition: that hash doesn't exist yet at decide time.
- */
-const openWindowScript = (decision: OpenWindowDecision): string => {
-  if (!decision.shouldOpen) return ""
-  return emitScripts(
-    {},
-    [],
-    [
-      {
-        kind: "gitWrite",
-        command: buildOpenWindowScript({ base: decision.base, head: decision.head }),
-      },
-    ],
-  ).optional
-}
-
-/** `decideOpenWindow`'s result, narrated here (the one caller with `Narrator` in scope) — `decideOpenWindow` itself stays pure. */
-const decideAndNarrateOpenWindow = (
-  rest: Rest,
-  targetState: string,
-): Effect.Effect<OpenWindowDecision, never, Narrator> =>
-  Effect.gen(function* () {
-    const decision = decideOpenWindow(rest.def, targetState, rest.run, "HEAD")
-    yield* (yield* Narrator).narrate(
-      decision.shouldOpen
-        ? `review-window: open (base ${decision.base.slice(0, 7)})`
-        : "review-window: no-op",
-    )
-    return decision
-  })
-
 /** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag both `enforceStepGuards` and `buildRequiredScript` bypass their own steps for (see each call site). */
 const isAttemptDecision = (decision: ExecutableDecision): boolean =>
   decision.kind === "commit" && decision.attempt === true
@@ -282,13 +235,11 @@ const previewSubject = (decision: ExecutableDecision): Effect.Effect<string | nu
   Effect.succeed(decision.subject)
 
 /**
- * The `required` half: the review-window close (when one is open), the
- * resting state's own steering-mode commands, then the commit steps.
- * The steering-mode step is skipped for an attempt commit — nothing to
- * format/validate in an empty diff, and running `format:` ahead of the
- * commit could dirty the tree and turn an "empty" attempt non-empty, breaking
- * `stalledAt`'s derivation. The window close still runs regardless —
- * committing with a window open would land the attempt on the review base.
+ * The `required` half: the resting state's own steering-mode commands, then
+ * the commit steps. The steering-mode step is skipped for an attempt commit —
+ * nothing to format/validate in an empty diff, and running `format:` ahead of
+ * the commit could dirty the tree and turn an "empty" attempt non-empty,
+ * breaking `stalledAt`'s derivation.
  */
 const buildRequiredScript = (
   rest: Rest,
@@ -298,15 +249,8 @@ const buildRequiredScript = (
 ): Effect.Effect<string, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const closeDecision = yield* decideCloseWindow
-    yield* (yield* Narrator).narrate(
-      closeDecision.shouldClose ? "review-window: close" : "review-window: no-op",
-    )
     const isAttempt = isAttemptDecision(decision)
     const steps: EmitStep[] = [
-      ...(closeDecision.shouldClose
-        ? [{ kind: "gitWrite" as const, command: buildCloseWindowScript(closeDecision.refs) }]
-        : []),
       ...(isAttempt ? [] : yield* steeringModeSteps(rest)),
       ...(yield* renderDecision(git, rest, decision, cost, model)),
     ]
@@ -324,11 +268,6 @@ interface LandOptions {
  * without performing it, authenticating as `rest.actor`. Refusals fail the
  * Effect with a formatted message; a no-op returns `subject: null` and empty
  * scripts.
- *
- * `plan.scripts` (built by `Edge.ts`) is not reused here: its precondition
- * uses `rest.context.currentCommit`, which while a review window is open is
- * the window's base, not the real head, and it contains no window close/open
- * steps. This function builds its own required/optional pair instead.
  */
 const planLanding = (
   opts: LandOptions = {},
@@ -370,21 +309,19 @@ const planLanding = (
       context: rest.context,
       file: rest.hints.file,
       changes: rest.changes,
-      windowHead: rest.windowHead,
       kind: decision.kind,
       attempt: isAttemptDecision(decision),
     })
 
     const restingState = decision.to
     const settled = yield* collapsesToInitialState(rest, decision)
-    const openDecision = yield* decideAndNarrateOpenWindow(rest, restingState)
     const required = yield* buildRequiredScript(rest, decision, opts.cost, opts.model)
     return {
       state: restingState,
       subject: yield* previewSubject(decision),
       cost: opts.cost ?? null,
       model: opts.model ?? null,
-      script: normalizeScriptNewline(combinedScript(required, openWindowScript(openDecision))),
+      script: normalizeScriptNewline(combinedScript(required, "")),
       settled,
       idle: restingState === initialStateOf(rest.def),
     }
@@ -393,12 +330,10 @@ const planLanding = (
 /**
  * `gtd summary`: print the prompt for an agent to write the process HEAD
  * closes or sits inside its own closing message. Writes nothing — no git, no
- * state transition, no file, no review-window bracket (see AGENTS.md: a
- * write-nothing command emits its own bracket only when it needs one; this
- * one never does). Refuses (throws, mapped to the runtime-error exit code) on
- * either of the two conditions `src/Summary.ts`'s `buildSummary` folds into
- * one `undefined`: the workflow declares no `summary:` template, or the
- * resolved run has no commits to name.
+ * state transition, no file. Refuses (throws, mapped to the runtime-error
+ * exit code) on either of the two conditions `src/Summary.ts`'s
+ * `buildSummary` folds into one `undefined`: the workflow declares no
+ * `summary:` template, or the resolved run has no commits to name.
  */
 const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
@@ -415,6 +350,26 @@ const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
       )
     }
     out.write(rendered.endsWith("\n") ? rendered : rendered + "\n")
+  })
+
+/**
+ * `gtd base`: print the review anchor hash — `reviewBaseFor(rest.def,
+ * rest.run)` — bare and newline-terminated, so an external tool (a diff, a
+ * PR tool, another agent) can be pointed at the range under review. Shaped
+ * exactly like `runSummaryCommand`: one `Rest` resolved, nothing written — no
+ * git, no state transition, no session identity. Refuses (mapped to the
+ * runtime-error exit code) when the resolved run has no commits to name —
+ * the only case where the hash would name a range that corresponds to no
+ * review, exactly the way `runSummaryCommand` refuses on an empty trace.
+ */
+const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const rest = yield* currentRest
+    if (rest.run.trace.length === 0) {
+      return yield* Effect.fail(new Error("gtd base: refused — no process is underway at HEAD"))
+    }
+    const base = reviewBaseFor(rest.def, rest.run)
+    out.write(`${base}\n`)
   })
 
 /**
@@ -475,9 +430,8 @@ const runEntryCommand = (
       return yield* Effect.fail(new Error(plan.message))
     }
     // Safe to reuse plan.scripts verbatim here (unlike planLanding): an entry
-    // always lands fresh at a brand-new process's first state, which can
-    // never have an open review window or a file:/mode: of its own to
-    // validate ahead of the commit.
+    // always lands fresh at a brand-new process's first state, which never
+    // has a file:/mode: of its own to validate ahead of the commit.
     out.write(combinedScript(plan.scripts.required, plan.scripts.optional))
   })
 
@@ -528,30 +482,14 @@ const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
       )
     }
 
-    // An open review window has rewound real HEAD to the review base, so the
-    // reviewed branch tip abandon must retain/rewind from is the window's
-    // saved head, not HEAD. Closing it is the required script's first step.
-    const closeDecision = yield* decideCloseWindow
-    const tip = closeDecision.shouldClose
-      ? closeDecision.refs.headHash
-      : yield* git.resolveRef("HEAD")
+    const tip = yield* git.resolveRef("HEAD")
 
     const steps: EmitStep[] = [
-      ...(closeDecision.shouldClose
-        ? [
-            {
-              kind: "gitWrite" as const,
-              command: buildCloseWindowScript(closeDecision.refs),
-            },
-          ]
-        : []),
       { kind: "gitWrite", command: updateRef(HISTORY_REF, tip) },
       { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
       { kind: "outcome", command: abandonedOutcome(restState, run.startParentHash, initial) },
     ]
-    // The precondition is real HEAD (the rewound one, while a window is
-    // open) — what the script will actually see before its close step moves it.
-    const required = emitScripts(headPreconditions(yield* git.resolveRef("HEAD")), steps).required
+    const required = emitScripts(headPreconditions(tip), steps).required
     out.write(combinedScript(required, ""))
   })
 
@@ -1020,18 +958,14 @@ const gatherBeatFields = (
 
 /**
  * Best-effort resolution of the currently-rested state for the viewer's
- * `/state.json` route: prefers the review window's saved head over HEAD
- * itself, since a request landing mid-window would otherwise read a HEAD
- * that's been temporarily rewound. Any failure is swallowed to `null` — the
- * browser just hides the panel.
+ * `/state.json` route. Any failure is swallowed to `null` — the browser just
+ * hides the panel.
  */
 const computeCurrentState = (
   model: VizModel,
 ): Effect.Effect<CurrentStateModel, Error, RestRequirements> =>
   Effect.gen(function* () {
-    const git: GitOperations = yield* GitService
-    const reviewHead = yield* git.readRefOption(REVIEW_HEAD_REF)
-    const rest = yield* restAt(Option.getOrUndefined(reviewHead))
+    const rest = yield* restAt(undefined)
     const group = model.states.find((s) => s.name === rest.state)?.group
     return buildCurrentStateModel(rest, rest.changes, rest.on, group)
   })
@@ -1176,7 +1110,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
   }
 }
 
-/** The five kinds that never touch the repo-root guard / review-window bracket — pinned so a new standalone kind can't be added silently. */
+/** The five kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "init",
@@ -1232,6 +1166,8 @@ const dispatchVoidCommand = (
       return runInstallCommand(out)
     case "summary":
       return runSummaryCommand(out)
+    case "base":
+      return runBaseCommand(out)
   }
 }
 
@@ -1241,10 +1177,6 @@ const dispatchVoidCommand = (
  * repo-root-and-commit guard exactly when `needsOf(command.kind) === "state"`
  * (the `standaloneKinds` run bare). Both guard checks run before `dispatch`,
  * so a refusal writes nothing and emits no script by construction.
- *
- * No review-window close/open bracket runs here — every state-command
- * handler decides for itself, off `ReviewWindow.ts`'s pure decision
- * functions, whether a close/open belongs in the script it emits.
  */
 export const runCommand = (
   command: Command,

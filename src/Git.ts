@@ -15,9 +15,9 @@ export interface GitReaderOperations {
   readonly lastCommitMessage: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
-  /** The ref's hash if it resolves, `Option.none` if it doesn't exist (never fails). Used to detect an open review checkout window. */
+  /** The ref's hash if it resolves, `Option.none` if it doesn't exist (never fails). Used to read the retained-history ref. */
   readonly readRefOption: (ref: string) => Effect.Effect<Option.Option<string>, Error>
-  /** Never fails (a non-zero exit reports `false`). Guards the review window's close against a HEAD that moved off the reviewed branch. */
+  /** Never fails (a non-zero exit reports `false`). */
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
   readonly topLevel: () => Effect.Effect<string, Error>
   /**
@@ -54,15 +54,13 @@ export interface GitReaderOperations {
    * Pending working-tree changes vs `base` (default `HEAD`), as
    * `{path, status}` pairs: tracked diff unioned with untracked files.
    *
-   * `base` exists for one caller — `Edge.ts`'s rest resolution while a review
-   * checkout window is OPEN, where real HEAD is rewound to the review base.
-   * An untracked path is classified by CONTENT against `base`, not the index
-   * (see `classifyUntracked`): reporting the index's view instead would call
-   * every file the reviewed range added `D` (deleted), since the index sits
-   * at the review base while the file is perfectly present at the saved
-   * head — a phantom deletion that made the review-doc guard refuse every
-   * sign-off outside `.gtd/`. A REAL deletion still reports `D`: it's absent
-   * from the untracked list, so the tracked diff's own `D` stands.
+   * `base` exists for one caller — `StepGuards.ts`'s `requireRevertGuard`,
+   * which compares the current tree against `reviewBase~1`. An untracked path
+   * is classified by CONTENT against `base`, not the index (see
+   * `classifyUntracked`): reporting the index's view instead would call a
+   * present-but-untracked file `D` (deleted) whenever the index doesn't match
+   * the working tree. A REAL deletion still reports `D`: it's absent from the
+   * untracked list, so the tracked diff's own `D` stands.
    */
   readonly changedPaths: (
     base?: string,
@@ -108,22 +106,9 @@ export interface GitWriterOperations {
   readonly updateRef: (ref: string, hash: string) => Effect.Effect<void, Error>
   /** Idempotent: deleting a missing ref is a no-op. */
   readonly deleteRef: (ref: string) => Effect.Effect<void, Error>
-  /** The open/close primitive of the review checkout window (committed work re-surfaces as pending). */
+  /** Used by `gtd abandon`'s reset and the initial-state collapse's own reset. */
   readonly mixedResetTo: (ref: string) => Effect.Effect<void, Error>
   readonly hardResetTo: (ref: string) => Effect.Effect<void, Error>
-  /**
-   * Sets the index entries under each path to their state at `source`
-   * (including removals), leaving HEAD and the working tree untouched.
-   * Tolerant when no path matches. Pins `.gtd/` plumbing back to the real
-   * head while the review window is open so it stays out of the surfaced
-   * diff — the one caller passes the literal `[".gtd"]`, which
-   * `src/testing/EmittedScriptRecognizer.ts` re-derives to verify the emitted
-   * script, so keep the two in sync if either changes.
-   */
-  readonly restoreStagedFrom: (
-    source: string,
-    paths: ReadonlyArray<string>,
-  ) => Effect.Effect<void, Error>
 }
 
 export interface GitOperations extends GitReaderOperations, GitWriterOperations {}
@@ -535,20 +520,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     mixedResetTo: (ref: string) => exec("git", "reset", "--mixed", ref).pipe(Effect.asVoid),
 
     hardResetTo: (ref: string) => exec("git", "reset", "--hard", ref).pipe(Effect.asVoid),
-
-    restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
-      paths.length === 0
-        ? Effect.void
-        : exec("git", "restore", "--staged", `--source=${source}`, "--", ...paths).pipe(
-            // Tolerant of a path that never existed at `source` (or in the
-            // index) — the pin is best-effort plumbing. NOT tolerant of an
-            // `index.lock` failure, which must propagate to the port-level
-            // retry (`withIndexLockRetries`) instead of being swallowed here.
-            Effect.catchIf(
-              (e) => !isIndexLockError(e),
-              () => Effect.void,
-            ),
-          ),
   }
 }
 
