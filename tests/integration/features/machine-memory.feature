@@ -425,7 +425,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.review.reviewing\""
     And the json field "memory" differs from the one recorded as "the pre-loop-back builder's turn"
 
-  Scenario: gtd --entry fix-precheck's own build.fix session survives into the shared review tail — reviewing and collecting share the session even on the collapsed entry
+  Scenario: gtd --entry fix-precheck's own build.fix session survives into the shared review tail — reviewing and collecting share the session even on the fix-precheck entry
     # The nesting's whole remaining point: on this entry, build.fix opens
     # build's own scope directly (no packages/design/architecture lap ever
     # runs), and every state from there to build.review.* —
@@ -440,7 +440,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # must match its first — the same claim
     # "memory is retained across an excursion into a child machine's own
     # check" makes for the ordinary (unwind) entry, pinned here specifically
-    # for the collapsed fix-precheck entry, since that's the one route where
+    # for the fix-precheck entry, since that's the one route where
     # build.fix opens the scope directly rather than resuming it.
     Given a test project
     And the workflow
