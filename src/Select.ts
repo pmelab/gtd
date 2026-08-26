@@ -5,8 +5,6 @@ export type Selection =
   | { readonly kind: "absent" }
   | { readonly kind: "unknown"; readonly path: string }
 
-const ALL_DIGITS = /^\d+$/
-
 /**
  * Renders a fully-walked leaf value: scalars/booleans stringify directly,
  * arrays become one `JSON.stringify` per entry, newline-joined.
@@ -26,16 +24,22 @@ const toSelection = (value: unknown): Selection => {
 /** A segment that resolves to no key at all (missing from an object, or numeric/absent against an array) — distinct from a present key holding `undefined`. */
 const NOT_FOUND: unique symbol = Symbol("not-found")
 
-/** One step of the walk: looks `segment` up on `current`, or reports `NOT_FOUND` for a key that was never there (no array indexing; a primitive has no keys). */
+/**
+ * One step of the walk: looks `segment` up on `current`, or reports
+ * `NOT_FOUND` for a key that was never there (no array indexing; a primitive
+ * has no keys). Presence is an OWN-property test
+ * (`Object.prototype.hasOwnProperty`), never the `in` operator — `in` walks
+ * the prototype chain, so it would resolve inherited members
+ * (`constructor`, `toString`, `hasOwnProperty`, `valueOf`, ...) as real
+ * document fields. An array declares no non-index own key the document ever
+ * uses, so every array segment is `NOT_FOUND` (all-digit ones already were;
+ * this also now excludes `length`/`map`/every other inherited array member).
+ */
 const resolveSegment = (current: unknown, segment: string): unknown => {
-  if (Array.isArray(current)) {
-    return ALL_DIGITS.test(segment) || !(segment in current)
-      ? NOT_FOUND
-      : (current as unknown as Record<string, unknown>)[segment]
-  }
+  if (Array.isArray(current)) return NOT_FOUND
   if (typeof current === "object" && current !== null) {
     const record = current as Record<string, unknown>
-    return segment in record ? record[segment] : NOT_FOUND
+    return Object.prototype.hasOwnProperty.call(record, segment) ? record[segment] : NOT_FOUND
   }
   return NOT_FOUND
 }

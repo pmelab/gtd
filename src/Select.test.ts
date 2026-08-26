@@ -74,6 +74,40 @@ describe('selectPath — a null leaf is absent, never the string "null"', () => 
   })
 })
 
+describe("selectPath — own-property presence only, never inherited/prototype members", () => {
+  const fields = { kind: "message", changes: [{ path: "a" }] }
+
+  it("returns unknown for constructor — inherited from Object.prototype, not a document field", () => {
+    expect(selectPath(fields, "constructor")).toEqual({ kind: "unknown", path: "constructor" })
+  })
+
+  it("returns unknown for toString — inherited from Object.prototype", () => {
+    expect(selectPath(fields, "toString")).toEqual({ kind: "unknown", path: "toString" })
+  })
+
+  it("returns unknown for hasOwnProperty — inherited from Object.prototype", () => {
+    expect(selectPath(fields, "hasOwnProperty")).toEqual({
+      kind: "unknown",
+      path: "hasOwnProperty",
+    })
+  })
+
+  it("returns unknown for valueOf — inherited from Object.prototype", () => {
+    expect(selectPath(fields, "valueOf")).toEqual({ kind: "unknown", path: "valueOf" })
+  })
+
+  it("returns unknown for changes.length — inherited from Array.prototype, not an index into the array", () => {
+    expect(selectPath(fields, "changes.length")).toEqual({
+      kind: "unknown",
+      path: "changes.length",
+    })
+  })
+
+  it("returns unknown for changes.map — inherited from Array.prototype", () => {
+    expect(selectPath(fields, "changes.map")).toEqual({ kind: "unknown", path: "changes.map" })
+  })
+})
+
 describe("selectPath — nested field reach", () => {
   it("reaches a nested scalar field", () => {
     expect(selectPath({ session: { id: "abc123" } }, "session.id")).toEqual({

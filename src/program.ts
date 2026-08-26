@@ -77,6 +77,7 @@ import {
   renderLandSh,
   type BeatFields,
   type BeatKind,
+  type LandFields,
   type NextMatch,
   type StatusChange,
 } from "./Beat.js"
@@ -105,6 +106,32 @@ import { selectPath } from "./Select.js"
  * selector case.
  */
 export class SelectorUsageError extends Error {}
+
+/**
+ * The `--json=<path>` select branch, shared by `runNextCommand` and
+ * `runLandCommand` so the two never drift on the unknown-selector message: a
+ * `value` writes its text plus exactly one trailing newline, `absent` writes
+ * nothing (the caller's normal success path continues), and `unknown` fails
+ * with `SelectorUsageError` (mapped to `EXIT_USAGE_ERROR` by `Cli.ts`'s
+ * `report`).
+ */
+const writeSelection = (
+  out: ArtifactOut,
+  fields: BeatFields | LandFields,
+  path: string,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    const selection = selectPath(fields, path)
+    if (selection.kind === "value") {
+      out.write(`${selection.text}\n`)
+    } else if (selection.kind === "unknown") {
+      return yield* Effect.fail(
+        new SelectorUsageError(
+          `gtd: unknown --json selector "${selection.path}" — see \`gtd --help\``,
+        ),
+      )
+    }
+  })
 
 export type CommandRequirements =
   | GitService
@@ -371,16 +398,7 @@ const runLandCommand = (
     } else if (sh) {
       out.write(renderLandSh(built))
     } else if (json.kind === "select") {
-      const selection = selectPath(built, json.path)
-      if (selection.kind === "value") {
-        out.write(`${selection.text}\n`)
-      } else if (selection.kind === "unknown") {
-        return yield* Effect.fail(
-          new SelectorUsageError(
-            `gtd: unknown --json selector "${selection.path}" — see \`gtd --help\``,
-          ),
-        )
-      }
+      yield* writeSelection(out, built, json.path)
     } else {
       out.write(renderLandPlain(built))
     }
@@ -744,16 +762,7 @@ const runNextCommand = (
     } else if (sh) {
       out.write(renderBeatSh(fields))
     } else if (json.kind === "select") {
-      const selection = selectPath(fields, json.path)
-      if (selection.kind === "value") {
-        out.write(`${selection.text}\n`)
-      } else if (selection.kind === "unknown") {
-        return yield* Effect.fail(
-          new SelectorUsageError(
-            `gtd: unknown --json selector "${selection.path}" — see \`gtd --help\``,
-          ),
-        )
-      }
+      yield* writeSelection(out, fields, json.path)
     } else {
       // Advisory only — a render failure here must not fail gtd next
       // itself, so it degrades to omitting the instruction.
