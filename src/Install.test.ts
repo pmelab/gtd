@@ -34,7 +34,9 @@ describe("renderBriefing", () => {
     expect(briefing).toContain("gtd next")
     expect(briefing).toContain("gtd land")
     expect(briefing).not.toContain("gtd status --json")
-    expect(briefing).not.toContain("gtd land --json")
+    // The bare whole-document form is never recommended — only the
+    // `--json=<path>` selector form (e.g. `gtd land --json=script`).
+    expect(briefing).not.toMatch(/gtd land --json(?!=)/)
     expect(briefing).not.toContain("--dispatch")
     expect(briefing).not.toContain("--if-resting")
     expect(briefing).not.toContain("gtd step")
@@ -65,7 +67,12 @@ describe("renderBriefing", () => {
 
   it("names the `file` field the edit command reads", () => {
     expect(renderBriefing()).toMatch(/`?file`?/)
-    expect(renderBriefing()).toContain("gtd_file")
+    expect(renderBriefing()).toContain("gtd next --json=file")
+  })
+
+  it("documents that an absent field prints nothing, not the string null a jq recipe would print", () => {
+    expect(renderBriefing()).toMatch(/absent field (is silence|prints nothing)/i)
+    expect(renderBriefing()).toMatch(/`?null`?/)
   })
 
   it("names the .gtd/TODO.md fallback", () => {

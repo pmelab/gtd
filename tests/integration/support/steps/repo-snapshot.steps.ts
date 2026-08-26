@@ -1,7 +1,6 @@
 import { Given, Then, When } from "quickpickle"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
-import { shellQuote } from "../../../../src/GitScript.js"
 
 // ── Repository-mutation proof (`@live` only — see world.ts's `RepoSnapshot`) ──
 
@@ -105,32 +104,6 @@ Then(
       value,
       `Expected stdout recorded as "${label}" (trailing newline aside) to equal json field ` +
         `"${field}".\nRecorded:\n${recorded}\nField:\n${String(value)}`,
-    )
-  },
-)
-
-// Proves a `--sh` field, recorded from an EARLIER (non-mutating) invocation,
-// holds the SAME text the CURRENT (plain) stdout carries — `shellQuote`
-// (`src/GitScript.ts`) is the exact escaping `src/Sh.ts`'s `renderShDocument`
-// uses for every scalar leaf, so the assignment it reconstructs from the
-// current stdout must appear verbatim in the recorded `--sh` document if, and
-// only if, the underlying value is identical (never "aside": both plain
-// stdout and a `--sh` scalar leaf are already normalized to exactly one
-// trailing newline before either prints). The recorded/current split (rather
-// than two `recordedStdout` labels) is deliberate: `gtd land`'s plain
-// encoding drives the actual git write as a side effect, so it must run
-// LAST — after the non-mutating `--sh` capture — for both to describe the
-// same rest.
-Then(
-  "the current stdout equals the sh field {string} recorded as {string}",
-  (world: GtdWorld, field: string, label: string) => {
-    const recordedSh = world.recordedStdout[label]
-    assert.notStrictEqual(recordedSh, undefined, `no stdout was ever recorded as "${label}"`)
-    const assignment = `gtd_${field}=${shellQuote(world.lastResult.stdout)}`
-    assert.ok(
-      recordedSh!.includes(assignment),
-      `Expected stdout recorded as "${label}" to contain gtd_${field}= holding the current ` +
-        `stdout verbatim.\nRecorded:\n${recordedSh}\nCurrent stdout:\n${world.lastResult.stdout}`,
     )
   },
 )

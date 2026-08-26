@@ -194,7 +194,7 @@ Feature: gtd land — the one landing verb, actorless
     And stderr contains "gone"
 
   @inmem
-  Scenario: gtd land --sh and --json now exist, carrying script/settled/idle/state/subject/cost/model
+  Scenario: gtd land --json=<path> and --json now exist, carrying script/settled/idle/state/subject/cost/model
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -218,12 +218,15 @@ Feature: gtd land — the one landing verb, actorless
       """
       a note
       """
-    When I run gtd land with "--sh"
+    When I run gtd land with "--json=state"
     Then the exit code is 0
-    And I record stdout as "sh"
-    And stdout contains "gtd_state='working'"
-    And stdout contains "gtd_subject='gtd(human): idle → working'"
-    And stdout does not contain "gtd_settled=true"
+    And stdout matches "^working\n$"
+    When I run gtd land with "--json=subject"
+    Then the exit code is 0
+    And stdout contains "gtd(human): idle → working"
+    When I run gtd land with "--json=settled"
+    Then the exit code is 0
+    And stdout matches "^false\n$"
     When I run gtd land with "--json"
     Then the exit code is 0
     And stdout contains "\"settled\":false"
@@ -237,7 +240,7 @@ Feature: gtd land — the one landing verb, actorless
     And the last commit subject is "gtd(human): idle → working"
 
   @inmem
-  Scenario: plain gtd land prints one prose sentence, never the script — --json/--sh alone carry it
+  Scenario: plain gtd land prints one prose sentence, never the script — --json/--json=<path> alone carry it
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -280,45 +283,8 @@ Feature: gtd land — the one landing verb, actorless
     And stdout contains "\"state\":\"idle\""
     And the commit count is unchanged
 
-  @inmem
-  Scenario: --sh and --json together on gtd land is still a usage error, exit 2, stdout byte-empty
-    Given a test project
-    When I run gtd land with "--sh" and "--json"
-    Then the exit code is 2
-    And stdout is empty
-    And stderr contains "mutually exclusive"
-
   @live
-  Scenario: gtd land --sh, eval'd and piped into sh, lands the turn
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    When I run gtd land --sh piped to sh
-    Then the exit code is 0
-    And the last commit subject is "gtd(human): idle → working"
-
-  @live
-  Scenario: gtd land --json=script piped straight into sh lands the turn — the --json=<path> twin of --sh
+  Scenario: gtd land --json=script piped straight into sh lands the turn
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """

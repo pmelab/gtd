@@ -1,12 +1,11 @@
 import type { RenderedRest, ModelCost } from "./Edge.js"
 import type { Actor, ContentKind, StateMode, StateName } from "./PatternMachine.js"
 import type { TemplateEdge } from "./PatternTemplates.js"
-import { renderShDocument, type ShRecord, type ShShapeFor } from "./Sh.js"
 import { renderFormat } from "./OutcomeScript.js"
 
 // ---------------------------------------------------------------------------
-// The land document — `gtd land`'s `--json`/`--sh` counterpart to the beat
-// above, co-located here for the same reason.
+// The land document — `gtd land`'s `--json` counterpart to the beat above,
+// co-located here for the same reason.
 // ---------------------------------------------------------------------------
 
 /**
@@ -35,27 +34,7 @@ export const landFields = (input: LandFields): LandFields => ({
   model: input.model,
 })
 
-/** `--sh`'s shape for `LandFields`: one entry per field, so a field added to `LandFields` with no matching entry here is a compile error. */
-const LAND_SH_SHAPE: ShShapeFor<LandFields> = {
-  script: "scalar",
-  settled: "bool",
-  idle: "bool",
-  state: "scalar",
-  subject: "scalar",
-  cost: "scalar",
-  model: "scalar",
-}
-
 export const renderLandJson = (fields: LandFields): string => JSON.stringify(fields) + "\n"
-
-/**
- * `gtd land --json`'s shell-sourceable counterpart (see `src/Sh.ts`). Its
- * `unset` preamble only names this document's own leaves, so it never clears
- * `gtd_content`/`gtd_log`/`gtd_session_id` — beat-only names a driver may
- * still rely on after the land.
- */
-export const renderLandSh = (fields: LandFields): string =>
-  renderShDocument("gtd", LAND_SH_SHAPE, fields as unknown as ShRecord)
 
 const FMT_NOOP = 'nothing to do at "%s"\n'
 const FMT_LAND_PROSE = "commit everything with this message: %s\n"
@@ -63,7 +42,7 @@ const FMT_LAND_PROSE = "commit everything with this message: %s\n"
 /** `nothing to do at "<state>"` — a no-op step's plain-text line, and the text a print-only script's `gtd_report_note` carries. */
 export const noopText = (state: string): string => renderFormat(FMT_NOOP, state)
 
-/** `commit everything with this message: <subject>` — plain `gtd land`'s own stdout at a pending diff (no script); `--json`/`--sh` keep emitting the script itself, unaffected. */
+/** `commit everything with this message: <subject>` — plain `gtd land`'s own stdout at a pending diff (no script); `--json` keeps emitting the script itself, unaffected. */
 export const landProseText = (subject: string): string => renderFormat(FMT_LAND_PROSE, subject)
 
 /**
@@ -156,7 +135,7 @@ export const stallDiagnosis = (state: StateName, actor: Actor): string =>
   `  - declare a "C" pattern on the state, if it can legitimately finish with\n` +
   `    nothing to change\n`
 
-/** One beat's whole field set — the ONE object both `renderBeatJson` and `renderBeatSh` render from. Property insertion order (built by `beatFields`) is the JSON key order. */
+/** One beat's whole field set — the ONE object `renderBeatJson` renders from. Property insertion order (built by `beatFields`) is the JSON key order. */
 export interface BeatFields {
   readonly kind: BeatKind
   readonly content: string
@@ -244,33 +223,7 @@ export const beatFields = (input: {
   }
 }
 
-/** `--sh`'s shape for `BeatFields`: one entry per field, so a field added to `BeatFields` with no matching entry here is a compile error. */
-const BEAT_SH_SHAPE: ShShapeFor<BeatFields> = {
-  kind: "scalar",
-  content: "scalar",
-  idle: "bool",
-  session: { id: "scalar", resume: "bool" },
-  model: "scalar",
-  system: "scalar",
-  validate: "scalar",
-  log: "scalar",
-  state: "scalar",
-  actor: "scalar",
-  label: "scalar",
-  memory: "scalar",
-  file: "scalar",
-  mode: "scalar",
-  edges: "list",
-  changes: "list",
-  next: { pattern: "scalar", target: "scalar", action: "scalar" },
-  cost: "scalar",
-  costByModel: "list",
-}
-
 export const renderBeatJson = (fields: BeatFields): string => JSON.stringify(fields) + "\n"
-
-export const renderBeatSh = (fields: BeatFields): string =>
-  renderShDocument("gtd", BEAT_SH_SHAPE, fields as unknown as ShRecord)
 
 // ---------------------------------------------------------------------------
 // The plain encoder — `gtd next`'s third rendering
@@ -347,7 +300,7 @@ const beatHeaderLines = (fields: BeatFields): string[] => {
 
 /**
  * The self-validation instruction appended to a `prompt` beat's plain output
- * only — a structured (`--json`/`--sh`) driver runs the `validate` field
+ * only — a structured (`--json`) driver runs the `validate` field
  * itself instead. Advisory either way: `gtd land` refuses a turn whose
  * steering file is invalid regardless of whether this was followed.
  */

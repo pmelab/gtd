@@ -39,8 +39,8 @@ const run = async (
 
 /**
  * Lands via `gtd land --json` and applies the emitted `script` field to
- * `repo` — the unit-test twin of `driveWriteCommand`'s `--sh` read (package
- * 02 dropped plain `gtd land`'s script output; `--json`/`--sh` still carry
+ * `repo` — the unit-test twin of `driveWriteCommand`'s `--json` read (package
+ * 02 dropped plain `gtd land`'s script output; `--json` still carries
  * it byte-identically).
  */
 const landAndApply = async (
@@ -105,7 +105,7 @@ describe("gtd --entry <state> — a custom workflow declaring `entry: true`", ()
     // `gtd --entry` is now a pure emitter — no commit lands until the
     // external driver runs the printed script. Plain text prints the script
     // itself, not a result line — the subject lives inside it. `--entry`
-    // carries no `--json`/`--sh` of its own (only `next`/`land` do) — the
+    // carries no `--json` of its own (only `next`/`land` do) — the
     // combined script IS the whole of stdout.
     expect(stdout).toContain(shellQuote(commitAll("gtd(human): side-entry")))
     expect(repo.commitHistory()).toHaveLength(before)
@@ -840,7 +840,7 @@ describe("gtd next --json — capture/message kinds at a human gate", () => {
 
 describe("gtd next — exit code is uniformly 0 across every rest shape (package 05)", () => {
   // `gtd next`'s exit code no longer names whose turn is next (that's
-  // `kind` alone, off `--json`/`--sh`) — it's 0 on every one of these shapes:
+  // `kind` alone, off `--json`) — it's 0 on every one of these shapes:
   // idle (the initial state, clean tree), a dirty tree at the same state, a
   // clean `message` gate past the initial state, and a non-initial
   // prompt/script rest.
@@ -1170,7 +1170,7 @@ describe("gtd next — refuses when HEAD names a state the current workflow no l
     const before = repo.commitHistory().length
 
     // `gtd abandon` EMITS its mutation as plain text instead of performing it
-    // — it carries no `--json`/`--sh` of its own (only `next`/`land` do), so
+    // — it carries no `--json` of its own (only `next`/`land` do), so
     // the combined script is the whole of stdout.
     const { stdout, exitCode } = await run(repo, "abandon")
     expect(exitCode).toBe(0)
@@ -1634,7 +1634,7 @@ describe("gtd visualize — flushes before blocking (package 04)", () => {
     }
 
     const fiber = Effect.runFork(
-      runCommand({ kind: "visualize", port: 0, open: false }, { kind: "off" }, false, out).pipe(
+      runCommand({ kind: "visualize", port: 0, open: false }, { kind: "off" }, out).pipe(
         Effect.provide(testLayers(repo)),
       ),
     )
@@ -1797,7 +1797,7 @@ describe("gtd next — Next: preview", () => {
   })
 })
 
-describe("gtd land — the settled signal (exit code, script content, and now the --json/--sh settled field)", () => {
+describe("gtd land — the settled signal (exit code, script content, and the --json settled field)", () => {
   // idle (message) -> working (prompt) -> checking (script, no C row) — the
   // shape #170 cares about: a script rest's no-op is the terminal "nothing
   // left to do" signal, a prompt rest's no-op is not (that's #167's stall).
@@ -1919,15 +1919,6 @@ describe("gtd land — the settled signal (exit code, script content, and now th
     const script = (JSON.parse(stdout) as { readonly script: string }).script
     expect(script).toContain("git commit")
     expect(script).not.toContain("nothing to retain")
-  })
-
-  it("gtd land --sh's gtd_script is byte-identical to gtd land --json's own script field — the two structured encodings never drift", async () => {
-    const repo = seededRepo("gtd(check): checking")
-    const json = await run(repo, "land", "--json")
-    const sh = await run(repo, "land", "--sh")
-    expect(sh.exitCode).toBe(json.exitCode)
-    const script = (JSON.parse(json.stdout) as { readonly script: string }).script
-    expect(sh.stdout).toContain(`gtd_script=${shellQuote(script)}`)
   })
 
   it("plain gtd land prints the prose sentence and points at --json=script, never the script itself", async () => {
@@ -2084,16 +2075,6 @@ describe("gtd land — exit code no longer names the post-land rest's owner (pac
     expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("a refusal under --sh stays a plain `gtd: ...` on stderr with stdout byte-empty", async () => {
-    const repo = seededAt("gtd(check): checking")
-    repo.writeFile("scratch.txt", "an unrelated pending change\n")
-    const { stdout, stderr, exitCode } = await run(repo, "land", "--sh")
-    expect(exitCode).toBe(1)
-    expect(stdout).toBe("")
-    expect(stderr).toMatch(/^gtd\b/)
-    expect(stderr).not.toContain('"state":"error"')
-  })
-
   it("a refusal under --json stays stdout byte-empty (the error envelope is on stderr, matching gtd next --json)", async () => {
     const repo = seededAt("gtd(check): checking")
     repo.writeFile("scratch.txt", "an unrelated pending change\n")
@@ -2222,9 +2203,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
       const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
       const exit = await Effect.runPromiseExit(
-        runCommand(commandFor[kind], { kind: "off" }, false, out).pipe(
-          Effect.provide(testLayers(repo)),
-        ),
+        runCommand(commandFor[kind], { kind: "off" }, out).pipe(Effect.provide(testLayers(repo))),
       )
 
       expect(Exit.isFailure(exit)).toBe(true)
@@ -2245,9 +2224,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
     const exit = await Effect.runPromiseExit(
-      runCommand({ kind: "next" }, { kind: "off" }, false, out).pipe(
-        Effect.provide(testLayers(repo)),
-      ),
+      runCommand({ kind: "next" }, { kind: "off" }, out).pipe(Effect.provide(testLayers(repo))),
     )
 
     expect(Exit.isSuccess(exit)).toBe(true)
@@ -2609,10 +2586,14 @@ describe("gtd next/land --json=<path> — the select branch (package 01, task 4)
   it("the underlying failure program.ts raises for an unknown selector is a SelectorUsageError", async () => {
     const repo = seededRepo()
     const exit = await Effect.runPromiseExit(
-      runCommand({ kind: "next" }, { kind: "select", path: "does.not.exist" }, false, {
-        write: () => {},
-        flush: () => {},
-      }).pipe(Effect.provide(testLayers(repo))),
+      runCommand(
+        { kind: "next" },
+        { kind: "select", path: "does.not.exist" },
+        {
+          write: () => {},
+          flush: () => {},
+        },
+      ).pipe(Effect.provide(testLayers(repo))),
     )
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {

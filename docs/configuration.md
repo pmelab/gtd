@@ -154,8 +154,8 @@ precedent a mode's `format:`/`validate:` command sets with `it.file`):
 - **`it.processTip`** — the process's closing/current tip, the trace's last
   commit.
 
-The prompt carries no session identity of its own — no `gtd_session_id`, no
-`gtd_session_resume`, no model, no system prompt — so an agent reading it starts
+The prompt carries no session identity of its own — no `session.id`, no
+`session.resume`, no model, no system prompt — so an agent reading it starts
 cold and reads every decision back out of the commits it names.
 
 A template never sees rendered diff CONTENT — no field carries a diff. It names

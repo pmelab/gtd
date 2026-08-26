@@ -184,7 +184,7 @@ export const PRESENTATION_FAILURE_WARNING =
 
 /**
  * A write command's single pasteable script (`gtd abandon | sh`,
- * `gtd land --sh`'s own `gtd_script` field). `optional`, when non-empty, is
+ * `gtd land --json=script`'s own field). `optional`, when non-empty, is
  * wrapped in a subshell whose failure is swallowed — presentation-only, so it
  * must never turn a landed turn into a non-zero exit.
  */

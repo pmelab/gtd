@@ -249,10 +249,6 @@ When(
   },
 )
 
-When("I run gtd land --sh piped to sh", async (world: GtdWorld) => {
-  await world.runGtdLandPiped()
-})
-
 When("I run gtd land --json=script piped to sh", async (world: GtdWorld) => {
   await world.runGtdLandJsonScriptPiped()
 })

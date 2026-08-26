@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import {
@@ -9,10 +8,8 @@ import {
   noopText,
   renderBeatJson,
   renderBeatPlain,
-  renderBeatSh,
   renderLandJson,
   renderLandPlain,
-  renderLandSh,
   stallDiagnosis,
   type BeatFields,
   type BeatKind,
@@ -460,76 +457,6 @@ describe("idle", () => {
     const keys = Object.keys(JSON.parse(line) as Record<string, unknown>)
     expect(keys.slice(0, 3)).toEqual(["kind", "content", "idle"])
   })
-
-  it("under --sh, is present only when true — the walker's plain boolean rule, no special case", () => {
-    const trueFields = beatFields({
-      rendered: rest({ kind: "message" }),
-      kind: "message",
-      log: "log",
-      ...statusFields({ idle: true }),
-    })
-    expect(renderBeatSh(trueFields)).toContain("gtd_idle=true")
-
-    const falseFields = beatFields({
-      rendered: rest({ kind: "message" }),
-      kind: "message",
-      log: "log",
-      ...statusFields({ idle: false }),
-    })
-    expect(renderBeatSh(falseFields)).not.toMatch(/^gtd_idle=/m)
-    // still named in the `unset` preamble, so a caller's own re-run never sees a stale value
-    expect(renderBeatSh(falseFields)).toMatch(/\bgtd_idle\b/)
-  })
-})
-
-describe("system", () => {
-  it("under --sh, assigns gtd_system when declared and unsets it (no assignment) when absent", () => {
-    const declared = beatFields({
-      rendered: rest({ kind: "script", system: "You are a careful senior engineer." }),
-      kind: "script",
-      log: "log",
-      ...statusFields(),
-    })
-    expect(renderBeatSh(declared)).toContain("gtd_system='You are a careful senior engineer.'")
-
-    const undeclared = beatFields({
-      rendered: rest({ kind: "script" }),
-      kind: "script",
-      log: "log",
-      ...statusFields(),
-    })
-    const undeclaredSh = renderBeatSh(undeclared)
-    expect(undeclaredSh).not.toMatch(/^gtd_system=/m)
-    // still named in the `unset` preamble, so `${gtd_system:-}` never sees a stale value
-    expect(undeclaredSh).toMatch(/\bgtd_system\b/)
-  })
-
-  it("under --sh, a system rendered to the empty string leaves gtd_system unset — no assignment line", () => {
-    const fields = beatFields({
-      rendered: rest({ kind: "script", system: "" }),
-      kind: "script",
-      log: "log",
-      ...statusFields(),
-    })
-    const sh = renderBeatSh(fields)
-    expect(sh).not.toMatch(/^gtd_system=/m)
-    expect(sh).toMatch(/\bgtd_system\b/)
-  })
-
-  it("a multi-line persona survives a real sh eval of --sh's document byte-for-byte", () => {
-    const persona = "You are a careful senior engineer.\nAlways write tests first.\nNever guess."
-    const fields = beatFields({
-      rendered: rest({ kind: "script", system: persona }),
-      kind: "script",
-      log: "log",
-      ...statusFields(),
-    })
-    const sh = renderBeatSh(fields)
-    const out = execFileSync("sh", ["-c", `${sh}\nprintf %s "$gtd_system"`], {
-      encoding: "utf8",
-    })
-    expect(out).toBe(persona)
-  })
 })
 
 describe("renderBeatPlain", () => {
@@ -640,7 +567,7 @@ describe("renderBeatPlain", () => {
   })
 })
 
-describe("landFields / renderLandJson / renderLandSh", () => {
+describe("landFields / renderLandJson", () => {
   const sample: LandFields = {
     script: 'gtd_report_commit "gtd(agent): build.fixing"\ngit commit ...\n',
     settled: false,
@@ -689,58 +616,6 @@ describe("landFields / renderLandJson / renderLandSh", () => {
       model: null,
     }
     expect(JSON.parse(renderLandJson(landFields(noop)))).toEqual(noop)
-  })
-
-  it("renderLandSh emits gtd_-prefixed assignments for every present field", () => {
-    const sh = renderLandSh(landFields(sample))
-    expect(sh).toContain(`gtd_script=`)
-    expect(sh).toContain("gtd_state='build.review.deciding'")
-    expect(sh).toContain("gtd_subject='gtd(agent): build.fixing'")
-    expect(sh).toContain("gtd_cost='0.42'")
-    expect(sh).toContain("gtd_model='smart'")
-    expect(sh).not.toMatch(/^gtd_settled=/m)
-    expect(sh).not.toMatch(/^gtd_idle=/m)
-  })
-
-  it("renderLandSh's unset preamble names only LandFields' own leaves — never gtd_content/gtd_log/gtd_session_id", () => {
-    const sh = renderLandSh(landFields(sample))
-    const preamble = sh.split("\n")[0]!
-    expect(preamble).toMatch(/^unset /)
-    expect(preamble).toContain("gtd_script")
-    expect(preamble).toContain("gtd_state")
-    expect(preamble).toContain("gtd_cost")
-    expect(preamble).toContain("gtd_model")
-    expect(preamble).toContain("gtd_idle")
-    expect(preamble).not.toContain("gtd_content")
-    expect(preamble).not.toContain("gtd_log")
-    expect(preamble).not.toContain("gtd_session_id")
-  })
-
-  it("renderLandSh's unset preamble shares the beat's own gtd_state/gtd_cost/gtd_model/gtd_idle names, so a land --sh eval clears and resets them", () => {
-    const beatSh = renderBeatSh(
-      beatFields({
-        rendered: {
-          state: "build.fixing",
-          actor: "agent",
-          kind: "prompt",
-          content: "fix it",
-          memoryResumed: false,
-          edges: [],
-        },
-        kind: "prompt",
-        idle: false,
-        log: "log",
-        changes: [],
-        next: null,
-        cost: 0,
-        costByModel: [],
-      }),
-    )
-    const landSh = renderLandSh(landFields(sample))
-    for (const name of ["gtd_state", "gtd_cost", "gtd_model", "gtd_idle"]) {
-      expect(beatSh).toContain(name)
-      expect(landSh).toContain(name)
-    }
   })
 })
 

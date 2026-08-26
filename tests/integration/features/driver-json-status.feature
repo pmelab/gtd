@@ -18,9 +18,10 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
   those bytes are the agent's own input — the header fields (`State:`,
   `Label:`, `Model:`, `Memory:`, `File:`, `Mode:`, `Pending:`, `Next:`) are
   observable in plain text ONLY at a non-`prompt` rest; at a `prompt` rest
-  they only ever show up in `--json`/`--sh`. `gtd land`'s own "settled" signal
-  (a `script` rest's no-op is terminal) is a `--json`/`--sh` field
-  (`settled`) — never the exit code, which is 0 on every successful landing
+  they only ever show up in `--json`/`--json=<path>`. `gtd land`'s own
+  "settled" signal (a `script` rest's no-op is terminal) is a
+  `--json`/`--json=<path>` field (`settled`) — never the exit code, which is
+  0 on every successful landing
   regardless — and it also shows in the emitted script's own content (a
   genuine no-op prints "nothing to do" with no `git commit`).
 
@@ -359,7 +360,7 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout contains "\"state\":\"working\""
     And stdout does not contain "\"model\""
 
-  Scenario: gtd next --json/--sh carry the owning machine's system prompt — plain gtd next never shows it
+  Scenario: gtd next --json/--json=<path> carry the owning machine's system prompt — plain gtd next never shows it
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -393,11 +394,11 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"system\":\"You are a careful senior engineer.\""
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=system"
     Then it succeeds
-    And stdout contains "gtd_system='You are a careful senior engineer.'"
+    And stdout matches "^You are a careful senior engineer.\n$"
 
-  Scenario: gtd next --json omits "system" entirely, and --sh leaves gtd_system unset, when the owning machine declares none
+  Scenario: gtd next --json omits "system" entirely, and --json=system prints nothing, when the owning machine declares none
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -427,10 +428,9 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout does not contain "\"system\""
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=system"
     Then it succeeds
-    And stdout does not contain "gtd_system="
-    And stdout contains "gtd_system"
+    And stdout is empty
 
   Scenario: plain gtd next's prompt output is byte-identical whether or not the machine declares system:
     Given a test project

@@ -79,12 +79,12 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # `gtd land --sh` still carries the required/optional outcome-carrying
-    # script as a field — the one place ANSI source text (`printf
-    # '\033[...'`) appears anywhere in gtd's own stdout now that plain
-    # `gtd land` prints prose instead (package 2, Requirement B) — as plain
-    # source characters, never a real ESC byte.
-    When I run gtd land with "--sh"
+    # `gtd land --json=script` still carries the required/optional
+    # outcome-carrying script as a field — the one place ANSI source text
+    # (`printf '\033[...'`) appears anywhere in gtd's own stdout now that
+    # plain `gtd land` prints prose instead (package 2, Requirement B) — as
+    # plain source characters, never a real ESC byte.
+    When I run gtd land with "--json=script"
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
@@ -120,12 +120,12 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # `gtd land --sh` still carries the required/optional outcome-carrying
-    # script as a field — the one place ANSI source text (`printf
-    # '\033[...'`) appears anywhere in gtd's own stdout now that plain
-    # `gtd land` prints prose instead (package 2, Requirement B) — as plain
-    # source characters, never a real ESC byte.
-    When I run gtd land with "--sh"
+    # `gtd land --json=script` still carries the required/optional
+    # outcome-carrying script as a field — the one place ANSI source text
+    # (`printf '\033[...'`) appears anywhere in gtd's own stdout now that
+    # plain `gtd land` prints prose instead (package 2, Requirement B) — as
+    # plain source characters, never a real ESC byte.
+    When I run gtd land with "--json=script"
     Then it succeeds
     And stdout contains no ANSI escape sequence
 

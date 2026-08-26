@@ -131,42 +131,16 @@ describe("parseArgv — scope", () => {
     }
   })
 
-  it("--sh is in scope for next and land — every other command usage-errors on it", () => {
+  it("--sh is gone: a bare unknown-option usage error on next and land, exit 2", () => {
     for (const args of [
       ["next", "--sh"],
       ["land", "--sh"],
     ]) {
-      const ok = parseArgv(["node", "gtd.js", ...args])
-      expect(ok.kind).toBe("command")
-      if (ok.kind === "command") expect(ok.sh).toBe(true)
-    }
-
-    for (const args of [
-      ["status", "--sh"],
-      ["lsp", "--sh"],
-      ["validate", "--sh"],
-    ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("usage")
       if (plan.kind === "usage") {
-        expect(plan.message).toContain("only valid for `gtd next`/`gtd land`")
-        expect(plan.message).toContain("gtd install")
+        expect(plan.message).toContain("unknown option '--sh'")
       }
-    }
-  })
-
-  it("--sh and --json together on next is a usage error, exit 2 territory", () => {
-    const plan = parseArgv(["node", "gtd.js", "next", "--sh", "--json"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("mutually exclusive")
-  })
-
-  it("--sh and --json together on land is a usage error, exit 2 territory, stdout byte-empty", () => {
-    const plan = parseArgv(["node", "gtd.js", "land", "--sh", "--json"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("mutually exclusive")
-      expect(plan.stdout).toBe("")
     }
   })
 
@@ -247,7 +221,6 @@ describe("parseArgv — gtd next", () => {
     if (plan.kind === "command") {
       expect(plan.command).toEqual({ kind: "next" })
       expect(plan.json).toEqual({ kind: "document" })
-      expect(plan.sh).toBe(false)
     }
   })
 
@@ -304,16 +277,6 @@ describe("parseArgv — gtd next", () => {
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("--json may be given at most once")
   })
-
-  it("gtd next --sh parses to a next command with sh set", () => {
-    const plan = parseArgv(["node", "gtd.js", "next", "--sh"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({ kind: "next" })
-      expect(plan.json).toEqual({ kind: "off" })
-      expect(plan.sh).toBe(true)
-    }
-  })
 })
 
 describe("parseArgv — gtd land", () => {
@@ -339,7 +302,6 @@ describe("parseArgv — gtd land", () => {
     if (plan.kind === "command") {
       expect(plan.command).toEqual({ kind: "land" })
       expect(plan.json).toEqual({ kind: "document" })
-      expect(plan.sh).toBe(false)
     }
   })
 
@@ -362,16 +324,6 @@ describe("parseArgv — gtd land", () => {
     if (record.kind === "command") {
       expect(record.json).toEqual({ kind: "off" })
       expect(record.command).toEqual({ kind: "land", cost: 1, model: "opus" })
-    }
-  })
-
-  it("gtd land --sh parses to a land command with sh set", () => {
-    const plan = parseArgv(["node", "gtd.js", "land", "--sh"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({ kind: "land" })
-      expect(plan.json).toEqual({ kind: "off" })
-      expect(plan.sh).toBe(true)
     }
   })
 })

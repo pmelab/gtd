@@ -71,8 +71,6 @@ export type CliPlan =
       readonly kind: "command"
       readonly command: Command
       readonly json: JsonMode
-      /** Whether `--sh` was present — `gtd next` only; mutually exclusive with `json` (see `conflictViolation`). */
-      readonly sh: boolean
       /** Whether `--verbose`/`-v` was present — gates the `Narrator` `Cli.ts` builds for this dispatch (see `runCli`). */
       readonly verbose: boolean
     }
@@ -144,26 +142,8 @@ const FLAGS: readonly FlagRow[] = [
       "exits 0 — including when an earlier segment of <path> is",
       "itself absent/null (e.g. session.id at a non-prompt rest),",
       "which never counts as unknown; an unknown path is a usage",
-      "error (exit 2). Mutually exclusive with --sh",
+      "error (exit 2).",
     ],
-    conflicts: ["--sh"],
-  },
-  {
-    name: "--sh",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "next" || kind === "land",
-    decode: () => Either.right(true),
-    scopeError:
-      "gtd: --sh is only valid for `gtd next`/`gtd land` — every other command prints " +
-      "plain text; see `gtd install` for the driver protocol briefing",
-    valueHint: "",
-    help: [
-      "(gtd next/gtd land only) output gtd_-prefixed POSIX",
-      "shell assignments instead of plain text. Mutually",
-      "exclusive with --json",
-    ],
-    conflicts: ["--json"],
   },
   {
     name: "--port",
@@ -357,11 +337,11 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "human-readable sentence naming the commit subject (or a",
       "no-op note) plus a pointer to `gtd land --json=script | sh`",
       "to get the landing script — never the script itself.",
-      "--json/--sh emit script (the actual POSIX sh",
+      "--json emits script (the actual POSIX sh",
       "a driver runs) alongside settled, idle, state (the",
-      "post-land target), subject, cost and model —",
-      "--json/--sh are mutually exclusive. Exits 0 on success, 1",
-      "on any refusal — see the Exit codes section below",
+      "post-land target), subject, cost and model. Exits 0 on",
+      "success, 1 on any refusal — see the Exit codes section",
+      "below",
     ],
   },
   {
@@ -410,9 +390,7 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "fields. --json=<path> (a dotted key path into that same",
       "document, e.g. kind, content, session.id) prints just that",
       "value instead of the whole document — see --json's own help",
-      "above. --sh emits the same fields as gtd_-prefixed POSIX",
-      "shell assignments. --json/--sh are mutually exclusive.",
-      "Exits 0 — see the Exit codes section below",
+      "above. Exits 0 — see the Exit codes section below",
     ],
   },
   {
@@ -902,7 +880,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     : bag["--json"] !== undefined
       ? { kind: "select", path: bag["--json"] }
       : { kind: "document" }
-  const sh = present.has("--sh")
   const verbose = present.has("--verbose")
 
   if (kind === "land") {
@@ -912,7 +889,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         jsonSeen,
       )
     }
-    return { kind: "command", command: buildLandCommand(bag), json, sh, verbose }
+    return { kind: "command", command: buildLandCommand(bag), json, verbose }
   }
 
   if (kind === "entry") {
@@ -921,7 +898,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: { kind: "entry", actor: "human", state: entryRaw!, vars: bag["--var"] ?? {}, label },
       json,
-      sh,
       verbose,
     }
   }
@@ -931,7 +907,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: { kind: "visualize", port: bag["--port"] ?? 0, open: !(bag["--no-open"] ?? false) },
       json,
-      sh,
       verbose,
     }
   }
@@ -948,7 +923,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
           : {}),
       },
       json,
-      sh,
       verbose,
     }
   }
@@ -966,7 +940,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "summary"
       | "base",
   }
-  return { kind: "command", command, json, sh, verbose }
+  return { kind: "command", command, json, verbose }
 }
 
 // ---------------------------------------------------------------------------
@@ -1072,8 +1046,8 @@ const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
  * The single envelope writer: `{state:"error",prompt}` on **stderr** under
  * `--json`, `renderFailure` on stderr always, exit `EXIT_RUNTIME_ERROR`.
  * stdout is never touched here — the command's `ArtifactOut` buffer was never
- * flushed, so a `--json` driver piping stdout into `jq` on a failed run must
- * read stderr or the exit code instead. `Effect.sandbox` means this also
+ * flushed, so a `--json` driver reading stdout on a failed run reads nothing
+ * — it must read stderr or the exit code instead. `Effect.sandbox` means this also
  * fires for a DEFECT, not just a typed error. Unreached by an ordinary usage
  * error (an unknown flag, bad arity, a scope violation) — those never build a
  * layer at all. The one exception is `SelectorUsageError`: an unknown
@@ -1116,7 +1090,7 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
   }
 
   const out = bufferedArtifactOut(io)
-  return runCommand(plan.command, plan.json, plan.sh, out).pipe(
+  return runCommand(plan.command, plan.json, out).pipe(
     // `flush()` fires here, on success, BEFORE `io.exit` — the one point
     // where the whole buffered artifact is known-complete and safe to hand
     // to stdout (a failure discards the buffer instead — see

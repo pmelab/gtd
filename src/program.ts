@@ -71,10 +71,8 @@ import {
   noopText,
   renderBeatJson,
   renderBeatPlain,
-  renderBeatSh,
   renderLandJson,
   renderLandPlain,
-  renderLandSh,
   type BeatFields,
   type BeatKind,
   type LandFields,
@@ -201,7 +199,7 @@ const runInitCommand = (
  * `planLanding`'s result — a preview of what `gtd land` would do, plus the
  * combined `script` the driver runs to do it. `script` is
  * `combinedScript(required, optional)`, computed once here so plain
- * `gtd land`'s stdout and `--sh`'s `gtd_script` stay byte-identical.
+ * `gtd land`'s stdout and `--json`'s `script` field stay byte-identical.
  */
 interface LandResult {
   readonly state: StateName
@@ -219,7 +217,7 @@ interface LandResult {
  * `normalizeTrailingNewline` rather than imported, to avoid a circular value
  * dependency (`Cli.ts` already depends on this module). `LandResult.script`
  * must carry its own trailing newline because it's embedded verbatim inside
- * the `--json`/`--sh` documents too, never re-normalized at their tail.
+ * the `--json` document, never re-normalized at its tail.
  */
 const normalizeScriptNewline = (script: string): string =>
   script.length === 0 ? script : `${script.replace(/\n+$/, "")}\n`
@@ -378,8 +376,8 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
  * the currently resolved rest, authenticated as the rest's own actor.
  * Plain output is `renderLandPlain`'s prose — the commit subject plus a
  * pointer at `--json=script`, or the no-op note when nothing landed — never
- * the script itself; `--json`/`--sh` emit `script` (byte-identical to before)
- * alongside `settled`/`idle`/`state`/`subject`/`cost`/`model`, so they stay
+ * the script itself; `--json` emits `script` (byte-identical to before)
+ * alongside `settled`/`idle`/`state`/`subject`/`cost`/`model`, so it stays
  * the machine path a driver pipes to `sh`. Exit code is uniformly `EXIT_OK`
  * on success — whose turn is next lives in the following `gtd next --json`'s
  * `kind` field.
@@ -387,7 +385,6 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
 const runLandCommand = (
   opts: LandOptions,
   json: JsonMode,
-  sh: boolean,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
@@ -395,8 +392,6 @@ const runLandCommand = (
     const built = landFields(result)
     if (json.kind === "document") {
       out.write(renderLandJson(built))
-    } else if (sh) {
-      out.write(renderLandSh(built))
     } else if (json.kind === "select") {
       yield* writeSelection(out, built, json.path)
     } else {
@@ -736,15 +731,14 @@ const restIsIdle = (rest: Rest): boolean =>
   rest.state === initialStateOf(rest.def) && rest.changes.length === 0
 
 /**
- * `gtd next`: pure emitter of the resolved rest's beat, in three encodings —
- * `--json`/`--sh` and plain (the default). No mutation: nothing is written,
+ * `gtd next`: pure emitter of the resolved rest's beat, in two encodings —
+ * `--json` and plain (the default). No mutation: nothing is written,
  * so a peek and a would-be dispatch are the same call. Exit code is
  * `EXIT_OK` unconditionally — whose turn is next lives in the beat
  * document's own `kind` field, never the exit code.
  */
 const runNextCommand = (
   json: JsonMode,
-  sh: boolean,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
@@ -759,8 +753,6 @@ const runNextCommand = (
     }
     if (json.kind === "document") {
       out.write(renderBeatJson(fields))
-    } else if (sh) {
-      out.write(renderBeatSh(fields))
     } else if (json.kind === "select") {
       yield* writeSelection(out, fields, json.path)
     } else {
@@ -929,7 +921,7 @@ export const computeNextMatch = (
   return null
 }
 
-/** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json`/`--sh` can never describe different rests for the same beat. */
+/** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json` can never describe different rests for the same beat. */
 const gatherBeatFields = (
   rest: Rest,
   rendered: RenderedRest,
@@ -1137,7 +1129,6 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
 const dispatchVoidCommand = (
   command: Command,
   json: JsonMode,
-  sh: boolean,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> => {
   switch (command.kind) {
@@ -1154,7 +1145,6 @@ const dispatchVoidCommand = (
           ...(command.model !== undefined ? { model: command.model } : {}),
         },
         json,
-        sh,
         out,
       )
     case "entry":
@@ -1164,7 +1154,7 @@ const dispatchVoidCommand = (
     case "restore":
       return runRestoreCommand(out)
     case "next":
-      return runNextCommand(json, sh, out)
+      return runNextCommand(json, out)
     case "validate":
       return runValidateCommand(out)
     case "check":
@@ -1188,10 +1178,9 @@ const dispatchVoidCommand = (
 export const runCommand = (
   command: Command,
   json: JsonMode,
-  sh: boolean,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> => {
-  const dispatch = dispatchVoidCommand(command, json, sh, out)
+  const dispatch = dispatchVoidCommand(command, json, out)
   if (needsOf(command.kind) !== "state") return dispatch
   return Effect.gen(function* () {
     const git = yield* GitService

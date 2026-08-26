@@ -780,12 +780,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                   "* **": idle
       """
     And an empty commit "gtd(human): drafting"
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=validate"
     Then it succeeds
-    # gtd_validate's own value is itself shell-quoted for --sh (every literal
-    # `'` inside it becomes the POSIX `'\''` escape), so the guard/format
-    # command are matched by their quote-independent substrings.
-    And stdout contains "gtd_validate="
     And stdout contains "-f "
     And stdout contains ".gtd/docs/adr.md"
     And stdout contains "] || exit 0"
@@ -998,7 +994,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # override has no in-process parser to round-trip a sample through — the
     # emitted script prints a one-line skip notice instead of silently saying
     # nothing (silence would read as a clean bill of health). Inspected via
-    # the unexecuted `gtd next --sh` script text rather than a live run: the
+    # the unexecuted `gtd next --json=validate` script text rather than a live run: the
     # notice prints to stderr, and a SUCCESSFUL script's stderr is exactly
     # the thing `gtd validate`'s own driving harness discards once the
     # script exits 0 (see world.ts's validateVerdict) — the raw script text
@@ -1031,8 +1027,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                   "* **": idle
       """
     And an empty commit "gtd(human): reviewing"
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=validate"
     Then it succeeds
-    And stdout contains "gtd_validate="
     And stdout contains "mode \"review\" has an external validate: command"
     And stdout contains "skipping the format/validate contradiction check"

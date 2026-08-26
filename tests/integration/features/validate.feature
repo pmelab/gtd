@@ -108,20 +108,20 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
 
-  Scenario: gtd next --sh at a first-write beat (the steering file does not exist yet) still emits a gtd_validate= assignment
+  Scenario: gtd next --json=validate at a first-write beat (the steering file does not exist yet) still emits the validate script
     # Package 2, Requirement A: `resolveValidateScript` used to short-circuit
     # to `undefined` at exactly this beat (the `fs.exists` check happened in
     # TS-land, before the turn had written anything), silencing every
-    # driver's `while [ -n "$gtd_validate" ]` repair loop right when it is
-    # needed most. Existence is now a leading `[ -f <file> ] || exit 0` guard
-    # INSIDE the emitted script instead, so `gtd_validate` is always assigned
-    # whenever the resting state declares both `file:` and `mode:`.
+    # driver's `while [ -n "$(gtd next --json=validate)" ]` repair loop right
+    # when it is needed most. Existence is now a leading
+    # `[ -f <file> ] || exit 0` guard INSIDE the emitted script instead, so
+    # `--json=validate` always prints a script whenever the resting state
+    # declares both `file:` and `mode:`.
     Given a test project
     And the workflow
     And an empty commit "gtd(human): design.triage"
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=validate"
     Then it succeeds
-    And stdout contains "gtd_validate="
     And stdout contains "gtd check qa"
 
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
