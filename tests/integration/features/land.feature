@@ -289,7 +289,7 @@ Feature: gtd land — the one landing verb, actorless
     And stderr contains "mutually exclusive"
 
   @live
-  Scenario: gtd land | bash lands the turn in one pipe
+  Scenario: gtd land --sh, eval'd and piped into sh, lands the turn
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -313,7 +313,7 @@ Feature: gtd land — the one landing verb, actorless
       """
       a note
       """
-    When I run gtd land piped to bash
+    When I run gtd land --sh piped to sh
     Then the exit code is 0
     And the last commit subject is "gtd(human): idle → working"
 

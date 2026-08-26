@@ -249,7 +249,7 @@ When(
   },
 )
 
-When("I run gtd land piped to bash", async (world: GtdWorld) => {
+When("I run gtd land --sh piped to sh", async (world: GtdWorld) => {
   await world.runGtdLandPiped()
 })
 
