@@ -756,21 +756,34 @@ const validateState = (
 /**
  * A `script`/`message` state with no `C` row commits nothing on a clean tree
  * (the documented no-op default) — that's often deliberate, but silent for a
- * state whose author never considered the clean case. Warn, don't error: the
- * initial state and every `prompt` state (which attempts instead of
- * no-op'ing) are exempt outright, and so is a state whose `on` rows already
- * show the author DID enumerate every case that matters, either globally (a
- * bare `"* **"` row, the documented idiom for "every dirty tree, anywhere")
- * or scoped to its own `file:` (a state whose only real signal is an edit to
- * that one steering path, already spelled out row by row).
+ * state whose author never considered the clean case. Warn, don't error.
+ * Three exemptions, all load-bearing:
+ *
+ * - The workflow's initial state — a `C` row there would author a commit on
+ *   every bare driver invocation.
+ * - A `prompt` state — its clean step is an ATTEMPT by design, not a no-op.
+ * - A `human`-actor state — `docs/driver.md`'s driver protocol lands a human
+ *   gate's OPENING beat unconditionally on every restart while a process
+ *   rests there ("Some gates could accept by INACTION..."), specifically
+ *   because today that's a harmless no-op when the state has no `C` row. A
+ *   `C` row on a human gate would turn every such restart into a real commit
+ *   before the human has acted at all — the exact hazard the initial-state
+ *   exemption above already exists to avoid, generalized to any human gate a
+ *   process can rest at more than once.
+ *
+ * No exemption for a bare `"* **"` catch-all row or a declared `file:` — a
+ * `diff` pattern (including `"* **"`) never matches a clean tree
+ * (`matchesPattern`), so neither says anything about the clean case; a state
+ * with either and no `C` row still no-ops on a clean tree exactly like one
+ * with neither.
  */
 const validateHasCRow = (def: WorkflowDefinition, name: string, state: StateDef): string[] => {
   if (name === initialStateOf(def)) return []
+  if (state.actor === "human") return []
   const kind = contentKindOf(state)
   if (kind !== "script" && kind !== "message") return []
-  if (state.file !== undefined) return []
   const edges = state.on ?? []
-  if (edges.some(([pattern]) => pattern === "C" || pattern === "* **")) return []
+  if (edges.some(([pattern]) => pattern === "C")) return []
   return [`state "${name}" declares no "C" row`]
 }
 

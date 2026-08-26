@@ -1328,6 +1328,43 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   })
 })
 
+describe("compileWorkflowConfig — validateDefinition warnings (package 03)", () => {
+  it("a workflow with warnings but no errors compiles successfully, surfacing the warning on the result rather than throwing", () => {
+    const { definition, warnings } = compileWorkflowConfig(
+      {
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "idle",
+            states: {
+              idle: {
+                actor: "human",
+                message: "waiting",
+                on: { "* **": "checking" },
+              },
+              // Non-prompt, non-initial, non-human, no `C` row — the exact
+              // shape `validateHasCRow` warns on.
+              checking: {
+                actor: "check",
+                script: "npm run lint",
+                on: { "A FEEDBACK.md": "idle" },
+              },
+            },
+          },
+        },
+      },
+      "/config-dir",
+    )
+    expect(definition.states["checking"]).toBeDefined()
+    expect(warnings).toEqual(['state "checking" declares no "C" row'])
+  })
+
+  it("a workflow with no such state compiles with an empty warnings array", () => {
+    const { warnings } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
+    expect(warnings).toEqual([])
+  })
+})
+
 describe("the `stateFile` compiler — `file:` prepend and its four rejections", () => {
   const workflowWithFile = (file: string): Record<string, unknown> => ({
     entry: { default: "root" },

@@ -256,9 +256,31 @@ describe('gtd — warns on a state with no "C" row (package 03)', () => {
     const repo = seededRepo()
     const { stdout, stderr, exitCode } = await run(repo, "next")
     expect(exitCode).toBe(0)
-    expect(stderr).toContain("building")
-    expect(stderr).toContain('"C" row')
+    // Pinned as an exact count, not just `contains` — this is the fact that
+    // "once per invocation, not once per config load" actually rests on.
+    expect(stderr.match(/"C" row/g)).toHaveLength(1)
+    expect(stderr).toContain('state "building" declares no "C" row')
     expect(stdout).not.toContain('building" declares')
+  })
+
+  it("stdout is byte-identical to a run with no warnings — the warning is stderr-only", async () => {
+    const warned = await run(seededRepo(), "next")
+    // Same workflow, minus `building`'s missing `C` row (the only difference)
+    // — `gtd next` rests at `idle` either way, so if the warning leaked into
+    // stdout at all, this comparison would catch it.
+    const fixedRepo = new InMemRepo()
+    fixedRepo.writeFile(
+      ".gtdrc.yaml",
+      WORKFLOW_WITH_MISSING_C_ROW.replace(
+        '"A foo.txt": idle',
+        '"A foo.txt": idle\n            "C": idle',
+      ),
+    )
+    fixedRepo.commitAllWithPrefix("chore: add workflow with the C row added")
+    const clean = await run(fixedRepo, "next")
+    expect(warned.exitCode).toBe(0)
+    expect(clean.exitCode).toBe(0)
+    expect(warned.stdout).toBe(clean.stdout)
   })
 
   it("the bundled unified template prints no such warning", async () => {
@@ -268,6 +290,36 @@ describe('gtd — warns on a state with no "C" row (package 03)', () => {
     const { stderr, exitCode } = await run(repo, "next")
     expect(exitCode).toBe(0)
     expect(stderr).not.toContain('"C" row')
+  })
+
+  it('gtd visualize prints no warning — needsOf is "config", not "state"', async () => {
+    const repo = seededRepo()
+    const { io, result } = makeCapturingCliIo(repo)
+    const fiber = Effect.runFork(runCli(["node", "gtd.js", "visualize", "--port", "0"], io))
+    // `visualize` blocks forever (a server) — give it a moment to flush its
+    // startup line, then interrupt, exactly like the other visualize test in
+    // this file below.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    const { stderr } = result()
+    expect(stderr).not.toContain('"C" row')
+  })
+
+  it('gtd lsp prints no warning — needsOf is "none", and lsp never loads a workflow definition at all', async () => {
+    const repo = seededRepo()
+    const { io, result } = makeCapturingCliIo(repo)
+    const fiber = Effect.runFork(runCli(["node", "gtd.js", "lsp"], io))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    const { stderr } = result()
+    expect(stderr).not.toContain('"C" row')
+  })
+
+  it('gtd next --verbose narrates "config: layer" exactly once — the extra load added to surface warnings does not double it', async () => {
+    const repo = seededRepo()
+    const { stderr, exitCode } = await run(repo, "next", "--verbose")
+    expect(exitCode).toBe(0)
+    expect(stderr.match(/config: layer/g)).toHaveLength(1)
   })
 })
 

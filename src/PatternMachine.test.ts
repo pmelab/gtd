@@ -1918,7 +1918,7 @@ describe("validateDefinition — missing-C-row warning", () => {
     expect(warnings).toEqual([])
   })
 
-  it("does not warn a state that declares a `* **` catch-all row — the author already covered every dirty tree", () => {
+  it("still warns a state that declares a `* **` catch-all row — a diff pattern never matches a clean tree, so it says nothing about the clean case", () => {
     const { warnings } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
@@ -1926,10 +1926,10 @@ describe("validateDefinition — missing-C-row warning", () => {
         b: { actor: "check", script: "y", on: [["* **", "a"]] },
       },
     })
-    expect(warnings).toEqual([])
+    expect(warnings).toEqual(['state "b" declares no "C" row'])
   })
 
-  it("does not warn a state that declares its own `file:` — its narrow rows are already scoped to that steering path", () => {
+  it("still warns a state that declares its own `file:` — its narrow rows are still all diff patterns, none matching a clean tree", () => {
     const { warnings } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
@@ -1942,7 +1942,29 @@ describe("validateDefinition — missing-C-row warning", () => {
         },
       },
     })
+    expect(warnings).toEqual(['state "b" declares no "C" row'])
+  })
+
+  it("does not warn a human-actor state with no C row — docs/driver.md lands its opening beat unconditionally on every restart while a process rests there, which a C row would turn into a real commit", () => {
+    const { warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "check", script: "x", on: [["A x", "b"]] },
+        b: { actor: "human", message: "y", on: [["* **", "a"]] },
+      },
+    })
     expect(warnings).toEqual([])
+  })
+
+  it("still warns a non-human, non-prompt, non-initial state with no C row even when its own actor kind isn't check", () => {
+    const { warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { actor: "agent", message: "y", on: [["A x", "a"]] },
+      },
+    })
+    expect(warnings).toEqual(['state "b" declares no "C" row'])
   })
 
   it("never surfaces a warning as an error", () => {

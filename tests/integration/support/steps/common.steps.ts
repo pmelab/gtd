@@ -388,6 +388,26 @@ Then(
   },
 )
 
+// The stderr counterpart — proves a warning (or any other stderr line)
+// prints once per invocation, not once per internal re-load/re-check.
+Then(
+  "stderr contains {string} exactly {int} times",
+  (world: GtdWorld, text: string, count: number) => {
+    const stderr = world.lastResult.stderr
+    let actual = 0
+    let idx = 0
+    while ((idx = stderr.indexOf(text, idx)) !== -1) {
+      actual++
+      idx += text.length
+    }
+    assert.strictEqual(
+      actual,
+      count,
+      `Expected stderr to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${stderr}`,
+    )
+  },
+)
+
 /**
  * Asserts on `world.lastScriptOutput`, distinct from `world.lastResult.stdout`
  * (gtd's own plain-text line). LIVE tier only: the in-memory tier's

@@ -1160,13 +1160,18 @@ export const runCommand = (
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
     yield* assertRepositoryHasCommits(git)
-    // One load here, own to this block: `ConfigService.load` re-runs on every
-    // `yield*` (it isn't memoized), so emitting from inside it would print a
-    // warning once per internal reload within one invocation. This call is
-    // the ONE per-invocation load that counts for warnings — `dispatch`'s own
-    // internal reloads never warn again.
-    const config = yield* (yield* ConfigService).load
+    // One extra load here, own to this block, just to read `.warnings` ahead
+    // of `dispatch`'s own (unrelated) load(s) — `ConfigService.load` isn't
+    // memoized, and `Config.ts`'s pipeline narrates one "config: layer ..."
+    // line per level on EVERY call, so a second bare load under --verbose
+    // would double that output. Silence narration on this one call only (a
+    // scoped Narrator override, never touching the outer context `dispatch`
+    // runs under) — this load exists purely to surface `.warnings`, not to
+    // narrate again.
     const narrator = yield* Narrator
+    const config = yield* (yield* ConfigService).load.pipe(
+      Effect.provideService(Narrator, { narrate: () => Effect.void, warn: () => Effect.void }),
+    )
     for (const warning of config.warnings) yield* narrator.warn(`gtd: warning: ${warning}`)
     yield* dispatch
   })

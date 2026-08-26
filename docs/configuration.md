@@ -420,6 +420,23 @@ rules JSON Schema cannot express — exactly one content kind, `entry.default`
 resolving to a real state, targets naming defined states, reachability — remain
 the compiler's job at load time.
 
+Not every finding is fatal. A non-`prompt`, non-initial, non-`human`-actor state
+that declares no `"C"` (clean-tree) row is a **warning**, never a load error — a
+clean tree there is a legitimate no-op by design (see "Step capture" in
+AGENTS.md), but usually an oversight worth a nudge:
+
+```
+gtd: warning: state "checking" declares no "C" row
+```
+
+Every command that resolves workflow state prints each such warning once per
+invocation, on stderr only — never stdout, and never a nonzero exit. It repeats
+on every invocation until the workflow declares either a `"C"` row or is
+otherwise fixed; that repetition is intentional, not a bug. `gtd visualize` and
+`gtd lsp` never print it (neither resolves workflow state the same way
+`gtd next`/`gtd land`/`gtd --entry` do). The bundled unified template ships
+none.
+
 ### The normalization-only contract on `format:`
 
 `gtd land`'s own emitted script never runs a mode's `format:`/`validate:` pair —

@@ -112,8 +112,10 @@ describe("the bundled unified workflow template", () => {
       (s.on ?? []).filter(([, to]) => to === "unwind").map(() => from),
     )
     expect(inbound).toEqual(["idle"])
+    // Both the dirty (revert applied) and clean (nothing left to revert) rows
+    // land on the same target — no filename fork, whichever fires.
     const unwindTargets = (definition.states.unwind!.on ?? []).map(([, to]) => to)
-    expect(unwindTargets).toEqual(["start-gate.check"])
+    expect(unwindTargets).toEqual(["start-gate.check", "start-gate.check"])
     expect((definition.states["start-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
       "design.triage",
     )

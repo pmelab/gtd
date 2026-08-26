@@ -13,7 +13,12 @@ import {
   nodeFileRefReader,
   type FileRefReader,
 } from "./PatternConfig.js"
-import { type ModeDef, type StateName, type WorkflowDefinition } from "./PatternMachine.js"
+import {
+  validateDefinition,
+  type ModeDef,
+  type StateName,
+  type WorkflowDefinition,
+} from "./PatternMachine.js"
 import type { MachineNode } from "./Machines.js"
 import {
   defaultMachineTree,
@@ -275,7 +280,12 @@ const toOperations = (
       rcVars,
       machineTree: defaultMachineTree,
       stateScopes: defaultStateScopes,
-      warnings: [],
+      // Derived from the same validator a custom `workflow:` goes through
+      // (never hardcoded) — the built-in default just happens to pass clean
+      // today; `modes:` merging above never touches `states`/`on`, so
+      // re-validating the unmerged definition is equivalent and avoids a
+      // throwaway merged copy.
+      warnings: validateDefinition(defaultWorkflowDefinition).warnings,
     }
   }
   const {
