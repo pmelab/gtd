@@ -1,13 +1,14 @@
 Feature: Prompts carry diff RANGES, never diff CONTENT
 
   A gtd prompt never inlines a rendered diff. Instead it names the commit its
-  changes are based at (`it.reviewBase`/`it.retainedBase`/`it.startCommit`) and
+  changes are based at (`it.reviewBase`/`it.processBase`/`it.startCommit`) and
   tells the agent to inspect the range itself with `git diff`. Coverage for
-  the `build.review.reviewing` and `build.squashing` prompt sites lives with their own
-  flows (`default-workflow.feature`'s incremental-review scenario, `entry.feature`'s
-  first-review scenario, `squash.feature`); this file covers the two sites
-  nothing else exercises: `packages.item.spec.review` (the per-package build's
-  own review prompt) and `build.review.deciding`'s captured manifest — see
+  the `build.review.reviewing` prompt site lives with its own flows
+  (`default-workflow.feature`'s incremental-review scenario, `entry.feature`'s
+  first-review scenario); `gtd summary`'s own prompt follows the same rule and
+  is covered by `summary.feature`. This file covers the two sites nothing else
+  exercises: `packages.item.spec.review` (the per-package build's own review
+  prompt) and `build.review.deciding`'s captured manifest — see
   `src/workflows/unified.yaml` and `src/PatternTemplates.ts`.
 
   Background:

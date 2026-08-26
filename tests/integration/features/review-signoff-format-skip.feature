@@ -54,5 +54,5 @@ Feature: A step whose diff deletes its own file: skips a mode's format: command
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
+    And the last commit subject is "gtd(check): build.review.deciding → idle"
     And ".gtd/REVIEW.md" does not exist

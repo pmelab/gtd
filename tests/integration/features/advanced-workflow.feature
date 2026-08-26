@@ -49,7 +49,8 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
                 on:
                   "* **": picking
               done:
-                commit: "chore: tasks complete"
+                actor: human
+                message: "tasks complete"
       """
     And a file ".gtd/tasks/01-a.md" with:
       """
@@ -96,7 +97,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Given the file ".gtd/NEXT.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "chore: tasks complete"
+    And the last commit subject is "gtd(check): picking → done"
     And the git status is clean
 
   Scenario: an empty queue on the very first entry into picking matches the clean "C" row directly
@@ -135,7 +136,8 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
                 on:
                   "* **": picking
               done:
-                commit: "chore: tasks complete"
+                actor: human
+                message: "tasks complete"
       """
     And a file "NOTE.md" with:
       """
@@ -148,5 +150,5 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     # picking: .gtd/tasks/ was already empty, so a clean step matches "C" directly
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "chore: tasks complete"
+    And the last commit subject is "gtd(check): picking → done"
     And the git status is clean

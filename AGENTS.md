@@ -89,20 +89,21 @@ preserved:
   failure, not a contract; no command — `next`, `status`, or `land` — touches
   the git dir to record that a beat was dispatched. Every write gtd causes
   happens inside a script it emitted and the driver ran — the review window's
-  own `git reset --mixed` open and close, and the squash finale's soft reset:
-  those are the driver running an emitted script, not a command reaching into
-  git itself. A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`)
-  and hands it to `planStep`/`planEntry`. Never read a `Rest` after a `perform`,
-  and never let one span the review-window bracket — a `Rest` resolved before
-  that bracket resolves against the wrong HEAD. `src/program.ts` never reaches
-  into `GitService` directly except two narrow exceptions: the
-  `abandon`/`restore` hard/mixed resets — recovery commands that must work even
-  when a `Rest` would refuse, so they reset directly instead of resolving one —
-  and the review sign-off/feedback-progress gates' own `readFileAtRef` reads
-  (they need the COMMITTED, pre-turn copy of a file, which a `Rest` snapshot —
-  taken before the turn lands — doesn't carry). The review window and the
-  steering-file gate are deliberately invisible to the pure engine — don't
-  "simplify" them back into it.
+  own `git reset --mixed` open and close, and the initial-state collapse's own
+  mixed reset (`collapsesWith`): those are the driver running an emitted script,
+  not a command reaching into git itself. A command resolves ONE `Rest`
+  (`Edge.ts`'s `currentRest`/`restAt`) and hands it to `planStep`/`planEntry`.
+  Never read a `Rest` after a `perform`, and never let one span the
+  review-window bracket — a `Rest` resolved before that bracket resolves against
+  the wrong HEAD. `src/program.ts` never reaches into `GitService` directly
+  except two narrow exceptions: the `abandon`/`restore` hard/mixed resets —
+  recovery commands that must work even when a `Rest` would refuse, so they
+  reset directly instead of resolving one — and the review
+  sign-off/feedback-progress gates' own `readFileAtRef` reads (they need the
+  COMMITTED, pre-turn copy of a file, which a `Rest` snapshot — taken before the
+  turn lands — doesn't carry). The review window and the steering-file gate are
+  deliberately invisible to the pure engine — don't "simplify" them back into
+  it.
 
 - **The review window issues no whole-tree index WRITE, and every git index
   write tolerates `index.lock` contention.** gtd shares one worktree index with
@@ -232,8 +233,8 @@ grammar) is a different, much rarer kind of change — that touches
 all of the above. `src/PatternTemplates.ts` itself never touches git or the
 filesystem — every impure value (commit hashes, diff bases, the `read` callback)
 is injected by its caller via `TemplateContext`, and a render error (a malformed
-template, `read()` throwing) propagates uncaught so a failed `commit:` render
-refuses the step.
+template, `read()` throwing) propagates uncaught so a failed render refuses the
+step rather than write a broken commit or prompt.
 
 A new STATE PROPERTY is not one of these anymore: it's one entry in
 `src/StateFields.ts`'s `STATE_FIELDS` table plus its behaviour (a bespoke
@@ -352,15 +353,15 @@ parser, one envelope. The table is the source of truth, not prose:
   so e.g. a malformed steering file is never committed (an agent's draft or a
   human's gate edit alike). Each guard is a no-op when it doesn't apply to the
   resting state (see `StepGuard.appliesTo`), and the whole registry is skipped
-  for a squash/no-op decision, or an ATTEMPT (there is nothing to guard in an
-  empty diff, and a `format:` run must not dirty an attempt and break the
-  empty-diff derivation `stalledAt` relies on). The emitted format/validate pair
-  is skipped for an attempt for the same reason, AND for a step whose diff
-  DELETES that `file:` (`deletesFile`, shared with the guards): deleting it is a
-  legitimate outcome — a review sign-off's whole diff is the review doc's
-  deletion — and a `format:` like `prettier --write` exits non-zero on a missing
-  path, which aborted the whole `set -euo pipefail` script before the commit and
-  made the step unlandable
+  for a no-op decision, or an ATTEMPT (there is nothing to guard in an empty
+  diff, and a `format:` run must not dirty an attempt and break the empty-diff
+  derivation `stalledAt` relies on). The emitted format/validate pair is skipped
+  for an attempt for the same reason, AND for a step whose diff DELETES that
+  `file:` (`deletesFile`, shared with the guards): deleting it is a legitimate
+  outcome — a review sign-off's whole diff is the review doc's deletion — and a
+  `format:` like `prettier --write` exits non-zero on a missing path, which
+  aborted the whole `set -euo pipefail` script before the commit and made the
+  step unlandable
 - **One property of a guard's INPUTS that makes a guard silently INERT rather
   than loudly wrong when broken:** the pre-turn copy of a `file:` is read at
   `Rest.windowHead` — the open review window's saved head — never at real

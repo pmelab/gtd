@@ -134,7 +134,7 @@ Feature: gtd land — the one landing verb, actorless
     And stdout contains "nothing to do at \"checking\""
 
   @inmem
-  Scenario: the green --entry fix-precheck collapse (a squash) settles at exit 0 with the commit count unchanged
+  Scenario: the green --entry fix-precheck collapse (a mixed-reset no-op) settles at exit 0 with the commit count unchanged
     Given a test project
     And the workflow
     And I record the commit count

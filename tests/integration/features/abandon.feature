@@ -2,11 +2,12 @@
 Feature: gtd abandon — end the process underway without completing it
 
   `gtd --entry <state>` refuses while a process is underway ("finish it, or run
-  `gtd abandon`"), and a workflow only leaves a process through its own squash
-  finale. `gtd abandon` is the way out of one nobody is going to finish: it
-  closes any open review checkout window (the shared bracket every state
-  subcommand runs), then rewinds HEAD to the commit the process started from —
-  the same boundary a squash resets to.
+  `gtd abandon`"), and a workflow only leaves a process through an ordinary
+  sign-off commit entering its initial state. `gtd abandon` is the way out of
+  one nobody is going to finish: it closes any open review checkout window
+  (the shared bracket every state subcommand runs), then rewinds HEAD to the
+  commit the process started from — the same boundary a sign-off commit lands
+  on.
 
   Nothing is discarded: every turn commit is dropped, and everything they
   carried (the code, the `.gtd/` steering files) stays in the working tree as

@@ -1,21 +1,22 @@
 @live
-Feature: A tick with no comment signs off — build.review.deciding's script reaches build.squashing
+Feature: A tick with no comment signs off — build.review.deciding's script reaches idle
 
   `build.review.deciding`'s check script (`src/workflows/unified.yaml`)
   decides sign-off vs. feedback from the human's step content: a tick with no
-  other comment or hand-edit is a clean sign-off, landing at `build.squashing`.
-  This is the one branch issue #128 broke (a `reviewFile` repointed outside
-  `.gtd/` looped review forever) — now that every steering file sits at a
-  fixed path under `.gtd/`, this is the only `@live` proof left in the suite
-  that the collapsed `":(exclude).gtd"` pathspec still lets that branch
-  through.
+  other comment or hand-edit is a clean sign-off, landing an ordinary commit
+  entering the workflow's initial state (`idle`) — every prior turn commit
+  stays on the branch. This is the one branch issue #128 broke (a
+  `reviewFile` repointed outside `.gtd/` looped review forever) — now that
+  every steering file sits at a fixed path under `.gtd/`, this is the only
+  `@live` proof left in the suite that the collapsed `":(exclude).gtd"`
+  pathspec still lets that branch through.
 
   This scenario actually EXECUTES the rendered script (`I execute the printed
   check script`) rather than simulating its outcome by hand — the bug this
   guards against lives in the script's own shell logic, which `@inmem`
   scenarios never run (see AGENTS.md).
 
-  Scenario: a tick with no comment signs off — deciding's script lands at build.squashing
+  Scenario: a tick with no comment signs off — deciding's script lands an ordinary commit entering idle
     Given a test project
     And a commit "gtd(agent): build.health.check → build.review.reviewing" that adds ".gtd/REVIEW.md" with:
       """
@@ -42,4 +43,4 @@ Feature: A tick with no comment signs off — build.review.deciding's script rea
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
+    And the last commit subject is "gtd(check): build.review.deciding → idle"

@@ -13,9 +13,11 @@ Feature: The bundled unified workflow — one flow, end to end
   conversation. `architecture.gate` mirrors the same shape for TECHNICAL
   questions, then `architecture.decompose` mechanically writes one package
   file per concern. From there the per-package build queue (`packages.*`) and
-  the shared review + squash tail (`build.*`) are unchanged: health/fix,
-  per-package spec review, the human review gate's sign-off-vs-feedback
-  arbiter, and the squash finale.
+  the shared review tail (`build.*`) are unchanged: health/fix, per-package
+  spec review, and the human review gate's sign-off-vs-feedback arbiter — a
+  clean sign-off lands an ordinary commit straight into `idle`, retaining
+  every prior per-turn commit on the branch; `gtd summary` afterward prints a
+  closing-message prompt.
 
   Every `check`-actor state here (`start-gate.check`, `design.gate.check`,
   `architecture.gate.check`, `packages.picking`, `packages.item.health.check`,
@@ -28,7 +30,7 @@ Feature: The bundled unified workflow — one flow, end to end
   printed check script".
 
   @inmem
-  Scenario: an ordinary code change starts the process — triage, both gates skip when question-free, one package built/fixed/reviewed, then a clean review sign-off into the squash finale
+  Scenario: an ordinary code change starts the process — triage, both gates skip when question-free, one package built/fixed/reviewed, then a clean review sign-off lands directly into idle
     Given a test project
     And the workflow
     # No steering file anywhere — a plain source edit is the whole start diff.
@@ -200,26 +202,43 @@ Feature: The bundled unified workflow — one flow, end to end
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
-
-    # build.squashing: the agent writes the one-commit message; entering
-    # `done` collapses the whole process into a single commit
-    Given a file ".gtd/COMMIT_MSG.md" with:
-      """
-      feat: add greeting export
-
-      Implements the greet export.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "feat: add greeting export"
+    And the last commit subject is "gtd(check): build.review.deciding → idle"
     And the git status is clean
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/ARCHITECTURE.md" does not exist
     And ".gtd/packages/01-greeting.md" does not exist
     And ".gtd/REVIEW.md" does not exist
-    And ".gtd/COMMIT_MSG.md" does not exist
     And "src/greeter.ts" exists
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"idle\":true"
+    And the commit subjects from oldest to newest are:
+      """
+      chore: initial commit
+      chore: init gtd workflow
+      gtd(human): idle → unwind
+      gtd(check): unwind → start-gate.check
+      gtd(check): start-gate.check → design.triage
+      gtd(agent): design.triage → design.gate.check
+      gtd(check): design.gate.check → architecture.author
+      gtd(agent): architecture.author → architecture.gate.check
+      gtd(check): architecture.gate.check → architecture.decompose
+      gtd(agent): architecture.decompose → packages.picking
+      gtd(check): packages.picking → packages.item.building
+      gtd(agent): packages.item.building → packages.item.health.check
+      gtd(check): packages.item.health.check → packages.item.fix-suite
+      gtd(agent): packages.item.fix-suite → packages.item.health.check
+      gtd(check): packages.item.health.check → packages.item.spec.review
+      gtd(agent): packages.item.spec.review → packages.item.fix-spec
+      gtd(agent): packages.item.fix-spec → packages.item.health.check
+      gtd(check): packages.item.health.check → packages.item.spec.review
+      gtd(agent): packages.item.spec.review → packages.item.closing
+      gtd(check): packages.item.closing → packages.picking
+      gtd(check): packages.picking → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.await-review
+      gtd(human): build.review.await-review → build.review.deciding
+      gtd(check): build.review.deciding → idle
+      """
 
   @inmem
   Scenario: an actionable review round loops back through re-unwind — the human's hand-edit is out of the tree by the time triage runs
@@ -401,29 +420,19 @@ Feature: The bundled unified workflow — one flow, end to end
 
     # build.review.collecting: JUDGES the round NON-actionable (only an
     # approving remark) — CONSUMES the raw capture (deletes it, the only
-    # change this turn) -> straight to sign-off, no design lap for nothing,
-    # and nothing left over to leak into the finale
+    # change this turn) -> straight to sign-off, landing directly in `idle`
+    # (the process boundary), no design lap for nothing, and nothing left
+    # over to leak into a later `gtd summary` call
     Given the file ".gtd/REVIEW_RAW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.collecting → build.squashing"
+    And the last commit subject is "gtd(agent): build.review.collecting → idle"
     And ".gtd/REVIEW_RAW.md" does not exist
     And ".gtd/REQUIREMENTS.md" does not exist
-
-    # build.squashing: the agent writes the one-commit message; entering
-    # `done` collapses the whole process into a single commit — the consumed
-    # raw capture must not resurface here, the exact leak Task 3's own
-    # criterion warns about
-    Given a file ".gtd/COMMIT_MSG.md" with:
-      """
-      chore: human review
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "chore: human review"
     And the git status is clean
-    And ".gtd/REVIEW_RAW.md" does not exist
-    And ".gtd/COMMIT_MSG.md" does not exist
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"idle\":true"
 
   @live
   Scenario: re-unwind actually reverts a hand-edited code line, never resurrects the review file, and leaves the state dir alone
@@ -811,7 +820,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And "src/real.ts" does not exist
 
     # Neither piece resurfaces on later laps — both are gone for good, long
-    # before anything could reach the squash finale.
+    # before anything could reach review sign-off.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): design.gate.check → architecture.author"
@@ -1141,7 +1150,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.squashing"
+    And the last commit subject is "gtd(check): build.review.deciding → idle"
 
   @inmem
   Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
@@ -1184,12 +1193,13 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
   @inmem
-  Scenario: an approved process's squash commit is a process boundary — a fresh process's fixing retry budget doesn't pool with a previous process's
+  Scenario: an ordinary sign-off commit into idle is a process boundary — a fresh process's fixing retry budget doesn't pool with a previous process's
     Given a test project
     And the workflow
     # cycle 1: already spent its whole fixing retry budget (3 entries) before
-    # ending at a squash commit — a plain (non-gtd) commit subject, which is a
-    # process boundary.
+    # ending at a commit entering `idle` — the sign-off edge's own boundary
+    # commit, per computeProcessRun stopping at any commit entering the
+    # workflow's initial state.
     And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 1 failed
@@ -1214,11 +1224,11 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       fixed cycle 1 attempt 3
       """
-    And a commit "feat: cycle 1 complete" that adds "src/cycle1.ts" with:
+    And a commit "gtd(check): build.review.deciding → idle" that adds "src/cycle1.ts" with:
       """
       export const cycle1 = 1
       """
-    # cycle 2 starts fresh after the squash boundary. If retry counts pooled
+    # cycle 2 starts fresh after the sign-off boundary. If retry counts pooled
     # across it, this process's very FIRST entry into "build.fix" would
     # already see 3 prior visits and redirect straight to "escalate".
     And a commit "gtd(agent): build.health.check" that adds ".gtd/marker.md" with:
@@ -1333,7 +1343,8 @@ Feature: The bundled unified workflow — one flow, end to end
                 with:
                   onDone: done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a file "NOTE.md" with:
       """
@@ -1360,11 +1371,11 @@ Feature: The bundled unified workflow — one flow, end to end
     # leaf's own $onDone was bound at mid's reference site to mid's OWN
     # $onDone, which was in turn bound at root's reference site to "done" — a
     # param threaded grandparent -> parent -> child resolves in the
-    # grandparent's namespace, landing on the commit state two levels up.
+    # grandparent's namespace, landing on the ordinary state two levels up.
     Given a file "NOTE.md" with:
       """
       done
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "chore: done"
+    And the last commit subject is "gtd(agent): nested.inner.work → done"

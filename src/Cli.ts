@@ -47,6 +47,7 @@ export type Command =
       readonly openQuestions?: boolean
     }
   | { readonly kind: "install" }
+  | { readonly kind: "summary" }
 
 export type CliPlan =
   | { readonly kind: "output"; readonly stdout: string }
@@ -201,8 +202,7 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "<state>",
     help: [
       "(with no command at all) start a brand new process at",
-      "<state> — any declared, non-commit state — authenticated",
-      "as human",
+      "<state> — any declared state — authenticated as human",
     ],
   },
   {
@@ -325,8 +325,8 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: "none",
     details: [
       "Land whatever the tree now shows at the currently resolved",
-      "rest — a human capture, an agent/check turn, an empty",
-      "attempt (a fruitless prompt turn), or a squash. Pass",
+      "rest — a human capture, an agent/check turn, or an empty",
+      "attempt (a fruitless prompt turn). Pass",
       "--cost=<n> (optionally --model=<name>) to record the",
       "just-finished invocation's token cost and model on the",
       "turn commit (summed into it.processCost/",
@@ -356,12 +356,12 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     kind: "restore",
     arity: "none",
     details: [
-      "Hard-reset HEAD back to the pre-squash tip retained by the",
-      "last squash/abandon (refs/worktree/gtd/history), undoing a",
-      "squash or bringing back an abandoned process's turns.",
-      "Refuses on a dirty working tree, when there is no retained",
-      "history, or when HEAD has advanced past the squash with",
-      "commits that would be lost",
+      "Hard-reset HEAD back to the tip retained by the last",
+      "abandon (refs/worktree/gtd/history), bringing back an",
+      "abandoned process's turns. Refuses on a dirty working",
+      "tree, when there is no retained history, or when HEAD has",
+      "advanced past the retained tip with commits that would be",
+      "lost",
     ],
   },
   {
@@ -446,6 +446,25 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "https://github.com/pmelab/gtd/blob/main/docs/driver.md's",
       "'Writing your own driver'. Writes nothing: this installs",
       "knowledge into the calling agent's context, not files on disk.",
+    ],
+  },
+  {
+    token: "summary",
+    kind: "summary",
+    arity: "none",
+    details: [
+      "Print the prompt for an agent to write the process HEAD",
+      "closes or sits inside its own closing message — the entry",
+      "commit, each human-authored commit (a review round, an",
+      "answered question gate), the diff range to inspect, and",
+      "it.processCost/processCostByModel. Writes nothing: no git,",
+      "no state transition, no file, no session identity — the",
+      "driver pipes the output to a cold agent and does what it",
+      "wants with the result (a squash, an amend, a PR body).",
+      "Refuses (exit 1) when the workflow declares no summary:",
+      "template, or when the resolved run has no commits to name",
+      "— runnable any time before the next thing lands on the",
+      "branch",
     ],
   },
 ]
@@ -855,7 +874,15 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   // Every other kind carries no extra fields.
   const command: Command = {
-    kind: kind as "lsp" | "init" | "abandon" | "restore" | "next" | "validate" | "install",
+    kind: kind as
+      | "lsp"
+      | "init"
+      | "abandon"
+      | "restore"
+      | "next"
+      | "validate"
+      | "install"
+      | "summary",
   }
   return { kind: "command", command, json, sh, verbose }
 }

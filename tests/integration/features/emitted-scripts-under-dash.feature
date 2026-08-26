@@ -54,15 +54,16 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
                 message: "review the change — leave a note in FEEDBACK_NOTE.md to request changes, or accept by changing nothing"
                 on:
                   "A FEEDBACK_NOTE.md": revising
-                  "C": done
-                  "* **": done
+                  "C": closed
+                  "* **": closed
               revising:
                 actor: agent
                 prompt: "Address the feedback in FEEDBACK_NOTE.md, then delete it."
                 on:
                   "* **": reviewing
-              done:
-                commit: "chore: calculator done"
+              closed:
+                actor: human
+                message: "process closed"
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -106,19 +107,18 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
     # "revising" turn deleted it and landed again (reopening the window) —
     # both the close and the open sequence ran under dash in this one run.
     # HEAD is rewound to the review base while the window is open, so the
-    # intermediate commits aren't visible via plain `git log` yet, and won't
-    # be even once the window closes — the finale below SQUASHES them away,
-    # exactly like the bundled template's own `done`/`commit:` state does.
+    # intermediate commits aren't visible via plain `git log` yet — they
+    # reappear once the window closes, all still on the branch (no collapse).
     And the git ref "refs/worktree/gtd/review-head" exists
     And "FEEDBACK_NOTE.md" does not exist
     And the git status does not contain "FEEDBACK_NOTE.md"
     # Re-running with nothing changed is itself the sign-off decision (the
     # "C" edge above) — this beat's own land closes the window one last time
-    # and squashes the whole process into one commit, all under dash.
+    # and lands an ordinary commit, all under dash.
     When I run the driver from the docs
     Then it succeeds
     And the git ref "refs/worktree/gtd/review-head" does not exist
-    And the git log contains "chore: calculator done"
+    And the last commit subject is "gtd(human): reviewing → closed"
     And "src/calc.ts" exists
     And "FEEDBACK_NOTE.md" does not exist
 

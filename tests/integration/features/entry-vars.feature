@@ -39,7 +39,8 @@ Feature: "--var" persistence across a whole process, overridden by the environme
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
 
   Scenario: a "--var" value supplied at entry stays visible in a later turn's rendered prompt

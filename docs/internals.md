@@ -111,15 +111,18 @@ the package queue again — a hand-edit you made during review is treated as a
 **sketch**, the same as any other change that starts a process, not a fix the
 agent builds on: it is reverted out of the tree first, and your intent survives
 only in your own review-round commit for triage to read. There is no baseline
-check on the way back into planning. Only the turn that drafts the final squash
-message resumes the session that built the feature in the first place (the
-review tail is nested inside that build identity rather than sitting beside it)
-— an actionable round leaves that identity entirely, so it starts a fresh
-session like any other process. A comment is what asks for changes; landing with
-no comment signs off, whatever the boxes say, which collapses the whole process
-into one commit (a **squash finale** whose message an agent drafts). Deleting
-`.gtd/REVIEW.md` is refused — the guard only asks whether the step's diff
-deletes the file.
+check on the way back into planning. The review tail is nested inside that build
+identity rather than sitting beside it, so a late-breaking fix and the review
+turns that follow it all resume the SAME session that built the feature — an
+actionable round leaves that identity entirely, so it starts a fresh session
+like any other process. Landing the sign-off itself is a plain check step, not a
+prompt turn, so no session drafts anything there: a comment is what asks for
+changes; landing with no comment signs off, whatever the boxes say, which lands
+one more ordinary `gtd(...)` commit entering the workflow's initial state —
+every turn commit this process made stays on the branch. Run `gtd summary`
+afterward for a closing-message prompt — a cold read of the commits it names,
+not a resumed conversation. Deleting `.gtd/REVIEW.md` is refused — the guard
+only asks whether the step's diff deletes the file.
 
 A second entry, the same review tail's own direct entry point —
 `gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
@@ -129,16 +132,16 @@ template bound to the `reviewBase` var, so supplying it via `--var` fixes the
 whole process's diff base to that commitish) — though an actionable round on
 this entry runs the same full triage → gates → architecture → package-queue lap
 as any other, same as `re-unwind` re-plans a build process's own review
-feedback. A clean sign-off's squash keeps and describes only the fixes made
-_during_ the review (not the reviewed changeset); a clean sign-off with no fixes
-becomes an empty `chore: human review` commit. A third entry,
-`gtd --entry fix-precheck`, starts from a clean `idle` and goes straight into
-repairing a red baseline — repair, review, and squash into one commit. If the
-suite is already green there is nothing to fix, and the log is left untouched —
-no commit is left behind.
+feedback. A clean sign-off on this entry closes a process whose trace holds only
+the fixes made _during_ the review (not the reviewed changeset) — `gtd summary`
+afterward names only those. A third entry, `gtd --entry fix-precheck`, starts
+from a clean `idle` and goes straight into repairing a red baseline — repair,
+then review, landing an ordinary commit entering `idle`. If the suite is already
+green there is nothing to fix, and the log is left untouched — no commit is left
+behind.
 
 `--entry` itself isn't limited to states flagged `entry: true` — it accepts
-**any** declared, non-commit state of the active workflow (see
+**any** declared state of the active workflow (see
 [`gtd --entry`](./cli.md#commands)). `entry: true` only marks a state as an
 _extra_ reachability root (and drives a badge in `gtd visualize`) for a state
 that would otherwise be unreachable from the ordinary `idle` rest —

@@ -33,7 +33,8 @@ Feature: Refusals — no-match steps commit nothing
                   "A COMMIT_MSG.md": done
                   "M COMMIT_MSG.md": done
               done:
-                commit: '<%~ it.read("COMMIT_MSG.md") %>'
+                actor: human
+                message: "done"
       """
     And a file "NOTE.md" with:
       """

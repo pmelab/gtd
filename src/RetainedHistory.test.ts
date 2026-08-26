@@ -7,7 +7,6 @@ import {
   readRetainedHistory,
   restorability,
   retainHistory,
-  withHistoryTrailer,
 } from "./RetainedHistory.js"
 
 /**
@@ -50,44 +49,21 @@ describe("readRetainedHistory", () => {
 })
 
 describe("restorability", () => {
-  it("(a) fresh squash — HEAD is the new squash commit, distinct from the retained tip, with a matching trailer — is safe", async () => {
-    const git = stubGit({})
-    const message = withHistoryTrailer("gtd(agent): squashed feature", "tip123")
-    const result = await run(restorability(git, "squashHead999", message, "tip123"))
-    expect(result).toEqual({ ok: true })
-  })
-
-  it("(a) also passes in the degenerate case headHash === tipHash, as long as the trailer matches", async () => {
-    const git = stubGit({})
-    const message = withHistoryTrailer("gtd(agent): squashed feature", "tip123")
-    const result = await run(restorability(git, "tip123", message, "tip123"))
-    expect(result).toEqual({ ok: true })
-  })
-
-  it("(a) with a mismatched trailer hash falls through to rule (b) — ok when isAncestor is true", async () => {
-    const message = withHistoryTrailer("gtd(agent): squashed feature", "someOtherTip")
+  it("HEAD === tipHash (the degenerate ancestor case) is safe", async () => {
     const git = stubGit({ isAncestor: () => Effect.succeed(true) })
-    const result = await run(restorability(git, "tip123", message, "tip123"))
+    const result = await run(restorability(git, "tip123", "tip123"))
     expect(result).toEqual({ ok: true })
   })
 
-  it("(a) with a mismatched trailer hash falls through to rule (b) — refused when isAncestor is false", async () => {
-    const message = withHistoryTrailer("gtd(agent): squashed feature", "someOtherTip")
-    const git = stubGit({ isAncestor: () => Effect.succeed(false) })
-    const result = await run(restorability(git, "tip123", message, "tip123"))
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reason.length).toBeGreaterThan(0)
-  })
-
-  it("(b) cleaned abandon / fast-forward — headHash !== tipHash, isAncestor true — is safe", async () => {
+  it("cleaned abandon / fast-forward — headHash !== tipHash, isAncestor true — is safe", async () => {
     const git = stubGit({ isAncestor: () => Effect.succeed(true) })
-    const result = await run(restorability(git, "head789", "chore: cleanup", "tip123"))
+    const result = await run(restorability(git, "head789", "tip123"))
     expect(result).toEqual({ ok: true })
   })
 
-  it("refuses when HEAD is neither the tip nor an ancestor of it", async () => {
+  it("refuses when HEAD is not an ancestor of the retained tip", async () => {
     const git = stubGit({ isAncestor: () => Effect.succeed(false) })
-    const result = await run(restorability(git, "head789", "chore: unrelated", "tip123"))
+    const result = await run(restorability(git, "head789", "tip123"))
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(typeof result.reason).toBe("string")

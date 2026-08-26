@@ -79,11 +79,11 @@ then back to the parent, still resumes the SAME parent conversation; entering a
 **sibling or unrelated** scope does start a fresh one. The bundled template's
 `build.review` (the human review tail) is a worked example: it is nested INSIDE
 `build` (the builder's own machine) so that a `gtd --entry fix-precheck` run —
-`build.fix` -> `build.health.check` -> `build.review.*` -> `build.squashing` —
-stays inside one subtree, letting `build.squashing` resume the SAME session that
-made the fixes instead of a root-level sibling forcing it to re-derive the range
-from scratch on every pass through the tail. (An actionable review round breaks
-the run on purpose instead — it leaves `build` entirely through a root-level
+`build.fix` -> `build.health.check` -> `build.review.*` — stays inside one
+subtree, letting `build.review.reviewing` resume the SAME session that made the
+fixes instead of a root-level sibling forcing it to re-derive the range from
+scratch on every pass through the tail. (An actionable review round breaks the
+run on purpose instead — it leaves `build` entirely through a root-level
 `re-unwind` state and a full re-plan, since a hand-edit made during review is a
 sketch to reconsider, not a fix to build on.) Two instances of the same reusable
 machine (e.g. `build.health` and `packages.item.health`, both instantiating
@@ -243,7 +243,7 @@ invokes that script with.
 
 - **The required half** is everything that decides what lands in git — closing
   an open review checkout window, the resting state's own steering-mode
-  `format:`/`validate:` commands, the commit or squash itself (`gtd land` and
+  `format:`/`validate:` commands, the commit itself (`gtd land` and
   `gtd --entry <state>`), or the ref update and reset that undo a process
   (`gtd abandon`, `gtd restore`) — and, last, a printed line naming what just
   landed (`src/OutcomeScript.ts`'s `gtd_report_*` calls): a transition or
@@ -303,11 +303,11 @@ next, and whether a landing settles, are both PLAIN FIELDS on
 script itself, so ONE invocation both runs the landing and tells the driver
 whether to stop — no second read needed to decide. A no-op at a `script` rest
 settles right where it rests (stop immediately, nothing more to read); an
-ordinary or squash landing that finishes the whole process instead resolves
-`idle` on the FOLLOWING `gtd next` — the reference driver below reads once more
-only to DISPLAY that gate's message, never to decide whether to stop. Declaring
-a `C` edge on a `script` state is the workflow-side way to make the state
-advance instead of settling.
+ordinary landing that finishes the whole process instead resolves `idle` on the
+FOLLOWING `gtd next` — the reference driver below reads once more only to
+DISPLAY that gate's message, never to decide whether to stop. Declaring a `C`
+edge on a `script` state is the workflow-side way to make the state advance
+instead of settling.
 
 ### Drivers other than sh
 
@@ -451,9 +451,9 @@ the driver. Every landed turn is executed — and reported — by the emitted
 scripts themselves, via `gtd land --sh`'s own `$gtd_script` field, captured then
 piped to `sh`. `$gtd_settled` ends a run that has nothing left to do: a no-op at
 a `script` rest settles right where it rests (stop immediately, nothing more to
-read), while an ordinary or squash landing that finishes the whole process
-instead resolves `$gtd_idle` on the FOLLOWING beat's own `gtd next --sh` read —
-the reference driver reads once more (a plain `gtd next`) only to DISPLAY that
+read), while an ordinary landing that finishes the whole process instead
+resolves `$gtd_idle` on the FOLLOWING beat's own `gtd next --sh` read — the
+reference driver reads once more (a plain `gtd next`) only to DISPLAY that
 gate's own message, the decision to stop already made from `$gtd_settled`/
 `$gtd_idle` alone.
 

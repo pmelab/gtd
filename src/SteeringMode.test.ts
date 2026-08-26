@@ -39,7 +39,7 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
   state: "drafting",
   actor: "agent",
   reviewBase: "",
-  retainedBase: "",
+  processBase: "",
   processCost: 0,
   processCostByModel: [],
   read: (path: string) => {

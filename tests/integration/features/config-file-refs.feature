@@ -2,7 +2,7 @@
 Feature: A "./"-relative content value is a file reference, inlined at load time
 
   Pins `PatternConfig`'s file-reference rule (see its module docstring, "File
-  references"): a `script`/`prompt`/`message`/`commit` value starting with
+  references"): a `script`/`prompt`/`message` value starting with
   `./` or `../` is read from disk relative to the config file's own directory
   and inlined at load time — real disk I/O, so this feature runs `@live`. A
   missing file reference is a load error naming both the file and the state.
@@ -29,7 +29,8 @@ Feature: A "./"-relative content value is a file reference, inlined at load time
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a file "prompt.md" with:
       """
@@ -63,7 +64,8 @@ Feature: A "./"-relative content value is a file reference, inlined at load time
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And ".gtdrc" is staged
     When I commit with message "chore: add config"

@@ -12,20 +12,14 @@ import {
   renderRest,
   restAt,
   stalledAt,
+  summaryRun,
+  summaryTemplateContext,
   UNATTRIBUTED_MODEL,
   type ResolvedRest,
   type RestRequirements,
 } from "./Edge.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
-import {
-  commitAll,
-  commitAsIs,
-  discardPending,
-  shellQuote,
-  softResetTo,
-  updateRef,
-} from "./GitScript.js"
-import { HISTORY_REF, withHistoryTrailer } from "./RetainedHistory.js"
+import { commitAll, shellQuote } from "./GitScript.js"
 import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
 import { fakeGitOperations } from "./testing/GitDoubles.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
@@ -124,10 +118,11 @@ describe("reviewBaseFor", () => {
     startHash: trace[0]?.hash ?? startParentHash,
     startParentHash,
     diffBase,
-    trace,
+    trace: trace.map((entry) => ({ ...entry, actor: "agent" })),
     costEntries: [],
     entryVars: {},
     headTurn: undefined,
+    closingHash: undefined,
   })
 
   it("falls back to run.diffBase when no in-process commit entered a reviewBase state", () => {
@@ -166,10 +161,11 @@ describe("memoryResumedFor", () => {
     startHash: trace[0]?.hash ?? "p",
     startParentHash: "p",
     diffBase: "p",
-    trace,
+    trace: trace.map((entry) => ({ ...entry, actor: "agent" })),
     costEntries: [],
     entryVars: {},
     headTurn: undefined,
+    closingHash: undefined,
   })
 
   const restAtState = (def: WorkflowDefinition, state: string, actor = "agent"): ResolvedRest => ({
@@ -375,8 +371,8 @@ describe("currentRun", () => {
     const run = await provide(currentRun, repo)
     expect(run.startParentHash).toBe(boundary)
     expect(run.trace).toEqual([
-      { state: "grilling", hash: grilling },
-      { state: "building", hash: building },
+      { state: "grilling", hash: grilling, actor: "human" },
+      { state: "building", hash: building, actor: "agent" },
     ])
   })
 
@@ -389,7 +385,7 @@ describe("currentRun", () => {
     const grilling = repo.resolveRef("HEAD")!
     const run = await provide(currentRun, repo)
     expect(run.startParentHash).toBe(idleBoundary)
-    expect(run.trace).toEqual([{ state: "grilling", hash: grilling }])
+    expect(run.trace).toEqual([{ state: "grilling", hash: grilling, actor: "human" }])
   })
 
   it("retry counting resets across an idle boundary — a state entered repeatedly before it counts 0 after", async () => {
@@ -470,6 +466,115 @@ describe("currentRun", () => {
       const run = await provide(currentRun, repo)
       expect(run.headTurn).toBeUndefined()
     })
+  })
+})
+
+// ── summaryRun — currentRun's twin, boundary-INCLUSIVE at a closed process ──
+
+describe("summaryRun", () => {
+  it("a process still in flight (HEAD is not itself a closing boundary) resolves identically to currentRun", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(human): grilling")
+    repo.commitAllWithPrefix("gtd(agent): building")
+    const [ordinary, summary] = await Promise.all([
+      provide(currentRun, repo),
+      provide(summaryRun, repo),
+    ])
+    expect(summary).toEqual(ordinary)
+    expect(summary.closingHash).toBeUndefined()
+  })
+
+  it("HEAD itself a commit entering the initial state: the closing commit is folded into the trace and its hash recorded", async () => {
+    const { repo, boundary } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(human): grilling")
+    const grilling = repo.resolveRef("HEAD")!
+    repo.commitAllWithPrefix("gtd(agent): building")
+    const building = repo.resolveRef("HEAD")!
+    repo.commitAllWithPrefix("gtd(human): idle") // closes the process — "idle" is TRACE_WORKFLOW's initial state
+    const closing = repo.resolveRef("HEAD")!
+
+    const ordinary = await provide(currentRun, repo)
+    // currentRun excludes the boundary commit itself — an empty trace, and
+    // startParentHash is the closing commit's own hash (the new boundary).
+    expect(ordinary.trace).toEqual([])
+    expect(ordinary.startParentHash).toBe(closing)
+
+    const summary = await provide(summaryRun, repo)
+    expect(summary.closingHash).toBe(closing)
+    expect(summary.trace).toEqual([
+      { state: "grilling", hash: grilling, actor: "human" },
+      { state: "building", hash: building, actor: "agent" },
+      { state: "idle", hash: closing, actor: "human" },
+    ])
+    // The boundary-inclusive walk continues past the closing commit to the
+    // PREVIOUS process boundary — the non-workflow commit before grilling.
+    expect(summary.startParentHash).toBe(boundary)
+  })
+
+  it("once something else lands on top of the closing commit, it is no longer reachable this way — the walk stops at the new, unparseable HEAD", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(human): grilling")
+    repo.commitAllWithPrefix("gtd(agent): building")
+    repo.commitAllWithPrefix("gtd(human): idle") // closes the process
+    repo.commitAllWithPrefix("chore: unrelated commit on top") // breaks the boundary walk
+
+    const summary = await provide(summaryRun, repo)
+    expect(summary.closingHash).toBeUndefined()
+    expect(summary.trace).toEqual([])
+  })
+})
+
+// ── summaryTemplateContext — the context `gtd summary` renders against ──────
+
+describe("summaryTemplateContext", () => {
+  it("resolves a stateless/actorless, edge-less context off a run, with reviewBase/processBase/vars carried through", async () => {
+    const { repo, boundary } = seededNotesRepo()
+    repo.commitAllWithPrefix("gtd(human): checkpoint")
+    const checkpoint = repo.resolveRef("HEAD")!
+    repo.commitAllWithPrefix("gtd(agent): thinking")
+    const head = repo.resolveRef("HEAD")!
+
+    const context = await provide(
+      Effect.gen(function* () {
+        const run = yield* summaryRun
+        return yield* summaryTemplateContext(run)
+      }),
+      repo,
+    )
+
+    expect(context.state).toBe("")
+    expect(context.actor).toBe("")
+    expect(context.edges).toEqual([])
+    expect(context.startCommit).toBe(boundary)
+    expect(context.currentCommit).toBe(head)
+    expect(context.previousCommit).toBe(checkpoint)
+    expect(context.processBase).toBe(boundary)
+    expect(context.reviewBase).toBe(checkpoint)
+    expect(context.vars.testCommand).toBe("npm test")
+    expect(context.processCost).toBe(0)
+    expect(context.processCostByModel).toEqual([])
+  })
+
+  it("folds the closing commit into reviewBase/processBase the same way when the process is already closed", async () => {
+    const { repo } = seededNotesRepo()
+    repo.commitAllWithPrefix("gtd(human): checkpoint")
+    const checkpoint = repo.resolveRef("HEAD")!
+    repo.commitAllWithPrefix("gtd(agent): thinking")
+    repo.commitAllWithPrefix("gtd(human): idle") // closes back to NOTES_WORKFLOW's initial state
+    const closing = repo.resolveRef("HEAD")!
+
+    const context = await provide(
+      Effect.gen(function* () {
+        const run = yield* summaryRun
+        return yield* summaryTemplateContext(run)
+      }),
+      repo,
+    )
+
+    expect(context.currentCommit).toBe(closing)
+    // "checkpoint" is still the most recent reviewBase-state commit in the
+    // (now boundary-inclusive) trace.
+    expect(context.reviewBase).toBe(checkpoint)
   })
 })
 
@@ -709,21 +814,16 @@ const STEP_WORKFLOW = [
   "          on:",
   '            "A PLAN.md": accepted',
   "        accepted:",
-  '          commit: "chore: accepted <%= it.state %>"',
+  "          actor: human",
+  "          message: accepted-message",
+  "          on:",
+  '            "* **": idle',
   "        fixing:",
   "          entry: true",
   "          actor: agent",
   "          prompt: fix-prompt",
   "          on:",
   '            "C": idle',
-  "        broken:",
-  "          entry: true",
-  "          actor: agent",
-  "          prompt: broken-prompt",
-  "          on:",
-  '            "A BROKEN.md": brokenAccepted',
-  "        brokenAccepted:",
-  '          commit: "<%= it.vars.nope.deeper %>"',
   "        reviewcheck:",
   "          entry: true",
   "          actor: human",
@@ -800,18 +900,19 @@ describe("planStep", () => {
     expect(repo.lastCommitSubject()).toBe("gtd(human): idle → working")
   })
 
-  it("a squash decision renders the commit template against the pending tree and discards the rest", async () => {
+  it("a matched on-edge to a non-initial target is an ordinary commit, not a collapse", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): working")
     repo.writeFile("PLAN.md", "the plan\n")
     const rest = await provide(currentRest, repo)
     const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("squash")
-    if (plan.kind !== "squash") throw new Error("expected a squash plan")
+    expect(plan.kind).toBe("commit")
+    if (plan.kind !== "commit") throw new Error("expected a commit plan")
+    expect(plan.decision).toMatchObject({ kind: "commit", from: "working", to: "accepted" })
 
     land(repo, plan.scripts)
-    expect(repo.lastCommitSubject()).toBe("chore: accepted accepted")
-    expect(repo.hasPath("PLAN.md")).toBe(false)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): working → accepted")
+    expect(repo.hasPath("PLAN.md")).toBe(true)
   })
 
   it("a green re-entry into the initial state retaining nothing is mixed-reset, not committed", async () => {
@@ -863,7 +964,10 @@ describe("planStep", () => {
       "          on:",
       '            "A DONE.md": done',
       "        done:",
-      '          commit: "chore: done"',
+      "          actor: human",
+      "          message: done-message",
+      "          on:",
+      '            "* **": working',
       "",
     ].join("\n")
     const repo = new InMemRepo()
@@ -899,11 +1003,11 @@ describe("planEntry", () => {
     expect(plan.kind === "refusal" && plan.message).toContain("already underway")
   })
 
-  it("refuses an entry into a commit (non-enterable) state", async () => {
+  it("refuses an entry naming a state the workflow doesn't declare at all", async () => {
     const repo = seededStepRepo()
     const rest = await provide(currentRest, repo)
     const plan = await provide(
-      planEntry(rest, "human", { state: "accepted", commandLabel: "gtd test", vars: {} }),
+      planEntry(rest, "human", { state: "nonexistent", commandLabel: "gtd test", vars: {} }),
       repo,
     )
     expect(plan.kind).toBe("refusal")
@@ -1028,9 +1132,7 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     // Direct call — `renderDecision` never reads `RestRequirements`, only the
     // `GitOperations` it's handed, so it needs no `provide`.
     const git = fakeGitOperations(repo)
-    const steps = await Effect.runPromise(
-      renderDecision(git, rest, plan.decision, rest.context, 7, "haiku"),
-    )
+    const steps = await Effect.runPromise(renderDecision(git, rest, plan.decision, 7, "haiku"))
     const expectedMessage = `${plan.decision.subject}\n\nGtd-Cost: 7 haiku`
     expect(steps).toEqual([
       { kind: "gitWrite", command: commitAll(expectedMessage) },
@@ -1062,60 +1164,11 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
       from: "working",
       to: "working",
     }
-    const steps = await Effect.runPromise(
-      renderDecision(git, rest, decision, rest.context, undefined, undefined),
-    )
+    const steps = await Effect.runPromise(renderDecision(git, rest, decision, undefined, undefined))
     expect(steps).toEqual([
       { kind: "gitWrite", command: commitAll(decision.subject) },
       { kind: "outcome", command: commitOutcome("gtd(agent): working") },
     ])
-  })
-
-  it("a squash decision's assembled script emits retain-history, soft-reset, commit-as-is, and discard-pending in order, with resolved hashes inlined, and lands the rendered message", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(human): working")
-    repo.writeFile("PLAN.md", "the plan\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    if (plan.kind !== "squash") throw new Error("expected a squash plan")
-
-    const tip = repo.resolveRef("HEAD")! // the pre-squash tip both render and perform resolve
-    const startParent = rest.run.startParentHash
-    expect(tip).not.toBe(startParent) // retain-history must fire, not be skipped
-
-    const expectedMessage = withHistoryTrailer("chore: accepted accepted", tip)
-    const script = plan.scripts.required
-    const retainIdx = script.indexOf(shellQuote(updateRef(HISTORY_REF, tip)))
-    const resetIdx = script.indexOf(shellQuote(softResetTo(startParent)))
-    const commitAsIsIdx = script.indexOf(shellQuote(commitAsIs(expectedMessage)))
-    const discardIdx = script.indexOf(shellQuote(discardPending()))
-    const outcomeIdx = script.indexOf(commitOutcome("chore: accepted accepted"))
-
-    expect(retainIdx).toBeGreaterThan(-1)
-    expect(resetIdx).toBeGreaterThan(retainIdx)
-    expect(commitAsIsIdx).toBeGreaterThan(resetIdx)
-    expect(discardIdx).toBeGreaterThan(commitAsIsIdx)
-    // The trailing outcome names the rendered message's bare subject line —
-    // last, so a file-row read of HEAD sees the commit that just landed.
-    expect(outcomeIdx).toBeGreaterThan(discardIdx)
-
-    land(repo, plan.scripts)
-    expect(repo.lastCommitMessage()).toBe(expectedMessage)
-  })
-
-  it("a commit-template render failure yields an EMPTY script — nothing to run, nothing touched", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(human): broken-entry") // irrelevant boundary
-    repo.hardResetTo(repo.resolveRef("HEAD~1")!) // back to a clean boundary at idle
-    repo.commitAllWithPrefix("gtd(agent): broken")
-    repo.writeFile("BROKEN.md", "x\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("squash")
-    if (plan.kind !== "squash") throw new Error("expected a squash plan")
-
-    expect(plan.scripts.required).toBe("")
-    expect(plan.scripts.optional).toBe("")
   })
 
   it("planEntry's scripts field carries a single commitAll(message) line, and landing it writes the entry commit", async () => {
@@ -1257,7 +1310,10 @@ describe("stalledAt", () => {
       "          on:",
       '            "* **": done',
       "        done:",
-      '          commit: "chore: done"',
+      "          actor: human",
+      "          message: done-message",
+      "          on:",
+      '            "* **": idle',
       "",
     ].join("\n")
     const repo = new InMemRepo()

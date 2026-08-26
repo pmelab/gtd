@@ -35,16 +35,16 @@ TS (`src/OutcomeScript.ts`), printed by the driver's bash, so it reads the same
 whether a driver runs the script or a person pastes it into a terminal. _Avoid_:
 report, log line
 
-**Content kind**: The one thing a state carries: a `script`, a `prompt`, a
-`message`, or a `commit` template. Which kind it is determines what gtd prints
-and who reads it.
+**Content kind**: The one thing a state carries: a `script`, a `prompt`, or a
+`message`. Which kind it is determines what gtd prints and who reads it.
 
 **Rest**: Where a process currently waits, fully resolved — the state plus its
 rendered content, its model, and its memory key. What `gtd next` prints.
 _Avoid_: current state, position
 
-**Process**: One pass through a workflow, from an entry to a squash or an
-abandonment. It does not return to where it started. _Avoid_: cycle, run,
+**Process**: One pass through a workflow, from an entry to a sign-off (an
+ordinary commit entering the initial state, keeping every turn commit it made)
+or an abandonment. It does not return to where it started. _Avoid_: cycle, run,
 session
 
 **Turn**: What an actor actually did — the work sitting in the tree, captured as
@@ -138,8 +138,11 @@ commands ONE workflow plugs in for it. Overriding a built-in mode's `validate:`
 changes who validates, not what the file is — the format (and so the
 outline/actions) survives the override.
 
-**Squash**: Entering a `commit` state, collapsing a whole process's turn commits
-into one message. Ends the process.
+**Squash**: No longer an engine concept — gtd never rewrites history. A sign-off
+ends a process with an ordinary commit into the initial state, keeping every
+turn commit; a squash (or an amend, or a PR body) is something a human or a
+driver may still do afterward, outside gtd, using `gtd summary`'s prompt to
+write the message.
 
 **Entry**: A state a process may start at — the `default` one, plus every state
 declaring `entry: true`, reachable as `gtd --entry <state>`.
@@ -163,8 +166,11 @@ surfaces as ordinary uncommitted changes in any editor's git integration.
 **Review base**: The commit a review is measured against — the last state that
 declared `reviewBase`, falling back to the process start.
 
-**Retained history**: A squashed or abandoned process's turn-by-turn commits,
-kept behind the squash so `gtd restore` can bring them back.
+**Retained history**: A rewound process's turn-by-turn commits, kept behind a
+ref so `gtd restore` can bring them back — written when `gtd abandon` rewinds an
+in-flight process, and on the initial-state collapse path (a green
+`--entry fix-precheck` probe's mixed-reset no-op). No longer written for a
+squash, since there is no squash.
 
 **Vars**: A workflow's own declared values, readable from any template as
 `it.vars`. The engine blesses no names: `testCommand` is the bundled workflow's

@@ -1,17 +1,17 @@
 @inmem
-Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost, summed for the squash
+Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost, rendered by gtd summary
 
   A loop driver knows how many tokens the invocation it just drove cost, and on
   which model. `gtd land --cost=<n> [--model=<name>]` records both as a
   `Gtd-Cost: <n> <model>` trailer on the turn commit (persisted in the git log,
   one per turn, subject line untouched). `computeProcessRun` collects every
-  such entry across the current process; a `commit:` squash template renders
-  the whole-process total via `it.processCost` and the per-model breakdown via
-  `it.processCostByModel` — the complete cost of the feature, itemized by model,
-  since tokens alone don't tell you the price. `gtd next` shows the running
-  total (and per-model breakdown) mid-process — via its `--json` `cost`/
-  `costByModel` fields when the resting state is a bare `prompt` (whose plain
-  output carries no header at all).
+  such entry across the current process; a workflow's `summary:` template
+  renders the whole-process total via `it.processCost` and the per-model
+  breakdown via `it.processCostByModel` — the complete cost of the feature,
+  itemized by model, since tokens alone don't tell you the price. `gtd next`
+  shows the running total (and per-model breakdown) mid-process — via its
+  `--json` `cost`/`costByModel` fields when the resting state is a bare
+  `prompt` (whose plain output carries no header at all).
 
   Scenario: gtd land --cost records a Gtd-Cost trailer on the turn commit, subject untouched
     Given a test project
@@ -183,13 +183,17 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     And stdout contains "\"state\":\"building\""
     And stdout does not contain "\"cost\""
 
-  Scenario: a squash commit template renders it.processCost — the whole-process total including the squashing step
+  Scenario: gtd summary renders it.processCost — the whole-process total, after an ordinary sign-off commit into idle
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
         entry:
           default: root
+        summary: |
+          feat: ship it
+
+          Total token cost: <%= it.processCost %>
         machines:
           root:
             entry: idle
@@ -208,13 +212,8 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
                 actor: agent
                 prompt: "write DONE.md"
                 on:
-                  "A DONE.md": done
-                  "M DONE.md": done
-              done:
-                commit: |
-                  feat: ship it
-
-                  Total token cost: <%= it.processCost %>
+                  "A DONE.md": idle
+                  "M DONE.md": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -234,9 +233,15 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
     When I run gtd land with "--cost=250"
     Then it succeeds
-    And the last commit subject is "feat: ship it"
-    And the last commit body contains "Total token cost: 350"
-    And the last commit body does not contain "Gtd-Cost:"
+    And the last commit subject is "gtd(agent): finishing → idle"
+    And the last commit body contains "Gtd-Cost: 250"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"idle\":true"
+    When I run gtd with args "summary"
+    Then it succeeds
+    And stdout contains "feat: ship it"
+    And stdout contains "Total token cost: 350"
 
   Scenario: --cost is rejected on a non-land command
     Given a test project
@@ -390,13 +395,20 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     And stdout contains "\"model\":\"opus\",\"cost\":250"
     And stdout contains "\"model\":\"haiku\",\"cost\":100"
 
-  Scenario: a squash commit template itemizes it.processCostByModel across the whole process
+  Scenario: gtd summary itemizes it.processCostByModel across the whole process
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
         entry:
           default: root
+        summary: |
+          feat: ship it
+
+          Total token cost: <%= it.processCost %>
+          <% it.processCostByModel.forEach(function(m){ %>
+          - <%= m.model %>: <%= m.cost %>
+          <% }) %>
         machines:
           root:
             entry: idle
@@ -415,16 +427,8 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
                 actor: agent
                 prompt: "write DONE.md"
                 on:
-                  "A DONE.md": done
-                  "M DONE.md": done
-              done:
-                commit: |
-                  feat: ship it
-
-                  Total token cost: <%= it.processCost %>
-                  <% it.processCostByModel.forEach(function(m){ %>
-                  - <%= m.model %>: <%= m.cost %>
-                  <% }) %>
+                  "A DONE.md": idle
+                  "M DONE.md": idle
       """
     And a commit "gtd(human): building" that adds "NOTE.md" with:
       """
@@ -444,10 +448,14 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
     When I run gtd land with "--cost=250" and "--model=opus"
     Then it succeeds
-    And the last commit subject is "feat: ship it"
-    And the last commit body contains "Total token cost: 350"
-    And the last commit body contains "- opus: 250"
-    And the last commit body contains "- haiku: 100"
+    And the last commit subject is "gtd(agent): finishing → idle"
+    And the last commit body contains "Gtd-Cost: 250 opus"
+    When I run gtd with args "summary"
+    Then it succeeds
+    And stdout contains "feat: ship it"
+    And stdout contains "Total token cost: 350"
+    And stdout contains "- opus: 250"
+    And stdout contains "- haiku: 100"
 
   Scenario: --model is rejected on a non-land command
     Given a test project

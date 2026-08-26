@@ -131,7 +131,13 @@ export const mergeModes = (
 
 const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set(Object.keys(STATE_FIELDS))
 
-const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
+const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set([
+  "entry",
+  "machines",
+  "vars",
+  "modes",
+  "summary",
+])
 const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set([
   "params",
   "entry",
@@ -146,6 +152,7 @@ const LEGACY_STATE_KEY_HINTS: Readonly<Record<string, string>> = {
   reviewEntry: `"reviewEntry" no longer exists — declare "entry: true" on this state instead`,
   fixEntry: `"fixEntry" no longer exists — declare "entry: true" on this state instead`,
   memory: `"memory" no longer exists — a machine's memory scope is derived from its position in the tree and starts fresh on every entry`,
+  commit: `"commit" no longer exists — the automatic squash finale was removed; a review sign-off lands an ordinary commit entering the workflow's initial state, and \`gtd summary\` prints a prompt for the process's own closing message instead`,
 }
 
 const LEGACY_REF_KEY_HINTS: Readonly<Record<string, string>> = {
@@ -473,8 +480,14 @@ export const inlineWorkflowFileRefs = (
   fileRefs: FileRefReader = nodeFileRefReader,
 ): unknown => {
   if (!isPlainObject(rawWorkflow)) return rawWorkflow
+  const next: Record<string, unknown> = { ...rawWorkflow }
+  const rawSummary = rawWorkflow["summary"]
+  if (typeof rawSummary === "string" && isFileReference(rawSummary)) {
+    const resolved = resolveContent(rawSummary, configDir, `"summary"`, errors, fileRefs)
+    if (resolved !== undefined) next["summary"] = resolved
+  }
   const rawMachines = rawWorkflow["machines"]
-  if (!isPlainObject(rawMachines)) return rawWorkflow
+  if (!isPlainObject(rawMachines)) return next
   const machines: Record<string, unknown> = {}
   for (const [machineName, machineRaw] of Object.entries(rawMachines)) {
     machines[machineName] = inlineMachineFileRefs(
@@ -485,7 +498,7 @@ export const inlineWorkflowFileRefs = (
       fileRefs,
     )
   }
-  return { ...rawWorkflow, machines }
+  return { ...next, machines }
 }
 
 // ── Per-state field compilers ────────────────────────────────────────────────
@@ -799,6 +812,36 @@ export const assertScopesCoverStates = (
   }
 }
 
+/**
+ * Compile the top-level `summary:` template — the `gtd summary` prompt. An
+ * absent value is legal (`gtd summary` refuses at runtime instead); a
+ * present-but-blank value (or a blank inlined file) is a load error, the same
+ * rule a mode's `format:`/`validate:` follows. File-ref inlining mirrors
+ * `compileContentRef`'s `ctx.inlineFileRefs` discipline.
+ */
+const compileSummary = (
+  raw: Record<string, unknown>,
+  configDir: string,
+  errors: string[],
+  inlineFileRefs: boolean,
+  fileRefs: FileRefReader,
+): string | undefined => {
+  const value = raw["summary"]
+  if (value === undefined) return undefined
+  if (typeof value !== "string") {
+    errors.push(`"summary" must be a string`)
+    return undefined
+  }
+  const resolved = inlineFileRefs
+    ? resolveContent(value, configDir, `"summary"`, errors, fileRefs)
+    : value
+  if (resolved !== undefined && resolved.trim() === "") {
+    errors.push(`"summary" must not be blank`)
+    return undefined
+  }
+  return resolved
+}
+
 // ── Top-level compile ────────────────────────────────────────────────────────
 
 /**
@@ -861,11 +904,14 @@ export const compileWorkflowConfig = (
   // Run validateDefinition unconditionally and merge its findings with the
   // shape errors above into one error, rather than stopping at the first
   // shape problem and hiding what validateDefinition would otherwise catch.
+  const summary = compileSummary(raw, configDir, errors, inlineFileRefs, fileRefs)
+
   const entries = { default: flattened.entries.default, manual }
   const definition: WorkflowDefinition = {
     states,
     entries,
     modes,
+    ...(summary !== undefined ? { summary } : {}),
   }
 
   assertScopesCoverStates(Object.keys(states), flattened.scopes, errors)

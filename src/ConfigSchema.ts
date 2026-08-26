@@ -57,8 +57,7 @@ const JSON_TYPE: Record<FieldKind, object> = {
 /** One state's shape — `properties` is derived from `STATE_FIELD_ENTRIES` (every `authored: "state"` field, in table order); see `ConfigSchema.test.ts`. */
 const stateJsonSchema = {
   type: "object",
-  description:
-    "One workflow state. Declare exactly one content kind (script/prompt/message/commit). A commit state is final: no actor, no on.",
+  description: "One workflow state. Declare exactly one content kind (script/prompt/message).",
   additionalProperties: false,
   properties: Object.fromEntries(
     STATE_FIELD_ENTRIES.filter(([, spec]) => spec.authored === "state").map(([key, spec]) => [
@@ -137,16 +136,24 @@ const entryJsonSchema = {
   },
 } as const
 
+/** The top-level `summary:` value — the `gtd summary` prompt template. */
+const summaryJsonSchema = {
+  type: "string",
+  description:
+    "Eta template rendered by `gtd summary`: instructions plus commit hashes (it.entryCommit, it.humanCommits, it.processBase, it.processTip) for an agent to write the process's own closing message. A ./ or ../ value is inlined from the config file's directory at load time. Absent is legal (gtd summary refuses); present-but-blank is a load error.",
+} as const
+
 /** The whole `workflow:` value; `PatternConfig.ts`'s compiler is the authoritative schema, this is the editor's first net. */
 const workflowJsonSchema = {
   type: "object",
   description:
-    "The whole machine definition: a tree of named machines rooted at entry.default (plus the workflow's own vars: defaults and modes: steering-file modes). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory (a modes: command never is — it is a shell command).",
+    "The whole machine definition: a tree of named machines rooted at entry.default (plus the workflow's own vars: defaults, modes: steering-file modes, and summary: template). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory (a modes: command never is — it is a shell command).",
   additionalProperties: false,
   required: ["entry", "machines"],
   properties: {
     vars: varsJsonSchema,
     modes: modesJsonSchema,
+    summary: summaryJsonSchema,
     entry: entryJsonSchema,
     machines: {
       type: "object",

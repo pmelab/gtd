@@ -9,7 +9,6 @@ import {
   enterableStates,
   entryBaseTemplateOf,
   initialStateOf,
-  isCommitState,
   isReviewBaseState,
   isReviewWindowState,
   memoryScopeAt,
@@ -35,15 +34,8 @@ import {
   type TemplateContext,
   type TemplateEdge,
 } from "./PatternTemplates.js"
-import { HISTORY_REF, withHistoryTrailer } from "./RetainedHistory.js"
-import {
-  commitAll,
-  commitAsIs,
-  discardPending,
-  mixedResetTo,
-  softResetTo,
-  updateRef,
-} from "./GitScript.js"
+import { HISTORY_REF } from "./RetainedHistory.js"
+import { commitAll, mixedResetTo, updateRef } from "./GitScript.js"
 import { emitScripts, type EmitPreconditions, type EmitStep, type EmittedScripts } from "./Emit.js"
 import { COLLAPSED_TEXT, commitOutcome, noteOutcome, transitionOutcome } from "./OutcomeScript.js"
 
@@ -64,7 +56,7 @@ const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").tr
 // `gtd land --cost=<n> [--model=<name>]` records the token cost of the
 // invocation that produced the pending changes as a `Gtd-Cost: <n> <model>`
 // trailer on the turn commit; `computeProcessRun` sums these into
-// `it.processCost`/`it.processCostByModel` for a squash `commit:` template.
+// `it.processCost`/`it.processCostByModel`, rendered by `gtd summary`.
 
 const COST_TRAILER_PREFIX = "Gtd-Cost: "
 // The number comes first so a model-less entry (`Gtd-Cost: 1450`) still parses.
@@ -78,7 +70,7 @@ export interface CostEntry {
   readonly model: string
 }
 
-/** One model's summed token cost — the shape a squash `commit:` template iterates as `it.processCostByModel`. */
+/** One model's summed token cost — the shape `gtd summary`'s template iterates as `it.processCostByModel`. */
 export interface ModelCost {
   readonly model: string
   readonly cost: number
@@ -169,7 +161,7 @@ const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw 
 
 // ── Resolving the current rest ──────────────────────────────────────────────
 
-/** The currently-rested state, its definition, and its declared actor (never a commit state — `resolveState` excludes those explicitly). */
+/** The currently-rested state, its definition, and its declared actor. */
 export interface ResolvedRest {
   readonly def: WorkflowDefinition
   readonly state: StateName
@@ -192,8 +184,8 @@ type RestResolution =
  * process left resting at a state a workflow upgrade removed would otherwise
  * look like a fresh idle repo instead of pointing at `gtd abandon`. Every
  * other case `resolveState` folds into "rest at the initial state" (an
- * unparseable subject, an actor mismatch, a commit-state target) is left as
- * is — those are legitimately "no active process," not a renamed-out state.
+ * unparseable subject, an actor mismatch) is left as is — those are
+ * legitimately "no active process," not a renamed-out state.
  */
 export const resolveRestFrom = (def: WorkflowDefinition, headSubject: string): RestResolution => {
   const parsedHead = parseStateSubject(headSubject)
@@ -210,13 +202,12 @@ export const resolveRestFrom = (def: WorkflowDefinition, headSubject: string): R
   }
   const state = resolveState(def, headSubject)
   const stateDef = def.states[state]!
-  // `resolveState` never rests at a commit state (it excludes them
-  // explicitly) — this is a defensive check against a programmer error,
-  // not a real runtime path.
+  // A validated definition guarantees every state declares an actor — this
+  // is a defensive check against a programmer error, not a real runtime path.
   if (stateDef.actor === undefined) {
     return {
       ok: false,
-      error: new Error(`gtd: resolved at commit state "${state}" — a process never rests there`),
+      error: new Error(`gtd: resolved at state "${state}" declaring no actor`),
     }
   }
   return { ok: true, rest: { def, state, stateDef, actor: stateDef.actor } }
@@ -238,17 +229,18 @@ const pendingChanges = (
 
 // ── The current process run ──────────────────────────────────────────────────
 
-/** One process-trace entry: a state entered, plus the hash of the commit that entered it — the pair `memoryKeyFor` needs to anchor a memory key to the commit immediately BEFORE an unbroken scope entry began. */
+/** One process-trace entry: a state entered, the hash of the commit that entered it — the pair `memoryKeyFor` needs to anchor a memory key to the commit immediately BEFORE an unbroken scope entry began — and the invoking actor (parsed off the commit subject), which `summaryRun`'s human-commit derivation filters on. */
 export interface TraceEntry {
   readonly state: StateName
   readonly hash: string
+  readonly actor: string
 }
 
 /** The contiguous run of `gtd(actor): state` commits ending at HEAD. */
 export interface ProcessRun {
   /** The run's first commit's hash, or HEAD's own hash when the run is empty (no turn has landed yet this process). */
   readonly startHash: string
-  /** The parent of the run's first commit — `EMPTY_TREE` when the run covers the whole history. The squash reset target — this is the process's TRACE/retry boundary, never overridden by a `Gtd-Review-Base:` trailer. */
+  /** The parent of the run's first commit — `EMPTY_TREE` when the run covers the whole history. This is the process's TRACE/retry boundary, never overridden by a `Gtd-Review-Base:` trailer. */
   readonly startParentHash: string
   /**
    * The base `it.startCommit` renders, and the review checkout window's
@@ -280,14 +272,21 @@ export interface ProcessRun {
   readonly headTurn:
     | { readonly state: StateName; readonly actor: string; readonly empty: boolean }
     | undefined
+  /**
+   * Set only by `summaryRun`'s boundary-inclusive walk, when HEAD itself is a
+   * commit entering the workflow's initial state — the hash of that closing
+   * commit. `undefined` for `currentRun`/`computeProcessRun`'s ordinary
+   * (boundary-exclusive) walk, and for a `summaryRun` call whose HEAD isn't
+   * itself a boundary (a process still in flight).
+   */
+  readonly closingHash: string | undefined
 }
 
 /**
  * `ProcessRun.headTurn` from an already-fetched `commitHistory` array
  * (oldest→newest) — HEAD is its last entry. `undefined` for an empty
  * history, an unparseable/foreign subject, or a subject naming a state the
- * ACTIVE definition doesn't declare or that is a commit state (never a real
- * rest).
+ * ACTIVE definition doesn't declare (never a real rest).
  */
 const headTurnFrom = (
   def: WorkflowDefinition,
@@ -298,7 +297,7 @@ const headTurnFrom = (
   const parsed = parseStateSubject(subjectOf(head.message))
   if (parsed === undefined) return undefined
   const stateDef = def.states[parsed.state]
-  if (stateDef === undefined || isCommitState(stateDef)) return undefined
+  if (stateDef === undefined) return undefined
   return { state: parsed.state, actor: parsed.actor, empty: head.touched.length === 0 }
 }
 
@@ -317,6 +316,35 @@ const parseEntryCommitOverrides = (
 }
 
 /**
+ * The boundary-exclusive backward walk `computeProcessRun` needs, split out
+ * so the surrounding Effect.gen body stays under the complexity gate. Returns
+ * the trace/retry boundary's history index (`i`, `-1` when the whole history
+ * belongs to the process) and, when `includeClosingBoundary` folded HEAD's own
+ * closing commit into the process, its hash.
+ */
+const walkProcessBoundary = (
+  history: ReadonlyArray<{ readonly message: string; readonly hash: string }>,
+  initialState: StateName,
+  includeClosingBoundary: boolean,
+): { readonly boundaryIndex: number; readonly closingHash: string | undefined } => {
+  let i = history.length - 1
+  let closingHash: string | undefined
+  if (includeClosingBoundary && i >= 0) {
+    const parsedLast = parseStateSubject(subjectOf(history[i]!.message))
+    if (parsedLast !== undefined && parsedLast.state === initialState) {
+      closingHash = history[i]!.hash
+      i--
+    }
+  }
+  while (i >= 0) {
+    const parsed = parseStateSubject(subjectOf(history[i]!.message))
+    if (parsed === undefined || parsed.state === initialState) break
+    i--
+  }
+  return { boundaryIndex: i, closingHash }
+}
+
+/**
  * Walk first-parent history backward from HEAD while each commit's subject
  * parses as `gtd(actor): state` and that state isn't the workflow's initial
  * state; stop — excluding that boundary commit, which belongs to the
@@ -330,27 +358,34 @@ const parseEntryCommitOverrides = (
  * `restAt`'s window-aware branch passes the saved-head hash here while a
  * review window is open, so the trace still covers commits a real `git log`
  * would miss with HEAD rewound to the review base.
+ *
+ * `includeClosingBoundary` (default `false`) is `summaryRun`'s one-flag
+ * difference from `currentRun`'s ordinary walk: when set AND the walk's very
+ * last history entry (HEAD itself) is a commit entering the initial state, that
+ * boundary commit is folded INTO the trace instead of excluded, and its hash
+ * is recorded as `ProcessRun.closingHash`. A process still in flight (HEAD is
+ * not itself such a boundary) resolves identically to the flag being unset.
  */
 const computeProcessRun = (
   git: GitOperations,
   def: WorkflowDefinition,
   head?: string,
+  includeClosingBoundary = false,
 ): Effect.Effect<ProcessRun, Error> =>
   Effect.gen(function* () {
     const initialState = initialStateOf(def)
     const history = yield* git.commitHistory(undefined, head) // oldest -> newest, full first-parent history
-    let i = history.length - 1
-    while (i >= 0) {
-      const parsed = parseStateSubject(subjectOf(history[i]!.message))
-      if (parsed === undefined || parsed.state === initialState) break
-      i--
-    }
+    const { boundaryIndex: i, closingHash } = walkProcessBoundary(
+      history,
+      initialState,
+      includeClosingBoundary,
+    )
     const startIdx = i + 1
     const processCommits = history.slice(startIdx)
-    const trace: TraceEntry[] = processCommits.map((h) => ({
-      state: parseStateSubject(subjectOf(h.message))!.state,
-      hash: h.hash,
-    }))
+    const trace: TraceEntry[] = processCommits.map((h) => {
+      const parsed = parseStateSubject(subjectOf(h.message))!
+      return { state: parsed.state, hash: h.hash, actor: parsed.actor }
+    })
     const costEntries = parseCostTrailers(processCommits.map((h) => h.message))
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
     const startHash =
@@ -359,7 +394,16 @@ const computeProcessRun = (
       parseEntryCommitOverrides(processCommits)
     const diffBase = reviewBaseOverride ?? startParentHash
     const headTurn = headTurnFrom(def, history)
-    return { startHash, startParentHash, diffBase, trace, costEntries, entryVars, headTurn }
+    return {
+      startHash,
+      startParentHash,
+      diffBase,
+      trace,
+      costEntries,
+      entryVars,
+      headTurn,
+      closingHash,
+    }
   })
 
 /**
@@ -380,6 +424,22 @@ export const currentRun: Effect.Effect<ProcessRun, Error, GitService | ConfigSer
     const config = yield* (yield* ConfigService).load
     const windowHead = Option.getOrUndefined(yield* git.readRefOption(REVIEW_HEAD_REF))
     return yield* computeProcessRun(git, config.workflow, windowHead)
+  })
+
+/**
+ * The process HEAD closes or sits inside — `gtd summary`'s run resolution.
+ * Window-aware on the same terms as `currentRun`. Identical to `currentRun`
+ * for a process still in flight; for a finished process (HEAD is itself a
+ * commit entering the initial state), the closing commit is folded back into
+ * the trace and its hash recorded as `closingHash` — see
+ * `computeProcessRun`'s `includeClosingBoundary` flag.
+ */
+export const summaryRun: Effect.Effect<ProcessRun, Error, GitService | ConfigService | Narrator> =
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const config = yield* (yield* ConfigService).load
+    const windowHead = Option.getOrUndefined(yield* git.readRefOption(REVIEW_HEAD_REF))
+    return yield* computeProcessRun(git, config.workflow, windowHead, true)
   })
 
 /**
@@ -562,11 +622,11 @@ const withRenderedOn = (
  * Build the `PatternTemplates.TemplateContext` for rendering `state`'s content
  * at the resolved rest. `edges` must already be rendered by the caller
  * (`renderOnEdges`). `currentCost`/`currentModel` are the in-flight step's own
- * `--cost`/`--model`, folded into the process's committed cost entries so a
- * `commit:` squash template sees the whole-process total including the
- * squashing step (`0`/absent for the pure emitters, where no step runs). No
- * diff is computed here — `it.reviewBase`/`it.retainedBase` are bases a
- * template tells the agent to `git diff` itself.
+ * `--cost`/`--model`, folded into the process's committed cost entries so
+ * `it.processCost`/`it.processCostByModel` total the whole process (`0`/absent
+ * for the pure emitters, where no step runs). No diff is computed here —
+ * `it.reviewBase`/`it.processBase` are bases a template tells the agent to
+ * `git diff` itself.
  */
 const buildTemplateContext = (
   git: GitOperations,
@@ -585,8 +645,8 @@ const buildTemplateContext = (
     const previousCommit = yield* git
       .resolveRef("HEAD~1")
       .pipe(Effect.catchAll(() => Effect.succeed(run.startParentHash)))
-    // Fold the in-flight step's own cost into the committed entries so a squash
-    // template (rendered against the pending tree) counts the squashing step too.
+    // Fold the in-flight step's own cost into the committed entries so
+    // it.processCost/it.processCostByModel count the in-flight step too.
     const stepEntry =
       currentCost > 0 || currentModel !== undefined
         ? [{ cost: currentCost, model: currentModel ?? UNATTRIBUTED_MODEL }]
@@ -599,13 +659,48 @@ const buildTemplateContext = (
       state,
       actor,
       reviewBase,
-      retainedBase: run.startParentHash,
+      processBase: run.startParentHash,
       processCost: totalCostOf(allCostEntries),
       processCostByModel: costByModel(allCostEntries),
       read,
       vars,
       edges: toTemplateEdges(edges),
     }
+  })
+
+/**
+ * The `TemplateContext` `gtd summary` renders `def.summary` against — no
+ * resting state, no `on` edges (a summary isn't rendered AT a state), `cost`/
+ * `model` both absent (the command writes nothing, so there is no in-flight
+ * step to fold in).
+ */
+export const summaryTemplateContext = (
+  run: ProcessRun,
+): Effect.Effect<
+  TemplateContext,
+  Error,
+  GitService | ConfigService | RepoFiles | EnvVars | Narrator
+> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const config = yield* (yield* ConfigService).load
+    const files = yield* RepoFiles
+    const envVars = yield* EnvVars
+    const def = config.workflow
+    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
+    const reviewBase = reviewBaseFor(def, run)
+    return yield* buildTemplateContext(
+      git,
+      templateRead(files),
+      "",
+      "",
+      run,
+      vars,
+      undefined,
+      0,
+      undefined,
+      reviewBase,
+    )
   })
 
 /**
@@ -772,7 +867,7 @@ export interface RenderedRest extends RestHints {
   readonly memory?: string
   /** `rest.memoryResumed`, verbatim — ALWAYS present (unlike `memory`, this is not a hint a driver can treat as absent-when-inapplicable; `false` is itself the answer for a non-`prompt` rest). */
   readonly memoryResumed: boolean
-  /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges`. Always present (an empty array at a commit state); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
+  /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges`. Always present (possibly empty); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
   readonly edges: readonly TemplateEdge[]
 }
 
@@ -814,11 +909,11 @@ const renderHints = (
   })
 
 /**
- * Render a `Rest`'s declared content (script/prompt/message — never `commit`,
- * since a `Rest` never rests at a commit state) plus every `STATE_FIELDS`
- * field carrying a `rest` kind and its computed memory key — all of which
- * already live on `rest` (`rest.context`/`rest.hints`/`rest.memory`, built
- * once by `restAt` via `renderHints`), so this takes no other parameters.
+ * Render a `Rest`'s declared content (script/prompt/message) plus every
+ * `STATE_FIELDS` field carrying a `rest` kind and its computed memory key —
+ * all of which already live on `rest` (`rest.context`/`rest.hints`/
+ * `rest.memory`, built once by `restAt` via `renderHints`), so this takes no
+ * other parameters.
  */
 export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
   Effect.gen(function* () {
@@ -828,8 +923,7 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
         new Error(`state "${rest.state}" declares no content — invalid definition`),
       )
     }
-    const template =
-      rest.stateDef.script ?? rest.stateDef.prompt ?? rest.stateDef.message ?? rest.stateDef.commit!
+    const template = rest.stateDef.script ?? rest.stateDef.prompt ?? rest.stateDef.message!
     const content = yield* Effect.try({
       try: () => renderStateTemplate(template, rest.context),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -874,8 +968,8 @@ export const stalledAt = (rest: Rest): boolean =>
 
 // ── Planning a step ──────────────────────────────────────────────────────────
 
-/** A decision whose emitted script writes git — the two kinds a guard may run before. Exported for `src/StepGuards.ts`. */
-export type ExecutableDecision = Extract<StepDecision, { kind: "commit" | "squash" }>
+/** A decision whose emitted script writes git — the one kind a guard may run before. Exported for `src/StepGuards.ts`. */
+export type ExecutableDecision = Extract<StepDecision, { kind: "commit" }>
 
 /**
  * The user-facing message for a `land` refusal — out-of-turn names the
@@ -891,43 +985,7 @@ const formatStepRefusal = (refusal: StepRefusal): string =>
         refusal.patterns.length > 0 ? refusal.patterns.join(", ") : "(none)"
       }`
 
-/**
- * Build the `TemplateContext` for rendering a DIFFERENT state than `rest`'s
- * own resting one, with a step's `cost`/`model` folded in — a squash's commit
- * template needs this; it is NOT interchangeable with `rest.context`, which
- * is pinned to the resting state with `cost: 0`. Exported for `program.ts`'s
- * `planLanding`, which assembles the same script by hand and must pick the
- * same context.
- */
-export const contextAt = (
-  rest: Rest,
-  targetState: StateName,
-  invoker: string,
-  cost: number | undefined,
-  model: string | undefined,
-): Effect.Effect<TemplateContext, Error, GitService | RepoFiles> =>
-  Effect.gen(function* () {
-    const git = yield* GitService
-    const files = yield* RepoFiles
-    const onEdges =
-      targetState === rest.state
-        ? rest.on
-        : yield* renderOnEdgesOrFail(rest.def.states[targetState]?.on, rest.vars)
-    return yield* buildTemplateContext(
-      git,
-      templateRead(files),
-      targetState,
-      invoker,
-      rest.run,
-      rest.vars,
-      onEdges,
-      cost ?? 0,
-      model,
-      reviewBaseFor(rest.def, rest.run),
-    )
-  })
-
-/** `updateRef(HISTORY_REF, tip)` as a single-element (or empty) step list — OMITTED when `tip === startParentHash`, mirroring `retainHistory`'s own no-op check. Shared by the squash branch and the commit branch's collapse case below. */
+/** `updateRef(HISTORY_REF, tip)` as a single-element (or empty) step list — OMITTED when `tip === startParentHash`, mirroring `retainHistory`'s own no-op check. Used by the commit branch's collapse case below. */
 const retainHistoryStep = (tip: string, startParentHash: string): readonly EmitStep[] =>
   tip === startParentHash ? [] : [{ kind: "gitWrite", command: updateRef(HISTORY_REF, tip) }]
 
@@ -949,10 +1007,10 @@ const commitDecisionOutcome = (decision: {
  * state retaining nothing" collapse — target is the initial state, the
  * process started somewhere other than the empty tree, and nothing pending or
  * already-committed since its start parent survives (`retainsNothing`).
- * Always `false` for a `"squash"` decision and for an ATTEMPT: an agent that
- * did nothing must never rewind a process, and an attempt landing at a prompt
- * state that's also the initial state would otherwise satisfy every other
- * criterion identically to a genuine collapse.
+ * Always `false` for an ATTEMPT: an agent that did nothing must never rewind
+ * a process, and an attempt landing at a prompt state that's also the initial
+ * state would otherwise satisfy every other criterion identically to a
+ * genuine collapse.
  */
 const collapsesWith = (
   git: GitOperations,
@@ -960,7 +1018,7 @@ const collapsesWith = (
   decision: ExecutableDecision,
 ): Effect.Effect<boolean, Error> =>
   Effect.gen(function* () {
-    if (decision.kind === "squash" || decision.attempt === true) return false
+    if (decision.attempt === true) return false
     const target = parseStateSubject(decision.subject)?.state
     return (
       target === initialStateOf(rest.def) &&
@@ -973,7 +1031,7 @@ const collapsesWith = (
  * The service-requiring twin of `collapsesWith`, for `program.ts` to ask
  * instead of reaching into `GitService` itself — the boundary AGENTS.md pins.
  * `planLanding` calls this to fill `LandResult.settled` for a `"commit"`/
- * `"squash"` plan, off the same `rest`/`decision` `renderDecision` already
+ * `"commit"` plan, off the same `rest`/`decision` `renderDecision` already
  * decided against, so the two git reads (`changedPathsSince` + `resolveRef`)
  * can never disagree with each other.
  */
@@ -987,62 +1045,38 @@ export const collapsesToInitialState = (
   })
 
 /**
- * Render a `"commit"`/`"squash"` decision as the `EmitStep`s the external
- * driver runs to produce its git effect — the ONE place a decision becomes
- * git commands. Every git call here is a READ; nothing is written — gtd
- * itself never writes git, only a driven script does.
+ * Render a `"commit"` decision as the `EmitStep`s the external driver runs to
+ * produce its git effect — the ONE place a decision becomes git commands.
+ * Every git call here is a READ; nothing is written — gtd itself never writes
+ * git, only a driven script does.
  *
- * The commit branch carries one non-obvious case: a commit whose target is
- * the workflow's INITIAL state, from a process that retained nothing, is a
- * no-op probe (`gtd --entry fix-precheck` against a green suite is the
- * shipped example) and must leave no trace — it emits retain-history plus a
- * mixed reset to the process start instead of a commit, so the entry commit
- * and the probe collapse away together rather than dirtying the log with a
- * round trip to `idle`.
+ * One non-obvious case: a commit whose target is the workflow's INITIAL
+ * state, from a process that retained nothing, is a no-op probe
+ * (`gtd --entry fix-precheck` against a green suite is the shipped example)
+ * and must leave no trace — it emits retain-history plus a mixed reset to the
+ * process start instead of a commit, so the entry commit and the probe
+ * collapse away together rather than dirtying the log with a round trip to
+ * `idle`.
  */
 export const renderDecision = (
   git: GitOperations,
   rest: Rest,
   decision: ExecutableDecision,
-  context: TemplateContext,
   cost: number | undefined,
   model: string | undefined,
 ): Effect.Effect<readonly EmitStep[], Error> =>
   Effect.gen(function* () {
     const run = rest.run
-    switch (decision.kind) {
-      case "commit": {
-        if (yield* collapsesWith(git, rest, decision)) {
-          const tip = yield* git.resolveRef("HEAD")
-          return [
-            ...retainHistoryStep(tip, run.startParentHash),
-            { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
-            { kind: "outcome", command: noteOutcome(COLLAPSED_TEXT) },
-          ]
-        }
-        const command = commitAll(withCostTrailer(decision.subject, cost, model))
-        return [{ kind: "gitWrite", command }, commitDecisionOutcome(decision)]
-      }
-      case "squash": {
-        const message = yield* Effect.try({
-          try: () => renderStateTemplate(decision.template, context),
-          catch: (e) =>
-            new Error(
-              `gtd: rendering the "${decision.state}" commit template failed — nothing was committed: ${
-                e instanceof Error ? e.message : String(e)
-              }`,
-            ),
-        })
-        const tip = yield* git.resolveRef("HEAD")
-        return [
-          ...retainHistoryStep(tip, run.startParentHash),
-          { kind: "gitWrite", command: softResetTo(run.startParentHash) },
-          { kind: "gitWrite", command: commitAsIs(withHistoryTrailer(message, tip)) },
-          { kind: "gitWrite", command: discardPending() },
-          { kind: "outcome", command: commitOutcome(subjectOf(message)) },
-        ]
-      }
+    if (yield* collapsesWith(git, rest, decision)) {
+      const tip = yield* git.resolveRef("HEAD")
+      return [
+        ...retainHistoryStep(tip, run.startParentHash),
+        { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
+        { kind: "outcome", command: noteOutcome(COLLAPSED_TEXT) },
+      ]
     }
+    const command = commitAll(withCostTrailer(decision.subject, cost, model))
+    return [{ kind: "gitWrite", command }, commitDecisionOutcome(decision)]
   })
 
 /**
@@ -1069,24 +1103,22 @@ const buildPreconditions = (
   })
 
 /**
- * The `EmittedScripts` a `"commit"`/`"squash"` `StepPlan` carries alongside
- * `perform` — built from the SAME `renderDecision` output, but a render
- * failure collapses to an EMPTY script (`emitScripts` with no steps) instead
- * of failing this Effect: `perform` stays the one place a render failure is
- * ever reported to a caller, unchanged by this addition.
+ * The `EmittedScripts` a `"commit"` `StepPlan` carries alongside `perform` —
+ * built from the SAME `renderDecision` output, but a render failure collapses
+ * to an EMPTY script (`emitScripts` with no steps) instead of failing this
+ * Effect: `perform` stays the one place a render failure is ever reported to
+ * a caller, unchanged by this addition.
  */
 const buildStepScripts = (
   git: GitOperations,
   rest: Rest,
   decision: ExecutableDecision,
-  context: TemplateContext,
   cost: number | undefined,
   model: string | undefined,
 ): Effect.Effect<EmittedScripts, Error> =>
   Effect.gen(function* () {
-    const targetState = decision.kind === "commit" ? decision.to : decision.state
-    const preconditions = yield* buildPreconditions(git, rest, targetState)
-    const steps = yield* renderDecision(git, rest, decision, context, cost, model).pipe(
+    const preconditions = yield* buildPreconditions(git, rest, decision.to)
+    const steps = yield* renderDecision(git, rest, decision, cost, model).pipe(
       Effect.catchAll(() => Effect.succeed<readonly EmitStep[]>([])),
     )
     return emitScripts(preconditions, steps)
@@ -1102,7 +1134,7 @@ export type StepPlan =
   | { readonly kind: "refusal"; readonly message: string }
   | { readonly kind: "noop"; readonly state: StateName; readonly settled: boolean }
   | {
-      readonly kind: "commit" | "squash"
+      readonly kind: "commit"
       readonly state: StateName
       /** Inspectable — the pure engine's own verdict. */
       readonly decision: StepDecision
@@ -1126,10 +1158,8 @@ const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "s
 /**
  * Decide what landing at `rest` does, authenticated as `rest.actor` (the
  * state's own declared actor, so out-of-turn is unreachable by construction),
- * and — for a `"commit"`/`"squash"` decision — assemble the emitted `scripts`
- * a driver runs to land it (against `rest.context` for a commit, or a
- * freshly built `contextAt` for a squash, which renders a DIFFERENT state's
- * template with the step's cost folded in).
+ * and — for a `"commit"` decision — assemble the emitted `scripts` a driver
+ * runs to land it, against `rest.context`.
  */
 export const planStep = (
   rest: Rest,
@@ -1152,11 +1182,7 @@ export const planStep = (
 
     const { cost, model } = opts
     const git = yield* GitService
-    const scriptContext =
-      decision.kind === "commit"
-        ? rest.context
-        : yield* contextAt(rest, decision.state, rest.actor, cost, model)
-    const scripts = yield* buildStepScripts(git, rest, decision, scriptContext, cost, model)
+    const scripts = yield* buildStepScripts(git, rest, decision, cost, model)
 
     return { kind: decision.kind, state: rest.state, decision, scripts }
   })
@@ -1176,7 +1202,7 @@ export type EntryPlan =
 
 /**
  * `gtd --entry <state>`: start a brand NEW process at `entry.state` — any
- * declared, non-commit state — writing an ordinary turn commit carrying zero
+ * declared state — writing an ordinary turn commit carrying zero
  * or more `Gtd-Var:` trailers for each `entry.vars` override, plus — when
  * `entry.state` declares a string `reviewBase:` — a `Gtd-Review-Base:`
  * trailer pinning the new process's diff base. Captures whatever the working
