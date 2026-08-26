@@ -108,8 +108,14 @@ Commands:
   help             Print this help and exit
 
 Options:
-  --json           (gtd next/gtd land only) output structured JSON
-                   instead of plain text. Mutually exclusive with --sh
+  --json           (gtd next/gtd land only) output structured JSON. Bare
+                   --json prints the whole document; --json=<path> (a dotted
+                   key path into that document, e.g. kind, content,
+                   session.id) prints just that value: a scalar raw and
+                   unquoted, a boolean as true/false, a list one JSON entry
+                   per line. An absent optional field prints nothing and
+                   exits 0; an unknown path is a usage error (exit 2).
+                   Mutually exclusive with --sh
   --sh             (gtd next/gtd land only) output gtd_-prefixed POSIX
                    shell assignments instead of plain text. Mutually
                    exclusive with --json

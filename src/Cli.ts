@@ -10,7 +10,7 @@ import { GitService } from "./Git.js"
 // type-only edge, erased at compile time — so this module's own (real, value)
 // dependency on `program.ts` for `runCommand`/`needsOf`/`standaloneKinds`
 // stays one-directional, not circular.
-import { runCommand, type CommandRequirements } from "./program.js"
+import { runCommand, SelectorUsageError, type CommandRequirements } from "./program.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
@@ -50,6 +50,15 @@ export type Command =
   | { readonly kind: "summary" }
   | { readonly kind: "base" }
 
+/**
+ * `--json`'s three shapes: absent, bare (the whole document), or `--json=<path>`
+ * (one reduced value). See `src/Select.ts` for how `select` is later resolved.
+ */
+export type JsonMode =
+  | { readonly kind: "off" }
+  | { readonly kind: "document" }
+  | { readonly kind: "select"; readonly path: string }
+
 export type CliPlan =
   | { readonly kind: "output"; readonly stdout: string }
   | {
@@ -61,7 +70,7 @@ export type CliPlan =
   | {
       readonly kind: "command"
       readonly command: Command
-      readonly json: boolean
+      readonly json: JsonMode
       /** Whether `--sh` was present — `gtd next` only; mutually exclusive with `json` (see `conflictViolation`). */
       readonly sh: boolean
       /** Whether `--verbose`/`-v` was present — gates the `Narrator` `Cli.ts` builds for this dispatch (see `runCli`). */
@@ -88,7 +97,12 @@ type FlagScope = (kind: Command["kind"] | undefined) => boolean
 
 interface FlagRow {
   readonly name: string
-  readonly arity: 0 | 1
+  /**
+   * `"optional"` is a third generic mode: a value only from the `=` form
+   * (`--json=<path>`), never consuming a following token — bare `--json`
+   * records presence with no value. See `tokenize`'s single generic branch.
+   */
+  readonly arity: 0 | 1 | "optional"
   readonly repeatable: boolean
   readonly scope: FlagScope
   /** All raw occurrences (already de-`=`-ed) → the decoded value, or an error message. */
@@ -112,17 +126,23 @@ const nonNegativeNumber = (raw: string, flag: string): Either.Either<number, str
 const FLAGS: readonly FlagRow[] = [
   {
     name: "--json",
-    arity: 0,
+    arity: "optional",
     repeatable: false,
     scope: (kind) => kind === "next" || kind === "land",
-    decode: () => Either.right(true),
+    decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
       "gtd: --json is only valid for `gtd next`/`gtd land` — every other command prints " +
       "plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "",
     help: [
-      "(gtd next/gtd land only) output structured JSON",
-      "instead of plain text. Mutually exclusive with --sh",
+      "(gtd next/gtd land only) output structured JSON. Bare",
+      "--json prints the whole document; --json=<path> (a dotted",
+      "key path into that document, e.g. kind, content,",
+      "session.id) prints just that value: a scalar raw and",
+      "unquoted, a boolean as true/false, a list one JSON entry",
+      "per line. An absent optional field prints nothing and",
+      "exits 0; an unknown path is a usage error (exit 2).",
+      "Mutually exclusive with --sh",
     ],
     conflicts: ["--sh"],
   },
@@ -617,6 +637,7 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
       }
     }
     const eq = tok.indexOf("=")
+    const alreadyPresent = present.has(row.name)
     present.add(row.name)
     if (row.name === "--json") jsonSeen = true
 
@@ -628,6 +649,27 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
           jsonSeen,
         }
       }
+      if (!byFlag.has(row.name)) byFlag.set(row.name, [])
+      continue
+    }
+
+    if (row.arity === "optional") {
+      if (!row.repeatable && alreadyPresent) {
+        return { kind: "error", message: `gtd: ${row.name} may be given at most once`, jsonSeen }
+      }
+      if (eq !== -1) {
+        const value = tok.slice(eq + 1)
+        if (value === "") {
+          return {
+            kind: "error",
+            message: `gtd: ${row.name} requires a value — use ${row.name}=${row.valueHint} or ${row.name} ${row.valueHint}`,
+            jsonSeen,
+          }
+        }
+        byFlag.set(row.name, [value])
+        continue
+      }
+      // Bare presence — never consumes the following token, unlike arity 1.
       if (!byFlag.has(row.name)) byFlag.set(row.name, [])
       continue
     }
@@ -726,6 +768,9 @@ const decodeFlags = (
   for (const row of FLAGS) {
     const raws = byFlag.get(row.name)
     if (raws === undefined) continue
+    // A bare `"optional"`-arity flag (e.g. `--json` with no `=`) has nothing
+    // to decode — presence alone is tracked via `present`, not the bag.
+    if (row.arity === "optional" && raws.length === 0) continue
     const decoded = row.decode(raws)
     if (Either.isLeft(decoded)) return Either.left(decoded.left)
     bag[row.name] = decoded.right
@@ -825,7 +870,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const decoded = decodeFlags(byFlag)
   if (Either.isLeft(decoded)) return usagePlan(decoded.left, jsonSeen)
   const bag = decoded.right as {
-    readonly "--json"?: boolean
+    readonly "--json"?: string
     readonly "--port"?: number
     readonly "--no-open"?: boolean
     readonly "--cost"?: number
@@ -834,7 +879,14 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--open-questions"?: boolean
   }
 
-  const json = present.has("--json")
+  // `present.has("--json")` alone can't distinguish bare `--json` (no value
+  // decoded) from `--json=<path>` (a value in the bag) — see `decodeFlags`'s
+  // optional-arity skip above.
+  const json: JsonMode = !present.has("--json")
+    ? { kind: "off" }
+    : bag["--json"] !== undefined
+      ? { kind: "select", path: bag["--json"] }
+      : { kind: "document" }
   const sh = present.has("--sh")
   const verbose = present.has("--verbose")
 
@@ -842,7 +894,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     if (bag["--model"] !== undefined && bag["--cost"] === undefined) {
       return usagePlan(
         "gtd: --model requires --cost — it tags the recorded cost with the model that ran",
-        json,
+        jsonSeen,
       )
     }
     return { kind: "command", command: buildLandCommand(bag), json, sh, verbose }
@@ -1020,7 +1072,7 @@ const report =
         io.stderr(`${JSON.stringify({ state: "error", prompt: message })}\n`)
       }
       io.stderr(`${renderFailure(error)}\n`)
-      io.exit(EXIT_RUNTIME_ERROR)
+      io.exit(error instanceof SelectorUsageError ? EXIT_USAGE_ERROR : EXIT_RUNTIME_ERROR)
     })
 
 export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, Error> => {
@@ -1062,7 +1114,9 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
     // through untouched via `failCause` so `NodeRuntime.runMain` still sees a
     // real interruption; everything else gets the envelope.
     Effect.catchAll((cause) =>
-      Cause.isInterruptedOnly(cause) ? Effect.failCause(cause) : report(io, plan.json)(cause),
+      Cause.isInterruptedOnly(cause)
+        ? Effect.failCause(cause)
+        : report(io, plan.json.kind !== "off")(cause),
     ),
   )
 }

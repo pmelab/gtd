@@ -1,13 +1,17 @@
 import { execFileSync } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import {
   beatFields,
   beatKindOf,
   landFields,
+  landProseText,
+  noopText,
   renderBeatJson,
   renderBeatPlain,
   renderBeatSh,
   renderLandJson,
+  renderLandPlain,
   renderLandSh,
   stallDiagnosis,
   type BeatFields,
@@ -548,19 +552,24 @@ describe("renderBeatPlain", () => {
   const HEADER =
     "State: build.fixing\nAwaits: agent\nPending:\n  M TODO.md -> TODO.md\nNext: C → idle"
 
-  it("shows header, blank line, content verbatim at kind script", () => {
+  it("prepends the run instruction, then shows header, blank line, content verbatim at kind script", () => {
     const fields = fieldsFor("script", "script", "npm test")
-    expect(renderBeatPlain(fields)).toBe(`${HEADER}\n\nnpm test\n`)
+    expect(renderBeatPlain(fields)).toBe(`Run this script:\n${HEADER}\n\nnpm test\n`)
   })
 
-  it("shows header, blank line, content verbatim at kind message", () => {
+  it("shows header, blank line, content verbatim at kind message — no instruction line", () => {
     const fields = fieldsFor("message", "message", "write NOTE.md")
     expect(renderBeatPlain(fields)).toBe(`${HEADER}\n\nwrite NOTE.md\n`)
   })
 
-  it("shows header, blank line, content verbatim at kind capture", () => {
+  it("prepends prose stating the edit is already made and gtd land will land it, at kind capture", () => {
     const fields = fieldsFor("capture", "message", "already edited")
-    expect(renderBeatPlain(fields)).toBe(`${HEADER}\n\nalready edited\n`)
+    const plain = renderBeatPlain(fields)
+    expect(plain).toBe(
+      `The edit is already made — run \`gtd land\` to land it.\n${HEADER}\n\nalready edited\n`,
+    )
+    expect(plain).toMatch(/already made/)
+    expect(plain).toContain("gtd land")
   })
 
   it("shows header, blank line, the stall diagnosis (never the rendered content) at kind stalled", () => {
@@ -732,5 +741,195 @@ describe("landFields / renderLandJson / renderLandSh", () => {
       expect(beatSh).toContain(name)
       expect(landSh).toContain(name)
     }
+  })
+})
+
+describe("noopText / landProseText", () => {
+  it("noopText names the state", () => {
+    expect(noopText("idle")).toBe('nothing to do at "idle"\n')
+  })
+
+  it("landProseText names the commit subject, newline-terminated", () => {
+    expect(landProseText("gtd(human): idle → working")).toBe(
+      "commit everything with this message: gtd(human): idle → working\n",
+    )
+  })
+
+  it("landProseText carries no ANSI escape sequence", () => {
+    // eslint-disable-next-line no-control-regex -- asserting the ABSENCE of an escape byte
+    expect(landProseText("gtd(agent): drafting")).not.toMatch(/\x1b/)
+  })
+})
+
+describe("renderLandPlain", () => {
+  const sample: LandFields = {
+    script: 'gtd_report_commit "gtd(agent): build.fixing"\ngit commit ...\n',
+    settled: false,
+    idle: false,
+    state: "build.review.deciding",
+    subject: "gtd(agent): build.fixing",
+    cost: 0.42,
+    model: "smart",
+  }
+
+  it("names the commit subject and points at gtd land --json=script at a real landing", () => {
+    const plain = renderLandPlain(sample)
+    expect(plain).toContain("gtd(agent): build.fixing")
+    expect(plain).toContain("gtd land --json=script")
+  })
+
+  it("prints the no-op note when nothing landed", () => {
+    const noop: LandFields = {
+      script: "gtd_report_note 'nothing to do at \"idle\"'\n",
+      settled: true,
+      idle: true,
+      state: "idle",
+      subject: null,
+      cost: null,
+      model: null,
+    }
+    expect(renderLandPlain(noop)).toBe(noopText("idle"))
+  })
+})
+
+describe("BeatFields optionals are present-with-undefined, not omitted", () => {
+  const BEAT_SOURCE = readFileSync(new URL("./Beat.ts", import.meta.url), "utf8")
+
+  it("declares every optional BeatFields key `T | undefined`, never `key?:`", () => {
+    const interfaceMatch = BEAT_SOURCE.match(/export interface BeatFields \{([\s\S]*?)\n\}/)
+    expect(interfaceMatch).not.toBeNull()
+    const body = interfaceMatch![1]!
+    // Only top-level keys (2-space indent) count — `next`'s own nested
+    // `action?:` lives on a separate inline type, not a top-level key.
+    expect(body).not.toMatch(/^ {2}readonly \w+\?:/m)
+    for (const key of [
+      "session",
+      "model",
+      "system",
+      "validate",
+      "label",
+      "memory",
+      "file",
+      "mode",
+      "edges",
+      "cost",
+      "costByModel",
+    ]) {
+      const fieldLine = new RegExp(`readonly ${key}:[^\\n]*\\| undefined`)
+      expect(body).toMatch(fieldLine)
+    }
+  })
+
+  it("beatFields builds its result with plain assignments, not spread-conditionals, for its optional fields", () => {
+    const fnMatch = BEAT_SOURCE.match(/export const beatFields = \(input: \{[\s\S]*?\n\}\n/)
+    expect(fnMatch).not.toBeNull()
+    const fnBody = fnMatch![0]!
+    expect(fnBody).not.toContain("...(")
+  })
+
+  it("`session` is present-with-undefined (not omitted) when the caller supplied none at kind prompt", () => {
+    const fields = beatFields({
+      rendered: rest(),
+      kind: "prompt",
+      log: "log",
+      ...statusFields(),
+    })
+    expect("session" in fields).toBe(true)
+    expect(fields.session).toBeUndefined()
+    expect("validate" in fields).toBe(true)
+    expect(fields.validate).toBeUndefined()
+  })
+
+  it("every optional key is present-with-undefined on the BeatFields object even when absent, though JSON.stringify still drops it", () => {
+    const fields = beatFields({
+      rendered: rest(),
+      kind: "script",
+      log: "log",
+      ...statusFields(),
+    })
+    for (const key of [
+      "session",
+      "model",
+      "system",
+      "validate",
+      "label",
+      "memory",
+      "file",
+      "mode",
+      "edges",
+      "cost",
+      "costByModel",
+    ] as const) {
+      expect(key in fields).toBe(true)
+      expect(fields[key]).toBeUndefined()
+    }
+    // The JSON encoder still drops these keys entirely — the wire contract is
+    // unchanged even though the in-memory object now always carries the key.
+    const parsed = JSON.parse(renderBeatJson(fields)) as Record<string, unknown>
+    for (const key of [
+      "session",
+      "model",
+      "system",
+      "validate",
+      "label",
+      "memory",
+      "file",
+      "mode",
+      "edges",
+      "cost",
+      "costByModel",
+    ]) {
+      expect(key in parsed).toBe(false)
+    }
+  })
+
+  it("renderBeatJson output for a rest with absent optionals is byte-identical to the pre-refactor golden bytes", () => {
+    const line = renderBeatJsonLine({
+      rendered: rest({ kind: "script" }),
+      kind: "script",
+      log: ".git/gtd-loop.log",
+      ...statusFields(),
+    })
+    expect(line).toBe(
+      JSON.stringify({
+        kind: "script",
+        content: "fix it",
+        idle: false,
+        log: ".git/gtd-loop.log",
+        state: "build.fixing",
+        actor: "agent",
+        changes: [],
+        next: null,
+      }) + "\n",
+    )
+  })
+
+  it("renderLandJson output for a no-op landing is byte-identical to before the change", () => {
+    const noop: LandFields = {
+      script: "gtd_report_note 'nothing to do at \"idle\"'\n",
+      settled: true,
+      idle: true,
+      state: "idle",
+      subject: null,
+      cost: null,
+      model: null,
+    }
+    expect(renderLandJson(landFields(noop))).toBe(
+      JSON.stringify({
+        script: "gtd_report_note 'nothing to do at \"idle\"'\n",
+        settled: true,
+        idle: true,
+        state: "idle",
+        subject: null,
+        cost: null,
+        model: null,
+      }) + "\n",
+    )
+  })
+
+  it("LandFields has no `?:`-declared keys — its optionality is already expressed as `T | null`, not `T | undefined`", () => {
+    const interfaceMatch = BEAT_SOURCE.match(/export interface LandFields \{([\s\S]*?)\n\}/)
+    expect(interfaceMatch).not.toBeNull()
+    expect(interfaceMatch![1]!).not.toMatch(/^\s*readonly \w+\?:/m)
   })
 })

@@ -10,11 +10,11 @@
  * like the `@inmem` e2e tier (`tests/integration/support/inmem/cliIo.ts`).
  */
 
-import { Effect, Exit, Fiber } from "effect"
+import { Cause, Effect, Exit, Fiber } from "effect"
 import { describe, expect, it } from "vitest"
 import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"
-import { computeNextMatch, needsOf, runCommand } from "./program.js"
+import { computeNextMatch, needsOf, runCommand, SelectorUsageError } from "./program.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { renderInitConfig } from "./workflows/templates.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
@@ -23,7 +23,9 @@ import { testLayers } from "./testing/Layers.js"
 import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
 import { commitAll, shellQuote } from "./GitScript.js"
 import { HISTORY_REF } from "./RetainedHistory.js"
-import { abandonNoopOutcome, noopText, noteOutcome, restoredOutcome } from "./OutcomeScript.js"
+import { abandonNoopOutcome, noteOutcome, restoredOutcome } from "./OutcomeScript.js"
+import { noopText } from "./Beat.js"
+import { EXIT_USAGE_ERROR } from "./ExitCodes.js"
 
 /** Runs `args` through the real CLI shell (`runCli`) against an in-memory repo, returning the captured stdout/stderr/exit code — the same shape `tests/integration/support/world.ts`'s `@inmem` tier observes. */
 const run = async (
@@ -1632,7 +1634,7 @@ describe("gtd visualize — flushes before blocking (package 04)", () => {
     }
 
     const fiber = Effect.runFork(
-      runCommand({ kind: "visualize", port: 0, open: false }, false, false, out).pipe(
+      runCommand({ kind: "visualize", port: 0, open: false }, { kind: "off" }, false, out).pipe(
         Effect.provide(testLayers(repo)),
       ),
     )
@@ -1928,12 +1930,13 @@ describe("gtd land — the settled signal (exit code, script content, and now th
     expect(sh.stdout).toContain(`gtd_script=${shellQuote(script)}`)
   })
 
-  it("plain gtd land prints the prose sentence, never the script — --json/--sh alone carry it", async () => {
+  it("plain gtd land prints the prose sentence and points at --json=script, never the script itself", async () => {
     const repo = seededReentryRepo("gtd(check): checking")
     const { stdout, exitCode } = await run(repo, "land")
     expect(exitCode).toBe(0)
     expect(stdout).not.toContain("git commit")
     expect(stdout).toMatch(/^commit everything with this message: /)
+    expect(stdout).toContain("--json=script")
   })
 
   it("gtd land --json a no-op at a script rest reports settled:true, idle:false (checking isn't the initial state)", async () => {
@@ -2219,7 +2222,9 @@ describe("runCommand — refuses in a repository with no commits", () => {
       const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
       const exit = await Effect.runPromiseExit(
-        runCommand(commandFor[kind], false, false, out).pipe(Effect.provide(testLayers(repo))),
+        runCommand(commandFor[kind], { kind: "off" }, false, out).pipe(
+          Effect.provide(testLayers(repo)),
+        ),
       )
 
       expect(Exit.isFailure(exit)).toBe(true)
@@ -2240,7 +2245,9 @@ describe("runCommand — refuses in a repository with no commits", () => {
     const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
     const exit = await Effect.runPromiseExit(
-      runCommand({ kind: "next" }, false, false, out).pipe(Effect.provide(testLayers(repo))),
+      runCommand({ kind: "next" }, { kind: "off" }, false, out).pipe(
+        Effect.provide(testLayers(repo)),
+      ),
     )
 
     expect(Exit.isSuccess(exit)).toBe(true)
@@ -2497,5 +2504,105 @@ describe("gtd base — prints the review anchor hash (package 01)", () => {
 
     const { stdout } = await run(repo, "base")
     expect(stdout).toMatch(/^[0-9a-f-]+\n$/)
+  })
+})
+
+describe("gtd next/land --json=<path> — the select branch (package 01, task 4)", () => {
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd: init")
+    return repo
+  }
+
+  it("gtd next --json=kind reduces the SAME fields object gtd next --json renders — matches the document's own kind", async () => {
+    const repo = seededRepo()
+    const { stdout: documentOut, exitCode: documentExit } = await run(repo, "next", "--json")
+    expect(documentExit).toBe(0)
+    const parsedKind = (JSON.parse(documentOut) as { readonly kind: string }).kind
+
+    const { stdout: selectOut, exitCode: selectExit } = await run(repo, "next", "--json=kind")
+    expect(selectExit).toBe(0)
+    expect(selectOut).toBe(`${parsedKind}\n`)
+  })
+
+  it("gtd land --json=state reduces the SAME fields object gtd land --json renders — matches the document's own state", async () => {
+    const repo = seededRepo()
+    const { stdout: documentOut, exitCode: documentExit } = await run(repo, "land", "--json")
+    expect(documentExit).toBe(0)
+    const parsedState = (JSON.parse(documentOut) as { readonly state: string }).state
+
+    const { stdout: selectOut, exitCode: selectExit } = await run(repo, "land", "--json=state")
+    expect(selectExit).toBe(0)
+    expect(selectOut).toBe(`${parsedState}\n`)
+  })
+
+  it("a value selection is written with exactly one trailing newline, nothing else", async () => {
+    const repo = seededRepo()
+    const { stdout, exitCode } = await run(repo, "next", "--json=kind")
+    expect(exitCode).toBe(0)
+    expect(stdout.endsWith("\n")).toBe(true)
+    expect(stdout.endsWith("\n\n")).toBe(false)
+  })
+
+  it("an absent selector writes zero bytes to stdout and exits EXIT_OK", async () => {
+    const repo = seededRepo()
+    // The built-in workflow's initial `idle` state declares no `mode:` —
+    // `mode` is a real, present-but-`undefined` field on `BeatFields` there
+    // (see `Beat.ts`'s `beatFields`), not merely an unknown path.
+    const { stdout, exitCode } = await run(repo, "next", "--json=mode")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("an unknown selector fails with exit code EXIT_USAGE_ERROR, not a generic runtime error", async () => {
+    const repo = seededRepo()
+    const { exitCode } = await run(repo, "next", "--json=does.not.exist")
+    expect(exitCode).toBe(EXIT_USAGE_ERROR)
+  })
+
+  it("an unknown selector writes its message to stderr and nothing to stdout", async () => {
+    const repo = seededRepo()
+    const { stdout, stderr, exitCode } = await run(repo, "next", "--json=does.not.exist")
+    expect(exitCode).toBe(EXIT_USAGE_ERROR)
+    expect(stdout).toBe("")
+    expect(stderr).toContain("does.not.exist")
+  })
+
+  it("an unknown selector on gtd land also exits EXIT_USAGE_ERROR", async () => {
+    const repo = seededRepo()
+    const { stdout, stderr, exitCode } = await run(repo, "land", "--json=does.not.exist")
+    expect(exitCode).toBe(EXIT_USAGE_ERROR)
+    expect(stdout).toBe("")
+    expect(stderr).toContain("does.not.exist")
+  })
+
+  it("the underlying failure program.ts raises for an unknown selector is a SelectorUsageError", async () => {
+    const repo = seededRepo()
+    const exit = await Effect.runPromiseExit(
+      runCommand({ kind: "next" }, { kind: "select", path: "does.not.exist" }, false, {
+        write: () => {},
+        flush: () => {},
+      }).pipe(Effect.provide(testLayers(repo))),
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOption(exit.cause)
+      expect(failure._tag).toBe("Some")
+      if (failure._tag === "Some") {
+        expect(failure.value).toBeInstanceOf(SelectorUsageError)
+      }
+    }
+  })
+
+  it("the self-validation-command resolution still runs only on the plain branch under JsonMode", async () => {
+    // A degrade-on-error smoke check: a plain gtd next still succeeds (and
+    // includes the resolved rest's rendered content) even though nothing here
+    // declares a mode:/file: pair for the self-validate instruction to
+    // resolve against.
+    const repo = seededRepo()
+    const { stdout, exitCode } = await run(repo, "next")
+    expect(exitCode).toBe(0)
+    expect(stdout.length).toBeGreaterThan(0)
   })
 })

@@ -13,7 +13,10 @@ Feature: gtd next's three encodings (plain, --sh, --json) describe the same reso
   other kind, plain `gtd next` still ENDS WITH that same content, just with the
   header ahead of it. `--sh`'s own `gtd_content` variable carries the
   identical text too, proving the underlying `content` field — not merely the
-  plain encoding — survives every encoder unchanged.
+  plain encoding — survives every encoder unchanged. `--json=content`
+  (`--json`'s dotted-selector form, see `json-selector.feature`) reduces the
+  same field directly, so its output is pinned against the same literal
+  content strings the `--sh` assertions below already name.
 
   Background:
     Given a test project
@@ -49,9 +52,9 @@ Feature: gtd next's three encodings (plain, --sh, --json) describe the same reso
     When I run gtd next with "--json"
     Then it succeeds
     And stdout recorded as "next-content" ends with the current json field "content", trailing newline aside
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=content"
     Then it succeeds
-    And stdout contains "gtd_content='write NOTE.md to start a process'"
+    And stdout contains "write NOTE.md to start a process"
 
   Scenario: a prompt rest, declaring no file/mode so next's self-validation suffix never applies
     Given a file "NOTE.md" with:
@@ -64,9 +67,9 @@ Feature: gtd next's three encodings (plain, --sh, --json) describe the same reso
     When I run gtd next with "--json"
     Then it succeeds
     And stdout recorded as "next-content" equals the current json field "content", trailing newline aside
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=content"
     Then it succeeds
-    And stdout contains "gtd_content='do the work described in NOTE.md'"
+    And stdout contains "do the work described in NOTE.md"
 
   Scenario: a script rest
     Given a file "NOTE.md" with:
@@ -80,6 +83,6 @@ Feature: gtd next's three encodings (plain, --sh, --json) describe the same reso
     When I run gtd next with "--json"
     Then it succeeds
     And stdout recorded as "next-content" ends with the current json field "content", trailing newline aside
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=content"
     Then it succeeds
-    And stdout contains "gtd_content='echo hi'"
+    And stdout contains "echo hi"

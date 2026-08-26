@@ -2,7 +2,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either, Option, Runtime } from "effect"
-import type { ArtifactOut, Command, Needs } from "./Cli.js"
+import type { ArtifactOut, Command, JsonMode, Needs } from "./Cli.js"
 import { Narrator } from "./Commentary.js"
 import { configPresentAt, ConfigService } from "./Config.js"
 import { renderInitScaffold } from "./workflows/templates.js"
@@ -68,10 +68,12 @@ import {
   beatFields,
   beatKindOf,
   landFields,
+  noopText,
   renderBeatJson,
   renderBeatPlain,
   renderBeatSh,
   renderLandJson,
+  renderLandPlain,
   renderLandSh,
   type BeatFields,
   type BeatKind,
@@ -90,13 +92,19 @@ import {
 import {
   abandonedOutcome,
   abandonNoopOutcome,
-  landProseText,
-  noopText,
   noteOutcome,
   restoredOutcome,
 } from "./OutcomeScript.js"
 import { loopLogPath } from "./WorktreeState.js"
 import { renderBriefing } from "./Install.js"
+import { selectPath } from "./Select.js"
+
+/**
+ * A command-level failure that should exit like a CLI usage error (2), not a
+ * generic runtime failure (1) — currently only the `--json=<unknown-path>`
+ * selector case.
+ */
+export class SelectorUsageError extends Error {}
 
 export type CommandRequirements =
   | GitService
@@ -341,9 +349,9 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
 /**
  * `gtd land [--cost=<n>] [--model=<name>]`: land whatever the tree shows at
  * the currently resolved rest, authenticated as the rest's own actor.
- * Plain output prints one human-readable sentence — `landProseText`'s commit
- * subject, or `result.script`'s existing no-op note when nothing landed —
- * never the script; `--json`/`--sh` emit `script` (byte-identical to before)
+ * Plain output is `renderLandPlain`'s prose — the commit subject plus a
+ * pointer at `--json=script`, or the no-op note when nothing landed — never
+ * the script itself; `--json`/`--sh` emit `script` (byte-identical to before)
  * alongside `settled`/`idle`/`state`/`subject`/`cost`/`model`, so they stay
  * the machine path a driver pipes to `sh`. Exit code is uniformly `EXIT_OK`
  * on success — whose turn is next lives in the following `gtd next --json`'s
@@ -351,20 +359,30 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
  */
 const runLandCommand = (
   opts: LandOptions,
-  json: boolean,
+  json: JsonMode,
   sh: boolean,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const result = yield* planLanding(opts)
-    if (json) {
-      out.write(renderLandJson(landFields(result)))
+    const built = landFields(result)
+    if (json.kind === "document") {
+      out.write(renderLandJson(built))
     } else if (sh) {
-      out.write(renderLandSh(landFields(result)))
-    } else if (result.subject !== null) {
-      out.write(landProseText(result.subject))
+      out.write(renderLandSh(built))
+    } else if (json.kind === "select") {
+      const selection = selectPath(built, json.path)
+      if (selection.kind === "value") {
+        out.write(`${selection.text}\n`)
+      } else if (selection.kind === "unknown") {
+        return yield* Effect.fail(
+          new SelectorUsageError(
+            `gtd: unknown --json selector "${selection.path}" — see \`gtd --help\``,
+          ),
+        )
+      }
     } else {
-      out.write(noopText(result.state))
+      out.write(renderLandPlain(built))
     }
   })
 
@@ -707,7 +725,7 @@ const restIsIdle = (rest: Rest): boolean =>
  * document's own `kind` field, never the exit code.
  */
 const runNextCommand = (
-  json: boolean,
+  json: JsonMode,
   sh: boolean,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
@@ -721,10 +739,21 @@ const runNextCommand = (
         `pending: ${change.status} ${change.path} -> ${change.pattern ?? "(no match)"}`,
       )
     }
-    if (json) {
+    if (json.kind === "document") {
       out.write(renderBeatJson(fields))
     } else if (sh) {
       out.write(renderBeatSh(fields))
+    } else if (json.kind === "select") {
+      const selection = selectPath(fields, json.path)
+      if (selection.kind === "value") {
+        out.write(`${selection.text}\n`)
+      } else if (selection.kind === "unknown") {
+        return yield* Effect.fail(
+          new SelectorUsageError(
+            `gtd: unknown --json selector "${selection.path}" — see \`gtd --help\``,
+          ),
+        )
+      }
     } else {
       // Advisory only — a render failure here must not fail gtd next
       // itself, so it degrades to omitting the instruction.
@@ -1098,7 +1127,7 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
 // fallow-ignore-next-line complexity
 const dispatchVoidCommand = (
   command: Command,
-  json: boolean,
+  json: JsonMode,
   sh: boolean,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> => {
@@ -1149,7 +1178,7 @@ const dispatchVoidCommand = (
  */
 export const runCommand = (
   command: Command,
-  json: boolean,
+  json: JsonMode,
   sh: boolean,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> => {
