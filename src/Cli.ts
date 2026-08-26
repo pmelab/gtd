@@ -141,8 +141,10 @@ const FLAGS: readonly FlagRow[] = [
       "session.id) prints just that value: a scalar raw and",
       "unquoted, a boolean as true/false, a list one JSON entry",
       "per line. An absent optional field prints nothing and",
-      "exits 0; an unknown path is a usage error (exit 2).",
-      "Mutually exclusive with --sh",
+      "exits 0 — including when an earlier segment of <path> is",
+      "itself absent/null (e.g. session.id at a non-prompt rest),",
+      "which never counts as unknown; an unknown path is a usage",
+      "error (exit 2). Mutually exclusive with --sh",
     ],
     conflicts: ["--sh"],
   },
@@ -352,8 +354,10 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "just-finished invocation's token cost and model on the",
       "turn commit (summed into it.processCost/",
       "processCostByModel). Plain (the default) prints one",
-      "human-readable sentence naming the commit subject — not",
-      "a script. --json/--sh emit script (the actual POSIX sh",
+      "human-readable sentence naming the commit subject (or a",
+      "no-op note) plus a pointer to `gtd land --json=script | sh`",
+      "to get the landing script — never the script itself.",
+      "--json/--sh emit script (the actual POSIX sh",
       "a driver runs) alongside settled, idle, state (the",
       "post-land target), subject, cost and model —",
       "--json/--sh are mutually exclusive. Exits 0 on success, 1",
@@ -391,19 +395,24 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     details: [
       "Print the resolved rest's beat (no mutation, safe to",
       "poll), in one of three encodings. Plain (the default): a",
-      "status summary, a blank line, then the step verbatim —",
-      "except at a prompt rest, which is the bare step (plus the",
-      "self-validation instruction when applicable) with no",
-      "header, since those bytes are the agent's own input. --json",
-      "emits the one structured surface gtd has: kind",
-      "(capture|message|script|prompt|stalled) selects what a",
-      "driver does, content is what it runs or shows, idle marks",
-      "the workflow's initial state with a clean tree, plus the",
-      "prompt session, model, validate script, log path, changes,",
-      "next and the resting state's own fields. --sh emits the",
-      "same fields as gtd_-prefixed POSIX shell assignments.",
-      "--json/--sh are mutually exclusive. Exits 0 — see the",
-      "Exit codes section below",
+      "status summary, a blank line, then the step verbatim — at a",
+      "script/capture rest an instruction line ('Run this",
+      "script:' / 'The edit is already made — run `gtd land` to",
+      "land it.') precedes the status summary; at a prompt rest",
+      "it's the bare step (plus the self-validation instruction",
+      "when applicable) with no header at all, since those bytes",
+      "are the agent's own input. --json emits the one structured",
+      "surface gtd has: kind (capture|message|script|prompt|",
+      "stalled) selects what a driver does, content is what it",
+      "runs or shows, idle marks the workflow's initial state with",
+      "a clean tree, plus the prompt session, model, validate",
+      "script, log path, changes, next and the resting state's own",
+      "fields. --json=<path> (a dotted key path into that same",
+      "document, e.g. kind, content, session.id) prints just that",
+      "value instead of the whole document — see --json's own help",
+      "above. --sh emits the same fields as gtd_-prefixed POSIX",
+      "shell assignments. --json/--sh are mutually exclusive.",
+      "Exits 0 — see the Exit codes section below",
     ],
   },
   {
@@ -1065,8 +1074,12 @@ const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
  * stdout is never touched here — the command's `ArtifactOut` buffer was never
  * flushed, so a `--json` driver piping stdout into `jq` on a failed run must
  * read stderr or the exit code instead. `Effect.sandbox` means this also
- * fires for a DEFECT, not just a typed error. Never reached for a USAGE
- * error — those never build a layer at all.
+ * fires for a DEFECT, not just a typed error. Unreached by an ordinary usage
+ * error (an unknown flag, bad arity, a scope violation) — those never build a
+ * layer at all. The one exception is `SelectorUsageError`: an unknown
+ * `--json=<path>` selector can only be judged after the layer is built and
+ * the fields object it's reduced against is fully resolved, so it fails HERE
+ * rather than in `parseArgv` — `EXIT_USAGE_ERROR` still applies to it below.
  */
 const report =
   (io: CliIo, json: boolean) =>

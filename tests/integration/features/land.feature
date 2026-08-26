@@ -317,3 +317,32 @@ Feature: gtd land — the one landing verb, actorless
     Then the exit code is 0
     And the last commit subject is "gtd(human): idle → working"
 
+  @live
+  Scenario: gtd land --json=script piped straight into sh lands the turn — the --json=<path> twin of --sh
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do it"
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land --json=script piped to sh
+    Then the exit code is 0
+    And the last commit subject is "gtd(human): idle → working"
+

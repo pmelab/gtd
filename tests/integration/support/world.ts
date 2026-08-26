@@ -444,6 +444,29 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
+   * `gtd land --json=script` piped directly into `sh` — the `--json=<path>`
+   * twin of `runGtdLandPiped`'s `--sh` scenario. Unlike `--sh` (a whole
+   * document that must be `eval`ed to bind `$gtd_script` first), a `--json=`
+   * VALUE selection writes the selected field's raw text straight to stdout
+   * (`Select.ts`'s `toSelection` on a string scalar is just `String(value)`,
+   * newlines and all) — so the script is pipeable with no intermediate eval.
+   */
+  async runGtdLandJsonScriptPiped(): Promise<void> {
+    const pipeline = `${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)} land --json=script | sh`
+    try {
+      const { stdout, stderr } = await execFile("sh", ["-c", pipeline], {
+        cwd: this.repoDir,
+        env: this.spawnEnv(),
+        encoding: "utf-8",
+        timeout: 30_000,
+      })
+      this.lastResult = { exitCode: 0, stdout, stderr }
+    } catch (err: unknown) {
+      this.lastResult = execFailureResult(err)
+    }
+  }
+
+  /**
    * `@live` only — proves a large `gtd next` prompt survives its own exit
    * through a pipe under backpressure. Runs the same command two real
    * `bash -c` shell redirects: direct (`gtd next > file`, the truncation

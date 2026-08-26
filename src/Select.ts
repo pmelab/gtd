@@ -7,9 +7,13 @@ export type Selection =
 
 const ALL_DIGITS = /^\d+$/
 
-/** Renders a fully-walked leaf value: scalars/booleans/null stringify directly, arrays become one `JSON.stringify` per entry, newline-joined. */
+/**
+ * Renders a fully-walked leaf value: scalars/booleans stringify directly,
+ * arrays become one `JSON.stringify` per entry, newline-joined.
+ * `selectPath`'s loop already returns `absent` for `undefined`/`null` after
+ * every segment (including the last), so neither ever reaches here.
+ */
 const toSelection = (value: unknown): Selection => {
-  if (value === undefined) return { kind: "absent" }
   if (Array.isArray(value)) {
     return { kind: "value", text: value.map((entry) => JSON.stringify(entry)).join("\n") }
   }
@@ -52,7 +56,7 @@ export const selectPath = (fields: unknown, path: string): Selection => {
       // `null` is treated exactly like `undefined` here: a `null`-typed field
       // (e.g. `BeatFields.next`, `LandFields.subject`/`cost`/`model`) is a
       // legitimate "nothing here" value, not a value to descend into or print
-      // as the literal string "null" — see .gtd/SPEC_FEEDBACK.md #1/#2.
+      // as the literal string "null".
       if (current === undefined || current === null) return { kind: "absent" }
     }
     return toSelection(current)

@@ -253,6 +253,10 @@ When("I run gtd land --sh piped to sh", async (world: GtdWorld) => {
   await world.runGtdLandPiped()
 })
 
+When("I run gtd land --json=script piped to sh", async (world: GtdWorld) => {
+  await world.runGtdLandJsonScriptPiped()
+})
+
 // @live only — see `GtdWorld.runGtdNextRedirectedAndPiped`'s own doc comment.
 When("I run gtd next redirected to a file and through a slow pipe", async (world: GtdWorld) => {
   await world.runGtdNextRedirectedAndPiped()
