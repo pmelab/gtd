@@ -49,7 +49,11 @@ export const selectPath = (fields: unknown, path: string): Selection => {
     for (const segment of path.split(".")) {
       current = resolveSegment(current, segment)
       if (current === NOT_FOUND) return { kind: "unknown", path }
-      if (current === undefined) return { kind: "absent" }
+      // `null` is treated exactly like `undefined` here: a `null`-typed field
+      // (e.g. `BeatFields.next`, `LandFields.subject`/`cost`/`model`) is a
+      // legitimate "nothing here" value, not a value to descend into or print
+      // as the literal string "null" — see .gtd/SPEC_FEEDBACK.md #1/#2.
+      if (current === undefined || current === null) return { kind: "absent" }
     }
     return toSelection(current)
   } catch {

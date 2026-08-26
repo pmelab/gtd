@@ -1,22 +1,20 @@
 @inmem
-Feature: gtd next's three encodings (plain, --sh, --json) describe the same resolved rest
+Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the same resolved rest
 
   `gtd next` resolves ONE rest through `renderRest`, and `program.ts`'s
   `gatherBeatFields` assembles the ONE `BeatFields` object that
-  `renderBeatPlain`/`renderBeatSh`/`renderBeatJson` (`src/Beat.ts`) each render
-  from — so the three encodings can never independently describe a different
-  rest (there is only one command now; `gtd status` is gone). Plain `gtd next`
-  wraps the step in a status-summary header at every kind except `prompt`
-  (`renderBeatPlain`'s header-suppression rule) — those bytes are the agent's
-  own input, so no header is prefixed there, and plain `gtd next`'s stdout
-  (trailing newline aside) equals `--json`'s `content` field exactly. At every
-  other kind, plain `gtd next` still ENDS WITH that same content, just with the
-  header ahead of it. `--sh`'s own `gtd_content` variable carries the
-  identical text too, proving the underlying `content` field — not merely the
-  plain encoding — survives every encoder unchanged. `--json=content`
-  (`--json`'s dotted-selector form, see `json-selector.feature`) reduces the
-  same field directly, so its output is pinned against the same literal
-  content strings the `--sh` assertions below already name.
+  `renderBeatPlain`/`renderBeatJson`/`selectPath` (`src/Beat.ts`/`src/Select.ts`)
+  each render from — so the three encodings can never independently describe a
+  different rest (there is only one command now; `gtd status` is gone). Plain
+  `gtd next` wraps the step in a status-summary header at every kind except
+  `prompt` (`renderBeatPlain`'s header-suppression rule) — those bytes are the
+  agent's own input, so no header is prefixed there, and plain `gtd next`'s
+  stdout (trailing newline aside) equals `--json`'s `content` field exactly. At
+  every other kind, plain `gtd next` still ENDS WITH that same content, just
+  with the header ahead of it. `--json=content` (`--json`'s dotted-selector
+  form, see `json-selector.feature`) reduces the SAME `content` field directly
+  — its bare-word output carries the identical text too, proving the field
+  itself, not merely the plain encoding, survives every encoder unchanged.
 
   Background:
     Given a test project

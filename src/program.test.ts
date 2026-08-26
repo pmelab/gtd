@@ -2555,6 +2555,35 @@ describe("gtd next/land --json=<path> — the select branch (package 01, task 4)
     expect(stdout).toBe("")
   })
 
+  it('a null-valued leaf (BeatFields.next, on a clean tree matching no on: pattern) reads as absent — zero bytes, exit 0, never the string "null"', async () => {
+    const repo = seededRepo()
+    const { stdout, exitCode } = await run(repo, "next", "--json=next")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it("--json=next.target descends through a null next without going fatal — absent, not unknown, per the absent-parent rule", async () => {
+    const repo = seededRepo()
+    const { stdout, exitCode } = await run(repo, "next", "--json=next.target")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
+
+  it('gtd land\'s | null LandFields (subject/cost/model) at a no-op landing read as absent — never the string "null"', async () => {
+    const repo = seededRepo()
+    const { stdout: subjectOut, exitCode: subjectExit } = await run(repo, "land", "--json=subject")
+    expect(subjectExit).toBe(0)
+    expect(subjectOut).toBe("")
+
+    const { stdout: costOut, exitCode: costExit } = await run(repo, "land", "--json=cost")
+    expect(costExit).toBe(0)
+    expect(costOut).toBe("")
+
+    const { stdout: modelOut, exitCode: modelExit } = await run(repo, "land", "--json=model")
+    expect(modelExit).toBe(0)
+    expect(modelOut).toBe("")
+  })
+
   it("an unknown selector fails with exit code EXIT_USAGE_ERROR, not a generic runtime error", async () => {
     const repo = seededRepo()
     const { exitCode } = await run(repo, "next", "--json=does.not.exist")

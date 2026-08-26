@@ -272,11 +272,11 @@ describe("parseArgv — gtd next", () => {
     if (plan.kind === "command") expect(plan.json).toEqual({ kind: "select", path: "session.id" })
   })
 
-  it("gtd next --json= is a usage error, same message shape as an arity:1 flag's missing value", () => {
+  it("gtd next --json= is a usage error naming only the legal --json=<path> form — never the rejected empty form or the illegal space form", () => {
     const plan = parseArgv(["node", "gtd.js", "next", "--json="])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
-      expect(plan.message).toContain("--json requires a value")
+      expect(plan.message).toBe("gtd: --json requires a value — use --json=<path>")
       expect(plan.json).toBe(true)
     }
   })

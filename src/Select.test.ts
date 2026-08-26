@@ -59,8 +59,18 @@ describe("selectPath — never throws", () => {
     expect(selectPath(5, "a")).toEqual({ kind: "unknown", path: "a" })
   })
 
-  it("returns unknown when descending through null", () => {
-    expect(selectPath({ a: null }, "a.b")).toEqual({ kind: "unknown", path: "a.b" })
+  it("returns absent for the whole remaining path when a parent is null — never descends into it, never unknown", () => {
+    expect(selectPath({ a: null }, "a.b")).toEqual({ kind: "absent" })
+  })
+})
+
+describe('selectPath — a null leaf is absent, never the string "null"', () => {
+  it('returns absent, not a value with text "null", for a null-valued leaf', () => {
+    expect(selectPath({ subject: null }, "subject")).toEqual({ kind: "absent" })
+  })
+
+  it("BeatFields.next is | null on no match — next.target reads as absent, not unknown, so a driver's read is never fatal", () => {
+    expect(selectPath({ next: null }, "next.target")).toEqual({ kind: "absent" })
   })
 })
 

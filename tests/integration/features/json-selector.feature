@@ -92,6 +92,16 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
     Then it succeeds
     And stdout matches "^true\n$"
 
+  Scenario: gtd next --json=next prints nothing (never the string "null") when no on: pattern matches
+    When I run gtd next with "--json=next"
+    Then it succeeds
+    And stdout is empty
+
+  Scenario: gtd next --json=next.target descends through a null next as absent, not a fatal unknown
+    When I run gtd next with "--json=next.target"
+    Then it succeeds
+    And stdout is empty
+
   Scenario: gtd next --json=nope exits 2 for an unknown top-level key
     When I run gtd next with "--json=nope"
     Then the exit code is 2
@@ -103,6 +113,17 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
   Scenario: gtd next --json= (empty selector) is a usage error
     When I run gtd next with "--json="
     Then the exit code is 2
+
+  Scenario: gtd land's null LandFields (subject/cost/model) at a no-op landing print nothing, never the string "null"
+    When I run gtd land with "--json=subject"
+    Then it succeeds
+    And stdout is empty
+    When I run gtd land with "--json=cost"
+    Then it succeeds
+    And stdout is empty
+    When I run gtd land with "--json=model"
+    Then it succeeds
+    And stdout is empty
 
   Scenario: gtd land --json=script prints the landing script a driver pipes to sh
     Given a commit "gtd(human): working" that adds "NOTE.md" with:

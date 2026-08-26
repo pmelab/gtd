@@ -108,7 +108,7 @@ Commands:
   help             Print this help and exit
 
 Options:
-  --json           (gtd next/gtd land only) output structured JSON. Bare
+  --json=<path>    (gtd next/gtd land only) output structured JSON. Bare
                    --json prints the whole document; --json=<path> (a dotted
                    key path into that document, e.g. kind, content,
                    session.id) prints just that value: a scalar raw and

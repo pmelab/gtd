@@ -133,7 +133,7 @@ const FLAGS: readonly FlagRow[] = [
     scopeError:
       "gtd: --json is only valid for `gtd next`/`gtd land` — every other command prints " +
       "plain text; see `gtd install` for the driver protocol briefing",
-    valueHint: "",
+    valueHint: "<path>",
     help: [
       "(gtd next/gtd land only) output structured JSON. Bare",
       "--json prints the whole document; --json=<path> (a dotted",
@@ -660,9 +660,15 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
       if (eq !== -1) {
         const value = tok.slice(eq + 1)
         if (value === "") {
+          // Unlike arity-1, an "optional" flag's bare/space form is a
+          // deliberate, DIFFERENT meaning (presence with no value) — never a
+          // rejected value-missing form — so this message names only the
+          // one legal way to supply a value, `=`, not the arity-1 template's
+          // "or <name> <value>" (which would recommend the very space form
+          // the settled decisions make a usage error on purpose).
           return {
             kind: "error",
-            message: `gtd: ${row.name} requires a value — use ${row.name}=${row.valueHint} or ${row.name} ${row.valueHint}`,
+            message: `gtd: ${row.name} requires a value — use ${row.name}=${row.valueHint}`,
             jsonSeen,
           }
         }
