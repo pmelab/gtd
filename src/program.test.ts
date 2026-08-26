@@ -283,13 +283,20 @@ describe('gtd — warns on a state with no "C" row (package 03)', () => {
     expect(warned.stdout).toBe(clean.stdout)
   })
 
-  it("the bundled unified template prints no such warning", async () => {
+  it("the bundled unified template prints exactly its two accepted warnings — unwind and build.review.deciding, each deliberately left unrouted (package 03)", async () => {
+    // Both states declare no `C` row on purpose (see their `on:` comments in
+    // unified.yaml): routing either one's clean case somewhere would either
+    // mask a swallowed `git revert` failure (unwind) or auto-approve an
+    // unreviewed round (deciding). Warning on every invocation is the
+    // accepted cost, not a compiled-shape bug.
     const repo = new InMemRepo()
     repo.writeFile(".gtdrc.json", renderInitConfig())
     repo.commitAllWithPrefix("chore: init gtd workflow")
     const { stderr, exitCode } = await run(repo, "next")
     expect(exitCode).toBe(0)
-    expect(stderr).not.toContain('"C" row')
+    expect(stderr.match(/"C" row/g)).toHaveLength(2)
+    expect(stderr).toContain('state "unwind" declares no "C" row')
+    expect(stderr).toContain('state "build.review.deciding" declares no "C" row')
   })
 
   it('gtd visualize prints no warning — needsOf is "config", not "state"', async () => {

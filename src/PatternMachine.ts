@@ -769,7 +769,10 @@ const validateState = (
  *   `C` row on a human gate would turn every such restart into a real commit
  *   before the human has acted at all — the exact hazard the initial-state
  *   exemption above already exists to avoid, generalized to any human gate a
- *   process can rest at more than once.
+ *   process can rest at more than once. NOTE: package 03's own spec states
+ *   the rule as exactly the first two exclusions — this third one is a
+ *   deliberate, documented deviation (the reasoning above), not an
+ *   oversight; the spec itself still needs updating to match.
  *
  * No exemption for a bare `"* **"` catch-all row or a declared `file:` — a
  * `diff` pattern (including `"* **"`) never matches a clean tree

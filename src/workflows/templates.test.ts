@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml"
 import { describe, expect, it } from "vitest"
-import { validateDefinition } from "../PatternMachine.js"
+import { step, validateDefinition } from "../PatternMachine.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 import { renderStateTemplate, varsOnlyContext } from "../PatternTemplates.js"
 import type { MachineNode } from "../Machines.js"
@@ -31,11 +31,19 @@ function statesReferencing(
 }
 
 describe("the bundled unified workflow template", () => {
-  it("compiles with no validation findings and exactly one initial state", () => {
+  it("compiles with no validation errors and exactly one initial state", () => {
     const { definition } = compileTemplate()
-    expect(validateDefinition(definition)).toEqual({ errors: [], warnings: [] })
+    expect(validateDefinition(definition).errors).toEqual([])
     expect(definition.entries.default).toBeTruthy()
     expect(definition.states[definition.entries.default]).toBeDefined()
+  })
+
+  it("declares exactly two accepted no-C-row warnings — unwind and build.review.deciding, both deliberately unrouted for correctness reasons documented on the state itself (package 03)", () => {
+    const { definition } = compileTemplate()
+    expect(validateDefinition(definition).warnings).toEqual([
+      'state "unwind" declares no "C" row',
+      'state "build.review.deciding" declares no "C" row',
+    ])
   })
 
   it("declares `retry` on exactly build.fix and packages.item.fix-suite, and nothing else (package 01)", () => {
@@ -112,10 +120,8 @@ describe("the bundled unified workflow template", () => {
       (s.on ?? []).filter(([, to]) => to === "unwind").map(() => from),
     )
     expect(inbound).toEqual(["idle"])
-    // Both the dirty (revert applied) and clean (nothing left to revert) rows
-    // land on the same target — no filename fork, whichever fires.
     const unwindTargets = (definition.states.unwind!.on ?? []).map(([, to]) => to)
-    expect(unwindTargets).toEqual(["start-gate.check", "start-gate.check"])
+    expect(unwindTargets).toEqual(["start-gate.check"])
     expect((definition.states["start-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
       "design.triage",
     )
@@ -199,7 +205,7 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("exposes the compiled default as the built-in fallback (definition + its own vars)", () => {
-    expect(validateDefinition(defaultWorkflowDefinition)).toEqual({ errors: [], warnings: [] })
+    expect(validateDefinition(defaultWorkflowDefinition).errors).toEqual([])
     expect(defaultWorkflowDefinition).toEqual(compileTemplate().definition)
     expect(defaultWorkflowVars).toEqual(compileTemplate().vars)
     expect(defaultWorkflowVars.testCommand).toBe("npm test")
@@ -354,6 +360,30 @@ describe("the bundled unified workflow template", () => {
     const packagesHealthCheck = definition.states["packages.item.health.check"]!
     expect(buildHealthCheck.script).not.toContain(".gtd/SATISFIED.md")
     expect(packagesHealthCheck.script).not.toContain(".gtd/SATISFIED.md")
+  })
+
+  it("packages.item.closing's C row advances to packages.picking on an already-clean tree (package 03) — nothing left to sweep still drains the queue instead of stalling", () => {
+    const { definition } = compileTemplate()
+    const decision = step(definition, "packages.item.closing", "check", {
+      changes: [],
+      processTrace: [],
+    })
+    expect(decision).toMatchObject({
+      kind: "commit",
+      from: "packages.item.closing",
+      to: "packages.picking",
+    })
+  })
+
+  it("unwind and build.review.deciding declare no C row — a clean tree there is ambiguous (a completed no-op vs. a swallowed failure) or would auto-approve an unreviewed round, so it stays a warned no-op rather than routing anywhere (package 03)", () => {
+    const { definition } = compileTemplate()
+    for (const name of ["unwind", "build.review.deciding"]) {
+      const decision = step(definition, name, definition.states[name]!.actor!, {
+        changes: [],
+        processTrace: [],
+      })
+      expect(decision, name).toMatchObject({ kind: "noop" })
+    }
   })
 
   it("every script-content state is POSIX sh, not bash — the driver runs it via `sh -c`", () => {

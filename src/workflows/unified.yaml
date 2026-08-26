@@ -877,10 +877,11 @@ machines:
           "A .gtd/REVIEW_RAW.md": collecting
           "M .gtd/REVIEW_RAW.md": collecting
           "D .gtd/REVIEW.md": $onSignoff
-          # REVIEW.md already absent (nothing for `rm -f` to remove) means
-          # there was nothing to review — treat like any other sign-off
-          # rather than stalling here.
-          "C": $onSignoff
+          # Deliberately no `C` row: REVIEW.md missing here means the review
+          # gate's own file-provisioning invariant broke, not a sign-off — a
+          # clean tree must not be able to auto-approve the round with
+          # nothing reviewed. Stays a no-op (validateHasCRow's warning is the
+          # accepted cost) rather than routing anywhere.
 
       # Outcome is by which paths THIS diff touches: writing REQUIREMENTS.md
       # (A/M) is the actionable case, so those rows are declared before "D
@@ -1315,10 +1316,13 @@ machines:
           git revert --no-commit "$commit"
         on:
           "* **": start-gate
-          # A clean revert (nothing left to undo) still needs to proceed —
-          # without this the process would stall here forever instead of
-          # falling through to the no-op default.
-          "C": start-gate
+          # Deliberately no `C` row: `git revert --no-commit` under `set +e`
+          # leaves a clean tree on either a genuine no-op OR a hard failure
+          # (e.g. a merge commit with no `-m`) — the two are indistinguishable
+          # from the diff alone, and advancing unconditionally would run the
+          # baseline check against a tree that still carries the human's
+          # un-reverted sketch. Stays a no-op (validateHasCRow's warning is
+          # the accepted cost) rather than risking a false-clean baseline.
 
       # Reverts the human's own review-round hand-edit before re-planning,
       # scoped to real code (`.gtd/` excluded — REVIEW.md is already gone by

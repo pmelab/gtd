@@ -434,8 +434,15 @@ invocation, on stderr only — never stdout, and never a nonzero exit. It repeat
 on every invocation until the workflow declares either a `"C"` row or is
 otherwise fixed; that repetition is intentional, not a bug. `gtd visualize` and
 `gtd lsp` never print it (neither resolves workflow state the same way
-`gtd next`/`gtd land`/`gtd --entry` do). The bundled unified template ships
-none.
+`gtd next`/`gtd land`/`gtd --entry` do).
+
+The bundled unified template prints exactly two, on every invocation: `unwind`
+and `build.review.deciding` both deliberately declare no `"C"` row, because
+their clean-tree case is either ambiguous (a completed no-op vs. a `git revert`
+failure swallowed by `set +e`, for `unwind`) or would auto-approve an unreviewed
+round (`build.review.deciding`'s clean tree means its own `REVIEW.md` was never
+provisioned, not that a human signed off). Routing either one somewhere to
+silence the warning would be worse than the noise.
 
 ### The normalization-only contract on `format:`
 
