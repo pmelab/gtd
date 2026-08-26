@@ -5,7 +5,13 @@ import { Cwd } from "./Cwd.js"
 
 export interface GitReaderOperations {
   readonly lastCommitSubject: (ref?: string) => Effect.Effect<string, Error>
-  /** Full commit message (subject + body) of HEAD — keeps the body, needed to read back a `Gtd-History:` trailer. */
+  /**
+   * Full commit message (subject + body) of HEAD — keeps the body, unlike
+   * `lastCommitSubject`. No current caller: it read back a `Gtd-History:`
+   * trailer for the now-removed squash finale's `restorability` check; kept
+   * deliberately rather than deleted, as a plain, reusable git primitive a
+   * future edge concern may need again.
+   */
   readonly lastCommitMessage: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
@@ -76,21 +82,27 @@ export interface GitWriterOperations {
    * newlines verbatim.
    */
   readonly commitAllWithPrefix: (message: string) => Effect.Effect<void, Error>
+  /**
+   * `git reset --soft <ref>` — moves HEAD (and only HEAD; index/worktree stay
+   * put). No current caller: it was the first half of the now-removed squash
+   * finale, kept on the port deliberately rather than deleted, since it's a
+   * plain, reusable git primitive a future edge concern may need again.
+   */
   readonly softResetTo: (ref: string) => Effect.Effect<void, Error>
   /**
    * Commits whatever is CURRENTLY STAGED, without an implicit `git add` first
-   * (unlike `commitAllWithPrefix`) — the second half of the squash mechanics:
-   * after `softResetTo` moves HEAD back, this re-commits the index exactly as
-   * it stood at the pre-reset HEAD, so an untracked message-template file is
-   * automatically excluded. Retries once without the pre-commit hook, same as
-   * `commitAllWithPrefix`.
+   * (unlike `commitAllWithPrefix`). No current caller: it paired with
+   * `softResetTo` as the squash finale's second half (re-committing the
+   * pre-reset index verbatim); kept for the same reason `softResetTo` is.
+   * Retries once without the pre-commit hook, same as `commitAllWithPrefix`.
    */
   readonly commitAsIs: (message: string) => Effect.Effect<void, Error>
   /**
    * Discards every pending change, tracked or untracked, by staging first
-   * (`git add -A`) so the hard reset also drops untracked survivors. Used to
-   * discard a squash's leftover message-template file after `commitAsIs`
-   * lands the squash commit.
+   * (`git add -A`) so the hard reset also drops untracked survivors. No
+   * current caller: it discarded the squash finale's leftover
+   * message-template file after `commitAsIs` landed; kept for the same
+   * reason `softResetTo` is.
    */
   readonly discardPending: () => Effect.Effect<void, Error>
   readonly updateRef: (ref: string, hash: string) => Effect.Effect<void, Error>

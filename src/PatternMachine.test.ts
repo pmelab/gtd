@@ -7,7 +7,6 @@ import {
   enterableStates,
   initialStateOf,
   inScope,
-  isCommitState,
   isReviewBaseState,
   isReviewWindowState,
   matchesPattern,
@@ -39,7 +38,7 @@ const def = (
   entries: typeof entries === "string" ? { default: entries, manual: [] } : entries,
 })
 
-/** A minimal, valid three-state loop: idle → working → idle (commit). */
+/** A minimal, valid three-state loop: idle → working → idle, plus a terminal `done` sink. */
 const simpleWorkflow: WorkflowDefinition = def(
   {
     idle: {
@@ -59,7 +58,8 @@ const simpleWorkflow: WorkflowDefinition = def(
       ],
     },
     done: {
-      commit: "chore: <%= it.state %>",
+      actor: "human",
+      message: "done",
     },
   },
   "idle",
@@ -93,7 +93,8 @@ const retryWorkflow: WorkflowDefinition = def(
       on: [["* *", "done"]],
     },
     done: {
-      commit: "chore: done",
+      actor: "human",
+      message: "done",
     },
   },
   "start",
@@ -143,14 +144,13 @@ const change = (status: PendingChange["status"], path: string): PendingChange =>
   path,
 })
 
-// ── contentKindOf / isCommitState ────────────────────────────────────────────
+// ── contentKindOf / contentOf ─────────────────────────────────────────────────
 
 describe("contentKindOf", () => {
   it("reports the one set content key", () => {
     expect(contentKindOf({ script: "x" })).toBe("script")
     expect(contentKindOf({ prompt: "x" })).toBe("prompt")
     expect(contentKindOf({ message: "x" })).toBe("message")
-    expect(contentKindOf({ commit: "x" })).toBe("commit")
   })
 
   it("is undefined when no content key is set", () => {
@@ -165,20 +165,8 @@ describe("contentOf", () => {
     expect(contentOf({ message: "waiting" })).toBe("waiting")
   })
 
-  it("is undefined for a commit state", () => {
-    expect(contentOf({ commit: "chore: done" })).toBeUndefined()
-  })
-
   it("is undefined when no content key is set", () => {
     expect(contentOf({})).toBeUndefined()
-  })
-})
-
-describe("isCommitState", () => {
-  it("is true only when `commit` is set", () => {
-    expect(isCommitState({ commit: "x" })).toBe(true)
-    expect(isCommitState({ prompt: "x" })).toBe(false)
-    expect(isCommitState({})).toBe(false)
   })
 })
 
@@ -215,12 +203,11 @@ describe("isReviewWindowState / isReviewBaseState", () => {
 })
 
 describe("enterableStates", () => {
-  it("lists every non-commit state, sorted, excluding commit states", () => {
+  it("lists every declared state, sorted", () => {
     const workflow: WorkflowDefinition = def(
       {
         zebra: { actor: "human", message: "x", on: [["* *", "apple"]] },
-        apple: { actor: "human", message: "y", on: [["* *", "done"]] },
-        done: { commit: "chore: done" },
+        apple: { actor: "human", message: "y", on: [["* *", "zebra"]] },
       },
       "zebra",
     )
@@ -372,13 +359,18 @@ describe("resolveState", () => {
     )
   })
 
-  it("never resolves AT a commit state, even when a subject names one with a recognized actor", () => {
-    // "done" is a commit state and carries no actor of its own, but a
-    // hand-authored subject can still name a recognized actor here — excluded
-    // explicitly (`isCommitState`), not via an actor-mismatch trick.
-    expect(resolveState(simpleWorkflow, "gtd(agent): done")).toBe(initialStateOf(simpleWorkflow))
-    expect(resolveState(simpleWorkflow, "gtd(human): done")).toBe(initialStateOf(simpleWorkflow))
-    expect(resolveState(simpleWorkflow, "gtd(nobody): done")).toBe(initialStateOf(simpleWorkflow))
+  it("resolves to a state that itself declares no actor — there is no separate exclusion for such a state, only the actor-vocabulary check", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        a: { actor: "human", message: "x", on: [["* *", "sink"]] },
+        sink: { message: "done" },
+      },
+      "a",
+    )
+    // "sink" declares no actor of its own, but "human" is still a
+    // recognized actor somewhere in the workflow, so resolution lands on
+    // "sink" rather than falling back to the initial state.
+    expect(resolveState(workflow, "gtd(human): sink")).toBe("sink")
   })
 
   it("is total: an arbitrary garbage subject always resolves to a defined state", () => {
@@ -668,8 +660,8 @@ describe("step — first match wins", () => {
             ["* *", "second"],
           ],
         },
-        first: { commit: "chore: first" },
-        second: { commit: "chore: second" },
+        first: { actor: "human", message: "first" },
+        second: { actor: "human", message: "second" },
       },
       "s",
     )
@@ -679,20 +671,28 @@ describe("step — first match wins", () => {
       changes: [change("A", "x.md")],
       processTrace: [],
     })
-    expect(decision).toEqual({ kind: "squash", state: "first", template: "chore: first" })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(human): s → first",
+      actor: "human",
+      from: "s",
+      to: "first",
+    })
   })
 })
 
-describe("step — squash decision", () => {
-  it("targeting a commit state yields a squash decision carrying its template verbatim", () => {
+describe("step — entering a terminal state", () => {
+  it("targeting a state with its own actor and no outbound edges yields an ordinary commit decision", () => {
     const decision = step(simpleWorkflow, "working", "agent", {
       changes: [change("A", "DONE.md")],
       processTrace: [],
     })
     expect(decision).toEqual({
-      kind: "squash",
-      state: "done",
-      template: "chore: <%= it.state %>",
+      kind: "commit",
+      subject: "gtd(agent): working → done",
+      actor: "agent",
+      from: "working",
+      to: "done",
     })
   })
 })
@@ -704,9 +704,16 @@ describe("step — structural errors", () => {
     ).toThrow(/unknown state/)
   })
 
-  it("throws when invoked at a commit state", () => {
-    expect(() => step(simpleWorkflow, "done", "human", { changes: [], processTrace: [] })).toThrow(
-      /commit state/,
+  it("throws when invoked at a state that declares no actor", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        a: { actor: "human", message: "x", on: [["* *", "sink"]] },
+        sink: { message: "done" },
+      },
+      "a",
+    )
+    expect(() => step(workflow, "sink", "human", { changes: [], processTrace: [] })).toThrow(
+      /declares no actor/,
     )
   })
 })
@@ -826,7 +833,7 @@ describe("step — retry redirection", () => {
         },
         a: { actor: "human", message: "a", retry: { max: 1, otherwise: "b" }, on: [["* *", "a"]] },
         b: { actor: "human", message: "b", retry: { max: 1, otherwise: "c" }, on: [["* *", "b"]] },
-        c: { commit: "chore: c" },
+        c: { actor: "human", message: "c" },
       },
       "s",
     )
@@ -845,7 +852,13 @@ describe("step — retry redirection", () => {
       changes: [change("A", "x")],
       processTrace: ["a", "b", "a"],
     })
-    expect(decision).toEqual({ kind: "squash", state: "c", template: "chore: c" })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(human): s → c",
+      actor: "human",
+      from: "s",
+      to: "c",
+    })
   })
 
   it("guards against a redirect cycle: two states whose `otherwise` point at each other terminate rather than loop", () => {
@@ -916,7 +929,7 @@ describe("step — attempt commits (clean tree, no-C prompt state)", () => {
     const noMatchWorkflow: WorkflowDefinition = def(
       {
         working: { actor: "agent", prompt: "do it", on: [["A x", "done"]] },
-        done: { commit: "c" },
+        done: { actor: "human", message: "done" },
       },
       "working",
     )
@@ -942,7 +955,7 @@ describe("step — attempt commits (clean tree, no-C prompt state)", () => {
           on: [["A DONE.md", "done"]],
         },
         escalate: { actor: "human", message: "stuck", on: [["* *", "done"]] },
-        done: { commit: "chore: done" },
+        done: { actor: "human", message: "done" },
       },
       "working",
     )
@@ -972,7 +985,7 @@ describe("step — attempt commits (clean tree, no-C prompt state)", () => {
     })
   })
 
-  it("retry.otherwise naming a commit state yields a squash decision — never an attempt", () => {
+  it("retry.otherwise redirecting a clean-tree attempt off a prompt state still carries the attempt flag — the redirect changes `to`, not attempt-ness", () => {
     const workflow: WorkflowDefinition = def(
       {
         working: {
@@ -981,7 +994,7 @@ describe("step — attempt commits (clean tree, no-C prompt state)", () => {
           retry: { max: 1, otherwise: "done" },
           on: [],
         },
-        done: { commit: "chore: done" },
+        done: { actor: "human", message: "done" },
       },
       "working",
     )
@@ -989,7 +1002,14 @@ describe("step — attempt commits (clean tree, no-C prompt state)", () => {
       changes: [],
       processTrace: ["working"],
     })
-    expect(decision).toEqual({ kind: "squash", state: "done", template: "chore: done" })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(agent): working → done",
+      actor: "agent",
+      from: "working",
+      to: "done",
+      attempt: true,
+    })
   })
 
   it("attempt counting is unchanged: a clean-tree attempt at `fixing` counts from zero once an intervening `reviewing` entry resets the episode", () => {
@@ -1038,7 +1058,7 @@ describe("wouldAttempt", () => {
           on: [["A DONE.md", "done"]],
         },
         escalate: { actor: "human", message: "stuck", on: [["* *", "done"]] },
-        done: { commit: "chore: done" },
+        done: { actor: "human", message: "done" },
       },
       "working",
     )
@@ -1210,14 +1230,6 @@ describe("validateDefinition", () => {
     expect(errors).toContain('entries.default "ghost" is not a defined state')
   })
 
-  it("rejects entries.default naming a commit state", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: { a: { commit: "chore: a" } },
-    })
-    expect(errors).toContain('entries.default "a" must not be a commit state')
-  })
-
   it("rejects entries.manual naming an undefined state", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: ["ghost"] },
@@ -1270,43 +1282,21 @@ describe("validateDefinition", () => {
       entries: { default: "a", manual: [] },
       states: { a: { actor: "h", on: [] } },
     })
-    expect(zero.some((e) => e.includes("exactly one of script/prompt/message/commit"))).toBe(true)
+    expect(zero.some((e) => e.includes("exactly one of script/prompt/message"))).toBe(true)
 
     const two = validateDefinition({
       entries: { default: "a", manual: [] },
       states: { a: { actor: "h", message: "x", script: "y", on: [] } },
     })
-    expect(two.some((e) => e.includes("exactly one of script/prompt/message/commit"))).toBe(true)
+    expect(two.some((e) => e.includes("exactly one of script/prompt/message"))).toBe(true)
   })
 
-  it("rejects a commit state that declares an actor or `on`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", actor: "h" },
-      },
-    })
-    expect(errors).toContain('commit state "b" must not declare an actor')
-  })
-
-  it("rejects a commit state that declares `on`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", on: [["* *", "a"]] },
-      },
-    })
-    expect(errors).toContain('commit state "b" must not declare "on"')
-  })
-
-  it("requires a non-commit state to declare an actor", () => {
+  it("requires a state to declare an actor", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
       states: { a: { message: "x", on: [] } },
     })
-    expect(errors).toContain('state "a" must declare an actor (only a commit state may omit one)')
+    expect(errors).toContain('state "a" must declare an actor')
   })
 
   it("rejects an unparseable pattern", () => {
@@ -1364,17 +1354,6 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": "model" must be a non-empty string')
   })
 
-  it("rejects a commit state that declares a `model`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", model: "smart" },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "model"')
-  })
-
   it("aggregates a bad `model` alongside other unrelated findings", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
@@ -1409,17 +1388,6 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain('state "a": "label" must be a non-empty string')
-  })
-
-  it("rejects a commit state that declares a `label`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", label: "Done" },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "label"')
   })
 
   it("aggregates a bad `label` alongside other unrelated findings", () => {
@@ -1515,17 +1483,6 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": "file" must be a non-empty string')
   })
 
-  it("rejects a commit state that declares a `file`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", file: ".gtd/TODO.md" },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "file"')
-  })
-
   it("rejects a `mode` no `modes:` entry defines, naming what is available", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
@@ -1615,19 +1572,7 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": "mode" requires "file"')
   })
 
-  it("rejects a commit state that declares a `mode`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      modes: { qa: {} },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", file: ".gtd/TODO.md", mode: "qa" },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "mode"')
-  })
-
-  it("accepts a non-commit state declaring `reviewWindow`/`reviewBase`", () => {
+  it("accepts a state declaring `reviewWindow`/`reviewBase`", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
@@ -1641,28 +1586,6 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toEqual([])
-  })
-
-  it("rejects a commit state that declares `reviewWindow`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", reviewWindow: true },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "reviewWindow"')
-  })
-
-  it("rejects a commit state that declares `reviewBase`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", reviewBase: true },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "reviewBase"')
   })
 
   it("accepts a non-empty string `reviewBase` (the template form)", () => {
@@ -1695,7 +1618,7 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": "reviewBase" template must not be blank')
   })
 
-  it("accepts entries.manual naming a distinct, non-commit state", () => {
+  it("accepts entries.manual naming a distinct state", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: ["b"] },
       states: {
@@ -1706,18 +1629,7 @@ describe("validateDefinition", () => {
     expect(errors).toEqual([])
   })
 
-  it("rejects entries.manual naming a commit state", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: ["b"] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b" },
-      },
-    })
-    expect(errors).toContain('entries.manual "b" must not be a commit state')
-  })
-
-  it("accepts a non-commit state declaring `requireProgress` with a `file`", () => {
+  it("accepts a state declaring `requireProgress` with a `file`", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
@@ -1739,18 +1651,7 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "b": "requireProgress" requires "file"')
   })
 
-  it("rejects a commit state that declares `requireProgress`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", requireProgress: true },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "requireProgress"')
-  })
-
-  it("accepts a non-commit state declaring `requireRevert` with a `file`", () => {
+  it("accepts a state declaring `requireRevert` with a `file`", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
@@ -1778,18 +1679,7 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "b": "requireRevert" requires "file"')
   })
 
-  it("rejects a commit state that declares `requireRevert`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", requireRevert: true },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "requireRevert"')
-  })
-
-  it("accepts entries.manual naming a distinct, non-commit script/check state", () => {
+  it("accepts entries.manual naming a distinct script/check state", () => {
     const errors = validateDefinition({
       entries: { default: "a", manual: ["b"] },
       states: {
@@ -1798,17 +1688,6 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toEqual([])
-  })
-
-  it("rejects entries.manual naming a commit state (script/check variant)", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: ["b"] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b" },
-      },
-    })
-    expect(errors).toContain('entries.manual "b" must not be a commit state')
   })
 
   it("treats entries.manual as reachable even with no inbound `on`/`retry` edge (seeded as a root)", () => {
@@ -1882,7 +1761,7 @@ describe("validateDefinition", () => {
       states: {
         a: { actor: "h", message: "x", on: [["* *", "done"]] },
         orphan: { actor: "h", message: "never entered", on: [["* *", "done"]] },
-        done: { commit: "chore: done" },
+        done: { actor: "h", message: "done" },
       },
     })
     expect(errors).toEqual([
@@ -1953,13 +1832,12 @@ describe("validateDefinition", () => {
   })
 
   it("fires every per-field rule from src/StateFields.ts's table in one definition (regression guard for the field-table refactor, issue #158)", () => {
-    // One fixture violating every per-field rule at once: a commit state
-    // carrying every field forbidden on a commit state; a non-commit state
-    // with empty `model`/`label`/`file` and an unknown `mode`; a state whose
+    // One fixture violating every per-field rule at once: a state with empty
+    // `model`/`label`/`file` and an unknown `mode`; a state whose
     // `mode`/`requireProgress`/`answerGate` all lack the `file` they
     // require; a blank-template `reviewBase`. Guards against a future edit
-    // to `STATE_FIELDS` silently dropping a field's `nonEmpty`/`commit`/
-    // `requires` rule.
+    // to `STATE_FIELDS` silently dropping a field's `nonEmpty`/`requires`
+    // rule.
     const errors = validateDefinition({
       entries: { default: "start", manual: [] },
       states: {
@@ -1985,18 +1863,7 @@ describe("validateDefinition", () => {
           actor: "human",
           message: "z",
           reviewBase: "   ",
-          on: [["* *", "badCommit"]],
-        },
-        badCommit: {
-          commit: "chore: x",
-          model: "m",
-          label: "l",
-          file: "f",
-          mode: "qa",
-          reviewWindow: true,
-          reviewBase: true,
-          requireProgress: true,
-          answerGate: true,
+          on: [],
         },
       },
     })
@@ -2011,14 +1878,6 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "missingFile": "requireProgress" requires "file"')
     expect(errors).toContain('state "missingFile": "answerGate" requires "file"')
     expect(errors).toContain('state "blankBase": "reviewBase" template must not be blank')
-    expect(errors).toContain('state "badCommit": a commit state cannot declare "model"')
-    expect(errors).toContain('state "badCommit": a commit state cannot declare "label"')
-    expect(errors).toContain('state "badCommit": a commit state cannot declare "file"')
-    expect(errors).toContain('state "badCommit": a commit state cannot declare "mode"')
-    expect(errors).toContain('state "badCommit": a commit state cannot declare "reviewWindow"')
-    expect(errors).toContain('state "badCommit": a commit state cannot declare "reviewBase"')
-    expect(errors).toContain('state "badCommit": a commit state cannot declare "requireProgress"')
-    expect(errors).toContain('state "badCommit": a commit state cannot declare "answerGate"')
   })
 })
 

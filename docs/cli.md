@@ -15,8 +15,8 @@ Commands:
                    config already exists. Leaves the file uncommitted for you
                    to review and commit
   land             Land whatever the tree now shows at the currently resolved
-                   rest — a human capture, an agent/check turn, an empty
-                   attempt (a fruitless prompt turn), or a squash. Pass
+                   rest — a human capture, an agent/check turn, or an empty
+                   attempt (a fruitless prompt turn). Pass
                    --cost=<n> (optionally --model=<name>) to record the
                    just-finished invocation's token cost and model on the
                    turn commit (summed into it.processCost/
@@ -35,12 +35,12 @@ Commands:
                    the commit the process started from, keeping everything it
                    produced as uncommitted changes. A no-op when no process is
                    underway
-  restore          Hard-reset HEAD back to the pre-squash tip retained by the
-                   last squash/abandon (refs/worktree/gtd/history), undoing a
-                   squash or bringing back an abandoned process's turns.
-                   Refuses on a dirty working tree, when there is no retained
-                   history, or when HEAD has advanced past the squash with
-                   commits that would be lost
+  restore          Hard-reset HEAD back to the tip retained by the last
+                   abandon (refs/worktree/gtd/history), bringing back an
+                   abandoned process's turns. Refuses on a dirty working
+                   tree, when there is no retained history, or when HEAD has
+                   advanced past the retained tip with commits that would be
+                   lost
   next             Print the resolved rest's beat (no mutation, safe to
                    poll), in one of three encodings. Plain (the default): a
                    status summary, a blank line, then the step verbatim —
@@ -86,6 +86,18 @@ Commands:
                    https://github.com/pmelab/gtd/blob/main/docs/driver.md's
                    'Writing your own driver'. Writes nothing: this installs
                    knowledge into the calling agent's context, not files on disk.
+  summary          Print the prompt for an agent to write the process HEAD
+                   closes or sits inside its own closing message — the entry
+                   commit, each human-authored commit (a review round, an
+                   answered question gate), the diff range to inspect, and
+                   it.processCost/processCostByModel. Writes nothing: no git,
+                   no state transition, no file, no session identity — the
+                   driver pipes the output to a cold agent and does what it
+                   wants with the result (a squash, an amend, a PR body).
+                   Refuses (exit 1) when the workflow declares no summary:
+                   template, or when the resolved run has no commits to name
+                   — runnable any time before the next thing lands on the
+                   branch
   version          Print version and exit
   help             Print this help and exit
 
@@ -100,8 +112,7 @@ Options:
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land only, with --cost) tag that cost's model
   --entry <state>  (with no command at all) start a brand new process at
-                   <state> — any declared, non-commit state — authenticated
-                   as human
+                   <state> — any declared state — authenticated as human
   --var <name>=<value>
                    (with --entry; repeatable) supply a fixed it.vars
                    override for the new process; the name must already be
@@ -172,10 +183,10 @@ driving a loop is a driver's job, not a bundled command (see
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository.
 The state commands (`land`, `--entry`, `abandon`, `restore`, `next`, `status`,
-`validate`) must run from the **repository root** — gtd derives the workflow,
-pending changes, and process history relative to cwd, so they refuse with a
-clear error from a subdirectory; `lsp`, `init`, `visualize`, and `check` are
-standalone and run from anywhere (see each command's own help entry).
+`validate`, `summary`) must run from the **repository root** — gtd derives the
+workflow, pending changes, and process history relative to cwd, so they refuse
+with a clear error from a subdirectory; `lsp`, `init`, `visualize`, and `check`
+are standalone and run from anywhere (see each command's own help entry).
 
 `install` is described on its own above: it writes nothing and installs
 knowledge into the calling agent's context, not files on disk.

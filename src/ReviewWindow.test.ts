@@ -286,6 +286,7 @@ describe("decideOpenWindow — answerable for a target state the caller names", 
     costEntries: [],
     entryVars: {},
     headTurn: undefined,
+    closingHash: undefined,
   }
 
   it("declines when the target state doesn't declare reviewWindow", () => {
@@ -319,8 +320,8 @@ describe("decideOpenWindow — answerable for a target state the caller names", 
     const run: ProcessRun = {
       ...emptyRun,
       trace: [
-        { state: "building", hash: "buildingHash" },
-        { state: "checkpoint", hash: "checkpointHash" },
+        { state: "building", hash: "buildingHash", actor: "agent" },
+        { state: "checkpoint", hash: "checkpointHash", actor: "agent" },
       ],
     }
     expect(decideOpenWindow(def, "gate", run, "prospectiveHead")).toEqual({

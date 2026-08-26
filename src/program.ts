@@ -14,7 +14,6 @@ import { resolveSession } from "./Sessions.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
   collapsesToInitialState,
-  contextAt,
   currentRest,
   currentRun,
   planEntry,
@@ -23,11 +22,14 @@ import {
   renderRest,
   restAt,
   stalledAt,
+  summaryRun,
+  summaryTemplateContext,
   type ExecutableDecision,
   type Rest,
   type RenderedRest,
   type RestRequirements,
 } from "./Edge.js"
+import { buildSummary } from "./Summary.js"
 import {
   buildCloseWindowScript,
   buildOpenWindowScript,
@@ -84,7 +86,7 @@ import {
   type NextMatch,
   type StatusChange,
 } from "./Beat.js"
-import { renderModeCommand, renderStateTemplate, type TemplateContext } from "./PatternTemplates.js"
+import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
 import {
   combinedScript,
@@ -275,24 +277,13 @@ const decideAndNarrateOpenWindow = (
 const isAttemptDecision = (decision: ExecutableDecision): boolean =>
   decision.kind === "commit" && decision.attempt === true
 
-/**
- * The subject the required script will produce. Unreachable-on-failure:
- * `renderDecision` already rendered the same template and refused the
- * command if it threw, so this second render can never be the first to fail.
- */
-const previewSubject = (
-  decision: ExecutableDecision,
-  rest: Rest,
-): Effect.Effect<string | null, never> =>
-  decision.kind === "commit"
-    ? Effect.succeed(decision.subject)
-    : Effect.try(() =>
-        renderStateTemplate(decision.template, rest.context).split("\n")[0]!.trim(),
-      ).pipe(Effect.catchAll(() => Effect.succeed(null)))
+/** The subject the required script will produce. */
+const previewSubject = (decision: ExecutableDecision): Effect.Effect<string | null, never> =>
+  Effect.succeed(decision.subject)
 
 /**
  * The `required` half: the review-window close (when one is open), the
- * resting state's own steering-mode commands, then the commit/squash steps.
+ * resting state's own steering-mode commands, then the commit steps.
  * The steering-mode step is skipped for an attempt commit — nothing to
  * format/validate in an empty diff, and running `format:` ahead of the
  * commit could dirty the tree and turn an "empty" attempt non-empty, breaking
@@ -311,21 +302,13 @@ const buildRequiredScript = (
     yield* (yield* Narrator).narrate(
       closeDecision.shouldClose ? "review-window: close" : "review-window: no-op",
     )
-    // A squash renders its commit template at the target commit state with
-    // this step's own --cost/--model folded in, not against rest.context
-    // (pinned to the resting state, cost: 0), so it.processCost isn't
-    // missing the squashing turn itself.
-    const commitContext =
-      decision.kind === "commit"
-        ? rest.context
-        : yield* contextAt(rest, decision.state, rest.actor, cost, model)
     const isAttempt = isAttemptDecision(decision)
     const steps: EmitStep[] = [
       ...(closeDecision.shouldClose
         ? [{ kind: "gitWrite" as const, command: buildCloseWindowScript(closeDecision.refs) }]
         : []),
       ...(isAttempt ? [] : yield* steeringModeSteps(rest)),
-      ...(yield* renderDecision(git, rest, decision, commitContext, cost, model)),
+      ...(yield* renderDecision(git, rest, decision, cost, model)),
     ]
     return emitScripts(headPreconditions(rest.context.currentCommit), steps).required
   })
@@ -337,7 +320,7 @@ interface LandOptions {
 }
 
 /**
- * Decide the one resulting transition (commit or squash) for `gtd land`
+ * Decide the one resulting transition (a commit) for `gtd land`
  * without performing it, authenticating as `rest.actor`. Refusals fail the
  * Effect with a formatted message; a no-op returns `subject: null` and empty
  * scripts.
@@ -372,9 +355,9 @@ const planLanding = (
       }
     }
 
-    // Always true here since plan.kind is already known to be commit|squash.
+    // Always true here since plan.kind is already known to be commit.
     const decision = plan.decision
-    if (decision.kind !== "commit" && decision.kind !== "squash") {
+    if (decision.kind !== "commit") {
       return yield* Effect.fail(
         new Error(
           `gtd: internal error — plan kind "${plan.kind}" but decision kind "${decision.kind}"`,
@@ -392,23 +375,46 @@ const planLanding = (
       attempt: isAttemptDecision(decision),
     })
 
-    const targetState = decision.kind === "commit" ? decision.to : decision.state
-    // Distinct from targetState above: a squash's rendered subject never
-    // parses back into a declared state, so it always resolves to the
-    // workflow's initial state.
-    const restingState = decision.kind === "commit" ? decision.to : initialStateOf(rest.def)
+    const restingState = decision.to
     const settled = yield* collapsesToInitialState(rest, decision)
-    const openDecision = yield* decideAndNarrateOpenWindow(rest, targetState)
+    const openDecision = yield* decideAndNarrateOpenWindow(rest, restingState)
     const required = yield* buildRequiredScript(rest, decision, opts.cost, opts.model)
     return {
       state: restingState,
-      subject: yield* previewSubject(decision, rest),
+      subject: yield* previewSubject(decision),
       cost: opts.cost ?? null,
       model: opts.model ?? null,
       script: normalizeScriptNewline(combinedScript(required, openWindowScript(openDecision))),
       settled,
       idle: restingState === initialStateOf(rest.def),
     }
+  })
+
+/**
+ * `gtd summary`: print the prompt for an agent to write the process HEAD
+ * closes or sits inside its own closing message. Writes nothing — no git, no
+ * state transition, no file, no review-window bracket (see AGENTS.md: a
+ * write-nothing command emits its own bracket only when it needs one; this
+ * one never does). Refuses (throws, mapped to the runtime-error exit code) on
+ * either of the two conditions `src/Summary.ts`'s `buildSummary` folds into
+ * one `undefined`: the workflow declares no `summary:` template, or the
+ * resolved run has no commits to name.
+ */
+const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    const run = yield* summaryRun
+    const context = yield* summaryTemplateContext(run)
+    const rendered = buildSummary(config.workflow, run, context)
+    if (rendered === undefined) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd summary: refused — either this workflow declares no "summary:" template, or ` +
+            `there is no finished/in-flight process to summarize at HEAD`,
+        ),
+      )
+    }
+    out.write(rendered.endsWith("\n") ? rendered : rendered + "\n")
   })
 
 /**
@@ -438,7 +444,7 @@ const runLandCommand = (
 
 /**
  * `gtd --entry <state> [--var <name>=<value> ...]` (`actor` always `"human"`):
- * start a brand new process at `<state>` — any declared, non-commit state.
+ * start a brand new process at `<state>` — any declared state.
  * Writes an ordinary turn commit carrying zero or more `Gtd-Var:` trailers,
  * plus a `Gtd-Review-Base:` trailer when `<state>` declares a `reviewBase:`.
  * Commits via `commitAllWithPrefix` — capturing whatever the working tree
@@ -550,8 +556,8 @@ const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
   })
 
 /**
- * `gtd restore`: hard-reset HEAD back to the pre-squash tip a squash or
- * `gtd abandon` retained, undoing either.
+ * `gtd restore`: hard-reset HEAD back to the tip `gtd abandon` (or the
+ * initial-state collapse's own mixed reset) retained.
  *
  * Guarded by `restorability` so it never discards work it didn't create:
  * refuses on a dirty working tree, no retained history, or HEAD having
@@ -580,8 +586,7 @@ const runRestoreCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
     const tip = retained.value
 
     const headHash = yield* git.resolveRef("HEAD")
-    const headMessage = yield* git.lastCommitMessage()
-    const check = yield* restorability(git, headHash, headMessage, tip)
+    const check = yield* restorability(git, headHash, tip)
     if (!check.ok) {
       return yield* Effect.fail(
         new Error(
@@ -1225,6 +1230,8 @@ const dispatchVoidCommand = (
       return runCheckCommand(command.mode, command.file, command.openQuestions ?? false)
     case "install":
       return runInstallCommand(out)
+    case "summary":
+      return runSummaryCommand(out)
   }
 }
 

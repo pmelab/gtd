@@ -158,7 +158,7 @@ export const stepGuards: readonly StepGuard[] = [
  * of the current committed/working bytes, and fail with the first refusal's
  * reason, prefixed `gtd land: ` (the one place that prefix, and
  * `Commentary.ts`'s `renderFailure` `/^gtd[: ]/` contract, is satisfied). A
- * no-op for a squash/no-op decision, an ATTEMPT commit (empty diff by
+ * no-op for a `"noop"` decision, an ATTEMPT commit (empty diff by
  * construction — nothing for any guard to check), a state with no `file:`, or
  * a state no guard applies to.
  */
@@ -173,7 +173,7 @@ export const enforceStepGuards = (input: {
   readonly kind: ExecutableDecision["kind"]
   /**
    * True for an ATTEMPT commit — a fruitless `prompt`-state dispatch whose
-   * diff is EMPTY by construction. Bypasses every guard like a squash/no-op
+   * diff is EMPTY by construction. Bypasses every guard, same as a `"noop"`
    * decision: running a mode's `format:` here could dirty the tree and turn
    * an "empty" attempt non-empty, breaking the derivation `stalledAt` relies
    * on.

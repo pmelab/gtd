@@ -38,9 +38,9 @@ type VizFields = { readonly [K in VizFieldName]?: StateDef[K] }
 /** One state, described for the viewer. */
 export interface VizState extends VizFields {
   readonly name: string
-  /** `script` | `prompt` | `message` | `commit` | `unknown` (a malformed state). */
+  /** `script` | `prompt` | `message` | `unknown` (a malformed state). */
   readonly kind: string
-  /** The state's raw template source (script/prompt/message), verbatim — omitted for a commit state. */
+  /** The state's raw template source (script/prompt/message), verbatim. */
   readonly content?: string
   readonly initial?: boolean
   /** Boolean state flags that are set: reviewWindow/reviewBase/entry/requireProgress/answerGate. */

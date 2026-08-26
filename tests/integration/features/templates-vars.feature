@@ -32,7 +32,8 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -66,7 +67,8 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       vars:
         reviewer: bob
       """
@@ -103,7 +105,8 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       vars:
         reviewer: bob
       """
@@ -140,7 +143,8 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -240,7 +244,8 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -274,7 +279,8 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """

@@ -6,8 +6,8 @@ export type Actor = string
 /** Defined by whatever keys `WorkflowDefinition.states` declares — not a closed vocabulary. */
 export type StateName = string
 
-/** The four content kinds a state can carry — exactly one per state. */
-export type ContentKind = "script" | "prompt" | "message" | "commit"
+/** The three content kinds a state can carry — exactly one per state. */
+export type ContentKind = "script" | "prompt" | "message"
 
 /** The name of a steering-file mode. Not a closed vocabulary: the valid set derives from the active definition (`BUILT_IN_MODES` plus whatever `modes:` declares). */
 export type StateMode = string
@@ -58,8 +58,6 @@ export interface FieldSpec {
   readonly surface: "def" | "authoring-only"
   /** "machine" = stamped by the owning machine; a state-level declaration is a migration error. "state" = authored directly on a state. */
   readonly authored: "state" | "machine"
-  /** → `state "<name>": a commit state cannot declare "<key>"` */
-  readonly commit?: "forbidden"
   /** → `state "<name>": "<key>" must be a non-empty string` */
   readonly nonEmpty?: true
   /** Names another field this one requires be set → `state "<name>": "<key>" requires "<requires>"` */
@@ -140,7 +138,7 @@ const STATE_FIELDS = {
     surface: "def",
     authored: "state",
     viz: "field",
-    doc: "Who acts at this state. Required on every non-commit state; forbidden on a commit state.",
+    doc: "Who acts at this state. Required on every state.",
   },
 
   script: {
@@ -160,12 +158,6 @@ const STATE_FIELDS = {
     surface: "def",
     authored: "state",
     doc: "Content kind: a human-facing message (Eta template), emitted by `gtd next`.",
-  },
-  commit: {
-    kind: "content",
-    surface: "def",
-    authored: "state",
-    doc: "Content kind: entering this state ends the process by squashing it into one commit with this message (Eta template). Final — no actor, no on.",
   },
 
   on: {
@@ -191,7 +183,6 @@ const STATE_FIELDS = {
     surface: "def",
     authored: "machine",
     nonEmpty: true,
-    commit: "forbidden",
     viz: "field",
     rest: "rendered",
     doc: 'Opaque harness hint stamped onto every one of this machine\'s own `prompt` states (e.g. "smart"), passed through `gtd next --json`/`gtd status --json`. The ONLY place a model may be declared — a state carrying its own `model:` is a config error. Never interpreted by gtd. A machine declaring this with no `prompt` state is a config error.',
@@ -202,7 +193,6 @@ const STATE_FIELDS = {
     surface: "def",
     authored: "machine",
     nonEmpty: true,
-    commit: "forbidden",
     fileRef: true,
     rest: "rendered",
     viz: "field",
@@ -215,9 +205,8 @@ const STATE_FIELDS = {
     surface: "def",
     authored: "state",
     nonEmpty: true,
-    commit: "forbidden",
     rest: "rendered",
-    doc: 'Opaque display name passed through `gtd next --json`/`gtd status --json` so a driver/viewer can show something nicer than the raw state name (e.g. "Running checks"). Never interpreted by gtd. Forbidden on a commit state.',
+    doc: 'Opaque display name passed through `gtd next --json`/`gtd status --json` so a driver/viewer can show something nicer than the raw state name (e.g. "Running checks"). Never interpreted by gtd.',
   },
 
   /** Multiple states may (and, in the bundled default, do) share one `file:`. The engine never reads a path out of this string itself — only the LSP interprets it, to map rendered paths to `mode`. */
@@ -226,10 +215,9 @@ const STATE_FIELDS = {
     surface: "def",
     authored: "state",
     nonEmpty: true,
-    commit: "forbidden",
     viz: "field",
     rest: "rendered",
-    doc: 'The state\'s steering file: an Eta template naming the file a human/editor should look at while the machine rests here, RELATIVE to ".gtd/" — the compiler prepends that directory automatically. A ".." segment, an absolute path, or an already-prefixed ".gtd/" are rejected, not rewritten. Forbidden on a commit state.',
+    doc: 'The state\'s steering file: an Eta template naming the file a human/editor should look at while the machine rests here, RELATIVE to ".gtd/" — the compiler prepends that directory automatically. A ".." segment, an absolute path, or an already-prefixed ".gtd/" are rejected, not rewritten.',
   },
 
   /** Opaque, like `model`: the engine never branches on it — the edge (`src/SteeringMode.ts`) resolves it to a format/validate pair. `validateDefinition` only enforces that the name resolves, so a typo can't silently disable the gate. */
@@ -237,11 +225,10 @@ const STATE_FIELDS = {
     kind: "mode",
     surface: "def",
     authored: "state",
-    commit: "forbidden",
     requires: "file",
     viz: "field",
     rest: "verbatim",
-    doc: "The steering file's format: the name of a built-in mode (qa/review, validated in-process by gtd) or of a `modes:` entry. gtd formats and validates the file with that mode before capturing a turn out of this state, and the LSP dispatches live diagnostics on the built-in names. Requires a sibling `file:`. Forbidden on a commit state.",
+    doc: "The steering file's format: the name of a built-in mode (qa/review, validated in-process by gtd) or of a `modes:` entry. gtd formats and validates the file with that mode before capturing a turn out of this state, and the LSP dispatches live diagnostics on the built-in names. Requires a sibling `file:`.",
   },
 
   /** This module's pure functions never read this flag — the window is opened/closed entirely at the edge (`src/ReviewWindow.ts`). */
@@ -249,9 +236,8 @@ const STATE_FIELDS = {
     kind: "flag",
     surface: "def",
     authored: "state",
-    commit: "forbidden",
     viz: "flag",
-    doc: "When true, gtd opens a review checkout window while the machine rests here — HEAD/index are rewound to the review base so the whole base..HEAD diff surfaces as uncommitted changes in the editor. Forbidden on a commit state.",
+    doc: "When true, gtd opens a review checkout window while the machine rests here — HEAD/index are rewound to the review base so the whole base..HEAD diff surfaces as uncommitted changes in the editor.",
   },
 
   /** Like `reviewWindow`, the engine never reads this — it's history-derived edge data. `isReviewBaseState` never treats a string value as the `true`/window-anchor form. */
@@ -259,9 +245,8 @@ const STATE_FIELDS = {
     kind: "flagOrTemplate",
     surface: "def",
     authored: "state",
-    commit: "forbidden",
     viz: "flag",
-    doc: "true marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. A string is a different shape: an Eta template rendering a commitish that becomes the WHOLE PROCESS's fixed diff base when this state is entered manually via `gtd --entry <state> --base <commitish>` (see the `entry` property below). Forbidden on a commit state.",
+    doc: "true marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. A string is a different shape: an Eta template rendering a commitish that becomes the WHOLE PROCESS's fixed diff base when this state is entered manually via `gtd --entry <state> --base <commitish>` (see the `entry` property below).",
   },
 
   /** The pure engine never reads this — checked at the edge by the feedback-progress guard in `src/StepGuards.ts`. */
@@ -269,10 +254,9 @@ const STATE_FIELDS = {
     kind: "flag",
     surface: "def",
     authored: "state",
-    commit: "forbidden",
     requires: "file",
     viz: "flag",
-    doc: "When true, a step at this state is refused if its only pending change is deleting the state's own `file:` — a work-free turn that discards its input without addressing it. A `NOTHING ACTIONABLE` sentinel file is exempt (a legitimately non-actionable round makes no code change). Requires a `file:`. Forbidden on a commit state.",
+    doc: "When true, a step at this state is refused if its only pending change is deleting the state's own `file:` — a work-free turn that discards its input without addressing it. A `NOTHING ACTIONABLE` sentinel file is exempt (a legitimately non-actionable round makes no code change). Requires a `file:`.",
   },
 
   /** The pure engine never reads this — checked at the edge by the answer-completeness guard in `src/StepGuards.ts`, and only when the state also declares `mode: qa`. */
@@ -280,10 +264,9 @@ const STATE_FIELDS = {
     kind: "flag",
     surface: "def",
     authored: "state",
-    commit: "forbidden",
     requires: "file",
     viz: "flag",
-    doc: "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`. Forbidden on a commit state.",
+    doc: "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`.",
   },
 
   /**
@@ -297,10 +280,9 @@ const STATE_FIELDS = {
     kind: "flag",
     surface: "def",
     authored: "state",
-    commit: "forbidden",
     requires: "file",
     viz: "flag",
-    doc: "When true, a step at this state is refused unless the paths the human's own review-round commit touched have actually been reverted out of the working tree — re-established from the tree itself, never from the script's own exit code. Requires a `file:`. Forbidden on a commit state.",
+    doc: "When true, a step at this state is refused unless the paths the human's own review-round commit touched have actually been reverted out of the working tree — re-established from the tree itself, never from the script's own exit code. Requires a `file:`.",
   },
 
   /** Authoring-only: never lands on the compiled `StateDef` — `compileWorkflowConfig` reads the raw flag directly to build `entries.manual` instead. */
@@ -326,7 +308,7 @@ type DefFieldName = {
 
 /**
  * One state's declaration: every field whose `surface` is `"def"`. Exactly
- * one of `script`/`prompt`/`message`/`commit` should be set — enforced by
+ * one of `script`/`prompt`/`message` should be set — enforced by
  * `validateDefinition`, not the type, since a config compiler assembles these
  * from loosely-typed YAML.
  */
@@ -338,7 +320,7 @@ export const STATE_FIELD_ENTRIES: ReadonlyArray<[keyof Fields, FieldSpec]> = Obj
   STATE_FIELDS,
 ) as ReadonlyArray<[keyof Fields, FieldSpec]>
 
-/** The four content-kind field names, in declaration order — the "exactly one of" set `validateContentKind`/`compileContent` iterate. */
+/** The three content-kind field names, in declaration order — the "exactly one of" set `validateContentKind`/`compileContent` iterate. */
 export const CONTENT_FIELDS: readonly string[] = STATE_FIELD_ENTRIES.filter(
   ([, spec]) => spec.kind === "content",
 ).map(([key]) => key)
@@ -348,14 +330,11 @@ export const MACHINE_FIELD_ENTRIES: ReadonlyArray<[string, FieldSpec]> = STATE_F
   ([, spec]) => spec.authored === "machine",
 )
 
-export const isCommitState = (state: StateDef): boolean => state.commit !== undefined
-
 /**
  * The generic per-field rules every derivation site walks the same way:
- * non-empty, forbidden on a commit state, requires a sibling field — only
- * evaluated when `key` is actually declared on `state`. A field's own bespoke
- * checks (an `on` pattern parsing, a `mode` name resolving, …) are the
- * caller's concern.
+ * non-empty, requires a sibling field — only evaluated when `key` is
+ * actually declared on `state`. A field's own bespoke checks (an `on`
+ * pattern parsing, a `mode` name resolving, …) are the caller's concern.
  */
 export const validateFieldRules = (
   name: string,
@@ -370,9 +349,6 @@ export const validateFieldRules = (
   const errors: string[] = []
   if (spec.nonEmpty === true && value === "") {
     errors.push(`state "${name}": "${key}" must be a non-empty string`)
-  }
-  if (spec.commit === "forbidden" && isCommitState(state)) {
-    errors.push(`state "${name}": a commit state cannot declare "${key}"`)
   }
   if (spec.requires !== undefined && raw[spec.requires] === undefined) {
     errors.push(`state "${name}": "${key}" requires "${spec.requires}"`)

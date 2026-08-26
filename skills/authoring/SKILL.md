@@ -12,11 +12,11 @@ description: >-
 
 A gtd workflow is a small **pattern machine**: a set of named **states** over a
 git branch. Each state waits for one **actor**, carries one piece of **content**
-(a prompt, a script, a human message, or a squash-commit template), and routes
-to the next state by matching the pending working-tree diff against an ordered
-set of change **patterns**. Every step is a commit; the git history IS the
-state. There is no engine to trace through — **a workflow is data**, compiled
-from the `.gtdrc` `workflow:` key.
+(a prompt, a script, or a human message), and routes to the next state by
+matching the pending working-tree diff against an ordered set of change
+**patterns**. Every step is a commit; the git history IS the state — gtd never
+rewrites it. There is no engine to trace through — **a workflow is data**,
+compiled from the `.gtdrc` `workflow:` key.
 
 Your job here is to produce or edit that data so it compiles cleanly and does
 what the user wants. Driving a workflow once it exists is a separate concern —
@@ -26,10 +26,10 @@ that is what a driver (the README's minimal driver, or your own) does.
 
 Do **not** write a workflow from a blank page. gtd ships one known-good workflow
 — the unified template (two file-keyed entry points, simple / advanced, into one
-shared review + squash-finale tail) — and RUNS it as its built-in default when
-no `workflow:` key is configured. To customize it, declare a `workflow:` key
-that fully REPLACES the default (there is no `extends`/merge), so start from the
-default's own source and edit it:
+shared review tail) — and RUNS it as its built-in default when no `workflow:`
+key is configured. To customize it, declare a `workflow:` key that fully
+REPLACES the default (there is no `extends`/merge), so start from the default's
+own source and edit it:
 
 ```bash
 # The built-in default's source — copy from it, don't start blank:
@@ -72,11 +72,10 @@ present. Config can be `.gtdrc`, `.gtdrc.json`, `.gtdrc.yaml`, `.gtdrc.yml`,
 ```yaml
 states:
   <name>:
-    actor: <string> # who acts here. REQUIRED except on a commit state.
+    actor: <string> # who acts here. REQUIRED.
     prompt: <string> # EXACTLY ONE content kind (see below):
-    # script: <string>       #   script | prompt | message | commit
+    # script: <string>       #   script | prompt | message
     # message: <string>
-    # commit: <string>
     on: # ordered map of pattern → next state (see "Patterns")
       "<pattern>": <targetState>
       "<pattern>": { to: <targetState>, describe: <sentence> }
@@ -86,7 +85,7 @@ states:
     mode: <modeName> # optional, REQUIRES file: — must be declared in modes: (qa/review are seeded automatically)
     reviewWindow: true # optional — open the review checkout window at rest here
     reviewBase: true # optional — anchor the review diff base to this state
-    # reviewBase: <Eta template> # OR a template — see "Retry, review, and the squash finale"
+    # reviewBase: <Eta template> # OR a template — see "Retry and review"
     entry: true # optional — an extra `gtd --entry <state>` reachability root (see below)
 ```
 
@@ -134,11 +133,6 @@ position in the tree), not two references to a shared, reusable machine.
   by the script's exit code.
 - **`message`** — text for a human. Drivers halt here; the human edits files and
   runs `gtd land`.
-- **`commit`** — a squash-commit message template. A state with `commit:` is
-  **final**: it has NO `actor`, NO `on`, and no `file`/`mode`/`review*` — nor
-  does it ever receive its machine's `model:` stamp (that's only stamped onto
-  `prompt` states). Entering it squashes the whole process into one commit (see
-  "Squash finale").
 
 ## Patterns — how `on` routes
 
@@ -209,21 +203,29 @@ the engine uses. See the human gates in `unified.yaml` for the pattern.
 
 ## Templates: content is Eta, `on` keys are NOT
 
-Every `script`/`prompt`/`message`/`commit` value — plus a machine's own `model:`
-and a state's `file:` — is an [Eta](https://eta.js.org) template rendered
-against a context you reference as `it.<name>`:
+Every `script`/`prompt`/`message` value — plus a workflow's own top-level
+`summary:`, a machine's own `model:`, and a state's `file:` — is an
+[Eta](https://eta.js.org) template rendered against a context you reference as
+`it.<name>`:
 
 - `it.vars.<name>` — the merged variable map (see "Variables").
 - `it.read(path)` — read a working-tree file by repo-relative path (throws if
-  missing; that throw refuses the step, which is intended for `commit:`).
+  missing; that throw refuses the step).
 - `it.startCommit` / `it.currentCommit` / `it.previousCommit` — commit hashes.
 - `it.reviewBase` — the previous review round's boundary (falls back to
   `it.startCommit` on a first review).
-- `it.retainedBase` — the process's trace/retry boundary, what a squash actually
-  keeps.
+- `it.processBase` — the process's own trace/retry boundary (the parent of its
+  first turn commit). `gtd summary` uses this to name the range it asks the
+  agent to inspect.
 - `it.state` / `it.actor` — the state and actor being rendered.
 - `it.edges` — this state's `on` rows as `{ pattern, target, describe? }`.
 - `it.processCost` / `it.processCostByModel` — accumulated token cost.
+
+A `summary:` template additionally sees `it.entryCommit` (the process's entry
+commit), `it.humanCommits` (every `human`-authored commit in the process's
+trace, oldest to newest, as `{hash, state}`), and `it.processTip` (the process's
+closing/current tip) — none of the three means anything at an ordinary state
+template.
 
 **No field ever carries diff content.** A prompt names a range (one of the base
 hashes above) and tells the agent to run `git diff <base>` itself — never inline
@@ -263,7 +265,7 @@ and validates the file and **refuses** to commit a malformed one. This runs for
 agent drafts and human edits alike, so downstream gates only ever see
 well-formed files. It is a no-op when the file is absent.
 
-## Retry, review, and the squash finale
+## Retry, review, and closing a process
 
 - **`retry: { max, otherwise }`** caps how many times a state may be entered per
   process; once over the cap, a transition INTO it is redirected to `otherwise`
@@ -297,17 +299,25 @@ well-formed files. It is a no-op when the file is absent.
 
 - **`entry: true`** — marks this state an EXTRA reachability root:
   `gtd --entry <this state's qualified name>` starts a brand-new process here
-  (any number of states may declare it; forbidden on the initial state and on
-  commit states). This is a RECORD-KEEPING flag only (it also drives a badge in
-  `gtd visualize`) — it is **not** a precondition for `--entry` to work.
-  `--entry` accepts **any** declared, non-commit state of the workflow, flagged
-  or not; declare `entry: true` only on a state that would otherwise be
-  unreachable from the initial state by ordinary `on` routing (a state `idle`
-  already reaches needs no flag to be a valid `--entry` target).
-- **Squash finale** — a `commit:` state ends the process by squashing the whole
-  process into one commit using its rendered template as the message (see
-  `unified.yaml`'s `squashing` → `done`, reached on a full review sign-off). A
-  workflow can omit it and leave the per-step commits in history instead.
+  (any number of states may declare it; forbidden on the initial state). This is
+  a RECORD-KEEPING flag only (it also drives a badge in `gtd visualize`) — it is
+  **not** a precondition for `--entry` to work. `--entry` accepts **any**
+  declared state of the workflow, flagged or not; declare `entry: true` only on
+  a state that would otherwise be unreachable from the initial state by ordinary
+  `on` routing (a state `idle` already reaches needs no flag to be a valid
+  `--entry` target).
+- **Closing a process** — gtd never rewrites history: there is no squash-commit
+  content kind any more. A review sign-off routes its `on` edge straight to a
+  state entering the workflow's initial state (`unified.yaml`'s `build.review`
+  binds `onSignoff: $onDone` up to the root's `onDone: idle`) — an ORDINARY
+  commit, keeping every per-turn commit in history. If you want a closing
+  message for that commit range, declare a top-level `summary:` template
+  (sibling to `vars:`/`modes:`, an Eta template over the same context as a state
+  plus `it.entryCommit`/`it.humanCommits`/`it.processTip` — see "Templates"
+  above): `gtd summary` renders it and prints the result for an agent to turn
+  into the process's own closing message (a squash, an amend, a PR body) —
+  writing nothing itself. Absent `summary:` is legal; `gtd summary` just
+  refuses. A present-but-blank `summary:` is a load error.
 
 ## Variables
 
@@ -323,23 +333,21 @@ command, a model tier, a file path) repointable in one place.
 Any of these fails config load, which breaks every state command. Check them
 before declaring a workflow done:
 
-- At least one state; **exactly one** `initial: true` state, and it is not a
-  commit state.
-- Every state declares **exactly one** content kind.
-- Every non-commit state has an `actor`; every **commit state has NO `actor` and
-  NO `on`** (and no `file`/`mode`/`review*`, and never receives its machine's
-  `model:` stamp).
+- At least one state; **exactly one** `initial: true` state.
+- Every state declares **exactly one** content kind (script/prompt/message) and
+  an `actor`.
 - Every `on` pattern parses; every `on` target and every `retry.otherwise` names
   a **defined** state.
 - `retry.max` is a non-negative integer.
 - `model`, declared once per machine, is stamped onto every one of that
   machine's own `prompt` states — there is no per-state `model:` and no
-  `memory:` key at all. `file`, when present, must be a non-empty string,
-  forbidden on commit states. `mode` names a known mode (built-in or `modes:`
-  entry) and requires a sibling `file:`.
+  `memory:` key at all. `file`, when present, must be a non-empty string. `mode`
+  names a known mode (built-in or `modes:` entry) and requires a sibling
+  `file:`.
 - Every `modes:` entry declares at least one non-blank `format:`/`validate:`.
-- `entry: true` (any number of states) never on the initial or a commit state. A
-  `reviewBase` template (the string form) must not be blank.
+- `entry: true` (any number of states) never on the initial state. A
+  `reviewBase` template (the string form) must not be blank. A top-level
+  `summary:`, when present, must not be blank.
 - **Every state is reachable** from the initial state by walking `on` targets
   and `retry.otherwise` redirects. An unreachable state is an ERROR (a typo'd
   rename or leftover), not a warning — there is no "manual-entry-only" state.

@@ -15,7 +15,7 @@ const templateContext: TemplateContext = {
   state: "",
   actor: "",
   reviewBase: "",
-  retainedBase: "",
+  processBase: "",
   processCost: 0,
   processCostByModel: [],
   read: () => {
@@ -528,28 +528,6 @@ describe("enforceStepGuards", () => {
     "- [ ] _your answer_",
     "",
   ].join("\n")
-
-  it("no-ops for a squash or no-op decision, even with an unanswered question", async () => {
-    const exit = await Effect.runPromiseExit(
-      enforceStepGuards({
-        rest: answerState,
-        file: answerState.stateDef.file,
-        context: templateContext,
-        changes: [],
-        windowHead: undefined,
-        kind: "squash",
-        attempt: false,
-      }).pipe(
-        Effect.provide(
-          Layer.merge(
-            unusedGitService,
-            Layer.succeed(RepoFiles, repoFilesFrom({ ".gtd/REQUIREMENTS.md": unansweredDoc })),
-          ),
-        ),
-      ),
-    )
-    expect(Exit.isSuccess(exit)).toBe(true)
-  })
 
   it("no-ops when the state declares no `file:`", async () => {
     const noFile = rest("idle", { actor: "human", message: "go" })

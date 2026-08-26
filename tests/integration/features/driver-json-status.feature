@@ -183,7 +183,8 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
                 on:
                   "* **": working
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -233,7 +234,8 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
                     to: done
                     action: "Finish up"
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -272,7 +274,8 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
                 on:
                   "A DONE.md": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -617,7 +620,8 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
                 on:
                   "A DONE.md": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -746,7 +750,8 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
                     to: revise
                     describe: "Change any source file to leave feedback and start another round."
               accept:
-                commit: "chore: accept"
+                actor: human
+                message: "accept"
               revise:
                 actor: agent
                 prompt: "revise"

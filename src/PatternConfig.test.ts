@@ -13,7 +13,13 @@ import { isSeededValidateCommand, seededValidateCommand } from "./SteeringFormat
 import { resolveSteeringMode, renderSteeringCommands } from "./SteeringMode.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
-/** The plan's draft/check/revise shape (decision 7): a squashing prompt state feeding a `commit:` final state. */
+/**
+ * The plan's draft/check/revise shape (decision 7). Every state carries an
+ * `actor` (required on every state, script/prompt/message alike, per
+ * `STATE_FIELDS`) — `done` is a natural terminal `message` state with no
+ * `on`, since a message/script rest with no outgoing edges is a legal
+ * dead-end (`validateReachability` only checks INCOMING reachability).
+ */
 const draftCheckRevise = {
   entry: { default: "root" },
   machines: {
@@ -51,7 +57,8 @@ const draftCheckRevise = {
           },
         },
         done: {
-          commit: "chore: <%~ it.read('COMMIT_MSG.md') %>",
+          actor: "human",
+          message: "chore: <%~ it.read('COMMIT_MSG.md') %>",
         },
       },
     },
@@ -74,7 +81,8 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
     })
     expect(definition.entries).toEqual({ default: "idle", manual: [] })
     expect(definition.states["done"]).toEqual({
-      commit: "chore: <%~ it.read('COMMIT_MSG.md') %>",
+      actor: "human",
+      message: "chore: <%~ it.read('COMMIT_MSG.md') %>",
     })
   })
 
@@ -210,7 +218,7 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       state: "",
       actor: "",
       reviewBase: "",
-      retainedBase: "",
+      processBase: "",
       processCost: 0,
       processCostByModel: [],
       read: () => {
@@ -355,11 +363,11 @@ describe("compileWorkflowConfig — `on` order preservation", () => {
                   "* *": "e",
                 },
               },
-              a: { commit: "a" },
-              b: { commit: "b" },
-              c: { commit: "c" },
-              d: { commit: "d" },
-              e: { commit: "e" },
+              a: { actor: "human", message: "a" },
+              b: { actor: "human", message: "b" },
+              c: { actor: "human", message: "c" },
+              d: { actor: "human", message: "d" },
+              e: { actor: "human", message: "e" },
             },
           },
         },
@@ -394,11 +402,14 @@ machines:
           "A a.md": b
           C: c
       a:
-        commit: a
+        actor: human
+        message: a
       b:
-        commit: b
+        actor: human
+        message: b
       c:
-        commit: c
+        actor: human
+        message: c
 `
     const raw = parseYaml(yaml) as {
       machines: { root: { states: { start: { on: Record<string, string> } } } }
@@ -429,7 +440,7 @@ machines:
                   "* **": "revise",
                 },
               },
-              accept: { commit: "chore: accept" },
+              accept: { actor: "human", message: "chore: accept" },
               revise: {
                 actor: "agent",
                 prompt: "revise",
@@ -473,7 +484,7 @@ describe("compileWorkflowConfig — file references", () => {
                 script: "./check.sh",
                 on: { "* *": "done" },
               },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -499,7 +510,7 @@ describe("compileWorkflowConfig — file references", () => {
                 prompt: "../shared-prompt.md",
                 on: { "* *": "done" },
               },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -522,7 +533,7 @@ describe("compileWorkflowConfig — file references", () => {
                 message: "hello, this contains a / slash but is not a file ref",
                 on: { "* *": "done" },
               },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -548,7 +559,7 @@ describe("compileWorkflowConfig — file references", () => {
                   script: "./does-not-exist.sh",
                   on: { "* *": "done" },
                 },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -837,9 +848,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         },
         "/dir",
       ),
-    ).toThrowError(
-      /state "a": must declare exactly one of script\/prompt\/message\/commit \(found 0\)/,
-    )
+    ).toThrowError(/state "a": must declare exactly one of script\/prompt\/message \(found 0\)/)
 
     expect(() =>
       compileWorkflowConfig(
@@ -856,9 +865,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         },
         "/dir",
       ),
-    ).toThrowError(
-      /state "a": must declare exactly one of script\/prompt\/message\/commit \(found 2\)/,
-    )
+    ).toThrowError(/state "a": must declare exactly one of script\/prompt\/message \(found 2\)/)
   })
 
   it("rejects a non-string content value", () => {
@@ -883,7 +890,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
               entry: "a",
               states: {
                 a: { actor: "human", message: "hi", on: "nope" },
-                b: { commit: "chore: b" },
+                b: { actor: "human", message: "chore: b" },
               },
             },
           },
@@ -947,7 +954,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                   message: "hi",
                   on: { "* *": { to: "b", describe: 5 } },
                 },
-                b: { commit: "chore: b" },
+                b: { actor: "human", message: "chore: b" },
               },
             },
           },
@@ -971,7 +978,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                   message: "hi",
                   on: { "* *": { to: "b", explain: "nope" } },
                 },
-                b: { commit: "chore: b" },
+                b: { actor: "human", message: "chore: b" },
               },
             },
           },
@@ -1001,7 +1008,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                   "* **": "revise",
                 },
               },
-              accept: { commit: "chore: accept" },
+              accept: { actor: "human", message: "chore: accept" },
               revise: {
                 actor: "agent",
                 prompt: "revise",
@@ -1032,7 +1039,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                 message: "choose",
                 on: { C: { to: "accept", action: "Accept plan" } },
               },
-              accept: { commit: "chore: accept" },
+              accept: { actor: "human", message: "chore: accept" },
             },
           },
         },
@@ -1056,7 +1063,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                   message: "hi",
                   on: { "* *": { to: "b", action: 5 } },
                 },
-                b: { commit: "chore: b" },
+                b: { actor: "human", message: "chore: b" },
               },
             },
           },
@@ -1081,7 +1088,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                   prompt: "do the thing",
                   on: { "* *": "done" },
                 },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -1106,7 +1113,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                 prompt: "do the thing",
                 on: { "* *": "done" },
               },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -1181,6 +1188,52 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     )
   })
 
+  it("rejects a state-level `commit`, explaining the squash finale was removed", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { commit: "chore: <%~ it.read('COMMIT_MSG.md') %>" } },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(
+      /state "a": unknown key\(s\) commit \("commit" no longer exists — the automatic squash finale was removed; a review sign-off lands an ordinary commit entering the workflow's initial state, and `gtd summary` prints a prompt for the process's own closing message instead\)/,
+    )
+  })
+
+  it("aggregates a state-level `commit` finding alongside an unrelated bad `on` target in another state", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", on: { "* **": "nowhere" } },
+                b: { commit: "chore: b" },
+              },
+            },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        'state "b": unknown key(s) commit ("commit" no longer exists — the automatic squash finale was removed; a review sign-off lands an ordinary commit entering the workflow\'s initial state, and `gtd summary` prints a prompt for the process\'s own closing message instead)',
+      )
+      expect(message).toContain('state "a": "on" target "nowhere" is not a defined state')
+    }
+  })
+
   it("compiles a `label` string through onto the state", () => {
     const { definition } = compileWorkflowConfig(
       {
@@ -1195,7 +1248,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                 prompt: "do the thing",
                 on: { "* *": "done" },
               },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -1218,7 +1271,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                 prompt: "do the thing",
                 on: { "* *": "done" },
               },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -1289,7 +1342,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
                 prompt: "do the thing",
                 on: { "* *": "done" },
               },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -1309,7 +1362,7 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
         entry: "working",
         states: {
           working: { actor: "agent", prompt: "do the thing", file, on: { "* *": "done" } },
-          done: { commit: "chore: done" },
+          done: { actor: "human", message: "chore: done" },
         },
       },
     },
@@ -1357,7 +1410,7 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
                 prompt: "do the thing",
                 on: { "* *": "done" },
               },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -1449,7 +1502,7 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
                   on: { "* *": "b" },
                   retry: { max: "three", bogus: 1 },
                 },
-                b: { commit: "chore: b" },
+                b: { actor: "human", message: "chore: b" },
               },
             },
           },
@@ -1474,7 +1527,7 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
                   on: { "* *": "b" },
                   retry: { max: 1, otherwise: "nowhere" },
                 },
-                b: { commit: "chore: b" },
+                b: { actor: "human", message: "chore: b" },
               },
             },
           },
@@ -1482,26 +1535,6 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
         "/dir",
       ),
     ).toThrowError(/retry\.otherwise "nowhere" is not a defined state/)
-  })
-
-  it("rejects a commit state that also declares an actor or on (surfaced from validateDefinition)", () => {
-    expect(() =>
-      compileWorkflowConfig(
-        {
-          entry: { default: "root" },
-          machines: {
-            root: {
-              entry: "a",
-              states: {
-                a: { actor: "human", message: "hi", on: { "* *": "b" } },
-                b: { commit: "chore: b", actor: "human" },
-              },
-            },
-          },
-        },
-        "/dir",
-      ),
-    ).toThrowError(/commit state "b" must not declare an actor/)
   })
 
   it("collects multiple shape errors into one thrown message", () => {
@@ -1526,7 +1559,7 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
       expect(message).toContain('state "a": "actor" must be a string')
       expect(message).toContain('state "a": "model" must be a string')
       expect(message).toContain(
-        'state "a": must declare exactly one of script/prompt/message/commit (found 0)',
+        'state "a": must declare exactly one of script/prompt/message (found 0)',
       )
     }
   })
@@ -1556,7 +1589,7 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       expect(message).toContain(
-        'state "idle": must declare exactly one of script/prompt/message/commit (found 2)',
+        'state "idle": must declare exactly one of script/prompt/message (found 2)',
       )
       expect(message).toContain('state "idle": "on" target "nowhere" is not a defined state')
     }
@@ -1588,7 +1621,7 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       expect(message).toContain(
-        'state "a": must declare exactly one of script/prompt/message/commit (found 2)',
+        'state "a": must declare exactly one of script/prompt/message (found 2)',
       )
       expect(message).toContain('state "b": "on" target "nowhere" is not a defined state')
     }
@@ -1783,7 +1816,7 @@ describe("compileWorkflowConfig — legacy shape detection & error sequencing", 
         'machines.root.a: "on" target "nowhere" is not a state or reference of machine "root" — declare a "params:" entry and bind it at the reference site',
       )
       expect(message).toContain(
-        'state "b": must declare exactly one of script/prompt/message/commit (found 2)',
+        'state "b": must declare exactly one of script/prompt/message (found 2)',
       )
     }
   })
@@ -1800,7 +1833,7 @@ describe("compileWorkflowConfig — machine-level `model`", () => {
             entry: "working",
             states: {
               working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -1822,7 +1855,7 @@ describe("compileWorkflowConfig — machine-level `model`", () => {
               entry: "working",
               states: {
                 working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -1843,7 +1876,7 @@ describe("compileWorkflowConfig — machine-level `model`", () => {
               entry: "working",
               states: {
                 working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -1864,7 +1897,7 @@ describe("compileWorkflowConfig — machine-level `model`", () => {
               entry: "working",
               states: {
                 working: { actor: "check", script: "npm test", on: { C: "done" } },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -1887,7 +1920,7 @@ describe("compileWorkflowConfig — machine-level `system`", () => {
               entry: "working",
               states: {
                 working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -1906,7 +1939,7 @@ describe("compileWorkflowConfig — machine-level `system`", () => {
               entry: "working",
               states: {
                 working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -1927,7 +1960,7 @@ describe("compileWorkflowConfig — machine-level `system`", () => {
               entry: "working",
               states: {
                 working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -1948,7 +1981,7 @@ describe("compileWorkflowConfig — machine-level `system`", () => {
               entry: "working",
               states: {
                 working: { actor: "check", script: "npm test", on: { C: "done" } },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -1973,7 +2006,7 @@ describe("compileWorkflowConfig — machine-level `system`", () => {
                   system: "You are a careful agent.",
                   on: { "* *": "done" },
                 },
-                done: { commit: "chore: done" },
+                done: { actor: "human", message: "chore: done" },
               },
             },
           },
@@ -2084,7 +2117,7 @@ describe("compileWorkflowConfig — `scopes`", () => {
             entry: "working",
             states: {
               working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
-              done: { commit: "chore: done" },
+              done: { actor: "human", message: "chore: done" },
             },
           },
         },
@@ -2108,5 +2141,74 @@ describe("assertScopesCoverStates — compiler invariant", () => {
     expect(errors).toEqual([
       'internal error: scopes map produced by the flattener is missing state "b"',
     ])
+  })
+})
+
+describe("compileWorkflowConfig — top-level `summary:`", () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "gtd-pattern-config-summary-"))
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it("is `undefined` when absent, and compilation succeeds", () => {
+    const { definition } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
+    expect(definition.summary).toBeUndefined()
+  })
+
+  it("compiles a valid non-blank string verbatim", () => {
+    const { definition } = compileWorkflowConfig(
+      { ...draftCheckRevise, summary: "Write the process's closing message." },
+      "/config-dir",
+    )
+    expect(definition.summary).toBe("Write the process's closing message.")
+  })
+
+  it("rejects a blank string", () => {
+    for (const blank of ["", "   "]) {
+      expect(() =>
+        compileWorkflowConfig({ ...draftCheckRevise, summary: blank }, "/config-dir"),
+      ).toThrowError(/"summary" must not be blank/)
+    }
+  })
+
+  it("rejects a non-string value", () => {
+    for (const bad of [42, { nested: true }]) {
+      expect(() =>
+        compileWorkflowConfig({ ...draftCheckRevise, summary: bad }, "/config-dir"),
+      ).toThrowError(/"summary" must be a string/)
+    }
+  })
+
+  it("inlines a `./`-relative file reference at load time", () => {
+    writeFileSync(join(dir, "summary.md"), "Write the process's closing message.\n")
+    const { definition } = compileWorkflowConfig(
+      { ...draftCheckRevise, summary: "./summary.md" },
+      dir,
+    )
+    expect(definition.summary).toBe("Write the process's closing message.\n")
+  })
+
+  it("a blank inlined file is a load error, same as an inline blank string", () => {
+    writeFileSync(join(dir, "summary.md"), "   \n")
+    expect(() =>
+      compileWorkflowConfig({ ...draftCheckRevise, summary: "./summary.md" }, dir),
+    ).toThrowError(/"summary" must not be blank/)
+  })
+
+  it("a missing file reference is a load error naming the file reference", () => {
+    expect(() =>
+      compileWorkflowConfig({ ...draftCheckRevise, summary: "./does-not-exist.md" }, dir),
+    ).toThrowError(/"summary": file reference "\.\/does-not-exist\.md" does not exist/)
+  })
+
+  it("is accepted as a known top-level key alongside entry/machines/vars/modes", () => {
+    expect(() =>
+      compileWorkflowConfig({ ...draftCheckRevise, summary: "Wrap it up." }, "/config-dir"),
+    ).not.toThrowError(/unknown top-level key/)
   })
 })

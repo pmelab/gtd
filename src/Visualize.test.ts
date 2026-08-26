@@ -46,7 +46,7 @@ const raw = {
           answerGate: true,
           on: { "* **": "done" },
         },
-        done: { commit: "chore: done" },
+        done: { actor: "human", message: "chore: done" },
         start: { machine: "gate", with: { onGreen: "planning" } },
       },
     },
@@ -70,9 +70,7 @@ describe("buildVizModel", () => {
     expect(stateNamed("idle")).toMatchObject({ actor: "human", kind: "message" })
     expect(stateNamed("idle").initial).toBe(true)
     expect(stateNamed("start.check")).toMatchObject({ actor: "check", kind: "script" })
-    expect(stateNamed("done")).toMatchObject({ kind: "commit" })
-    // a commit state carries no actor
-    expect(stateNamed("done").actor).toBeUndefined()
+    expect(stateNamed("done")).toMatchObject({ actor: "human", kind: "message" })
   })
 
   it("carries model/file/mode/flags and flattens on-edges", () => {
@@ -91,11 +89,11 @@ describe("buildVizModel", () => {
     expect(model.fieldDocs["system"]?.length).toBeGreaterThan(0)
   })
 
-  it("carries a prompt/message/script state's raw content, omits it for a commit state", () => {
+  it("carries a prompt/message/script state's raw content", () => {
     expect(stateNamed("planning").content).toBe("plan")
     expect(stateNamed("idle").content).toBe("idle")
     expect(stateNamed("start.check").content).toBe("run")
-    expect(stateNamed("done").content).toBeUndefined()
+    expect(stateNamed("done").content).toBe("chore: done")
   })
 
   it("groups states by their machine instance", () => {
@@ -119,7 +117,7 @@ describe("buildVizModel", () => {
           entry: "think",
           states: {
             think: { actor: "agent", prompt: "think hard", on: { "* **": "done" } },
-            done: { commit: "chore: done" },
+            done: { actor: "human", message: "chore: done" },
           },
         },
         root: {
@@ -159,7 +157,7 @@ describe("buildVizModel", () => {
       entries: { default: "outer.inner.leaf", manual: [] },
       states: {
         "outer.inner.leaf": { actor: "agent", prompt: "p", on: [] },
-        top: { commit: "chore: done" },
+        top: { actor: "human", message: "chore: done" },
       },
     }
     const manualTree = {
@@ -203,7 +201,7 @@ describe("buildVizModel", () => {
           entry: "a",
           states: {
             a: { actor: "human", message: "a", on: { "* **": "b" } },
-            b: { commit: "chore: b" },
+            b: { actor: "human", message: "chore: b" },
           },
         },
       },
@@ -231,7 +229,7 @@ describe("buildVizModel", () => {
               message: "a",
               on: { "A <%= it.vars.feedbackFile %>": "b" },
             },
-            b: { commit: "chore: b" },
+            b: { actor: "human", message: "chore: b" },
           },
         },
       },
@@ -271,7 +269,7 @@ describe("buildVizModel", () => {
                 "A file3.md": { to: "b", describe: "d3", action: "act3" },
               },
             },
-            b: { commit: "chore: b" },
+            b: { actor: "human", message: "chore: b" },
           },
         },
       },
@@ -309,7 +307,7 @@ describe("buildVizModel", () => {
               entry: true,
               on: { "* **": "done" },
             },
-            done: { commit: "chore: done" },
+            done: { actor: "human", message: "chore: done" },
           },
         },
       },
@@ -343,7 +341,7 @@ describe("buildVizModel", () => {
               message: "a",
               on: { "A <%= it.vars.missing.deeper %>": "b" },
             },
-            b: { commit: "chore: b" },
+            b: { actor: "human", message: "chore: b" },
           },
         },
       },

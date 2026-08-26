@@ -2068,6 +2068,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     validate: { kind: "validate" },
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
     install: { kind: "install" },
+    summary: { kind: "summary" },
   }
 
   const stateKinds = (Object.keys(commandFor) as Command["kind"][]).filter(
@@ -2077,9 +2078,9 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the six non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the seven non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
-      ["abandon", "entry", "land", "next", "restore", "validate"].sort(),
+      ["abandon", "entry", "land", "next", "restore", "summary", "validate"].sort(),
     )
   })
 
@@ -2118,5 +2119,130 @@ describe("runCommand — refuses in a repository with no commits", () => {
 
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(written.length).toBeGreaterThan(0)
+  })
+})
+
+describe("gtd summary — replaces the automatic squash finale (package 01)", () => {
+  // A `summary:` template lives under the top-level `workflow:` key, sibling
+  // to `entry:`/`machines:` — `PatternConfig.ts`'s `compileSummary` reads it
+  // off the same raw object `flattenMachines` reads `machines:` from.
+  const NO_SUMMARY_WORKFLOW = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const SUMMARY_WORKFLOW = [
+    "workflow:",
+    '  summary: "entry=<%= it.entryCommit %> tip=<%= it.processTip %> humans=<%= it.humanCommits.length %>"',
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": reviewing',
+    "        reviewing:",
+    "          actor: human",
+    "          message: check it",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  it('refuses when the active workflow declares no "summary:" template, even with an in-flight process', async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", NO_SUMMARY_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+    const before = repo.commitHistory().length
+    const { exitCode, stdout, stderr } = await run(repo, "summary")
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain("gtd summary: refused —")
+    expect(stdout).toBe("")
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("refuses when the resolved run has an empty trace — HEAD is a foreign commit unrelated to any gtd process", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", SUMMARY_WORKFLOW)
+    // The only commit is the config-adding one itself — its subject doesn't
+    // parse as `gtd(actor): state`, so `computeProcessRun` sees a foreign
+    // HEAD and the walk starts and ends at the same place: an empty trace.
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const before = repo.commitHistory().length
+    const { exitCode, stdout, stderr } = await run(repo, "summary")
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain("gtd summary: refused —")
+    expect(stdout).toBe("")
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("succeeds and writes the rendered template (with a trailing newline) when both a summary: template is declared and the run is non-empty", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", SUMMARY_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+    repo.commitAllWithPrefix("gtd(human): reviewing")
+    const history = repo.commitHistory()
+    const entryHash = history[history.length - 2]!.hash // the "working" turn — the process's first commit
+    const tipHash = history[history.length - 1]!.hash // the "reviewing" turn — the process's last commit
+
+    const { exitCode, stdout } = await run(repo, "summary")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe(`entry=${entryHash} tip=${tipHash} humans=1\n`)
+  })
+
+  it("writes nothing to git — no commit lands and HEAD is unchanged", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", SUMMARY_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+    repo.commitAllWithPrefix("gtd(human): reviewing")
+    const before = repo.commitHistory()
+    const headBefore = repo.commitHistory()[repo.commitHistory().length - 1]!.hash
+
+    const { exitCode } = await run(repo, "summary")
+    expect(exitCode).toBe(0)
+
+    const after = repo.commitHistory()
+    expect(after).toHaveLength(before.length)
+    expect(after[after.length - 1]!.hash).toBe(headBefore)
+  })
+
+  it("runs no review-window open/close bracket — the emitted output is the rendered prompt only, not a script", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", SUMMARY_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix("gtd(agent): working")
+    repo.commitAllWithPrefix("gtd(human): reviewing")
+
+    const { stdout } = await run(repo, "summary")
+    expect(stdout).not.toContain("git reset --mixed")
+    expect(stdout).not.toContain("git commit")
   })
 })

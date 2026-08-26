@@ -61,6 +61,7 @@ workflow:
     <name>:
       format: <shell command> # both optional — {} is the format-only tier
       validate: <shell command>
+  summary: <string> # optional — an Eta template rendered by `gtd summary`; a `./`/`../` value is inlined from the config directory like a state's content; absent is legal (`gtd summary` refuses); present-but-blank is a load error
   entry:
     default: <machine name> # which machine is the ROOT instance
   machines:
@@ -70,11 +71,10 @@ workflow:
       entry: <local or ref key> # this machine's own default local, resolved recursively
       states:
         <local>:
-          actor: <string> # forbidden on a commit state, required otherwise
-          script: <string> # exactly one of script/prompt/message/commit
+          actor: <string> # required
+          script: <string> # exactly one of script/prompt/message
           prompt: <string>
           message: <string>
-          commit: <string>
           on: # a mapping, DECLARATION ORDER PRESERVED
             "<pattern>": <targetState> # short form
             "<pattern>": {
@@ -94,7 +94,7 @@ workflow:
           requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
           answerGate: true # optional, requires "file" — refuse a turn until every open question in the (qa-mode) `file:` is answered
           requireRevert: true # optional, requires "file" — refuse a turn until the human's review-round paths actually match the review base's parent
-          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared, non-commit state is a valid target)
+          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared state is a valid target)
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```
 
@@ -121,7 +121,7 @@ above, two references to the SAME machine (a dedup instantiation) are always two
 independent instances with two independent memory scopes, never one shared
 conversation across both call sites.
 
-Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
+Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
 
 - **`it.startCommit`** — the process's diff base (the commit the current process
   started from, or the base a `--var reviewBase=<commitish>` entry resolved to).
@@ -132,10 +132,32 @@ Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
   — the net diff is the final implementation, the right thing to review, but no
   longer the tiny "just the fixes" delta a quick fix-and-re-review would have
   shown.
-- **`it.retainedBase`** — the process's trace/retry boundary, what a squash
-  actually keeps (never moved by a review entry's fixed base).
+- **`it.processBase`** — the process's own trace/retry boundary (the parent of
+  its first turn commit), never moved by a review entry's fixed base.
+  `gtd summary` uses this to name the range it asks the agent to inspect.
 - **`it.currentCommit`** / **`it.previousCommit`** — HEAD's hash and its parent,
   at render time.
+- **`it.processCost`** / **`it.processCostByModel`** — accumulated token cost
+  over the process (every `--cost`/`--model` recorded on `gtd land`), total and
+  broken down per model.
+
+#### `gtd summary`'s own template variables
+
+A workflow's top-level `summary:` template is rendered against everything above,
+plus three fields that mean nothing at an ordinary state template (the same
+precedent a mode's `format:`/`validate:` command sets with `it.file`):
+
+- **`it.entryCommit`** — the process's own entry commit, the trace's first hash.
+- **`it.humanCommits`** — every `human`-authored commit in the process's trace,
+  oldest to newest, as `{hash, state}` — a review round's edit, an answered
+  question gate — minus `entryCommit` when it coincides with one. Derived
+  generically off the commit subject's invoking actor, never by naming a state.
+- **`it.processTip`** — the process's closing/current tip, the trace's last
+  commit.
+
+The prompt carries no session identity of its own — no `gtd_session_id`, no
+`gtd_session_resume`, no model, no system prompt — so an agent reading it starts
+cold and reads every decision back out of the commits it names.
 
 A template never sees rendered diff CONTENT — no field carries a diff. It names
 a base and leaves the agent to run `git diff <base>` itself; this keeps every
@@ -239,16 +261,34 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > feedback is gone outright, since an actionable review round is now re-planned
 > from scratch through a new root-level `re-unwind` state (reverting the human's
 > hand-edit) instead of being built upon. A non-actionable round (an approving
-> remark with no code edit) short-circuits straight to `build.squashing` instead
-> of spending a lap on nothing. As with every rename above, an in-flight process
+> remark with no code edit) short-circuits straight to sign-off instead of
+> spending a lap on nothing. As with every rename above, an in-flight process
 > resting at `build.addressing` can no longer be resumed after upgrading;
 > `gtd abandon` it (or finish it on the pre-upgrade workflow version) first.
 
+> **Upgrading a `workflow:` that still declares a `commit:` state key, or
+> templates against `it.retainedBase`?** The automatic squash finale is gone:
+> the `commit:` content kind is removed from the engine, not just from the
+> bundled workflow, so a state declaring `commit:` fails to LOAD — loudly, with
+> a message naming the removal and pointing at `gtd summary` — rather than
+> silently becoming an unknown-field error. A review sign-off now lands one more
+> ordinary commit entering the workflow's initial state instead, keeping every
+> per-turn commit on the branch; replace a `commit:` finale with a plain state
+> your own `on` routing already leads into `idle`, and run `gtd summary`
+> afterward (see [The `workflow:` key](#the-workflow-key) above) for a
+> closing-message prompt. Separately, and by contrast, `it.retainedBase` was
+> renamed `it.processBase` — the SAME rename fails SILENTLY, not loudly: Eta
+> renders a reference to a missing key as an empty string rather than throwing,
+> so a template still referencing `it.retainedBase` keeps loading and running,
+> it just renders blank where the process's trace boundary used to appear.
+> Search your workflow for both names before upgrading; only the `commit:` key
+> refuses to load and tells you where.
+
 ### Variables
 
-Every template — `script`/`prompt`/`message`/`commit`, a machine's own `model:`,
-and a state's `file:` — sees `it.vars`: a flat `Record<string, string>`
-assembled from four layers, **later wins**:
+Every template — `script`/`prompt`/`message`, a workflow's top-level `summary:`,
+a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
+`Record<string, string>` assembled from four layers, **later wins**:
 
 1. **The workflow's own `vars:` key** (sibling to `entry:`/`machines:`) — the
    workflow author's declared defaults. The unified template declares
@@ -300,17 +340,17 @@ that can be overridden or blanked through the same layers as any other (a
 top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
 `GTD_STYLEFORMATCONTRACT` environment variable):
 
-- **`styleBlock`** — the voice itself, injected at all seven prompt states that
-  generate content, not just three: the free-prose ones — the `.gtd/packages/`
-  package files (`architecture.decompose`), `.gtd/SPEC_FEEDBACK.md`
-  (`packages.item.spec.review`), and `.gtd/COMMIT_MSG.md` (`build.squashing`) —
-  plus the four machine-parsed states named in the next bullet. Blanking
-  `GTD_STYLEBLOCK` strips the voice from all seven, including the machine-parsed
-  ones, not only the free-prose three. In short: it's a deliverable, not a chat
-  reply, so size follows the work; answer-first with no restatement; blunt and
-  imperative; plain words; bold carries the load; ship the artifact bare;
-  compressing is not dropping; one idea per block; flag risk in one blunt line;
-  never narrate the work — and never-trim outranks every other rule in the set.
+- **`styleBlock`** — the voice itself, injected at all six prompt states that
+  generate content, not just two: the free-prose ones — the `.gtd/packages/`
+  package files (`architecture.decompose`) and `.gtd/SPEC_FEEDBACK.md`
+  (`packages.item.spec.review`) — plus the four machine-parsed states named in
+  the next bullet. Blanking `GTD_STYLEBLOCK` strips the voice from all six,
+  including the machine-parsed ones, not only the free-prose two. In short: it's
+  a deliverable, not a chat reply, so size follows the work; answer-first with
+  no restatement; blunt and imperative; plain words; bold carries the load; ship
+  the artifact bare; compressing is not dropping; one idea per block; flag risk
+  in one blunt line; never narrate the work — and never-trim outranks every
+  other rule in the set.
 - **`styleFormatContract`** — the structural override for machine-parsed files:
   the format contract (headings, checkbox rows, marker lines) outranks the
   voice, and a violation refuses the turn. It renders at the top of the prompt,
@@ -366,7 +406,7 @@ repository — never partially, and never deferred to land time:
 
 ```
 workflow config:
-  - state "idle": must declare exactly one of script/prompt/message/commit (found 2)
+  - state "idle": must declare exactly one of script/prompt/message (found 2)
   - state "idle": "on" target "nowhere" is not a defined state
 ```
 
@@ -440,8 +480,8 @@ customize the machine itself, add a `workflow:` key (there is no default
 fallback to merge over — a `workflow:` is the whole definition).
 
 gtd requires a repository with **at least one commit** before any state command
-(`land`, `--entry`, `next`, `status`, `abandon`, `restore`, `validate`) will run
-— there is no workflow state to derive from an empty history. Committing the
-`.gtdrc.json` above (or anything else) satisfies this by construction;
-`gtd init`, `gtd install`, `gtd lsp`, `gtd visualize`, and `gtd check` are
-unaffected since none of them derive workflow state.
+(`land`, `--entry`, `next`, `status`, `abandon`, `restore`, `validate`,
+`summary`) will run — there is no workflow state to derive from an empty
+history. Committing the `.gtdrc.json` above (or anything else) satisfies this by
+construction; `gtd init`, `gtd install`, `gtd lsp`, `gtd visualize`, and
+`gtd check` are unaffected since none of them derive workflow state.

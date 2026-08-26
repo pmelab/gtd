@@ -1,15 +1,16 @@
 @inmem
-Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, custom squash
+Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinary sign-off commit
 
   Minimal smoke coverage for the v3 CLI (`gtd land` / `gtd next`, see
   src/Edge.ts and
   docs/design/pattern-machine-plan.md). Proves the rewritten edge/CLI wiring
   end to end: a handful of hops on the built-in default workflow's one flow,
-  the `gtd next --json` contract, and a custom `.gtdrc` `workflow:` squashing
-  through a `commit:` state. Comprehensive coverage (every state, retry/
+  the `gtd next --json` contract, and a custom `.gtdrc` `workflow:` whose
+  sign-off lands an ordinary commit entering its initial state, retaining
+  every prior turn commit. Comprehensive coverage (every state, retry/
   escalation, the full check/fix/review tail, both refusal shapes) has its own
   dedicated feature files — see refusals.feature, default-workflow.feature,
-  retry.feature, squash.feature.
+  retry.feature.
 
   Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.check -> architecture.author -> architecture.gate.check -> architecture.decompose -> packages.picking -> packages.item.building -> packages.item.health.check
     Given a test project
@@ -87,7 +88,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, custom squ
     And stdout contains "\"kind\":\"message\""
     And stdout contains "No active gtd process."
 
-  Scenario: a custom workflow squashes the whole process into one commit via a commit: state
+  Scenario: a custom workflow's sign-off lands an ordinary commit into idle, retaining every turn commit
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -105,12 +106,9 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, custom squ
                   "* **": working
               working:
                 actor: agent
-                prompt: "develop the note, then write COMMIT_MSG.md with the final message"
+                prompt: "develop the note, then sign off"
                 on:
-                  "A COMMIT_MSG.md": done
-                  "M COMMIT_MSG.md": done
-              done:
-                commit: '<%~ it.read("COMMIT_MSG.md") %>'
+                  "* **": idle
       """
     And I record the commit count
     And a file "NOTE.md" with:
@@ -120,15 +118,16 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, custom squ
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
-    Given a file "COMMIT_MSG.md" with:
+    Given a file "src/milk.ts" with:
       """
-      feat: remember the milk
+      export const milk = "remembered"
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "feat: remember the milk"
+    And the last commit subject is "gtd(agent): working → idle"
     And "NOTE.md" exists
-    And "COMMIT_MSG.md" does not exist
-    # squashed onto the pre-process commit + the one squash commit — the
-    # intermediate "gtd(human): working" turn is gone, collapsed away.
-    And the commit count increased by 1
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"idle\":true"
+    # both turn commits stay on the branch — no collapse.
+    And the commit count increased by 2

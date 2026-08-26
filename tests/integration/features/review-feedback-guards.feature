@@ -205,7 +205,8 @@ Feature: Review feedback — capture, classification, and the loop-back guards
                 on:
                   "* **": done
               done:
-                commit: "chore: feedback addressed"
+                actor: human
+                message: "feedback addressed"
       """
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -221,4 +222,4 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "chore: feedback addressed"
+    And the last commit subject is "gtd(agent): drafting → done"

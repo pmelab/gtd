@@ -25,8 +25,10 @@ const commitAllowEmpty = (message: string): string => {
 /** `git add -A` then `commitAllowEmpty`, joined with `&&` so a failing `git add` never reaches the commit. */
 export const commitAll = (message: string): string => `git add -A &&\n${commitAllowEmpty(message)}`
 
+/** No current caller — see `Git.ts`'s `GitWriterOperations.commitAsIs` for why it's kept anyway. */
 export const commitAsIs = (message: string): string => commitAllowEmpty(message)
 
+/** No current caller — see `Git.ts`'s `GitWriterOperations.softResetTo` for why it's kept anyway. */
 export const softResetTo = (ref: string): string => `git reset --soft ${shellQuote(ref)}`
 
 export const mixedResetTo = (ref: string): string => `git reset --mixed ${shellQuote(ref)}`
@@ -37,7 +39,8 @@ export const hardResetTo = (ref: string): string => `git reset --hard ${shellQuo
  * `git add -A` then `git reset --hard HEAD` — discards every pending change,
  * tracked or untracked. Joined with `&&`: a failed stage must not reach the
  * hard reset, or untracked survivors remain — the exact outcome this builder
- * exists to avoid.
+ * exists to avoid. No current caller — see `Git.ts`'s
+ * `GitWriterOperations.discardPending` for why it's kept anyway.
  */
 export const discardPending = (): string => `git add -A && git reset --hard HEAD`
 

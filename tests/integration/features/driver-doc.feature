@@ -47,9 +47,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 on:
                   "A .gtd/FEEDBACK.md": working
                   "M .gtd/FEEDBACK.md": working
-                  "C": done
-              done:
-                commit: "chore: calculator done"
+                  "C": idle
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -74,7 +72,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the driver from the docs
     Then it succeeds
     And stdout contains "write NOTE.md to start a process"
-    And the git log contains "chore: calculator done"
+    And the last commit subject is "gtd(check): checking → idle"
     And "src/calc.ts" exists
 
   Scenario: A check script's own cleanup mechanic (a sole swept deletion) advances the process instead of stalling
@@ -112,9 +110,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 actor: human
                 message: "sign off to finish"
                 on:
-                  "* **": done
-              done:
-                commit: "chore: calculator done"
+                  "* **": idle
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -178,9 +174,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 on:
                   "A .gtd/FEEDBACK.md": working
                   "M .gtd/FEEDBACK.md": working
-                  "C": done
-              done:
-                commit: "chore: calculator done"
+                  "C": idle
       """
     And a file "NOTE.md" with:
       """
@@ -205,7 +199,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the driver from the docs
     Then it succeeds
     And "src/calc.ts" exists
-    And the git log contains "chore: calculator done"
+    And the last commit subject is "gtd(check): checking → idle"
 
   Scenario: A mid-process restart resumes driving instead of failing at the opening capture
     # A mid-process restart can leave the machine resting at a message-kind
@@ -232,9 +226,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 actor: agent
                 message: "heads up: work is starting"
                 on:
-                  "* **": done
-              done:
-                commit: "chore: done"
+                  "* **": idle
       """
     And a commit "gtd(human): announcing" that adds "NOTE.md" with:
       """
@@ -276,10 +268,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 actor: human
                 message: "read PLAN.md — accept it by changing nothing, or edit it to revise"
                 on:
-                  "C": done
+                  "C": idle
                   "* **": planning
-              done:
-                commit: "chore: planned"
       """
     And a commit "gtd(agent): await" that adds "PLAN.md" with:
       """
@@ -288,7 +278,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
-    And the git log contains "chore: planned"
+    And the last commit subject is "gtd(human): await → idle"
     And stdout does not contain "read PLAN.md"
 
   Scenario: Shows the same gate instead of accepting it when the run itself produced it
@@ -322,10 +312,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 actor: human
                 message: "read PLAN.md — accept it by changing nothing, or edit it to revise"
                 on:
-                  "C": done
+                  "C": idle
                   "* **": planning
-              done:
-                commit: "chore: planned"
       """
     And a file "NOTE.md" with:
       """
@@ -347,7 +335,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the driver from the docs
     Then it succeeds
     And stdout contains "read PLAN.md"
-    And the git log does not contain "chore: planned"
+    And the git log does not contain "gtd(human): await → idle"
 
   Scenario: Settles instead of looping forever when a script rest makes no progress
     Given a test project
@@ -459,9 +447,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 actor: human
                 message: "stuck — the agent made no progress"
                 on:
-                  "* **": done
-              done:
-                commit: "chore: done"
+                  "* **": idle
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -524,8 +510,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # then OVERWRITES it with a MALFORMED plan first; the paste's embedded
     # validate script fails, and it re-prompts the SAME session with the
     # validator's own findings (verbatim — `$out` IS the fix prompt), on which
-    # the stub writes a valid plan — only then does the paste step, squashing
-    # to done.
+    # the stub writes a valid plan — only then does the paste step, landing
+    # the commit that enters idle.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -547,9 +533,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 mode: qa
                 prompt: "Write .gtd/PLAN.md with the plan."
                 on:
-                  "* **": done
-              done:
-                commit: "chore: planned"
+                  "* **": idle
       """
     And a commit "gtd(agent): planning" that adds "NOTE.md" with:
       """
@@ -589,7 +573,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And the log file contains "AGENT: first draft"
     And the log file contains "AGENT: fixing the plan"
-    And the git log contains "chore: planned"
+    And the last commit subject is "gtd(agent): planning → idle"
     # The fix re-prompt is the validate script's own output verbatim — not the
     # state's own prompt text prefixed onto it.
     And the log file does not contain "Write .gtd/PLAN.md with the plan."
@@ -616,9 +600,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 mode: qa
                 prompt: "Write .gtd/PLAN.md with the plan."
                 on:
-                  "* **": done
-              done:
-                commit: "chore: planned"
+                  "* **": idle
       """
     And a commit "gtd(agent): planning" that adds "NOTE.md" with:
       """
@@ -648,7 +630,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the driver from the docs
     Then it fails
     And stderr contains "has no question text"
-    And the git log does not contain "chore: planned"
+    And the git log does not contain "gtd(agent): planning → idle"
 
   Scenario: Redirects the check script's own output to the log file instead of the terminal
     Given a test project
@@ -800,9 +782,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
               fix:
                 machine: fixLoop
                 with:
-                  onGreen: done
-              done:
-                commit: "chore: fixed"
+                  onGreen: idle
           fixLoop:
             params: [onGreen]
             entry: checking
@@ -886,9 +866,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
               build:
                 machine: buildLoop
                 with:
-                  onGreen: done
-              done:
-                commit: "chore: done"
+                  onGreen: idle
           buildLoop:
             params: [onGreen]
             entry: building
@@ -987,9 +965,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 on:
                   "A .gtd/FEEDBACK.md": working
                   "M .gtd/FEEDBACK.md": working
-                  "C": done
-              done:
-                commit: "chore: calculator done"
+                  "C": idle
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -1010,7 +986,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And the log file contains "gtd-loop test stub: session id already in use"
     And "src/calc.ts" exists
-    And the git log contains "chore: calculator done"
+    And the last commit subject is "gtd(check): checking → idle"
     And the log file matches "AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1"
 
   Scenario: A refused --resume (retention expired) recovers via the driver's own || fallback
@@ -1051,10 +1027,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
                 on:
                   "A .gtd/FEEDBACK.md": working
                   "M .gtd/FEEDBACK.md": working
-                  "D .gtd/FEEDBACK.md": done
-                  "C": done
-              done:
-                commit: "chore: calculator done"
+                  "D .gtd/FEEDBACK.md": idle
+                  "C": idle
       """
     And a commit "gtd(agent): working" that adds "NOTE.md" with:
       """
@@ -1080,7 +1054,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And the log file contains "gtd-loop test stub: no conversation found with session id"
     And "src/calc.ts" exists
-    And the git log contains "chore: calculator done"
+    And the last commit subject is "gtd(check): checking → idle"
     And the log file matches "AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1[\s\S]*AGENT SESSION=\1 RESUME=0"
 
   Scenario: A still-red suite with byte-identical output escalates instead of false-greening into review

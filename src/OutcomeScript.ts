@@ -115,7 +115,7 @@ export const OUTCOME_PREAMBLE = [
 export const transitionOutcome = (from: string, to: string): string =>
   `gtd_report_transition ${shellQuote(from)} ${shellQuote(to)}`
 
-/** `gtd_report_commit <subject>` — a bare capture or a squash's final commit, with its changed-file rows. */
+/** `gtd_report_commit <subject>` — a bare capture (a self-loop commit), with its changed-file rows. */
 export const commitOutcome = (subject: string): string => `gtd_report_commit ${shellQuote(subject)}`
 
 /** `gtd_report_note <text>` — one already-rendered plain line, no marker. */

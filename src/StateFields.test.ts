@@ -5,7 +5,6 @@ import {
   CONTENT_FIELDS,
   MACHINE_FIELD_ENTRIES,
   STATE_FIELD_ENTRIES,
-  isCommitState,
   validateFieldRules,
   type StateDef,
 } from "./StateFields.js"
@@ -27,8 +26,8 @@ describe("STATE_FIELD_ENTRIES", () => {
 })
 
 describe("CONTENT_FIELDS", () => {
-  it("is exactly script/prompt/message/commit, in that order", () => {
-    expect(CONTENT_FIELDS).toEqual(["script", "prompt", "message", "commit"])
+  it("is exactly script/prompt/message, in that order", () => {
+    expect(CONTENT_FIELDS).toEqual(["script", "prompt", "message"])
   })
 })
 
@@ -46,13 +45,6 @@ describe("StateDef — surface: authoring-only fields are absent from the compil
   })
 })
 
-describe("isCommitState", () => {
-  it("is true only when `commit` is set", () => {
-    expect(isCommitState({ commit: "chore: x" })).toBe(true)
-    expect(isCommitState({ actor: "human", message: "hi" })).toBe(false)
-  })
-})
-
 describe("validateFieldRules", () => {
   it("returns nothing when the field is absent", () => {
     expect(
@@ -67,13 +59,6 @@ describe("validateFieldRules", () => {
     ])
   })
 
-  it("flags a forbidden-on-commit field declared on a commit state", () => {
-    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "model")![1]
-    expect(validateFieldRules("a", { commit: "chore: x", model: "smart" }, "model", spec)).toEqual([
-      'state "a": a commit state cannot declare "model"',
-    ])
-  })
-
   it("flags a field missing the sibling it requires", () => {
     const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "mode")![1]
     expect(validateFieldRules("a", { mode: "qa" }, "mode", spec)).toEqual([
@@ -81,26 +66,17 @@ describe("validateFieldRules", () => {
     ])
   })
 
-  it("runs nonEmpty, commit, requires in that order for one field", () => {
+  it("runs nonEmpty, requires in that order for one field", () => {
     const spec = {
       kind: "text",
       surface: "def",
       authored: "state",
       nonEmpty: true,
-      commit: "forbidden",
       requires: "file",
       doc: "",
     } as const
-    expect(
-      validateFieldRules(
-        "a",
-        { commit: "chore: x", model: "" } as unknown as StateDef,
-        "model",
-        spec,
-      ),
-    ).toEqual([
+    expect(validateFieldRules("a", { model: "" } as unknown as StateDef, "model", spec)).toEqual([
       'state "a": "model" must be a non-empty string',
-      'state "a": a commit state cannot declare "model"',
       'state "a": "model" requires "file"',
     ])
   })

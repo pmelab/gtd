@@ -9,7 +9,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
   It writes one `gtd(human): fix-precheck` entry commit (no `Gtd-Review-Base:`
   trailer: a fix reviews its own fixes from the ordinary process start).
   `fix-precheck` runs the suite: a red run drops straight into the shared
-  `build.fix` loop (-> `build.health.check` -> review + squash tail); a green run is a no-op
+  `build.fix` loop (-> `build.health.check` -> the review tail); a green run is a no-op
   back to `idle`. `@inmem` scenarios never execute the check script; they
   simulate its outcome by writing (red) or not writing (green)
   .gtd/FEEDBACK.md.

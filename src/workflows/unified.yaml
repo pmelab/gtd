@@ -12,11 +12,13 @@
 # `architecture.author` works out the *how* and resolves the TECHNICAL ones
 # (`architecture.gate`) -> `architecture.decompose` writes one package file
 # per concern -> the per-package queue (`packages.*`) builds and reviews each
-# -> the shared tail (`build.review.*`) decides sign-off (-> `build.squashing`
-# -> `done`, one commit) vs. actionable feedback (-> `re-unwind` -> back to
-# `design.triage`, a full re-plan lap that never builds on the human's
-# hand-edit). `--entry review-gate.check --var reviewBase=<commitish>` and
-# `--entry fix-precheck` are the two other entries into this same flow.
+# -> the shared tail (`build.review.*`) decides sign-off (-> `idle`, landing
+# an ordinary commit that closes the process — every per-turn commit stays on
+# the branch; run `gtd summary` afterward for a closing-message prompt) vs.
+# actionable feedback (-> `re-unwind` -> back to `design.triage`, a full
+# re-plan lap that never builds on the human's hand-edit). `--entry
+# review-gate.check --var reviewBase=<commitish>` and `--entry fix-precheck`
+# are the two other entries into this same flow.
 vars:
   testCommand: npm test
   # plannerModel: the heavier tier for one-shot triage/design/review turns.
@@ -146,26 +148,20 @@ vars:
     wrong.
   finisherPersona: |-
     You are the closing identity in an autonomous build pipeline called gtd —
-    the last coder this process hands work to before everything it touched is
-    squashed into a single commit. Most turns you are handed, your job is to
-    write the one conventional-commit message that summarizes the whole
-    approved change: subject line, imperative mood, a body that explains why
-    and what trade-offs were made, not just what changed. Occasionally you
-    are handed a late-breaking failing check instead — fix it, focused and
-    minimal, before the process can close. Either way, you are aware that
-    everything you touch this turn is about to lose its own commit boundary
-    and become part of one final message, so make that message earn its
-    place as the historical record.
+    the last coder this process hands work to before it closes. You are
+    handed a late-breaking failing check after sign-off; fix it, focused and
+    minimal, before the process can close. Every turn you land stays its own
+    commit on the branch — nothing here gets squashed away.
 
   # The scratchpad-opener sentence shared by every prompt-content state (see
   # STATE_FIELDS's `prompt`) — this workflow's own state files are its private
   # working notes, never project code or documentation a human reads. Injected
-  # as the leading line of all eleven prompt bodies that touch a `.gtd/` file
+  # as the leading line of every prompt body that touches a `.gtd/` file
   # directly; each state's own "the only state file this turn touches is X"
-  # sentence stays local, immediately after the tag. Three states splice a
+  # sentence stays local, immediately after the tag. Some states splice a
   # role clause into this same opening sentence (`build.review.collecting`,
-  # `packages.item.spec.review`, `build.squashing`) — those hoist the clause to
-  # its own leading sentence ahead of the tag instead, keeping every word.
+  # `packages.item.spec.review`) — those hoist the clause to its own leading
+  # sentence ahead of the tag instead, keeping every word.
   stateFileRules: |-
     You are an autonomous coding agent. This workflow steers itself
     through its own state files — treat them as its private scratchpad,
@@ -231,6 +227,41 @@ vars:
     code so the suite passes. Keep the change focused — do not refactor
     unrelated code. If the feedback is wrong, empty or delete
     `.gtd/FEEDBACK.md` instead of "fixing" a non-issue.
+
+# `gtd summary`'s prompt — printed cold, no session identity, no diff inlined.
+# Names the hashes/range for the agent to inspect itself; renders the same
+# it.processCost/it.processCostByModel the old squash finale used to.
+summary: |
+  <%~ it.vars.styleBlock %>
+
+
+  Write the closing message for the process HEAD closes or currently sits
+  inside — the text a driver may use for a squash, an amend, or a pull
+  request body. You are starting cold: read every decision back out of the
+  commits named below rather than assuming any prior context.
+
+  Cover the initial motivation, the important decisions, and the trade-offs
+  made, and the high-level architectural changes — never which files
+  changed; that is what `git diff --stat` is for, not this message.
+
+  The process's entry commit is `<%= it.entryCommit %>`. <% if
+  (it.humanCommits.length > 0) { %>The human contributed at these commits,
+  oldest to newest:
+  <% it.humanCommits.forEach(function (c) { %>
+  - `<%= c.hash %>` (entering `<%= c.state %>`)
+  <% }) %><% } else { %>The human left no comment or edit this process —
+  every commit is machine-authored.<% } %>
+
+  Inspect the range yourself: `git log <%= it.processBase %>..<%= it.processTip %>`
+  and `git diff <%= it.processBase %> <%= it.processTip %>`. That range is
+  exactly what a squash or PR body should describe.
+
+  Token cost: <%= it.processCost %>
+  <% it.processCostByModel.forEach(function(m){ %>
+  - <%= m.model %>: <%= m.cost %>
+  <% }) %>
+
+  Print the closing message and stop — this command writes nothing itself.
 
 entry:
   default: unified
@@ -699,11 +730,9 @@ machines:
   #
   # Nested inside buildTail (build.review), not a root sibling: a machine's
   # memory scope is its dotted instance path, so nesting keeps `build.fix ->
-  # build.health.check -> build.review.* -> build.squashing` (the `--entry
-  # fix-precheck` path) inside one scope, so `build.squashing` drafts the
-  # finale from the same session that made the fixes. The ordinary path
-  # (packages -> build.review -> squashing) gets nothing from this either
-  # way, since `build`'s own scope has no prior turn to resume there.
+  # build.health.check -> build.review.*` (the `--entry fix-precheck` path)
+  # inside one scope, so the sign-off's boundary commit lands from the same
+  # scope that made the fixes.
   humanReview:
     model: <%= it.vars.plannerModel %>
     system: |-
@@ -788,8 +817,10 @@ machines:
           When you've been through the whole diff, run `gtd land`:
 
           - **Sign off** — leave no comment — no note in
-            `.gtd/REVIEW.md`, no code edit — to collapse the process into
-            one commit (**build.squashing**), whatever the boxes say.
+            `.gtd/REVIEW.md`, no code edit — to close the process,
+            whatever the boxes say. Every turn commit stays on the
+            branch; run `gtd summary` afterward for a closing-message
+            prompt.
           - **Request changes** — leave a comment: a note on a
             `.gtd/REVIEW.md` line, or a direct code edit — to send a FULL
             development lap (**review.deciding** → **review.collecting** →
@@ -1002,7 +1033,8 @@ machines:
           mkdir -p .gtd
           # Sweep spent design/architecture steering files (gone by now) and
           # any REVIEW_RAW.md the review loop-back left behind — the only
-          # sweeper on that path before it would leak into the squash finale.
+          # sweeper on that path before it would leak into a later `gtd
+          # summary` prompt's diff range.
           rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md
           # Names are gtd-authored, never containing whitespace — safe to
           # disable SC2012.
@@ -1155,7 +1187,7 @@ machines:
           onFix: fix-spec
 
   # The process's build identity. ▸ coder identity — model/system stamped
-  # onto squashing/fix.
+  # onto fix.
   buildTail:
     model: <%= it.vars.coderModel %>
     system: |-
@@ -1168,49 +1200,6 @@ machines:
     # this machine bare; `fix` is an arbitrary pick.
     entry: fix
     states:
-      squashing:
-        actor: agent
-        label: Squashing
-        file: COMMIT_MSG.md
-        prompt: |
-          <%~ it.vars.styleBlock %>
-
-
-          The process is approved and done.
-
-          <%~ it.vars.stateFileRules %>
-
-          The only
-          state file this turn touches is `.gtd/COMMIT_MSG.md`; write
-          it. Do not create other files to hold notes or output.
-
-          Leave `.gtd/COMMIT_MSG.md` uncommitted and finish your turn —
-          entering this file squashes everything this process retains into one
-          commit using its content as the message. This prompt carries no diff —
-          if you built that range yourself earlier in this conversation, work from
-          what you already know; otherwise read the range yourself. It runs from
-          `<%= it.retainedBase %>` to the working tree, and is exactly what that
-          commit will contain, the changes this process made (its trace/retry
-          boundary onward). For a normal build
-          process that is the whole feature; for a `gtd --entry review-gate.check`
-          process it is only the fixes made during the review — not the changeset
-          that was under review.
-
-          If that range is non-empty, write `.gtd/COMMIT_MSG.md` with one
-          conventional-commits message for the changes (subject line
-          `type(scope): subject`, imperative mood, <= 72 characters; a body
-          explaining the why, trade-offs, and key decisions). Plain text, no
-          markdown wrapper.
-
-          If that range is empty (a clean review sign-off with no fixes), write
-          `.gtd/COMMIT_MSG.md` with exactly this one line and nothing
-          else:
-
-          chore: human review
-        on:
-          "A .gtd/COMMIT_MSG.md": $onDone
-          "M .gtd/COMMIT_MSG.md": $onDone
-
       fix:
         actor: agent
         label: Fixing the check
@@ -1239,12 +1228,12 @@ machines:
           checkLabel: Running checks
           escalateLabel: Escalating to a human
 
-      # Nested here (not root) so `squashing` stays inside the builder's own
-      # scope on sign-off — see humanReview above.
+      # Nested here (not root) so the sign-off's boundary commit stays inside
+      # the builder's own scope — see humanReview above.
       review:
         machine: humanReview
         with:
-          onSignoff: squashing
+          onSignoff: $onDone
           onFeedback: $onFeedback
 
   # WIRING ONLY — the root ties together the machine tree above.
@@ -1285,7 +1274,7 @@ machines:
               **start-gate.check**).
 
       # --entry fix-precheck: a red suite drops into build.fix (-> health ->
-      # review + squash tail); a green suite is a no-op back to idle.
+      # review tail); a green suite is a no-op back to idle.
       fix-precheck:
         actor: check
         label: Checking the baseline
@@ -1297,15 +1286,6 @@ machines:
           "D .gtd/REVIEW_RAW.md": idle
           "D .gtd/FEEDBACK.md": idle
           "C": idle
-
-      done:
-        commit: |
-          <%~ it.read(".gtd/COMMIT_MSG.md") %>
-
-          Token cost: <%= it.processCost %>
-          <% it.processCostByModel.forEach(function(m){ %>
-          - <%= m.model %>: <%= m.cost %>
-          <% }) %>
 
       # Separate from start-gate.check: that gate's blocked -> check retry
       # edge would otherwise re-run a revert here and discard a human's
@@ -1427,5 +1407,5 @@ machines:
       build:
         machine: buildTail
         with:
-          onDone: done
+          onDone: idle
           onFeedback: re-unwind

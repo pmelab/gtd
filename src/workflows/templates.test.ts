@@ -17,15 +17,13 @@ import {
 } from "./templates.js"
 import unifiedYaml from "./unified.yaml"
 
-/** State names (sorted) whose script/prompt/message/commit contains `needle`. */
+/** State names (sorted) whose script/prompt/message contains `needle`. */
 function statesReferencing(
   definition: ReturnType<typeof compileTemplate>["definition"],
   needle: string,
 ): string[] {
   const contentsOf = (state: (typeof definition.states)[string]): string[] =>
-    [state.script, state.prompt, state.message, state.commit].filter(
-      (c): c is string => c !== undefined,
-    )
+    [state.script, state.prompt, state.message].filter((c): c is string => c !== undefined)
   return Object.entries(definition.states)
     .filter(([, state]) => contentsOf(state).some((c) => c.includes(needle)))
     .map(([name]) => name)
@@ -88,7 +86,7 @@ describe("the bundled unified workflow template", () => {
     const { definition } = compileTemplate()
     const forbidden = /processDiff|reviewDiff|retainedDiff|lastDiff/
     for (const [name, state] of Object.entries(definition.states)) {
-      for (const content of [state.script, state.prompt, state.message, state.commit]) {
+      for (const content of [state.script, state.prompt, state.message]) {
         if (content !== undefined) expect(content, `state "${name}"`).not.toMatch(forbidden)
       }
     }
@@ -264,7 +262,7 @@ describe("the bundled unified workflow template", () => {
   })
 
   // Voice only, no structural override, since nothing parses their output.
-  const PROSE_PROMPTS = ["architecture.decompose", "packages.item.spec.review", "build.squashing"]
+  const PROSE_PROMPTS = ["architecture.decompose", "packages.item.spec.review"]
 
   // The only states that interpolate both a `file:` and a `mode:` of
   // `qa`/`review` — get both the voice and the structural override that
@@ -293,12 +291,11 @@ describe("the bundled unified workflow template", () => {
     expect(unifiedYaml).toMatch(/version 0\.6|v0\.6/)
   })
 
-  it("pins the seven voice-bearing prompts by name and count, so an eighth site added later fails loudly (package 02, 03)", () => {
+  it("pins the six voice-bearing prompts by name and count, so a seventh site added later fails loudly (package 02, 03)", () => {
     expect([...PROSE_PROMPTS, ...PARSED_PROMPTS].sort()).toEqual(
       [
         "architecture.decompose",
         "packages.item.spec.review",
-        "build.squashing",
         "design.triage",
         "architecture.author",
         "build.review.collecting",
@@ -405,7 +402,7 @@ describe("the bundled unified workflow template", () => {
     },
     {
       machine: "buildTail",
-      states: ["build.squashing", "build.fix"],
+      states: ["build.fix"],
       personaVar: "finisherPersona",
     },
   ]
@@ -697,9 +694,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     // to the root would silently undo this.
     const { scopes } = compileTemplate()
     expect(scopes["build.review.reviewing"]).toMatch(/^build\./)
-    for (const state of ["fix", "squashing"]) {
-      expect(scopes[`build.${state}`]).toBe("build")
-    }
+    expect(scopes["build.fix"]).toBe("build")
   })
 
   it("design and architecture are sibling machines with distinct memory scopes, each declaring the planner model once at machine level", () => {
@@ -718,7 +713,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     expect(ownPromptStates("specReview")).toEqual(["review"])
 
     expect(ownPromptStates("packageItem")).toEqual(["building", "fix-spec", "fix-suite"])
-    expect(ownPromptStates("buildTail")).toEqual(["fix", "squashing"])
+    expect(ownPromptStates("buildTail")).toEqual(["fix"])
 
     expect(ownPromptStates("entryGate")).toEqual([])
     expect(ownPromptStates("healthGate")).toEqual([])

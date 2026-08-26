@@ -12,7 +12,7 @@ export interface TemplateEdge {
   readonly action?: string
 }
 
-/** The full variable set a `script`/`prompt`/`message`/`commit` template may reference as `it.<name>`. All fields are caller-supplied. */
+/** The full variable set a `script`/`prompt`/`message` template may reference as `it.<name>`. All fields are caller-supplied. */
 export interface TemplateContext {
   readonly startCommit: string
   readonly currentCommit: string
@@ -27,12 +27,13 @@ export interface TemplateContext {
    */
   readonly reviewBase: string
   /**
-   * The base a squash would KEEP from: the process's own trace/retry
-   * boundary, which a `Gtd-Review-Base:` trailer never overrides. For a `gtd
+   * The process's own trace/retry boundary — the parent of its first turn
+   * commit — which a `Gtd-Review-Base:` trailer never overrides. For a `gtd
    * review` process this narrows to just the review's own feedback commits,
-   * not the whole reviewed changeset.
+   * not the whole reviewed changeset. `gtd summary` uses this to name the
+   * range it asks the agent to inspect.
    */
-  readonly retainedBase: string
+  readonly processBase: string
   /**
    * Total token cost accumulated over the process (every `Gtd-Cost:` trailer,
    * plus the in-flight step's own cost) — `0` when nothing recorded.
@@ -40,7 +41,7 @@ export interface TemplateContext {
   readonly processCost: number
   /** `processCost` broken down per model, highest-cost first (`"unspecified"` when no `--model` was recorded). */
   readonly processCostByModel: readonly { readonly model: string; readonly cost: number }[]
-  /** Read a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — that throw is the render failure the plan's `commit:` refusal rule depends on. */
+  /** Read a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — that throw is the render failure that refuses the step (`renderDecision`'s caller catches it into an empty script). */
   readonly read: (path: string) => string
   /**
    * The merged variable map every template sees as `it.vars.<name>` —
@@ -52,7 +53,7 @@ export interface TemplateContext {
    * is exempt from that filter. No name is blessed by the engine.
    */
   readonly vars: Record<string, string>
-  /** The resting state's own `on` edges, in declaration order — lets a `message:` template surface which change routes where. Empty for a commit state. */
+  /** The resting state's own `on` edges, in declaration order — lets a `message:` template surface which change routes where. */
   readonly edges: readonly TemplateEdge[]
 }
 
@@ -69,7 +70,7 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
   state,
   actor: "",
   reviewBase: "",
-  retainedBase: "",
+  processBase: "",
   processCost: 0,
   processCostByModel: [],
   read: (path: string) => {

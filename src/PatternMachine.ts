@@ -1,7 +1,6 @@
 import {
   CONTENT_FIELDS,
   STATE_FIELD_ENTRIES,
-  isCommitState,
   validateFieldRules,
   type Actor,
   type ContentKind,
@@ -13,7 +12,6 @@ import {
 } from "./StateFields.js"
 
 export {
-  isCommitState,
   type Actor,
   type ContentKind,
   type OnEdge,
@@ -77,17 +75,18 @@ export interface WorkflowDefinition {
    * for a hand-built `WorkflowDefinition` that skipped the compiler.
    */
   readonly modes?: Readonly<Record<StateMode, ModeDef>>
+  /** `gtd summary`'s prompt template (an Eta template) — absent makes the command refuse rather than fail at load. */
+  readonly summary?: string
 }
 
 export const contentKindOf = (state: StateDef): ContentKind | undefined => {
   if (state.script !== undefined) return "script"
   if (state.prompt !== undefined) return "prompt"
   if (state.message !== undefined) return "message"
-  if (state.commit !== undefined) return "commit"
   return undefined
 }
 
-/** The raw template source a state's own content kind carries — `script`/`prompt`/`message`, or `undefined` for a commit state (never at rest, no template a viewer could show). */
+/** The raw template source a state's own content kind carries — `script`/`prompt`/`message`. */
 export const contentOf = (state: StateDef): string | undefined =>
   state.script ?? state.prompt ?? state.message
 
@@ -118,15 +117,11 @@ export const isRequireRevertState = (def: WorkflowDefinition, state: StateName):
   def.states[state]?.requireRevert === true
 
 /**
- * Every declared state that is NOT a commit state, sorted. Intentionally ALL
- * non-commit states, not just ones that declared `entry: true` — this drives
- * the CLI's `--entry <state>` guard and its error message, a broader set on
- * purpose.
+ * Every declared state, sorted. This drives the CLI's `--entry <state>` guard
+ * and its error message, a broader set than `entries.manual` on purpose.
  */
 export const enterableStates = (def: WorkflowDefinition): readonly StateName[] =>
-  Object.keys(def.states)
-    .filter((name) => !isCommitState(def.states[name]!))
-    .sort()
+  Object.keys(def.states).sort()
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
@@ -183,7 +178,6 @@ export const initialStateOf = (def: WorkflowDefinition): StateName => def.entrie
 /**
  * Every actor declared by ANY state in the workflow — the closed-world
  * vocabulary a parsed subject's actor is checked against by `resolveState`.
- * Commit states carry no `actor` and so contribute nothing.
  */
 const declaredActors = (def: WorkflowDefinition): ReadonlySet<Actor> => {
   const actors = new Set<Actor>()
@@ -203,18 +197,14 @@ const declaredActors = (def: WorkflowDefinition): ReadonlySet<Actor> => {
  * now awaited.
  *
  * An unrecognized subject — non-`gtd(...)`, malformed, naming an undefined
- * state, an actor outside the vocabulary, or a commit state — resolves to the
- * INITIAL state (old histories and every completed process's squash commit
- * land here). Commit states are excluded explicitly rather than via an
- * actor-mismatch trick, since a hand-authored subject could still name one
- * even though `step` never writes one.
+ * state, or an actor outside the vocabulary — resolves to the INITIAL state
+ * (old histories land here).
  */
 export const resolveState = (def: WorkflowDefinition, headSubject: string): StateName => {
   const parsed = parseStateSubject(headSubject)
   if (parsed === undefined) return initialStateOf(def)
   const state = def.states[parsed.state]
   if (state === undefined) return initialStateOf(def)
-  if (isCommitState(state)) return initialStateOf(def)
   if (!declaredActors(def).has(parsed.actor)) return initialStateOf(def)
   return parsed.state
 }
@@ -362,14 +352,7 @@ export interface StepCommit {
   readonly attempt?: true
 }
 
-/** The (possibly retry-redirected) target is a commit state: render-then-squash is an edge concern, this only decides it should happen and hands over the verbatim template. */
-export interface StepSquash {
-  readonly kind: "squash"
-  readonly state: StateName
-  readonly template: string
-}
-
-export type StepDecision = StepRefusal | StepNoOp | StepCommit | StepSquash
+export type StepDecision = StepRefusal | StepNoOp | StepCommit
 
 const matchOn = (
   onEdges: readonly OnEdge[],
@@ -483,14 +466,13 @@ export const memoryScopeAt = (
  * or the tree is dirty and no `on` pattern matches. A clean tree with no
  * matching pattern is a plain no-op at a `script`/`message` rest, but at a
  * `prompt` rest it's an ATTEMPT instead: the state itself becomes the raw
- * target, falling through the same retry/commit-state tail as a real match,
- * tagged `attempt: true` on the resulting `"commit"` — a fruitless `prompt`
+ * target, falling through the same retry tail as a real match, tagged
+ * `attempt: true` on the resulting `"commit"` — a fruitless `prompt`
  * dispatch still costs money and must be remembered across restarts, so it's
  * committed rather than treated as an inert no-op. The target (or attempt's
- * self-target) is retry-redirected (`applyRetry`) before being classified: a
- * commit-state target yields `"squash"`; anything else yields `"commit"`.
- * Throws only on a structurally invalid call — an undefined `state`, or a
- * commit-state `state` (stepping AT a commit state is a caller error).
+ * self-target) is retry-redirected (`applyRetry`) before being classified —
+ * always yielding `"commit"`. Throws only on a structurally invalid call: an
+ * undefined `state`.
  */
 export const step = (
   def: WorkflowDefinition,
@@ -501,7 +483,7 @@ export const step = (
   const stateDef = def.states[state]
   if (stateDef === undefined) throw new Error(`step: unknown state "${state}"`)
   if (stateDef.actor === undefined) {
-    throw new Error(`step: "${state}" is a commit state — a process never rests there`)
+    throw new Error(`step: "${state}" declares no actor — a process never rests there`)
   }
 
   if (invoker !== stateDef.actor) {
@@ -536,16 +518,11 @@ export const step = (
     throw new Error(`step: "${state}" transitions to undefined state "${finalTarget}"`)
   }
 
-  if (targetDef.commit !== undefined) {
-    return { kind: "squash", state: finalTarget, template: targetDef.commit }
-  }
-
-  // A validated definition guarantees a non-commit state declares an actor;
-  // an unvalidated one surfaces the gap as a thrown structural error, matching
-  // the throws above. A target state with no actor at all is still a
-  // malformed definition worth failing loudly on.
+  // A validated definition guarantees every state declares an actor; an
+  // unvalidated one surfaces the gap as a thrown structural error, matching
+  // the throws above.
   if (targetDef.actor === undefined) {
-    throw new Error(`step: "${finalTarget}" is not a commit state but declares no actor`)
+    throw new Error(`step: "${finalTarget}" declares no actor`)
   }
 
   return {
@@ -590,9 +567,6 @@ const validateEntries = (def: WorkflowDefinition, names: readonly string[]): str
       errors.push(`entries.${key} "${state}" is not a defined state`)
       return
     }
-    if (isCommitState(def.states[state]!)) {
-      errors.push(`entries.${key} "${state}" must not be a commit state`)
-    }
     if (key !== "default" && state === def.entries.default) {
       errors.push(`entries.${key} "${state}" must not be the same state as entries.default`)
     }
@@ -615,22 +589,11 @@ const validateContentKind = (name: string, state: StateDef): string[] => {
   ).length
   return kindCount === 1
     ? []
-    : [
-        `state "${name}": must declare exactly one of script/prompt/message/commit (found ${kindCount})`,
-      ]
+    : [`state "${name}": must declare exactly one of script/prompt/message (found ${kindCount})`]
 }
 
-const validateActorShape = (name: string, state: StateDef): string[] => {
-  if (!isCommitState(state)) {
-    return state.actor === undefined
-      ? [`state "${name}" must declare an actor (only a commit state may omit one)`]
-      : []
-  }
-  const errors: string[] = []
-  if (state.actor !== undefined) errors.push(`commit state "${name}" must not declare an actor`)
-  if (state.on !== undefined) errors.push(`commit state "${name}" must not declare "on"`)
-  return errors
-}
+const validateActorShape = (name: string, state: StateDef): string[] =>
+  state.actor === undefined ? [`state "${name}" must declare an actor`] : []
 
 /**
  * A declared mode's `format`/`validate`, when present, may not be blank (a

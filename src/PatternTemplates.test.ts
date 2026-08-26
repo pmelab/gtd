@@ -10,7 +10,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   state: "building",
   actor: "agent",
   reviewBase: "rev999",
-  retainedBase: "ret888",
+  processBase: "ret888",
   processCost: 0,
   processCostByModel: [],
   read: (path: string) => {
@@ -38,9 +38,9 @@ describe("renderStateTemplate — the full variable set", () => {
     expect(out).toBe("start=aaa111 current=ccc333 previous=bbb222 state=building actor=agent")
   })
 
-  it("renders reviewBase and retainedBase verbatim — bases, never diff content", () => {
+  it("renders reviewBase and processBase verbatim — bases, never diff content", () => {
     const out = renderStateTemplate(
-      "REVIEW:<%= it.reviewBase %> RETAINED:<%= it.retainedBase %>",
+      "REVIEW:<%= it.reviewBase %> RETAINED:<%= it.processBase %>",
       baseContext(),
     )
     expect(out).toBe("REVIEW:rev999 RETAINED:ret888")
@@ -161,7 +161,7 @@ describe("varsOnlyContext", () => {
     expect(ctx.currentCommit).toBe("")
     expect(ctx.previousCommit).toBe("")
     expect(ctx.reviewBase).toBe("")
-    expect(ctx.retainedBase).toBe("")
+    expect(ctx.processBase).toBe("")
     expect(ctx.processCost).toBe(0)
     expect(ctx.processCostByModel).toEqual([])
     expect(ctx.edges).toEqual([])

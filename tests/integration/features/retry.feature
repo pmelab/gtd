@@ -44,7 +44,8 @@ Feature: Retry redirection — a state's entry cap redirects at write time
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a file "NOTE.md" with:
       """
@@ -108,7 +109,8 @@ Feature: Retry redirection — a state's entry cap redirects at write time
                 on:
                   "* **": done
               done:
-                commit: "chore: done"
+                actor: human
+                message: "done"
       """
     And a file "NOTE.md" with:
       """
