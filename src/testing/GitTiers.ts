@@ -100,6 +100,7 @@ const configLayerFor = (workflow: WorkflowDefinition): Layer.Layer<ConfigService
       rcVars: {},
       machineTree: defaultMachineTree,
       stateScopes: defaultStateScopes,
+      warnings: [],
     }),
   })
 

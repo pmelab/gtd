@@ -38,6 +38,8 @@ interface ConfigOperations {
   readonly machineTree: MachineNode
   /** Qualified state name -> owning machine-instance path (`flattenMachines`'s other output), or the built-in default's map when unconfigured. */
   readonly stateScopes: Record<StateName, string>
+  /** Non-fatal `validateDefinition` findings against the active workflow (e.g. a state with no `C` row) — `[]` for the built-in default, which ships with none. */
+  readonly warnings: readonly string[]
 }
 
 /**
@@ -273,6 +275,7 @@ const toOperations = (
       rcVars,
       machineTree: defaultMachineTree,
       stateScopes: defaultStateScopes,
+      warnings: [],
     }
   }
   const {
@@ -280,8 +283,16 @@ const toOperations = (
     vars: workflowVars,
     tree,
     scopes,
+    warnings,
   } = compileWorkflowConfig(decoded.workflow, root, rcModes, false, fileRefs)
-  return { workflow: definition, workflowVars, rcVars, machineTree: tree, stateScopes: scopes }
+  return {
+    workflow: definition,
+    workflowVars,
+    rcVars,
+    machineTree: tree,
+    stateScopes: scopes,
+    warnings,
+  }
 }
 
 /**

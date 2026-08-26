@@ -33,7 +33,7 @@ function statesReferencing(
 describe("the bundled unified workflow template", () => {
   it("compiles with no validation findings and exactly one initial state", () => {
     const { definition } = compileTemplate()
-    expect(validateDefinition(definition)).toEqual([])
+    expect(validateDefinition(definition)).toEqual({ errors: [], warnings: [] })
     expect(definition.entries.default).toBeTruthy()
     expect(definition.states[definition.entries.default]).toBeDefined()
   })
@@ -197,7 +197,7 @@ describe("the bundled unified workflow template", () => {
   })
 
   it("exposes the compiled default as the built-in fallback (definition + its own vars)", () => {
-    expect(validateDefinition(defaultWorkflowDefinition)).toEqual([])
+    expect(validateDefinition(defaultWorkflowDefinition)).toEqual({ errors: [], warnings: [] })
     expect(defaultWorkflowDefinition).toEqual(compileTemplate().definition)
     expect(defaultWorkflowVars).toEqual(compileTemplate().vars)
     expect(defaultWorkflowVars.testCommand).toBe("npm test")

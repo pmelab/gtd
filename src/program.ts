@@ -1160,6 +1160,14 @@ export const runCommand = (
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
     yield* assertRepositoryHasCommits(git)
+    // One load here, own to this block: `ConfigService.load` re-runs on every
+    // `yield*` (it isn't memoized), so emitting from inside it would print a
+    // warning once per internal reload within one invocation. This call is
+    // the ONE per-invocation load that counts for warnings — `dispatch`'s own
+    // internal reloads never warn again.
+    const config = yield* (yield* ConfigService).load
+    const narrator = yield* Narrator
+    for (const warning of config.warnings) yield* narrator.warn(`gtd: warning: ${warning}`)
     yield* dispatch
   })
 }

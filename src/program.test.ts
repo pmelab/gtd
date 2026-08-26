@@ -216,6 +216,61 @@ describe("gtd --entry <state> — the bundled unified template", () => {
   })
 })
 
+describe('gtd — warns on a state with no "C" row (package 03)', () => {
+  // A non-`prompt`, non-initial state declaring no `C` row is a legitimate
+  // no-op by design, but usually an oversight — `validateDefinition` surfaces
+  // it as a load-time warning (never an error) on every command whose
+  // `needsOf` is `"state"`, emitted once per invocation ahead of dispatch.
+
+  const WORKFLOW_WITH_MISSING_C_ROW = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": building',
+    "        building:",
+    "          actor: check",
+    "          script: |",
+    "            #!/usr/bin/env sh",
+    "            exit 0",
+    "          on:",
+    '            "A foo.txt": idle',
+    "",
+  ].join("\n")
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", WORKFLOW_WITH_MISSING_C_ROW)
+    repo.commitAllWithPrefix("chore: add workflow with a missing C row")
+    return repo
+  }
+
+  it("a non-prompt, non-initial state with no C row prints exactly one warning naming it, on stderr, without failing the command", async () => {
+    const repo = seededRepo()
+    const { stdout, stderr, exitCode } = await run(repo, "next")
+    expect(exitCode).toBe(0)
+    expect(stderr).toContain("building")
+    expect(stderr).toContain('"C" row')
+    expect(stdout).not.toContain('building" declares')
+  })
+
+  it("the bundled unified template prints no such warning", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.commitAllWithPrefix("chore: init gtd workflow")
+    const { stderr, exitCode } = await run(repo, "next")
+    expect(exitCode).toBe(0)
+    expect(stderr).not.toContain('"C" row')
+  })
+})
+
 describe("gtd next --json — label emission", () => {
   // `label:` is a display-only state hint rendered/emitted exactly like
   // `model:`/`memory:` (see src/Edge.ts's renderLabel) — pinned end-to-end in

@@ -1179,12 +1179,12 @@ describe("memoryScopeAt", () => {
 
 describe("validateDefinition", () => {
   it("accepts a well-formed definition", () => {
-    expect(validateDefinition(simpleWorkflow)).toEqual([])
-    expect(validateDefinition(retryWorkflow)).toEqual([])
+    expect(validateDefinition(simpleWorkflow).errors).toEqual([])
+    expect(validateDefinition(retryWorkflow).errors).toEqual([])
   })
 
   it("rejects a `file:` outside `.gtd/` — the one case the compiler's prepend can't catch, a hand-built definition that skipped it", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", file: "REVIEW.md", on: [] },
@@ -1198,24 +1198,24 @@ describe("validateDefinition", () => {
       validateDefinition({
         entries: { default: "a", manual: [] },
         states: { a: { actor: "h", message: "x", file: ".gtd", on: [] } },
-      }),
+      }).errors,
     ).toEqual([])
     expect(
       validateDefinition({
         entries: { default: "a", manual: [] },
         states: { a: { actor: "h", message: "x", file: ".gtd/packages/x.md", on: [] } },
-      }),
+      }).errors,
     ).toEqual([])
   })
 
   it("requires at least one state", () => {
-    expect(validateDefinition({ entries: { default: "a", manual: [] }, states: {} })).toEqual([
-      "workflow must declare at least one state",
-    ])
+    expect(
+      validateDefinition({ entries: { default: "a", manual: [] }, states: {} }).errors,
+    ).toEqual(["workflow must declare at least one state"])
   })
 
   it("rejects entries.default naming an undefined state", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "ghost", manual: [] },
       states: { a: { actor: "h", message: "x", on: [] } },
     })
@@ -1223,7 +1223,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects entries.manual naming an undefined state", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: ["ghost"] },
       states: { a: { actor: "h", message: "x", on: [["* *", "a"]] } },
     })
@@ -1231,7 +1231,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects entries.manual equal to entries.default", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: ["a"] },
       states: { a: { actor: "h", message: "x", on: [["* *", "a"]] } },
     })
@@ -1239,7 +1239,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects a duplicate state name within entries.manual itself", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: ["b", "b"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
@@ -1250,7 +1250,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts entries with only `default` (an empty `manual`)", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: { a: { actor: "h", message: "x", on: [["* *", "a"]] } },
     })
@@ -1258,7 +1258,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts entries.default plus multiple entries.manual, all distinct and valid", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: ["b", "c"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "a"]] },
@@ -1270,13 +1270,13 @@ describe("validateDefinition", () => {
   })
 
   it("requires exactly one content kind (zero, and more than one)", () => {
-    const zero = validateDefinition({
+    const { errors: zero } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: { a: { actor: "h", on: [] } },
     })
     expect(zero.some((e) => e.includes("exactly one of script/prompt/message"))).toBe(true)
 
-    const two = validateDefinition({
+    const { errors: two } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: { a: { actor: "h", message: "x", script: "y", on: [] } },
     })
@@ -1284,7 +1284,7 @@ describe("validateDefinition", () => {
   })
 
   it("requires a state to declare an actor", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: { a: { message: "x", on: [] } },
     })
@@ -1292,7 +1292,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects an unparseable pattern", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["nonsense", "a"]] },
@@ -1302,7 +1302,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects an `on` target that isn't a defined state", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "ghost"]] },
@@ -1312,7 +1312,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects a `retry.otherwise` that isn't a defined state", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: {
@@ -1327,7 +1327,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a state declaring a valid `model`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", model: "smart", on: [] },
@@ -1337,7 +1337,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects an empty-string `model`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", model: "", on: [] },
@@ -1347,7 +1347,7 @@ describe("validateDefinition", () => {
   })
 
   it("aggregates a bad `model` alongside other unrelated findings", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: {
@@ -1363,7 +1363,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a state declaring a valid `label`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", label: "Doing the work", on: [] },
@@ -1373,7 +1373,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects an empty-string `label`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", label: "", on: [] },
@@ -1383,7 +1383,7 @@ describe("validateDefinition", () => {
   })
 
   it("aggregates a bad `label` alongside other unrelated findings", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: {
@@ -1399,7 +1399,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a state declaring a valid `file` alone (no `mode`)", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", file: ".gtd/FEEDBACK.md", on: [] },
@@ -1409,7 +1409,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a state declaring `file` and a valid `mode`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       modes: { qa: {} },
       states: {
@@ -1426,7 +1426,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a state declaring `mode: prose` when `modes:` declares an empty (format-only) entry", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       modes: { prose: {} },
       states: {
@@ -1443,7 +1443,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects `mode: prose` with no `modes:` declaration at all — this pure module knows no built-in vocabulary", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", file: ".gtd/TODO.md", mode: "prose", on: [] },
@@ -1455,7 +1455,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects `mode: prose` without a sibling `file`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       modes: { prose: {} },
       states: {
@@ -1466,7 +1466,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects an empty-string `file`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", file: "", on: [] },
@@ -1476,7 +1476,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects a `mode` no `modes:` entry defines, naming what is available", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       modes: { qa: {} },
       states: {
@@ -1495,7 +1495,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a `mode` a `modes:` entry declares, and lists the declared names when another mode is unknown", () => {
-    const accepted = validateDefinition({
+    const { errors: accepted } = validateDefinition({
       entries: { default: "a", manual: [] },
       modes: { adr: { validate: "./scripts/check-adr.sh <%= it.file %>" } },
       states: {
@@ -1504,7 +1504,7 @@ describe("validateDefinition", () => {
     })
     expect(accepted).toEqual([])
 
-    const rejected = validateDefinition({
+    const { errors: rejected } = validateDefinition({
       entries: { default: "a", manual: [] },
       modes: { adr: { validate: "check" } },
       states: {
@@ -1524,7 +1524,7 @@ describe("validateDefinition", () => {
         states: {
           a: { actor: "h", message: "x", file: ".gtd/docs/adr.md", mode: "adr", on: [] },
         },
-      }),
+      }).errors,
     ).toEqual([])
   })
 
@@ -1538,12 +1538,12 @@ describe("validateDefinition", () => {
         states: {
           a: { actor: "h", message: "x", file: ".gtd/TODO.md", mode: "qa", on: [] },
         },
-      }),
+      }).errors,
     ).toEqual([])
   })
 
   it("rejects a `modes:` entry that declares a blank command", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       modes: { blank: { validate: "   " } },
       states: {
@@ -1554,7 +1554,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects a `mode` with no sibling `file`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       modes: { qa: {} },
       states: {
@@ -1565,7 +1565,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a state declaring `reviewBase`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: {
@@ -1581,7 +1581,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a non-empty string `reviewBase` (the template form)", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", reviewBase: "main", on: [["* *", "a"]] },
@@ -1591,7 +1591,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects a blank string `reviewBase` template", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", reviewBase: "", on: [["* *", "a"]] },
@@ -1601,7 +1601,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects a whitespace-only string `reviewBase` template", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", reviewBase: "   ", on: [["* *", "a"]] },
@@ -1611,7 +1611,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts entries.manual naming a distinct state", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: ["b"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
@@ -1622,7 +1622,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a state declaring `requireProgress` with a `file`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
@@ -1633,7 +1633,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects `requireProgress` without a `file`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
@@ -1644,7 +1644,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts a state declaring `requireRevert` with a `file`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
@@ -1661,7 +1661,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects `requireRevert` without a `file`", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
@@ -1672,7 +1672,7 @@ describe("validateDefinition", () => {
   })
 
   it("accepts entries.manual naming a distinct script/check state", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: ["b"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
@@ -1687,7 +1687,7 @@ describe("validateDefinition", () => {
     // is entered ONLY via `gtd --entry fix-check`, so seeding it
     // as a reachability root is what keeps it from being wrongly flagged
     // unreachable.
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "idle", manual: ["fix-check"] },
       states: {
         idle: { actor: "h", message: "x", on: [["* *", "idle"]] },
@@ -1698,7 +1698,7 @@ describe("validateDefinition", () => {
   })
 
   it("aggregates a bad `file`/`mode` alongside other unrelated findings", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: {
@@ -1718,7 +1718,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects a negative or non-integer retry.max", () => {
-    const negative = validateDefinition({
+    const { errors: negative } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: {
@@ -1731,7 +1731,7 @@ describe("validateDefinition", () => {
     })
     expect(negative.some((e) => e.includes("retry.max must be a non-negative integer"))).toBe(true)
 
-    const fractional = validateDefinition({
+    const { errors: fractional } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: {
@@ -1748,7 +1748,7 @@ describe("validateDefinition", () => {
   })
 
   it("rejects a state unreachable from the initial state", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "done"]] },
@@ -1764,7 +1764,7 @@ describe("validateDefinition", () => {
   it("counts a `retry.otherwise` redirect as a reachability edge", () => {
     // "escalate" is entered ONLY via checking's retry redirect — it must not
     // be reported as unreachable (retryWorkflow's shape, minimized).
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "checking"]] },
@@ -1781,7 +1781,7 @@ describe("validateDefinition", () => {
   })
 
   it("reports a whole disconnected cluster as unreachable, not just its entry", () => {
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "a"]] },
@@ -1801,7 +1801,7 @@ describe("validateDefinition", () => {
     // An undefined "entries.default": every state would look "unreachable"
     // from an undefined start — the reachability check must stay silent
     // rather than bury the real finding.
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "ghost", manual: [] },
       states: { a: { actor: "h", message: "x", on: [] } },
     })
@@ -1814,7 +1814,7 @@ describe("validateDefinition", () => {
     // reachability walk skips undefined targets rather than crashing, and
     // reports nothing extra for a definition whose defined states are all
     // reachable.
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "ghost"]] },
@@ -1830,7 +1830,7 @@ describe("validateDefinition", () => {
     // require; a blank-template `reviewBase`. Guards against a future edit
     // to `STATE_FIELDS` silently dropping a field's `nonEmpty`/`requires`
     // rule.
-    const errors = validateDefinition({
+    const { errors } = validateDefinition({
       entries: { default: "start", manual: [] },
       states: {
         start: { actor: "human", message: "go", on: [["* *", "badFields"]] },
@@ -1870,6 +1870,91 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "missingFile": "requireProgress" requires "file"')
     expect(errors).toContain('state "missingFile": "answerGate" requires "file"')
     expect(errors).toContain('state "blankBase": "reviewBase" template must not be blank')
+  })
+})
+
+describe("validateDefinition — missing-C-row warning", () => {
+  it("warns exactly once for a non-prompt, non-initial state with no C row, no file, and no catch-all", () => {
+    const { errors, warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { actor: "check", script: "y", on: [["A x", "a"]] },
+      },
+    })
+    expect(errors).toEqual([])
+    expect(warnings).toEqual(['state "b" declares no "C" row'])
+  })
+
+  it("does not warn a prompt state with no C row", () => {
+    const { warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { actor: "coder", prompt: "y", on: [["A x", "a"]] },
+      },
+    })
+    expect(warnings).toEqual([])
+  })
+
+  it("does not warn the workflow's initial state, even with no C row", () => {
+    const { warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "check", script: "x", on: [["A x", "a"]] },
+      },
+    })
+    expect(warnings).toEqual([])
+  })
+
+  it("does not warn a state that declares a C row", () => {
+    const { warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { actor: "check", script: "y", on: [["C", "a"]] },
+      },
+    })
+    expect(warnings).toEqual([])
+  })
+
+  it("does not warn a state that declares a `* **` catch-all row — the author already covered every dirty tree", () => {
+    const { warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { actor: "check", script: "y", on: [["* **", "a"]] },
+      },
+    })
+    expect(warnings).toEqual([])
+  })
+
+  it("does not warn a state that declares its own `file:` — its narrow rows are already scoped to that steering path", () => {
+    const { warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: {
+          actor: "check",
+          script: "y",
+          file: ".gtd/REVIEW.md",
+          on: [["D .gtd/REVIEW.md", "a"]],
+        },
+      },
+    })
+    expect(warnings).toEqual([])
+  })
+
+  it("never surfaces a warning as an error", () => {
+    const { errors, warnings } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { actor: "check", script: "y", on: [["A x", "a"]] },
+      },
+    })
+    expect(warnings.length).toBeGreaterThan(0)
+    expect(errors).toEqual([])
   })
 })
 

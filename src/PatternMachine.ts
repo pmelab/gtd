@@ -754,24 +754,53 @@ const validateState = (
 }
 
 /**
- * Validate a `WorkflowDefinition`, returning human-readable error strings
- * (empty = valid). Pure — called at config-load time. Checks at least one
- * state, `entries` shape (`validateEntries`), per-state content/actor/mode/
- * file shape (`validateState`), `modes:` shape, and reachability from an
- * entry root (`validateReachability`, only when entries validated clean).
- * Every per-field rule not listed above (`on`/`retry` targets resolving,
- * `mode` naming a known vocabulary, etc.) is declared once in
- * `src/StateFields.ts`'s `STATE_FIELDS` table instead.
+ * A `script`/`message` state with no `C` row commits nothing on a clean tree
+ * (the documented no-op default) — that's often deliberate, but silent for a
+ * state whose author never considered the clean case. Warn, don't error: the
+ * initial state and every `prompt` state (which attempts instead of
+ * no-op'ing) are exempt outright, and so is a state whose `on` rows already
+ * show the author DID enumerate every case that matters, either globally (a
+ * bare `"* **"` row, the documented idiom for "every dirty tree, anywhere")
+ * or scoped to its own `file:` (a state whose only real signal is an edit to
+ * that one steering path, already spelled out row by row).
  */
-export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
+const validateHasCRow = (def: WorkflowDefinition, name: string, state: StateDef): string[] => {
+  if (name === initialStateOf(def)) return []
+  const kind = contentKindOf(state)
+  if (kind !== "script" && kind !== "message") return []
+  if (state.file !== undefined) return []
+  const edges = state.on ?? []
+  if (edges.some(([pattern]) => pattern === "C" || pattern === "* **")) return []
+  return [`state "${name}" declares no "C" row`]
+}
+
+/**
+ * Validate a `WorkflowDefinition`, returning human-readable error strings
+ * (empty = valid) plus non-fatal warning strings. Pure — called at
+ * config-load time. Checks at least one state, `entries` shape
+ * (`validateEntries`), per-state content/actor/mode/file shape
+ * (`validateState`), `modes:` shape, and reachability from an entry root
+ * (`validateReachability`, only when entries validated clean). Every
+ * per-field rule not listed above (`on`/`retry` targets resolving, `mode`
+ * naming a known vocabulary, etc.) is declared once in `src/StateFields.ts`'s
+ * `STATE_FIELDS` table instead.
+ */
+export const validateDefinition = (
+  def: WorkflowDefinition,
+): { readonly errors: readonly string[]; readonly warnings: readonly string[] } => {
   const names = Object.keys(def.states)
-  if (names.length === 0) return ["workflow must declare at least one state"]
+  if (names.length === 0) {
+    return { errors: ["workflow must declare at least one state"], warnings: [] }
+  }
 
   const entriesErrors = validateEntries(def, names)
-  return [
-    ...entriesErrors,
-    ...validateModes(def),
-    ...names.flatMap((name) => validateState(def, name, names)),
-    ...(entriesErrors.length === 0 ? validateReachability(def, names) : []),
-  ]
+  return {
+    errors: [
+      ...entriesErrors,
+      ...validateModes(def),
+      ...names.flatMap((name) => validateState(def, name, names)),
+      ...(entriesErrors.length === 0 ? validateReachability(def, names) : []),
+    ],
+    warnings: names.flatMap((name) => validateHasCRow(def, name, def.states[name]!)),
+  }
 }
