@@ -4,7 +4,7 @@
 
 ### Does an ordering finding carry the offending heading's line number, or is it positionless like every other `qa` finding?
 
-- [ ] Positionless — keep `OpenQuestionsDoc.errors` a `readonly string[]` and
+- [x] Positionless — keep `OpenQuestionsDoc.errors` a `readonly string[]` and
       `QA_FORMAT.validate` its current one-line map. Smallest change; the LSP
       shows the diagnostic at the top of the file.
 - [ ] Line-anchored — widen `errors` to `readonly SteeringFinding[]` and point
@@ -15,7 +15,7 @@
 
 ### Does a `##` heading inside a fenced code block count as a competing section?
 
-- [ ] Fence-blind — reuse the existing line scan, which already ignores fences
+- [x] Fence-blind — reuse the existing line scan, which already ignores fences
       everywhere else in this parser. Consistent with `splitQuestionBlocks`, but
       a plan that quotes a markdown example containing `## ` now fails.
 - [ ] Fence-aware for the ordering scan only — track ``` / ~~~ runs and skip
