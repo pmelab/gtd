@@ -20,13 +20,15 @@ Commands:
                    --cost=<n> (optionally --model=<name>) to record the
                    just-finished invocation's token cost and model on the
                    turn commit (summed into it.processCost/
-                   processCostByModel). Plain (the default) prints ONLY the
-                   script that records the landing; a driver runs it, e.g.
-                   `gtd land | sh`. --json/--sh instead emit script (that
-                   same script, byte-identical) alongside settled, idle,
-                   state (the post-land target), subject, cost and model —
-                   --json/--sh are mutually exclusive. Exits 0 on success, 1
-                   on any refusal — see the Exit codes section below
+                   processCostByModel). Plain (the default) prints one
+                   human-readable sentence naming the commit subject (or a
+                   no-op note) plus a pointer to `gtd land --json=script | sh`
+                   to get the landing script — never the script itself.
+                   --json emits script (the actual POSIX sh
+                   a driver runs) alongside settled, idle, state (the
+                   post-land target), subject, cost and model. Exits 0 on
+                   success, 1 on any refusal — see the Exit codes section
+                   below
   (no command) --entry <state>
                    Starts a new process authenticated as human, e.g.
                    'gtd --entry <state>'
@@ -42,19 +44,22 @@ Commands:
                    lost
   next             Print the resolved rest's beat (no mutation, safe to
                    poll), in one of three encodings. Plain (the default): a
-                   status summary, a blank line, then the step verbatim —
-                   except at a prompt rest, which is the bare step (plus the
-                   self-validation instruction when applicable) with no
-                   header, since those bytes are the agent's own input. --json
-                   emits the one structured surface gtd has: kind
-                   (capture|message|script|prompt|stalled) selects what a
-                   driver does, content is what it runs or shows, idle marks
-                   the workflow's initial state with a clean tree, plus the
-                   prompt session, model, validate script, log path, changes,
-                   next and the resting state's own fields. --sh emits the
-                   same fields as gtd_-prefixed POSIX shell assignments.
-                   --json/--sh are mutually exclusive. Exits 0 — see the
-                   Exit codes section below
+                   status summary, a blank line, then the step verbatim — at a
+                   script/capture rest an instruction line ('Run this
+                   script:' / 'The edit is already made — run `gtd land` to
+                   land it.') precedes the status summary; at a prompt rest
+                   it's the bare step (plus the self-validation instruction
+                   when applicable) with no header at all, since those bytes
+                   are the agent's own input. --json emits the one structured
+                   surface gtd has: kind (capture|message|script|prompt|
+                   stalled) selects what a driver does, content is what it
+                   runs or shows, idle marks the workflow's initial state with
+                   a clean tree, plus the prompt session, model, validate
+                   script, log path, changes, next and the resting state's own
+                   fields. --json=<path> (a dotted key path into that same
+                   document, e.g. kind, content, session.id) prints just that
+                   value instead of the whole document — see --json's own help
+                   above. Exits 0 — see the Exit codes section below
   validate         Print the script that formats (when declared) then
                    validates the resolved rest's steering file, using its
                    mode's commands (its file:/mode:), instead of running it —
@@ -108,11 +113,16 @@ Commands:
   help             Print this help and exit
 
 Options:
-  --json           (gtd next/gtd land only) output structured JSON
-                   instead of plain text. Mutually exclusive with --sh
-  --sh             (gtd next/gtd land only) output gtd_-prefixed POSIX
-                   shell assignments instead of plain text. Mutually
-                   exclusive with --json
+  --json=<path>    (gtd next/gtd land only) output structured JSON. Bare
+                   --json prints the whole document; --json=<path> (a dotted
+                   key path into that document, e.g. kind, content,
+                   session.id) prints just that value: a scalar raw and
+                   unquoted, a boolean as true/false, a list one JSON entry
+                   per line. An absent optional field prints nothing and
+                   exits 0 — including when an earlier segment of <path> is
+                   itself absent/null (e.g. session.id at a non-prompt rest),
+                   which never counts as unknown; an unknown path is a usage
+                   error (exit 2).
   --port=<n>       (gtd visualize only) port to serve on (default: a free port)
   --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd land only) record the invocation's token cost
@@ -138,10 +148,10 @@ Options:
 ### Plain output is not a parsing surface
 
 `gtd next`'s plain encoding is for a human, or a driver that merely displays it
-— never for scraping. Parsing lives in `--json`/`--sh`, both of which read from
-the exact same field set (`gtd install`'s briefing has the full reference);
-anything that greps, cuts, or `awk`s plain text is unsupported, and its shape
-may change across releases with no warning.
+— never for scraping. Parsing lives in `--json` (bare, or `--json=<path>` to
+read one value straight off the same field set — `gtd install`'s briefing has
+the full reference); anything that greps, cuts, or `awk`s plain text is
+unsupported, and its shape may change across releases with no warning.
 
 ### Exit codes
 
@@ -258,10 +268,6 @@ A human-readable `gtd: <message>` line is also always written to **stderr**,
 right after the envelope — stdout carries neither one on a failing run. Stderr
 always carries exactly one `gtd: ` prefix: a message already authored with its
 own `gtd:`/`gtd <cmd>:` prefix is never doubled.
-
-**Accepted cost:** a driver that pipes stdout into `jq` on a failed run now
-reads nothing instead of a parseable error object — it must read stderr or the
-exit code to learn why a run failed.
 
 ### Narration and remediation
 

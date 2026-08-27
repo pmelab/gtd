@@ -29,6 +29,28 @@ describe("Narrator", () => {
       "config: layer /repo/.gtdrc\n",
     ])
   })
+
+  it("warn writes to the sink even when verbose: false", async () => {
+    const lines: string[] = []
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const narrator = yield* Narrator
+        yield* narrator.warn("careful: something odd")
+      }).pipe(Effect.provide(Narrator.layer((chunk) => lines.push(chunk), false))),
+    )
+    expect(lines).toEqual(["careful: something odd\n"])
+  })
+
+  it("warn writes to the sink when verbose: true too", async () => {
+    const lines: string[] = []
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const narrator = yield* Narrator
+        yield* narrator.warn("careful: something odd")
+      }).pipe(Effect.provide(Narrator.layer((chunk) => lines.push(chunk), true))),
+    )
+    expect(lines).toEqual(["careful: something odd\n"])
+  })
 })
 
 describe("GtdError", () => {

@@ -6,7 +6,6 @@ import {
   HISTORY_REF,
   readRetainedHistory,
   restorability,
-  retainHistory,
 } from "./RetainedHistory.js"
 
 /**
@@ -17,22 +16,6 @@ import {
  */
 
 const run = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
-
-describe("retainHistory", () => {
-  it("points HISTORY_REF at the tip hash in the normal case", async () => {
-    const updateRef = vi.fn(() => Effect.succeed(undefined))
-    const git = stubGit({ updateRef })
-    await run(retainHistory(git, "tip123", "start456"))
-    expect(updateRef).toHaveBeenCalledWith(HISTORY_REF, "tip123")
-  })
-
-  it("is a no-op (skips the git call entirely) when tipHash === startParentHash", async () => {
-    const updateRef = vi.fn(() => Effect.succeed(undefined))
-    const git = stubGit({ updateRef })
-    await run(retainHistory(git, "same123", "same123"))
-    expect(updateRef).not.toHaveBeenCalled()
-  })
-})
 
 describe("readRetainedHistory", () => {
   it("returns Option.none() when readRefOption resolves to none", async () => {

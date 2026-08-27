@@ -61,14 +61,6 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
   commitHistory: (base?: string, head?: string) => Effect.succeed(repo.commitHistory(base, head)),
 
   changedPaths: (base?: string) => Effect.succeed(repo.changedPathsWorktree(base)),
-
-  changedPathsSince: (ref: string) =>
-    tryCatch(() => {
-      if (repo.resolveRef(ref) === null) {
-        throw new Error(`Cannot resolve ref: ${ref}`)
-      }
-      return repo.changedPathsBetween(ref, "HEAD")
-    }),
 })
 
 /**

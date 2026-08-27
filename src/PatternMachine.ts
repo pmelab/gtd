@@ -340,10 +340,9 @@ export interface StepCommit {
    * `true` for a fruitless `prompt`-state dispatch whose diff is EMPTY (no `C`
    * row, clean tree, invoker is the state's own actor). Landed anyway (rather
    * than an inert no-op) so a stall is a pure fold over history (`Edge.ts`'s
-   * `stalledAt`); the flag lets the initial-state collapse and the
-   * step-capture guards tell an attempt apart from an ordinary capture
-   * without re-deriving "empty diff" themselves. Present only when it
-   * applies; never `false`.
+   * `stalledAt`); the flag lets the step-capture guards tell an attempt apart
+   * from an ordinary capture without re-deriving "empty diff" themselves.
+   * Present only when it applies; never `false`.
    */
   readonly attempt?: true
 }
@@ -755,24 +754,66 @@ const validateState = (
 }
 
 /**
- * Validate a `WorkflowDefinition`, returning human-readable error strings
- * (empty = valid). Pure — called at config-load time. Checks at least one
- * state, `entries` shape (`validateEntries`), per-state content/actor/mode/
- * file shape (`validateState`), `modes:` shape, and reachability from an
- * entry root (`validateReachability`, only when entries validated clean).
- * Every per-field rule not listed above (`on`/`retry` targets resolving,
- * `mode` naming a known vocabulary, etc.) is declared once in
- * `src/StateFields.ts`'s `STATE_FIELDS` table instead.
+ * A `script`/`message` state with no `C` row commits nothing on a clean tree
+ * (the documented no-op default) — that's often deliberate, but silent for a
+ * state whose author never considered the clean case. Warn, don't error.
+ * Three exemptions, all load-bearing:
+ *
+ * - The workflow's initial state — a `C` row there would author a commit on
+ *   every bare driver invocation.
+ * - A `prompt` state — its clean step is an ATTEMPT by design, not a no-op.
+ * - A `human`-actor state — `docs/driver.md`'s driver protocol lands a human
+ *   gate's OPENING beat unconditionally on every restart while a process
+ *   rests there ("Some gates could accept by INACTION..."), specifically
+ *   because today that's a harmless no-op when the state has no `C` row. A
+ *   `C` row on a human gate would turn every such restart into a real commit
+ *   before the human has acted at all — the exact hazard the initial-state
+ *   exemption above already exists to avoid, generalized to any human gate a
+ *   process can rest at more than once.
+ *
+ * No exemption for a bare `"* **"` catch-all row or a declared `file:` — a
+ * `diff` pattern (including `"* **"`) never matches a clean tree
+ * (`matchesPattern`), so neither says anything about the clean case; a state
+ * with either and no `C` row still no-ops on a clean tree exactly like one
+ * with neither.
  */
-export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
+const validateHasCRow = (def: WorkflowDefinition, name: string, state: StateDef): string[] => {
+  if (name === initialStateOf(def)) return []
+  if (state.actor === "human") return []
+  const kind = contentKindOf(state)
+  if (kind !== "script" && kind !== "message") return []
+  const edges = state.on ?? []
+  if (edges.some(([pattern]) => pattern === "C")) return []
+  return [`state "${name}" declares no "C" row`]
+}
+
+/**
+ * Validate a `WorkflowDefinition`, returning human-readable error strings
+ * (empty = valid) plus non-fatal warning strings. Pure — called at
+ * config-load time. Checks at least one state, `entries` shape
+ * (`validateEntries`), per-state content/actor/mode/file shape
+ * (`validateState`), `modes:` shape, and reachability from an entry root
+ * (`validateReachability`, only when entries validated clean). Every
+ * per-field rule not listed above (`on`/`retry` targets resolving, `mode`
+ * naming a known vocabulary, etc.) is declared once in `src/StateFields.ts`'s
+ * `STATE_FIELDS` table instead.
+ */
+export const validateDefinition = (
+  def: WorkflowDefinition,
+): { readonly errors: readonly string[]; readonly warnings: readonly string[] } => {
   const names = Object.keys(def.states)
-  if (names.length === 0) return ["workflow must declare at least one state"]
+  if (names.length === 0) {
+    return { errors: ["workflow must declare at least one state"], warnings: [] }
+  }
 
   const entriesErrors = validateEntries(def, names)
-  return [
-    ...entriesErrors,
-    ...validateModes(def),
-    ...names.flatMap((name) => validateState(def, name, names)),
-    ...(entriesErrors.length === 0 ? validateReachability(def, names) : []),
-  ]
+  return {
+    errors: [
+      ...entriesErrors,
+      ...validateModes(def),
+      ...names.flatMap((name) => validateState(def, name, names)),
+      ...(entriesErrors.length === 0 ? validateReachability(def, names) : []),
+    ],
+    warnings: names.flatMap((name) => validateHasCRow(def, name, def.states[name]!)),
+  }
 }

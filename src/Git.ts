@@ -65,10 +65,6 @@ export interface GitReaderOperations {
   readonly changedPaths: (
     base?: string,
   ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
-  /** Paths-only counterpart of `changedPaths` for the range `ref..HEAD` — used to decide whether a process would retain anything, without rendering a diff. */
-  readonly changedPathsSince: (
-    ref: string,
-  ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
 }
 
 export interface GitWriterOperations {
@@ -106,7 +102,7 @@ export interface GitWriterOperations {
   readonly updateRef: (ref: string, hash: string) => Effect.Effect<void, Error>
   /** Idempotent: deleting a missing ref is a no-op. */
   readonly deleteRef: (ref: string) => Effect.Effect<void, Error>
-  /** Used by `gtd abandon`'s reset and the initial-state collapse's own reset. */
+  /** Used by `gtd abandon`'s reset. */
   readonly mixedResetTo: (ref: string) => Effect.Effect<void, Error>
   readonly hardResetTo: (ref: string) => Effect.Effect<void, Error>
 }
@@ -360,11 +356,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       ),
 
     readFileAtRef: (ref: string, path: string) => exec("git", "show", `${ref}:${path}`),
-
-    changedPathsSince: (ref: string) =>
-      exec("git", "diff", "--name-status", "-z", ref, "HEAD").pipe(
-        Effect.map((out) => parseNameStatus(splitNul(out))),
-      ),
 
     changedPaths: (base?: string) =>
       Effect.gen(function* () {

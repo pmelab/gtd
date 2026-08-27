@@ -196,7 +196,7 @@ const STATE_FIELDS = {
     fileRef: true,
     rest: "rendered",
     viz: "field",
-    doc: "The agent harness system prompt stamped onto every one of this machine's own `prompt` states — emitted verbatim in `gtd next --json`/`--sh` for the driver to pass to its agent CLI, never interpreted by gtd. Machine-level only: a machine's `prompt` states share one resumed session, and a system prompt must be identical across every call of it. A `./` or `../` value is inlined from the declaring config file's directory. A machine declaring this with no `prompt` state is a config error.",
+    doc: "The agent harness system prompt stamped onto every one of this machine's own `prompt` states — emitted verbatim in `gtd next --json` for the driver to pass to its agent CLI, never interpreted by gtd. Machine-level only: a machine's `prompt` states share one resumed session, and a system prompt must be identical across every call of it. A `./` or `../` value is inlined from the declaring config file's directory. A machine declaring this with no `prompt` state is a config error.",
   },
 
   /** The raw-state-name fallback lives in the consumer (driver/viewer), not here — gtd simply omits the field when unset. */

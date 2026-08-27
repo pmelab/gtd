@@ -23,19 +23,23 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
 
-  Scenario: a green suite is a no-op back to idle — nothing to fix
+  Scenario: a green suite lands an ordinary commit back to idle — nothing to fix, but HEAD never moves backward
     Given I record the commit count
     When I run gtd with args "--entry fix-precheck"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
-    # A clean tree at the gate = tests pass = nothing to fix -> idle. The
-    # empty entry commit and the no-op check are collapsed away entirely — a
-    # no-op probe must never dirty the log. The collapse itself SETTLES.
+    # A clean tree at the gate = tests pass = nothing to fix -> idle. `land`
+    # never moves HEAD, so this is an ordinary commit — both the entry commit
+    # and this probe commit stay in the log, and the count grows by two.
+    When I run gtd land with "--json"
+    Then it succeeds
+    And stdout contains "\"settled\":false"
     When I run gtd land
-    Then it settles
-    And the commit count is unchanged
+    Then it succeeds
+    And the commit count increased by 2
     And the git status is clean
-    And the git log does not contain "gtd("
+    And the git log contains "gtd(human): fix-precheck"
+    And the git log contains "gtd(check): fix-precheck → idle"
 
   Scenario: a red suite drops into the shared build.fix loop and out through build.health.check to build.review.reviewing
     When I run gtd with args "--entry fix-precheck"

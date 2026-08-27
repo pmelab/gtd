@@ -1,11 +1,11 @@
 import type { RenderedRest, ModelCost } from "./Edge.js"
 import type { Actor, ContentKind, StateMode, StateName } from "./PatternMachine.js"
 import type { TemplateEdge } from "./PatternTemplates.js"
-import { renderShDocument, type ShRecord, type ShShapeFor } from "./Sh.js"
+import { renderFormat } from "./OutcomeScript.js"
 
 // ---------------------------------------------------------------------------
-// The land document — `gtd land`'s `--json`/`--sh` counterpart to the beat
-// above, co-located here for the same reason.
+// The land document — `gtd land`'s `--json` counterpart to the beat above,
+// co-located here for the same reason.
 // ---------------------------------------------------------------------------
 
 /**
@@ -34,27 +34,26 @@ export const landFields = (input: LandFields): LandFields => ({
   model: input.model,
 })
 
-/** `--sh`'s shape for `LandFields`: one entry per field, so a field added to `LandFields` with no matching entry here is a compile error. */
-const LAND_SH_SHAPE: ShShapeFor<LandFields> = {
-  script: "scalar",
-  settled: "bool",
-  idle: "bool",
-  state: "scalar",
-  subject: "scalar",
-  cost: "scalar",
-  model: "scalar",
-}
-
 export const renderLandJson = (fields: LandFields): string => JSON.stringify(fields) + "\n"
 
+const FMT_NOOP = 'nothing to do at "%s"\n'
+const FMT_LAND_PROSE = "commit everything with this message: %s\n"
+
+/** `nothing to do at "<state>"` — a no-op step's plain-text line, and the text a print-only script's `gtd_report_note` carries. */
+export const noopText = (state: string): string => renderFormat(FMT_NOOP, state)
+
+/** `commit everything with this message: <subject>` — plain `gtd land`'s own stdout at a pending diff (no script); `--json` keeps emitting the script itself, unaffected. */
+export const landProseText = (subject: string): string => renderFormat(FMT_LAND_PROSE, subject)
+
 /**
- * `gtd land --json`'s shell-sourceable counterpart (see `src/Sh.ts`). Its
- * `unset` preamble only names this document's own leaves, so it never clears
- * `gtd_content`/`gtd_log`/`gtd_session_id` — beat-only names a driver may
- * still rely on after the land.
+ * `gtd land`'s plain-text encoding — names the commit subject at a real
+ * landing and points at `--json=script`, since the script itself is
+ * unreachable from plain output; prints the existing no-op note otherwise.
  */
-export const renderLandSh = (fields: LandFields): string =>
-  renderShDocument("gtd", LAND_SH_SHAPE, fields as unknown as ShRecord)
+export const renderLandPlain = (fields: LandFields): string =>
+  fields.subject !== null
+    ? `${landProseText(fields.subject).trimEnd()}\n(run \`gtd land --json=script | sh\` to get the landing script)\n`
+    : noopText(fields.state)
 
 /** One pending change's status/path plus whichever declared `on` pattern (if any) matches it — `gtd next --json`'s `changes` entries. */
 export interface StatusChange {
@@ -136,31 +135,42 @@ export const stallDiagnosis = (state: StateName, actor: Actor): string =>
   `  - declare a "C" pattern on the state, if it can legitimately finish with\n` +
   `    nothing to change\n`
 
-/** One beat's whole field set — the ONE object both `renderBeatJson` and `renderBeatSh` render from. Property insertion order (built by `beatFields`) is the JSON key order. */
+/** One beat's whole field set — the ONE object `renderBeatJson` renders from. Property insertion order (built by `beatFields`) is the JSON key order. */
 export interface BeatFields {
   readonly kind: BeatKind
   readonly content: string
   readonly idle: boolean
-  readonly session?: { readonly id: string; readonly resume: boolean }
-  readonly model?: string
-  readonly system?: string
-  readonly validate?: string
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there is no dispatch session — i.e. whenever `kind !== "prompt"`, even if the caller passed one. */
+  readonly session: { readonly id: string; readonly resume: boolean } | undefined
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there is no model. */
+  readonly model: string | undefined
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there is no system prompt, including when it rendered to the empty string. */
+  readonly system: string | undefined
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there is no self-validation command — i.e. whenever `kind !== "prompt"`, even if the caller passed one. */
+  readonly validate: string | undefined
   readonly log: string
   readonly state: StateName
   readonly actor: Actor
-  readonly label?: string
-  readonly memory?: string
-  readonly file?: string
-  readonly mode?: StateMode
-  readonly edges?: readonly TemplateEdge[]
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there is no label. */
+  readonly label: string | undefined
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there is no memory key. */
+  readonly memory: string | undefined
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there is no steering file. */
+  readonly file: string | undefined
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there is no steering mode. */
+  readonly mode: StateMode | undefined
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when there are no declared edges. */
+  readonly edges: readonly TemplateEdge[] | undefined
   readonly changes: readonly StatusChange[]
   readonly next: {
     readonly action?: string
     readonly pattern: string
     readonly target: string
   } | null
-  readonly cost?: number
-  readonly costByModel?: readonly ModelCost[]
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when no cost was recorded. */
+  readonly cost: number | undefined
+  /** Dropped from the JSON document (via `JSON.stringify`'s `undefined`-skipping) when no cost was recorded. */
+  readonly costByModel: readonly ModelCost[] | undefined
 }
 
 /**
@@ -191,53 +201,29 @@ export const beatFields = (input: {
     kind,
     content: kind === "stalled" ? stallDiagnosis(rendered.state, rendered.actor) : rendered.content,
     idle,
-    ...(dispatchable && session !== undefined
-      ? { session: { id: session.id, resume: session.resume } }
-      : {}),
-    ...(rendered.model !== undefined ? { model: rendered.model } : {}),
-    ...(rendered.system !== undefined && rendered.system !== "" ? { system: rendered.system } : {}),
-    ...(dispatchable && validate !== undefined ? { validate } : {}),
+    session:
+      dispatchable && session !== undefined
+        ? { id: session.id, resume: session.resume }
+        : undefined,
+    model: rendered.model,
+    system: rendered.system !== undefined && rendered.system !== "" ? rendered.system : undefined,
+    validate: dispatchable && validate !== undefined ? validate : undefined,
     log,
     state: rendered.state,
     actor: rendered.actor,
-    ...(rendered.label !== undefined ? { label: rendered.label } : {}),
-    ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
-    ...(rendered.file !== undefined ? { file: rendered.file } : {}),
-    ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
-    ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
+    label: rendered.label,
+    memory: rendered.memory,
+    file: rendered.file,
+    mode: rendered.mode,
+    edges: rendered.edges.length > 0 ? rendered.edges : undefined,
     changes,
     next: nextField(next),
-    ...(hasCost ? { cost, costByModel } : {}),
+    cost: hasCost ? cost : undefined,
+    costByModel: hasCost ? costByModel : undefined,
   }
 }
 
-/** `--sh`'s shape for `BeatFields`: one entry per field, so a field added to `BeatFields` with no matching entry here is a compile error. */
-const BEAT_SH_SHAPE: ShShapeFor<BeatFields> = {
-  kind: "scalar",
-  content: "scalar",
-  idle: "bool",
-  session: { id: "scalar", resume: "bool" },
-  model: "scalar",
-  system: "scalar",
-  validate: "scalar",
-  log: "scalar",
-  state: "scalar",
-  actor: "scalar",
-  label: "scalar",
-  memory: "scalar",
-  file: "scalar",
-  mode: "scalar",
-  edges: "list",
-  changes: "list",
-  next: { pattern: "scalar", target: "scalar", action: "scalar" },
-  cost: "scalar",
-  costByModel: "list",
-}
-
 export const renderBeatJson = (fields: BeatFields): string => JSON.stringify(fields) + "\n"
-
-export const renderBeatSh = (fields: BeatFields): string =>
-  renderShDocument("gtd", BEAT_SH_SHAPE, fields as unknown as ShRecord)
 
 // ---------------------------------------------------------------------------
 // The plain encoder — `gtd next`'s third rendering
@@ -314,7 +300,7 @@ const beatHeaderLines = (fields: BeatFields): string[] => {
 
 /**
  * The self-validation instruction appended to a `prompt` beat's plain output
- * only — a structured (`--json`/`--sh`) driver runs the `validate` field
+ * only — a structured (`--json`) driver runs the `validate` field
  * itself instead. Advisory either way: `gtd land` refuses a turn whose
  * steering file is invalid regardless of whether this was followed.
  */
@@ -322,6 +308,12 @@ const selfValidateInstruction = (command: string, file: string): string =>
   `\nBefore finishing your turn, run \`${command}\` — it checks ${file} — and fix ` +
   `every violation it reports until it exits cleanly. Do not finish while it ` +
   `still reports violations.\n`
+
+/** `script`'s plain-output instruction line — a literal constant, never a template. */
+const SCRIPT_INSTRUCTION = "Run this script:"
+
+/** `capture`'s plain-output instruction line — a literal constant, never a template. */
+const CAPTURE_INSTRUCTION = "The edit is already made — run `gtd land` to land it."
 
 /**
  * `gtd next`'s plain-text encoding. At `kind === "prompt"` the status header
@@ -339,5 +331,8 @@ export const renderBeatPlain = (fields: BeatFields, selfValidateCommand?: string
       ? content + selfValidateInstruction(selfValidateCommand, fields.file)
       : content
   }
-  return beatHeaderLines(fields).join("\n") + "\n\n" + content
+  const body = beatHeaderLines(fields).join("\n") + "\n\n" + content
+  if (fields.kind === "script") return `${SCRIPT_INSTRUCTION}\n` + body
+  if (fields.kind === "capture") return `${CAPTURE_INSTRUCTION}\n` + body
+  return body
 }

@@ -107,7 +107,7 @@ describe("parseArgv — scope", () => {
     ]) {
       const ok = parseArgv(["node", "gtd.js", ...args])
       expect(ok.kind).toBe("command")
-      if (ok.kind === "command") expect(ok.json).toBe(true)
+      if (ok.kind === "command") expect(ok.json).toEqual({ kind: "document" })
     }
 
     for (const args of [
@@ -131,42 +131,16 @@ describe("parseArgv — scope", () => {
     }
   })
 
-  it("--sh is in scope for next and land — every other command usage-errors on it", () => {
+  it("--sh is gone: a bare unknown-option usage error on next and land, exit 2", () => {
     for (const args of [
       ["next", "--sh"],
       ["land", "--sh"],
     ]) {
-      const ok = parseArgv(["node", "gtd.js", ...args])
-      expect(ok.kind).toBe("command")
-      if (ok.kind === "command") expect(ok.sh).toBe(true)
-    }
-
-    for (const args of [
-      ["status", "--sh"],
-      ["lsp", "--sh"],
-      ["validate", "--sh"],
-    ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("usage")
       if (plan.kind === "usage") {
-        expect(plan.message).toContain("only valid for `gtd next`/`gtd land`")
-        expect(plan.message).toContain("gtd install")
+        expect(plan.message).toContain("unknown option '--sh'")
       }
-    }
-  })
-
-  it("--sh and --json together on next is a usage error, exit 2 territory", () => {
-    const plan = parseArgv(["node", "gtd.js", "next", "--sh", "--json"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("mutually exclusive")
-  })
-
-  it("--sh and --json together on land is a usage error, exit 2 territory, stdout byte-empty", () => {
-    const plan = parseArgv(["node", "gtd.js", "land", "--sh", "--json"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("mutually exclusive")
-      expect(plan.stdout).toBe("")
     }
   })
 
@@ -246,19 +220,62 @@ describe("parseArgv — gtd next", () => {
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
       expect(plan.command).toEqual({ kind: "next" })
-      expect(plan.json).toBe(true)
-      expect(plan.sh).toBe(false)
+      expect(plan.json).toEqual({ kind: "document" })
     }
   })
 
-  it("gtd next --sh parses to a next command with sh set", () => {
-    const plan = parseArgv(["node", "gtd.js", "next", "--sh"])
+  it("gtd next --json=kind parses to JsonMode select with path 'kind'", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json=kind"])
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
       expect(plan.command).toEqual({ kind: "next" })
-      expect(plan.json).toBe(false)
-      expect(plan.sh).toBe(true)
+      expect(plan.json).toEqual({ kind: "select", path: "kind" })
     }
+  })
+
+  it("gtd next with no --json parses to JsonMode off", () => {
+    const plan = parseArgv(["node", "gtd.js", "next"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") expect(plan.json).toEqual({ kind: "off" })
+  })
+
+  it("gtd next --json=session.id parses to a dotted selector path verbatim", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json=session.id"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") expect(plan.json).toEqual({ kind: "select", path: "session.id" })
+  })
+
+  it("gtd next --json= is a usage error naming only the legal --json=<path> form — never the rejected empty form or the illegal space form", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json="])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toBe("gtd: --json requires a value — use --json=<path>")
+      expect(plan.json).toBe(true)
+    }
+  })
+
+  it("gtd next --json kind (space form) leaves kind as a positional — next takes none, so this is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json", "kind"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+
+  it("--json is non-repeatable: a second bare occurrence is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json", "--json"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("--json may be given at most once")
+  })
+
+  it("--json is non-repeatable: two selector occurrences are a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json=a", "--json=b"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("--json may be given at most once")
+  })
+
+  it("--json is non-repeatable across mixed bare/selector forms", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json", "--json=b"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("--json may be given at most once")
   })
 })
 
@@ -284,18 +301,29 @@ describe("parseArgv — gtd land", () => {
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
       expect(plan.command).toEqual({ kind: "land" })
-      expect(plan.json).toBe(true)
-      expect(plan.sh).toBe(false)
+      expect(plan.json).toEqual({ kind: "document" })
     }
   })
 
-  it("gtd land --sh parses to a land command with sh set", () => {
-    const plan = parseArgv(["node", "gtd.js", "land", "--sh"])
+  it("gtd land --json=script parses to JsonMode select with path 'script'", () => {
+    const plan = parseArgv(["node", "gtd.js", "land", "--json=script"])
     expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({ kind: "land" })
-      expect(plan.json).toBe(false)
-      expect(plan.sh).toBe(true)
+    if (plan.kind === "command") expect(plan.json).toEqual({ kind: "select", path: "script" })
+  })
+
+  it("gtd land --json=model and gtd land --model=<name> do not collide — different tokens", () => {
+    const readBack = parseArgv(["node", "gtd.js", "land", "--json=model"])
+    expect(readBack.kind).toBe("command")
+    if (readBack.kind === "command") {
+      expect(readBack.json).toEqual({ kind: "select", path: "model" })
+      expect(readBack.command).toEqual({ kind: "land" })
+    }
+
+    const record = parseArgv(["node", "gtd.js", "land", "--model=opus", "--cost=1"])
+    expect(record.kind).toBe("command")
+    if (record.kind === "command") {
+      expect(record.json).toEqual({ kind: "off" })
+      expect(record.command).toEqual({ kind: "land", cost: 1, model: "opus" })
     }
   })
 })
@@ -418,7 +446,7 @@ describe("parseArgv — gtd check <mode> <file>", () => {
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
       expect(plan.command).toEqual({ kind: "check", mode: "qa", file: ".gtd/TODO.md" })
-      expect(plan.json).toBe(false)
+      expect(plan.json).toEqual({ kind: "off" })
     }
   })
 
@@ -639,7 +667,7 @@ describe("parseArgv — gtd install", () => {
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
       expect(plan.command).toEqual({ kind: "install" })
-      expect(plan.json).toBe(false)
+      expect(plan.json).toEqual({ kind: "off" })
     }
   })
 
@@ -827,6 +855,18 @@ describe("runCli — exit codes", () => {
     const { io, captured } = capturingIo(throwingLayers)
     await Effect.runPromise(runCli(["node", "gtd.js", "next"], io))
     expect(captured().exitCode).toBe(EXIT_RUNTIME_ERROR)
+  })
+
+  it("an unknown --json=<path> selector exits EXIT_USAGE_ERROR, not EXIT_RUNTIME_ERROR — program.ts's SelectorUsageError mapped by report()", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd: init")
+    const { io, captured } = capturingIo(() => testLayers(repo))
+    await Effect.runPromise(runCli(["node", "gtd.js", "next", "--json=does.not.exist"], io))
+    const { stdout, stderr, exitCode } = captured()
+    expect(exitCode).toBe(EXIT_USAGE_ERROR)
+    expect(stdout).toBe("")
+    expect(stderr).toContain("does.not.exist")
   })
 })
 

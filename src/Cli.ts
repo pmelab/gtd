@@ -10,7 +10,7 @@ import { GitService } from "./Git.js"
 // type-only edge, erased at compile time — so this module's own (real, value)
 // dependency on `program.ts` for `runCommand`/`needsOf`/`standaloneKinds`
 // stays one-directional, not circular.
-import { runCommand, type CommandRequirements } from "./program.js"
+import { runCommand, SelectorUsageError, type CommandRequirements } from "./program.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
@@ -50,6 +50,15 @@ export type Command =
   | { readonly kind: "summary" }
   | { readonly kind: "base" }
 
+/**
+ * `--json`'s three shapes: absent, bare (the whole document), or `--json=<path>`
+ * (one reduced value). See `src/Select.ts` for how `select` is later resolved.
+ */
+export type JsonMode =
+  | { readonly kind: "off" }
+  | { readonly kind: "document" }
+  | { readonly kind: "select"; readonly path: string }
+
 export type CliPlan =
   | { readonly kind: "output"; readonly stdout: string }
   | {
@@ -61,9 +70,7 @@ export type CliPlan =
   | {
       readonly kind: "command"
       readonly command: Command
-      readonly json: boolean
-      /** Whether `--sh` was present — `gtd next` only; mutually exclusive with `json` (see `conflictViolation`). */
-      readonly sh: boolean
+      readonly json: JsonMode
       /** Whether `--verbose`/`-v` was present — gates the `Narrator` `Cli.ts` builds for this dispatch (see `runCli`). */
       readonly verbose: boolean
     }
@@ -88,7 +95,12 @@ type FlagScope = (kind: Command["kind"] | undefined) => boolean
 
 interface FlagRow {
   readonly name: string
-  readonly arity: 0 | 1
+  /**
+   * `"optional"` is a third generic mode: a value only from the `=` form
+   * (`--json=<path>`), never consuming a following token — bare `--json`
+   * records presence with no value. See `tokenize`'s single generic branch.
+   */
+  readonly arity: 0 | 1 | "optional"
   readonly repeatable: boolean
   readonly scope: FlagScope
   /** All raw occurrences (already de-`=`-ed) → the decoded value, or an error message. */
@@ -112,36 +124,26 @@ const nonNegativeNumber = (raw: string, flag: string): Either.Either<number, str
 const FLAGS: readonly FlagRow[] = [
   {
     name: "--json",
-    arity: 0,
+    arity: "optional",
     repeatable: false,
     scope: (kind) => kind === "next" || kind === "land",
-    decode: () => Either.right(true),
+    decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
       "gtd: --json is only valid for `gtd next`/`gtd land` — every other command prints " +
       "plain text; see `gtd install` for the driver protocol briefing",
-    valueHint: "",
+    valueHint: "<path>",
     help: [
-      "(gtd next/gtd land only) output structured JSON",
-      "instead of plain text. Mutually exclusive with --sh",
+      "(gtd next/gtd land only) output structured JSON. Bare",
+      "--json prints the whole document; --json=<path> (a dotted",
+      "key path into that document, e.g. kind, content,",
+      "session.id) prints just that value: a scalar raw and",
+      "unquoted, a boolean as true/false, a list one JSON entry",
+      "per line. An absent optional field prints nothing and",
+      "exits 0 — including when an earlier segment of <path> is",
+      "itself absent/null (e.g. session.id at a non-prompt rest),",
+      "which never counts as unknown; an unknown path is a usage",
+      "error (exit 2).",
     ],
-    conflicts: ["--sh"],
-  },
-  {
-    name: "--sh",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "next" || kind === "land",
-    decode: () => Either.right(true),
-    scopeError:
-      "gtd: --sh is only valid for `gtd next`/`gtd land` — every other command prints " +
-      "plain text; see `gtd install` for the driver protocol briefing",
-    valueHint: "",
-    help: [
-      "(gtd next/gtd land only) output gtd_-prefixed POSIX",
-      "shell assignments instead of plain text. Mutually",
-      "exclusive with --json",
-    ],
-    conflicts: ["--json"],
   },
   {
     name: "--port",
@@ -331,13 +333,15 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "--cost=<n> (optionally --model=<name>) to record the",
       "just-finished invocation's token cost and model on the",
       "turn commit (summed into it.processCost/",
-      "processCostByModel). Plain (the default) prints ONLY the",
-      "script that records the landing; a driver runs it, e.g.",
-      "`gtd land | sh`. --json/--sh instead emit script (that",
-      "same script, byte-identical) alongside settled, idle,",
-      "state (the post-land target), subject, cost and model —",
-      "--json/--sh are mutually exclusive. Exits 0 on success, 1",
-      "on any refusal — see the Exit codes section below",
+      "processCostByModel). Plain (the default) prints one",
+      "human-readable sentence naming the commit subject (or a",
+      "no-op note) plus a pointer to `gtd land --json=script | sh`",
+      "to get the landing script — never the script itself.",
+      "--json emits script (the actual POSIX sh",
+      "a driver runs) alongside settled, idle, state (the",
+      "post-land target), subject, cost and model. Exits 0 on",
+      "success, 1 on any refusal — see the Exit codes section",
+      "below",
     ],
   },
   {
@@ -371,19 +375,22 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     details: [
       "Print the resolved rest's beat (no mutation, safe to",
       "poll), in one of three encodings. Plain (the default): a",
-      "status summary, a blank line, then the step verbatim —",
-      "except at a prompt rest, which is the bare step (plus the",
-      "self-validation instruction when applicable) with no",
-      "header, since those bytes are the agent's own input. --json",
-      "emits the one structured surface gtd has: kind",
-      "(capture|message|script|prompt|stalled) selects what a",
-      "driver does, content is what it runs or shows, idle marks",
-      "the workflow's initial state with a clean tree, plus the",
-      "prompt session, model, validate script, log path, changes,",
-      "next and the resting state's own fields. --sh emits the",
-      "same fields as gtd_-prefixed POSIX shell assignments.",
-      "--json/--sh are mutually exclusive. Exits 0 — see the",
-      "Exit codes section below",
+      "status summary, a blank line, then the step verbatim — at a",
+      "script/capture rest an instruction line ('Run this",
+      "script:' / 'The edit is already made — run `gtd land` to",
+      "land it.') precedes the status summary; at a prompt rest",
+      "it's the bare step (plus the self-validation instruction",
+      "when applicable) with no header at all, since those bytes",
+      "are the agent's own input. --json emits the one structured",
+      "surface gtd has: kind (capture|message|script|prompt|",
+      "stalled) selects what a driver does, content is what it",
+      "runs or shows, idle marks the workflow's initial state with",
+      "a clean tree, plus the prompt session, model, validate",
+      "script, log path, changes, next and the resting state's own",
+      "fields. --json=<path> (a dotted key path into that same",
+      "document, e.g. kind, content, session.id) prints just that",
+      "value instead of the whole document — see --json's own help",
+      "above. Exits 0 — see the Exit codes section below",
     ],
   },
   {
@@ -617,6 +624,7 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
       }
     }
     const eq = tok.indexOf("=")
+    const alreadyPresent = present.has(row.name)
     present.add(row.name)
     if (row.name === "--json") jsonSeen = true
 
@@ -628,6 +636,33 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
           jsonSeen,
         }
       }
+      if (!byFlag.has(row.name)) byFlag.set(row.name, [])
+      continue
+    }
+
+    if (row.arity === "optional") {
+      if (!row.repeatable && alreadyPresent) {
+        return { kind: "error", message: `gtd: ${row.name} may be given at most once`, jsonSeen }
+      }
+      if (eq !== -1) {
+        const value = tok.slice(eq + 1)
+        if (value === "") {
+          // Unlike arity-1, an "optional" flag's bare/space form is a
+          // deliberate, DIFFERENT meaning (presence with no value) — never a
+          // rejected value-missing form — so this message names only the
+          // one legal way to supply a value, `=`, not the arity-1 template's
+          // "or <name> <value>" (which would recommend the very space form
+          // the settled decisions make a usage error on purpose).
+          return {
+            kind: "error",
+            message: `gtd: ${row.name} requires a value — use ${row.name}=${row.valueHint}`,
+            jsonSeen,
+          }
+        }
+        byFlag.set(row.name, [value])
+        continue
+      }
+      // Bare presence — never consumes the following token, unlike arity 1.
       if (!byFlag.has(row.name)) byFlag.set(row.name, [])
       continue
     }
@@ -726,6 +761,9 @@ const decodeFlags = (
   for (const row of FLAGS) {
     const raws = byFlag.get(row.name)
     if (raws === undefined) continue
+    // A bare `"optional"`-arity flag (e.g. `--json` with no `=`) has nothing
+    // to decode — presence alone is tracked via `present`, not the bag.
+    if (row.arity === "optional" && raws.length === 0) continue
     const decoded = row.decode(raws)
     if (Either.isLeft(decoded)) return Either.left(decoded.left)
     bag[row.name] = decoded.right
@@ -825,7 +863,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const decoded = decodeFlags(byFlag)
   if (Either.isLeft(decoded)) return usagePlan(decoded.left, jsonSeen)
   const bag = decoded.right as {
-    readonly "--json"?: boolean
+    readonly "--json"?: string
     readonly "--port"?: number
     readonly "--no-open"?: boolean
     readonly "--cost"?: number
@@ -834,18 +872,24 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--open-questions"?: boolean
   }
 
-  const json = present.has("--json")
-  const sh = present.has("--sh")
+  // `present.has("--json")` alone can't distinguish bare `--json` (no value
+  // decoded) from `--json=<path>` (a value in the bag) — see `decodeFlags`'s
+  // optional-arity skip above.
+  const json: JsonMode = !present.has("--json")
+    ? { kind: "off" }
+    : bag["--json"] !== undefined
+      ? { kind: "select", path: bag["--json"] }
+      : { kind: "document" }
   const verbose = present.has("--verbose")
 
   if (kind === "land") {
     if (bag["--model"] !== undefined && bag["--cost"] === undefined) {
       return usagePlan(
         "gtd: --model requires --cost — it tags the recorded cost with the model that ran",
-        json,
+        jsonSeen,
       )
     }
-    return { kind: "command", command: buildLandCommand(bag), json, sh, verbose }
+    return { kind: "command", command: buildLandCommand(bag), json, verbose }
   }
 
   if (kind === "entry") {
@@ -854,7 +898,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: { kind: "entry", actor: "human", state: entryRaw!, vars: bag["--var"] ?? {}, label },
       json,
-      sh,
       verbose,
     }
   }
@@ -864,7 +907,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: { kind: "visualize", port: bag["--port"] ?? 0, open: !(bag["--no-open"] ?? false) },
       json,
-      sh,
       verbose,
     }
   }
@@ -881,7 +923,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
           : {}),
       },
       json,
-      sh,
       verbose,
     }
   }
@@ -899,7 +940,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "summary"
       | "base",
   }
-  return { kind: "command", command, json, sh, verbose }
+  return { kind: "command", command, json, verbose }
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,10 +1046,14 @@ const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
  * The single envelope writer: `{state:"error",prompt}` on **stderr** under
  * `--json`, `renderFailure` on stderr always, exit `EXIT_RUNTIME_ERROR`.
  * stdout is never touched here — the command's `ArtifactOut` buffer was never
- * flushed, so a `--json` driver piping stdout into `jq` on a failed run must
- * read stderr or the exit code instead. `Effect.sandbox` means this also
- * fires for a DEFECT, not just a typed error. Never reached for a USAGE
- * error — those never build a layer at all.
+ * flushed, so a `--json` driver reading stdout on a failed run reads nothing
+ * — it must read stderr or the exit code instead. `Effect.sandbox` means this also
+ * fires for a DEFECT, not just a typed error. Unreached by an ordinary usage
+ * error (an unknown flag, bad arity, a scope violation) — those never build a
+ * layer at all. The one exception is `SelectorUsageError`: an unknown
+ * `--json=<path>` selector can only be judged after the layer is built and
+ * the fields object it's reduced against is fully resolved, so it fails HERE
+ * rather than in `parseArgv` — `EXIT_USAGE_ERROR` still applies to it below.
  */
 const report =
   (io: CliIo, json: boolean) =>
@@ -1020,7 +1065,7 @@ const report =
         io.stderr(`${JSON.stringify({ state: "error", prompt: message })}\n`)
       }
       io.stderr(`${renderFailure(error)}\n`)
-      io.exit(EXIT_RUNTIME_ERROR)
+      io.exit(error instanceof SelectorUsageError ? EXIT_USAGE_ERROR : EXIT_RUNTIME_ERROR)
     })
 
 export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, Error> => {
@@ -1045,7 +1090,7 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
   }
 
   const out = bufferedArtifactOut(io)
-  return runCommand(plan.command, plan.json, plan.sh, out).pipe(
+  return runCommand(plan.command, plan.json, out).pipe(
     // `flush()` fires here, on success, BEFORE `io.exit` — the one point
     // where the whole buffered artifact is known-complete and safe to hand
     // to stdout (a failure discards the buffer instead — see
@@ -1062,7 +1107,9 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
     // through untouched via `failCause` so `NodeRuntime.runMain` still sees a
     // real interruption; everything else gets the envelope.
     Effect.catchAll((cause) =>
-      Cause.isInterruptedOnly(cause) ? Effect.failCause(cause) : report(io, plan.json)(cause),
+      Cause.isInterruptedOnly(cause)
+        ? Effect.failCause(cause)
+        : report(io, plan.json.kind !== "off")(cause),
     ),
   )
 }

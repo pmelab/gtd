@@ -124,31 +124,17 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
       | restore --json           |
       | --entry idle --json      |
 
-  Scenario Outline: --sh is a usage error on every command except gtd next/gtd land
+  Scenario: gtd next --sh is now an unrecognized flag, exit 2
     Given a test project
-    When I run gtd with args "<args>"
+    When I run gtd with args "next --sh"
     Then it fails
-    And stderr contains "only valid for `gtd next`/`gtd land`"
-    And stderr contains "gtd install"
+    And stderr contains "unknown option"
 
-    Examples:
-      | args                    |
-      | status --sh             |
-      | lsp --sh                |
-      | validate --sh            |
-      | check qa TODO.md --sh    |
-      | init --sh                |
-      | visualize --sh           |
-      | install --sh             |
-      | abandon --sh             |
-      | restore --sh             |
-      | --entry idle --sh        |
-
-  Scenario: --sh and --json together on gtd next is a usage error, not a silent last-one-wins
+  Scenario: gtd land --sh is now an unrecognized flag, exit 2
     Given a test project
-    When I run gtd with args "next --sh --json"
+    When I run gtd with args "land --sh"
     Then it fails
-    And stderr contains "mutually exclusive"
+    And stderr contains "unknown option"
 
   Scenario: gtd --entry version refuses as an unknown entry state and prints no version
     # The regression this RFC exists to fix: a flag-unaware positional

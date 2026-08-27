@@ -134,7 +134,7 @@ Feature: gtd land — the one landing verb, actorless
     And stdout contains "nothing to do at \"checking\""
 
   @inmem
-  Scenario: the green --entry fix-precheck collapse (a mixed-reset no-op) settles at exit 0 with the commit count unchanged
+  Scenario: the green --entry fix-precheck probe lands an ordinary commit at exit 0, HEAD never moving backward
     Given a test project
     And the workflow
     And I record the commit count
@@ -142,8 +142,9 @@ Feature: gtd land — the one landing verb, actorless
     Then it succeeds
     When I run gtd land
     Then the exit code is 0
-    And the commit count is unchanged
-    And the git log does not contain "gtd("
+    And the commit count increased by 2
+    And the git log contains "gtd(human): fix-precheck"
+    And the git log contains "gtd(check): fix-precheck → idle"
 
   @inmem
   Scenario: a dirty no-match exits 1 authoring nothing
@@ -193,7 +194,7 @@ Feature: gtd land — the one landing verb, actorless
     And stderr contains "gone"
 
   @inmem
-  Scenario: gtd land --sh and --json now exist, carrying script/settled/idle/state/subject/cost/model
+  Scenario: gtd land --json=<path> and --json now exist, carrying script/settled/idle/state/subject/cost/model
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -217,12 +218,15 @@ Feature: gtd land — the one landing verb, actorless
       """
       a note
       """
-    When I run gtd land with "--sh"
+    When I run gtd land with "--json=state"
     Then the exit code is 0
-    And I record stdout as "sh"
-    And stdout contains "gtd_state='working'"
-    And stdout contains "gtd_subject='gtd(human): idle → working'"
-    And stdout does not contain "gtd_settled=true"
+    And stdout matches "^working\n$"
+    When I run gtd land with "--json=subject"
+    Then the exit code is 0
+    And stdout contains "gtd(human): idle → working"
+    When I run gtd land with "--json=settled"
+    Then the exit code is 0
+    And stdout matches "^false\n$"
     When I run gtd land with "--json"
     Then the exit code is 0
     And stdout contains "\"settled\":false"
@@ -233,33 +237,10 @@ Feature: gtd land — the one landing verb, actorless
     And stdout contains "\"model\":null"
     When I run gtd land
     Then the exit code is 0
-    And the current stdout equals the sh field "script" recorded as "sh"
     And the last commit subject is "gtd(human): idle → working"
 
   @inmem
-  Scenario: gtd land --json reports settled:true, idle:true for the green --entry fix-precheck collapse, without landing it
-    Given a test project
-    And the workflow
-    When I run gtd with args "--entry fix-precheck"
-    Then it succeeds
-    And I record the commit count
-    When I run gtd land with "--json"
-    Then the exit code is 0
-    And stdout contains "\"settled\":true"
-    And stdout contains "\"idle\":true"
-    And stdout contains "\"state\":\"idle\""
-    And the commit count is unchanged
-
-  @inmem
-  Scenario: --sh and --json together on gtd land is still a usage error, exit 2, stdout byte-empty
-    Given a test project
-    When I run gtd land with "--sh" and "--json"
-    Then the exit code is 2
-    And stdout is empty
-    And stderr contains "mutually exclusive"
-
-  @live
-  Scenario: gtd land | bash lands the turn in one pipe
+  Scenario: plain gtd land prints one prose sentence, never the script — --json/--json=<path> alone carry it
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -283,7 +264,51 @@ Feature: gtd land — the one landing verb, actorless
       """
       a note
       """
-    When I run gtd land piped to bash
+    When I run plain gtd land
+    Then the exit code is 0
+    And stdout contains "commit everything with this message: gtd(human): idle → working"
+    And stdout does not contain "git commit"
+
+  @inmem
+  Scenario: gtd land --json reports settled:false, idle:true for the green --entry fix-precheck probe, without landing it
+    Given a test project
+    And the workflow
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    And I record the commit count
+    When I run gtd land with "--json"
+    Then the exit code is 0
+    And stdout contains "\"settled\":false"
+    And stdout contains "\"idle\":true"
+    And stdout contains "\"state\":\"idle\""
+    And the commit count is unchanged
+
+  @live
+  Scenario: gtd land --json=script piped straight into sh lands the turn
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do it"
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land --json=script piped to sh
     Then the exit code is 0
     And the last commit subject is "gtd(human): idle → working"
 

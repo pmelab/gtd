@@ -32,11 +32,12 @@ export type Tier = "live" | "inmem"
 const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore", "--entry"])
 
 /**
- * `--json`/`--sh` print a structured document, not the runnable script
- * itself — never something `driveWriteCommand` should feed to `sh` as-is.
+ * `--json` (bare or `--json=<path>`) prints a structured document, not the
+ * runnable script itself — never something `driveWriteCommand` should feed
+ * to `sh` as-is.
  */
 const requestsStructuredOutput = (args: readonly string[]): boolean =>
-  args.includes("--json") || args.includes("--sh")
+  args.some((a) => a === "--json" || a.startsWith("--json="))
 
 /** `--entry` takes both spellings, `--entry <state>` and `--entry=<state>`. */
 const isWriteCommand = (args: readonly string[]): boolean => {
@@ -245,8 +246,45 @@ export class GtdWorld extends QuickPickleWorld {
   async runGtd(...args: string[]): Promise<void> {
     await this.invokeGtd(...args)
     if (!landExitDrivable(this.lastResult.exitCode)) return
-    if (isWriteCommand(args)) await this.driveWriteCommand()
+    if (isWriteCommand(args)) await this.driveWriteCommand(args)
     else if (args[0] === "validate") await this.driveValidateCommand()
+  }
+
+  /**
+   * Plain `gtd land`'s own preview, undriven — package 02's prose sentence
+   * carries no script to run, so this is a read: `gtd land`'s own git-write
+   * effect is exercised by `driveLandWrite`/`runGtd`, never by this one.
+   */
+  async runGtdLandPlain(): Promise<void> {
+    await this.invokeGtd("land")
+  }
+
+  /**
+   * `gtd land`'s own drive path — package 02 dropped plain `gtd land`'s
+   * script output, so any bare `land` invocation (with or without
+   * `--cost`/`--model`) is driven off a SECOND, `--json=script`-suffixed
+   * call's own raw output instead of the first call's (now prose) stdout —
+   * a `--json=<path>` selection on a string field writes the value straight
+   * to stdout (`Select.ts`'s `toSelection`), no `eval`/unquoting needed.
+   * `lastResult` keeps the first call's own wording/exit code — a scenario's
+   * "it succeeds"/stdout assertion still describes the invocation it asked
+   * for — and is overridden only when the driven script itself fails.
+   */
+  private async driveLandWrite(args: readonly string[]): Promise<void> {
+    this.lastScriptOutput = ""
+    const reported = this.lastResult
+    await this.invokeGtd(...args, "--json=script")
+    const script = this.lastResult.stdout
+    this.lastResult = reported
+    if (script.length === 0) return
+    const run = await this.runEmittedScript(script)
+    this.lastScriptOutput += run.output
+    if (run.exitCode === 0) return
+    this.lastResult = {
+      exitCode: run.exitCode,
+      stdout: reported.stdout,
+      stderr: reported.stderr + run.output,
+    }
   }
 
   private async invokeGtd(...args: string[]): Promise<void> {
@@ -262,9 +300,11 @@ export class GtdWorld extends QuickPickleWorld {
    * optional, swallowing the optional half's failure). gtd's own plain-text
    * line stays as `lastResult`; only a FAILING script overrides it, since a
    * scenario asserting "it succeeds" must not pass when the work never
-   * landed.
+   * landed. `land` is the one exception: package 02 dropped its plain
+   * stdout's script output, so it's driven off `driveLandWrite` instead.
    */
-  private async driveWriteCommand(): Promise<void> {
+  private async driveWriteCommand(args: readonly string[]): Promise<void> {
+    if (args[0] === "land") return this.driveLandWrite(args)
     this.lastScriptOutput = ""
     const script = this.lastResult.stdout
     if (script.length === 0) return
@@ -374,15 +414,15 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * `@live` only: proves the CAPTURE-THEN-PIPE landing form, not the bare
-   * `gtd land | sh` one-liner it replaces — POSIX `sh` (dash) has no
-   * `pipefail`, so the exit code must be captured before piping. Mirrors the
-   * reference driver's `gtd_land()`: capture stdout and exit code first, then
-   * pipe the script into `sh`; if that fails, its status overrides, otherwise
-   * gtd's own captured status stands.
+   * `gtd land --json=script` piped directly into `sh`, exactly as
+   * `docs/driver.md`'s reference driver does: a `--json=<path>` VALUE
+   * selection writes the selected field's raw text straight to stdout
+   * (`Select.ts`'s `toSelection` on a string scalar is just `String(value)`,
+   * newlines and all) — so the script is pipeable with no intermediate
+   * parsing or `eval`.
    */
-  async runGtdLandPiped(): Promise<void> {
-    const pipeline = `gtd_land_script="$(${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)} land)"; gtd_land_status=$?; printf '%s\n' "$gtd_land_script" | sh || gtd_land_status=$?; exit "$gtd_land_status"`
+  async runGtdLandJsonScriptPiped(): Promise<void> {
+    const pipeline = `${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)} land --json=script | sh`
     try {
       const { stdout, stderr } = await execFile("sh", ["-c", pipeline], {
         cwd: this.repoDir,

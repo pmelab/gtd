@@ -13,7 +13,12 @@ import {
   nodeFileRefReader,
   type FileRefReader,
 } from "./PatternConfig.js"
-import { type ModeDef, type StateName, type WorkflowDefinition } from "./PatternMachine.js"
+import {
+  validateDefinition,
+  type ModeDef,
+  type StateName,
+  type WorkflowDefinition,
+} from "./PatternMachine.js"
 import type { MachineNode } from "./Machines.js"
 import {
   defaultMachineTree,
@@ -38,6 +43,8 @@ interface ConfigOperations {
   readonly machineTree: MachineNode
   /** Qualified state name -> owning machine-instance path (`flattenMachines`'s other output), or the built-in default's map when unconfigured. */
   readonly stateScopes: Record<StateName, string>
+  /** Non-fatal `validateDefinition` findings against the active workflow (e.g. a state with no `C` row) — `[]` for the built-in default, which ships with none. */
+  readonly warnings: readonly string[]
 }
 
 /**
@@ -273,6 +280,12 @@ const toOperations = (
       rcVars,
       machineTree: defaultMachineTree,
       stateScopes: defaultStateScopes,
+      // Derived from the same validator a custom `workflow:` goes through
+      // (never hardcoded) — the built-in default just happens to pass clean
+      // today; `modes:` merging above never touches `states`/`on`, so
+      // re-validating the unmerged definition is equivalent and avoids a
+      // throwaway merged copy.
+      warnings: validateDefinition(defaultWorkflowDefinition).warnings,
     }
   }
   const {
@@ -280,8 +293,16 @@ const toOperations = (
     vars: workflowVars,
     tree,
     scopes,
+    warnings,
   } = compileWorkflowConfig(decoded.workflow, root, rcModes, false, fileRefs)
-  return { workflow: definition, workflowVars, rcVars, machineTree: tree, stateScopes: scopes }
+  return {
+    workflow: definition,
+    workflowVars,
+    rcVars,
+    machineTree: tree,
+    stateScopes: scopes,
+    warnings,
+  }
 }
 
 /**

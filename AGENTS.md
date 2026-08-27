@@ -42,12 +42,14 @@ repository. A committed steering file that is not an oxfmt fixed point reds
 every gate that runs the test suite: `start-gate`, `review-gate`, and
 `fix-precheck` alike.
 
-Two mechanisms keep files there conforming, and neither is new code: a state
-declaring both `file:` and `mode:` gets that mode's own
-`npx oxfmt --write <%= it.file %>` emitted into its step script ahead of the
-commit (`program.ts`'s `steeringModeSteps`), and a state declaring `file:` with
-no `mode:` is caught instead by husky → lint-staged running `oxfmt --write` over
-staged files during the step commit.
+One mechanism keeps files there conforming, and it is not new code: a state
+declaring `file:` with no `mode:` is caught by husky → lint-staged running
+`oxfmt --write` over staged files during the step commit. A state declaring both
+`file:` and `mode:` is NOT covered by `gtd land` itself any more — the mode's
+own `format:`/`validate:` pair (e.g. `npx oxfmt --write <%= it.file %>`) is a
+driver contract now, run via `gtd next --json`'s own `validate` field (or
+`gtd validate`) ahead of `gtd land`, never emitted into the landing script
+(package 2, Requirement A).
 
 ## Comments
 
@@ -86,10 +88,8 @@ preserved:
   and fall back to the other flag on failure, not a contract; no command —
   `next`, `status`, or `land` — touches the git dir to record that a beat was
   dispatched. Every write gtd causes happens inside a script it emitted and the
-  driver ran — the initial-state collapse's own mixed reset (`collapsesWith`) is
-  the driver running an emitted script, not a command reaching into git itself.
-  A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`) and hands
-  it to `planStep`/`planEntry`. Never read a `Rest` after a `perform`.
+  driver ran. A command resolves ONE `Rest` (`Edge.ts`'s `currentRest`/`restAt`)
+  and hands it to `planStep`/`planEntry`. Never read a `Rest` after a `perform`.
   `src/program.ts` never reaches into `GitService` directly except two narrow
   exceptions: the `abandon`/`restore` hard/mixed resets — recovery commands that
   must work even when a `Rest` would refuse, so they reset directly instead of
@@ -192,8 +192,8 @@ update:
   `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
   (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`,
   `land.feature` (the exit-code contract: 0/3/settled/1; `driver-doc.feature`'s
-  own `--entry fix-precheck` collapse scenario asserts on the bundled template's
-  shape too)
+  own `--entry fix-precheck` scenario asserts on the bundled template's shape
+  too)
 - A workflow change must keep the DRIVER contract true, not just the engine's:
   every state a process can rest at must resolve to exactly one `kind` a driver
   already handles (`capture`/`message`/`script`/`prompt`/`stalled`) — there is
@@ -332,22 +332,17 @@ parser, one envelope. The table is the source of truth, not prose:
   applicable guard against that one sample — sound only because a mode's
   `format:` command is normalization-only and must never change what a guard
   decides, regardless of whether it ran before, after, or not at all. A state's
-  `file:`+`mode:` formatting and validation is NOT a guard any more:
-  `program.ts`'s `steeringModeSteps` emits the mode's own `format:`/`validate:`
-  commands (over `src/SteeringMode.ts`) into the step script for the driver to
-  run, ahead of the commit. Any guard REFUSES the step when its condition fires,
-  so e.g. a malformed steering file is never committed (an agent's draft or a
-  human's gate edit alike). Each guard is a no-op when it doesn't apply to the
-  resting state (see `StepGuard.appliesTo`), and the whole registry is skipped
-  for a no-op decision, or an ATTEMPT (there is nothing to guard in an empty
-  diff, and a `format:` run must not dirty an attempt and break the empty-diff
-  derivation `stalledAt` relies on). The emitted format/validate pair is skipped
-  for an attempt for the same reason, AND for a step whose diff DELETES that
-  `file:` (`deletesFile`, shared with the guards): deleting it is a legitimate
-  outcome — a review sign-off's whole diff is the review doc's deletion — and a
-  `format:` like `prettier --write` exits non-zero on a missing path, which
-  aborted the whole `set -euo pipefail` script before the commit and made the
-  step unlandable
+  `file:`+`mode:` formatting and validation is NOT a guard, and NOT part of
+  `gtd land`'s own emitted script either (package 2, Requirement A): the mode's
+  `format:`/`validate:` pair is a driver contract now, run via
+  `gtd next --json`'s own `validate` field (or `gtd validate`) ahead of
+  `gtd land`, never emitted into the landing script itself — so a malformed
+  steering file a driver never validated CAN land; only the guard-checked cases
+  below (review doc, feedback progress, answer completeness, require revert)
+  still refuse. Any guard REFUSES the step when its own condition fires. Each
+  guard is a no-op when it doesn't apply to the resting state (see
+  `StepGuard.appliesTo`), and the whole registry is skipped for a no-op
+  decision, or an ATTEMPT (there is nothing to guard in an empty diff)
 - **A guard's pre-turn copy of a `file:` is read at real `HEAD`** —
   `enforceStepGuards` never rewinds anything to read it
 - The require-revert guard compares the current tree against `reviewBase~1`

@@ -9,7 +9,6 @@ import {
   abandonNoopOutcome,
   abandonNoopText,
   commitOutcome,
-  noopText,
   noteOutcome,
   OUTCOME_PREAMBLE,
   renderFormat,
@@ -71,10 +70,6 @@ describe("abandonNoopOutcome", () => {
 })
 
 describe("plain-text twins", () => {
-  it("noopText names the state", () => {
-    expect(noopText("idle")).toBe('nothing to do at "idle"\n')
-  })
-
   it("abandonNoopText names the initial state", () => {
     expect(abandonNoopText("idle")).toBe(
       'no gtd process is underway (resting at "idle") — nothing to abandon\n',

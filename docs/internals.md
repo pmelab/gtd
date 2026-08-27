@@ -219,8 +219,10 @@ but `gtd lsp` never runs a shell command per keystroke, so live diagnostics
 become one `Information` notice pointing at `gtd validate` instead of the
 built-in findings. Any OTHER mode name — a project's own declared name (e.g.
 `prose`, for a free-form note) — has no built-in format, so it gets no live
-editor support at all: `gtd validate`'s emitted script and the `gtd land` gate
-still format and validate it like any other mode.
+editor support at all: `gtd validate`'s emitted script (or `gtd next --json`'s
+own `validate` field) still formats and validates it like any other mode —
+`gtd land` itself does not; running that script is a driver's own job, ahead of
+landing.
 
 ## Development
 

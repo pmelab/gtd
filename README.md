@@ -63,13 +63,12 @@ The loop behind all of this is one beat, repeated:
 
 ```bash
 while :; do
-  out="$(gtd next --sh)"
-  eval "$out"
-  case "$gtd_kind" in
-    script) sh -c "$gtd_content" ;;
-    prompt) printf '%s' "$gtd_content" | your-agent ;;
+  kind="$(gtd next --json=kind)"
+  case "$kind" in
+    script) sh -c "$(gtd next --json=content)" ;;
+    prompt) gtd next | your-agent ;;
   esac
-  gtd land
+  gtd land --json=script | sh
 done
 ```
 

@@ -41,8 +41,8 @@ export interface StepGuard {
   readonly check: (ctx: GuardContext) => Effect.Effect<Refusal, Error, GuardRequirements>
 }
 
-/** True when `changes` deletes `file` — shared by `GuardContext.fileDeleted` and `program.ts`'s `steeringModeSteps`, so both ask it the same way. */
-export const deletesFile = (changes: readonly PendingChange[], file: string): boolean =>
+/** True when `changes` deletes `file` — the require-revert guard's own `GuardContext.fileDeleted` check. */
+const deletesFile = (changes: readonly PendingChange[], file: string): boolean =>
   changes.some((c) => c.path === file && c.status === "D")
 
 /**

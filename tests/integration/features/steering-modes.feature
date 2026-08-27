@@ -296,7 +296,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And the git status contains ".gtd/docs/adr.md"
 
   @live
-  Scenario: the gtd land capture gate refuses a turn whose custom-mode steering file is invalid
+  Scenario: gtd land no longer runs the mode's validate command — an invalid custom-mode steering file lands regardless
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -339,16 +339,17 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       Accepted.
       """
+    # Package 2, Requirement A: the landing script no longer carries the
+    # mode's own validate command — only the HEAD assertion and the commit —
+    # so a step whose steering file would fail that command still lands.
+    # Catching it is a driver contract now (`gtd validate`/`gtd next --json`'s
+    # own `validate` field, run ahead of `gtd land`), not a gtd guarantee.
     When I run gtd land
-    Then it fails
-    # The step's own required script runs the mode's validate command ahead of
-    # its commit, so the refusal IS that command's non-zero exit and output —
-    # nothing is committed.
-    And stderr contains "an ADR needs a '## Decision' section"
-    And the last commit subject is "gtd(human): drafting"
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting → idle"
 
   @inmem
-  Scenario: the gtd land capture gate refuses a turn whose custom-mode steering file is invalid (scripted)
+  Scenario: gtd land no longer runs the mode's validate command — an invalid custom-mode steering file lands regardless (scripted)
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -391,13 +392,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       Accepted.
       """
+    # Package 2, Requirement A: the landing script no longer carries the
+    # mode's own validate command — only the HEAD assertion and the commit —
+    # so a step whose steering file would fail that command still lands.
+    # Catching it is a driver contract now (`gtd validate`/`gtd next --json`'s
+    # own `validate` field, run ahead of `gtd land`), not a gtd guarantee.
     When I run gtd land
-    Then it fails
-    # The step's own required script runs the mode's validate command ahead of
-    # its commit, so the refusal IS that command's non-zero exit and output —
-    # nothing is committed.
-    And stderr contains "an ADR needs a '## Decision' section"
-    And the last commit subject is "gtd(human): drafting"
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting → idle"
 
   @live
   Scenario: a valid custom-mode steering file passes the gate and the turn is captured
@@ -444,7 +446,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And the last commit subject is "gtd(agent): drafting → idle"
 
   @live
-  Scenario: a failing format command is a hard error — the file is never judged, nothing is committed
+  Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -482,17 +484,15 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       # ADR 1: use gtd (edited)
       """
+    # Package 2, Requirement A: `format:`/`validate:` are gone from the
+    # emitted script entirely, so a broken formatter has nothing left to run
+    # ahead of the commit — the step lands.
     When I run gtd land
-    Then it fails
-    # `format:` comes first in the emitted script and the script runs under
-    # `set -e`, so a non-zero format exit stops it before the validate command
-    # or the commit is ever reached — and its status is the script's own.
-    And the exit code is 3
-    And stderr contains "adr-fmt: cannot parse .gtd/docs/adr.md"
-    And the last commit subject is "gtd(human): drafting"
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting → idle"
 
   @inmem
-  Scenario: a failing format command is a hard error — the file is never judged, nothing is committed (scripted)
+  Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more (scripted)
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -532,15 +532,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       # ADR 1: use gtd (edited)
       """
+    # Package 2, Requirement A: `format:`/`validate:` are gone from the
+    # emitted script entirely, so a broken formatter has nothing left to run
+    # ahead of the commit — the step lands.
     When I run gtd land
-    Then it fails
-    # `format:` comes first in the emitted script and the script runs under
-    # `set -e`, so a non-zero format exit stops it before the validate command
-    # or the commit is ever reached.
-    And stderr contains "exited 3"
-    And stderr contains "adr-fmt: cannot parse .gtd/docs/adr.md"
-    And stderr does not contain "adr-validate-never-runs"
-    And the last commit subject is "gtd(human): drafting"
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting → idle"
 
   @live
   Scenario: a modes: entry named after a built-in overrides only the half it declares
@@ -783,12 +780,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                   "* **": idle
       """
     And an empty commit "gtd(human): drafting"
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=validate"
     Then it succeeds
-    # gtd_validate's own value is itself shell-quoted for --sh (every literal
-    # `'` inside it becomes the POSIX `'\''` escape), so the guard/format
-    # command are matched by their quote-independent substrings.
-    And stdout contains "gtd_validate="
     And stdout contains "-f "
     And stdout contains ".gtd/docs/adr.md"
     And stdout contains "] || exit 0"
@@ -1001,7 +994,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # override has no in-process parser to round-trip a sample through — the
     # emitted script prints a one-line skip notice instead of silently saying
     # nothing (silence would read as a clean bill of health). Inspected via
-    # the unexecuted `gtd next --sh` script text rather than a live run: the
+    # the unexecuted `gtd next --json=validate` script text rather than a live run: the
     # notice prints to stderr, and a SUCCESSFUL script's stderr is exactly
     # the thing `gtd validate`'s own driving harness discards once the
     # script exits 0 (see world.ts's validateVerdict) — the raw script text
@@ -1034,8 +1027,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
                   "* **": idle
       """
     And an empty commit "gtd(human): reviewing"
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=validate"
     Then it succeeds
-    And stdout contains "gtd_validate="
     And stdout contains "mode \"review\" has an external validate: command"
     And stdout contains "skipping the format/validate contradiction check"

@@ -1086,11 +1086,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And stdout contains "The agent could not get the check to pass after repeated attempts."
     And the git log does not contain "build.health.check → build.review"
 
-  Scenario: --entry fix-precheck on a green baseline collapses to nothing
-    # A green suite is nothing to fix: the empty `gtd(human): fix-precheck`
-    # entry commit and the no-op check are collapsed away rather than left as
-    # permanent bookkeeping commits — and the collapse itself reports
-    # `settled`, so the driver exits 0 here rather than at a message rest.
+  Scenario: --entry fix-precheck on a green baseline lands an ordinary probe commit, then halts at idle
+    # A green suite is nothing to fix: `land` never moves HEAD, so the empty
+    # `gtd(human): fix-precheck` entry commit and the probe's own
+    # `fix-precheck → idle` commit both stay in the log, and the driver halts
+    # at the following idle message rest rather than at a `settled` land.
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "true"
@@ -1100,4 +1100,6 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
-    And the commit count is unchanged
+    And the commit count increased by 2
+    And the git log contains "gtd(human): fix-precheck"
+    And the git log contains "gtd(check): fix-precheck → idle"

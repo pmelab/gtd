@@ -8,20 +8,22 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
   parser requires. This feature is the end-to-end proof: a HUMAN, standing in
   for the agent, writes a styled `.gtd/REQUIREMENTS.md`/`.gtd/REVIEW.md` at
   one of those resting states — voice in the prose, grammar intact — and
-  `gtd land` must actually accept it through the real validator and advance,
-  not just look plausible.
+  `gtd validate` must actually accept it through the real validator, then
+  `gtd land` advances — not just look plausible.
 
   Both scenarios are `@live`, not `@inmem`: the seeded `qa`/`review` validator
-  renders as a literal `gtd check <mode> '<file>'` COMMAND inside the step
-  script `gtd land` runs ahead of its commit (see src/SteeringFormats.ts's
-  `seededValidateCommand` and src/StepGuards.ts's doc comment). Only the
-  `@live` tier's PATH shim (world.ts's `pathShimDir`) makes that bare `gtd`
-  resolve to THIS build under test — an `@inmem` twin would have no real
-  subprocess to run it in and would have to stub the command with a scripted
-  double, which proves nothing about `OpenQuestions.ts`/`ReviewDoc.ts` actually
-  parsing styled prose. `steering-modes.feature` already covers the
-  scripted-double shape for a custom mode; this file is only about gtd's own
-  two built-in parsers surviving the voice.
+  renders as a literal `gtd check <mode> '<file>'` COMMAND inside the script
+  `gtd validate` prints (see src/SteeringFormats.ts's `seededValidateCommand`).
+  `gtd land`'s own emitted script carries no such command any more (package 2,
+  Requirement A) — validating a styled file is a driver step run explicitly,
+  ahead of landing, never something `gtd land` does for you. Only the `@live`
+  tier's PATH shim (world.ts's `pathShimDir`) makes that bare `gtd` resolve to
+  THIS build under test — an `@inmem` twin would have no real subprocess to
+  run it in and would have to stub the command with a scripted double, which
+  proves nothing about `OpenQuestions.ts`/`ReviewDoc.ts` actually parsing
+  styled prose. `steering-modes.feature` already covers the scripted-double
+  shape for a custom mode; this file is only about gtd's own two built-in
+  parsers surviving the voice.
 
   Scenario: a styled REQUIREMENTS.md passes gtd check qa and design.triage advances
     Given a test project
@@ -47,6 +49,9 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       - [ ] A `Decimal` wrapper — exact arithmetic, more code to carry
       - [ ] _your answer_
       """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains ".gtd/REQUIREMENTS.md: valid"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): design.triage → design.gate.check"
@@ -77,6 +82,9 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       - [ ] ./src/calc.test.ts#1
         Happy-path coverage only.
       """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains ".gtd/REVIEW.md: valid"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"

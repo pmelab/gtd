@@ -16,7 +16,6 @@ export const renderFormat = (fmt: string, ...args: readonly string[]): string =>
 const printfLine = (fmt: string, args: readonly string[]): string =>
   `printf ${shellQuote(fmt)} ${args.join(" ")}`
 
-const FMT_NOOP = 'nothing to do at "%s"\n'
 const FMT_ABANDON_NOOP = 'no gtd process is underway (resting at "%s") — nothing to abandon\n'
 const FMT_ABANDONED =
   'abandoned the process resting at "%s" — HEAD is back at %s ("%s"), resting at "%s".\n' +
@@ -25,13 +24,6 @@ const FMT_ABANDONED =
 const FMT_RESTORED =
   'restored the retained history — HEAD is back at %s ("%s"), resting at "%s". Resume ' +
   "with the loop, or `git reset` to any earlier turn to restart from there.\n"
-
-/** `nothing to do at "<state>"` — a no-op step's plain-text line, and the text a print-only script's `gtd_report_note` carries. */
-export const noopText = (state: string): string => renderFormat(FMT_NOOP, state)
-
-/** The initial-state collapse's line — no commit landed, HEAD was rewound to the process's start parent. */
-export const COLLAPSED_TEXT =
-  "nothing to retain — rewound to the commit before the process started\n"
 
 /** `no gtd process is underway (resting at "<initial>") — nothing to abandon` — `gtd abandon`'s no-op plain-text line. */
 export const abandonNoopText = (initial: string): string => renderFormat(FMT_ABANDON_NOOP, initial)

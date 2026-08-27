@@ -79,10 +79,19 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
+    # `gtd land --json=script` still carries the required/optional
+    # outcome-carrying script as a field — the one place ANSI source text
+    # (`printf '\033[...'`) appears anywhere in gtd's own stdout now that
+    # plain `gtd land` prints prose instead (package 2, Requirement B) — as
+    # plain source characters, never a real ESC byte.
+    When I run gtd land with "--json=script"
+    Then it succeeds
+    And stdout contains no ANSI escape sequence
+
     # Landing the clean checking rest matches its "C" row and commits back to
-    # idle. `gtd land` prints the required/optional outcome-carrying script —
-    # the one place ANSI source text (`printf '\033[...'`) appears anywhere
-    # in gtd's output — as plain source characters, never a real ESC byte.
+    # idle. Plain `gtd land`'s own stdout is one prose sentence now, with no
+    # script and no ANSI source text at all — this leg proves the prose
+    # itself stays escape-free.
     When I run gtd land
     Then it succeeds
     And stdout contains no ANSI escape sequence
@@ -111,10 +120,19 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
+    # `gtd land --json=script` still carries the required/optional
+    # outcome-carrying script as a field — the one place ANSI source text
+    # (`printf '\033[...'`) appears anywhere in gtd's own stdout now that
+    # plain `gtd land` prints prose instead (package 2, Requirement B) — as
+    # plain source characters, never a real ESC byte.
+    When I run gtd land with "--json=script"
+    Then it succeeds
+    And stdout contains no ANSI escape sequence
+
     # Landing the clean checking rest matches its "C" row and commits back to
-    # idle. `gtd land` prints the required/optional outcome-carrying script —
-    # the one place ANSI source text (`printf '\033[...'`) appears anywhere
-    # in gtd's output — as plain source characters, never a real ESC byte.
+    # idle. Plain `gtd land`'s own stdout is one prose sentence now, with no
+    # script and no ANSI source text at all — this leg proves the prose
+    # itself stays escape-free.
     When I run gtd land
     Then it succeeds
     And stdout contains no ANSI escape sequence

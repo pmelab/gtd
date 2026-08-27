@@ -1,17 +1,24 @@
 import { Context, Effect, Layer } from "effect"
 
-/** One line of stderr commentary — gated entirely by how the layer was built, never by the call site. */
+/**
+ * One line of stderr commentary — `narrate` is gated entirely by how the
+ * layer was built, never by the call site; `warn` is its ungated
+ * counterpart, always written regardless of verbosity.
+ */
 export class Narrator extends Context.Tag("Narrator")<
   Narrator,
-  { readonly narrate: (line: string) => Effect.Effect<void> }
+  {
+    readonly narrate: (line: string) => Effect.Effect<void>
+    readonly warn: (line: string) => Effect.Effect<void>
+  }
 >() {
   /**
    * `write` is the raw stderr sink (`CliIo.stderr` in production, so the
    * in-memory `CliIo` used by `@inmem` e2e scenarios captures narration into
    * the exact same buffer it already captures errors into). `verbose` gates
-   * every line at construction time — the resulting service is a no-op
-   * writer when `false`, never a per-call check a narrating call site has to
-   * remember to make.
+   * every `narrate` line at construction time — the resulting service is a
+   * no-op writer when `false`, never a per-call check a narrating call site
+   * has to remember to make. `warn` bypasses that gate unconditionally.
    */
   static readonly layer = (
     write: (chunk: string) => void,
@@ -22,6 +29,7 @@ export class Narrator extends Context.Tag("Narrator")<
         Effect.sync(() => {
           if (verbose) write(`${line}\n`)
         }),
+      warn: (line) => Effect.sync(() => write(`${line}\n`)),
     })
 }
 

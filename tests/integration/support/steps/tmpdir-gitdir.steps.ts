@@ -87,9 +87,9 @@ Then(
  * `$TMPDIR` — proving the EMITTED script (never gtd itself, see
  * `tests/tooling/no-tmp-assumption.test.ts`) is the thing that would write
  * there once a driver runs it. Checked against the last result's stdout
- * verbatim, unexecuted (`gtd next --sh`'s raw text) — the round-trip cleans
- * its own scratch file up on every path, so nothing survives on disk to
- * inspect afterwards either way.
+ * verbatim, unexecuted (`gtd next --json=validate`'s raw text) — the
+ * round-trip cleans its own scratch file up on every path, so nothing
+ * survives on disk to inspect afterwards either way.
  */
 Then("stdout contains the overridden TMPDIR path", (world: GtdWorld) => {
   assert.ok(world.customTmpDir, "no overridden TMPDIR — run the relocation step first")

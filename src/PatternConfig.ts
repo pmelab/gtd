@@ -324,6 +324,8 @@ export interface CompiledWorkflowConfig {
   readonly tree: MachineNode
   /** Qualified state name -> the machine-instance path that owns it — the memory-scope lookup `src/Edge.ts` threads through. Asserted (below) to exactly match `definition.states`'s key set. */
   readonly scopes: Record<StateName, InstancePath>
+  /** Non-fatal `validateDefinition` findings (e.g. a state with no `C` row) — never thrown on. */
+  readonly warnings: readonly string[]
 }
 
 const formatErrors = (errors: readonly string[]): string =>
@@ -916,11 +918,17 @@ export const compileWorkflowConfig = (
 
   assertScopesCoverStates(Object.keys(states), flattened.scopes, errors)
 
-  const definitionErrors = validateDefinition(definition)
-  const allErrors = Array.from(new Set([...errors, ...definitionErrors]))
+  const definitionResult = validateDefinition(definition)
+  const allErrors = Array.from(new Set([...errors, ...definitionResult.errors]))
   if (allErrors.length > 0) throw new Error(formatErrors(allErrors))
 
   // `flattened.tree` is undefined only when the root machine failed to
   // instantiate — already ruled out by the `entries === undefined` throw above.
-  return { definition, vars, tree: flattened.tree!, scopes: flattened.scopes }
+  return {
+    definition,
+    vars,
+    tree: flattened.tree!,
+    scopes: flattened.scopes,
+    warnings: definitionResult.warnings,
+  }
 }

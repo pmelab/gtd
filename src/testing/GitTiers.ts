@@ -100,6 +100,7 @@ const configLayerFor = (workflow: WorkflowDefinition): Layer.Layer<ConfigService
       rcVars: {},
       machineTree: defaultMachineTree,
       stateScopes: defaultStateScopes,
+      warnings: [],
     }),
   })
 
@@ -327,7 +328,6 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "commitHistory",
   "readFileAtRef",
   "changedPaths",
-  "changedPathsSince",
   "commitAllWithPrefix",
   "softResetTo",
   "commitAsIs",
@@ -353,7 +353,7 @@ const PATHOLOGICAL_PATHS: ReadonlyArray<{ label: string; path: string }> = [
 ]
 
 /**
- * Exercise all 20 `GitOperations` methods identically against `makeTier()` —
+ * Exercise all 19 `GitOperations` methods identically against `makeTier()` —
  * called once per tier by `src/Git.test.ts`. A capability-gated group
  * (`t.capabilities.X`) is skipped, not faked, on a tier that can't support it.
  */
@@ -375,66 +375,6 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
 
   afterEach(() => {
     t.dispose()
-  })
-
-  describe("changedPathsSince", () => {
-    it("returns the paths changed since ref, with their status, excluding paths before it", async () => {
-      t.seed.commit("feat: second commit", { "foo.txt": "foo content" })
-      t.seed.commit("feat: third commit", { "bar.txt": "bar content" })
-      const changed = await runGit(t, (g) => g.changedPathsSince("HEAD~1"))
-      expect(changed).toEqual([{ path: "bar.txt", status: "A" }])
-    })
-
-    it("reports an added, a modified, and a deleted path across the range", async () => {
-      t.seed.commit("chore: add other.txt", { "other.txt": "will be removed" })
-      const base = t.observe.resolveRef("HEAD")
-      t.seed.commit("feat: modify readme, add new.txt", {
-        "readme.txt": "changed",
-        "new.txt": "new",
-      })
-      t.seed.deleteFile("other.txt")
-      t.seed.stageAll()
-      t.seed.commit("chore: remove other.txt", {})
-      const changed = await runGit(t, (g) => g.changedPathsSince(base))
-      expect([...changed].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
-        { path: "new.txt", status: "A" },
-        { path: "other.txt", status: "D" },
-        { path: "readme.txt", status: "M" },
-      ])
-    })
-
-    it("returns [] when ref equals HEAD", async () => {
-      const changed = await runGit(t, (g) => g.changedPathsSince("HEAD"))
-      expect(changed).toEqual([])
-    })
-
-    it("fails for an unreachable ref", async () => {
-      const result = await runGitExit(t, (g) => g.changedPathsSince("totally-invalid-ref-xyz"))
-      expect(Exit.isFailure(result)).toBe(true)
-    })
-
-    for (const { label, path } of PATHOLOGICAL_PATHS) {
-      it(`reports an added path containing ${label}, verbatim`, async () => {
-        const base = t.observe.resolveRef("HEAD")
-        t.seed.commit("feat: add pathological file", { [path]: "content" })
-        const changed = await runGit(t, (g) => g.changedPathsSince(base))
-        expect(changed).toEqual([{ path, status: "A" }])
-      })
-    }
-
-    it("expands a rename into a deletion of the old path and an addition of the new one", async () => {
-      t.seed.commit("chore: seed old", { "old.txt": "same content unique-marker\n" })
-      const base = t.observe.resolveRef("HEAD")
-      t.seed.deleteFile("old.txt")
-      t.seed.writeFile("new.txt", "same content unique-marker\n")
-      t.seed.stageAll()
-      t.seed.commit("feat: rename old to new", {})
-      const changed = await runGit(t, (g) => g.changedPathsSince(base))
-      expect([...changed].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
-        { path: "new.txt", status: "A" },
-        { path: "old.txt", status: "D" },
-      ])
-    })
   })
 
   describe("resolveRef", () => {

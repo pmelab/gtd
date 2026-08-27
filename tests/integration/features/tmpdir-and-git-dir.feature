@@ -34,10 +34,10 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
     # $TMPDIR — but only the EMITTED SCRIPT does that, once a driver runs it;
     # gtd the process still names no "/tmp" literal and calls no mktemp (see
     # tests/tooling/no-tmp-assumption.test.ts). Inspected via the unexecuted
-    # `gtd next --sh` script text, since the round-trip cleans its own
-    # scratch file up on every path (success or failure) and leaves nothing
-    # on disk afterwards either way — a raw, unexecuted script is the only
-    # place the reference to $TMPDIR is ever observable.
+    # `gtd next --json=validate` script text, since the round-trip cleans its
+    # own scratch file up on every path (success or failure) and leaves
+    # nothing on disk afterwards either way — a raw, unexecuted script is the
+    # only place the reference to $TMPDIR is ever observable.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -66,7 +66,7 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
       """
     And an empty commit "gtd(human): reviewing"
     And the repo's git dir relocated outside the worktree, with TMPDIR pointed at a fresh scratch directory
-    When I run gtd next with "--sh"
+    When I run gtd next with "--json=validate"
     Then it succeeds
     And stdout contains the overridden TMPDIR path
     And nothing was written under the overridden TMPDIR

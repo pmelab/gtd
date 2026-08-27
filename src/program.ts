@@ -2,7 +2,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either, Option, Runtime } from "effect"
-import type { ArtifactOut, Command, Needs } from "./Cli.js"
+import type { ArtifactOut, Command, JsonMode, Needs } from "./Cli.js"
 import { Narrator } from "./Commentary.js"
 import { configPresentAt, ConfigService } from "./Config.js"
 import { renderInitScaffold } from "./workflows/templates.js"
@@ -13,7 +13,6 @@ import { CommandRunner } from "./CommandRunner.js"
 import { resolveSession } from "./Sessions.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
-  collapsesToInitialState,
   currentRest,
   currentRun,
   planEntry,
@@ -41,7 +40,7 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
-import { deletesFile, enforceStepGuards } from "./StepGuards.js"
+import { enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
 import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
 import type { SteeringFinding } from "./SteeringFormat.js"
@@ -69,13 +68,14 @@ import {
   beatFields,
   beatKindOf,
   landFields,
+  noopText,
   renderBeatJson,
   renderBeatPlain,
-  renderBeatSh,
   renderLandJson,
-  renderLandSh,
+  renderLandPlain,
   type BeatFields,
   type BeatKind,
+  type LandFields,
   type NextMatch,
   type StatusChange,
 } from "./Beat.js"
@@ -91,12 +91,45 @@ import {
 import {
   abandonedOutcome,
   abandonNoopOutcome,
-  noopText,
   noteOutcome,
   restoredOutcome,
 } from "./OutcomeScript.js"
 import { loopLogPath } from "./WorktreeState.js"
 import { renderBriefing } from "./Install.js"
+import { selectPath } from "./Select.js"
+
+/**
+ * A command-level failure that should exit like a CLI usage error (2), not a
+ * generic runtime failure (1) — currently only the `--json=<unknown-path>`
+ * selector case.
+ */
+export class SelectorUsageError extends Error {}
+
+/**
+ * The `--json=<path>` select branch, shared by `runNextCommand` and
+ * `runLandCommand` so the two never drift on the unknown-selector message: a
+ * `value` writes its text plus exactly one trailing newline, `absent` writes
+ * nothing (the caller's normal success path continues), and `unknown` fails
+ * with `SelectorUsageError` (mapped to `EXIT_USAGE_ERROR` by `Cli.ts`'s
+ * `report`).
+ */
+const writeSelection = (
+  out: ArtifactOut,
+  fields: BeatFields | LandFields,
+  path: string,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    const selection = selectPath(fields, path)
+    if (selection.kind === "value") {
+      out.write(`${selection.text}\n`)
+    } else if (selection.kind === "unknown") {
+      return yield* Effect.fail(
+        new SelectorUsageError(
+          `gtd: unknown --json selector "${selection.path}" — see \`gtd --help\``,
+        ),
+      )
+    }
+  })
 
 export type CommandRequirements =
   | GitService
@@ -166,7 +199,7 @@ const runInitCommand = (
  * `planLanding`'s result — a preview of what `gtd land` would do, plus the
  * combined `script` the driver runs to do it. `script` is
  * `combinedScript(required, optional)`, computed once here so plain
- * `gtd land`'s stdout and `--sh`'s `gtd_script` stay byte-identical.
+ * `gtd land`'s stdout and `--json`'s `script` field stay byte-identical.
  */
 interface LandResult {
   readonly state: StateName
@@ -174,7 +207,7 @@ interface LandResult {
   readonly cost: number | null
   readonly model: string | null
   readonly script: string
-  /** True for either terminal shape: a no-op at a `script` rest, or a decision that collapses back to the initial state retaining nothing. */
+  /** True for the one terminal shape: a no-op at a `script` rest. */
   readonly settled: boolean
   readonly idle: boolean
 }
@@ -184,7 +217,7 @@ interface LandResult {
  * `normalizeTrailingNewline` rather than imported, to avoid a circular value
  * dependency (`Cli.ts` already depends on this module). `LandResult.script`
  * must carry its own trailing newline because it's embedded verbatim inside
- * the `--json`/`--sh` documents too, never re-normalized at their tail.
+ * the `--json` document, never re-normalized at its tail.
  */
 const normalizeScriptNewline = (script: string): string =>
   script.length === 0 ? script : `${script.replace(/\n+$/, "")}\n`
@@ -197,36 +230,7 @@ const headPreconditions = (currentCommit: string): EmitPreconditions => ({
   expectedHead: currentCommit,
 })
 
-/**
- * The resting state's own steering-mode format/validate commands, embedded
- * ahead of the commit. Empty for a state declaring no `file:`+`mode:` pair;
- * an unknown mode name is a refusal.
- *
- * Also empty when the step deletes that file, or when it's absent from the
- * working tree — either way there's nothing left to format/validate.
- * Emitting `format:` anyway would make the step unlandable for a formatter
- * that errors on a missing path (e.g. `prettier --write`), since it's the
- * first command in a `set -euo pipefail` script and would abort the whole
- * thing — window close, commit and all — before anything could land.
- */
-const steeringModeSteps = (
-  rest: Rest,
-): Effect.Effect<readonly EmitStep[], Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const file = rest.hints.file
-    const mode = rest.stateDef.mode
-    if (file === undefined || mode === undefined) return []
-    if (deletesFile(rest.changes, file)) return []
-    const files = yield* RepoFiles
-    if (files.working(file) === undefined) return []
-    const resolved = resolveSteeringMode(rest.def, mode)
-    if (resolved === undefined) {
-      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
-    }
-    return yield* renderSteeringModeCommandSteps(resolved, file, rest.context)
-  })
-
-/** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag both `enforceStepGuards` and `buildRequiredScript` bypass their own steps for (see each call site). */
+/** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag `enforceStepGuards` bypasses its own steps for (see its call site). */
 const isAttemptDecision = (decision: ExecutableDecision): boolean =>
   decision.kind === "commit" && decision.attempt === true
 
@@ -235,11 +239,10 @@ const previewSubject = (decision: ExecutableDecision): Effect.Effect<string | nu
   Effect.succeed(decision.subject)
 
 /**
- * The `required` half: the resting state's own steering-mode commands, then
- * the commit steps. The steering-mode step is skipped for an attempt commit —
- * nothing to format/validate in an empty diff, and running `format:` ahead of
- * the commit could dirty the tree and turn an "empty" attempt non-empty,
- * breaking `stalledAt`'s derivation.
+ * The `required` half: the HEAD assertion plus the commit steps, nothing
+ * else. The steering-file format/validate pair is no longer part of the
+ * landing script — that's a driver contract now (`gtd next --json`'s
+ * `validate` field), not a gtd guarantee (see `resolveSelfValidateCommand`).
  */
 const buildRequiredScript = (
   rest: Rest,
@@ -247,15 +250,12 @@ const buildRequiredScript = (
   cost: number | undefined,
   model: string | undefined,
 ): Effect.Effect<string, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const git = yield* GitService
-    const isAttempt = isAttemptDecision(decision)
-    const steps: EmitStep[] = [
-      ...(isAttempt ? [] : yield* steeringModeSteps(rest)),
-      ...(yield* renderDecision(git, rest, decision, cost, model)),
-    ]
-    return emitScripts(headPreconditions(rest.context.currentCommit), steps).required
-  })
+  Effect.succeed(
+    emitScripts(
+      headPreconditions(rest.context.currentCommit),
+      renderDecision(rest, decision, cost, model),
+    ).required,
+  )
 
 /** `gtd land`'s own flags, threaded as one bag rather than growing `planLanding`/`runLandCommand`'s positional list. */
 interface LandOptions {
@@ -314,7 +314,6 @@ const planLanding = (
     })
 
     const restingState = decision.to
-    const settled = yield* collapsesToInitialState(rest, decision)
     const required = yield* buildRequiredScript(rest, decision, opts.cost, opts.model)
     return {
       state: restingState,
@@ -322,7 +321,7 @@ const planLanding = (
       cost: opts.cost ?? null,
       model: opts.model ?? null,
       script: normalizeScriptNewline(combinedScript(required, "")),
-      settled,
+      settled: false,
       idle: restingState === initialStateOf(rest.def),
     }
   })
@@ -375,25 +374,28 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
 /**
  * `gtd land [--cost=<n>] [--model=<name>]`: land whatever the tree shows at
  * the currently resolved rest, authenticated as the rest's own actor.
- * Plain output writes `result.script` verbatim so `gtd land | sh` keeps
- * working; `--json`/`--sh` emit `script` alongside `settled`/`idle`/`state`/
- * `subject`/`cost`/`model`. Exit code is uniformly `EXIT_OK` on success —
- * whose turn is next lives in the following `gtd next --json`'s `kind` field.
+ * Plain output is `renderLandPlain`'s prose — the commit subject plus a
+ * pointer at `--json=script`, or the no-op note when nothing landed — never
+ * the script itself; `--json` emits `script` (byte-identical to before)
+ * alongside `settled`/`idle`/`state`/`subject`/`cost`/`model`, so it stays
+ * the machine path a driver pipes to `sh`. Exit code is uniformly `EXIT_OK`
+ * on success — whose turn is next lives in the following `gtd next --json`'s
+ * `kind` field.
  */
 const runLandCommand = (
   opts: LandOptions,
-  json: boolean,
-  sh: boolean,
+  json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const result = yield* planLanding(opts)
-    if (json) {
-      out.write(renderLandJson(landFields(result)))
-    } else if (sh) {
-      out.write(renderLandSh(landFields(result)))
+    const built = landFields(result)
+    if (json.kind === "document") {
+      out.write(renderLandJson(built))
+    } else if (json.kind === "select") {
+      yield* writeSelection(out, built, json.path)
     } else {
-      out.write(result.script)
+      out.write(renderLandPlain(built))
     }
   })
 
@@ -494,8 +496,7 @@ const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
   })
 
 /**
- * `gtd restore`: hard-reset HEAD back to the tip `gtd abandon` (or the
- * initial-state collapse's own mixed reset) retained.
+ * `gtd restore`: hard-reset HEAD back to the tip `gtd abandon` retained.
  *
  * Guarded by `restorability` so it never discards work it didn't create:
  * refuses on a dirty working tree, no retained history, or HEAD having
@@ -583,9 +584,8 @@ const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
 /**
  * Render `resolved`'s format:/validate: commands as `EmitStep[]`, wrapping
  * the last one with `onFailure: fixPromptInstruction(file)` when the
- * validator is a command — shared by `resolveValidateScript` and
- * `steeringModeSteps` so the two never drift on which command gets the
- * routable fix prompt.
+ * validator is a command — `resolveValidateScript`'s own helper, split out
+ * so its render logic isn't inlined into that function's body.
  */
 const renderSteeringModeCommandSteps = (
   resolved: ResolvedMode,
@@ -731,15 +731,14 @@ const restIsIdle = (rest: Rest): boolean =>
   rest.state === initialStateOf(rest.def) && rest.changes.length === 0
 
 /**
- * `gtd next`: pure emitter of the resolved rest's beat, in three encodings —
- * `--json`/`--sh` and plain (the default). No mutation: nothing is written,
+ * `gtd next`: pure emitter of the resolved rest's beat, in two encodings —
+ * `--json` and plain (the default). No mutation: nothing is written,
  * so a peek and a would-be dispatch are the same call. Exit code is
  * `EXIT_OK` unconditionally — whose turn is next lives in the beat
  * document's own `kind` field, never the exit code.
  */
 const runNextCommand = (
-  json: boolean,
-  sh: boolean,
+  json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
@@ -752,10 +751,10 @@ const runNextCommand = (
         `pending: ${change.status} ${change.path} -> ${change.pattern ?? "(no match)"}`,
       )
     }
-    if (json) {
+    if (json.kind === "document") {
       out.write(renderBeatJson(fields))
-    } else if (sh) {
-      out.write(renderBeatSh(fields))
+    } else if (json.kind === "select") {
+      yield* writeSelection(out, fields, json.path)
     } else {
       // Advisory only — a render failure here must not fail gtd next
       // itself, so it degrades to omitting the instruction.
@@ -922,7 +921,7 @@ export const computeNextMatch = (
   return null
 }
 
-/** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json`/`--sh` can never describe different rests for the same beat. */
+/** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json` can never describe different rests for the same beat. */
 const gatherBeatFields = (
   rest: Rest,
   rendered: RenderedRest,
@@ -1129,8 +1128,7 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
 // fallow-ignore-next-line complexity
 const dispatchVoidCommand = (
   command: Command,
-  json: boolean,
-  sh: boolean,
+  json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> => {
   switch (command.kind) {
@@ -1147,7 +1145,6 @@ const dispatchVoidCommand = (
           ...(command.model !== undefined ? { model: command.model } : {}),
         },
         json,
-        sh,
         out,
       )
     case "entry":
@@ -1157,7 +1154,7 @@ const dispatchVoidCommand = (
     case "restore":
       return runRestoreCommand(out)
     case "next":
-      return runNextCommand(json, sh, out)
+      return runNextCommand(json, out)
     case "validate":
       return runValidateCommand(out)
     case "check":
@@ -1180,17 +1177,29 @@ const dispatchVoidCommand = (
  */
 export const runCommand = (
   command: Command,
-  json: boolean,
-  sh: boolean,
+  json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> => {
-  const dispatch = dispatchVoidCommand(command, json, sh, out)
+  const dispatch = dispatchVoidCommand(command, json, out)
   if (needsOf(command.kind) !== "state") return dispatch
   return Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
     yield* assertRepositoryHasCommits(git)
+    // One extra load here, own to this block, just to read `.warnings` ahead
+    // of `dispatch`'s own (unrelated) load(s) — `ConfigService.load` isn't
+    // memoized, and `Config.ts`'s pipeline narrates one "config: layer ..."
+    // line per level on EVERY call, so a second bare load under --verbose
+    // would double that output. Silence narration on this one call only (a
+    // scoped Narrator override, never touching the outer context `dispatch`
+    // runs under) — this load exists purely to surface `.warnings`, not to
+    // narrate again.
+    const narrator = yield* Narrator
+    const config = yield* (yield* ConfigService).load.pipe(
+      Effect.provideService(Narrator, { narrate: () => Effect.void, warn: () => Effect.void }),
+    )
+    for (const warning of config.warnings) yield* narrator.warn(`gtd: warning: ${warning}`)
     yield* dispatch
   })
 }

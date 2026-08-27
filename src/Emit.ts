@@ -183,10 +183,10 @@ export const PRESENTATION_FAILURE_WARNING =
   "printf 'gtd: presentation-only follow-up failed — continuing\\n' >&2"
 
 /**
- * A plain-text write command's single pasteable script (`gtd land | sh`).
- * `optional`, when non-empty, is wrapped in a subshell whose failure is
- * swallowed — presentation-only, so it must never turn a landed turn into a
- * non-zero exit.
+ * A write command's single pasteable script (`gtd abandon | sh`,
+ * `gtd land --json=script`'s own field). `optional`, when non-empty, is
+ * wrapped in a subshell whose failure is swallowed — presentation-only, so it
+ * must never turn a landed turn into a non-zero exit.
  */
 export const combinedScript = (required: string, optional: string): string => {
   if (required.length === 0) return ""

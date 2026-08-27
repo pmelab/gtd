@@ -125,8 +125,8 @@ reports `gtd`'s own lifecycle to that status without any herdr-specific
 knowledge in `gtd` itself: `working` while the loop drives, `blocked` when it
 comes to rest on a human (a gate, a stall, a non-zero exit), and `idle`
 (rendered as "done" once the pane's tab is unfocused) when a run ends without
-anything owed. It needs nothing from `gtd` beyond `gtd next --sh`'s `gtd_actor`
-field — a strictly read-only orientation peek.
+anything owed. It needs nothing from `gtd` beyond `gtd next --json=actor` — a
+strictly read-only orientation peek.
 
 Save this as `~/.local/bin/gtdh`, `chmod +x` it, and run `gtdh` in place of
 `gtd-loop` — it's a plain bash file, so it works from fish or any other shell.
@@ -135,8 +135,8 @@ Save this as `~/.local/bin/gtdh`, `chmod +x` it, and run `gtdh` in place of
 #!/usr/bin/env bash
 # Report gtd's own lifecycle to the herdr pane it runs in: working while the
 # loop drives, blocked when it rests on you, idle (shown as "done") otherwise.
-# Needs nothing from gtd but `gtd next --sh`. Outside herdr it is a plain
-# passthrough.
+# Needs nothing from gtd but `gtd next --json=actor`. Outside herdr it is a
+# plain passthrough.
 set -uo pipefail
 
 pane="${HERDR_PANE_ID:-}"
@@ -161,16 +161,14 @@ trap 'report blocked; exit 130' INT TERM
 env -u HERDR_PANE_ID gtd-loop
 rc=$?
 
-# Whose turn is it now? `gtd next --sh` is a strictly read-only peek — every
-# gtd command is, including `gtd next` (its prompt session id is derived,
-# never minted/stored) — only the emitted scripts a driver runs actually
-# touch git. A human actor means gtd is waiting on you; anything else means
-# the run ended with nothing owed. Assign first, THEN eval — same reason as
-# the driver above.
-out="$(gtd next --sh 2>/dev/null)" || out=""
-eval "${out:-}" 2>/dev/null || true
+# Whose turn is it now? `gtd next --json=actor` is a strictly read-only peek —
+# every gtd command is, including `gtd next` (its prompt session id is
+# derived, never minted/stored) — only the emitted scripts a driver runs
+# actually touch git. A human actor means gtd is waiting on you; anything
+# else means the run ended with nothing owed.
+actor="$(gtd next --json=actor 2>/dev/null)" || actor=""
 
-if [ "$rc" -ne 0 ] || [ -z "${gtd_actor:-}" ] || [ "$gtd_actor" = human ]; then
+if [ "$rc" -ne 0 ] || [ -z "$actor" ] || [ "$actor" = human ]; then
   report blocked
 else
   report idle
@@ -218,38 +216,40 @@ the engine itself is a supported public surface, and anything below holds for
 any driver you write against it. gtd decides and prints; it never touches git
 itself. The four commands that change anything — `gtd land`,
 `gtd --entry <state>`, `gtd abandon`, and `gtd restore` — perform no git write
-when run: each one prints ONE POSIX sh script for YOU to execute
-(`src/Emit.ts`'s `combinedScript`) — a leading comment ("gtd emitted this and
-did NOT run it — pipe it into `sh` to land the turn"), then the REQUIRED half
-verbatim, then, only when there's a presentation-only follow-up, a second
-comment ("presentation only — safe to skip") and the OPTIONAL half wrapped in a
-subshell whose own non-zero exit is swallowed (reported to stderr as a warning,
-never turning a landed turn into a failing one). Printing gtd's output and never
-running it is not driving anything; a driver must pipe or execute what gtd
-prints — e.g. the capture-then-pipe form the reference driver below uses — never
-a bare `gtd land | sh`, which would hand an empty script to a shell on a refusal
-instead of stopping first (see the reference driver's own use of `gtd land --sh`
-below).
+when run: each one's `--json=script` form carries ONE POSIX sh script for YOU to
+execute (`src/Emit.ts`'s `combinedScript`) — a leading comment ("gtd emitted
+this and did NOT run it — pipe it into `sh` to land the turn"), then the
+REQUIRED half verbatim, then, only when there's a presentation-only follow-up, a
+second comment ("presentation only — safe to skip") and the OPTIONAL half
+wrapped in a subshell whose own non-zero exit is swallowed (reported to stderr
+as a warning, never turning a landed turn into a failing one). Plain `gtd land`
+is the one exception: it prints a human-readable sentence, never a script (see
+below) — a driver reads the script from `--json=script` instead. Printing gtd's
+output and never running it is not driving anything; a driver must pipe or
+execute what gtd prints — e.g. the capture-then-pipe form the reference driver
+below uses, via `gtd land --json=script`.
 
-Every script gtd emits — `gtd land`, `gtd --entry <state>`, `gtd abandon`,
-`gtd restore`, and the format/validate script `gtd validate` prints — is POSIX
-`sh`, portable to `dash`: a driver may run any of them with any POSIX-compliant
-shell, not specifically bash. The same convention extends to the workflow's own
-`vars.testCommand` (what a `script`-content check state actually executes): it
-is expected to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION
-only — gtd never inspects or validates `testCommand`'s shell dialect itself, it
-only renders the value into a script and hands it to whatever shell the driver
-invokes that script with.
+Every script gtd emits — `gtd land --json=script`, `gtd --entry <state>`,
+`gtd abandon`, `gtd restore`, and the format/validate script `gtd validate`
+prints — is POSIX `sh`, portable to `dash`: a driver may run any of them with
+any POSIX-compliant shell, not specifically bash. The same convention extends to
+the workflow's own `vars.testCommand` (what a `script`-content check state
+actually executes): it is expected to be POSIX sh-compatible too, but this is a
+DOCUMENTED CONVENTION only — gtd never inspects or validates `testCommand`'s
+shell dialect itself, it only renders the value into a script and hands it to
+whatever shell the driver invokes that script with.
 
 - **The required half** is everything that decides what lands in git — the
-  resting state's own steering-mode `format:`/`validate:` commands, the commit
-  itself (`gtd land` and `gtd --entry <state>`), or the ref update and reset
-  that undo a process (`gtd abandon`, `gtd restore`) — and, last, a printed line
-  naming what just landed (`src/OutcomeScript.ts`'s `gtd_report_*` calls): a
-  transition or capture's changed-file rows, or the abandon/restore prose,
-  resolved from the repository AFTER the write above it. Its own exit code IS
-  the printed script's exit code — skipping it means the turn never lands, and
-  you never see what it did.
+  commit itself (`gtd land` and `gtd --entry <state>`), or the ref update and
+  reset that undo a process (`gtd abandon`, `gtd restore`) — and, last, a
+  printed line naming what just landed (`src/OutcomeScript.ts`'s `gtd_report_*`
+  calls): a transition or capture's changed-file rows, or the abandon/restore
+  prose, resolved from the repository AFTER the write above it. Its own exit
+  code IS the printed script's exit code — skipping it means the turn never
+  lands, and you never see what it did. A resting state's own steering-mode
+  `format:`/`validate:` commands are NOT part of this script — they're a
+  separate driver contract via `gtd next --json`'s own `validate` field (see
+  `gtd install`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No emitter
@@ -269,38 +269,40 @@ invokes that script with.
   output to it and truncates once at the start of a run, exactly like the driver
   above does.
 
-Even a genuine no-op `gtd land` (a clean tree matching no `on` pattern) prints a
-PRINT-ONLY script: no git write, just the same `nothing to do at "<state>"` line
-the script prints when a driver runs it. Every encoding (plain, `--json`,
-`--sh`) carries that same script verbatim in its `script` field — running it is
-never optional, whichever encoding a driver reads it from. The script is
-self-contained (it carries its own precondition assert and retry helper) and
-safe to run standalone, in sequence, or not at all — paste it into a terminal
-and it does exactly what it says, printed output included: it detects its own
-tty/`NO_COLOR` at RUN time (not at the moment gtd generated it), so the
+Even a genuine no-op `gtd land` (a clean tree matching no `on` pattern) has a
+PRINT-ONLY script under `--json=script`: no git write, just the same
+`nothing to do at "<state>"` line the script prints when a driver runs it —
+running it is never optional. Plain `gtd land` at the same no-op prints that
+identical line directly, with no script wrapper at all. The `--json=script`
+script is self-contained (it carries its own precondition assert and retry
+helper) and safe to run standalone, in sequence, or not at all — paste it into a
+terminal and it does exactly what it says, printed output included: it detects
+its own tty/`NO_COLOR` at RUN time (not at the moment gtd generated it), so the
 fancy/plain rendering always matches wherever you actually run it.
 
 A driver has no opening move. It does not need to know whose turn it is before
-it starts — `gtd next --json`/`--sh` tells it, and a human's pending edit
-arrives as an ordinary `kind: "capture"` beat that the driver lands like any
-other. The rule this replaces: never `gtd land` outside a beat you dispatched. A
-stray land at a clean `prompt` rest authors an empty attempt on purpose (that IS
-the stall bookkeeping), so an unconditional opening land would manufacture a
-stall out of a fresh start. The one EXCEPTION is the run's very first beat: land
-it before trusting `idle` there too, so a workflow whose initial state declares
-its own clean-tree `"C"` pattern still gets a chance to advance on a human's
-bare re-invocation, rather than the driver concluding "nothing owed" without
-ever giving that edge a turn (see the reference driver's own comment on this).
+it starts — `gtd next --json=kind` tells it, and a human's pending edit arrives
+as an ordinary `kind: "capture"` beat that the driver lands like any other. The
+rule this replaces: never `gtd land` outside a beat you dispatched. A stray land
+at a clean `prompt` rest authors an empty attempt on purpose (that IS the stall
+bookkeeping), so an unconditional opening land would manufacture a stall out of
+a fresh start. The one EXCEPTION is the run's very first beat: land it before
+trusting `idle` there too, so a workflow whose initial state declares its own
+clean-tree `"C"` pattern still gets a chance to advance on a human's bare
+re-invocation, rather than the driver concluding "nothing owed" without ever
+giving that edge a turn (see the reference driver's own comment on this).
 
 Exit code carries none of this any more — every command, `next`/`land` included,
 exits `0` on success (see [Exit codes](./cli.md#exit-codes)). Whose turn is
 next, and whether a landing settles, are both PLAIN FIELDS on
-`gtd next --json`/`--sh` and `gtd land --json`/`--sh`: `next`'s own `kind`
+`gtd next --json`/`gtd land --json`: `next`'s own `kind`
 (`capture`/`message`/`script`/`prompt`/`stalled`) and `idle`; `land`'s own
-`settled` and `idle`. `gtd land --sh` carries `settled`/`idle` alongside the
-script itself, so ONE invocation both runs the landing and tells the driver
-whether to stop — no second read needed to decide. A no-op at a `script` rest
-settles right where it rests (stop immediately, nothing more to read); an
+`settled` and `idle`. Read `--json=settled`/`--json=idle` alongside
+`--json=script` — one round of reads tells the driver both what to run and
+whether to stop, with no second read needed to decide, as long as every value is
+read BEFORE the script is piped to `sh` (see the reference driver below, which
+reads `settled`/`idle` first for exactly this reason). A no-op at a `script`
+rest settles right where it rests (stop immediately, nothing more to read); an
 ordinary landing that finishes the whole process instead resolves `idle` on the
 FOLLOWING `gtd next` — the reference driver below reads once more only to
 DISPLAY that gate's message, never to decide whether to stop. Declaring a `C`
@@ -312,13 +314,13 @@ instead of settling.
 The protocol above is JSON in (from `gtd next --json` alone), subprocesses out —
 sh is one convenient shape, not the only one. A **program** parses
 `gtd next --json`, switches on `kind`, and runs `gtd next`'s (plain-text) output
-and `gtd land`'s (POSIX sh) output as subprocesses — no sh anywhere in it. A
-**human** runs plain `gtd next` (there is no JSON form of it at all), does what
-it says, and pastes `gtd land | sh`: plain-text output exists for exactly this,
-printing the combined script ready to paste. An **agent** gets `gtd install` as
-its instructions — the same protocol, in a form built to be pasted into a
-context window rather than read. A **CI job** is the program case with the
-`prompt` arm pointed at a headless agent CLI, and
+and `gtd land --json=script`'s (POSIX sh) output as subprocesses — no sh
+anywhere in it. A **human** runs plain `gtd next` (there is no JSON form of it
+at all), does what it says, then plain `gtd land`, which names the commit
+subject in one sentence — no script to paste, no shell to pipe into. An
+**agent** gets `gtd install` as its instructions — the same protocol, in a form
+built to be pasted into a context window rather than read. A **CI job** is the
+program case with the `prompt` arm pointed at a headless agent CLI, and
 `kind: "message"`/`kind: "stalled"` mapped onto "stop and report".
 
 ### A complete minimal driver
@@ -338,8 +340,11 @@ argument.** A `prompt` beat's content embeds a full diff, and argv is capped:
 roughly 1 MB on macOS, and POSIX guarantees only 4 KB (`ARG_MAX`). Both are
 reachable by an ordinary diff, so a driver that passes the prompt as an argument
 works in testing and then fails on the first large change, in a way that looks
-like an agent error rather than a driver bug. The driver below pipes `$c`/`$out`
-into `claude -p` over stdin for exactly this reason.
+like an agent error rather than a driver bug. The driver below pipes plain
+`gtd next`'s own output into `claude -p` over stdin for exactly this reason — at
+a `prompt` rest that plain output IS the bare content (no status header), so no
+separate `--json=content` read is needed, and the diff is rendered once instead
+of twice.
 
 ```bash
 #!/usr/bin/env sh
@@ -347,122 +352,140 @@ set -eu
 
 beat=1
 while :; do
-  # One invocation per beat: assign first, THEN eval — command substitution
-  # inside eval's own argument would swallow a failed `gtd next` under
-  # `set -e` (eval would see only the empty string and abort on some later
-  # unset variable with a confusing message). Assigning to `out` first makes
-  # this a simple command whose own exit status IS the substitution's, so
-  # `set -e` aborts correctly on a genuine failure.
-  out="$(gtd next --sh)"
-  eval "$out"
+  # One value per invocation: `gtd next --json=<path>` is a pure read (peek
+  # or dispatch, indistinguishable, always safe to call again), so nothing is
+  # lost by reading `kind`/`idle` as two separate calls rather than one
+  # combined document.
+  kind="$(gtd next --json=kind)"
+  idle="$(gtd next --json=idle)"
 
-  # `gtd_idle` (true iff the initial state, clean tree) is the one shape
-  # that means the process is genuinely done — EXCEPT on the run's opening
-  # beat: land it anyway, so a workflow whose initial state declares its own
+  # `idle` (true iff the initial state, clean tree) is the one shape that
+  # means the process is genuinely done — EXCEPT on the run's opening beat:
+  # land it anyway, so a workflow whose initial state declares its own
   # clean-tree "C" pattern still gets a chance to fire.
-  if [ "$beat" -gt 1 ] && [ "${gtd_idle:-}" = true ]; then
+  if [ "$beat" -gt 1 ] && [ "${idle:-}" = true ]; then
     gtd next
     exit 0
   fi
 
-  case "$gtd_kind" in
-    stalled) printf '%s\n' "$gtd_content" >&2; exit 1 ;;
+  case "$kind" in
+    stalled)
+      gtd next --json=content >&2
+      exit 1 ;;
     # you re-ran us resting here: you either edited something or accepted by
     # editing nothing, so land the opening beat either way. Later beats are
     # gates we just produced and you have not read yet — hand off.
     message) [ "$beat" = 1 ] || { gtd next; exit 0; } ;;
     capture) ;; # the human already acted — just land it
     script)
-      sh -c "$gtd_content" >>"$gtd_log" 2>&1 || true ;;
+      # A `script` rest's plain output is prose, not pipeable into `sh` — the
+      # raw script comes from `--json=content` instead.
+      content="$(gtd next --json=content)"
+      log="$(gtd next --json=log)"
+      sh -c "$content" >>"$log" 2>&1 || true ;;
     prompt)
-      # $gtd_content embeds a full diff, so it goes to the agent over
-      # stdin, never as an argv positional — argv is capped (~1 MB on
-      # macOS, and POSIX guarantees only 4 KB, ARG_MAX), and a diff crosses
-      # that far sooner than you'd expect.
-      agent_turn() { printf '%s' "$gtd_content" | claude -p "$1" "$gtd_session_id" \
-        ${gtd_model:+--model "$gtd_model"} \
-        ${gtd_system:+--system-prompt "$gtd_system"} \
-        --dangerously-skip-permissions >>"$gtd_log" 2>&1; }
-      if [ "${gtd_session_resume:-}" = true ]
+      session_id="$(gtd next --json=session.id)"
+      resume="$(gtd next --json=session.resume)"
+      model="$(gtd next --json=model)"
+      system="$(gtd next --json=system)"
+      validate="$(gtd next --json=validate)"
+      log="$(gtd next --json=log)"
+      # The prompt embeds a full diff, so it goes to the agent over stdin,
+      # never as an argv positional — argv is capped (~1 MB on macOS, and
+      # POSIX guarantees only 4 KB, ARG_MAX), and a diff crosses that far
+      # sooner than you'd expect. Piping plain `gtd next` (not
+      # --json=content) means the diff is rendered once, for this input,
+      # rather than twice.
+      agent_turn() { gtd next | claude -p "$1" "$session_id" \
+        ${model:+--model "$model"} \
+        ${system:+--system-prompt "$system"} \
+        --dangerously-skip-permissions >>"$log" 2>&1; }
+      if [ "${resume:-}" = true ]
       then agent_turn --resume || agent_turn --session-id
       else agent_turn --session-id || agent_turn --resume
       fi
       n=0
-      while [ -n "${gtd_validate:-}" ] && ! fix="$(sh -c "$gtd_validate" 2>&1)"; do
+      while [ -n "${validate:-}" ] && ! fix="$(sh -c "$validate" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\n' "$fix" >&2; exit 1; }
-        # $fix IS the fix prompt, verbatim — piped for the same reason as
-        # $gtd_content above. Whether `claude --resume` re-applies the
+        # $fix IS the fix prompt, verbatim — piped for the same reason the
+        # agent's own turn above is. Whether `claude --resume` re-applies the
         # original session's model/system prompt is a harness detail gtd
         # cannot verify from outside, so this passes the identical
-        # $gtd_model/$gtd_system on both calls rather than assume it does —
+        # $model/$system on both calls rather than assume it does —
         # otherwise this fix turn might silently fall back to Claude Code's
         # own defaults while the turn that produced the file ran under the
         # workflow's own model and persona.
-        printf '%s' "$fix" | claude -p --resume "$gtd_session_id" \
-          ${gtd_model:+--model "$gtd_model"} \
-          ${gtd_system:+--system-prompt "$gtd_system"} \
-          --dangerously-skip-permissions >>"$gtd_log" 2>&1
+        printf '%s' "$fix" | claude -p --resume "$session_id" \
+          ${model:+--model "$model"} \
+          ${system:+--system-prompt "$system"} \
+          --dangerously-skip-permissions >>"$log" 2>&1
       done ;;
   esac
 
-  # `gtd land --sh` carries `settled`/`idle` alongside the script itself —
-  # one invocation tells us both what to run and whether to stop, with no
-  # second read needed to decide either.
-  out="$(gtd land --sh)"
-  eval "$out"
-  printf '%s\n' "$gtd_script" | sh
-  if [ "${gtd_settled:-}" = true ]; then
-    [ "${gtd_idle:-}" = true ] && gtd next
+  # Read every value the landing needs BEFORE piping the script to `sh`:
+  # `gtd land` itself never mutates — it only plans and prints — so
+  # `settled`/`idle`/`script` planned against the same untouched tree all
+  # agree, whatever order they're read in, as long as all three are read
+  # before the script runs and changes the tree out from under them.
+  settled="$(gtd land --json=settled)"
+  idle="$(gtd land --json=idle)"
+  gtd land --json=script | sh
+  if [ "${settled:-}" = true ]; then
+    [ "${idle:-}" = true ] && gtd next
     exit 0
   fi
   beat=$((beat + 1))
 done
 ```
 
-Line by line it is the protocol described above: `out="$(gtd next --sh)"` then
-`eval "$out"` is one invocation per beat — assigning first is what lets `set -e`
-abort correctly on a genuine failure, where `eval "$(gtd next --sh)"` would
-instead eval the empty string and die later on some unrelated unset variable;
-the driver carries no `unset` of its own, since the `--sh` document's own
-preamble makes `eval` self-contained. The very first beat lands even when
-`gtd_idle` is already true, so a workflow whose initial state declares its own
-clean-tree `"C"` pattern still gets a chance to fire before the driver calls it
-done. `kind: "stalled"` prints `$gtd_content` (the diagnosis itself) to stderr
-and stops — no re-invocation needed, since the beat already fetched it;
-`message` halts unless it is the opening beat, which the human's own
+Line by line it is the protocol described above:
+`kind="$(gtd next --json=kind)"` and `idle="$(gtd next --json=idle)"` are two
+independent, idempotent reads — each a pure `gtd next --json=<path>` call, safe
+to make as often as needed, with no `eval` and no shared preamble to keep them
+consistent with each other. The very first beat lands even when `idle` is
+already true, so a workflow whose initial state declares its own clean-tree
+`"C"` pattern still gets a chance to fire before the driver calls it done.
+`kind: "stalled"` prints `gtd next --json=content` (the diagnosis) to stderr and
+stops; `message` halts unless it is the opening beat, which the human's own
 re-invocation authored and which therefore lands like any other decision (see
 [Driving the loop](#driving-the-loop) above — this is the one place the driver,
 not gtd, decides, because "has the human read this gate" is run-scoped knowledge
 gtd deliberately does not keep); `capture` lands a human's already-made edit
-outright, no display needed; `script` runs `$gtd_content` in the driver;
-`prompt` sends it to the agent over stdin with
-`$gtd_session_id`/`$gtd_model`/`$gtd_system` mapped onto the agent's session
-flags — trying `resume`'s hinted flag first and falling back to the other on
-failure, since the session id is derived, not remembered (see
-[Driving the loop](#driving-the-loop) above) — and its own `$gtd_validate`
-script's output re-prompted verbatim on failure (the driver owns only the retry
-cap). Every optional variable (`$gtd_model`, `$gtd_system`, `$gtd_validate`,
-`$gtd_session_resume`, `$gtd_idle`, `$gtd_settled`) is read as `${var:-}` or
-`${var:+...}` — under `set -u`, the `--sh` document's own `unset` preamble makes
-an absent field genuinely unset, not empty, so a bare `$gtd_model` would abort
-the driver. Every landed turn is executed — and reported — by the emitted
-scripts themselves, via `gtd land --sh`'s own `$gtd_script` field, captured then
-piped to `sh`. `$gtd_settled` ends a run that has nothing left to do: a no-op at
-a `script` rest settles right where it rests (stop immediately, nothing more to
+outright, no display needed; `script` reads its content off `--json=content`
+(the raw script, not plain `gtd next`'s prose) and runs it; `prompt` pipes plain
+`gtd next`'s own output to the agent over stdin, with
+`session.id`/`session.resume`/`model`/`system`/`validate` read as separate
+`--json=<path>` calls and mapped onto the agent's session flags — trying
+`resume`'s hinted flag first and falling back to the other on failure, since the
+session id is derived, not remembered (see [Driving the loop](#driving-the-loop)
+above) — and its own `validate` script's output re-prompted verbatim on failure
+(the driver owns only the retry cap). Every optional value (`model`, `system`,
+`validate`, `session.resume`, `idle`, `settled`) is read into a shell variable
+that command substitution always assigns — even to the empty string when the
+field is absent — so `set -u` never aborts on it; the guards
+(`${var:-}`/`${var:+...}`) still matter for VALUE, not for `set -u`: an absent
+field prints nothing, so an unguarded `--model "$model"` on an absent field
+would pass `--model ""` and silently override the harness's own default, which
+`${model:+--model "$model"}` avoids by omitting the flag entirely when `model`
+is empty. Every landed turn is executed — and reported — by the emitted script
+itself, read off `gtd land --json=script`, captured then piped to `sh`;
+`settled`/`idle` are read from the same untouched tree first, per the ordering
+rule above. `settled` ends a run that has nothing left to do: a no-op at a
+`script` rest settles right where it rests (stop immediately, nothing more to
 read), while an ordinary landing that finishes the whole process instead
-resolves `$gtd_idle` on the FOLLOWING beat's own `gtd next --sh` read — the
+resolves `idle` on the FOLLOWING beat's own `gtd next --json=idle` read — the
 reference driver reads once more (a plain `gtd next`) only to DISPLAY that
-gate's own message, the decision to stop already made from `$gtd_settled`/
-`$gtd_idle` alone.
+gate's own message, the decision to stop already made from `settled`/`idle`
+alone.
 
-This paste passes `$gtd_system` on argv, and POSIX guarantees only 4 KB of argv
+This paste passes `$system` on argv, and POSIX guarantees only 4 KB of argv
 (`ARG_MAX`) — real systems are far higher (roughly 1 MB on both macOS and
 Linux), and the bundled personas are only a few KB each, so this works
 everywhere in practice. A driver shipping much larger system prompts, or
 targeting a platform sitting at the POSIX floor, should write the string to a
-file and pass that instead: gtd's own contract ends at emitting `gtd_system` as
-a string, and how a driver hands that string to its agent CLI — argv, a temp
-file, or something else — is the driver's own call, since it alone knows its
+file and pass that instead: gtd's own contract ends at emitting `system` as a
+string, and how a driver hands that string to its agent CLI — argv, a temp file,
+or something else — is the driver's own call, since it alone knows its
 platform's argv limit and whether it has a writable temp directory; gtd adds no
 flag, no file, and no mechanism of its own for this. (The doc-test below only
 proves this paste parses and runs against a `claude` shim — not that the flag is
@@ -478,7 +501,7 @@ either `gtd next --json`'s own embedded `.validate` field (present at every
 one shared resolver. This field is now populated even at a FIRST-WRITE beat,
 before the steering file exists at all: the script itself carries a leading
 `[ -f <file> ] || exit 0` guard rather than gtd checking existence ahead of
-time, so a driver's `while [ -n "$gtd_validate" ]` repair loop is armed from the
+time, so a driver's `while [ -n "$validate" ]` repair loop is armed from the
 very first turn at a state, not just the second and later ones. Exit 0 means the
 file is well-formed (or genuinely doesn't exist yet) — proceed to `gtd land`. A
 non-zero exit usually means the script's own captured output IS a complete,
@@ -515,8 +538,8 @@ non-zero-looking exits are not a failure at all:
 - **`gtd land` succeeds (exit 0) but doesn't settle.** This is NOT a failure:
   whose turn is next lives in the FOLLOWING `gtd next`'s own `kind` field, not
   in `gtd land`'s exit code (see [Exit codes](./cli.md#exit-codes)) — and
-  `gtd land`'s own stdout still carries a script (a print-only note, or a
-  genuine retain+rewind, or an ordinary commit) that a driver must still run.
+  `gtd land --json=script` still carries a script (a print-only note, or an
+  ordinary commit) that a driver must still run.
 - **An emitted script exits non-zero when YOU run it.** Something may have
   partially happened — e.g. a `gtd_retry`-wrapped git write landed but a later
   step in the same script failed.

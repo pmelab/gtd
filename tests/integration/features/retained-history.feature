@@ -3,10 +3,9 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
 
   `gtd abandon` rewinds a process still underway, retaining the pre-abandon
   tip on `refs/worktree/gtd/history` (see `src/RetainedHistory.ts`) before it
-  acts — the green `--entry fix-precheck` collapse (an initial-state
-  `StepCommit` mixed-reset, not a squash) writes the same ref too, so it is
-  not abandon-only either. `gtd restore` is the way back: it hard-resets HEAD
-  to the retained tip and clears the ref.
+  acts — its only writer; `gtd land` never moves HEAD, so it never touches
+  this ref. `gtd restore` is the way back: it hard-resets HEAD to the
+  retained tip and clears the ref — purely `abandon`'s inverse.
 
   It is guarded by `restorability` so it never discards work it didn't
   create: it refuses on a dirty working tree, when there is no retained

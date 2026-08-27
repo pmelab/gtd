@@ -226,6 +226,11 @@ When("I run gtd land", async (world: GtdWorld) => {
   await world.runGtd("land")
 })
 
+/** Undriven — plain `gtd land`'s own prose carries no script to run (package 02, Requirement B); see `runGtdLandPlain`'s own doc comment. */
+When("I run plain gtd land", async (world: GtdWorld) => {
+  await world.runGtdLandPlain()
+})
+
 When("I run gtd land with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd("land", arg)
 })
@@ -244,8 +249,8 @@ When(
   },
 )
 
-When("I run gtd land piped to bash", async (world: GtdWorld) => {
-  await world.runGtdLandPiped()
+When("I run gtd land --json=script piped to sh", async (world: GtdWorld) => {
+  await world.runGtdLandJsonScriptPiped()
 })
 
 // @live only — see `GtdWorld.runGtdNextRedirectedAndPiped`'s own doc comment.
@@ -379,6 +384,26 @@ Then(
       actual,
       count,
       `Expected stdout to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${stdout}`,
+    )
+  },
+)
+
+// The stderr counterpart — proves a warning (or any other stderr line)
+// prints once per invocation, not once per internal re-load/re-check.
+Then(
+  "stderr contains {string} exactly {int} times",
+  (world: GtdWorld, text: string, count: number) => {
+    const stderr = world.lastResult.stderr
+    let actual = 0
+    let idx = 0
+    while ((idx = stderr.indexOf(text, idx)) !== -1) {
+      actual++
+      idx += text.length
+    }
+    assert.strictEqual(
+      actual,
+      count,
+      `Expected stderr to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${stderr}`,
     )
   },
 )
