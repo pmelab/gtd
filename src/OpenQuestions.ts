@@ -199,16 +199,41 @@ const parseQuestionBlock = (
 }
 
 /**
+ * `## Open Questions` must precede every other level-2 section, and
+ * `## Answered Questions` must follow every other level-2 section — so a
+ * reader (and a driver walking the file) always finds open questions first
+ * and resolved ones last. At most one finding per rule, regardless of how
+ * many competing sections offend it. Level-1 headings and prose don't count.
+ */
+const checkSectionOrder = (lines: readonly string[]): readonly string[] => {
+  const h2Lines = lines
+    .map((line, index) => ({ index, heading: parseHeading(line) }))
+    .filter((entry) => entry.heading?.level === 2)
+    .map((entry) => entry.index)
+
+  const openIndex = lines.findIndex((line) => line.trim() === OPEN_QUESTIONS_HEADING)
+  const answeredIndex = lines.findIndex((line) => line.trim() === ANSWERED_QUESTIONS_HEADING)
+
+  const findings: string[] = []
+  if (openIndex !== -1 && h2Lines.some((i) => i !== openIndex && i < openIndex)) {
+    findings.push("A '##' section appears before '## Open Questions', which must come first")
+  }
+  if (answeredIndex !== -1 && h2Lines.some((i) => i !== answeredIndex && i > answeredIndex)) {
+    findings.push("A '##' section appears after '## Answered Questions', which must come last")
+  }
+  return findings
+}
+
+/**
  * Parses the open-questions structure out of `content`. Total and
  * side-effect-free: always returns a result, never throws. Questions are
- * returned in document order (by heading line) regardless of which section
- * comes first.
+ * returned in document order (by heading line).
  */
 export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   const lines = content.split(/\r?\n/)
 
   const questions: OpenQuestion[] = []
-  const errors: string[] = []
+  const errors: string[] = [...checkSectionOrder(lines)]
 
   const sections: readonly (readonly [string, OpenQuestionStatus])[] = [
     [OPEN_QUESTIONS_HEADING, "open"],
