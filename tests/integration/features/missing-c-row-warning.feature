@@ -7,9 +7,7 @@ Feature: gtd warns on a workflow state that declares no "C" row
   default), but usually an oversight. Every command that loads workflow state
   (`needsOf` `"state"`) prints the warning once per invocation, on stderr
   only — stdout stays the machine path. The bundled unified template prints
-  exactly two, on every invocation: `unwind` and `build.review.deciding` both
-  deliberately leave their clean case unrouted (see their `on:` comments in
-  `src/workflows/unified.yaml`).
+  none: every one of its script states routes its clean case.
 
   Background:
     Given a test project
@@ -42,11 +40,9 @@ Feature: gtd warns on a workflow state that declares no "C" row
     And stderr contains "state \"building\" declares no \"C\" row" exactly 1 times
     And stdout does not contain "\"C\" row"
 
-  Scenario: the bundled unified template prints exactly its two accepted warnings
+  Scenario: the bundled unified template prints no warning at all
     Given the workflow
     When I run gtd with args "next"
     Then it succeeds
-    And stderr contains "\"C\" row" exactly 2 times
-    And stderr contains "state \"unwind\" declares no \"C\" row"
-    And stderr contains "state \"build.review.deciding\" declares no \"C\" row"
+    And stderr does not contain "\"C\" row"
 
