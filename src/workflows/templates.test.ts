@@ -38,12 +38,15 @@ describe("the bundled unified workflow template", () => {
     expect(definition.states[definition.entries.default]).toBeDefined()
   })
 
-  it("declares exactly two accepted no-C-row warnings — unwind and build.review.deciding, both deliberately unrouted for correctness reasons documented on the state itself (package 03)", () => {
+  it("declares no warnings at all — every script state routes its clean case", () => {
+    // `unwind` and `build.review.deciding` were the two long-standing
+    // exceptions. Each now disambiguates its ambiguous clean tree inside the
+    // SCRIPT (the revert's exit code / REVIEW.md's absence) and writes
+    // `.gtd/FEEDBACK.md` on the broken branch, which leaves a `C` row it can
+    // honestly declare. A warning here means a state grew an unhandled clean
+    // case — which stalls silently rather than failing.
     const { definition } = compileTemplate()
-    expect(validateDefinition(definition).warnings).toEqual([
-      'state "unwind" declares no "C" row',
-      'state "build.review.deciding" declares no "C" row',
-    ])
+    expect(validateDefinition(definition).warnings).toEqual([])
   })
 
   it("declares `retry` on exactly build.fix and packages.item.fix-suite, and nothing else (package 01)", () => {
@@ -120,8 +123,15 @@ describe("the bundled unified workflow template", () => {
       (s.on ?? []).filter(([, to]) => to === "unwind").map(() => from),
     )
     expect(inbound).toEqual(["idle"])
+    // The revert's failure branch writes `.gtd/FEEDBACK.md` and forks to a
+    // human gate; every other outcome, clean tree included, advances.
     const unwindTargets = (definition.states.unwind!.on ?? []).map(([, to]) => to)
-    expect(unwindTargets).toEqual(["start-gate.check"])
+    expect(unwindTargets).toEqual([
+      "unwind-failed",
+      "unwind-failed",
+      "start-gate.check",
+      "start-gate.check",
+    ])
     expect((definition.states["start-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
       "design.triage",
     )
@@ -375,15 +385,25 @@ describe("the bundled unified workflow template", () => {
     })
   })
 
-  it("unwind and build.review.deciding declare no C row — a clean tree there is ambiguous (a completed no-op vs. a swallowed failure) or would auto-approve an unreviewed round, so it stays a warned no-op rather than routing anywhere (package 03)", () => {
+  it("unwind and build.review.deciding each route their clean tree — the ambiguity is resolved in the script, not left as a silent no-op (package 03)", () => {
+    // unwind: the script writes FEEDBACK.md when `git revert` exits
+    // non-zero, so a clean tree here can only mean the revert succeeded and
+    // changed nothing — safe to advance.
+    // deciding: the script writes FEEDBACK.md when REVIEW.md is absent, so
+    // the clean case is unreachable; it still routes to the human gate
+    // rather than nowhere, because a clean tree must never auto-approve an
+    // unreviewed round.
     const { definition } = compileTemplate()
-    for (const name of ["unwind", "build.review.deciding"]) {
-      const decision = step(definition, name, definition.states[name]!.actor!, {
+    const clean = (name: string) =>
+      step(definition, name, definition.states[name]!.actor!, {
         changes: [],
         processTrace: [],
       })
-      expect(decision, name).toMatchObject({ kind: "noop" })
-    }
+    expect(clean("unwind")).toMatchObject({ kind: "commit", to: "start-gate.check" })
+    expect(clean("build.review.deciding")).toMatchObject({
+      kind: "commit",
+      to: "build.review.review-missing",
+    })
   })
 
   it("every script-content state is POSIX sh, not bash — the driver runs it via `sh -c`", () => {

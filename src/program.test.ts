@@ -285,20 +285,19 @@ describe('gtd — warns on a state with no "C" row (package 03)', () => {
     expect(warned.stdout).toBe(clean.stdout)
   })
 
-  it("the bundled unified template prints exactly its two accepted warnings — unwind and build.review.deciding, each deliberately left unrouted (package 03)", async () => {
-    // Both states declare no `C` row on purpose (see their `on:` comments in
-    // unified.yaml): routing either one's clean case somewhere would either
-    // mask a swallowed `git revert` failure (unwind) or auto-approve an
-    // unreviewed round (deciding). Warning on every invocation is the
-    // accepted cost, not a compiled-shape bug.
+  it("the bundled unified template prints no warning at all — every script state routes its clean case", async () => {
+    // `unwind` and `build.review.deciding` were the two long-standing
+    // exceptions: each has a clean tree that is ambiguous from the diff
+    // alone. Both now disambiguate inside the SCRIPT (exit code / the
+    // file's absence) and write `.gtd/FEEDBACK.md` on the broken branch, so
+    // each has a `C` row it can honestly route. A warning reappearing here
+    // means a state grew an unhandled clean case, which stalls silently.
     const repo = new InMemRepo()
     repo.writeFile(".gtdrc.json", renderInitConfig())
     repo.commitAllWithPrefix("chore: init gtd workflow")
     const { stderr, exitCode } = await run(repo, "next")
     expect(exitCode).toBe(0)
-    expect(stderr.match(/"C" row/g)).toHaveLength(2)
-    expect(stderr).toContain('state "unwind" declares no "C" row')
-    expect(stderr).toContain('state "build.review.deciding" declares no "C" row')
+    expect(stderr).not.toContain('"C" row')
   })
 
   it('gtd visualize prints no warning — needsOf is "config", not "state"', async () => {

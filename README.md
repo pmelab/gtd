@@ -143,7 +143,7 @@ Label: Unwinding your input
 
 #!/usr/bin/env sh
 ...
-git revert --no-commit "$commit"
+git revert --no-commit "$commit" 2> .gtd/.unwind-error
 ```
 
 `Awaits: check` means this beat is not yours: it is a script. gtd never runs

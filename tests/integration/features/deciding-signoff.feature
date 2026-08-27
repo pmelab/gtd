@@ -44,3 +44,19 @@ Feature: A tick with no comment signs off — build.review.deciding's script rea
     And I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → idle"
+
+  @live
+  Scenario: no `.gtd/REVIEW.md` at HEAD is not a sign-off — deciding's script writes FEEDBACK.md and lands at a human gate
+    # The one clean-tree case deciding's `rm -f .gtd/REVIEW.md` used to
+    # produce. The script detects it by the file's ABSENCE, not by the diff,
+    # so the broken round always carries a diff and can never be mistaken for
+    # an approval of nothing.
+    Given a test project
+    And an empty commit "gtd(agent): build.health.check → build.review.reviewing"
+    And an empty commit "gtd(human): build.review.await-review → build.review.deciding"
+    When I run gtd next with "--json"
+    And I execute the printed check script
+    And I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.review-missing"
+    And ".gtd/FEEDBACK.md" exists

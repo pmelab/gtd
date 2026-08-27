@@ -435,13 +435,22 @@ otherwise fixed; that repetition is intentional, not a bug. `gtd visualize` and
 `gtd lsp` never print it (neither resolves workflow state the same way
 `gtd next`/`gtd land`/`gtd --entry` do).
 
-The bundled unified template prints exactly two, on every invocation: `unwind`
-and `build.review.deciding` both deliberately declare no `"C"` row, because
-their clean-tree case is either ambiguous (a completed no-op vs. a `git revert`
-failure swallowed by `set +e`, for `unwind`) or would auto-approve an unreviewed
-round (`build.review.deciding`'s clean tree means its own `REVIEW.md` was never
-provisioned, not that a human signed off). Routing either one somewhere to
-silence the warning would be worse than the noise.
+The bundled unified template prints no such warning: every one of its script
+states routes its clean case. Two of them used to be exceptions, and how they
+were fixed is the pattern to copy when your own workflow trips this warning.
+Both had a clean tree that was ambiguous from the diff alone — `unwind` could
+not tell a completed no-op from a `git revert` failure swallowed by `set +e`,
+and `build.review.deciding`'s clean tree meant its own `REVIEW.md` was never
+provisioned, not that a human signed off. Neither could be routed honestly as
+written.
+
+The fix is to resolve the ambiguity **inside the script**, not in the routing:
+each now checks the thing the diff cannot show you (the revert's exit code; the
+file's absence) and writes `.gtd/FEEDBACK.md` on the broken branch. That gives
+the failure a diff of its own, which forks to a human gate — and leaves a clean
+tree meaning exactly one thing, so the `"C"` row can finally say where it goes.
+Adding a `"C"` row that merely guesses, to silence the warning, is worse than
+the noise.
 
 ### The normalization-only contract on `format:`
 

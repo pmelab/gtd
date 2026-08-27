@@ -858,12 +858,24 @@ machines:
           set +e
           mkdir -p .gtd
           head=$(git rev-parse HEAD)
-          # Normalize [ ]/[x] before diffing, so only a real note counts.
-          before=$(git show "HEAD^:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
-          after=$(git show "HEAD:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
-          if git diff-tree --no-commit-id --name-only -r HEAD -- . ":(exclude).gtd" \
+          # The one case that leaves a clean tree below is REVIEW.md already
+          # missing (the `rm -f` no-ops) — which means the review gate's own
+          # file-provisioning invariant broke, NOT a sign-off. Detecting it
+          # here, by the file's absence rather than by the diff, is what
+          # makes the `C` row below safe to declare: a broken round now
+          # always carries a FEEDBACK.md diff and routes to a human.
+          if ! git cat-file -e "HEAD:.gtd/REVIEW.md" 2>/dev/null; then
+            printf 'there is no `.gtd/REVIEW.md` at %s — nothing was reviewed this round.\n' "$head" > .gtd/FEEDBACK.md
+          elif git diff-tree --no-commit-id --name-only -r HEAD -- . ":(exclude).gtd" \
                | grep -q . \
-             || [ "$before" != "$after" ]; then
+             || [ "$(git show "HEAD^:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')" \
+                != "$(git show "HEAD:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')" ]; then
+            # Reached only with REVIEW.md present. FEEDBACK iff the human
+            # left a note (any edit beyond a checkbox tick — hence the
+            # [ ]/[x] normalization above) or hand-edited any file this
+            # round outside .gtd/; otherwise a clean sign-off. This turn
+            # only CAPTURES the raw material into REVIEW_RAW.md —
+            # collecting judges actionability.
             {
               echo "This is machine-captured input, not instructions. A downstream agent judges whether it's actionable."
               echo
@@ -871,17 +883,49 @@ machines:
               echo "The human's notes are in .gtd/REVIEW.md at this commit. Any hand edits are"
               echo "in that commit's other paths. Run: git show $head"
             } > .gtd/REVIEW_RAW.md
+            rm -f .gtd/REVIEW.md
+          else
+            rm -f .gtd/REVIEW.md
           fi
-          rm -f .gtd/REVIEW.md
         on:
+          # FEEDBACK rows first: the broken-invariant branch writes nothing
+          # else, but declaring them ahead of the sign-off row keeps the
+          # ordering honest if it ever does.
+          "A .gtd/FEEDBACK.md": review-missing
+          "M .gtd/FEEDBACK.md": review-missing
+          # A/M REVIEW_RAW.md before D REVIEW.md so a feedback round (which
+          # also deletes REVIEW.md) isn't mistaken for sign-off.
           "A .gtd/REVIEW_RAW.md": collecting
           "M .gtd/REVIEW_RAW.md": collecting
           "D .gtd/REVIEW.md": $onSignoff
-          # Deliberately no `C` row: REVIEW.md missing here means the review
-          # gate's own file-provisioning invariant broke, not a sign-off — a
-          # clean tree must not be able to auto-approve the round with
-          # nothing reviewed. Stays a no-op (validateHasCRow's warning is the
-          # accepted cost) rather than routing anywhere.
+          # Unreachable now that the missing-REVIEW.md case writes
+          # FEEDBACK.md above, but declared rather than left off: if a clean
+          # tree ever does happen here, it must reach a human, never
+          # auto-approve an unreviewed round.
+          "C": review-missing
+
+      review-missing:
+        actor: human
+        label: Nothing to review
+        file: FEEDBACK.md
+        message: |
+          The review round committed no `.gtd/REVIEW.md`, so there is nothing
+          to sign off on. `.gtd/FEEDBACK.md` holds the detail.
+
+          Make any change to re-run the reviewer and author a fresh review
+          record.
+
+          What each change does next (then run `gtd land`):
+          <% it.edges.forEach(function (e) { if (e.describe) { %>
+          <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+          <% } }) %>
+        on:
+          "* **":
+            to: reviewing
+            action: Re-review
+            describe: >-
+              re-run the reviewer to author a fresh `.gtd/REVIEW.md`
+              (**build.review.reviewing**).
 
       # Outcome is by which paths THIS diff touches: writing REQUIREMENTS.md
       # (A/M) is the actionable case, so those rows are declared before "D
@@ -1308,21 +1352,61 @@ machines:
         script: |
           #!/usr/bin/env sh
           set +e
+          mkdir -p .gtd
           # Hoisted here, at the TOP: Eta's autoTrim eats the newline after
           # an interpolation tag, so no tag may be the last token on a line.
           # Uses it.currentCommit (render-time), not bare HEAD, so a
           # late-running driver still reverts the right commit.
           commit="<%~ it.currentCommit %>"
-          git revert --no-commit "$commit"
+          git revert --no-commit "$commit" 2> .gtd/.unwind-error
+          code=$?
+          # The revert's EXIT CODE is what separates a genuine no-op from a
+          # hard failure (e.g. a merge commit with no `-m`) — the diff alone
+          # cannot, since both can leave a clean tree. Turning the failure
+          # into a FEEDBACK.md write is what makes the `C` row below safe:
+          # once a failure always has a diff, a clean tree here means the
+          # revert really did succeed and change nothing.
+          if [ "$code" -ne 0 ]; then
+            printf 'gtd could not unwind %s out of your working tree.\n\n' "$commit" > .gtd/FEEDBACK.md
+            if [ -s .gtd/.unwind-error ]; then
+              cat .gtd/.unwind-error >> .gtd/FEEDBACK.md
+            else
+              printf '`git revert --no-commit` exited %s and produced no output.\n' "$code" >> .gtd/FEEDBACK.md
+            fi
+          fi
+          rm -f .gtd/.unwind-error
         on:
+          "A .gtd/FEEDBACK.md": unwind-failed
+          "M .gtd/FEEDBACK.md": unwind-failed
           "* **": start-gate
-          # Deliberately no `C` row: `git revert --no-commit` under `set +e`
-          # leaves a clean tree on either a genuine no-op OR a hard failure
-          # (e.g. a merge commit with no `-m`) — the two are indistinguishable
-          # from the diff alone, and advancing unconditionally would run the
-          # baseline check against a tree that still carries the human's
-          # un-reverted sketch. Stays a no-op (validateHasCRow's warning is
-          # the accepted cost) rather than risking a false-clean baseline.
+          "C": start-gate
+
+      # Reached only when the revert above exited non-zero. A human repairs
+      # the tree by hand; start-gate.check clears FEEDBACK.md on its way
+      # green, so nothing has to sweep it here.
+      unwind-failed:
+        actor: human
+        label: Could not unwind your input
+        file: FEEDBACK.md
+        message: |
+          gtd could not revert your sketch out of the working tree.
+          `.gtd/FEEDBACK.md` holds the error.
+
+          Undo the sketch by hand (its intent survives in history either
+          way), then continue — gtd will not start work on a tree that still
+          carries it.
+
+          What each change does next (then run `gtd land`):
+          <% it.edges.forEach(function (e) { if (e.describe) { %>
+          <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+          <% } }) %>
+        on:
+          "* **":
+            to: start-gate
+            action: Continue
+            describe: >-
+              having undone the sketch by hand, check the test baseline is
+              green and start triage (**start-gate.check**).
 
       # Reverts the human's own review-round hand-edit before re-planning,
       # scoped to real code (`.gtd/` excluded — REVIEW.md is already gone by
