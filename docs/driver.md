@@ -5,7 +5,7 @@
 gtd itself is not a loop — it decides and prints, full stop; driving a loop is a
 driver's job. The minimal driver below (see
 [A complete minimal driver](#a-complete-minimal-driver)) is that driver: save it
-as `~/.local/bin/gtd-loop`, `chmod +x` it, and run it from a repository root —
+as `~/.local/bin/gtd-build`, `chmod +x` it, and run it from a repository root —
 it takes no arguments and runs the loop until it's your turn. It drives the
 autonomous states (agent turns, check runs) and stops at the first
 non-autonomous one: reaching a human gate it prints the gate's message and
@@ -129,7 +129,7 @@ anything owed. It needs nothing from `gtd` beyond `gtd next --json=actor` — a
 strictly read-only orientation peek.
 
 Save this as `~/.local/bin/gtdh`, `chmod +x` it, and run `gtdh` in place of
-`gtd-loop` — it's a plain bash file, so it works from fish or any other shell.
+`gtd-build` — it's a plain bash file, so it works from fish or any other shell.
 
 ```bash
 #!/usr/bin/env bash
@@ -158,7 +158,7 @@ trap 'report blocked; exit 130' INT TERM
 # without it no `claude -p` turn reports a claude SESSION identity for this
 # pane. That is load-bearing, not cosmetic — a pane that owns one rejects every
 # later state report, so the report below would be dropped.
-env -u HERDR_PANE_ID gtd-loop
+env -u HERDR_PANE_ID gtd-build
 rc=$?
 
 # Whose turn is it now? `gtd next --json=actor` is a strictly read-only peek —
@@ -324,7 +324,7 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 ### A complete minimal driver
 
 This is the whole protocol described above, compressed into a loop small enough
-to paste from this page and own outright — save it as `~/.local/bin/gtd-loop`
+to paste from this page and own outright — save it as `~/.local/bin/gtd-build`
 (`chmod +x`) and it's the ready-to-run driver
 [Driving the loop](#driving-the-loop) above points at; swap the `claude` line
 for any agent CLI and it keeps working.

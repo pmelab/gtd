@@ -102,6 +102,26 @@ f="\${f:-.gtd/TODO.md}"
 mkdir -p "$(dirname "$f")"
 exec "\${EDITOR:-vi}" "$f"`
 
+export const REVIEW_COMMAND = `#!/usr/bin/env sh
+set -eu
+GTD_BUILD=~/.local/bin/gtd-build
+if [ -z "\${1:-}" ]; then
+  echo "usage: gtd-review <commitish>" >&2
+  exit 2
+fi
+cd "$(git rev-parse --show-toplevel)"
+script="$(gtd --entry review-gate.check --var reviewBase="$1")"
+sh -c "$script"
+exec "$GTD_BUILD"`
+
+export const FIX_COMMAND = `#!/usr/bin/env sh
+set -eu
+GTD_BUILD=~/.local/bin/gtd-build
+cd "$(git rev-parse --show-toplevel)"
+script="$(gtd --entry fix-precheck)"
+sh -c "$script"
+exec "$GTD_BUILD"`
+
 const HEADER = (): string =>
   `gtd ${GTD_VERSION} — driver protocol\n` +
   `\n` +
@@ -291,15 +311,15 @@ re-runnable and assert their own HEAD precondition — a driver needs no retry
 logic beyond "ask gtd again".
 `
 
-const referenceImplementation = (): string =>
+const commandSuite = (): string =>
   `
-## Building the user's driver: interview first, then adapt
+## Building the user's command suite: interview first, then adapt
 
-The obligations above are the contract; the sh block below is one WORKED
-EXAMPLE of it. Do not copy it blindly, and do not guess the user's setup —
-INVESTIGATE first, then INTERVIEW, then build a driver shaped by both. Hold
-ONE conversation, not two: the setup steps below come first, because a repo
-that is not set up yet cannot be driven, and the driver-shape questions
+The obligations above are the contract; the four command bodies below are one
+WORKED EXAMPLE of it. Do not copy them blindly, and do not guess the user's
+setup — INVESTIGATE first, then INTERVIEW, then build a suite shaped by both.
+Hold ONE conversation, not four: the setup steps below come first, because a
+repo that is not set up yet cannot be driven, and the suite-shape questions
 follow in the same numbered list.
 
 1. **Investigate the repository and ask the user what they want before
@@ -318,29 +338,59 @@ follow in the same numbered list.
    uncommitted config is a pending change, so starting a process without
    committing it first turns the config into the very first thing the
    process plans against. Commit it, THEN start driving.
-4. **Which agent should run the turns?** Whatever coding-agent CLI they
-   already use (default: \`claude\`). Map \`session.id\`/\`session.resume\`
-   onto THAT agent's continuation mechanism (obligation 5); an agent with
-   no session concept just ignores them — memory is an optimization, every
-   prompt is self-contained.
-5. **Under which permission model?** Fully autonomous turns (e.g.
+4. **Which agent should run the turns?** Probe \`PATH\` for the known
+   coding-agent CLIs — \`claude\`, \`codex\`, \`gemini\`, \`cursor-agent\`,
+   \`aider\`, \`opencode\`, \`amp\` — show the user which are actually
+   installed, and ask which one to drive with (default: \`claude\`). Accept
+   a name that was not on the list; the probe is a convenience, not a
+   restriction. The chosen CLI's own flags then replace the \`claude\` lines
+   in the reference body below — its session flags (obligation 5) and its
+   permission model (question 5).
+5. **Under which permission model, and should the workflow's model hints be
+   honored at all?** Fully autonomous turns (e.g.
    \`--dangerously-skip-permissions\`), a sandbox, or the agent's default
-   prompting — their risk tolerance, their call. Also whether the workflow's
-   own \`model\` hints should be honored (default: yes).
-6. **How do they want to invoke it?** A command on PATH (default:
-   \`~/.local/bin/gtd-loop\`), a project task-runner entry, a CI job step —
-   or no artifact at all: YOU drive the beats yourself, following the
-   obligations directly. Pick the runtime to match: bash, their language of
-   choice, anything that reads \`--json=<path>\` and spawns subprocesses.
+   prompting — their risk tolerance, their call. Also ask whether the
+   workflow's own \`model\` hints (resolved in question 6 below) should be
+   honored (default: yes) — answering no means dropping \`--model\` entirely
+   from every prompt line and writing no model exports, so every turn runs
+   on the chosen CLI's own default tier.
+6. **If model hints are honored, resolve them to real model identifiers.**
+   The bundled workflow ships \`plannerModel: smart\` and \`coderModel: base\`.
+   **Those are opaque hints, not model names** — gtd never interprets them,
+   and passing \`--model smart\` to a real CLI fails on the first prompt
+   beat. Derive the chosen CLI's own available models at install time — its
+   \`--help\`, its docs, its own config — never a hardcoded table (a vendor
+   renames a model and a baked-in list goes stale the day it ships). **When
+   the heavier/cheaper mapping is not obvious, ask**: list the CLI's models
+   and let the user pick one per tier — the heavier tier for
+   \`plannerModel\` (triage, design, review), the cheaper tier for
+   \`coderModel\` (build, fix). Write the resolved names as
+   \`GTD_PLANNERMODEL\`/\`GTD_CODERMODEL\` exports at the top of \`gtd-build\`,
+   wrapped in \`# gtd-install: model exports\` / \`# gtd-install: end\`
+   markers — NOT into \`.gtdrc\`. They stay per machine and are never
+   committed, so one person's model choice binds nobody else on the repo.
+   Two consequences follow, both worth stating to the user: \`gtd-review\`
+   and \`gtd-fix\` inherit these exports only because they \`exec\`
+   \`gtd-build\` — anything that drives beats without going through
+   \`gtd-build\` sees the raw \`smart\`/\`base\` hints and fails; and \`GTD_*\` is
+   the highest-precedence config layer, so these exports silently win over
+   a \`plannerModel\`/\`coderModel\` a teammate later commits to \`.gtdrc\`.
 7. **What should happen at the boundaries?** Where the log goes (obligation
    4), and whether halting at a human gate should do anything richer than
    print — desktop notification, terminal-multiplexer status, editor focus —
    which belongs in their wrapper, never in gtd.
-8. **Which editor should the edit command spawn?** Default \`$EDITOR\`, never
-   a hardcoded editor.
-9. **What should the edit command be named?** Suggest
-   \`~/.local/bin/gtd-edit\`, matching the loop command's own default
-   (\`~/.local/bin/gtd-loop\`) — the interview can override either name.
+8. **How do they want to invoke it?** A command on PATH (default:
+   \`~/.local/bin/gtd-build\`), a project task-runner entry, a CI job step —
+   or no artifact at all: YOU drive the beats yourself, following the
+   obligations directly. Pick the runtime to match: bash, their language of
+   choice, anything that reads \`--json=<path>\` and spawns subprocesses.
+9. **Where should the suite live, which editor should \`gtd-edit\` spawn, and
+   does anything need renaming?** Suggest \`~/.local/bin\` for all four —
+   \`gtd-build\`, \`gtd-edit\`, \`gtd-review\`, \`gtd-fix\` — and \`$EDITOR\` (never
+   a hardcoded editor) for the one that opens files. The interview can
+   rename any of the four; whatever name is chosen for \`gtd-build\` is the
+   RESOLVED path baked into \`GTD_BUILD\` in the other two bodies below —
+   never the literal string \`gtd-build\`.
 
 Then build it, and verify safely before the first real drive:
 \`gtd next --json=<path>\`/\`gtd next\` are both pure reads — read/parse them,
@@ -348,22 +398,20 @@ check your kind dispatch against the table above, call them as often as you
 like. Nothing happens until you run an emitted script.
 
 The reference rendering in sh (no \`jq\`, no JSON parser at all — each
-\`--json=<path>\` call prints its one value directly; the \`claude\` lines are
-what answers 1–2 replace):
+\`--json=<path>\` call prints its one value directly). Two of the four bodies
+below share one convention: \`GTD_BUILD\` is set once, at the top, to the
+suite's resolved \`gtd-build\` path.
+
+### \`gtd-build\` — the driver loop
+
+The \`claude\` lines are what interview answers 4 and 6 replace. Default path:
+\`~/.local/bin/gtd-build\`.
 
 \`\`\`bash
 ${MINIMAL_DRIVER}
 \`\`\`
-`
 
-const editCommand = (): string =>
-  `
-## Building the user's edit command
-
-The loop command above drives beats; it never opens a file for the human. Add
-a second artifact to the same interview (questions 8–9 above): an edit
-command that opens the steering file the process is resting at right now,
-suggested at \`~/.local/bin/gtd-edit\`.
+### \`gtd-edit\` — open the steering file the process is resting at
 
 \`gtd next --json=file\` already reports the file for every state that
 declares one — the edit command needs no new engine surface, just a read and
@@ -383,12 +431,117 @@ the first sketch the whole process gets planned from. The same command does
 the same thing at every rest, whether or not a state declares a \`file:\`.
 
 The edit command stops when the editor exits — it never drives the loop. It
-opens a file and returns; the human runs the loop command themselves when
-they are ready.
+opens a file and returns; the human runs \`gtd-build\` themselves when they
+are ready. Default path: \`~/.local/bin/gtd-edit\`.
 
 \`\`\`bash
 ${EDIT_COMMAND}
 \`\`\`
+
+### \`gtd-review <commitish>\` — start a review round and drive it
+
+Runs \`gtd --entry review-gate.check --var reviewBase=<commitish>\`, captured
+by command substitution — never a pipe: a pipeline reports only its LAST
+command's exit status, so \`gtd --entry ... | sh\` under \`set -e\` would sail
+past a refusal and \`exec\` a loop over a process that was never started. It
+runs the captured script, then \`exec\`s the suite's RESOLVED \`gtd-build\`
+path — never the literal string \`gtd-build\`. This is one invocation that
+carries the review all the way to its next human gate, not just a starter:
+\`gtd-review\` on a RED baseline hands off to \`gtd-build\`, which halts at the
+blocked gate and prints it, rather than starting the review. Refuses with
+\`usage: gtd-review <commitish>\` on stderr and exit \`2\` when the commitish is
+missing — nothing was even attempted. Default path: \`~/.local/bin/gtd-review\`.
+
+\`\`\`bash
+${REVIEW_COMMAND}
+\`\`\`
+
+### \`gtd-fix\` — enter the fix process and drive it
+
+Runs \`gtd --entry fix-precheck\`, captured the same way, then \`exec\`s the
+suite's RESOLVED \`gtd-build\` path. \`gtd-fix\` on a GREEN suite is a no-op
+straight back to \`idle\` — the exec'd \`gtd-build\` exits immediately on it.
+Default path: \`~/.local/bin/gtd-fix\`.
+
+\`\`\`bash
+${FIX_COMMAND}
+\`\`\`
+${REINSTALL}`
+
+const REINSTALL = `
+## Re-installing: detect and adapt, don't blindly overwrite
+
+A second install on a machine that already has a suite is not a fresh
+install — read each of the four suite paths before writing anything
+(\`gtd-build\`, \`gtd-edit\`, \`gtd-review\`, \`gtd-fix\`), and branch per path:
+
+- Absent — install it, as in a fresh install.
+- Present and content-equal to what this gtd version would emit — say so,
+  change nothing, and skip that command's interview questions entirely.
+- Present and different — show the difference, name the likely cause (a gtd
+  upgrade, or the user's own edit), and ask before overwriting. Never
+  silently replace a file the user may have customised.
+- Unreadable, or present as a directory instead of a file — report it and
+  ask about it, the same as a differing file. Never overwritten.
+
+Drift is detected by comparing CONTENT, never by parsing a version out of
+the installed file — an installed command carries no version marker to
+parse.
+
+\`gtd-build\` needs one exemption before that comparison: the region between
+\`# gtd-install: model exports\` and \`# gtd-install: end\` gets stripped from
+the installed file first. A \`gtd-build\` differing only inside those
+markers is unchanged, and re-asks nothing — the resolved model names are
+per machine, so without this exemption every single re-install would
+report drift on the one command everybody has.
+
+This check scopes to exactly the four suite paths above. \`gtd-loop\` is
+outside it entirely — never read, never diffed, never touched by it in any
+way — an existing \`gtd-loop\` survives untouched beside the new
+\`gtd-build\`, and cleaning it up is the human's own call.
+`
+
+const EDITOR_INTEGRATION = `
+## Editor integration: offer it, don't bury it
+
+\`gtd lsp\` runs a language server, started by \`gtd lsp\` itself, speaking LSP
+over \`stdio\`, applying to files under \`.gtd/\`. That is the whole integration
+contract, identical for every editor — this briefing names no specific editor
+and carries no per-editor config recipe.
+
+Find the user's editor from their OWN shell configuration, never a guess:
+check \`$EDITOR\`/\`$VISUAL\` first, then look for an alias or export in their
+shell rc files (\`.zshrc\`, \`.bashrc\`, \`.config/fish/config.fish\`). Ask the
+user outright when that turns up nothing or turns up more than one. When the
+shell configuration names no editor and the user names none either, say
+nothing and move on — don't pitch editor integration to somebody with no
+editor to integrate.
+
+Once an editor is identified, look ITS OWN LSP configuration format up
+yourself — there is no bundled recipe for it. If it is LSP-capable, offer to
+wire \`gtd lsp\` up with a brief explanation (three or four lines, not a copy
+of \`docs/setup.md\`): live diagnostics on \`.gtd/\` steering files, an outline
+of what is left to review, click-to-check review hunks, pick-an-option
+actions on open questions, and a \`gtd.openSteeringFile\` command that jumps
+to the current state's file. Two facts belong in that offer because both
+bite on a fresh repo: \`gtd lsp\` never creates \`.gtd/\`, so
+\`gtd.openSteeringFile\` may point at a path that does not exist yet before
+the first sketch; and \`gtd lsp\` needs no repository root — it is one of the
+commands that skips the root guard.
+
+On yes, edit the editor's own config file yourself — never print a snippet
+and walk away. Integration works without the human touching anything. Three
+guards apply to that write, because it lands outside the repository in a
+file the user shares across every project:
+
+- **Ask first, per editor, naming the exact file** about to change. Silence
+  is not consent for a machine-wide config.
+- **Merge, never overwrite.** Read the existing config, add only the gtd
+  language-server entry, and leave every other key byte-identical.
+- **Skip and report when the entry is already present** — a second install
+  must not append a duplicate server registration. A malformed existing
+  config (unparseable JSON, a TOML syntax error) is a stop-and-report, not a
+  rewrite: name the file that could not be parsed and leave it untouched.
 `
 
 const PREREQUISITES = `
@@ -413,6 +566,6 @@ export const renderBriefing = (): string =>
   JSON_FIELD_REFERENCE +
   DRIVER_OBLIGATIONS +
   RECOVERY +
-  referenceImplementation() +
-  editCommand() +
+  commandSuite() +
+  EDITOR_INTEGRATION +
   PREREQUISITES
