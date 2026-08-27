@@ -7,39 +7,25 @@ new CLI flag, no new subcommand, no new dependency. Every behaviour the briefing
 asks for already exists — `gtd --entry`, `GTD_<NAME>` var overrides, `gtd lsp`,
 `gtd next --json=file` — so this is knowledge, not code.
 
-## Open Questions
-
-### Does the briefing carry per-editor LSP config recipes, or name the editors and leave the recipe to the agent?
-
-- [ ] **Carry a recipe per editor** — the briefing names each of the five
-      editors' config file and the exact key to merge (VS Code `settings.json`,
-      Neovim `lspconfig` snippet, Helix `languages.toml`, Zed `settings.json`,
-      Emacs `eglot`). Deterministic, testable by name, but five recipes to keep
-      correct as editors change theirs, in a file with no way to detect drift.
-- [ ] **Name the editors, delegate the recipe** — the briefing lists the five
-      editors and their detection probes, states the command is `gtd lsp` over
-      stdio for `.gtd/` files, and requires ask-then-merge; the agent works out
-      that editor's config format itself. Shorter and never stale, but an agent
-      with a wrong idea of Neovim config writes a broken entry.
-- [x] No biases. The agent should look at the users shell configuration or ask
-      them which editor they prefer. then look up configuration itself.
-
-### How does the briefing tell the agent which real model names to offer per tier?
-
-- [ ] **A per-CLI hint table** — the briefing names the concrete heavier/cheaper
-      tiers per probed CLI. The agent can propose without asking in the common
-      case; the table is stale the day a vendor renames a model, and gtd
-      releases lag model releases by months.
-- [x] **No table, always derive at install time** — the briefing tells the agent
-      to get the model list from the chosen CLI itself (its `--help`, its docs,
-      its config) and to ASK the user per tier whenever the mapping is not
-      obvious. Never stale, but every install pays an extra interview round.
-- [ ] _your answer_
-
 ## Answered Questions
 
 Everything below was settled upstream and is carried forward unchanged; the
 entries after the rule are this pass's own technical decisions.
+
+### Does the briefing carry per-editor LSP config recipes, or name the editors and leave the recipe to the agent?
+
+Neither — no biases. The briefing names no editor and carries no recipe. The
+agent reads the user's own shell configuration to find the editor they actually
+use, or asks them outright, and then looks that editor's LSP configuration
+format up itself.
+
+### How does the briefing tell the agent which real model names to offer per tier?
+
+No table. The agent derives the model list from the chosen CLI at install time —
+its `--help`, its docs, its own config — and ASKS the user per tier whenever the
+mapping to heavier/cheaper is not obvious. A table naming concrete models goes
+stale the day a vendor renames one, and gtd releases lag model releases by
+months.
 
 ### Existing `~/.local/bin/gtd-loop` installs — rename in place, or leave both?
 
@@ -329,6 +315,21 @@ resolution. Questions 8–9 collapse into one block asking for the suite's insta
 directory and offering to rename any of the four. The numbered list is
 renumbered; nothing in `Install.test.ts` asserts a question number.
 
+**Model resolution carries no table of model names.** The briefing states that
+`plannerModel: smart` and `coderModel: base` are opaque hints, not model names,
+and that `--model smart` fails against every real CLI. It then tells the agent
+to derive the chosen CLI's actual model list at install time — its `--help`, its
+docs, its own config — and to **ask the user per tier whenever the
+heavier/cheaper mapping is not obvious.** A hardcoded per-CLI table is stale the
+day a vendor renames a model, and gtd releases lag model releases by months, so
+the briefing would ship identifiers that fail on the first prompt beat.
+
+**One consequence for the test:** `Install.test.ts` asserts the briefing names
+`plannerModel`, `coderModel`, both default values, `GTD_PLANNERMODEL`,
+`GTD_CODERMODEL`, at least two probed CLI names, and states the defaults are not
+real model names — it asserts **no concrete model identifier**, because none
+appears in the briefing.
+
 **docs/driver.md.** Four sites move `gtd-loop` → `gtd-build` (lines 8, 132, 161,
 328). The doc-tested fence body is untouched, and `docs/**` is already declared
 in the relevant `turbo.json` inputs.
@@ -394,10 +395,23 @@ something to remove.
 interview step after the suite is installed. It is prose, not code: no editor
 detection, no config parsing, no filesystem read enters `src/Install.ts`.
 
-**Data model.** A detection table — editor, how to detect it (config directory
-or binary on `PATH`), what to merge — over VS Code, Neovim, Helix, Zed, Emacs.
-How much of the "what to merge" column the briefing spells out is the first open
-question above; the table's other two columns are settled either way.
+**No editor list, and no recipe table.** The briefing names no editor and spells
+out no config format. It states one procedure instead: **find the editor from
+the user's own shell configuration** — `$EDITOR`/`$VISUAL` first, then the shell
+rc files (`.zshrc`, `.bashrc`, `.config/fish/config.fish`) for an alias or an
+export — and **ask them outright when that turns up nothing or turns up more
+than one.** Then the agent looks that editor's LSP configuration format up
+itself.
+
+This kills the whole staleness problem: five hardcoded recipes in a string
+constant have no drift detection, and gtd would ship a wrong VS Code key for
+months without a single failing test. It also drops the bias — a briefing that
+lists five editors quietly tells the agent the sixth does not count.
+
+**What the briefing gives the agent to look up WITH**, since it hands over the
+recipe: the server is started by `gtd lsp`, it speaks LSP over **stdio**, and it
+applies to files under `.gtd/`. Those three facts are the whole integration
+contract, and they are the same for every editor.
 
 **The offer.** Three or four lines, never a copy of `docs/setup.md`: live
 diagnostics on `.gtd/` steering files, an outline of what is left to review,
@@ -419,14 +433,27 @@ never creates `.gtd/`, so `gtd.openSteeringFile` may point at a path that does
 not exist yet before the first sketch; and `gtd lsp` needs no repository root —
 it is one of the commands that skips the root guard.
 
-**When no LSP-capable editor is detected, say nothing and move on.** Do not
-pitch editor integration to somebody with no editor to integrate.
+**When the shell configuration names no editor and the user names none either,
+say nothing and move on.** Do not pitch editor integration to somebody with no
+editor to integrate.
 
 **Error handling.** A malformed existing config (unparseable JSON, a TOML syntax
 error) is a stop-and-report, not a rewrite — the agent says which file it could
 not parse and leaves it untouched. The user's editor config is the one artifact
 in this whole change that lives outside version control, so it has no undo.
 
-**Acceptance.** `src/Install.test.ts` asserts the briefing names `gtd lsp`, at
-least two detected editors, the `gtd.openSteeringFile` command, and instructs
-asking before editing an editor config and merging rather than overwriting it.
+**Acceptance, revised by the answered question above.** `src/Install.test.ts`
+asserts the briefing names `gtd lsp`, names `stdio`, names the
+`gtd.openSteeringFile` command, instructs reading the shell configuration or
+asking which editor the user prefers, and instructs asking before editing an
+editor config and merging rather than overwriting it.
+
+**The upstream requirement's "at least two detected editors" assertion is
+dropped, and that is deliberate.** Concern 4 asked for a five-editor detection
+list; the human's review-round answer replaced it with "no biases." A test
+asserting two editor names would now pin the exact bias the answer removed.
+Nothing else in that requirement changes.
+
+**Risk:** the agent looks the config format up and gets it wrong. The three
+guards above are the only thing standing between that and a broken machine-wide
+config, so none of them is optional.
