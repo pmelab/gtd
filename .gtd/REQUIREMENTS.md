@@ -16,13 +16,13 @@ never engine behaviour.
       name survives and nobody drives a stale loop by accident
 - [ ] Keep both: leave `gtd-loop` untouched and add `gtd-build` beside it —
       never delete a file the user may have hand-edited
-- [ ] _your answer_
+- [x] do not change now, i will run the install later
 
 ### Do `gtd-review` and `gtd-fix` drive the process, or only start it?
 
 - [ ] Start only, matching `gtd-edit`: they run the `--entry` script and return,
       and the human runs `gtd-build` when ready — one command, one job
-- [ ] Start then drive: they run the `--entry` script and immediately exec
+- [x] Start then drive: they run the `--entry` script and immediately exec
       `gtd-build`, so a review or fix is a single invocation
 - [ ] _your answer_
 
@@ -30,13 +30,13 @@ never engine behaviour.
 
 - [ ] `.gtdrc` `vars:` — committed, so every clone and every teammate's driver
       agrees on which tier runs planning versus building
-- [ ] `GTD_PLANNERMODEL`/`GTD_CODERMODEL` exports inside `gtd-build` — per
+- [x] `GTD_PLANNERMODEL`/`GTD_CODERMODEL` exports inside `gtd-build` — per
       machine, never committed, so one person's model choice binds nobody else
 - [ ] _your answer_
 
 ### Does the LSP step write editor config, or print a snippet?
 
-- [ ] Write it, after asking: the agent edits the detected editor's config file
+- [x] Write it, after asking: the agent edits the detected editor's config file
       itself, so integration works without the human touching anything
 - [ ] Print only: the agent shows the config block and the human pastes it — an
       editor config is personal and often shared across many projects
