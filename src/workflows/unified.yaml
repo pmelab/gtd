@@ -191,11 +191,15 @@ vars:
     `## Answered Questions` — the same section a human-answered question
     lands in — as `### <the point phrased as a question>` followed by the
     decision and a one-line rationale in prose, no checkboxes.
+    `## Answered Questions` must come after every other `##` section in the
+    document — it is always the last section.
 
     A question that clears the bar is written under a `## Open Questions`
-    heading near the top and takes this shape: one `### <question>`
-    sub-heading each, followed by a checkbox list of candidate answers — two
-    concrete options plus a final free-text slot, all left unticked:
+    heading that must come before every other `##` section in the document —
+    not just near the top, but ahead of every other `##` section — and takes
+    this shape: one `### <question>` sub-heading each, followed by a checkbox
+    list of candidate answers — two concrete options plus a final free-text
+    slot, all left unticked:
 
         ### <the question>
 
@@ -209,7 +213,10 @@ vars:
     `_your answer_` with their own text): fold each chosen answer into its
     concern's prose, then move the question into a `## Answered Questions`
     section as `### <question>` followed by the resolved answer in plain
-    prose (drop the checkboxes). Never re-raise a deleted question; treat a
+    prose (drop the checkboxes). `## Answered Questions` must come after
+    every other `##` section in the document — it is always the last
+    section, so a moved question lands there, not wherever `## Open
+    Questions` used to sit. Never re-raise a deleted question; treat a
     deleted `## Open Questions` section as acceptance. Omit `## Open
     Questions` entirely once there are none left.
   # The body `packages.item.fix-suite` and `build.fix` share byte for byte —

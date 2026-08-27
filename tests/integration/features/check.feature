@@ -55,6 +55,54 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stderr contains "has no question text"
 
   @inmem
+  Scenario: a qa file with Answered Questions before Open Questions fails ordering validation
+    Given a file "NOTES.md" with:
+      """
+      Build a thing.
+
+      ## Answered Questions
+
+      ### Should thing export a default too?
+
+      No, named export only.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      - [ ] SQLite — zero-config, file-based
+      - [ ] Postgres — for concurrent writers
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stdout is empty
+    And stderr contains "A '##' section appears before '## Open Questions', which must come first"
+    And stderr contains "A '##' section appears after '## Answered Questions', which must come last"
+
+  @inmem
+  Scenario: a qa file with Open Questions before Answered Questions validates cleanly and exits 0 silently
+    Given a file "NOTES.md" with:
+      """
+      Build a thing.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      - [ ] SQLite — zero-config, file-based
+      - [ ] Postgres — for concurrent writers
+
+      ## Answered Questions
+
+      ### Should thing export a default too?
+
+      No, named export only.
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
   Scenario: a well-formed review file validates cleanly and exits 0 silently
     Given a file "REVIEW.md" with:
       """

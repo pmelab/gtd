@@ -247,6 +247,120 @@ describe("parseOpenQuestions", () => {
     })
   })
 
+  describe("section ordering", () => {
+    it("reports a finding when a '##' section precedes '## Open Questions'", () => {
+      const content = [
+        "## Implementation Notes",
+        "",
+        "some notes.",
+        "",
+        "## Open Questions",
+        "",
+        "### Which operations?",
+        "",
+        "add and subtract.",
+        "",
+      ].join("\n")
+      expect(parseOpenQuestions(content).errors).toEqual([
+        "A '##' section appears before '## Open Questions', which must come first",
+      ])
+    })
+
+    it("reports a finding when a '##' section follows '## Answered Questions'", () => {
+      const content = [
+        "## Answered Questions",
+        "",
+        "### Already resolved?",
+        "",
+        "Yes.",
+        "",
+        "## Implementation Notes",
+        "",
+        "some notes.",
+        "",
+      ].join("\n")
+      expect(parseOpenQuestions(content).errors).toEqual([
+        "A '##' section appears after '## Answered Questions', which must come last",
+      ])
+    })
+
+    it("reports at most one 'before' finding even with multiple sections preceding Open Questions", () => {
+      const content = [
+        "## Implementation Notes",
+        "",
+        "some notes.",
+        "",
+        "## Constraints",
+        "",
+        "some constraints.",
+        "",
+        "## Open Questions",
+        "",
+        "### Which operations?",
+        "",
+        "add and subtract.",
+        "",
+      ].join("\n")
+      expect(parseOpenQuestions(content).errors).toEqual([
+        "A '##' section appears before '## Open Questions', which must come first",
+      ])
+    })
+
+    it("reports both findings when '## Answered Questions' comes before '## Open Questions'", () => {
+      const content = [
+        "## Answered Questions",
+        "",
+        "### Already resolved?",
+        "",
+        "Yes.",
+        "",
+        "## Open Questions",
+        "",
+        "### Which operations?",
+        "",
+        "add and subtract.",
+        "",
+      ].join("\n")
+      expect(parseOpenQuestions(content).errors).toEqual([
+        "A '##' section appears before '## Open Questions', which must come first",
+        "A '##' section appears after '## Answered Questions', which must come last",
+      ])
+    })
+
+    it("reports no ordering finding with only '## Open Questions' present", () => {
+      const content = ["## Open Questions", "", "### Which operations?", "", "add.", ""].join("\n")
+      expect(parseOpenQuestions(content).errors).toEqual([])
+    })
+
+    it("reports no ordering finding with only '## Answered Questions' present", () => {
+      const content = ["## Answered Questions", "", "### Already resolved?", "", "Yes.", ""].join(
+        "\n",
+      )
+      expect(parseOpenQuestions(content).errors).toEqual([])
+    })
+
+    it("reports no ordering finding when neither section is present", () => {
+      const content = ["## Implementation Notes", "", "some notes.", ""].join("\n")
+      expect(parseOpenQuestions(content).errors).toEqual([])
+    })
+
+    it("reports no finding for lead prose and a level-1 title above '## Open Questions'", () => {
+      const content = [
+        "# Plan",
+        "",
+        "Some lead prose describing the plan.",
+        "",
+        "## Open Questions",
+        "",
+        "### Which operations?",
+        "",
+        "add and subtract.",
+        "",
+      ].join("\n")
+      expect(parseOpenQuestions(content).errors).toEqual([])
+    })
+  })
+
   describe("option line span (endLine)", () => {
     const q = (lines: readonly string[]): string =>
       ["## Open Questions", "", "### Which API?", ...lines, ""].join("\n")

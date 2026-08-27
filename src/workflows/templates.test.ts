@@ -638,6 +638,17 @@ describe("the bundled unified workflow template", () => {
     expect(vars.questionBar).toMatch(/- \[ ] <second option>/)
     expect(vars.questionBar).toMatch(/- \[ ] _your answer_/)
   })
+
+  it("questionBar and questionBarReturn pin the exact Open/Answered Questions positional rule (package 01)", () => {
+    const { vars } = compileTemplate()
+    expect(vars.questionBar).toMatch(/before every other `##`\s+section/)
+    expect(vars.questionBar).toMatch(
+      /`## Answered Questions` must come after\s+every other `##` section/,
+    )
+    expect(vars.questionBarReturn).toMatch(
+      /`## Answered Questions` must come after\s+every other `##`\s+section/,
+    )
+  })
 })
 
 describe("the bundled template's machine boundaries line up with conversational identity (package 08/02)", () => {

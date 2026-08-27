@@ -375,10 +375,12 @@ overridable via `.gtdrc` `vars:` or a `GTD_<NAME>` environment variable:
   files, treat them as a private scratchpad" opener, injected as the first line
   of every prompt that touches a `.gtd/` file directly.
 - **`questionBar`** — the open-questions warrant test, the decide-it-yourself
-  sink, the `## Open Questions` checkbox shape, and the return-lap fold-in
-  instruction shared by `design.triage` and `architecture.author`. Each site
-  still states its own phase scope (product-only vs. TECHNICAL) locally, since
-  that's where the two genuinely disagree.
+  sink, the `## Open Questions` checkbox shape, the rule that
+  `## Open Questions` must come first and `## Answered Questions` must come last
+  among a file's `##` sections, and the return-lap fold-in instruction shared by
+  `design.triage` and `architecture.author`. Each site still states its own
+  phase scope (product-only vs. TECHNICAL) locally, since that's where the two
+  genuinely disagree.
 - **`fixFeedbackPrompt`** — the body `packages.item.fix-suite` and `build.fix`
   share byte for byte: read `.gtd/FEEDBACK.md`, fix the code, leave it
   uncommitted. `fix-suite` appends one extra sentence about implementing a later
@@ -491,7 +493,10 @@ declare `modes: { qa: { validate: "your-own-command" } }` (in the workflow or in
 `qa`/`review` composes with the seeded `validate:` rather than replacing it.
 There is no special-cased built-in behavior a driver needs to know about beyond
 the ordinary mode-resolution rules already documented under
-[The `workflow:` key](#the-workflow-key).
+[The `workflow:` key](#the-workflow-key). The `qa` format also checks section
+order: `## Open Questions` must come before every other `##` section in the
+file, and `## Answered Questions` must come after every other `##` section — a
+file that gets this backwards fails `gtd check qa` / `gtd validate`.
 
 This writes a minimal `.gtdrc.json` seeding the one variable most projects
 change — the test command (`vars.testCommand`, defaulting to `npm test`) — plus
