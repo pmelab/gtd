@@ -265,7 +265,10 @@ right now — falling back to `.gtd/TODO.md` when the resting state declares non
 drives it; **`gtd-fix`** enters the fix process and drives it. The
 `.gtd/TODO.md` fallback is also how you begin: on a clean repository the edit
 command opens the empty `.gtd/TODO.md`, and whatever you write there is the
-first sketch the whole process gets planned from.
+first sketch the whole process gets planned from. As a final step, if it finds
+an LSP-capable editor, the briefing also offers to wire up live diagnostics and
+review actions in it — asking first and naming the exact file, and merging
+rather than overwriting your editor's config.
 
 ### The workflow it ships with
 
