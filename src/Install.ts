@@ -379,12 +379,17 @@ follow in the same numbered list.
    4), and whether halting at a human gate should do anything richer than
    print — desktop notification, terminal-multiplexer status, editor focus —
    which belongs in their wrapper, never in gtd.
-8. **Where should the suite live, which editor should \`gtd-edit\` spawn, and
+8. **How do they want to invoke it?** A command on PATH (default:
+   \`~/.local/bin/gtd-build\`), a project task-runner entry, a CI job step —
+   or no artifact at all: YOU drive the beats yourself, following the
+   obligations directly. Pick the runtime to match: bash, their language of
+   choice, anything that reads \`--json=<path>\` and spawns subprocesses.
+9. **Where should the suite live, which editor should \`gtd-edit\` spawn, and
    does anything need renaming?** Suggest \`~/.local/bin\` for all four —
    \`gtd-build\`, \`gtd-edit\`, \`gtd-review\`, \`gtd-fix\` — and \`$EDITOR\` (never
    a hardcoded editor) for the one that opens files. The interview can
    rename any of the four; whatever name is chosen for \`gtd-build\` is the
-   RESOLVED path baked into \`GTD_BUILD\` in the other three bodies below —
+   RESOLVED path baked into \`GTD_BUILD\` in the other two bodies below —
    never the literal string \`gtd-build\`.
 
 Then build it, and verify safely before the first real drive:
@@ -393,14 +398,13 @@ check your kind dispatch against the table above, call them as often as you
 like. Nothing happens until you run an emitted script.
 
 The reference rendering in sh (no \`jq\`, no JSON parser at all — each
-\`--json=<path>\` call prints its one value directly). Three of the four
-bodies below share one convention: \`GTD_BUILD\` is set once, at the top, to
-the suite's resolved \`gtd-build\` path.
+\`--json=<path>\` call prints its one value directly). Two of the four bodies
+below share one convention: \`GTD_BUILD\` is set once, at the top, to the
+suite's resolved \`gtd-build\` path.
 
 ### \`gtd-build\` — the driver loop
 
-Same body as the reference driver above, renamed from \`gtd-loop\`; the
-\`claude\` lines are what interview answers 4 and 6 replace. Default path:
+The \`claude\` lines are what interview answers 4 and 6 replace. Default path:
 \`~/.local/bin/gtd-build\`.
 
 \`\`\`bash
