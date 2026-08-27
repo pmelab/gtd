@@ -81,11 +81,14 @@ mkdir -p .gtd
 echo "Make a billion dollar SaaS. Make no mistakes." > TODO.md
 ```
 
-Ask again, and the header now reports what gtd sees:
+Ask again, and gtd leads with what to do, then reports what it sees:
 
 ```
+The edit is already made — run `gtd land` to land it.
+State: idle
+Awaits: human
 Pending:
-  A TODO.md -> * **
+  A .gtd/TODO.md -> * **
 Next: Start → unwind
 ```
 
@@ -95,11 +98,22 @@ the source tree control what is going to happen next.
 
 ### Beat 2 — `gtd land` records it as a commit
 
-`gtd land` prints a shell script and deliberately does not run it. Read it, then
-pipe it:
+`gtd land` tells you, in one line, exactly what it would do:
 
 ```bash
-gtd land | sh
+gtd land
+```
+
+```
+commit everything with this message: gtd(human): idle → unwind
+(run `gtd land --json=script | sh` to get the landing script)
+```
+
+You could run that commit by hand. Take the script instead — it adds the
+precondition checks and retries you would otherwise have to remember:
+
+```bash
+gtd land --json=script | sh
 ```
 
 ```
@@ -123,6 +137,7 @@ gtd next
 ```
 
 ```
+Run this script:
 State: unwind
 Awaits: check
 Label: Unwinding your input
@@ -136,12 +151,14 @@ git revert --no-commit "$commit"
 anything itself, so run it and land it exactly as before:
 
 ```bash
-eval "$(gtd next --sh)"; sh -c "$gtd_content"
-gtd land | sh
+sh -c "$(gtd next --json=content)"
+gtd land --json=script | sh
 ```
 
-Plain `gtd next` prints that human-readable header, so it is not pipeable into
-`sh` — the runnable bytes come from `--sh` or `--json`.
+`--json=<field>` is how a script reads one value out of a beat. Bare `--json`
+prints the whole document; `--json=content` prints just that field, raw, with no
+quoting to strip and no `jq` to install. Plain `gtd next` is for you to read —
+the leading `Run this script:` line makes it prose, not something to pipe.
 
 Keep going and the beats keep arriving. The next one checks that your test
 baseline is green:
@@ -170,76 +187,74 @@ This file is a deliverable, not a chat reply — size follows the work, and
 padding is the target of any cut. Lead with the answer immediately; never ...
 ```
 
-That is the prompt itself — those bytes are an agent's input, so gtd prints
-nothing around them. Ask for structure when you want to know whose turn it is:
+No header at all this time. That is the prompt itself — those bytes are the
+agent's input, so gtd prints nothing around them. Selectors are how you find out
+whose turn it is:
 
 ```bash
-eval "$(gtd next --sh)"
-printf '%s / %s / %s\n' "$gtd_kind" "$gtd_state" "$gtd_file"
+gtd next --json=kind    # prompt
+gtd next --json=state   # design.triage
+gtd next --json=file    # .gtd/REQUIREMENTS.md
 ```
 
-```
-prompt / design.triage / .gtd/REQUIREMENTS.md
-```
-
-Now hand it over.
+Now hand it over. Pipe plain `gtd next` straight in — at a prompt rest that
+output already **is** the bare content, so it costs one render instead of two,
+and it keeps a full diff off the command line, which is capped at 4 KB by POSIX
+and around 1 MB on macOS:
 
 ```bash
-printf '%s' "$gtd_content" | claude -p --session-id "$gtd_session_id" \
-  --model "$gtd_model" --dangerously-skip-permissions
+gtd next | claude -p --dangerously-skip-permissions
 ```
 
-Two of those variables are worth understanding:
+Reading a value twice is free: **`gtd next` never mutates**, so a peek and a
+dispatch are the same call.
 
-- **`$gtd_session_id`** is derived from your history, never stored, so the same
-  part of the workflow always resumes the same conversation — across restarts,
-  and even on another machine that checks out the branch. Because it is derived
-  rather than remembered, treat `$gtd_session_resume` as a hint: try the flag it
-  points at, and fall back to the other one if the agent rejects it.
-- **`$gtd_model`** is an opaque hint the workflow declared (`smart` and `base`
-  in the bundled one). gtd never interprets it — you map it onto whatever your
-  agent calls that tier.
+An absent field prints nothing and exits 0; a field that does not exist is a
+usage error, exit 2. So `--json=session.id` at a script rest is silent, while
+`--json=typo` stops you.
 
 The agent writes `.gtd/REQUIREMENTS.md`, and that file is the turn. Land it like
 any other beat:
 
 ```bash
-gtd land | sh
+gtd land --json=script | sh
 ```
 
-`$gtd_validate` is there if you want to check the agent's work first: a
-ready-to-run script that validates the file the prompt asked for and prints a
+`gtd next --json=validate` is there if you want to check the agent's work first:
+a ready-to-run script that validates the file the prompt asked for and prints a
 complete fix prompt on failure, ready to pipe straight back into the same
 session.
 
 ### Then automate the beats
 
-That was not very convenient. Running this manually doesn't make us faster. But
-it is easy to put it into a loop:
+That was not very convenient. But it is easy to put it into a loop. Way more
+convenient!
 
 ```bash
 while :; do
-  out="$(gtd next --sh)"
-  eval "$out"
-  case "$gtd_kind" in
-    script) sh -c "$gtd_content" ;;
-    prompt) printf '%s' "$gtd_content" | your-agent ;;
+  case "$(gtd next --json=kind)" in
+    # A deterministic script to execute
+    script)  gtd next --json=content | sh ;;
+    # A prompt for an agent
+    prompt)  gtd next | claude -p --dangerously-skip-permissions ;;
+    # A message printed for a human
+    message) gtd next; exit 0 ;;
+    # Nothing left to do, abort.
+    stalled) gtd next >&2; exit 1 ;;
   esac
-  gtd land | sh
+  gtd land --json=script | sh
 done
 ```
 
-gtd itself never executes anything — the driver owns running scripts, and every
-`gtd next` call is strictly mutation-free, safe to poll or peek at any time. See
+This is a very basic implementation, but there are a lot of options to integrate
+this with your environment. See
 [Driving the loop](https://github.com/pmelab/gtd/blob/main/docs/driver.md) for
-the full protocol, including the `message`/`capture` gates, the stalled case,
-and refusal handling — a real driver captures `gtd land --sh` and pipes its
-`$gtd_script`, because a refusal exits non-zero with an empty script that `| sh`
-would swallow.
+the full protocol.
 
 ### Then let an agent build your own
 
-Paste this into your coding agent:
+But lets be honest, who reads documentation these days. Paste this into your
+coding agent:
 
 ```
 !gtd install
@@ -257,42 +272,39 @@ write there is the first sketch the whole process gets planned from.
 
 ### The workflow it ships with
 
-Those beats all come from one built-in workflow. It is data, not code — a
-`.gtdrc` `workflow:` key replaces it wholesale. Condensed:
+One built-in workflow drives all of that. From where you sit, it has four
+moments — everything between them runs without you.
 
-1. **idle** (you) — change anything. gtd treats it as a _sketch_, not as work.
-2. **unwind** (script) — reverts your sketch back out of the tree; its intent
-   survives in history for the next step to read.
-3. **start-gate** (script) — the suite must be green before new work starts. Red
-   routes to you, with the failing output in `.gtd/FEEDBACK.md`.
-4. **design** (agent, then you) — triages the reverted diff into
-   `.gtd/REQUIREMENTS.md`. Open product questions come back for you to answer
-   inline in that file.
-5. **architecture** (agent, then you) — turns it into `.gtd/ARCHITECTURE.md`,
-   asks technical questions the same way, then decomposes the work into one
-   package per concern under `.gtd/packages/`.
-6. **packages** (agent, looped) — per package: build, run the checks, fix what
-   is red, review it against its own package file, close it out. Repeats until
-   no package is left.
-7. **review** (agent, then you) — an agent writes `.gtd/REVIEW.md`; you tick its
-   boxes or write feedback into it. A clean sign-off ends the process; feedback
-   re-enters at step 2.
-8. **idle** — done, and HEAD is a linear history of every turn that got you
-   there.
+1. **You sketch.** Change anything, or write the idea into `.gtd/TODO.md`. Rough
+   is fine; it is treated as a sketch, not as work.
+2. **You answer questions.** Planning stops and hands you a file with its open
+   questions in it — what the thing should do first, then how it should be
+   built. Answer them in your editor, in the file, and start the loop again.
+3. **You wait.** The work is split into packages and built one at a time, each
+   one checked against your test suite and fixed until it passes.
+4. **You review.** You get a review document listing what changed and what to
+   look at. Tick the boxes to approve, or write what is wrong. Approving ends
+   the process; feedback sends it back to step 2 for a fresh plan — it never
+   patches over a design you rejected.
 
-Two side doors skip the front of that list. `gtd --entry fix-precheck` repairs a
-red baseline as its own reviewed commit instead of starting a process. And
+You never talk to it. Every exchange is a file in `.gtd/` that you edit in your
+own editor, and every answer you give is a commit. Your test suite is the gate
+throughout: a red baseline stops the process before it starts, and a red package
+is fixed before the next one begins.
+
+Two side doors skip step 1. `gtd --entry fix-precheck` repairs a red baseline as
+its own reviewed commit instead of starting a process. And
 
 ```bash
 gtd --entry review-gate.check --var reviewBase=<commitish>
 ```
 
-starts a pure review: it enters at step 7 with no planning or building at all,
-reviewing everything from `<commitish>` to HEAD. Sign-off ends it; feedback
-re-enters at step 2 as a full re-plan lap.
+starts a pure review of everything from `<commitish>` to HEAD — straight to step
+4, no planning and no building.
 
-Every numbered step above is just beats. `gtd next` prints one, you or an agent
-do it, `gtd land` commits it — all the way down.
+The workflow itself is data, not code: a `.gtdrc` `workflow:` key replaces it
+wholesale. See
+[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md).
 
 ## License
 
