@@ -49,9 +49,8 @@ not a special key gtd interprets.
 ### The `workflow:` key
 
 A declared `workflow:` key fully REPLACES gtd's built-in default. The built-in
-default is itself a YAML asset (`src/workflows/unified.yaml`) compiled through
-the exact same compiler your own `workflow:` value goes through — no privileged
-code path. Its shape:
+default is itself a YAML asset compiled through the exact same compiler your own
+`workflow:` value goes through — no privileged code path. Its shape:
 
 ```yaml
 workflow:
@@ -112,13 +111,13 @@ gate/loop written once and instantiated several times with different `with:`
 bindings (dedup), or a complex cluster grouped under one name for source
 comprehension (encapsulation). Every reference is expanded at load time into
 concrete, qualified states (`<local>.<childLocal>`, however deep) before the
-engine ever sees the definition — see `src/Machines.ts` for the mechanism.
-MACHINE BOUNDARIES ARE THE UNIT OF CONVERSATIONAL IDENTITY: a machine that holds
-an identity (a planner or a coder persona) declares its own `model:` once, at
-the machine level, instead of repeating it per state — and, per the memory rule
-above, two references to the SAME machine (a dedup instantiation) are always two
-independent instances with two independent memory scopes, never one shared
-conversation across both call sites.
+engine ever sees the definition. MACHINE BOUNDARIES ARE THE UNIT OF
+CONVERSATIONAL IDENTITY: a machine that holds an identity (a planner or a coder
+persona) declares its own `model:` once, at the machine level, instead of
+repeating it per state — and, per the memory rule above, two references to the
+SAME machine (a dedup instantiation) are always two independent instances with
+two independent memory scopes, never one shared conversation across both call
+sites.
 
 Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
 
@@ -456,18 +455,18 @@ unformatted steering file — `gtd land` itself no longer stops it.
 A mode's `format:` command may reformat a steering file — whitespace, wrapping,
 reordering — but must NEVER change what a land-capture guard would decide. gtd's
 guards (the review-doc check, the feedback-progress check, the
-answer-completeness check, the require-revert check — `src/StepGuards.ts`)
-decide ONCE, against whichever bytes are on disk at the moment `gtd land` runs —
-which may be before OR after a driver's own separate `format:` run, since that's
-a different process at a different time with no guaranteed ordering against "gtd
-decided". That's only safe because every built-in guard judges only the content
-it explicitly cares about, not incidental formatting around it — the
-feedback-progress guard, for instance, only checks whether a deleted file's
-trimmed first line is the `NOTHING ACTIONABLE` sentinel, so reindenting the rest
-of it changes nothing the guard reads. If you plug in your own `format:`
-command, the same rule binds it: a formatter that also changes meaning —
-stripping a paragraph a guard reads — makes the guard's decision and the file's
-actual content disagree, and gtd will not catch that for you.
+answer-completeness check, the require-revert check) decide ONCE, against
+whichever bytes are on disk at the moment `gtd land` runs — which may be before
+OR after a driver's own separate `format:` run, since that's a different process
+at a different time with no guaranteed ordering against "gtd decided". That's
+only safe because every built-in guard judges only the content it explicitly
+cares about, not incidental formatting around it — the feedback-progress guard,
+for instance, only checks whether a deleted file's trimmed first line is the
+`NOTHING ACTIONABLE` sentinel, so reindenting the rest of it changes nothing the
+guard reads. If you plug in your own `format:` command, the same rule binds it:
+a formatter that also changes meaning — stripping a paragraph a guard reads —
+makes the guard's decision and the file's actual content disagree, and gtd will
+not catch that for you.
 
 ### Built-in steering formats are ordinary modes
 
@@ -475,15 +474,14 @@ actual content disagree, and gtd will not catch that for you.
 validated in-process because `gtd lsp` needs the same parsers for live
 diagnostics), but their `validate:` is not hardcoded or hidden: the compiler
 SEEDS every workflow's `modes:` map with `qa`/`review` entries whose `validate:`
-is the same `gtd check <mode> '<file>'` string described above
-(`src/PatternConfig.ts`, `src/SteeringFormats.ts`'s `seededValidateCommand`).
-That seeded command is visible in `gtd visualize`'s compiled model and in the
-editor JSON schema like any other mode, and it's overridable the same way any
-mode is — declare `modes: { qa: { validate: "your-own-command" } }` (in the
-workflow or in `.gtdrc`) and your command displaces the seed; declaring only a
-`format:` for `qa`/`review` composes with the seeded `validate:` rather than
-replacing it. There is no special-cased built-in behavior a driver needs to know
-about beyond the ordinary mode-resolution rules already documented under
+is the same `gtd check <mode> '<file>'` string described above. That seeded
+command is visible in `gtd visualize`'s compiled model and in the editor JSON
+schema like any other mode, and it's overridable the same way any mode is —
+declare `modes: { qa: { validate: "your-own-command" } }` (in the workflow or in
+`.gtdrc`) and your command displaces the seed; declaring only a `format:` for
+`qa`/`review` composes with the seeded `validate:` rather than replacing it.
+There is no special-cased built-in behavior a driver needs to know about beyond
+the ordinary mode-resolution rules already documented under
 [The `workflow:` key](#the-workflow-key).
 
 This writes a minimal `.gtdrc.json` seeding the one variable most projects

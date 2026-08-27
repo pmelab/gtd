@@ -5,5 +5,5 @@
 - [CLI reference](./cli.md) — every command and flag, exit codes, the error
   envelope
 - [Configuration](./configuration.md) — `.gtdrc`, the `workflow:` key, variables
-- [Internals](./internals.md) — the engine walkthrough, repository requirements,
-  editor integration, development
+- [Setup](./setup.md) — repository requirements, editor integration
+- [Development](./development.md) — building and testing gtd itself

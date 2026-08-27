@@ -289,9 +289,9 @@ in.
 
 ### Non-interactive today
 
-gtd is non-interactive: no readline, no `/dev/tty`, no prompt call anywhere in
-`src/`. If interaction is ever added, it goes to `/dev/tty`, never stderr, and
-never blocks — a question fails with a code when the tty cannot be opened rather
-than hanging. The reason is the section above: stderr already has two occupants,
+gtd is non-interactive: no readline, no `/dev/tty`, and no prompt call anywhere.
+If interaction is ever added, it goes to `/dev/tty`, never stderr, and never
+blocks — a question fails with a code when the tty cannot be opened rather than
+hanging. The reason is the section above: stderr already has two occupants,
 narration and remediation, and a question mixed into that stream would deadlock
 a driver that never reads stderr.

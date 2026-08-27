@@ -217,17 +217,17 @@ any driver you write against it. gtd decides and prints; it never touches git
 itself. The four commands that change anything — `gtd land`,
 `gtd --entry <state>`, `gtd abandon`, and `gtd restore` — perform no git write
 when run: each one's `--json=script` form carries ONE POSIX sh script for YOU to
-execute (`src/Emit.ts`'s `combinedScript`) — a leading comment ("gtd emitted
-this and did NOT run it — pipe it into `sh` to land the turn"), then the
-REQUIRED half verbatim, then, only when there's a presentation-only follow-up, a
-second comment ("presentation only — safe to skip") and the OPTIONAL half
-wrapped in a subshell whose own non-zero exit is swallowed (reported to stderr
-as a warning, never turning a landed turn into a failing one). Plain `gtd land`
-is the one exception: it prints a human-readable sentence, never a script (see
-below) — a driver reads the script from `--json=script` instead. Printing gtd's
-output and never running it is not driving anything; a driver must pipe or
-execute what gtd prints — e.g. the capture-then-pipe form the reference driver
-below uses, via `gtd land --json=script`.
+execute — a leading comment ("gtd emitted this and did NOT run it — pipe it into
+`sh` to land the turn"), then the REQUIRED half verbatim, then, only when
+there's a presentation-only follow-up, a second comment ("presentation only —
+safe to skip") and the OPTIONAL half wrapped in a subshell whose own non-zero
+exit is swallowed (reported to stderr as a warning, never turning a landed turn
+into a failing one). Plain `gtd land` is the one exception: it prints a
+human-readable sentence, never a script (see below) — a driver reads the script
+from `--json=script` instead. Printing gtd's output and never running it is not
+driving anything; a driver must pipe or execute what gtd prints — e.g. the
+capture-then-pipe form the reference driver below uses, via
+`gtd land --json=script`.
 
 Every script gtd emits — `gtd land --json=script`, `gtd --entry <state>`,
 `gtd abandon`, `gtd restore`, and the format/validate script `gtd validate`
@@ -242,14 +242,13 @@ whatever shell the driver invokes that script with.
 - **The required half** is everything that decides what lands in git — the
   commit itself (`gtd land` and `gtd --entry <state>`), or the ref update and
   reset that undo a process (`gtd abandon`, `gtd restore`) — and, last, a
-  printed line naming what just landed (`src/OutcomeScript.ts`'s `gtd_report_*`
-  calls): a transition or capture's changed-file rows, or the abandon/restore
-  prose, resolved from the repository AFTER the write above it. Its own exit
-  code IS the printed script's exit code — skipping it means the turn never
-  lands, and you never see what it did. A resting state's own steering-mode
-  `format:`/`validate:` commands are NOT part of this script — they're a
-  separate driver contract via `gtd next --json`'s own `validate` field (see
-  `gtd install`'s obligation 6).
+  printed line naming what just landed: a transition or capture's changed-file
+  rows, or the abandon/restore prose, resolved from the repository AFTER the
+  write above it. Its own exit code IS the printed script's exit code — skipping
+  it means the turn never lands, and you never see what it did. A resting
+  state's own steering-mode `format:`/`validate:` commands are NOT part of this
+  script — they're a separate driver contract via `gtd next --json`'s own
+  `validate` field (see `gtd install`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No emitter
@@ -505,13 +504,12 @@ time, so a driver's `while [ -n "$validate" ]` repair loop is armed from the
 very first turn at a state, not just the second and later ones. Exit 0 means the
 file is well-formed (or genuinely doesn't exist yet) — proceed to `gtd land`. A
 non-zero exit usually means the script's own captured output IS a complete,
-ready-to-send fix prompt (an instruction plus the findings, see `src/Emit.ts`'s
-`failurePromptWrapper`): send it back to the same agent session verbatim, and
-cap how many fix attempts you allow yourself — the driver owns that retry count,
-not gtd. Landing never TRUSTS that you validated, either: the emitted `land`
-script carries the same format/validate commands ahead of its own commit and
-fails without committing when they fail, so a malformed file is never captured
-whether or not you ran the validate script first.
+ready-to-send fix prompt (an instruction plus the findings): send it back to the
+same agent session verbatim, and cap how many fix attempts you allow yourself —
+the driver owns that retry count, not gtd. `gtd land` does NOT re-check for you:
+its emitted script carries no format/validate step of its own, so a steering
+file you never validated lands exactly as written, malformed or not. Running the
+validate script before `gtd land` is the driver's obligation, not gtd's.
 
 A non-zero exit can ALSO mean something the fix loop cannot fix: a mode whose
 `format:` command breaks its own validator, a config bug gtd detects by
@@ -548,17 +546,17 @@ Recovery is the same in every case: **ask gtd again** (`gtd next`, then land).
 It re-reads the real repository state fresh every time — never a cached plan —
 and emits whatever still needs to happen from there. This works because every
 emitted script opens by asserting its own precondition
-(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = <expected> ] || { ...; exit 1; }`
-— see `src/Emit.ts`'s `headAssertion`), so a script generated against a
-repository state that has since moved refuses loudly instead of corrupting
-anything. **Emitted scripts are re-runnable**: this is the single most important
-property for a driver's recovery logic. Re-running a script that already fully
-applied is a no-op (its git writes are `--allow-empty` commits and idempotent
-ref updates), and re-running one that only partially applied resumes correctly,
-because the precondition either still holds (nothing landed yet — safe to retry
-verbatim) or gtd's next invocation reads the new real state and emits a fresh
-script for what remains. A driver never needs its own retry/resume logic beyond
-"if the script failed, ask gtd again."
+(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = <expected> ] || { ...; exit 1; }`),
+so a script generated against a repository state that has since moved refuses
+loudly instead of corrupting anything. **Emitted scripts are re-runnable**: this
+is the single most important property for a driver's recovery logic. Re-running
+a script that already fully applied is a no-op (its git writes are
+`--allow-empty` commits and idempotent ref updates), and re-running one that
+only partially applied resumes correctly, because the precondition either still
+holds (nothing landed yet — safe to retry verbatim) or gtd's next invocation
+reads the new real state and emits a fresh script for what remains. A driver
+never needs its own retry/resume logic beyond "if the script failed, ask gtd
+again."
 
 ### Prerequisites
 
@@ -569,12 +567,11 @@ script for what remains. A driver never needs its own retry/resume logic beyond
 - **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one the
   compiler fills in for the built-in `qa`/`review` formats) is literally the
   string `gtd check <mode> '<file>'`, invoked by NAME from inside an emitted
-  script, not by absolute path (see `src/SteeringFormats.ts`'s
-  `seededValidateCommand`). This is a deliberate trade: a readable, overridable,
-  copy-pasteable command in exchange for depending on shell name resolution at
-  the moment the script runs. The sharp edge: if the `gtd` binary you invoked to
-  GENERATE the script differs from the `gtd` that resolves on `PATH` when the
-  script later RUNS (a locally-built dev binary vs. a globally-installed
-  release, say), you can get version skew between the two — the command that
-  validates may not be the command that decided. Keep the two in sync (one `gtd`
-  on `PATH`, consistently) if you care about that gap.
+  script, not by absolute path. This is a deliberate trade: a readable,
+  overridable, copy-pasteable command in exchange for depending on shell name
+  resolution at the moment the script runs. The sharp edge: if the `gtd` binary
+  you invoked to GENERATE the script differs from the `gtd` that resolves on
+  `PATH` when the script later RUNS (a locally-built dev binary vs. a
+  globally-installed release, say), you can get version skew between the two —
+  the command that validates may not be the command that decided. Keep the two
+  in sync (one `gtd` on `PATH`, consistently) if you care about that gap.
