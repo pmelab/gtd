@@ -14,14 +14,14 @@ New `checkSectionOrder` prepends up to two findings to `parseOpenQuestions`'s
 `gtd check qa` and `gtd validate`, the gate a driver runs before `gtd land`. One
 finding per rule, no matter how many sections offend.
 
-- [ ] ./src/OpenQuestions.ts#207 — the whole rule: collect every level-2 heading
+- [x] ./src/OpenQuestions.ts#207 — the whole rule: collect every level-2 heading
       index, then compare against the first `## Open Questions` and first
       `## Answered Questions` line. Two independent checks, so a file with
       Answered above Open reports both.
-- [ ] ./src/OpenQuestions.ts#234 — `errors` seeded from `checkSectionOrder`
+- [x] ./src/OpenQuestions.ts#234 — `errors` seeded from `checkSectionOrder`
       instead of starting empty. Ordering findings therefore sort ahead of the
       existing "has no question text" finding.
-- [ ] ./src/OpenQuestions.ts#201 — the invariant comment. It carries the "why"
+- [x] ./src/OpenQuestions.ts#201 — the invariant comment. It carries the "why"
       (reader and driver always find open first, resolved last) and the
       at-most-one-finding-per-rule decision, which the code alone does not
       state.
@@ -39,7 +39,7 @@ only; no `format:` pass reorders sections. Every already-authored qa file in
 this repo or downstream that puts `## Answered Questions` anywhere but last now
 fails its gate and must be hand-edited.
 
-- [ ] ./src/OpenQuestions.ts#366 — `QA_FORMAT`'s doc comment still says "Its one
+- [x] ./src/OpenQuestions.ts#366 — `QA_FORMAT`'s doc comment still says "Its one
       finding is always positionless". There are three kinds of finding now. The
       positionless part is still true; the "one" is stale.
 
@@ -49,13 +49,13 @@ Eight cases, table-flat and readable: one violation each way, the
 multiple-offenders dedupe, both-at-once, three no-finding cases (Open alone,
 Answered alone, neither), and lead prose under a `#` title.
 
-- [ ] ./src/OpenQuestions.test.ts#251 — the two violation cases, asserting the
+- [x] ./src/OpenQuestions.test.ts#251 — the two violation cases, asserting the
       exact finding strings via `toEqual` on the full array.
-- [ ] ./src/OpenQuestions.test.ts#287 — dedupe: two sections before Open still
+- [x] ./src/OpenQuestions.test.ts#287 — dedupe: two sections before Open still
       yields one finding.
-- [ ] ./src/OpenQuestions.test.ts#309 — Answered-before-Open yields both
+- [x] ./src/OpenQuestions.test.ts#309 — Answered-before-Open yields both
       findings, in rule order.
-- [ ] ./src/OpenQuestions.test.ts#330 — the three clean cases plus the level-1
+- [x] ./src/OpenQuestions.test.ts#330 — the three clean cases plus the level-1
       title and lead prose case, which pins that `#` and prose are exempt.
 
 **Gap — no test covers a `##` inside a code fence.** That is the one behaviour
@@ -69,24 +69,24 @@ positional rule so `design.triage` and `architecture.author` write conforming
 files. The return-lap wording is the load-bearing half — it tells the agent a
 moved question lands at the bottom, not where `## Open Questions` used to sit.
 
-- [ ] ./src/workflows/unified.yaml#191 — decide-it-yourself sink: Answered is
+- [x] ./src/workflows/unified.yaml#191 — decide-it-yourself sink: Answered is
       always the last section.
-- [ ] ./src/workflows/unified.yaml#198 — Open Questions goes "before every other
+- [x] ./src/workflows/unified.yaml#198 — Open Questions goes "before every other
       `##` section", explicitly replacing the old vague "near the top".
-- [ ] ./src/workflows/unified.yaml#213 — the return lap. Spells out that the
+- [x] ./src/workflows/unified.yaml#213 — the return lap. Spells out that the
       moved question does not inherit Open Questions' old position.
-- [ ] ./src/workflows/templates.test.ts#642 — pins the phrasing in all three
+- [x] ./src/workflows/templates.test.ts#642 — pins the phrasing in all three
       spots with `\s+`-tolerant regexes, so a reflow of the YAML block scalar
       does not red the test but a deletion does.
 
 ## Docs and end-to-end coverage
 
-- [ ] ./tests/integration/features/check.feature#58 — failing scenario: Answered
+- [x] ./tests/integration/features/check.feature#58 — failing scenario: Answered
       before Open, asserts both finding strings on stderr and empty stdout.
-- [ ] ./tests/integration/features/check.feature#83 — passing scenario: correct
+- [x] ./tests/integration/features/check.feature#83 — passing scenario: correct
       order exits 0 silently.
-- [ ] ./docs/configuration.md#377 — `questionBar`'s description grows the
+- [x] ./docs/configuration.md#377 — `questionBar`'s description grows the
       ordering rule; still no `src/*.ts` name, per the docs policy.
-- [ ] ./docs/configuration.md#496 — user-facing statement under the qa mode
+- [x] ./docs/configuration.md#496 — user-facing statement under the qa mode
       section that getting the order backwards fails `gtd check qa` /
       `gtd validate`.
