@@ -37,12 +37,12 @@ for you. Ask your agent if you have any questions.
 - **Shareable.** Push the branch, and the workflow travels with it — the state
   lives in the commits, so another machine (or another person) picks up exactly
   where you left off.
-- **Files, not chat.** Plans live in `.gtd/` steering files (`REQUIREMENTS.md`,
+- **Files, not chat.** Conversation lives in files like `REQUIREMENTS.md` or
   `ARCHITECTURE.md`. Request changes by editing them, approve by leaving the
-  tree clean — all in your own editor. There is no chat UI to lose.
+  tree clean — all in your own editor. There is no chat UI that could flicker.
 - **Harness agnostic.** gtd emits prompts to stdout (or JSON). Claude Code, a
-  bash loop, a CI job, or you reading it out loud — the workflow doesn't care
-  who executes it.
+  bash loop, a CI job, or you reading it out loud to your sentient cat — the
+  workflow doesn't care who executes it.
 
 See [gtd --help](https://github.com/pmelab/gtd/blob/main/docs/cli.md) for the
 full command/flag reference, and
@@ -70,14 +70,13 @@ gtd next
 No active gtd process.
 
 To start one, make ANY change — a hand-edit to real code, a scratch note,
-anything at all. .gtd/TODO.md is a good default place to start sketching.
+anything at all. TODO.md is a good default place to start sketching.
 ```
 
 This means its your turn. Add a `TODO.md` file with a detailed, well articulated
 idea:
 
 ```bash
-mkdir -p .gtd
 echo "Make a billion dollar SaaS. Make no mistakes." > TODO.md
 ```
 
@@ -88,7 +87,7 @@ The edit is already made — run `gtd land` to land it.
 State: idle
 Awaits: human
 Pending:
-  A .gtd/TODO.md -> * **
+  A TODO.md -> * **
 Next: Start → unwind
 ```
 
@@ -118,7 +117,7 @@ gtd land --json=script | sh
 
 ```
 -> idle → unwind
-   .gtd/TODO.md
+   TODO.md
 ```
 
 ```bash
@@ -209,12 +208,8 @@ gtd next | claude -p --dangerously-skip-permissions
 Reading a value twice is free: **`gtd next` never mutates**, so a peek and a
 dispatch are the same call.
 
-An absent field prints nothing and exits 0; a field that does not exist is a
-usage error, exit 2. So `--json=session.id` at a script rest is silent, while
-`--json=typo` stops you.
-
-The agent writes `.gtd/REQUIREMENTS.md`, and that file is the turn. Land it like
-any other beat:
+The prompt tells the agent to asses your request and write
+`.gtd/REQUIREMENTS.md`, and that file is the turn. Land it like any other beat:
 
 ```bash
 gtd land --json=script | sh
