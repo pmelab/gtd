@@ -273,11 +273,10 @@ PRINT-ONLY script under `--json=script`: no git write, just the same
 `nothing to do at "<state>"` line the script prints when a driver runs it —
 running it is never optional. Plain `gtd land` at the same no-op prints that
 identical line directly, with no script wrapper at all. The `--json=script`
-script is self-contained (it carries its own precondition assert and retry
-helper) and safe to run standalone, in sequence, or not at all — paste it into a
-terminal and it does exactly what it says, printed output included: it detects
-its own tty/`NO_COLOR` at RUN time (not at the moment gtd generated it), so the
-fancy/plain rendering always matches wherever you actually run it.
+script is self-contained and safe to run standalone, in sequence, or not at all
+— paste it into a terminal and it does exactly what it says, printed output
+included. Its output is plain ASCII with no colour codes, so it reads the same
+in a terminal, a pipe, and a log file.
 
 A driver has no opening move. It does not need to know whose turn it is before
 it starts — `gtd next --json=kind` tells it, and a human's pending edit arrives
@@ -539,24 +538,26 @@ non-zero-looking exits are not a failure at all:
   `gtd land --json=script` still carries a script (a print-only note, or an
   ordinary commit) that a driver must still run.
 - **An emitted script exits non-zero when YOU run it.** Something may have
-  partially happened — e.g. a `gtd_retry`-wrapped git write landed but a later
-  step in the same script failed.
+  partially happened — e.g. one git write landed but a later step in the same
+  script failed. Nothing is retried on your behalf: git's own error is what you
+  see.
 
 Recovery is the same in every case: **ask gtd again** (`gtd next`, then land).
 It re-reads the real repository state fresh every time — never a cached plan —
-and emits whatever still needs to happen from there. This works because every
-emitted script opens by asserting its own precondition
-(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = <expected> ] || { ...; exit 1; }`),
-so a script generated against a repository state that has since moved refuses
-loudly instead of corrupting anything. **Emitted scripts are re-runnable**: this
-is the single most important property for a driver's recovery logic. Re-running
-a script that already fully applied is a no-op (its git writes are
-`--allow-empty` commits and idempotent ref updates), and re-running one that
-only partially applied resumes correctly, because the precondition either still
-holds (nothing landed yet — safe to retry verbatim) or gtd's next invocation
-reads the new real state and emits a fresh script for what remains. A driver
-never needs its own retry/resume logic beyond "if the script failed, ask gtd
-again."
+and emits whatever still needs to happen from there. **Emitted scripts are
+re-runnable**: this is the single most important property for a driver's
+recovery logic. Re-running a script that already fully applied is a no-op (its
+git writes are `--allow-empty` commits and idempotent ref updates), and
+re-running one that only partially applied resumes correctly, because gtd's next
+invocation reads the new real state and emits a fresh script for what remains. A
+driver never needs its own retry/resume logic beyond "if the script failed, ask
+gtd again."
+
+**A script carries no expiry check.** It does not verify that HEAD is still
+where it was when gtd generated it, so a stale script — one held across a commit
+someone else made, a checkout, a rebase — applies its write to whatever HEAD it
+finds. Run a script promptly, against the repository state you asked gtd about;
+do not queue it, store it, or hand it to another worktree.
 
 ### Prerequisites
 

@@ -569,7 +569,7 @@ describe("renderBeatPlain", () => {
 
 describe("landFields / renderLandJson", () => {
   const sample: LandFields = {
-    script: 'gtd_report_commit "gtd(agent): build.fixing"\ngit commit ...\n',
+    script: "printf '%s %s\\n' '[commit]' 'gtd(agent): build.fixing'\ngit commit ...\n",
     settled: false,
     idle: false,
     state: "build.review.deciding",
@@ -607,7 +607,7 @@ describe("landFields / renderLandJson", () => {
 
   it("renderLandJson carries null subject/cost/model verbatim for a genuine no-op — never omitted", () => {
     const noop: LandFields = {
-      script: "gtd_report_note 'nothing to do at \"idle\"'\n",
+      script: "printf '%s\\n' 'nothing to do at \"idle\"'\n",
       settled: true,
       idle: true,
       state: "idle",
@@ -638,7 +638,7 @@ describe("noopText / landProseText", () => {
 
 describe("renderLandPlain", () => {
   const sample: LandFields = {
-    script: 'gtd_report_commit "gtd(agent): build.fixing"\ngit commit ...\n',
+    script: "printf '%s %s\\n' '[commit]' 'gtd(agent): build.fixing'\ngit commit ...\n",
     settled: false,
     idle: false,
     state: "build.review.deciding",
@@ -655,7 +655,7 @@ describe("renderLandPlain", () => {
 
   it("prints the no-op note when nothing landed", () => {
     const noop: LandFields = {
-      script: "gtd_report_note 'nothing to do at \"idle\"'\n",
+      script: "printf '%s\\n' 'nothing to do at \"idle\"'\n",
       settled: true,
       idle: true,
       state: "idle",
@@ -781,7 +781,7 @@ describe("BeatFields optionals are present-with-undefined, not omitted", () => {
 
   it("renderLandJson output for a no-op landing is byte-identical to before the change", () => {
     const noop: LandFields = {
-      script: "gtd_report_note 'nothing to do at \"idle\"'\n",
+      script: "printf '%s\\n' 'nothing to do at \"idle\"'\n",
       settled: true,
       idle: true,
       state: "idle",
@@ -791,7 +791,7 @@ describe("BeatFields optionals are present-with-undefined, not omitted", () => {
     }
     expect(renderLandJson(landFields(noop))).toBe(
       JSON.stringify({
-        script: "gtd_report_note 'nothing to do at \"idle\"'\n",
+        script: "printf '%s\\n' 'nothing to do at \"idle\"'\n",
         settled: true,
         idle: true,
         state: "idle",

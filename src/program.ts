@@ -81,13 +81,7 @@ import {
 } from "./Beat.js"
 import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
-import {
-  combinedScript,
-  emitScripts,
-  fileExistsGuard,
-  type EmitPreconditions,
-  type EmitStep,
-} from "./Emit.js"
+import { combinedScript, emitScripts, fileExistsGuard, type EmitStep } from "./Emit.js"
 import {
   abandonedOutcome,
   abandonNoopOutcome,
@@ -226,10 +220,6 @@ const normalizeScriptNewline = (script: string): string =>
 // very first commit (no earlier commit to rewind to).
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-const headPreconditions = (currentCommit: string): EmitPreconditions => ({
-  expectedHead: currentCommit,
-})
-
 /** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag `enforceStepGuards` bypasses its own steps for (see its call site). */
 const isAttemptDecision = (decision: ExecutableDecision): boolean =>
   decision.kind === "commit" && decision.attempt === true
@@ -250,12 +240,7 @@ const buildRequiredScript = (
   cost: number | undefined,
   model: string | undefined,
 ): Effect.Effect<string, Error, CommandRequirements> =>
-  Effect.succeed(
-    emitScripts(
-      headPreconditions(rest.context.currentCommit),
-      renderDecision(rest, decision, cost, model),
-    ).required,
-  )
+  Effect.succeed(emitScripts(renderDecision(rest, decision, cost, model)).required)
 
 /** `gtd land`'s own flags, threaded as one bag rather than growing `planLanding`/`runLandCommand`'s positional list. */
 interface LandOptions {
@@ -280,7 +265,7 @@ const planLanding = (
       return yield* Effect.fail(new Error(plan.message))
     }
     if (plan.kind === "noop") {
-      const required = emitScripts({}, [
+      const required = emitScripts([
         { kind: "outcome", command: noteOutcome(noopText(plan.state)) },
       ]).required
       return {
@@ -467,7 +452,7 @@ const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
     const initial = initialStateOf(def)
     const run = yield* currentRun
     if (run.trace.length === 0) {
-      const required = emitScripts({}, [
+      const required = emitScripts([
         { kind: "outcome", command: abandonNoopOutcome(initial) },
       ]).required
       out.write(combinedScript(required, ""))
@@ -491,7 +476,7 @@ const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
       { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
       { kind: "outcome", command: abandonedOutcome(restState, run.startParentHash, initial) },
     ]
-    const required = emitScripts(headPreconditions(tip), steps).required
+    const required = emitScripts(steps).required
     out.write(combinedScript(required, ""))
   })
 
@@ -543,7 +528,7 @@ const runRestoreCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
       { kind: "gitWrite", command: deleteRef(HISTORY_REF) },
       { kind: "outcome", command: restoredOutcome(tip, after.state) },
     ]
-    const required = emitScripts(headPreconditions(headHash), steps).required
+    const required = emitScripts(steps).required
     out.write(combinedScript(required, ""))
   })
 
@@ -714,7 +699,7 @@ const resolveValidateScript = (
       { kind: "command", command: fileExistsGuard(file) },
       ...(yield* renderSteeringModeCommandSteps(resolved, file, rest.context)),
     ]
-    const script = emitScripts(headPreconditions(rest.context.currentCommit), steps).required
+    const script = emitScripts(steps).required
     return { file, mode, script }
   })
 

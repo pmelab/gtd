@@ -108,8 +108,8 @@ commit everything with this message: gtd(human): idle → unwind
 (run `gtd land --json=script | sh` to get the landing script)
 ```
 
-You could run that commit by hand. Take the script instead — it adds the
-precondition checks and retries you would otherwise have to remember:
+You could run that commit by hand. Take the script instead — it spells out the
+exact message and reports what landed:
 
 ```bash
 gtd land --json=script | sh

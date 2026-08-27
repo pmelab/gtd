@@ -4,13 +4,11 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
   unset" holds trivially for gtd itself, because gtd's own CLI/rendering path
   (`src/Cli.ts`, `src/program.ts`) never inspects `isatty`/`TERM`/`NO_COLOR`
   for anything IT prints — there is no tty-conditional branch to get wrong.
-  The only place gtd ever emits real ANSI bytes is inside the *scripts it
-  prints* for a driver to run (`src/OutcomeScript.ts`'s `OUTCOME_PREAMBLE`),
-  and even there what gtd itself writes to stdout is the literal SOURCE TEXT
-  `printf '\033[0m'` — ordinary ASCII backslash/digit characters, not a real
-  ESC byte (0x1b). The real ESC byte only exists once a driver's `sh` later
-  interprets that `printf` at runtime — a separate, already-tested concern
-  (`src/OutcomeScript.test.ts`), not a property of gtd's own stdout.
+  Nor do the *scripts it prints* for a driver to run: an outcome statement
+  (`src/OutcomeScript.ts`) is a plain `printf` with no colour and no terminal
+  detection, so gtd's stdout carries neither a real ESC byte (0x1b) nor the
+  source text of one, and neither does the script's own output when a driver
+  runs it (`src/OutcomeScript.test.ts` pins that under a real pty).
 
   Because of that, this feature does not simulate two different terminal
   contexts: gtd's own output has no branch on tty-ness for either tier to
@@ -81,9 +79,8 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
 
     # `gtd land --json=script` still carries the required/optional
     # outcome-carrying script as a field — the one place ANSI source text
-    # (`printf '\033[...'`) appears anywhere in gtd's own stdout now that
-    # plain `gtd land` prints prose instead (package 2, Requirement B) — as
-    # plain source characters, never a real ESC byte.
+    # could ever have appeared in gtd's own stdout, and no longer does at all
+    # now that outcome statements carry no colour codes.
     When I run gtd land with "--json=script"
     Then it succeeds
     And stdout contains no ANSI escape sequence
@@ -122,9 +119,8 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
 
     # `gtd land --json=script` still carries the required/optional
     # outcome-carrying script as a field — the one place ANSI source text
-    # (`printf '\033[...'`) appears anywhere in gtd's own stdout now that
-    # plain `gtd land` prints prose instead (package 2, Requirement B) — as
-    # plain source characters, never a real ESC byte.
+    # could ever have appeared in gtd's own stdout, and no longer does at all
+    # now that outcome statements carry no colour codes.
     When I run gtd land with "--json=script"
     Then it succeeds
     And stdout contains no ANSI escape sequence

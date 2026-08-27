@@ -39,7 +39,7 @@ export const renderLandJson = (fields: LandFields): string => JSON.stringify(fie
 const FMT_NOOP = 'nothing to do at "%s"\n'
 const FMT_LAND_PROSE = "commit everything with this message: %s\n"
 
-/** `nothing to do at "<state>"` — a no-op step's plain-text line, and the text a print-only script's `gtd_report_note` carries. */
+/** `nothing to do at "<state>"` — a no-op step's plain-text line, and the text a print-only script's own `printf` carries. */
 export const noopText = (state: string): string => renderFormat(FMT_NOOP, state)
 
 /** `commit everything with this message: <subject>` — plain `gtd land`'s own stdout at a pending diff (no script); `--json` keeps emitting the script itself, unaffected. */

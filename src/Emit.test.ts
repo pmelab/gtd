@@ -1,5 +1,5 @@
 import { execFileSync, execSync, spawnSync } from "node:child_process"
-import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -8,9 +8,9 @@ import {
   DID_NOT_RUN_COMMENT,
   emitScripts,
   fileExistsGuard,
-  type EmitPreconditions,
   type EmitStep,
 } from "./Emit.js"
+import { commitOutcome, noteOutcome } from "./OutcomeScript.js"
 
 /**
  * `sh -n` (POSIX syntax check), not `bash -n` — a script that only passes
@@ -29,18 +29,15 @@ const runShCheckSyntax = (script: string): number => {
   }
 }
 
-const HEAD = "a".repeat(40)
-const basePreconditions: EmitPreconditions = { expectedHead: HEAD }
-
 describe("emitScripts — empty inputs", () => {
   it("is the empty string when both halves are omitted", () => {
-    const { required, optional } = emitScripts(basePreconditions)
+    const { required, optional } = emitScripts()
     expect(required).toBe("")
     expect(optional).toBe("")
   })
 
   it("is the empty string when both halves are explicitly []", () => {
-    const { required, optional } = emitScripts(basePreconditions, [], [])
+    const { required, optional } = emitScripts([], [])
     expect(required).toBe("")
     expect(optional).toBe("")
   })
@@ -50,7 +47,7 @@ describe("emitScripts — required only", () => {
   const steps: ReadonlyArray<EmitStep> = [
     { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
   ]
-  const { required, optional } = emitScripts(basePreconditions, steps)
+  const { required, optional } = emitScripts(steps)
 
   it("leaves optional empty", () => {
     expect(optional).toBe("")
@@ -60,10 +57,12 @@ describe("emitScripts — required only", () => {
     expect(required.split("\n")[0]).toBe("set -eu")
   })
 
-  it("asserts HEAD before doing anything, naming the mismatch and telling the reader to re-run gtd", () => {
-    expect(required).toContain("git rev-parse --verify --quiet HEAD")
-    expect(required).toContain(HEAD)
-    expect(required).toContain("re-run gtd")
+  it("carries no precondition guard — the script is exactly set -eu plus its steps", () => {
+    expect(required).not.toContain("git rev-parse")
+    expect(required.split("\n\n")).toEqual([
+      "set -eu",
+      "git commit --allow-empty -m 'gtd(agent): x'",
+    ])
   })
 
   it("is syntactically valid POSIX sh", () => {
@@ -78,8 +77,7 @@ describe("emitScripts — both halves populated", () => {
   const optional: ReadonlyArray<EmitStep> = [
     { kind: "command", command: "some-format-command --check FEEDBACK.md" },
   ]
-  const preconditions: EmitPreconditions = { expectedHead: HEAD }
-  const result = emitScripts(preconditions, required, optional)
+  const result = emitScripts(required, optional)
 
   it("both halves are non-empty", () => {
     expect(result.required).not.toBe("")
@@ -96,54 +94,25 @@ describe("emitScripts — both halves populated", () => {
     expect(runShCheckSyntax(result.optional)).toBe(0)
   })
 
-  it("a plain command step is emitted verbatim, not routed through the retry helper", () => {
+  it("a plain command step is emitted verbatim", () => {
     expect(result.optional).toContain("some-format-command --check FEEDBACK.md")
-    expect(result.optional).not.toContain("gtd_retry 'some-format-command")
   })
 
-  it("a gitWrite step is routed through the retry helper", () => {
-    expect(result.required).toMatch(/gtd_retry '.*git commit --allow-empty/)
+  it("a gitWrite step is emitted verbatim — no wrapper, so a failing git write fails in the user's shell", () => {
+    expect(result.required).toContain("git commit --allow-empty -m 'gtd(agent): x'")
   })
 })
 
 describe("emitScripts — outcome steps", () => {
-  const OUTCOME_MARKER = "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)"
-
-  it("includes the outcome preamble when a step is kind 'outcome'", () => {
-    const { required } = emitScripts(basePreconditions, [
-      { kind: "outcome", command: "gtd_report_note 'nothing to do at \"idle\"'" },
-    ])
-    expect(required).toContain(OUTCOME_MARKER)
-    expect(required).toContain("gtd_report_note")
-  })
-
-  it("omits the outcome preamble from a script with no outcome step", () => {
-    const { required } = emitScripts(basePreconditions, [
-      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
-    ])
-    expect(required).not.toContain(OUTCOME_MARKER)
-  })
-
-  it("renders an outcome step verbatim, not routed through the retry helper", () => {
-    const { required } = emitScripts(basePreconditions, [
-      { kind: "outcome", command: "gtd_report_commit 'gtd(agent): x'" },
-    ])
-    expect(required).toContain("gtd_report_commit 'gtd(agent): x'")
-    expect(required).not.toContain("gtd_retry 'gtd_report_commit")
-  })
-
-  it("both the outcome preamble and the retry helper appear when a script has both kinds of steps", () => {
-    const { required } = emitScripts(basePreconditions, [
-      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
-      { kind: "outcome", command: "gtd_report_commit 'gtd(agent): x'" },
-    ])
-    expect(required).toContain("gtd_retry()")
-    expect(required).toContain(OUTCOME_MARKER)
+  it("renders an outcome step verbatim — no preamble, the step carries its own printf", () => {
+    const { required } = emitScripts([{ kind: "outcome", command: commitOutcome("gtd(agent): x") }])
+    expect(required).toContain(commitOutcome("gtd(agent): x"))
+    expect(required.split("\n\n").length).toBe(2)
   })
 
   it("is syntactically valid POSIX sh", () => {
-    const { required } = emitScripts(basePreconditions, [
-      { kind: "outcome", command: "gtd_report_note 'nothing to do at \"idle\"'" },
+    const { required } = emitScripts([
+      { kind: "outcome", command: noteOutcome('nothing to do at "idle"') },
     ])
     expect(runShCheckSyntax(required)).toBe(0)
   })
@@ -152,8 +121,9 @@ describe("emitScripts — outcome steps", () => {
 describe("emitScripts — POSIX sh portability of the emitted output", () => {
   const steps: ReadonlyArray<EmitStep> = [
     { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
+    { kind: "outcome", command: commitOutcome("gtd(agent): x") },
   ]
-  const { required } = emitScripts(basePreconditions, steps)
+  const { required } = emitScripts(steps)
 
   it("never contains 'pipefail'", () => {
     expect(required).not.toContain("pipefail")
@@ -163,21 +133,8 @@ describe("emitScripts — POSIX sh portability of the emitted output", () => {
     expect(required).not.toContain("RANDOM")
   })
 
-  it("RETRY_HELPER's rendered text contains no ' local ' token", () => {
+  it("contains no ' local ' token", () => {
     expect(required).not.toContain(" local ")
-  })
-})
-
-describe("emitScripts — a script with no gitWrite steps omits the retry helper", () => {
-  const steps: ReadonlyArray<EmitStep> = [{ kind: "command", command: "echo hi" }]
-  const { required } = emitScripts(basePreconditions, steps)
-
-  it("never defines gtd_retry when nothing needs it", () => {
-    expect(required).not.toContain("gtd_retry()")
-  })
-
-  it("is still syntactically valid POSIX sh", () => {
-    expect(runShCheckSyntax(required)).toBe(0)
   })
 })
 
@@ -194,24 +151,9 @@ describe("fileExistsGuard", () => {
     expect(runShCheckSyntax(fileExistsGuard(".gtd/REVIEW.md"))).toBe(0)
   })
 
-  it("exits 0 (not 1) when the guard trips, unlike headAssertion", () => {
+  it("exits 0 (not 1) when the guard trips — a missing steering file is not a failure", () => {
     const result = spawnSync("sh", ["-c", fileExistsGuard("/no/such/file-for-sure")])
     expect(result.status).toBe(0)
-  })
-})
-
-describe("emitScripts — unborn HEAD precondition (expectedHead: '')", () => {
-  const steps: ReadonlyArray<EmitStep> = [
-    { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): x'" },
-  ]
-  const { required } = emitScripts({ expectedHead: "" }, steps)
-
-  it("renders an empty-string comparison against the --verify --quiet probe", () => {
-    expect(required).toContain(`[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = '' ]`)
-  })
-
-  it("is syntactically valid POSIX sh", () => {
-    expect(runShCheckSyntax(required)).toBe(0)
   })
 })
 
@@ -224,8 +166,6 @@ describe("emitScripts — a command step with onFailure", () => {
     execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], { cwd: dir })
     return dir
   }
-  const headOf = (dir: string): string =>
-    execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()
   const runIn = (dir: string, script: string): { status: number; output: string } => {
     try {
       const output = execSync("sh", { input: script, cwd: dir, encoding: "utf8" })
@@ -240,7 +180,7 @@ describe("emitScripts — a command step with onFailure", () => {
     const steps: ReadonlyArray<EmitStep> = [
       { kind: "command", command: "true", onFailure: "fix it" },
     ]
-    const { required } = emitScripts(basePreconditions, steps)
+    const { required } = emitScripts(steps)
     expect(runShCheckSyntax(required)).toBe(0)
   })
 
@@ -249,7 +189,7 @@ describe("emitScripts — a command step with onFailure", () => {
     const steps: ReadonlyArray<EmitStep> = [
       { kind: "command", command: "true", onFailure: "fix it" },
     ]
-    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { required } = emitScripts(steps)
     const { status, output } = runIn(dir, required)
     expect(status).toBe(0)
     expect(output).toBe("")
@@ -264,7 +204,7 @@ describe("emitScripts — a command step with onFailure", () => {
         onFailure: "Fix this violation",
       },
     ]
-    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { required } = emitScripts(steps)
     const { status, output } = runIn(dir, required)
     expect(status).toBe(3)
     expect(output).toBe("Fix this violation\n\nboom\n")
@@ -279,7 +219,7 @@ describe("emitScripts — a command step with onFailure", () => {
         onFailure: "Fix multi",
       },
     ]
-    const { required } = emitScripts({ expectedHead: headOf(dir) }, steps)
+    const { required } = emitScripts(steps)
     const { status, output } = runIn(dir, required)
     expect(status).toBe(5)
     expect(output).toBe("Fix multi\n\nline1\nline2\n")
@@ -287,121 +227,13 @@ describe("emitScripts — a command step with onFailure", () => {
 
   it("a command step without onFailure is still emitted verbatim", () => {
     const steps: ReadonlyArray<EmitStep> = [{ kind: "command", command: "some-command --flag" }]
-    const { required } = emitScripts(basePreconditions, steps)
+    const { required } = emitScripts(steps)
     expect(required).toContain("some-command --flag")
     expect(required).not.toContain("gtd_validate_status")
   })
 })
 
-/**
- * A fake git-alike, invoked by ABSOLUTE PATH from within the assembled
- * script's `gitWrite` step (never named bare `git`), behaving per invocation
- * count (tracked in a counter file) — same technique `GitScript.test.ts`'s
- * `withFakeGit` uses. Keeping it off `PATH` under the name `git` matters
- * here: the assembled script's OWN precondition assertion also runs a bare
- * `git rev-parse HEAD`, which must keep hitting the REAL git in the real
- * throwaway repo these tests run in, not this fake.
- */
-const withFakeGit = (
-  behaviorByAttempt: ReadonlyArray<string>,
-): { readonly binPath: string; readonly counterFile: string } => {
-  const binDir = mkdtempSync(join(tmpdir(), "emit-fakebin-"))
-  const counterFile = join(binDir, "count")
-  const binPath = join(binDir, "fake-git")
-  const cases = behaviorByAttempt.map((behavior, i) => `  ${i + 1}) ${behavior} ;;`).join("\n")
-  const last = behaviorByAttempt[behaviorByAttempt.length - 1] ?? "exit 0"
-  writeFileSync(
-    binPath,
-    [
-      "#!/bin/bash",
-      `count=$(( $(cat '${counterFile}' 2>/dev/null || echo 0) + 1 ))`,
-      `echo "$count" > '${counterFile}'`,
-      `case "$count" in`,
-      cases,
-      `  *) ${last} ;;`,
-      `esac`,
-    ].join("\n"),
-    { mode: 0o755 },
-  )
-  chmodSync(binPath, 0o755)
-  return { binPath, counterFile }
-}
-
-const runScriptInRealRepo = (script: string, cwd: string): number => {
-  try {
-    execSync("sh", { input: script, cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
-    return 0
-  } catch (error) {
-    return (error as { status?: number }).status ?? 1
-  }
-}
-
-describe("gtd_retry — index.lock contention", () => {
-  const initRepo = (): string => {
-    const dir = mkdtempSync(join(tmpdir(), "emit-retry-repo-"))
-    execFileSync("git", ["init", "-q"], { cwd: dir })
-    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], {
-      cwd: dir,
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: "Test",
-        GIT_AUTHOR_EMAIL: "test@example.com",
-        GIT_COMMITTER_NAME: "Test",
-        GIT_COMMITTER_EMAIL: "test@example.com",
-      },
-    })
-    return dir
-  }
-  const headOf = (dir: string): string =>
-    execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()
-  const scriptFor = (dir: string, binPath: string): string =>
-    emitScripts({ expectedHead: headOf(dir) }, [
-      { kind: "gitWrite", command: `${binPath} commit --allow-empty -m x` },
-    ]).required
-
-  it("retries on the index.lock wording and eventually succeeds", () => {
-    const dir = initRepo()
-    const { binPath, counterFile } = withFakeGit([
-      `echo "fatal: Unable to create '.git/index.lock': File exists." >&2; exit 128`,
-      `echo "fatal: Unable to create '.git/index.lock': File exists." >&2; exit 128`,
-      `exit 0`,
-    ])
-    const status = runScriptInRealRepo(scriptFor(dir, binPath), dir)
-    expect(status).toBe(0)
-    expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("3")
-  })
-
-  it("retries on the 'another git process' wording too", () => {
-    const dir = initRepo()
-    const { binPath, counterFile } = withFakeGit([
-      `echo "Another git process seems to be running" >&2; exit 128`,
-      `exit 0`,
-    ])
-    const status = runScriptInRealRepo(scriptFor(dir, binPath), dir)
-    expect(status).toBe(0)
-    expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("2")
-  })
-
-  it("gives up after 6 total attempts, still contending", () => {
-    const dir = initRepo()
-    const { binPath, counterFile } = withFakeGit([
-      `echo "fatal: Unable to create '.git/index.lock': File exists." >&2; exit 128`,
-    ])
-    const status = runScriptInRealRepo(scriptFor(dir, binPath), dir)
-    expect(status).not.toBe(0)
-    expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("6")
-  })
-
-  it("does NOT retry a non-lock failure — fails on the first attempt", () => {
-    const dir = initRepo()
-    const { binPath, counterFile } = withFakeGit([`echo "fatal: some other failure" >&2; exit 1`])
-    const status = runScriptInRealRepo(scriptFor(dir, binPath), dir)
-    expect(status).not.toBe(0)
-    expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("1")
-  })
-})
-
-describe("real repo — HEAD precondition and retry plumbing end to end", () => {
+describe("real repo — an assembled script end to end", () => {
   const initRepo = (): string => {
     const dir = mkdtempSync(join(tmpdir(), "emit-realrepo-"))
     execFileSync("git", ["init", "-q"], { cwd: dir })
@@ -411,19 +243,15 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     return dir
   }
 
-  const headOf = (dir: string): string =>
-    execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()
-
   const commitCount = (dir: string): number =>
     Number(
       execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: dir, encoding: "utf8" }).trim(),
     )
 
-  it("a matching HEAD passes the precondition and the wrapped git command actually lands", () => {
+  it("the git command actually lands", () => {
     const dir = initRepo()
-    const head = headOf(dir)
     const before = commitCount(dir)
-    const { required } = emitScripts({ expectedHead: head }, [
+    const { required } = emitScripts([
       { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): landed'" },
     ])
     execSync("sh", { input: required, cwd: dir })
@@ -433,11 +261,12 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     ).toBe("gtd(agent): landed")
   })
 
-  it("a mismatched expected HEAD aborts before touching anything", () => {
+  it("a failing git write aborts the script non-zero, leaving later steps unrun", () => {
     const dir = initRepo()
     const before = commitCount(dir)
-    const { required } = emitScripts({ expectedHead: "f".repeat(40) }, [
-      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): should-not-land'" },
+    const { required } = emitScripts([
+      { kind: "gitWrite", command: "git commit --allow-empty -m 'x' --this-flag-does-not-exist" },
+      { kind: "command", command: "touch later-step-ran" },
     ])
     let status = 0
     try {
@@ -447,22 +276,7 @@ describe("real repo — HEAD precondition and retry plumbing end to end", () => 
     }
     expect(status).not.toBe(0)
     expect(commitCount(dir)).toBe(before)
-  })
-
-  it("an unborn-HEAD precondition run against a repo that already has a commit aborts non-zero and lands nothing", () => {
-    const dir = initRepo()
-    const before = commitCount(dir)
-    const { required } = emitScripts({ expectedHead: "" }, [
-      { kind: "gitWrite", command: "git commit --allow-empty -m 'gtd(agent): should-not-land'" },
-    ])
-    let status = 0
-    try {
-      execSync("sh", { input: required, cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
-    } catch (error) {
-      status = (error as { status?: number }).status ?? 1
-    }
-    expect(status).not.toBe(0)
-    expect(commitCount(dir)).toBe(before)
+    expect(existsSync(join(dir, "later-step-ran"))).toBe(false)
   })
 })
 

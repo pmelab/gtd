@@ -19,7 +19,7 @@ import {
   type RestRequirements,
 } from "./Edge.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
-import { commitAll, shellQuote } from "./GitScript.js"
+import { commitAll } from "./GitScript.js"
 import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { testLayers } from "./testing/Layers.js"
@@ -1134,7 +1134,7 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     // The plan's assembled `scripts.required` carries the SAME line, wrapped
     // in the retry helper — proving Part B's assembly agrees with Part A's
     // renderer, not just a hand-built comparison.
-    expect(plan.scripts.required).toContain(shellQuote(commitAll(expectedMessage)))
+    expect(plan.scripts.required).toContain(commitAll(expectedMessage))
     expect(plan.scripts.required).toContain(transitionOutcome("idle", "working"))
   })
 
@@ -1175,7 +1175,7 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
     if (plan.kind !== "entry") throw new Error("expected an entry plan")
 
     const expectedMessage = "gtd(human): fixing\n\nGtd-Var: base=custom"
-    expect(plan.scripts.required).toContain(shellQuote(commitAll(expectedMessage)))
+    expect(plan.scripts.required).toContain(commitAll(expectedMessage))
     // The trailing outcome names the BARE subject, never `expectedMessage`
     // (which carries the `Gtd-Var:` trailer).
     expect(plan.scripts.required).toContain(commitOutcome("gtd(human): fixing"))

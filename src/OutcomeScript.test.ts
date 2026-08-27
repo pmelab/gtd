@@ -10,7 +10,7 @@ import {
   abandonNoopText,
   commitOutcome,
   noteOutcome,
-  OUTCOME_PREAMBLE,
+  OUTCOME_MARKER,
   renderFormat,
   restoredOutcome,
   transitionOutcome,
@@ -26,45 +26,55 @@ const runShCheckSyntax = (script: string): number => {
 }
 
 describe("transitionOutcome", () => {
-  it("emits a call to gtd_report_transition with both states shell-quoted", () => {
+  it("emits one printf naming both states", () => {
     expect(transitionOutcome("plan.planning", "plan.await-plan")).toBe(
-      "gtd_report_transition 'plan.planning' 'plan.await-plan'",
+      `${OUTCOME_MARKER}\nprintf '%s %s → %s\\n' '->' 'plan.planning' 'plan.await-plan'`,
     )
   })
 
-  it("is syntactically valid sh on its own", () => {
+  it("is syntactically valid sh on its own — no preamble to define first", () => {
     expect(runShCheckSyntax(transitionOutcome("a", "b"))).toBe(0)
   })
 })
 
 describe("commitOutcome", () => {
-  it("emits a call to gtd_report_commit with the subject shell-quoted", () => {
-    expect(commitOutcome("gtd(agent): x")).toBe("gtd_report_commit 'gtd(agent): x'")
+  it("emits one printf naming the subject", () => {
+    expect(commitOutcome("gtd(agent): x")).toBe(
+      `${OUTCOME_MARKER}\nprintf '%s %s\\n' '[commit]' 'gtd(agent): x'`,
+    )
+  })
+
+  it("is syntactically valid sh on its own", () => {
+    expect(runShCheckSyntax(commitOutcome("gtd(agent): x"))).toBe(0)
   })
 })
 
 describe("noteOutcome", () => {
-  it("emits a call to gtd_report_note with the text shell-quoted", () => {
+  it("emits a single printf of the text", () => {
     expect(noteOutcome('nothing to do at "idle"')).toBe(
-      "gtd_report_note 'nothing to do at \"idle\"'",
+      `${OUTCOME_MARKER}\nprintf '%s\\n' 'nothing to do at "idle"'`,
     )
   })
 })
 
 describe("abandonedOutcome / restoredOutcome", () => {
-  it("emits gtd_report_abandoned with from/head/state shell-quoted", () => {
-    expect(abandonedOutcome("build.fix", "abc123", "idle")).toBe(
-      "gtd_report_abandoned 'build.fix' 'abc123' 'idle'",
+  it("resolves the short hash and subject in-script, since the reset has not happened yet when gtd emits this", () => {
+    expect(abandonedOutcome("build.fix", "abc123", "idle")).toContain(
+      "\"$(git rev-parse --short 'abc123')\"",
+    )
+    expect(abandonedOutcome("build.fix", "abc123", "idle")).toContain(
+      "\"$(git log -1 --format=%s 'abc123')\"",
     )
   })
 
-  it("emits gtd_report_restored with to/state shell-quoted", () => {
-    expect(restoredOutcome("abc123", "idle")).toBe("gtd_report_restored 'abc123' 'idle'")
+  it("both are syntactically valid sh on their own", () => {
+    expect(runShCheckSyntax(abandonedOutcome("build.fix", "abc123", "idle"))).toBe(0)
+    expect(runShCheckSyntax(restoredOutcome("abc123", "idle"))).toBe(0)
   })
 })
 
 describe("abandonNoopOutcome", () => {
-  it("carries the same wording as abandonNoopText, via gtd_report_note", () => {
+  it("carries the same wording as abandonNoopText", () => {
     expect(abandonNoopOutcome("idle")).toBe(noteOutcome(abandonNoopText("idle")))
   })
 })
@@ -87,28 +97,71 @@ describe("renderFormat", () => {
   })
 })
 
+/**
+ * The emitted statements carry no ANSI at all now, so there is no tty /
+ * `NO_COLOR` / `TERM=dumb` branch left to gate: output is byte-identical on a
+ * pipe and on a real terminal. `run-in-pty.py` is what proves that rather than
+ * assumes it — it allocates a throwaway pty pair, the one context where a
+ * colour branch (if one came back) would actually fire.
+ */
+describe("no ANSI, on a pipe or a real tty", () => {
+  const PTY_RUNNER = resolve(import.meta.dirname, "../tests/tooling/support/run-in-pty.py")
+  const ESC = "\x1b"
+
+  const initRepo = (dir: string): void => {
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "gtd(human): idle"], { cwd: dir })
+  }
+
+  it("emits no escape byte under a real tty with a colour-capable TERM", () => {
+    const dir = mkdtempSync(join(tmpdir(), "outcome-pty-"))
+    initRepo(dir)
+    const script = commitOutcome("gtd(human): idle")
+    const out = execFileSync("python3", [PTY_RUNNER, `cd ${JSON.stringify(dir)} && ${script}`], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH ?? "", TERM: "xterm" },
+    })
+    expect(out).not.toContain(ESC)
+    expect(out).toContain("[commit] gtd(human): idle")
+  })
+
+  it("contains no ANSI source text either — nothing for a driver's stdout to leak", () => {
+    for (const statement of [
+      transitionOutcome("a", "b"),
+      commitOutcome("gtd(human): x"),
+      noteOutcome("ok"),
+      abandonedOutcome("build.fix", "abc123", "idle"),
+      restoredOutcome("abc123", "idle"),
+    ]) {
+      expect(statement).not.toContain("\\033[")
+      expect(statement).not.toContain("$'")
+    }
+  })
+
+  it("contains no bash-only local declarations or process substitution", () => {
+    const statement = commitOutcome("gtd(human): x")
+    expect(statement).not.toContain(" local ")
+    expect(statement).not.toContain("<(")
+  })
+})
+
 describe("%-safety and quoting", () => {
-  it("a subject containing %s survives transitionOutcome/commitOutcome round-tripped through printf", () => {
+  it("a subject containing %s survives commitOutcome round-tripped through printf", () => {
     const tricky = "gtd(agent): 50%s off deal's price"
-    const script = [
-      OUTCOME_PREAMBLE,
-      commitOutcome(tricky),
-      // `gtd_files HEAD` inside gtd_report_commit will no-op (no commit yet in
-      // this throwaway dir), so nothing more needs to be staged.
-    ].join("\n")
     const dir = mkdtempSync(join(tmpdir(), "outcome-safety-"))
     execFileSync("git", ["init", "-q"], { cwd: dir })
-    const out = execSync("sh", { input: script, cwd: dir, encoding: "utf8" })
+    const out = execSync("sh", { input: commitOutcome(tricky), cwd: dir, encoding: "utf8" })
     expect(out).toContain(tricky)
   })
 
-  it("round-trips arbitrary subjects (including % and quotes) through commitOutcome + gtd_report_note", () => {
+  it("round-trips arbitrary subjects (including % and quotes) through noteOutcome", () => {
     fc.assert(
       fc.property(
         fc.string({ unit: "binary" }).filter((s) => !s.includes("\0") && !s.includes("\n")),
         (subject) => {
-          const script = [OUTCOME_PREAMBLE, noteOutcome(subject)].join("\n")
-          const out = execSync("sh", { input: script, encoding: "utf8" })
+          const out = execSync("sh", { input: noteOutcome(subject), encoding: "utf8" })
           expect(out).toBe(`${subject}\n`)
         },
       ),
@@ -117,174 +170,7 @@ describe("%-safety and quoting", () => {
   })
 })
 
-describe("OUTCOME_PREAMBLE", () => {
-  it("is one block with no blank lines", () => {
-    expect(OUTCOME_PREAMBLE).not.toContain("\n\n")
-  })
-
-  it("starts with the marker comment naming this module", () => {
-    expect(OUTCOME_PREAMBLE.split("\n")[0]).toBe(
-      "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",
-    )
-  })
-
-  it("is syntactically valid sh on its own", () => {
-    expect(runShCheckSyntax(OUTCOME_PREAMBLE)).toBe(0)
-  })
-
-  it("uses printf-built escapes for colour codes, never ANSI-C $'...' quoting", () => {
-    expect(OUTCOME_PREAMBLE).toContain("printf '\\033[")
-    expect(OUTCOME_PREAMBLE).not.toContain("$'\\e")
-  })
-
-  it("contains no bash-only local declarations, process substitution, or ANSI-C quoting", () => {
-    expect(OUTCOME_PREAMBLE).not.toContain(" local ")
-    expect(OUTCOME_PREAMBLE).not.toContain("<(")
-    expect(OUTCOME_PREAMBLE).not.toContain("$'")
-  })
-})
-
-/**
- * `[ -t 1 ]` is a real `isatty()` check — a pipe (every other test in this
- * file captures output through one) can never make it true, so it alone
- * can't distinguish "plain because no tty" from "plain because TERM=dumb /
- * NO_COLOR" once a tty is involved. `run-in-pty.py` allocates a throwaway
- * pty pair (no controlling terminal needed, unlike Python's `pty.spawn`) so
- * these cases can be told apart for real. The colour vs. plain distinction
- * itself is made on the presence of a raw ESC byte (`\x1b`, what `printf
- * '\033[...'` actually emits at runtime) rather than the marker glyphs,
- * since that's the one thing plain mode structurally can never contain.
- */
-describe("OUTCOME_PREAMBLE's colour gating under a real tty", () => {
-  const PTY_RUNNER = resolve(import.meta.dirname, "../tests/tooling/support/run-in-pty.py")
-  const ESC = "\x1b"
-
-  const initRepo = (): string => {
-    const dir = mkdtempSync(join(tmpdir(), "outcome-pty-"))
-    execFileSync("git", ["init", "-q"], { cwd: dir })
-    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
-    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
-    execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "gtd(human): idle"], { cwd: dir })
-    return dir
-  }
-
-  const runUnderRealPty = (
-    dir: string,
-    script: string,
-    env: Readonly<Record<string, string>>,
-  ): string =>
-    execFileSync("python3", [PTY_RUNNER, `cd ${JSON.stringify(dir)} && ${script}`], {
-      encoding: "utf8",
-      env: { PATH: process.env.PATH ?? "", ...env },
-    })
-
-  it("still selects the plain fallback strings when TERM=dumb, even on a real tty with NO_COLOR unset", () => {
-    const dir = initRepo()
-    const out = runUnderRealPty(
-      dir,
-      [OUTCOME_PREAMBLE, commitOutcome("gtd(human): idle")].join("\n"),
-      {
-        TERM: "dumb",
-      },
-    )
-    expect(out).not.toContain(ESC)
-  })
-
-  it("still selects the plain fallback strings when NO_COLOR is set, even on a real tty with a normal TERM", () => {
-    const dir = initRepo()
-    const out = runUnderRealPty(
-      dir,
-      [OUTCOME_PREAMBLE, commitOutcome("gtd(human): idle")].join("\n"),
-      {
-        TERM: "xterm",
-        NO_COLOR: "1",
-      },
-    )
-    expect(out).not.toContain(ESC)
-  })
-
-  it("emits colour on a real tty with NO_COLOR unset and a normal TERM", () => {
-    const dir = initRepo()
-    const out = runUnderRealPty(
-      dir,
-      [OUTCOME_PREAMBLE, commitOutcome("gtd(human): idle")].join("\n"),
-      {
-        TERM: "xterm",
-      },
-    )
-    expect(out).toContain(ESC)
-  })
-})
-
-describe("OUTCOME_PREAMBLE's TERM handling under set -u", () => {
-  it("does not error when TERM is entirely unset", () => {
-    const env = { ...process.env }
-    delete env.TERM
-    delete env.NO_COLOR
-    const script = ["set -u", OUTCOME_PREAMBLE, noteOutcome("ok")].join("\n")
-    expect(() => execSync("sh", { input: script, encoding: "utf8", env })).not.toThrow()
-  })
-})
-
-describe("gtd_report_transition — real repo", () => {
-  const initRepo = (): string => {
-    const dir = mkdtempSync(join(tmpdir(), "outcome-realrepo-"))
-    execFileSync("git", ["init", "-q"], { cwd: dir })
-    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
-    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
-    return dir
-  }
-
-  it("prints the transition line and up to 3 changed-file rows, plain (NO_COLOR)", () => {
-    const dir = initRepo()
-    execFileSync("bash", ["-c", "printf a > a.txt && printf b > b.txt && git add -A"], {
-      cwd: dir,
-    })
-    execFileSync("git", ["commit", "-q", "-m", "gtd(human): from → to"], { cwd: dir })
-    const script = [OUTCOME_PREAMBLE, transitionOutcome("from", "to")].join("\n")
-    const out = execSync("sh", {
-      input: script,
-      cwd: dir,
-      encoding: "utf8",
-      env: { ...process.env, NO_COLOR: "1" },
-    })
-    expect(out).toBe("-> from → to\n   a.txt\n   b.txt\n")
-  })
-
-  it("caps changed files at 3 rows with an overflow count", () => {
-    const dir = initRepo()
-    for (const f of ["a", "b", "c", "d"]) {
-      execFileSync("bash", ["-c", `printf x > ${f}.txt`], { cwd: dir })
-    }
-    execFileSync("git", ["add", "-A"], { cwd: dir })
-    execFileSync("git", ["commit", "-q", "-m", "gtd(human): x"], { cwd: dir })
-    const script = [OUTCOME_PREAMBLE, commitOutcome("gtd(human): x")].join("\n")
-    const out = execSync("sh", {
-      input: script,
-      cwd: dir,
-      encoding: "utf8",
-      env: { ...process.env, NO_COLOR: "1" },
-    })
-    expect(out).toBe("[commit] gtd(human): x\n   a.txt\n   b.txt\n   c.txt\n   ... (1 more)\n")
-  })
-
-  it("shows the first commit's own files with --root", () => {
-    const dir = initRepo()
-    execFileSync("bash", ["-c", "printf a > a.txt"], { cwd: dir })
-    execFileSync("git", ["add", "-A"], { cwd: dir })
-    execFileSync("git", ["commit", "-q", "-m", "gtd(human): idle"], { cwd: dir })
-    const script = [OUTCOME_PREAMBLE, commitOutcome("gtd(human): idle")].join("\n")
-    const out = execSync("sh", {
-      input: script,
-      cwd: dir,
-      encoding: "utf8",
-      env: { ...process.env, NO_COLOR: "1" },
-    })
-    expect(out).toBe("[commit] gtd(human): idle\n   a.txt\n")
-  })
-})
-
-describe("gtd_report_abandoned / gtd_report_restored — real repo", () => {
+describe("abandonedOutcome / restoredOutcome — real repo", () => {
   const initRepo = (): string => {
     const dir = mkdtempSync(join(tmpdir(), "outcome-abandon-"))
     execFileSync("git", ["init", "-q"], { cwd: dir })
@@ -301,8 +187,11 @@ describe("gtd_report_abandoned / gtd_report_restored — real repo", () => {
       cwd: dir,
       encoding: "utf8",
     }).trim()
-    const script = [OUTCOME_PREAMBLE, abandonedOutcome("build.fix", head, "idle")].join("\n")
-    const out = execSync("sh", { input: script, cwd: dir, encoding: "utf8" })
+    const out = execSync("sh", {
+      input: abandonedOutcome("build.fix", head, "idle"),
+      cwd: dir,
+      encoding: "utf8",
+    })
     expect(out).toBe(
       `abandoned the process resting at "build.fix" — HEAD is back at ${short} ` +
         '("gtd(human): idle"), resting at "idle".\n' +
@@ -318,8 +207,11 @@ describe("gtd_report_abandoned / gtd_report_restored — real repo", () => {
       cwd: dir,
       encoding: "utf8",
     }).trim()
-    const script = [OUTCOME_PREAMBLE, restoredOutcome(head, "await-review")].join("\n")
-    const out = execSync("sh", { input: script, cwd: dir, encoding: "utf8" })
+    const out = execSync("sh", {
+      input: restoredOutcome(head, "await-review"),
+      cwd: dir,
+      encoding: "utf8",
+    })
     expect(out).toBe(
       `restored the retained history — HEAD is back at ${short} ("gtd(human): idle"), ` +
         'resting at "await-review". Resume with the loop, or `git reset` to any earlier ' +

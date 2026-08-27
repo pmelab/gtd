@@ -18,7 +18,6 @@ import {
   DID_NOT_RUN_COMMENT,
   failurePromptWrapper,
   fileExistsGuard,
-  headAssertion,
   PRESENTATION_FAILURE_WARNING,
   PRESENTATION_ONLY_COMMENT,
 } from "../Emit.js"
@@ -27,7 +26,7 @@ import {
   contradictionMessage,
   modeContradictionSkipNotice,
 } from "../ModeContradiction.js"
-import { OUTCOME_PREAMBLE } from "../OutcomeScript.js"
+import { OUTCOME_MARKER } from "../OutcomeScript.js"
 import { steeringFormatFor } from "../SteeringFormats.js"
 import type { SteeringFormat } from "../SteeringFormat.js"
 import type { InMemRepo } from "./InMemRepo.js"
@@ -219,28 +218,6 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
 }
 
 /**
- * `src/Emit.ts`'s REAL `headAssertion` block — the current, non-placeholder
- * preamble every assembled script (`emitScripts`) opens with, right after
- * `set -euo pipefail`. Re-derives the block from the extracted hash and
- * compares full strings, exactly like a `GitScript.ts` builder — so this can
- * never silently drift from `headAssertion`'s actual template. The real
- * probe (`git rev-parse --verify --quiet HEAD 2>/dev/null`) reads an unborn
- * HEAD back as an empty string; `InMemRepo.resolveRef` models the same
- * repository state as `null`, so `(actual ?? "") === hash` is the fake's
- * exact mirror of that behavior — no special-casing a hash stand-in needed.
- */
-const recognizeHeadAssertion = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
-  const [hash] = extractQuotedTokens(block)
-  if (hash === undefined || headAssertion(hash) !== block) return undefined
-  const actual = repo.resolveRef("HEAD")
-  if ((actual ?? "") === hash) return { kind: "noop" }
-  return {
-    kind: "failed",
-    error: `gtd: repository changed since this script was generated (expected HEAD ${hash}, got ${actual ?? "(no commits)"})`,
-  }
-}
-
-/**
  * `src/Emit.ts`'s REAL `fileExistsGuard` block — `src/program.ts`'s
  * `resolveValidateScript` leads every emitted validate script with it.
  * Re-derives the block from the extracted path and compares full strings,
@@ -256,63 +233,16 @@ const recognizeFileExistsGuard = (repo: InMemRepo, block: string): BlockOutcome 
 }
 
 /**
- * `src/Emit.ts`'s `gtd_retry` bash FUNCTION DEFINITION (`RETRY_HELPER`) —
- * present as its own block whenever any step is a `gitWrite`. Defining a
- * function is inert (it does nothing until called), so this is always a
- * no-op regardless of the helper's exact body — unlike every other
- * recognizer here, there is nothing to re-derive-and-compare: the actual
- * WORK happens at each `gtd_retry '<command>'` CALL site, which
- * `recognizeRetryWrappedGitWrite` below unwraps and re-dispatches.
+ * `src/OutcomeScript.ts`'s outcome statements, recognized by their own
+ * `OUTCOME_MARKER` first line rather than re-derived and string-compared like
+ * every git-effecting block above: an outcome only prints (and the
+ * changed-file line under it only reads), so there is no git effect a loose
+ * match could ever miss (contrast `recognizeGitBuilders`, where a
+ * byte-for-byte match is load-bearing — a near-miss there could silently skip
+ * a real mutation).
  */
-const recognizeRetryHelperDefinition = (block: string): BlockOutcome | undefined =>
-  block.startsWith("gtd_retry() {") ? { kind: "noop" } : undefined
-
-/**
- * `src/OutcomeScript.ts`'s `OUTCOME_PREAMBLE` — present as its own block
- * whenever any step is `kind: "outcome"`. Recognized loosely, by its own
- * marker comment line, rather than re-derived and string-compared like every
- * git-effecting block above: an outcome block PRINTS and changes nothing, so
- * there is no git effect a loose match could ever miss (contrast
- * `recognizeGitBuilders`, where a byte-for-byte match is load-bearing — a
- * near-miss there could silently skip a real mutation).
- */
-const OUTCOME_PREAMBLE_MARKER = OUTCOME_PREAMBLE.split("\n")[0]!
-
-const recognizeOutcomePreamble = (block: string): BlockOutcome | undefined =>
-  block.startsWith(OUTCOME_PREAMBLE_MARKER) ? { kind: "noop" } : undefined
-
-/**
- * A `src/OutcomeScript.ts` builder's one-line call (`gtd_report_transition
- * 'a' 'b'`, `gtd_report_commit '...'`, etc.) — inert for the same reason the
- * preamble above is: it only prints, so a loose prefix match is sound here
- * exactly like `recognizeOutcomePreamble`.
- */
-const recognizeOutcomeCall = (block: string): BlockOutcome | undefined =>
-  block.startsWith("gtd_report_") ? { kind: "noop" } : undefined
-
-/**
- * `src/Emit.ts`'s `renderStep` wraps every `"gitWrite"` step as `gtd_retry
- * '<shellQuote-escaped whole command>'` — a SINGLE quoted argument, however
- * many physical lines the escaped command itself spans (a compound builder's
- * `&&`-joined lines survive as literal newlines inside the one quoted
- * string). `extractQuotedTokens` reconstructs that one argument regardless of
- * its internal newlines (the same property the multi-line `if`/`case`/`fi`
- * builders already rely on), so unwrapping is: extract the one token,
- * confirm the round trip via `shellQuote` (never hand-parse the escaping a
- * second time), then re-dispatch the UNWRAPPED command through the ordinary
- * git-builder recognizer — exactly as if it had never been wrapped.
- */
-const GTD_RETRY_PREFIX = "gtd_retry "
-
-const recognizeRetryWrappedGitWrite = (
-  repo: InMemRepo,
-  block: string,
-): BlockOutcome | undefined => {
-  if (!block.startsWith(GTD_RETRY_PREFIX)) return undefined
-  const [inner] = extractQuotedTokens(block)
-  if (inner === undefined || `${GTD_RETRY_PREFIX}${shellQuote(inner)}` !== block) return undefined
-  return recognizeGitBuilders(repo, inner)
-}
+const recognizeOutcome = (block: string): BlockOutcome | undefined =>
+  block.startsWith(OUTCOME_MARKER) ? { kind: "noop" } : undefined
 
 /**
  * `src/Emit.ts`'s `failurePromptWrapper` — wraps a `command` step's
@@ -674,18 +604,14 @@ const recognizersFor = (
   (block) => recognizeSetFlags(block),
   (block) => recognizeDidNotRunComment(block),
   (block) => recognizePrecondition(repo, block),
-  (block) => recognizeHeadAssertion(repo, block),
   (block) => recognizeFileExistsGuard(repo, block),
-  (block) => recognizeRetryHelperDefinition(block),
   (block) => recognizeGitBuilders(repo, block),
-  (block) => recognizeRetryWrappedGitWrite(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block),
   (block) => recognizeModeContradictionSkipNotice(block),
   (block) => recognizeModeContradictionCheck(repo, commands, block),
   (block) => recognizeGtdCheck(repo, block),
-  (block) => recognizeOutcomePreamble(block),
-  (block) => recognizeOutcomeCall(block),
+  (block) => recognizeOutcome(block),
   (block) => recognizeScriptedCommand(repo, commands, block),
 ]
 

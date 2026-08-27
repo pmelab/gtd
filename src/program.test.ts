@@ -21,7 +21,7 @@ import { InMemRepo } from "./testing/InMemRepo.js"
 import { makeCapturingCliIo } from "./testing/cliIo.js"
 import { testLayers } from "./testing/Layers.js"
 import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
-import { commitAll, shellQuote } from "./GitScript.js"
+import { commitAll } from "./GitScript.js"
 import { HISTORY_REF } from "./RetainedHistory.js"
 import { abandonNoopOutcome, noteOutcome, restoredOutcome } from "./OutcomeScript.js"
 import { noopText } from "./Beat.js"
@@ -107,7 +107,7 @@ describe("gtd --entry <state> — a custom workflow declaring `entry: true`", ()
     // itself, not a result line — the subject lives inside it. `--entry`
     // carries no `--json` of its own (only `next`/`land` do) — the
     // combined script IS the whole of stdout.
-    expect(stdout).toContain(shellQuote(commitAll("gtd(human): side-entry")))
+    expect(stdout).toContain(commitAll("gtd(human): side-entry"))
     expect(repo.commitHistory()).toHaveLength(before)
   })
 
@@ -167,7 +167,7 @@ describe("gtd --entry <state> — a custom workflow declaring `entry: true`", ()
     const repo = seededRepo()
     const { stdout, exitCode } = await run(repo, "--entry", "side-entry")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain(shellQuote(commitAll("gtd(human): side-entry")))
+    expect(stdout).toContain(commitAll("gtd(human): side-entry"))
   })
 })
 
@@ -1178,7 +1178,8 @@ describe("gtd next — refuses when HEAD names a state the current workflow no l
     // the combined script is the whole of stdout.
     const { stdout, exitCode } = await run(repo, "abandon")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("gtd_report_abandoned 'renamedAway'")
+    expect(stdout).toContain('abandoned the process resting at "%s"')
+    expect(stdout).toContain("'renamedAway'")
     expect(repo.commitHistory()).toHaveLength(before)
 
     const applied = applyEmittedScript(repo, new Map(), stdout)
@@ -1250,7 +1251,7 @@ describe("outcome scripts — step no-op / abandon no-op / restore", () => {
     expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("gtd restore's script prints the post-hoc short hash/subject via gtd_report_restored", async () => {
+  it("gtd restore's script resolves the post-hoc short hash/subject in-script", async () => {
     const repo = seededRepo()
     repo.commitAllWithPrefix("gtd(agent): working")
     const tip = repo.resolveRef("HEAD")!

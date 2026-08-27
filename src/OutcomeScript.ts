@@ -8,13 +8,25 @@ export const renderFormat = (fmt: string, ...args: readonly string[]): string =>
 
 /**
  * A `printf '<fmt>' <args...>` bash statement — `args` are already-valid bash
- * tokens (a variable reference like `"$from"`), never re-quoted here: a value
- * reaches the script as a printf ARGUMENT, never interpolated into the format
- * itself, so a subject or state name containing `%` can never be read as a
- * conversion spec.
+ * tokens (a `shellQuote`d literal, a `"$(git …)"` substitution), never
+ * re-quoted here: a value reaches the script as a printf ARGUMENT, never
+ * interpolated into the format itself, so a subject or state name containing
+ * `%` can never be read as a conversion spec. Markers like `->` are arguments
+ * too, keeping every format string free of a leading `-` that a shell's
+ * `printf` could mistake for an option. A real newline in `fmt` is emitted as
+ * the two-character `\n` escape `printf` itself expands, keeping every emitted
+ * statement on one line.
  */
 const printfLine = (fmt: string, args: readonly string[]): string =>
-  `printf ${shellQuote(fmt)} ${args.join(" ")}`
+  `${OUTCOME_MARKER}\nprintf ${shellQuote(fmt.replace(/\n/g, "\\n"))} ${args.join(" ")}`
+
+/**
+ * Marks an emitted block as print-only. Load-bearing beyond documentation:
+ * `src/testing/EmittedScriptRecognizer.ts` recognizes an outcome block by
+ * this line, and a bare `printf` would be ambiguous with a workflow
+ * `script:` command that happens to start the same way.
+ */
+export const OUTCOME_MARKER = "# gtd: outcome (print-only)"
 
 const FMT_ABANDON_NOOP = 'no gtd process is underway (resting at "%s") — nothing to abandon\n'
 const FMT_ABANDONED =
@@ -28,98 +40,37 @@ const FMT_RESTORED =
 /** `no gtd process is underway (resting at "<initial>") — nothing to abandon` — `gtd abandon`'s no-op plain-text line. */
 export const abandonNoopText = (initial: string): string => renderFormat(FMT_ABANDON_NOOP, initial)
 
-/**
- * The bash preamble every outcome-carrying script includes, ONE block (no
- * blank lines) so `assembleScript`'s blank-line-joined sections stay intact.
- * The `${TERM:-}` form (never a bare `$TERM`) is deliberate: `TERM` is
- * legitimately unset in plenty of real shells, and a bare reference would
- * trip `set -u` in the embedding script.
- */
-export const OUTCOME_PREAMBLE = [
-  "# gtd: human-facing outcome rendering (see src/OutcomeScript.ts)",
-  'if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then',
-  "  gtd_c_reset=$(printf '\\033[0m'); gtd_c_bold=$(printf '\\033[1m'); gtd_c_dim=$(printf '\\033[2m')",
-  "  gtd_c_cyan=$(printf '\\033[36m'); gtd_c_green=$(printf '\\033[32m')",
-  '  gtd_m_trans="➡️"; gtd_m_commit="✅"; gtd_m_ellipsis="…"',
-  "else",
-  '  gtd_c_reset=""; gtd_c_bold=""; gtd_c_dim=""',
-  '  gtd_c_cyan=""; gtd_c_green=""',
-  '  gtd_m_trans="->"; gtd_m_commit="[commit]"; gtd_m_ellipsis="..."',
-  "fi",
-  "gtd_files() {",
-  '  gtd_files_sha="$1"',
-  "  gtd_files_shown=0",
-  "  gtd_files_total=0",
-  '  gtd_files_list="$(git diff-tree --no-commit-id --name-only -r --root "$gtd_files_sha" 2>/dev/null || true)"',
-  '  [ -z "$gtd_files_list" ] && { unset gtd_files_sha gtd_files_f gtd_files_shown gtd_files_total gtd_files_list; return 0; }',
-  '  while IFS= read -r gtd_files_f; do [ -n "$gtd_files_f" ] && gtd_files_total=$((gtd_files_total + 1)); done <<EOF',
-  "$gtd_files_list",
-  "EOF",
-  "  while IFS= read -r gtd_files_f; do",
-  '    [ -z "$gtd_files_f" ] && continue',
-  '    if [ "$gtd_files_shown" -ge 3 ]; then',
-  '      printf \'   %s%s (%d more)%s\\n\' "$gtd_c_dim" "$gtd_m_ellipsis" "$((gtd_files_total - 3))" "$gtd_c_reset"',
-  "      break",
-  "    fi",
-  '    printf \'   %s%s%s\\n\' "$gtd_c_dim" "$gtd_files_f" "$gtd_c_reset"',
-  "    gtd_files_shown=$((gtd_files_shown + 1))",
-  "  done <<EOF",
-  "$gtd_files_list",
-  "EOF",
-  "  unset gtd_files_sha gtd_files_f gtd_files_shown gtd_files_total gtd_files_list",
-  "}",
-  "gtd_report_transition() {",
-  '  gtd_rt_from="$1"',
-  '  gtd_rt_to="$2"',
-  '  printf \'%s %s%s → %s%s\\n\' "$gtd_m_trans" "${gtd_c_bold}${gtd_c_cyan}" "$gtd_rt_from" "$gtd_rt_to" "$gtd_c_reset"',
-  "  gtd_files HEAD",
-  "  unset gtd_rt_from gtd_rt_to",
-  "}",
-  "gtd_report_commit() {",
-  '  gtd_rc_subject="$1"',
-  '  printf \'%s %s%s%s\\n\' "$gtd_m_commit" "$gtd_c_green" "$gtd_rc_subject" "$gtd_c_reset"',
-  "  gtd_files HEAD",
-  "  unset gtd_rc_subject",
-  "}",
-  "gtd_report_note() {",
-  "  printf '%s\\n' \"$1\"",
-  "}",
-  "gtd_report_abandoned() {",
-  '  gtd_ra_from="$1"',
-  '  gtd_ra_head="$2"',
-  '  gtd_ra_state="$3"',
-  '  gtd_ra_short="$(git rev-parse --short "$gtd_ra_head")"',
-  '  gtd_ra_subject="$(git log -1 --format=%s "$gtd_ra_head")"',
-  `  ${printfLine(FMT_ABANDONED, ['"$gtd_ra_from"', '"$gtd_ra_short"', '"$gtd_ra_subject"', '"$gtd_ra_state"'])}`,
-  "  unset gtd_ra_from gtd_ra_head gtd_ra_state gtd_ra_short gtd_ra_subject",
-  "}",
-  "gtd_report_restored() {",
-  '  gtd_rr_to="$1"',
-  '  gtd_rr_state="$2"',
-  '  gtd_rr_short="$(git rev-parse --short "$gtd_rr_to")"',
-  '  gtd_rr_subject="$(git log -1 --format=%s "$gtd_rr_to")"',
-  `  ${printfLine(FMT_RESTORED, ['"$gtd_rr_short"', '"$gtd_rr_subject"', '"$gtd_rr_state"'])}`,
-  "  unset gtd_rr_to gtd_rr_state gtd_rr_short gtd_rr_subject",
-  "}",
-].join("\n")
-
-/** `gtd_report_transition <from> <to>` — a landed self-loop/target-change transition, with its changed-file rows. */
+/** A landed self-loop/target-change transition. */
 export const transitionOutcome = (from: string, to: string): string =>
-  `gtd_report_transition ${shellQuote(from)} ${shellQuote(to)}`
+  printfLine("%s %s → %s\n", ["'->'", shellQuote(from), shellQuote(to)])
 
-/** `gtd_report_commit <subject>` — a bare capture (a self-loop commit), with its changed-file rows. */
-export const commitOutcome = (subject: string): string => `gtd_report_commit ${shellQuote(subject)}`
+/** A bare capture (a self-loop commit). */
+export const commitOutcome = (subject: string): string =>
+  printfLine("%s %s\n", ["'[commit]'", shellQuote(subject)])
 
-/** `gtd_report_note <text>` — one already-rendered plain line, no marker. */
-export const noteOutcome = (text: string): string => `gtd_report_note ${shellQuote(text)}`
+/** One already-rendered plain line. */
+export const noteOutcome = (text: string): string => printfLine("%s\n", [shellQuote(text)])
 
-/** `gtd_report_abandoned <from> <head> <state>` — resolves the post-hoc short hash/subject from `head` (a commitish) in-script. */
+/**
+ * Resolves the post-hoc short hash/subject from `head` (a commitish) in-script
+ * — this line runs AFTER the reset that made `head` the new HEAD, so neither
+ * value is knowable when gtd generates it.
+ */
 export const abandonedOutcome = (from: string, head: string, state: string): string =>
-  `gtd_report_abandoned ${shellQuote(from)} ${shellQuote(head)} ${shellQuote(state)}`
+  printfLine(FMT_ABANDONED, [
+    shellQuote(from),
+    `"$(git rev-parse --short ${shellQuote(head)})"`,
+    `"$(git log -1 --format=%s ${shellQuote(head)})"`,
+    shellQuote(state),
+  ])
 
-/** `gtd abandon`'s no-op outcome — the same wording `abandonNoopText` renders, printed via `gtd_report_note`. */
+/** `gtd abandon`'s no-op outcome — the same wording `abandonNoopText` renders. */
 export const abandonNoopOutcome = (initial: string): string => noteOutcome(abandonNoopText(initial))
 
-/** `gtd_report_restored <to> <state>` — resolves the post-hoc short hash/subject from `to` (a commitish) in-script. */
+/** Resolves the post-hoc short hash/subject from `to` (a commitish) in-script, for the same reason `abandonedOutcome` does. */
 export const restoredOutcome = (to: string, state: string): string =>
-  `gtd_report_restored ${shellQuote(to)} ${shellQuote(state)}`
+  printfLine(FMT_RESTORED, [
+    `"$(git rev-parse --short ${shellQuote(to)})"`,
+    `"$(git log -1 --format=%s ${shellQuote(to)})"`,
+    shellQuote(state),
+  ])

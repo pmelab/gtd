@@ -34,7 +34,7 @@ import {
   type TemplateEdge,
 } from "./PatternTemplates.js"
 import { commitAll } from "./GitScript.js"
-import { emitScripts, type EmitPreconditions, type EmitStep, type EmittedScripts } from "./Emit.js"
+import { emitScripts, type EmitStep, type EmittedScripts } from "./Emit.js"
 import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
 
 // git's empty-tree object — the diff/reset base when a process (or the whole
@@ -341,10 +341,7 @@ const walkProcessBoundary = (
  * would pool across them). HEAD itself being such a boundary yields an EMPTY
  * run (`trace: []`).
  *
- * `head` overrides the literal `HEAD` the walk would otherwise end at:
- * `restAt`'s window-aware branch passes the saved-head hash here while a
- * review window is open, so the trace still covers commits a real `git log`
- * would miss with HEAD rewound to the review base.
+ * `head` overrides the literal `HEAD` the walk would otherwise end at.
  *
  * `includeClosingBoundary` (default `false`) is `summaryRun`'s one-flag
  * difference from `currentRun`'s ordinary walk: when set AND the walk's very
@@ -940,25 +937,13 @@ export const renderDecision = (
   return [{ kind: "gitWrite", command }, commitDecisionOutcome(decision)]
 }
 
-/**
- * The `EmitPreconditions` a step's/entry's assembled scripts assert against:
- * `expectedHead` is the resolved HEAD hash the `Rest` snapshot was taken at.
- */
-const buildPreconditions = (rest: Rest): EmitPreconditions => ({
-  expectedHead: rest.context.currentCommit,
-})
-
 /** The `EmittedScripts` a `"commit"` `StepPlan` carries alongside `perform` — built from `renderDecision`'s output. */
 const buildStepScripts = (
   rest: Rest,
   decision: ExecutableDecision,
   cost: number | undefined,
   model: string | undefined,
-): EmittedScripts => {
-  const preconditions = buildPreconditions(rest)
-  const steps = renderDecision(rest, decision, cost, model)
-  return emitScripts(preconditions, steps)
-}
+): EmittedScripts => emitScripts(renderDecision(rest, decision, cost, model))
 
 /**
  * Decide a step — WITHOUT performing it. gtd never writes git: the decision
@@ -1143,8 +1128,7 @@ export const planEntry = (
     })
     // The outcome step names the bare subject, never `message` (which may
     // carry the trailers) — same discipline as `renderDecision`'s commit branch.
-    const preconditions = buildPreconditions(rest)
-    const scripts = emitScripts(preconditions, [
+    const scripts = emitScripts([
       { kind: "gitWrite", command: commitAll(message) },
       { kind: "outcome", command: commitOutcome(subject) },
     ])

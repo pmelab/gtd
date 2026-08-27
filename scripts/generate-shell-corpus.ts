@@ -41,10 +41,9 @@ const add = (name: string, content: string): void => {
   files[name] = content.endsWith("\n") ? content : `${content}\n`
 }
 
-const retryWrapped = (bare: string, expectedHead: string = SAMPLE_HEAD): string => {
-  const steps: readonly EmitStep[] = [{ kind: "gitWrite", command: bare }]
-  return emitScripts({ expectedHead }, steps).required
-}
+/** A builder's bare command as `Emit.ts` actually assembles it: `set -eu`, then the command. */
+const assembled = (bare: string): string =>
+  emitScripts([{ kind: "gitWrite", command: bare }]).required
 
 const gitBuilders: Record<string, string> = {
   commitAll: commitAll("gtd(agent): sample"),
@@ -59,7 +58,7 @@ const gitBuilders: Record<string, string> = {
 
 for (const [name, bare] of Object.entries(gitBuilders)) {
   add(`git.${name}.bare.sh`, bare)
-  add(`git.${name}.retry.sh`, retryWrapped(bare))
+  add(`git.${name}.assembled.sh`, assembled(bare))
 }
 
 add(
@@ -78,15 +77,14 @@ const outcomeCalls: Record<string, string> = {
 
 for (const [name, call] of Object.entries(outcomeCalls)) {
   const steps: readonly EmitStep[] = [{ kind: "outcome", command: call }]
-  add(`outcome.${name}.sh`, emitScripts({}, steps).required)
+  add(`outcome.${name}.sh`, emitScripts(steps).required)
 }
 
-const combinedRequired = retryWrapped(commitAll("gtd(agent): sample"))
+const combinedRequired = assembled(commitAll("gtd(agent): sample"))
 add("combined.required-only.sh", combinedScript(combinedRequired, ""))
 
 const combinedOptionalBare = updateRef("refs/worktree/gtd/history", SAMPLE_HEAD_2)
 const combinedOptional = emitScripts(
-  {},
   [],
   [{ kind: "gitWrite", command: combinedOptionalBare }],
 ).optional

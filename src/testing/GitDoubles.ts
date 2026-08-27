@@ -8,12 +8,6 @@ const tryCatch = <A>(fn: () => A): Effect.Effect<A, Error> =>
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-/** An error shaped like git's `index.lock` contention failure — matches `isIndexLockError` (`src/Git.ts`). */
-export const indexLockError = (): Error =>
-  new Error(
-    "git add -A failed (exit 128): fatal: Unable to create '/repo/.git/index.lock': File exists.",
-  )
-
 const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations => ({
   hasCommits: () => Effect.succeed(repo.hasCommits()),
 
@@ -63,42 +57,19 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
   changedPaths: (base?: string) => Effect.succeed(repo.changedPathsWorktree(base)),
 })
 
-/**
- * Writer operations, each consuming the repo's fault queue
- * (`InMemRepo.takeInjectedFault`) before running: a queued fault fails the
- * effect WITHOUT performing the write, mirroring a real `index.lock` failure
- * (git did nothing). Readers never take the lock, so they bypass the queue
- * entirely — only writers are wrapped here.
- */
-const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => {
-  const guarded =
-    <Args extends unknown[]>(fn: (...args: Args) => void) =>
-    (...args: Args): Effect.Effect<void, Error> =>
-      // `Effect.suspend` — a retry must RE-CHECK the fault queue on every
-      // attempt, not replay one fixed Effect value computed at call time.
-      // `takeInjectedFault` consumes the queue eagerly, so this whole body
-      // (not just `tryCatch`'s inner thunk) must stay lazy for
-      // `withIndexLockRetries` to see the queue drain across retries.
-      Effect.suspend(() => {
-        const fault = repo.takeInjectedFault()
-        if (fault !== undefined) return Effect.fail(fault)
-        return tryCatch(() => fn(...args))
-      })
-
-  return {
-    commitAllWithPrefix: guarded((prefix: string) => repo.commitAllWithPrefix(prefix)),
-    softResetTo: guarded((ref: string) => repo.softResetTo(ref)),
-    commitAsIs: guarded((message: string) => repo.commitAsIs(message)),
-    discardPending: guarded(() => repo.discardPending()),
-    updateRef: guarded((ref: string, hash: string) => repo.updateRef(ref, hash)),
-    deleteRef: guarded((ref: string) => repo.deleteRef(ref)),
-    mixedResetTo: guarded((ref: string) => repo.mixedResetTo(ref)),
-    hardResetTo: guarded((ref: string) => repo.hardResetTo(ref)),
-  }
-}
+const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
+  commitAllWithPrefix: (prefix: string) => tryCatch(() => repo.commitAllWithPrefix(prefix)),
+  softResetTo: (ref: string) => tryCatch(() => repo.softResetTo(ref)),
+  commitAsIs: (message: string) => tryCatch(() => repo.commitAsIs(message)),
+  discardPending: () => tryCatch(() => repo.discardPending()),
+  updateRef: (ref: string, hash: string) => tryCatch(() => repo.updateRef(ref, hash)),
+  deleteRef: (ref: string) => tryCatch(() => repo.deleteRef(ref)),
+  mixedResetTo: (ref: string) => tryCatch(() => repo.mixedResetTo(ref)),
+  hardResetTo: (ref: string) => tryCatch(() => repo.hardResetTo(ref)),
+})
 
 /**
- * The in-memory tier's `GitOperations` — reader + (fault-queue-aware) writer,
+ * The in-memory tier's `GitOperations` — reader + writer,
  * backed by one `InMemRepo`. `root` (default `/repo`, matching
  * `GitTiers.ts`'s `IN_MEM_ROOT`) is only consumed by `topLevel`/`gitDir` — no
  * other operation cares where the fake's worktree "lives".
