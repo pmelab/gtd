@@ -32,9 +32,10 @@ Feature: gtd abandon — end the process underway without completing it
     # Plain text prints the pasteable script itself — the rendered "abandoned
     # the process resting at ..." prose is printed by the script when a driver
     # RUNS it (script-outcomes.feature's own @live-only coverage), not by gtd
-    # deciding; this only proves the script calls the right outcome function
-    # with the right resting state.
-    And stdout contains "gtd_report_abandoned 'unwind'"
+    # deciding; this only proves the emitted printf carries the right resting
+    # state as its first argument.
+    And stdout contains "abandoned the process resting at"
+    And stdout contains "'unwind'"
     And the last commit subject is "chore: init gtd workflow"
     And the git status contains "NOTE.md"
     And "NOTE.md" contains "Build a thing."
@@ -106,7 +107,8 @@ Feature: gtd abandon — end the process underway without completing it
     Then it succeeds
     When I run gtd with args "abandon"
     Then it succeeds
-    And stdout contains "gtd_report_abandoned 'unwind'"
+    And stdout contains "abandoned the process resting at"
+    And stdout contains "'unwind'"
     When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"

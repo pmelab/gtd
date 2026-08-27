@@ -73,8 +73,7 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
 
   Scenario: reports the restored state via the emitted script, in plain text
     # No --json here (restore is plain-text only, see AGENTS.md) — the
-    # printed script's own gtd_report_restored call names the state it
-    # restored to.
+    # printed script's own restore printf names the state it restored to.
     Given a file "NOTE.md" with:
       """
       Build a thing.
@@ -99,7 +98,7 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
 
     When I run gtd with args "restore"
     Then it succeeds
-    And stdout contains "gtd_report_restored"
+    And stdout contains "restored the retained history"
     And stdout contains "'design.triage'"
 
   Scenario: reports the standard error on stderr, leaving stdout empty

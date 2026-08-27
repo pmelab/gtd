@@ -1,5 +1,5 @@
 import { Command, CommandExecutor } from "@effect/platform"
-import { Context, Duration, Effect, Layer, Option, Schedule, Stream } from "effect"
+import { Context, Effect, Layer, Option, Stream } from "effect"
 import { GtdError } from "./Commentary.js"
 import { Cwd } from "./Cwd.js"
 
@@ -30,8 +30,7 @@ export interface GitReaderOperations {
   /**
    * First-parent history from `base..head` (or through `head` if no base),
    * oldest→newest; `head` defaults to `"HEAD"`. Pass a resolved hash to walk a
-   * different head instead — `Edge.ts`'s `restAt` does this while a review
-   * window is open, since real HEAD has been rewound to the review base.
+   * head other than the literal `HEAD`.
    * `removedErrors` is true iff the commit's name-status diff deletes
    * `.gtd/ERRORS.md` (or the legacy root-level path); `touched` lists the
    * paths that diff mentions, from the same git invocation.
@@ -168,10 +167,7 @@ const blobsAtRef = (
   paths: ReadonlyArray<string>,
 ): Effect.Effect<Map<string, string>, Error> =>
   exec("git", "ls-tree", "-r", "-z", ref, "--", ...paths).pipe(
-    Effect.catchIf(
-      (e) => !isIndexLockError(e),
-      () => Effect.succeed(""),
-    ),
+    Effect.catchAll(() => Effect.succeed("")),
     Effect.map((out) => {
       const blobs = new Map<string, string>()
       for (const entry of splitNul(out)) {
@@ -214,19 +210,16 @@ const hashObjects = (
             .map((oid, i) => [paths[i] ?? "", oid.trim()] as const),
         ),
     ),
-    Effect.catchIf(
-      (e) => !isIndexLockError(e),
-      () => Effect.succeed(new Map<string, string>()),
-    ),
+    Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
   )
 
 /**
  * Classify every untracked path against `ref`'s tree, by CONTENT: not at
  * `ref` → `A`; different bytes → `M`; identical bytes → no entry. The latter
- * two exist because "untracked" does not mean "new" — the review window's
- * `git reset --mixed <base>` leaves every file the reviewed range ADDED
- * untracked while it's still present at the window's saved head. "Different
- * bytes" goes through `hashObjects`'s clean filters, matching how git itself
+ * two exist because "untracked" does not mean "new": against a `ref` older
+ * than HEAD, a path can be absent from the index yet already present in
+ * `ref`'s tree with the same or different bytes. "Different bytes" goes
+ * through `hashObjects`'s clean filters, matching how git itself
  * decides it, so an untouched `text=auto` file is never over-reported `M`.
  */
 const classifyUntracked = (
@@ -247,51 +240,12 @@ const classifyUntracked = (
   })
 
 /**
- * True when `error` is git's `index.lock` contention failure. gtd shares one
- * worktree index with every git-aware tool the reviewer runs, each of which
- * writes the index to refresh its stat cache whenever the review window's
- * `git reset --mixed` wakes it — a pure "couldn't start" failure, so the
- * losing command is safe to retry verbatim.
- */
-export const isIndexLockError = (error: Error): boolean =>
-  /index\.lock[\s\S]*File exists|Another git process seems to be running/i.test(error.message)
-
-export const withIndexLockRetry = <A, R>(
-  eff: Effect.Effect<A, Error, R>,
-): Effect.Effect<A, Error, R> =>
-  Effect.retry(eff, {
-    schedule: Schedule.intersect(
-      Schedule.recurs(6),
-      Schedule.exponential(Duration.millis(10), 2),
-    ).pipe(Schedule.jittered),
-    while: (error: Error) => isIndexLockError(error),
-  })
-
-/**
- * Wrap every operation of a `GitOperations` implementation in
- * `withIndexLockRetry`. The ONE place the retry is applied — both
- * `GitService.Live` and the in-memory test layer build their service through
- * this. Never feed a `strictGitOperations` Proxy through this: `Object.keys`
- * on the Proxy only sees the overrides, not the full port.
- */
-export const withIndexLockRetries = (ops: GitOperations): GitOperations =>
-  Object.fromEntries(
-    Object.entries(ops).map(([name, fn]) => [
-      name,
-      (...args: never[]) =>
-        withIndexLockRetry((fn as (...a: never[]) => Effect.Effect<unknown, Error>)(...args)),
-    ]),
-  ) as unknown as GitOperations
-
-/**
  * Run a command and return its stdout — FAILING on a non-zero exit code with
  * the command line and stderr in the error message. `Command.string` alone
  * silently ignores exit codes, which used to make gtd report success on
  * rejected commits and lose files whose quoted paths broke a swallowed
  * `git add`. Callers that expect a probe to fail handle it with an explicit
- * `catchAll`; `index.lock` contention is retried transparently
- * (`withIndexLockRetries`, applied once to the whole port) before any
- * caller's `catchAll` sees it.
+ * `catchAll`.
  */
 const run = (
   root: string,
@@ -360,14 +314,10 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     changedPaths: (base?: string) =>
       Effect.gen(function* () {
         const ref = base ?? "HEAD"
-        // Only the empty-repo case (no HEAD) is tolerated here — an
-        // `index.lock` failure must propagate so the port-level retry
-        // (`withIndexLockRetries`) sees it, not this catch.
+        // Tolerates the empty-repo case (no HEAD), where the diff has no ref
+        // to compare against and reports no tracked changes.
         const nameStatusOut = yield* exec("git", "diff", "--name-status", "-z", ref).pipe(
-          Effect.catchIf(
-            (e) => !isIndexLockError(e),
-            () => Effect.succeed(""),
-          ),
+          Effect.catchAll(() => Effect.succeed("")),
         )
         const trackedPaths = parseNameStatus(splitNul(nameStatusOut))
 
@@ -521,5 +471,5 @@ const makeLiveEffect = Effect.gen(function* () {
 })
 
 export class GitService extends Context.Tag("GitService")<GitService, GitOperations>() {
-  static Live = Layer.effect(GitService, makeLiveEffect.pipe(Effect.map(withIndexLockRetries)))
+  static Live = Layer.effect(GitService, makeLiveEffect)
 }

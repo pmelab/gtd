@@ -10,7 +10,7 @@ import { FileSystem } from "@effect/platform"
 import { SystemError, type PlatformError } from "@effect/platform/Error"
 import { Effect, Layer, Option } from "effect"
 import { Narrator } from "../Commentary.js"
-import { GitService, withIndexLockRetries } from "../Git.js"
+import { GitService } from "../Git.js"
 import {
   ConfigService,
   SEARCH_PLACES,
@@ -294,7 +294,7 @@ export interface TestWorldOptions {
 
 /** The fine-grained `GitService` layer alone — for unit tests that need only git. */
 export const gitTestLayer = (repo: InMemRepo, root = "/repo"): Layer.Layer<GitService> =>
-  Layer.succeed(GitService, withIndexLockRetries(fakeGitOperations(repo, root)))
+  Layer.succeed(GitService, fakeGitOperations(repo, root))
 
 /** Every layer `makeProgram` needs — `CommandRequirements`'s return type here IS the guarantee: a new port added there fails this function's typecheck instead of silently under-providing. */
 export function testLayers(

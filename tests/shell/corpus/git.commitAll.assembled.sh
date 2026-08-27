@@ -1,5 +1,3 @@
-# gtd emitted this and did NOT run it — pipe it into `sh` to land the turn
-
 set -eu
 
 git add -A &&

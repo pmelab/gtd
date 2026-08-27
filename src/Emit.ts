@@ -1,27 +1,17 @@
 import { shellQuote } from "./GitScript.js"
-import { OUTCOME_PREAMBLE } from "./OutcomeScript.js"
 
 export interface EmittedScripts {
   readonly required: string
   readonly optional: string
 }
 
-export interface EmitPreconditions {
-  /**
-   * The HEAD the deciding read resolved (`""` for an empty repo, mirroring
-   * `rest.context.currentCommit`). Omitted for a script meant to run AFTER
-   * another one already moved HEAD, whose expected HEAD (the commit
-   * `required` is about to create) can't be known at decide time; that script
-   * resolves `HEAD` itself at run time instead.
-   */
-  readonly expectedHead?: string
-}
-
 /**
- * `gitWrite` (routed through the retry helper below) vs. plain `command`
- * (never retry-wrapped — retrying it could match "index.lock" wording
- * appearing incidentally in its own output) vs. `outcome` (a
- * `src/OutcomeScript.ts` builder's call, rendered verbatim like `command`).
+ * Every kind renders its `command` verbatim (the one exception is a
+ * `command` step carrying an `onFailure` prompt); the discriminant records
+ * WHAT a step is, and nothing else. A failing git write is left to fail in
+ * the user's shell — gtd never writes git itself, so there is nothing to
+ * retry on its behalf — and an `outcome` step carries its own complete
+ * `printf`, so no shared preamble is emitted for it either.
  */
 export type EmitStep =
   | { readonly kind: "gitWrite"; readonly command: string }
@@ -39,35 +29,11 @@ export type EmitStep =
   | { readonly kind: "outcome"; readonly command: string }
 
 /**
- * Closes the time-of-check/time-of-use gap between the CLI resolving
- * `expectedHead` at decide time and the script running later in an unrelated
- * process. A plain `[ ... ] || { ...; exit 1; }`, not `if`/`fi`, so it stays
- * safe under `set -e` (an OR list's left side failing never trips `-e` on its
- * own). Exported so `src/testing/EmittedScriptRecognizer.ts` can re-derive
- * and string-compare this exact shape.
- *
- * The probe is `--verify --quiet`, not bare `git rev-parse HEAD` — load-
- * bearing: against an unborn HEAD (no commits), the bare form prints the
- * literal string `"HEAD"` and exits 128, so it could never match an
- * `expectedHead === ""` comparison. `--verify --quiet` reads an unborn HEAD
- * back as an empty string instead.
- */
-export const headAssertion = (expectedHead: string): string => {
-  const q = shellQuote(expectedHead)
-  const probe = `[ "$(git rev-parse --verify --quiet HEAD 2>/dev/null)" = ${q} ] || `
-  return (
-    probe +
-    `{ printf 'gtd: repository changed since this script was generated ` +
-    `(expected HEAD %s) — re-run gtd\\n' ${q} >&2; exit 1; }`
-  )
-}
-
-/**
  * `resolveValidateScript`'s guard: when the declared steering file is absent
  * (e.g. before the producing agent has written it at all), there's nothing
  * to format or validate, so the script exits 0 cleanly rather than running
- * the mode's commands against a missing file. An OR list, not `if`, for the
- * same `set -eu` safety `headAssertion` documents.
+ * the mode's commands against a missing file. An OR list, not `if`: an OR
+ * list's left side failing never trips `set -e` on its own.
  */
 export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file)} ] || exit 0`
 
@@ -91,86 +57,23 @@ export const failurePromptWrapper = (command: string, prompt: string): string =>
   ].join("\n")
 }
 
-/**
- * `gtd_retry` `eval`s one already-`shellQuote`d command, mirroring
- * `src/Git.ts`'s `withIndexLockRetry`: retry only on the same two
- * `isIndexLockError` substrings, jittered exponential backoff (~10ms
- * doubling, 6 total attempts), propagating any other failure immediately.
- * `awk` (not the shell — no fractional `sleep`, and no `$RANDOM` under POSIX
- * `sh`/`dash`) computes both the fractional-second delay and its own jitter
- * deterministically, so no external entropy source is needed. POSIX `sh` has
- * no `local`, so every variable is `gtd_`-prefixed and `unset` before each
- * `return` to avoid leaking into the rest of the assembled script.
- */
-const RETRY_HELPER = [
-  `gtd_retry() {`,
-  `  gtd_cmd=$1`,
-  `  gtd_attempt=1`,
-  `  gtd_delay_ms=10`,
-  `  while true; do`,
-  `    if gtd_out=$(eval "$gtd_cmd" 2>&1); then`,
-  `      [ -n "$gtd_out" ] && printf '%s\\n' "$gtd_out"`,
-  `      unset gtd_cmd gtd_attempt gtd_delay_ms gtd_out gtd_total_ms`,
-  `      return 0`,
-  `    fi`,
-  `    case "$gtd_out" in`,
-  `      *"index.lock"*|*"Another git process seems to be running"*) ;;`,
-  `      *)`,
-  `        printf '%s\\n' "$gtd_out" >&2`,
-  `        unset gtd_cmd gtd_attempt gtd_delay_ms gtd_out gtd_total_ms`,
-  `        return 1`,
-  `        ;;`,
-  `    esac`,
-  `    if [ "$gtd_attempt" -ge 6 ]; then`,
-  `      printf '%s\\n' "$gtd_out" >&2`,
-  `      unset gtd_cmd gtd_attempt gtd_delay_ms gtd_out gtd_total_ms`,
-  `      return 1`,
-  `    fi`,
-  `    gtd_total_ms=$(awk -v attempt="$gtd_attempt" -v ms="$gtd_delay_ms" 'BEGIN { jitter = (attempt * 2654435761) % ms + 1; printf "%.3f", (ms + jitter) / 1000 }')`,
-  `    sleep "$gtd_total_ms"`,
-  `    gtd_delay_ms=$(( gtd_delay_ms * 2 ))`,
-  `    gtd_attempt=$(( gtd_attempt + 1 ))`,
-  `  done`,
-  `}`,
-].join("\n")
-
 const renderStep = (step: EmitStep): string => {
-  if (step.kind === "gitWrite") return `gtd_retry ${shellQuote(step.command)}`
   if (step.kind === "command" && step.onFailure !== undefined) {
     return failurePromptWrapper(step.command, step.onFailure)
   }
   return step.command
 }
 
-const assembleScript = (
-  preconditions: EmitPreconditions,
-  steps: ReadonlyArray<EmitStep>,
-): string => {
-  if (steps.length === 0) return ""
-
-  const sections: Array<string> = ["set -eu"]
-  if (preconditions.expectedHead !== undefined) {
-    sections.push(headAssertion(preconditions.expectedHead))
-  }
-  if (steps.some((step) => step.kind === "gitWrite")) {
-    sections.push(RETRY_HELPER)
-  }
-  if (steps.some((step) => step.kind === "outcome")) {
-    sections.push(OUTCOME_PREAMBLE)
-  }
-  sections.push(...steps.map(renderStep))
-
-  return sections.join("\n\n")
-}
+const assembleScript = (steps: ReadonlyArray<EmitStep>): string =>
+  steps.length === 0 ? "" : ["set -eu", ...steps.map(renderStep)].join("\n\n")
 
 /** Build both halves from already-rendered command strings; an empty (or omitted) array produces the empty-string result, so a driver checking `if [ -n "$required" ]` never has to special-case a bare preamble. */
 export const emitScripts = (
-  preconditions: EmitPreconditions,
   required: ReadonlyArray<EmitStep> = [],
   optional: ReadonlyArray<EmitStep> = [],
 ): EmittedScripts => ({
-  required: assembleScript(preconditions, required),
-  optional: assembleScript(preconditions, optional),
+  required: assembleScript(required),
+  optional: assembleScript(optional),
 })
 
 /** Exported so `src/testing/EmittedScriptRecognizer.ts` can recognize these by exact string comparison. `printf`, not `echo`, avoids shell-specific backslash-escape quirks. */

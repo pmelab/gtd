@@ -37,7 +37,6 @@ import {
   defaultStateScopes,
   defaultWorkflowDefinition,
 } from "../workflows/templates.js"
-import { indexLockError } from "./GitDoubles.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { gitTestLayer } from "./Layers.js"
 
@@ -87,8 +86,6 @@ export interface GitTier {
   readonly emptyRepo: () => GitTier
   readonly seed: GitTierSeed
   readonly observe: GitTierObserve
-  /** Arrange for the tier's NEXT index-writing operation to hit an `index.lock` failure that then clears — proves the retry wiring on both tiers. */
-  readonly induceIndexLockOnce: () => void
   readonly dispose: () => void
 }
 
@@ -183,9 +180,9 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         writeFileSync(join(root, path), content)
       },
       // A plain unlink, NOT `git rm` — the index is left exactly as it stood,
-      // the only way to model a reviewer deleting a file the review window
-      // left untracked (`git rm` refuses an untracked pathspec). Callers that
-      // want the deletion staged say `stageAll()`.
+      // the only way to model a reviewer deleting an untracked file (`git rm`
+      // refuses an untracked pathspec). Callers that want the deletion staged
+      // say `stageAll()`.
       deleteFile: (path) => rmSync(join(root, path), { force: true }),
       commitDeletion: (path, message) => {
         gitExec("rm", path)
@@ -208,15 +205,6 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       },
       readWorktreeFile: (path) => readFileSync(join(root, path), "utf8"),
       existsPath: (path) => existsSync(join(root, path)),
-    },
-    induceIndexLockOnce: () => {
-      const lock = join(root, ".git", "index.lock")
-      writeFileSync(lock, "")
-      setTimeout(() => {
-        try {
-          rmSync(lock)
-        } catch {}
-      }, 50)
     },
     dispose: () => rmSync(root, { recursive: true, force: true }),
   }
@@ -299,7 +287,6 @@ const makeInMemTier = (initialCommit = true): GitTier => {
       },
       existsPath: (path) => repo.hasPath(path),
     },
-    induceIndexLockOnce: () => repo.failNextOperations(1, indexLockError),
     dispose: () => {},
   }
 }
@@ -868,16 +855,6 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
         }
       },
     )
-  })
-
-  describe("retry wiring — an operation obtained from the layer survives induceIndexLockOnce()", () => {
-    it("commitAllWithPrefix retries through a lock that clears mid-flight", async () => {
-      t.induceIndexLockOnce()
-      t.seed.writeFile("locked.txt", "content")
-      const result = await runGitExit(t, (g) => g.commitAllWithPrefix("gtd(test): capture"))
-      expect(Exit.isSuccess(result)).toBe(true)
-      expect(t.observe.resolveRef("HEAD")).not.toBe(undefined)
-    })
   })
 }
 

@@ -6,7 +6,7 @@ Feature: Emitted required/optional scripts print their own outcome lines
   docs/driver.md's minimal driver) no longer re-derives the commit grammar or
   re-prints the write commands' wording itself either: the emitted `required`
   script prints its own human-facing outcome line (`src/OutcomeScript.ts`'s
-  `gtd_report_*` calls), so ANY driver — this suite, a real driver, or a human
+  `printf` statements), so ANY driver — this suite, a real driver, or a human
   pasting `required` into a terminal — sees the same feedback. `@live` only:
   the in-memory tier
   never runs an emitted script's outcome block (it recognizes the block as
@@ -34,7 +34,7 @@ Feature: Emitted required/optional scripts print their own outcome lines
                 prompt: "go"
       """
 
-  Scenario: a landed transition's required script prints the transition row and its changed-file rows
+  Scenario: a landed transition's required script prints the transition row
     Given a file "src/a.ts" with:
       """
       export const a = 1
@@ -42,7 +42,6 @@ Feature: Emitted required/optional scripts print their own outcome lines
     When I run gtd land
     Then it succeeds
     And the emitted script printed "-> idle → working"
-    And the emitted script printed "src/a.ts"
 
   Scenario: a no-op step's required script is print-only, naming the resting state
     When I run gtd land

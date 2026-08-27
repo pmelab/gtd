@@ -34,7 +34,6 @@ export class InMemRepo {
   private currentBranch: string = "main"
   private worktree: Map<string, string> = new Map()
   private index: Map<string, string> = new Map()
-  private pendingFaults: Array<() => Error> = []
 
   private getCommit(hash: string): Commit | null {
     return this.commits.get(hash) ?? null
@@ -258,24 +257,6 @@ export class InMemRepo {
   /** `git add -A` — the index becomes exactly the current worktree. */
   stageAll(): void {
     this.index = new Map(this.worktree)
-  }
-
-  /**
-   * Arrange for the NEXT `count` write operations dispatched through
-   * `fakeGitOperations`'s writer wrapper to fail with `make()` (a fresh error
-   * per failure) — the fault queue `failNextOperations`/`takeInjectedFault`
-   * pair simulates an `index.lock` contention window. Only writers consume the
-   * queue: readers never take git's index lock, so injecting a lock fault into
-   * one would be a lie.
-   */
-  failNextOperations(count: number, make: () => Error): void {
-    for (let i = 0; i < count; i++) this.pendingFaults.push(make)
-  }
-
-  /** Pop and return the next queued fault, or `undefined` when the queue is empty. Consumed by `fakeGitOperations`'s writer wrapper. */
-  takeInjectedFault(): Error | undefined {
-    const make = this.pendingFaults.shift()
-    return make?.()
   }
 
   /** Commit whatever is currently staged (the index) verbatim, with no implicit staging first — mirrors `git commit --allow-empty -m <message>` after a soft reset. */

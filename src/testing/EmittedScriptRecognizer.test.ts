@@ -9,14 +9,8 @@ import {
   softResetTo,
   updateRef,
 } from "../GitScript.js"
-import {
-  combinedScript,
-  emitScripts,
-  fileExistsGuard,
-  headAssertion,
-  type EmitStep,
-} from "../Emit.js"
-import { commitOutcome, noteOutcome, OUTCOME_PREAMBLE } from "../OutcomeScript.js"
+import { combinedScript, emitScripts, fileExistsGuard, type EmitStep } from "../Emit.js"
+import { commitOutcome, noteOutcome, transitionOutcome } from "../OutcomeScript.js"
 import { buildModeContradictionCheck, modeContradictionSkipNotice } from "../ModeContradiction.js"
 import { applyEmittedScript, preconditionHeadEquals } from "./EmittedScriptRecognizer.js"
 import { InMemRepo } from "./InMemRepo.js"
@@ -444,46 +438,11 @@ describe("applyEmittedScript — a realistic assembled multi-block script", () =
   })
 })
 
-describe("applyEmittedScript — src/Emit.ts's real head assertion", () => {
-  it("a satisfied assertion is a no-op and lets the rest of the script run", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
-    const head = repo.resolveRef("HEAD")!
-
-    const script = [headAssertion(head), commitAll("gtd(agent): second")].join("\n\n")
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result).toEqual({ ok: true })
-    expect(repo.lastCommitMessage()).toBe("gtd(agent): second")
-  })
-
-  it("a tripped assertion stops the script before any subsequent block applies", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
-    const actualHead = repo.resolveRef("HEAD")!
-    const staleHead = "0".repeat(40)
-    expect(staleHead).not.toBe(actualHead)
-
-    const script = [headAssertion(staleHead), commitAll("gtd(agent): should never land")].join(
-      "\n\n",
-    )
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain("repository changed")
-    expect(repo.resolveRef("HEAD")).toBe(actualHead)
-    expect(repo.lastCommitMessage()).toBe("chore: first")
-  })
-})
-
-describe("applyEmittedScript — a realistic src/Emit.ts-assembled script (gtd_retry-wrapped)", () => {
-  it("commitAll wrapped in gtd_retry applies exactly like commitAllWithPrefix", () => {
+describe("applyEmittedScript — a realistic src/Emit.ts-assembled script", () => {
+  it("an assembled commitAll applies exactly like commitAllWithPrefix", () => {
     const repo = new InMemRepo()
     repo.writeFile("base.txt", "0")
     repo.commitAllWithPrefix("chore: first")
-    const head = repo.resolveRef("HEAD")!
     repo.writeFile("a.txt", "1")
     const twin = new InMemRepo()
     twin.writeFile("base.txt", "0")
@@ -493,7 +452,7 @@ describe("applyEmittedScript — a realistic src/Emit.ts-assembled script (gtd_r
     const steps: readonly EmitStep[] = [
       { kind: "gitWrite", command: commitAll("gtd(agent): building") },
     ]
-    const { required } = emitScripts({ expectedHead: head }, steps)
+    const { required } = emitScripts(steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
     twin.commitAllWithPrefix("gtd(agent): building")
 
@@ -520,7 +479,7 @@ describe("applyEmittedScript — a realistic src/Emit.ts-assembled script (gtd_r
       { kind: "gitWrite", command: commitAsIs("chore: squashed") },
       { kind: "gitWrite", command: discardPending() },
     ]
-    const { required } = emitScripts({ expectedHead: tip }, steps)
+    const { required } = emitScripts(steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
 
     expect(result).toEqual({ ok: true })
@@ -531,18 +490,18 @@ describe("applyEmittedScript — a realistic src/Emit.ts-assembled script (gtd_r
 })
 
 describe("applyEmittedScript — outcome blocks are inert (no git effect to miss)", () => {
-  it("the OUTCOME_PREAMBLE block applies as a no-op", () => {
+  it("a transition outcome — printf plus the changed-file read — applies as a no-op", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
     const before = snapshot(repo)
 
-    const result = applyEmittedScript(repo, NO_COMMANDS, OUTCOME_PREAMBLE)
+    const result = applyEmittedScript(repo, NO_COMMANDS, transitionOutcome("idle", "working"))
 
     expect(result).toEqual({ ok: true })
     expect(snapshot(repo)).toEqual(before)
   })
 
-  it("a bare gtd_report_* call applies as a no-op", () => {
+  it("a bare commit outcome applies as a no-op", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
     const before = snapshot(repo)
@@ -557,7 +516,6 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
     const repo = new InMemRepo()
     repo.writeFile("base.txt", "0")
     repo.commitAllWithPrefix("chore: first")
-    const head = repo.resolveRef("HEAD")!
     repo.writeFile("a.txt", "1")
     const twin = new InMemRepo()
     twin.writeFile("base.txt", "0")
@@ -568,7 +526,7 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
       { kind: "gitWrite", command: commitAll("gtd(agent): building") },
       { kind: "outcome", command: commitOutcome("gtd(agent): building") },
     ]
-    const { required } = emitScripts({ expectedHead: head }, steps)
+    const { required } = emitScripts(steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
     twin.commitAllWithPrefix("gtd(agent): building")
 
@@ -581,24 +539,10 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
     repo.writeFile("a.txt", "1")
     const before = snapshot(repo)
 
-    const { required } = emitScripts({}, [
+    const { required } = emitScripts([
       { kind: "outcome", command: noteOutcome('nothing to do at "idle"') },
     ])
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
-
-    expect(result).toEqual({ ok: true })
-    expect(snapshot(repo)).toEqual(before)
-  })
-})
-
-describe("applyEmittedScript — the gtd_retry function definition is an inert no-op", () => {
-  it("a bare 'gtd_retry() { ... }' block applies as a no-op", () => {
-    const repo = new InMemRepo()
-    repo.writeFile("a.txt", "1")
-    const before = snapshot(repo)
-
-    const script = ["gtd_retry() {", "  echo hi", "}"].join("\n")
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
 
     expect(result).toEqual({ ok: true })
     expect(snapshot(repo)).toEqual(before)
@@ -610,7 +554,7 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
 
-    const required = emitScripts({}, [
+    const required = emitScripts([
       { kind: "gitWrite", command: commitAll("gtd(human): idle") },
     ]).required
     const script = combinedScript(required, "")
@@ -624,14 +568,13 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
 
-    const required = emitScripts({}, [
+    const required = emitScripts([
       { kind: "gitWrite", command: commitAll("gtd(human): idle") },
     ]).required
     // A gitWrite optional half is itself multi-section (assembleScript joins
-    // "set -eu", the gtd_retry definition, and the retry-wrapped
-    // command with blank lines) — the realistic shape this recognizer must
-    // keep intact as ONE block.
-    const optional = emitScripts({}, [
+    // "set -eu" and the command with a blank line) — the realistic shape this
+    // recognizer must keep intact as ONE block.
+    const optional = emitScripts([
       { kind: "gitWrite", command: updateRef("refs/gtd/marker", "HEAD") },
     ]).required
     expect(optional).toContain("\n\n")
@@ -648,7 +591,7 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
 
-    const required = emitScripts({}, [
+    const required = emitScripts([
       { kind: "gitWrite", command: commitAll("gtd(human): idle") },
     ]).required
     // An optional half whose own block is unrecognizable — a stand-in for a
