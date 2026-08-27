@@ -501,6 +501,49 @@ way — an existing \`gtd-loop\` survives untouched beside the new
 \`gtd-build\`, and cleaning it up is the human's own call.
 `
 
+const EDITOR_INTEGRATION = `
+## Editor integration: offer it, don't bury it
+
+\`gtd lsp\` runs a language server, started by \`gtd lsp\` itself, speaking LSP
+over \`stdio\`, applying to files under \`.gtd/\`. That is the whole integration
+contract, identical for every editor — this briefing names no specific editor
+and carries no per-editor config recipe.
+
+Find the user's editor from their OWN shell configuration, never a guess:
+check \`$EDITOR\`/\`$VISUAL\` first, then look for an alias or export in their
+shell rc files (\`.zshrc\`, \`.bashrc\`, \`.config/fish/config.fish\`). Ask the
+user outright when that turns up nothing or turns up more than one. When the
+shell configuration names no editor and the user names none either, say
+nothing and move on — don't pitch editor integration to somebody with no
+editor to integrate.
+
+Once an editor is identified, look ITS OWN LSP configuration format up
+yourself — there is no bundled recipe for it. If it is LSP-capable, offer to
+wire \`gtd lsp\` up with a brief explanation (three or four lines, not a copy
+of \`docs/setup.md\`): live diagnostics on \`.gtd/\` steering files, an outline
+of what is left to review, click-to-check review hunks, pick-an-option
+actions on open questions, and a \`gtd.openSteeringFile\` command that jumps
+to the current state's file. Two facts belong in that offer because both
+bite on a fresh repo: \`gtd lsp\` never creates \`.gtd/\`, so
+\`gtd.openSteeringFile\` may point at a path that does not exist yet before
+the first sketch; and \`gtd lsp\` needs no repository root — it is one of the
+commands that skips the root guard.
+
+On yes, edit the editor's own config file yourself — never print a snippet
+and walk away. Integration works without the human touching anything. Three
+guards apply to that write, because it lands outside the repository in a
+file the user shares across every project:
+
+- **Ask first, per editor, naming the exact file** about to change. Silence
+  is not consent for a machine-wide config.
+- **Merge, never overwrite.** Read the existing config, add only the gtd
+  language-server entry, and leave every other key byte-identical.
+- **Skip and report when the entry is already present** — a second install
+  must not append a duplicate server registration. A malformed existing
+  config (unparseable JSON, a TOML syntax error) is a stop-and-report, not a
+  rewrite: name the file that could not be parsed and leave it untouched.
+`
+
 const PREREQUISITES = `
 ## Prerequisites and portability
 
@@ -524,4 +567,5 @@ export const renderBriefing = (): string =>
   DRIVER_OBLIGATIONS +
   RECOVERY +
   commandSuite() +
+  EDITOR_INTEGRATION +
   PREREQUISITES

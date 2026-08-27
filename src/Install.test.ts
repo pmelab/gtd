@@ -254,6 +254,89 @@ describe("REINSTALL", () => {
   })
 })
 
+describe("EDITOR_INTEGRATION", () => {
+  it("comes after the command suite and before PREREQUISITES", () => {
+    const briefing = renderBriefing()
+    const fixIndex = briefing.lastIndexOf("### `gtd-fix`")
+    const editorIndex = briefing.indexOf("## Editor integration")
+    const prereqIndex = briefing.indexOf("## Prerequisites and portability")
+    expect(fixIndex).toBeGreaterThan(-1)
+    expect(editorIndex).toBeGreaterThan(fixIndex)
+    expect(prereqIndex).toBeGreaterThan(editorIndex)
+  })
+
+  it("names gtd lsp and stdio as the integration contract", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toContain("gtd lsp")
+    expect(briefing).toMatch(/\bstdio\b/i)
+  })
+
+  it("names no specific editor and carries no per-editor recipe", () => {
+    const briefing = renderBriefing()
+    for (const editor of ["VS Code", "Neovim", "Helix", "Zed", "Emacs"]) {
+      expect(briefing).not.toContain(editor)
+    }
+  })
+
+  it("instructs reading $EDITOR/$VISUAL first, then shell rc files, for the user's editor", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toContain("$EDITOR")
+    expect(briefing).toContain("$VISUAL")
+    for (const rc of [".zshrc", ".bashrc", ".config/fish/config.fish"]) {
+      expect(briefing).toContain(rc)
+    }
+  })
+
+  it("instructs asking the user when detection finds nothing or more than one", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/ask\s+the\s+user\s+outright.{0,60}(nothing|more than one)/is)
+  })
+
+  it("instructs saying nothing and moving on when no editor is found at all", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/say\s+nothing\s+and\s+move\s+on/i)
+  })
+
+  it("instructs looking the chosen editor's own LSP configuration format up", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/look.{0,20}(its|their) own LSP configuration format up/is)
+  })
+
+  it("names gtd.openSteeringFile and both fresh-repo facts", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toContain("gtd.openSteeringFile")
+    expect(briefing).toMatch(/gtd lsp.{0,40}never creates.{0,20}\.gtd\//is)
+    expect(briefing).toMatch(/gtd lsp.{0,40}needs no repository root/is)
+  })
+
+  it("instructs editing the editor's own config file, not printing a snippet and walking away", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/edit the editor's own config file/i)
+    expect(briefing).toMatch(/never\s+print\s+a\s+snippet\s+and\s+walk\s+away/i)
+  })
+
+  it("instructs asking first, per editor, naming the exact file about to change", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/ask first, per editor.{0,60}naming the exact file/is)
+  })
+
+  it("instructs merging rather than overwriting the editor config", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/merge, never overwrite/i)
+  })
+
+  it("instructs skipping and reporting when the entry is already present", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/skip and report when the entry is already present/i)
+  })
+
+  it("treats a malformed existing config as stop-and-report, not a rewrite", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/malformed existing.{0,40}config.{0,120}stop-and-report/is)
+    expect(briefing).toMatch(/leave it untouched/i)
+  })
+})
+
 describe("REVIEW_COMMAND", () => {
   it("is POSIX sh with no jq or bashisms", () => {
     expect(REVIEW_COMMAND).toMatch(/^#!\/usr\/bin\/env sh\n/)
