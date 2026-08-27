@@ -21,7 +21,8 @@ asks for already exists — `gtd --entry`, `GTD_<NAME>` var overrides, `gtd lsp`
       stdio for `.gtd/` files, and requires ask-then-merge; the agent works out
       that editor's config format itself. Shorter and never stale, but an agent
       with a wrong idea of Neovim config writes a broken entry.
-- [ ] _your answer_
+- [x] No biases. The agent should look at the users shell configuration or ask
+      them which editor they prefer. then look up configuration itself.
 
 ### How does the briefing tell the agent which real model names to offer per tier?
 
@@ -29,7 +30,7 @@ asks for already exists — `gtd --entry`, `GTD_<NAME>` var overrides, `gtd lsp`
       tiers per probed CLI. The agent can propose without asking in the common
       case; the table is stale the day a vendor renames a model, and gtd
       releases lag model releases by months.
-- [ ] **No table, always derive at install time** — the briefing tells the agent
+- [x] **No table, always derive at install time** — the briefing tells the agent
       to get the model list from the chosen CLI itself (its `--help`, its docs,
       its config) and to ASK the user per tier whenever the mapping is not
       obvious. Never stale, but every install pays an extra interview round.
