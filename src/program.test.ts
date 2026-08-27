@@ -304,7 +304,12 @@ describe('gtd — warns on a state with no "C" row (package 03)', () => {
   it('gtd visualize prints no warning — needsOf is "config", not "state"', async () => {
     const repo = seededRepo()
     const { io, result } = makeCapturingCliIo(repo)
-    const fiber = Effect.runFork(runCli(["node", "gtd.js", "visualize", "--port", "0"], io))
+    // `--no-open` is load-bearing, not tidiness: without it the flag default is
+    // `open: true`, so this test really spawns the OS browser at a fresh random
+    // port on every unit run (and every `test:watch` save).
+    const fiber = Effect.runFork(
+      runCli(["node", "gtd.js", "visualize", "--port", "0", "--no-open"], io),
+    )
     // `visualize` blocks forever (a server) — give it a moment to flush its
     // startup line, then interrupt, exactly like the other visualize test in
     // this file below.
