@@ -468,6 +468,40 @@ ${FIX_COMMAND}
 \`\`\`
 `
 
+const REINSTALL = `
+## Re-installing: detect and adapt, don't blindly overwrite
+
+A second install on a machine that already has a suite is not a fresh
+install — read each of the four suite paths before writing anything
+(\`gtd-build\`, \`gtd-edit\`, \`gtd-review\`, \`gtd-fix\`), and branch per path:
+
+- Absent — install it, as in a fresh install.
+- Present and content-equal to what this gtd version would emit — say so,
+  change nothing, and skip that command's interview questions entirely.
+- Present and different — show the difference, name the likely cause (a gtd
+  upgrade, or the user's own edit), and ask before overwriting. Never
+  silently replace a file the user may have customised.
+- Unreadable, or present as a directory instead of a file — report it and
+  ask about it, the same as a differing file. Never overwritten.
+
+Drift is detected by comparing CONTENT, never by parsing a version out of
+the installed file — an installed command carries no version marker to
+parse.
+
+\`gtd-build\` needs one exemption before that comparison: the region between
+\`# gtd-install: model exports\` and \`# gtd-install: end\` gets stripped from
+the installed file first. A \`gtd-build\` differing only inside those markers
+is
+unchanged, and re-asks nothing — the resolved model names are per machine,
+so without this exemption every single re-install would report drift on the
+one command everybody has.
+
+This check scopes to exactly the four suite paths above. \`gtd-loop\` is
+never read, diffed, or named as something to remove — an existing
+\`gtd-loop\` survives untouched beside the new \`gtd-build\`, and cleaning it
+up is the human's own call.
+`
+
 const PREREQUISITES = `
 ## Prerequisites and portability
 
@@ -491,4 +525,5 @@ export const renderBriefing = (): string =>
   DRIVER_OBLIGATIONS +
   RECOVERY +
   commandSuite() +
+  REINSTALL +
   PREREQUISITES

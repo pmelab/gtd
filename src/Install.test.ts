@@ -17,6 +17,8 @@ import {
   renderBriefing,
 } from "./Install.js"
 
+const FOUR_SUITE_PATHS = ["gtd-build", "gtd-edit", "gtd-review", "gtd-fix"]
+
 const _require = createRequire(import.meta.url)
 const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
 
@@ -162,6 +164,83 @@ describe("renderBriefing", () => {
   it("contains no hardcoded table of concrete model identifiers", () => {
     const briefing = renderBriefing()
     expect(briefing).not.toMatch(/opus|sonnet|haiku|gpt-\d|gemini-\d|o1-|o3-/i)
+  })
+})
+
+describe("REINSTALL", () => {
+  it("comes after all four command subsections, and before PREREQUISITES", () => {
+    const briefing = renderBriefing()
+    const fixIndex = briefing.lastIndexOf("### `gtd-fix`")
+    const reinstallIndex = briefing.indexOf("read each of the four suite paths")
+    const prereqIndex = briefing.indexOf("## Prerequisites and portability")
+    expect(fixIndex).toBeGreaterThan(-1)
+    expect(reinstallIndex).toBeGreaterThan(fixIndex)
+    expect(prereqIndex).toBeGreaterThan(reinstallIndex)
+  })
+
+  it("instructs reading each of the four suite paths before writing anything", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/read each of the four suite paths.{0,40}before writing/is)
+    for (const name of FOUR_SUITE_PATHS) expect(briefing).toContain(name)
+  })
+
+  it("states the three-way branch: absent, content-equal, and different", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/absent.{0,60}install it/is)
+    expect(briefing).toMatch(/content-equal.{0,80}(change nothing|skip)/is)
+    expect(briefing).toMatch(/skip.{0,40}interview questions/is)
+    expect(briefing).toMatch(/different.{0,120}(show the difference|diff)/is)
+    expect(briefing).toMatch(/ask before overwriting/i)
+  })
+
+  it("states drift is detected by comparing content, never by parsing a version", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/comparing content/i)
+    expect(briefing).toMatch(/never by parsing a version/i)
+    expect(briefing).toMatch(/carries no version marker/i)
+  })
+
+  it("states an unreadable path or a directory is reported and asked about, never overwritten", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/unreadable.{0,80}directory.{0,120}never overwritten/is)
+  })
+
+  it("names the model-export markers as the region to strip before comparing gtd-build", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(
+      /# gtd-install: model exports[\s\S]{0,120}# gtd-install: end.{0,120}strip/i,
+    )
+  })
+
+  it("states a gtd-build differing only inside the markers is unchanged, and re-asks nothing", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/differing only.{0,60}(inside|within).{0,60}(markers|exports)/is)
+    expect(briefing).toMatch(/unchanged.{0,40}re-asks? nothing/is)
+  })
+
+  it("states why: resolved model names are per machine, so every re-install would report drift otherwise", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/per machine/i)
+    expect(briefing).toMatch(/every.{0,20}re-install.{0,40}report(s|ing)? drift/is)
+  })
+
+  it("scopes the check to exactly the four suite paths", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/exactly the four suite paths/i)
+  })
+
+  it("never names gtd-loop as something to read, diff, delete, or remove", () => {
+    const briefing = renderBriefing()
+    const loopMentions = briefing.split("\n").filter((line) => line.includes("gtd-loop"))
+    for (const line of loopMentions) {
+      expect(line).not.toMatch(/remove|delete|clean up gtd-loop|diff gtd-loop/i)
+    }
+  })
+
+  it("states an existing gtd-loop survives untouched, and cleanup is the human's own call", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toMatch(/gtd-loop.{0,60}survives untouched/is)
+    expect(briefing).toMatch(/human's own call/i)
   })
 })
 
