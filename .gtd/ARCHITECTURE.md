@@ -1,28 +1,5 @@
 # Architecture
 
-## Open Questions
-
-### Does an ordering finding carry the offending heading's line number, or is it positionless like every other `qa` finding?
-
-- [x] Positionless — keep `OpenQuestionsDoc.errors` a `readonly string[]` and
-      `QA_FORMAT.validate` its current one-line map. Smallest change; the LSP
-      shows the diagnostic at the top of the file.
-- [ ] Line-anchored — widen `errors` to `readonly SteeringFinding[]` and point
-      each finding at the misplaced `##` heading, so `gtd lsp` underlines the
-      actual section. Costs a type change and a rewrite of the "always
-      positionless" doc comment on `QA_FORMAT`.
-- [ ] _your answer_
-
-### Does a `##` heading inside a fenced code block count as a competing section?
-
-- [x] Fence-blind — reuse the existing line scan, which already ignores fences
-      everywhere else in this parser. Consistent with `splitQuestionBlocks`, but
-      a plan that quotes a markdown example containing `## ` now fails.
-- [ ] Fence-aware for the ordering scan only — track ``` / ~~~ runs and skip
-      headings inside them. Kills the false positive; makes the ordering scan
-      disagree with the block scan about what a heading is.
-- [ ] _your answer_
-
 ## Concern 1 — Ordering rule for `qa` steering files: validator, prompt, docs
 
 **One package.** All three changes land together — the checker, the prompt
@@ -47,12 +24,22 @@ still tells agents to write.
 new module.** It reads the same lines and reuses the same `parseHeading` the
 question parser already uses, and it has no consumer outside `QA_FORMAT`.
 `src/SteeringFormat.ts` stays untouched — its `SteeringFinding` already carries
-an optional `line`, so no vocabulary change is needed either way.
+an optional `line` and the ordering findings do not use it.
 
 Shape: walk every line, keep the ones `parseHeading` reports at level 2, note
 the first index of `## Open Questions` and of `## Answered Questions` among
 them. Emit at most one finding per rule — not one per offending section — so a
 file with six stray sections above the open block reports one problem, not six.
+
+**The findings are positionless, like every other finding this format
+produces.** `QA_FORMAT.validate` stays the one-line map it is today, its "always
+positionless" doc comment stays true, and `gtd lsp` shows the diagnostic at the
+top of the file rather than on the misplaced heading.
+
+**The scan is fence-blind: a `## ` line inside a fenced code block counts as a
+competing section.** It reuses the existing line walk, which already ignores
+` ``` ` and `~~~` runs everywhere else in this parser, so the ordering scan and
+`splitQuestionBlocks` agree on what a heading is.
 
 **`parseOpenQuestions` is where the findings originate**, not
 `QA_FORMAT.validate`. That keeps `validate` the same one-line map it is today
@@ -61,11 +48,11 @@ the only entry point `gtd lsp`, `gtd validate`, and `gtd check` all share.
 
 ### Data model
 
-`OpenQuestionsDoc` keeps its two fields. `questions` is untouched — ordering is
-a document-level property and produces no question. `errors` either stays
-`readonly string[]` or widens to `readonly SteeringFinding[]`, decided by the
-first open question above. The widening is safe: `errors` has exactly one
-non-test consumer today, `QA_FORMAT.validate`.
+`OpenQuestionsDoc` keeps its two fields, both unchanged. `questions` is
+untouched — ordering is a document-level property and produces no question.
+`errors` stays `readonly string[]`: the ordering findings are plain messages, so
+no type widens and `QA_FORMAT.validate` — the one non-test consumer of `errors`
+today — keeps its current shape.
 
 **A file with only one of the two sections, or neither, produces no ordering
 finding.** The scan skips a rule whose anchor heading is absent.
@@ -144,6 +131,11 @@ files this rule now judges**, and `.gtd/` is oxfmt-formatted and covered by
 `format:check`. A prompt that produces a file failing the new rule deadlocks its
 own gate — which is why the prompt wording ships in the same package.
 
+**Fence-blindness costs a real false positive: a `qa` file that quotes a
+markdown example containing a `## ` heading now fails the ordering rule.** No
+current fixture does this, but a future plan that pastes a markdown snippet will
+red its own gate with no way to escape the heading.
+
 **No existing fixture breaks.** All nine files carrying either heading put lead
 prose, never a `##` section, above `## Open Questions`, and every file carrying
 `## Answered Questions` puts it last. `QA_SAMPLE` — prose, then
@@ -165,8 +157,8 @@ has one problem to fix, and per-section findings would bury it.
 
 ### Does `SteeringFormat.ts` need a new vocabulary type for this?
 
-No. `SteeringFinding` already carries an optional `line`, which covers both
-answers to the position question above.
+No. `SteeringFinding` already carries everything a positionless message needs,
+and the ordering findings add no field.
 
 ### Is any new dependency needed to recognise a heading?
 
@@ -182,3 +174,15 @@ and `gtd check`'s help names the modes, not each mode's rules.
 
 No. `docs/**` and `src/**` are already declared inputs of `test:unit` and both
 e2e tasks, so both edited surfaces invalidate the cache.
+
+### Does an ordering finding carry the offending heading's line number, or is it positionless like every other `qa` finding?
+
+Positionless. `OpenQuestionsDoc.errors` stays a `readonly string[]` and
+`QA_FORMAT.validate` keeps its current one-line map; `gtd lsp` shows the
+diagnostic at the top of the file.
+
+### Does a `##` heading inside a fenced code block count as a competing section?
+
+Yes — the scan is fence-blind, reusing the existing line walk that already
+ignores fences everywhere else in this parser. The cost is that a file quoting a
+markdown example with a `## ` heading fails the rule.
