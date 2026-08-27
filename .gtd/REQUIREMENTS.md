@@ -8,41 +8,28 @@ whatever is already installed, and offers editor integration.
 changes text in `src/Install.ts` (plus its assertions in `src/Install.test.ts`),
 never engine behaviour.
 
-## Open Questions
+## Answered Questions
 
 ### Existing `~/.local/bin/gtd-loop` installs — rename in place, or leave both?
 
-- [ ] Rename: the briefing deletes `gtd-loop` after writing `gtd-build`, so one
-      name survives and nobody drives a stale loop by accident
-- [ ] Keep both: leave `gtd-loop` untouched and add `gtd-build` beside it —
-      never delete a file the user may have hand-edited
-- [x] do not change now, i will run the install later
+Neither: the briefing does nothing about `gtd-loop` at all. It never deletes it,
+never renames it, and never mentions migrating it. The human will run the
+install later and clean up by hand.
 
 ### Do `gtd-review` and `gtd-fix` drive the process, or only start it?
 
-- [ ] Start only, matching `gtd-edit`: they run the `--entry` script and return,
-      and the human runs `gtd-build` when ready — one command, one job
-- [x] Start then drive: they run the `--entry` script and immediately exec
-      `gtd-build`, so a review or fix is a single invocation
-- [ ] _your answer_
+Start then drive. Each runs its `--entry` script and then `exec`s `gtd-build`,
+so a review or a fix is one invocation.
 
 ### Where do the resolved model names get written?
 
-- [ ] `.gtdrc` `vars:` — committed, so every clone and every teammate's driver
-      agrees on which tier runs planning versus building
-- [x] `GTD_PLANNERMODEL`/`GTD_CODERMODEL` exports inside `gtd-build` — per
-      machine, never committed, so one person's model choice binds nobody else
-- [ ] _your answer_
+`GTD_PLANNERMODEL`/`GTD_CODERMODEL` exports inside `gtd-build` — per machine,
+never committed, so one person's model choice binds nobody else.
 
 ### Does the LSP step write editor config, or print a snippet?
 
-- [x] Write it, after asking: the agent edits the detected editor's config file
-      itself, so integration works without the human touching anything
-- [ ] Print only: the agent shows the config block and the human pastes it — an
-      editor config is personal and often shared across many projects
-- [ ] _your answer_
-
-## Answered Questions
+Write it, after asking. The agent edits the detected editor's config file
+itself, so integration works without the human touching anything.
 
 ### Which agent CLIs does the briefing probe for?
 
@@ -90,29 +77,44 @@ four**, interviewed together and installed together:
 - **`gtd-edit`** — unchanged; opens `gtd next --json=file`, falling back to
   `.gtd/TODO.md`.
 - **`gtd-review <commitish>`** — starts a review round over that commitish by
-  running `gtd --entry review-gate.check --var reviewBase=<commitish>` and
-  piping the emitted script into `sh`. Refuses with usage when the argument is
-  missing.
-- **`gtd-fix`** — enters the fix process by running `gtd --entry fix-precheck`
-  and piping the emitted script into `sh`. Takes no argument.
+  running `gtd --entry review-gate.check --var reviewBase=<commitish>`, piping
+  the emitted script into `sh`, then `exec`ing `gtd-build`. Refuses with usage
+  when the argument is missing.
+- **`gtd-fix`** — enters the fix process by running `gtd --entry fix-precheck`,
+  piping the emitted script into `sh`, then `exec`ing `gtd-build`. Takes no
+  argument.
+
+**`gtd-review` and `gtd-fix` drive, they do not just start.** Each is one
+invocation that carries the process all the way to its next human gate.
+
+**Both `exec` only after the `--entry` script actually ran.** `gtd --entry`
+exits 1 on a refusal and emits nothing, so both commands run under `set -e` and
+never hand an empty script to `sh` or `exec` a loop over a process that was
+never started.
+
+Both `exec` the suite's **resolved** `gtd-build` path, not the literal string
+`gtd-build`. The interview can rename any of the four, so the chosen name is
+baked into the two commands that call it.
 
 Both new commands `cd` to the repository root first, like `gtd-edit` does —
 every state subcommand is root-only.
 
 The briefing must say what each entry means, because a user running them blind
 will be surprised: **`gtd-fix` on a green suite is a no-op straight back to
-`idle`**, and **`gtd-review` on a red suite blocks at the baseline gate** rather
-than starting the review.
+`idle`, and the exec'd `gtd-build` exits immediately on it**; **`gtd-review` on
+a red baseline hands off to `gtd-build`, which halts at the blocked gate and
+prints it** rather than starting the review.
 
 Interview questions 8–9 today ask about the editor and the edit command's name.
 They become one block that asks for the suite's install directory and lets the
 user rename any of the four.
 
 **Acceptance:** `src/Install.test.ts` asserts the briefing names all four
-default paths and contains a `--entry review-gate.check --var reviewBase=` and
-an `--entry fix-precheck` invocation; the existing `~/.local/bin/gtd-edit`
-assertion still passes. `docs/driver.md`'s three `gtd-loop` mentions move to
-`gtd-build` in the same change, or the docs contradict the briefing.
+default paths, contains a `--entry review-gate.check --var reviewBase=` and an
+`--entry fix-precheck` invocation, and shows both of those commands `exec`ing
+the loop; the existing `~/.local/bin/gtd-edit` assertion still passes.
+`docs/driver.md`'s three `gtd-loop` mentions move to `gtd-build` in the same
+change, or the docs contradict the briefing.
 
 **Risk:** `.git/gtd-loop.log` is the default log path and is asserted by name in
 `src/WorktreeState.test.ts`, `src/program.test.ts`, `src/Beat.test.ts`, and
@@ -141,13 +143,26 @@ review), the cheaper tier for `coderModel` (build, fix). **When the mapping is
 not obvious, ask** — list the CLI's available models and let the user pick per
 tier, rather than guessing an identifier that fails on the first prompt beat.
 
+**The resolved names are written as `GTD_PLANNERMODEL`/`GTD_CODERMODEL` exports
+at the top of `gtd-build`**, not into `.gtdrc`. They stay per machine and never
+get committed, so one person's model choice binds nobody else on the repo.
+
+Two consequences the briefing must state, because both surprise a user who
+expects `.gtdrc`: **`gtd-review` and `gtd-fix` inherit the exports only because
+they `exec` `gtd-build`** — anything that drives beats without going through
+`gtd-build` gets the raw `smart`/`base` hints and fails; and **`GTD_*` is the
+highest-precedence config layer**, so these exports silently win over a
+`plannerModel`/`coderModel` a teammate later commits to `.gtdrc`.
+
 Interview question 5's existing "whether the workflow's `model` hints should be
 honored (default: yes)" stays, and gains its consequence: **answering no means
-dropping `--model` entirely, so every turn runs on the CLI's own default tier.**
+dropping `--model` entirely and writing no exports, so every turn runs on the
+CLI's own default tier.**
 
 **Acceptance:** `src/Install.test.ts` asserts the briefing names `plannerModel`,
-`coderModel`, both default values, at least two probed CLI names, and states
-that the defaults are not real model names.
+`coderModel`, both default values, `GTD_PLANNERMODEL`, `GTD_CODERMODEL`, at
+least two probed CLI names, and states that the defaults are not real model
+names.
 
 ### 3. Re-install detects and upgrades what is already there
 
@@ -165,12 +180,20 @@ The version line the briefing already prints in its header is the anchor: an
 installed command carries no version marker, so **drift is detected by comparing
 content, never by parsing a version out of the file**.
 
-**Acceptance:** `src/Install.test.ts` asserts the briefing instructs checking
-each path before writing and asks before overwriting a differing file.
+**A `gtd-build` carrying `GTD_*` model exports never matches byte-equal**, since
+the resolved model names are per machine. Treat an installed `gtd-build` whose
+only difference from the emitted body is its export block as **unchanged**, and
+re-ask nothing — otherwise every single re-install reports drift on the one
+command everybody has.
 
-**Risk:** this is the concern the rename question above lands in. If existing
-`gtd-loop` files are to be removed, the removal happens in this step, not in
-concern 1.
+**The scope is exactly the four suite paths.** `gtd-loop` is not one of them:
+the briefing never reads it, never diffs it, never deletes it. An existing
+`gtd-loop` survives untouched beside the new `gtd-build`, and cleaning it up is
+the human's own call.
+
+**Acceptance:** `src/Install.test.ts` asserts the briefing instructs checking
+each path before writing, asks before overwriting a differing file, and never
+names `gtd-loop` as something to remove.
 
 ### 4. Editor integration offered, not buried in the docs
 
@@ -188,6 +211,20 @@ is left to review, click-to-check review hunks, pick-an-option actions on open
 questions, and a `gtd.openSteeringFile` command that jumps to the current
 state's file.
 
+**On yes, the agent edits the editor's own config file itself** — it does not
+print a snippet and walk away. Integration works without the human touching
+anything.
+
+Three guards on that write, because it lands outside the repository in a file
+the user shares across every project:
+
+- **Ask first, per editor, and name the exact file** about to change. Silence is
+  not consent for a machine-wide config.
+- **Merge, never overwrite.** Read the existing config, add only the gtd
+  language-server entry, and leave every other key byte-identical.
+- **Skip and report when the entry is already present.** A second install must
+  not append a duplicate server registration.
+
 Two facts the offer must carry, because both bite on a fresh repo: **`gtd lsp`
 never creates `.gtd/`**, so `gtd.openSteeringFile` may point at a path that does
 not exist yet before the first sketch; and **`gtd lsp` needs no repository
@@ -197,4 +234,5 @@ When no LSP-capable editor is detected, say nothing and move on. Do not pitch
 editor integration to somebody with no editor to integrate.
 
 **Acceptance:** `src/Install.test.ts` asserts the briefing names `gtd lsp`, at
-least two detected editors, and the `gtd.openSteeringFile` command.
+least two detected editors, the `gtd.openSteeringFile` command, and instructs
+asking before editing an editor config and merging rather than overwriting it.
