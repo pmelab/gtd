@@ -256,14 +256,16 @@ coding agent:
 ```
 
 It prints a self-contained briefing that teaches the agent to set the project
-up, build two commands for itself in whatever shell or runtime it runs, and ask
+up, build four commands for itself in whatever shell or runtime it runs, and ask
 you what you want before it starts driving. You get one prompt to paste, not a
-state name to choose. The two commands: a **loop command** that drives beats
-until the process rests, and an **edit command** that opens the steering file
-the process is waiting on right now — falling back to `.gtd/TODO.md` when the
-resting state declares none. That fallback is also how you begin: on a clean
-repository the edit command opens the empty `.gtd/TODO.md`, and whatever you
-write there is the first sketch the whole process gets planned from.
+state name to choose. The four commands: **`gtd-build`** drives beats until the
+process rests; **`gtd-edit`** opens the steering file the process is waiting on
+right now — falling back to `.gtd/TODO.md` when the resting state declares none;
+**`gtd-review <commitish>`** starts a review round over that commitish and
+drives it; **`gtd-fix`** enters the fix process and drives it. The
+`.gtd/TODO.md` fallback is also how you begin: on a clean repository the edit
+command opens the empty `.gtd/TODO.md`, and whatever you write there is the
+first sketch the whole process gets planned from.
 
 ### The workflow it ships with
 
