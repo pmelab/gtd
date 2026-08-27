@@ -7,14 +7,14 @@
 - [ ] Nothing — the file must literally begin with `## Open Questions`.
       Strictest reading of "very top"; forces every author to lead with the
       questions.
-- [ ] A title and lead prose are allowed — the rule is only that
+- [x] A title and lead prose are allowed — the rule is only that
       `## Open Questions` precedes every OTHER `##` section. Keeps today's docs
       and the built-in sample valid.
 - [ ] _your answer_
 
 ### When a file breaks the order, does gtd only report it, or fix it?
 
-- [ ] Report only — `gtd check qa` / `gtd validate` / the LSP emit a finding and
+- [x] Report only — `gtd check qa` / `gtd validate` / the LSP emit a finding and
       the author moves the section. Matches how every other built-in format
       behaves today.
 - [ ] Report and offer a one-click fix — same finding, plus an LSP code action
