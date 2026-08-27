@@ -466,7 +466,7 @@ Default path: \`~/.local/bin/gtd-fix\`.
 \`\`\`bash
 ${FIX_COMMAND}
 \`\`\`
-`
+${REINSTALL}`
 
 const REINSTALL = `
 ## Re-installing: detect and adapt, don't blindly overwrite
@@ -490,16 +490,15 @@ parse.
 
 \`gtd-build\` needs one exemption before that comparison: the region between
 \`# gtd-install: model exports\` and \`# gtd-install: end\` gets stripped from
-the installed file first. A \`gtd-build\` differing only inside those markers
-is
-unchanged, and re-asks nothing — the resolved model names are per machine,
-so without this exemption every single re-install would report drift on the
-one command everybody has.
+the installed file first. A \`gtd-build\` differing only inside those
+markers is unchanged, and re-asks nothing — the resolved model names are
+per machine, so without this exemption every single re-install would
+report drift on the one command everybody has.
 
 This check scopes to exactly the four suite paths above. \`gtd-loop\` is
-never read, diffed, or named as something to remove — an existing
-\`gtd-loop\` survives untouched beside the new \`gtd-build\`, and cleaning it
-up is the human's own call.
+outside it entirely — never read, never diffed, never touched by it in any
+way — an existing \`gtd-loop\` survives untouched beside the new
+\`gtd-build\`, and cleaning it up is the human's own call.
 `
 
 const PREREQUISITES = `
@@ -525,5 +524,4 @@ export const renderBriefing = (): string =>
   DRIVER_OBLIGATIONS +
   RECOVERY +
   commandSuite() +
-  REINSTALL +
   PREREQUISITES

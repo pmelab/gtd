@@ -230,10 +230,20 @@ describe("REINSTALL", () => {
   })
 
   it("never names gtd-loop as something to read, diff, delete, or remove", () => {
-    const briefing = renderBriefing()
-    const loopMentions = briefing.split("\n").filter((line) => line.includes("gtd-loop"))
-    for (const line of loopMentions) {
-      expect(line).not.toMatch(/remove|delete|clean up gtd-loop|diff gtd-loop/i)
+    // Scoped to the sentences that actually mention "gtd-loop", found in the
+    // whitespace-collapsed briefing (not per wrapped line — the briefing is
+    // hard-wrapped prose, so a line-by-line filter can land "gtd-loop" and a
+    // removal verb on different lines and miss the very sentence it exists
+    // to check). Scoping to those sentences (rather than the whole document)
+    // avoids false positives from unrelated uses of "diff" elsewhere, e.g.
+    // the driver protocol's own "a full diff" language.
+    const collapsed = renderBriefing().replace(/\s+/g, " ")
+    const loopSentences = collapsed
+      .split(/(?<=[.!?])\s+/)
+      .filter((sentence) => sentence.includes("gtd-loop"))
+    expect(loopSentences.length).toBeGreaterThan(0)
+    for (const sentence of loopSentences) {
+      expect(sentence).not.toMatch(/\b(remove|delete|diff)\b/i)
     }
   })
 
