@@ -22,7 +22,7 @@ decays again silently.
 - [ ] Add a `thresholds.break` floor to `stryker.config.json` set just under the
       score this work lands at — the number stops decaying silently, and the
       13-minute cost stays opt-in because the task is still outside `npm test`
-- [ ] Leave it a manual diagnostic — a `break` threshold turns every future
+- [x] Leave it a manual diagnostic — a `break` threshold turns every future
       unrelated refactor into a 13-minute argument with Stryker, and nothing
       runs it often enough for the floor to catch a regression near the commit
       that caused it
@@ -37,7 +37,7 @@ in what a user sees on a bad day.
 
 - [ ] Cover, don't delete — an unreached defensive message is cheap insurance
       against a lie, and reaching it in a test proves the branch is real
-- [ ] Delete unreachable branches — code no test can reach is code no user can
+- [x] Delete unreachable branches — code no test can reach is code no user can
       reach either, and a message that cannot fire is dead weight that fakes
       robustness
 - [ ] _your answer_
