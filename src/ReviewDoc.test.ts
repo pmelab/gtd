@@ -1006,6 +1006,20 @@ describe("ReviewDoc — load-bearing whitespace trims", () => {
     expect(parseReviewDoc(content).shortHash).toBe("abc1234")
   })
 
+  it("skips a whitespace-only line before the header when finding the first non-blank line", () => {
+    const content = [
+      "   ",
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/x.ts#1",
+      "",
+    ].join("\n")
+    expect(parseReviewDoc(content).shortHash).toBe("abc1234")
+  })
+
   it("treats a whitespace-only line as blank inside a pointer's span, not as a break or as note content", () => {
     const content = [
       "# Review: abc1234",
