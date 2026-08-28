@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-08-28T00:00:00.000Z",
+  "recordedAt": "unrecorded — placeholder floor, never produced by a real `npm run eval` run; re-record with `npm run eval:baseline` before trusting it",
   "trials": 4,
   "rates": {
     "cheap|clean": { "passed": 4, "total": 4 },

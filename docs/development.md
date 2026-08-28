@@ -94,6 +94,13 @@ npm run eval:baseline   # rewrites evals/baseline.json from the last results.jso
 Commit the resulting `evals/baseline.json` as its own reviewable change, same as
 any other snapshot update.
 
+The committed `evals/baseline.json` is currently an unverified placeholder floor
+(`recordedAt` says so), not a snapshot of a real run — no `ANTHROPIC_API_KEY`
+was available to produce one when the gate was built. Re-record it with a real
+`npm run eval` / `npm run eval:baseline` pair as the first order of business
+once that's available; until then, every cell reading a perfect `4/4` reflects
+nothing observed.
+
 Because a single trial is a real, non-deterministic agent turn, a healthy prompt
 occasionally fails one out of `--repeat` trials — a single flaky turn is 25% of
 a 4-trial cell's rate. That's expected: the eval is a deliberate human action,
