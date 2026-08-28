@@ -27,12 +27,12 @@ function cellsFrom(results) {
   return cells
 }
 
-function readResults(path) {
+export function readResults(path) {
   const doc = JSON.parse(readFileSync(path, "utf-8"))
   return doc.results?.results ?? []
 }
 
-function printCells(cells) {
+export function printCells(cells) {
   const sortedKeys = [...cells.keys()].sort((a, b) => a.localeCompare(b))
   for (const key of sortedKeys) {
     const { passed, total } = cells.get(key)
@@ -40,10 +40,15 @@ function printCells(cells) {
   }
 }
 
+export { cellsFrom }
+
 function main() {
   const path = process.argv[2] ?? "evals/results.json"
   const cells = cellsFrom(readResults(path))
   printCells(cells)
 }
 
-main()
+// Runnable standalone (`node evals/report.mjs [path]`) as well as importable
+// — `evals/eval.mjs` calls these functions in-process after filtering
+// promptfoo's own aggregate summary out of its live output.
+if (import.meta.url === `file://${process.argv[1]}`) main()

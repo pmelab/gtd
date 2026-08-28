@@ -21,8 +21,8 @@
   },
   // jiti is a peer requirement of eslint's TypeScript config loader, not a direct import.
   // Stryker packages are CLI tools invoked via npx/scripts, not imported in TypeScript source.
-  // promptfoo is invoked as `promptfoo eval` from the `eval` script's own subshell — fallow's
-  // npm-script scan doesn't see into a `( ... )` group, so it reads as unreferenced.
+  // promptfoo is spawned as a CLI binary from evals/eval.mjs's own child_process call, never
+  // `require`d/`import`ed and never named in a package.json script fallow's own scan can see.
   "ignoreDependencies": [
     "jiti",
     "@stryker-mutator/core",

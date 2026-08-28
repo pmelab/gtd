@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert"
 import spec from "./cases/spec-review.mjs"
-import { buildFixture, scrubbedEnv, GTD_BIN } from "./fixture.mjs"
+import { buildFixture, scrubbedEnv, GTD_BIN, OXFMT_BIN } from "./fixture.mjs"
 
 // Pinned judge provider id, duplicated (not imported) from
 // evals/promptfooconfig.yaml on purpose: the judge is never the model under
@@ -63,7 +63,12 @@ function claudeOnPath() {
 function unformattedGtdFiles(repo, env) {
   assertTmpCwd(repo)
   try {
-    const out = execFileSync("npx", ["oxfmt", "--list-different", ".gtd"], {
+    // This repo's own resolved oxfmt binary against the fixture's own copy of
+    // this repo's `.oxfmtrc.json` (written by `fixture.mjs`) — never `npx
+    // oxfmt`, which resolves an unpinned version with no config and grades
+    // `.gtd/*.md` against stock defaults instead of the `*.md` `proseWrap`
+    // override `format:check` here actually enforces.
+    const out = execFileSync(OXFMT_BIN, ["--list-different", ".gtd"], {
       cwd: repo,
       env,
       encoding: "utf-8",
@@ -71,10 +76,9 @@ function unformattedGtdFiles(repo, env) {
     return out.split("\n").filter(Boolean)
   } catch (err) {
     // `--list-different` exits exactly 1 when it finds differences, with the
-    // file list on stdout. Any OTHER failure (npx/oxfmt not resolvable, no
-    // network in a fresh temp repo, a killed process) must not be read as
-    // "formatting converged" — that's the infra-break-reads-as-a-pass
-    // failure mode task 4 forbids by name.
+    // file list on stdout. Any OTHER failure (oxfmt not resolvable, a killed
+    // process) must not be read as "formatting converged" — that's the
+    // infra-break-reads-as-a-pass failure mode task 4 forbids by name.
     if (err.status === 1) {
       return String(err.stdout ?? "")
         .split("\n")

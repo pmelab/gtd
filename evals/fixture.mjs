@@ -15,6 +15,12 @@ import { parse as parseYaml } from "yaml"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const GTD_BIN = join(HERE, "..", "dist", "gtd.bundle.mjs")
+// This repo's own resolved binary, never `npx oxfmt` — npx resolves whatever
+// version its cache holds (fetching from the network on a cold one), which
+// can silently drift from the `oxfmt` devDependency every other check here
+// is pinned to.
+export const OXFMT_BIN = join(HERE, "..", "node_modules", ".bin", "oxfmt")
+const OXFMTRC_PATH = join(HERE, "..", ".oxfmtrc.json")
 
 /**
  * Every `GTD_*` var except a caller-supplied model override is dropped, and
@@ -56,20 +62,30 @@ function writeFiles(dir, files) {
 // Mirrors the effect this repository gets from husky -> lint-staged ->
 // oxfmt, without installing husky into a throwaway repo. Always exits 0: a
 // failing hook would red the land itself, and the eval would then report a
-// broken turn instead of a formatting result.
-const PRE_COMMIT_HOOK = `#!/bin/sh
+// broken turn instead of a formatting result. Uses this repo's own resolved
+// oxfmt binary against this repo's own `.oxfmtrc.json` (copied into the
+// fixture below) — not `npx oxfmt` with no config, which formats to stock
+// defaults instead of the `*.md` `proseWrap` override every `.gtd/*.md` file
+// under review is actually graded against.
+function preCommitHookScript(oxfmtBin) {
+  return `#!/bin/sh
 files=$(git diff --cached --name-only --diff-filter=ACM -- .gtd)
 if [ -n "$files" ]; then
-  npx oxfmt --no-error-on-unmatched-pattern --write $files
+  "${oxfmtBin}" --no-error-on-unmatched-pattern --write $files
   git add -- $files
 fi
 exit 0
 `
+}
 
 function installPreCommitHook(repo) {
   const hookPath = join(repo, ".git", "hooks", "pre-commit")
-  writeFileSync(hookPath, PRE_COMMIT_HOOK)
+  writeFileSync(hookPath, preCommitHookScript(OXFMT_BIN))
   chmodSync(hookPath, 0o755)
+}
+
+function writeOxfmtConfig(repo) {
+  writeFileSync(join(repo, ".oxfmtrc.json"), readFileSync(OXFMTRC_PATH, "utf-8"))
 }
 
 function writeEvalWorkflowConfig(repo) {
@@ -100,6 +116,7 @@ export function buildFixture(caseDef, variant, env = scrubbedEnv()) {
   git(repo, env, "config", "commit.gpgsign", "false")
   installPreCommitHook(repo)
 
+  writeOxfmtConfig(repo)
   writeEvalWorkflowConfig(repo)
   writeFile(repo, "README.md", "# gtd eval fixture\n")
   git(repo, env, "add", "-A")
