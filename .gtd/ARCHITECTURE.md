@@ -17,7 +17,7 @@ decay is the accepted cost of keeping a 13-minute run opt-in.
 
 ### Does line coverage over the nine mutated files become a gated turbo task, or an on-demand diagnostic?
 
-- [ ] On-demand diagnostic — a `coverage` script only, no `turbo.json` task, no
+- [x] On-demand diagnostic — a `coverage` script only, no `turbo.json` task, no
       floor. Consistent with the settled refusal to gate on the mutation score,
       and it never fires during an unrelated refactor.
 - [ ] Gated turbo task with a 100%-statements floor scoped to the nine files in
@@ -28,7 +28,7 @@ decay is the accepted cost of keeping a 13-minute run opt-in.
 
 ### When triage proves a branch unreachable, does the site get deleted outright or replaced with a compile-time exhaustiveness guard?
 
-- [ ] Delete outright — smallest diff, and the unreachability proof lives in the
+- [x] Delete outright — smallest diff, and the unreachability proof lives in the
       commit message where a reviewer reads it once.
 - [ ] Replace with a `never`-typed exhaustiveness assert — a future caller that
       makes the site reachable fails `typecheck` instead of silently falling
