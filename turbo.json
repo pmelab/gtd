@@ -38,7 +38,7 @@
       "outputs": []
     },
     "deadcode": {
-      "inputs": ["src/**", "tests/**", "*.ts", ".fallowrc.json"],
+      "inputs": ["src/**", "tests/**", "evals/**", "*.ts", ".fallowrc.json"],
       "outputs": []
     },
     "test:unit": {
@@ -48,7 +48,8 @@
         "tests/vitest.*.ts",
         "vitest.config.ts",
         "turbo.json",
-        "docs/**"
+        "docs/**",
+        "evals/**"
       ],
       "outputs": []
     },

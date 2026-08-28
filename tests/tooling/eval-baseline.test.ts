@@ -1,7 +1,11 @@
+import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+
+const OXFMT_BIN = fileURLToPath(new URL("../../node_modules/.bin/oxfmt", import.meta.url))
 import { buildBaseline, compare, compareCells, record } from "../../evals/compare-baseline.mjs"
 
 function resultsDoc(cells: Record<string, { passed: number; total: number }>) {
@@ -158,7 +162,7 @@ describe("compare() CLI entry point", () => {
 })
 
 describe("record() CLI entry point", () => {
-  it("rewrites the baseline as an oxfmt fixed point, byte-identical on a re-record with no change", () => {
+  it("rewrites the baseline as an oxfmt fixed point, reproducing the same rates on a re-record with no change", () => {
     dir = mkdtempSync(join(tmpdir(), "gtd-eval-baseline-"))
     const resultsPath = join(dir, "results.json")
     const baselinePath = join(dir, "baseline.json")
@@ -169,9 +173,34 @@ describe("record() CLI entry point", () => {
     record(resultsPath, baselinePath)
     const first = readFileSync(baselinePath, "utf-8")
     expect(JSON.parse(first).rates).toEqual({ "planner|violation": { passed: 4, total: 4 } })
+    expect(() => execFileSync(OXFMT_BIN, ["--check", baselinePath])).not.toThrow()
+
+    // Re-recording from the same results.json reproduces the same rates and
+    // stays an oxfmt fixed point — `recordedAt` legitimately ticks forward,
+    // so the rates (not the raw bytes) are what re-recording must reproduce.
+    record(resultsPath, baselinePath)
+    const second = readFileSync(baselinePath, "utf-8")
+    expect(JSON.parse(second).rates).toEqual(JSON.parse(first).rates)
+    expect(() => execFileSync(OXFMT_BIN, ["--check", baselinePath])).not.toThrow()
+  })
+
+  it("compare() never rewrites the baseline — only record, a deliberate human action, does", () => {
+    dir = mkdtempSync(join(tmpdir(), "gtd-eval-baseline-"))
+    const resultsPath = join(dir, "results.json")
+    const baselinePath = join(dir, "baseline.json")
+    writeFileSync(
+      resultsPath,
+      JSON.stringify(resultsDoc({ "planner|violation": { passed: 4, total: 4 } })),
+    )
+    record(resultsPath, baselinePath)
+    const first = readFileSync(baselinePath, "utf-8")
 
     // A run scoring HIGHER than a stale baseline leaves the file untouched
-    // by `compare` — only `record`, a deliberate human action, rewrites it.
+    // by `compare`.
+    writeFileSync(
+      resultsPath,
+      JSON.stringify(resultsDoc({ "planner|violation": { passed: 4, total: 4 } })),
+    )
     const before = process.exitCode
     process.exitCode = undefined
     compare(resultsPath, baselinePath)
