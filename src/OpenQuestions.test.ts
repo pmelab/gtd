@@ -847,7 +847,7 @@ describe("heading regex anchors", () => {
 })
 
 describe("load-bearing whitespace trimming", () => {
-  it("recognizes a '###' heading indented with leading whitespace, trimming its text", () => {
+  it("recognizes a '###' heading indented with leading whitespace", () => {
     const content = ["## Open Questions", "", "   ###   Which API?   ", "", "a1.", ""].join("\n")
     const { questions } = parseOpenQuestions(content)
     expect(questions).toHaveLength(1)
