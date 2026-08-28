@@ -28,3 +28,34 @@ run `npm install` on a fresh clone — it runs
 Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
 or breaking changes) to `main` and semantic-release computes the next version,
 builds the bundle, tags it, and publishes.
+
+## Prompt evals
+
+`npm run eval` grades the bundled workflow's own prompts against a real model,
+using [promptfoo](https://www.promptfoo.dev/). It requires `ANTHROPIC_API_KEY`
+(the `llm-rubric` judge tier calls the Anthropic API directly — the driver turns
+themselves run through the `claude` CLI's own auth) and needs `claude` on
+`PATH`. It is not part of `npm test`: each case drives real, multi-minute agent
+turns and costs real model calls.
+
+```bash
+npm run eval                              # build, then run every case against both matrix models
+GTD_EVAL_WORKFLOW=./my-workflow.yaml npm run eval  # grade a scratch workflow instead of the bundled default
+EVAL_CLEAN=1 npm run eval                 # delete each fixture repo after grading (kept by default, for post-mortem)
+```
+
+Each case builds a fresh, disposable fixture repo per trial, drives exactly one
+real driver turn against it (`gtd next` → `claude -p` → `gtd land`), and grades
+the result through three tiers, cheapest first: deterministic `javascript`
+asserts on which files changed, a grep floor for a planted identifier, and —
+only once both pass — an `llm-rubric` judge scoring whether the feedback is
+actually useful. The report is a pass rate **per fixture, per model** (out of
+`--repeat`'s trial count) — never averaged across fixtures or models, since a
+suite that averages a two-sided case's variants hides exactly the failure those
+variants exist to expose.
+
+To add a case: write `evals/cases/<name>.mjs` exporting a frozen object shaped
+like `evals/cases/spec-review.mjs` (a `state` to enter, two-sided
+`base`/`variants` fixture content, and a `plantedIdentifier` the defect
+variant's feedback must name), add a matching `evals/asserts/<name>.mjs` grader,
+and wire both into `evals/promptfooconfig.yaml`'s `tests:`.

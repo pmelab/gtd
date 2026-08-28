@@ -46,3 +46,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .stryker-tmp/
 stryker-incremental.json
 reports/
+
+# npm run eval output — regenerated on every run
+evals/results.json

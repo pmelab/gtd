@@ -12,7 +12,16 @@
       "outputs": []
     },
     "lint": {
-      "inputs": ["src/**", "tests/**", "scripts/**", "dev/**", "*.ts", "*.mjs", ".oxlintrc.json"],
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "scripts/**",
+        "dev/**",
+        "evals/**",
+        "*.ts",
+        "*.mjs",
+        ".oxlintrc.json"
+      ],
       "outputs": []
     },
     "lint:sh": {

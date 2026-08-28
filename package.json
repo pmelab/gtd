@@ -45,7 +45,8 @@
     "test:mutation": "stryker run",
     "test:e2e:inmem": "vitest run --project e2e-inmem",
     "test:e2e:live": "vitest run --project e2e-live",
-    "deadcode": "fallow --summary --quiet"
+    "deadcode": "fallow --summary --quiet",
+    "eval": ": \"${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required — the llm-rubric judge calls the Anthropic API directly}\" && npx turbo run build && promptfoo eval --config evals/promptfooconfig.yaml --repeat 4 --max-concurrency 2 -o evals/results.json"
   },
   "lint-staged": {
     "*": "oxfmt --no-error-on-unmatched-pattern --write"
@@ -68,6 +69,7 @@
     "oxfmt": "^0.59.0",
     "oxlint": "^1.74.0",
     "prettier": "^3.8.1",
+    "promptfoo": "0.122.1",
     "quickpickle": "1.11.2",
     "semantic-release": "^25.0.5",
     "tsdown": "^0.22.8",
