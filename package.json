@@ -46,7 +46,8 @@
     "test:e2e:inmem": "vitest run --project e2e-inmem",
     "test:e2e:live": "vitest run --project e2e-live",
     "deadcode": "fallow --summary --quiet",
-    "eval": ": \"${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required — the llm-rubric judge calls the Anthropic API directly}\" && npx turbo run build && node evals/eval.mjs"
+    "eval": ": \"${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required — the llm-rubric judge calls the Anthropic API directly}\" && npx turbo run build && node evals/eval.mjs",
+    "eval:baseline": "node evals/compare-baseline.mjs --record"
   },
   "lint-staged": {
     "*": "oxfmt --no-error-on-unmatched-pattern --write"

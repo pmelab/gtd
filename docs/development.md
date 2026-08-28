@@ -70,3 +70,32 @@ like `evals/cases/spec-review.mjs` (a `state` to enter, two-sided
 `base`/`variants` fixture content, and a `plantedIdentifier` the defect
 variant's feedback must name), add a matching `evals/asserts/<name>.mjs` grader,
 and wire both into `evals/promptfooconfig.yaml`'s `tests:`.
+
+### The baseline regression gate
+
+`evals/baseline.json` is a committed snapshot of the pass rate each
+`(provider label, fixture variant)` cell scored on a past green run — exactly
+like a test snapshot. After a clean `promptfoo` exit, `npm run eval` runs
+`evals/compare-baseline.mjs` against the `evals/results.json` the run just
+wrote: any cell whose rate is lower than the baseline's fails the whole command,
+naming the cell and both rates, with no tolerance band (4/4 to 3/4 reds it, for
+one model on one fixture). A cell missing from either side — an unrecorded
+fixture, or one silently dropped from the run — fails too. A higher-scoring run
+exits clean and never rewrites the file.
+
+The baseline is **never** updated automatically — a passing `npm run eval` that
+refreshed its own baseline would grade nothing. To record a new one
+deliberately, after reading the printed matrix and deciding it's the new floor:
+
+```bash
+npm run eval:baseline   # rewrites evals/baseline.json from the last results.json, oxfmt'd
+```
+
+Commit the resulting `evals/baseline.json` as its own reviewable change, same as
+any other snapshot update.
+
+Because a single trial is a real, non-deterministic agent turn, a healthy prompt
+occasionally fails one out of `--repeat` trials — a single flaky turn is 25% of
+a 4-trial cell's rate. That's expected: the eval is a deliberate human action,
+never a CI gate, so a human re-runs and judges. If re-runs become routine, the
+fix is more trials, never a softer threshold.

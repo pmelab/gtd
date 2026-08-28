@@ -6,8 +6,11 @@
 // results table above it is unaffected and stays on screen. `evals/report.mjs`
 // then prints the real per-fixture, per-model rates from `evals/results.json`.
 // promptfoo's own exit code is preserved: `npm run eval` still fails when any
-// assertion fails.
-import { spawn } from "node:child_process"
+// assertion fails. Once promptfoo itself exits clean, `evals/compare-baseline.mjs`
+// runs as a regression gate against the committed `evals/baseline.json` — a
+// per-cell rate drop fails `npm run eval` even though every promptfoo assert
+// passed.
+import { spawn, spawnSync } from "node:child_process"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { cellsFrom, printCells, readResults } from "./report.mjs"
@@ -104,10 +107,21 @@ function printReport() {
   }
 }
 
+// The baseline gate runs after a green promptfoo exit — a promptfoo failure
+// already fails the command, and comparing against RESULTS_PATH when
+// promptfoo never wrote it would report a confusing secondary error.
+function runBaselineGate() {
+  const result = spawnSync(process.execPath, [join(HERE, "compare-baseline.mjs")], {
+    stdio: "inherit",
+  })
+  return result.status ?? 1
+}
+
 async function main() {
   const code = await runPromptfoo(process.argv.slice(2))
   printReport()
-  process.exit(code)
+  const gateCode = code === 0 ? runBaselineGate() : code
+  process.exit(gateCode)
 }
 
 main()

@@ -1,0 +1,10 @@
+{
+  "recordedAt": "2026-08-28T00:00:00.000Z",
+  "trials": 4,
+  "rates": {
+    "cheap|clean": { "passed": 4, "total": 4 },
+    "cheap|violation": { "passed": 4, "total": 4 },
+    "planner|clean": { "passed": 4, "total": 4 },
+    "planner|violation": { "passed": 4, "total": 4 }
+  }
+}
