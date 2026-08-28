@@ -664,6 +664,43 @@ describe("currentRest — one snapshot: cost folding, per-model grouping, entryV
     expect(rest.hints).not.toHaveProperty("system")
   })
 
+  it("carries an edge's `describe`/`action` into it.edges when declared, and omits both keys entirely (never `undefined`-valued) when not", async () => {
+    const EDGES_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: idle-message",
+      "          on:",
+      '            "A FOO.md":',
+      "              to: working",
+      "              describe: adds FOO.md",
+      "              action: review FOO",
+      '            "A BAR.md": working',
+      "        working:",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          on:",
+      '            "* **": idle',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", EDGES_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const rest = await provide(currentRest, repo)
+    expect(rest.context.edges).toEqual([
+      { pattern: "A FOO.md", target: "working", describe: "adds FOO.md", action: "review FOO" },
+      { pattern: "A BAR.md", target: "working" },
+    ])
+    expect(rest.context.edges[1]).not.toHaveProperty("describe")
+    expect(rest.context.edges[1]).not.toHaveProperty("action")
+  })
+
   it("a malformed on-pattern template surfaces as a plain Error", async () => {
     const BROKEN_PATTERN_WORKFLOW = [
       "workflow:",
@@ -840,6 +877,61 @@ const seededStepRepo = (): InMemRepo => {
 }
 
 describe("planStep", () => {
+  it('a no-match refusal\'s message joins ALL declared patterns with ", " — the whole string, not just a substring', async () => {
+    const TWO_PATTERN_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: hi",
+      "          on:",
+      '            "A FOO.md": idle',
+      '            "A BAR.md": idle',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", TWO_PATTERN_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("OTHER.md", "unrelated\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest), repo)
+    expect(plan.kind).toBe("refusal")
+    expect(plan.kind === "refusal" && plan.message).toBe(
+      'gtd land: no declared pattern matches the pending changes at "idle" — declared patterns: A FOO.md, A BAR.md',
+    )
+  })
+
+  it('a no-match refusal at a state declaring no `on` at all names "(none)", the whole string', async () => {
+    const NO_PATTERN_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: hi",
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", NO_PATTERN_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("OTHER.md", "unrelated\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest), repo)
+    expect(plan.kind).toBe("refusal")
+    expect(plan.kind === "refusal" && plan.message).toBe(
+      'gtd land: no declared pattern matches the pending changes at "idle" — declared patterns: (none)',
+    )
+  })
+
   it("a refusal (no-match on a dirty tree) names the declared patterns", async () => {
     const repo = seededStepRepo()
     repo.commitAllWithPrefix("gtd(human): working")
@@ -1021,6 +1113,89 @@ describe("planEntry", () => {
     expect(plan.kind === "refusal" && plan.message).toContain("not declared by this workflow")
   })
 
+  it('an undeclared --var refusal names ALL declared var names joined by ", " — the whole string', async () => {
+    const TWO_VAR_WORKFLOW = [
+      "workflow:",
+      "  vars:",
+      "    base: ''",
+      "    other: ''",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: hi",
+      "          on:",
+      '            "* **": working',
+      "        working:",
+      "          entry: true",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          on:",
+      '            "* **": idle',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", TWO_VAR_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(
+      planEntry(rest, "human", {
+        state: "working",
+        commandLabel: "gtd test",
+        vars: { nope: "x" },
+      }),
+      repo,
+    )
+    expect(plan.kind).toBe("refusal")
+    expect(plan.kind === "refusal" && plan.message).toBe(
+      "gtd test: --var name(s) not declared by this workflow: nope — declared: base, other",
+    )
+  })
+
+  it('an undeclared --var refusal at a workflow declaring no vars at all names "(none)", the whole string', async () => {
+    const NO_VAR_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: hi",
+      "          on:",
+      '            "* **": working',
+      "        working:",
+      "          entry: true",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          on:",
+      '            "* **": idle',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", NO_VAR_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(
+      planEntry(rest, "human", {
+        state: "working",
+        commandLabel: "gtd test",
+        vars: { nope: "x" },
+      }),
+      repo,
+    )
+    expect(plan.kind).toBe("refusal")
+    expect(plan.kind === "refusal" && plan.message).toBe(
+      "gtd test: --var name(s) not declared by this workflow: nope — declared: (none)",
+    )
+  })
+
   it("refuses a blank-rendering reviewBase template", async () => {
     const repo = seededStepRepo()
     const rest = await provide(currentRest, repo)
@@ -1030,6 +1205,97 @@ describe("planEntry", () => {
     )
     expect(plan.kind).toBe("refusal")
     expect(plan.kind === "refusal" && plan.message).toContain("rendered blank")
+  })
+
+  it("a blank reviewBase refusal names every it.vars reference IN FULL (multi-char names round-trip whole, not truncated to one char)", async () => {
+    const REFS_WORKFLOW = [
+      "workflow:",
+      "  vars:",
+      "    myVar: ''",
+      "    otherVar: ''",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: hi",
+      "          on:",
+      '            "* **": working',
+      "        working:",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          on:",
+      '            "* **": idle',
+      "        reviewcheck:",
+      "          entry: true",
+      "          actor: human",
+      "          message: reviewcheck-message",
+      '          reviewBase: "<%= it.vars.myVar %><%= it.vars.otherVar %>"',
+      "          on:",
+      '            "* **": idle',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", REFS_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(
+      planEntry(rest, "human", { state: "reviewcheck", commandLabel: "gtd test", vars: {} }),
+      repo,
+    )
+    expect(plan.kind).toBe("refusal")
+    expect(plan.kind === "refusal" && plan.message).toBe(
+      `gtd test: "reviewcheck"'s reviewBase template rendered blank — template: ${JSON.stringify(
+        "<%= it.vars.myVar %><%= it.vars.otherVar %>",
+      )}; it.vars references: it.vars.myVar, it.vars.otherVar`,
+    )
+  })
+
+  it('a blank reviewBase refusal with no it.vars reference at all names "(none found)", the whole string', async () => {
+    const NO_REFS_WORKFLOW = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: hi",
+      "          on:",
+      '            "* **": working',
+      "        working:",
+      "          actor: agent",
+      "          prompt: work-prompt",
+      "          on:",
+      '            "* **": idle',
+      "        reviewcheck:",
+      "          entry: true",
+      "          actor: human",
+      "          message: reviewcheck-message",
+      '          reviewBase: "<% %>"',
+      "          on:",
+      '            "* **": idle',
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", NO_REFS_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(
+      planEntry(rest, "human", { state: "reviewcheck", commandLabel: "gtd test", vars: {} }),
+      repo,
+    )
+    expect(plan.kind).toBe("refusal")
+    expect(plan.kind === "refusal" && plan.message).toBe(
+      `gtd test: "reviewcheck"'s reviewBase template rendered blank — template: ${JSON.stringify(
+        "<% %>",
+      )}; it.vars references: (none found)`,
+    )
   })
 
   it("refuses a reviewBase that does not resolve to a commit", async () => {
