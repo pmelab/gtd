@@ -12,13 +12,13 @@ autonomous, never CI-gated, never in the turbo `test` graph.
 
 - [ ] Just the workflow's own default model — one provider entry, cheapest run,
       the matrix grows only when someone is actively comparing
-- [ ] Two tiers side by side (the planner-tier model and one cheaper model) —
+- [x] Two tiers side by side (the planner-tier model and one cheaper model) —
       the matrix is the point, and a one-model run cannot show a tier trade-off
 - [ ] _your answer_
 
 ### What counts as a regression against the committed baseline?
 
-- [ ] Any drop in a fixture's pass rate fails the run — strictest, but with 4
+- [x] Any drop in a fixture's pass rate fails the run — strictest, but with 4
       trials a single flaky turn (4/4 → 3/4) reds it
 - [ ] Only a drop of more than one trial fails (4/4 → 2/4 reds, 4/4 → 3/4 does
       not) — absorbs single-trial noise at the cost of missing small real
