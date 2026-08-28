@@ -11,7 +11,8 @@
  */
 
 import { Cause, Effect, Exit, Fiber } from "effect"
-import { describe, expect, it } from "vitest"
+import { PassThrough } from "node:stream"
+import { afterEach, describe, expect, it } from "vitest"
 import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"
 import { computeNextMatch, needsOf, runCommand, SelectorUsageError } from "./program.js"
@@ -254,6 +255,16 @@ describe('gtd — warns on a state with no "C" row (package 03)', () => {
     return repo
   }
 
+  // Only the "gtd lsp" test below stubs process.stdin; this restores it
+  // afterward so a leftover stub can't affect any other test in the file.
+  let savedStdin: PropertyDescriptor | undefined
+  afterEach(() => {
+    if (savedStdin) {
+      Object.defineProperty(process, "stdin", savedStdin)
+      savedStdin = undefined
+    }
+  })
+
   it("a non-prompt, non-initial state with no C row prints exactly one warning naming it, on stderr, without failing the command", async () => {
     const repo = seededRepo()
     const { stdout, stderr, exitCode } = await run(repo, "next")
@@ -319,6 +330,16 @@ describe('gtd — warns on a state with no "C" row (package 03)', () => {
   })
 
   it('gtd lsp prints no warning — needsOf is "none", and lsp never loads a workflow definition at all', async () => {
+    // vscode-languageserver installs an `end`/`close` listener on whatever
+    // `process.stdin` is at the time it starts, and that listener calls
+    // `process.exit(1)` — interrupting the fiber below does not remove it.
+    // Handing it the real stdin lets that listener fire later as an
+    // uncaught exception (long after this test finishes), which crashes
+    // Stryker's dry run when it tries to stringify the resulting error. A
+    // PassThrough never emits `end`/`close` on its own, so the listener
+    // simply never fires.
+    savedStdin = Object.getOwnPropertyDescriptor(process, "stdin")
+    Object.defineProperty(process, "stdin", { value: new PassThrough(), configurable: true })
     const repo = seededRepo()
     const { io, result } = makeCapturingCliIo(repo)
     const fiber = Effect.runFork(runCli(["node", "gtd.js", "lsp"], io))

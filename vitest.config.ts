@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
 import { rawMd } from "./tests/vitest.rawMd"
+import { SETUP_FILES } from "./tests/integration/support/setup-files.js"
 
 export default defineConfig({
   test: {
@@ -23,21 +24,7 @@ export default defineConfig({
           pool: "threads",
           fileParallelism: true,
           include: ["tests/integration/features/**/*.feature"],
-          setupFiles: [
-            "./tests/integration/support/world.ts",
-            "./tests/integration/support/hooks.ts",
-            "./tests/integration/support/steps/common.steps.ts",
-            "./tests/integration/support/steps/config.steps.ts",
-            "./tests/integration/support/steps/formatting.steps.ts",
-            "./tests/integration/support/steps/driver-doc.steps.ts",
-            "./tests/integration/support/steps/lsp.steps.ts",
-            "./tests/integration/support/steps/review-signoff.steps.ts",
-            "./tests/integration/support/steps/review-window.steps.ts",
-            "./tests/integration/support/steps/steering.steps.ts",
-            "./tests/integration/support/steps/repo-snapshot.steps.ts",
-            "./tests/integration/support/steps/signal-exit.steps.ts",
-            "./tests/integration/support/steps/tmpdir-gitdir.steps.ts",
-          ],
+          setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
         },
       },
@@ -58,21 +45,7 @@ export default defineConfig({
           // bundle) — a constraint the @inmem project no longer pays for.
           fileParallelism: false,
           include: ["tests/integration/features/**/*.feature"],
-          setupFiles: [
-            "./tests/integration/support/world.ts",
-            "./tests/integration/support/hooks.ts",
-            "./tests/integration/support/steps/common.steps.ts",
-            "./tests/integration/support/steps/config.steps.ts",
-            "./tests/integration/support/steps/formatting.steps.ts",
-            "./tests/integration/support/steps/driver-doc.steps.ts",
-            "./tests/integration/support/steps/lsp.steps.ts",
-            "./tests/integration/support/steps/review-signoff.steps.ts",
-            "./tests/integration/support/steps/review-window.steps.ts",
-            "./tests/integration/support/steps/steering.steps.ts",
-            "./tests/integration/support/steps/repo-snapshot.steps.ts",
-            "./tests/integration/support/steps/signal-exit.steps.ts",
-            "./tests/integration/support/steps/tmpdir-gitdir.steps.ts",
-          ],
+          setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
         },
       },
