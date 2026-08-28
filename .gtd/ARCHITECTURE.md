@@ -16,46 +16,11 @@ Verified against the built bundle in a scratch repo, not assumed:
   through earlier states.
 - The resulting rest is `kind: "prompt"`, and `gtd next --json=validate` is
   EMPTY — `packages.item.spec.review` declares no `mode:`, so no driver-side
-  formatter ever touches the agent's `.gtd/SPEC_FEEDBACK.md`.
+  formatter ever touches the agent's `.gtd/SPEC_FEEDBACK.md`. **The fixture
+  supplies that formatter itself**, mirroring this repository's own commit-time
+  hook — see "Formatting mirrors production" below.
 - `--var plannerModel=<x>` on the entry commit does **not** win against an
   ambient `GTD_PLANNERMODEL` env var. The env layer outranks entry vars.
-
-## Open Questions
-
-### Does the oxfmt fixed-point assert grade the agent, or does the fixture repo mirror production's formatting hook?
-
-In this repository a `.gtd/` file is oxfmt-formatted by husky → lint-staged
-during the step commit, so a human never sees an unformatted
-`.gtd/SPEC_FEEDBACK.md`. A fixture temp repo has no husky, and
-`packages.item.spec.review` declares no `mode:` — so nothing formats the file
-and the assert grades the raw model. Markdown under this repo's oxfmt override
-is `printWidth: 80, proseWrap: always`; a model writing prose markdown rarely
-lands on that fixed point unprompted. Getting this wrong means the `violation`
-fixture reds on formatting on most trials and the eval grades typography, not
-prompts.
-
-- [ ] Grade the raw model — keep the assert as written, fixture installs no
-      hook. Strictest reading of the concern; accepts that a healthy prompt may
-      red on wrapping alone
-- [x] Mirror production — the fixture builder wires the same `oxfmt --write` on
-      commit that this repo runs, and the assert then checks that formatting
-      CONVERGED (file is a fixed point after the hook) rather than that the
-      model typed it that way
-- [ ] _your answer_
-
-### Is promptfoo a devDependency, or run through a pinned `npx`?
-
-promptfoo 0.122.1 is ~30 MB unpacked before its dependency tree. It is needed by
-exactly one deliberate, manual command that a contributor may never run, and it
-is on the install path of every `npm install`, every fresh clone, and every CI
-job that installs to run `npm test`.
-
-- [x] devDependency pinned in `package.json` — reproducible, offline after one
-      install, at the cost of install weight for everyone
-- [ ] `npx -y promptfoo@<pinned version>` inside the `eval` script — zero weight
-      for contributors who never run evals, at the cost of a network fetch on
-      first use and no lockfile pinning of its own tree
-- [ ] _your answer_
 
 ## 1. A runnable eval: the spec-review case, end to end
 
@@ -66,7 +31,7 @@ job that installs to run `npm test`.
     evals/fixture.mjs              generic fixture-repo builder (git init → files → gtd --entry)
     evals/cases/spec-review.mjs    the one case: state, files, two variants, planted identifier
     evals/asserts/spec-review.mjs  the deterministic javascript asserts
-    package.json                   the `eval` script
+    package.json                   the `eval` script + the promptfoo devDependency
     turbo.json                     `lint` task inputs += `evals/**`
     .fallowrc.json                 `entry` += `evals/*.mjs`
     .gitignore                     `evals/results.json`
@@ -85,6 +50,32 @@ one `gtd --entry` call, pipe the emitted script to `sh`. **The parking mechanism
 is a single `--entry` call, so there is no multi-step setup sequence to share in
 the first place.** `evals/fixture.mjs` owns its own `git init` and does not
 import across the `tests/` boundary; the e2e helper stays untouched.
+
+### Formatting mirrors production, so the assert grades convergence
+
+`fixture.mjs` writes a `.git/hooks/pre-commit` into every fixture repo that runs
+`npx oxfmt --no-error-on-unmatched-pattern --write` over the staged `.gtd/`
+files and `git add`s them back. That is the same effect this repository gets
+from husky → lint-staged, reproduced without installing husky into a throwaway
+repo. `gtd land`'s emitted script uses a plain `git commit`, so the hook runs;
+its `--no-verify` fallback fires only on the empty-commit path, where there is
+nothing to format.
+
+The hook **always exits 0**, re-adding whatever it rewrote. A hook that failed
+would red the land itself and the eval would report a broken turn instead of a
+formatting result.
+
+Tier 1 therefore asserts that formatting **converged** — every `.gtd/` file is
+an oxfmt fixed point once the hook has run — not that the model typed it that
+way. Markdown under this repo's oxfmt override is
+`printWidth: 80, proseWrap: always`, which almost no model hits unprompted;
+grading the raw model would have reded the `violation` fixture on wrapping alone
+and turned the eval into a typography test.
+
+**Risk — the hook can mask a genuinely malformed file.** oxfmt rewrites what it
+can parse, so a file it silently normalizes never shows up in `unformatted`.
+What survives is the case oxfmt cannot make a fixed point, which is the failure
+worth catching.
 
 ### Data models
 
@@ -175,12 +166,18 @@ Tier 1, `javascript` asserts over the printed JSON (no model, no cost):
   `[]` on `clean`.
 - `otherFilesChanged` is empty on both — the reviewer is forbidden to fix
   anything.
-- `unformatted` is empty (see the open question above for what this grades).
+- `unformatted` is empty — every `.gtd/` file is an oxfmt fixed point AFTER the
+  fixture's commit hook ran.
 
 Tier 2, the grep floor: `feedback` contains `plantedIdentifier` verbatim.
 `violation` only.
 
 ### Tooling wiring
+
+promptfoo is a pinned `devDependency` (0.122.1), so `eval` calls the local
+binary and a run needs no network fetch. **That puts ~30 MB unpacked plus its
+whole dependency tree on every `npm install`, every fresh clone, and every CI
+job** — accepted, in exchange for a lockfile-pinned, offline-reproducible eval.
 
 `npm run eval` gets a `package.json` script and **no** `turbo.json` task.
 `tests/tooling/turbo.test.ts` only asserts the forward direction (every turbo
@@ -473,3 +470,15 @@ is a small reader over the JSON output instead.
 
 `docs/development.md`, not `README.md`. Evals are a contributor tool, not part
 of gtd's CLI, config, or driver protocol.
+
+### Does the oxfmt fixed-point assert grade the agent, or does the fixture repo mirror production's formatting hook?
+
+It mirrors production. `fixture.mjs` installs a `.git/hooks/pre-commit` running
+`oxfmt --write` over staged `.gtd/` files, and tier 1 asserts that formatting
+converged after that hook rather than that the model typed a fixed point.
+
+### Is promptfoo a devDependency, or run through a pinned `npx`?
+
+A pinned `devDependency` in `package.json`. Reproducible and offline after one
+install; the cost is ~30 MB unpacked plus its dependency tree on every install,
+including CI jobs that only run `npm test`.
