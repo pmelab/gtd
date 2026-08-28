@@ -27,21 +27,27 @@ function fail(message) {
 function parseArgs(argv) {
   const modelIdx = argv.indexOf("--model")
   const model = modelIdx !== -1 ? argv[modelIdx + 1] : undefined
-  const rest = argv.filter((_, i) => i !== modelIdx && i !== modelIdx + 1)
   // `exec:` hands the rendered `{{variant}}` prompt through as a plain
   // positional — whichever slot it lands in, it is the one argument left
-  // once --model and its value are removed.
+  // once --model and its value are removed. With no `--model` at all,
+  // nothing is removed — filtering index 0 unconditionally would drop the
+  // variant itself and misreport a missing model as a missing variant.
+  const rest = modelIdx === -1 ? argv : argv.filter((_, i) => i !== modelIdx && i !== modelIdx + 1)
   const variant = rest[0]
   return { model, variant }
 }
 
+function assertTmpCwd(cwd) {
+  assert(cwd.startsWith(tmpdir()), "must never spawn with the working repository as cwd")
+}
+
 function git(cwd, env, ...args) {
-  assert(cwd.startsWith(tmpdir()), "git must never run outside a tmp fixture repo")
+  assertTmpCwd(cwd)
   return execFileSync("git", args, { cwd, env, encoding: "utf-8" }).trim()
 }
 
 function gtd(cwd, env, ...args) {
-  assert(cwd.startsWith(tmpdir()), "gtd must never run with the working repository as cwd")
+  assertTmpCwd(cwd)
   return execFileSync(process.execPath, [GTD_BIN, ...args], { cwd, env, encoding: "utf-8" })
 }
 
@@ -55,6 +61,7 @@ function claudeOnPath() {
 }
 
 function unformattedGtdFiles(repo, env) {
+  assertTmpCwd(repo)
   try {
     const out = execFileSync("npx", ["oxfmt", "--list-different", ".gtd"], {
       cwd: repo,
@@ -63,11 +70,18 @@ function unformattedGtdFiles(repo, env) {
     })
     return out.split("\n").filter(Boolean)
   } catch (err) {
-    // `--list-different` exits non-zero when it finds differences — stdout
-    // still carries the file list.
-    return String(err.stdout ?? "")
-      .split("\n")
-      .filter(Boolean)
+    // `--list-different` exits exactly 1 when it finds differences, with the
+    // file list on stdout. Any OTHER failure (npx/oxfmt not resolvable, no
+    // network in a fresh temp repo, a killed process) must not be read as
+    // "formatting converged" — that's the infra-break-reads-as-a-pass
+    // failure mode task 4 forbids by name.
+    if (err.status === 1) {
+      return String(err.stdout ?? "")
+        .split("\n")
+        .filter(Boolean)
+    }
+    fail(`run-turn: oxfmt --list-different failed unexpectedly: ${err.message}`)
+    return []
   }
 }
 
@@ -109,6 +123,7 @@ function driveTurn(repo, env) {
 
   const prompt = gtd(repo, env, "next")
 
+  assertTmpCwd(repo)
   try {
     execFileSync(
       "claude",
@@ -132,6 +147,7 @@ function driveTurn(repo, env) {
 function land(repo, env) {
   const preLandHead = git(repo, env, "rev-parse", "HEAD")
   const landScript = gtd(repo, env, "land", "--json=script")
+  assertTmpCwd(repo)
   execFileSync("sh", ["-c", landScript], { cwd: repo, env, encoding: "utf-8" })
   const postLandHead = git(repo, env, "rev-parse", "HEAD")
   return { preLandHead, postLandHead }
@@ -154,13 +170,26 @@ function readFeedback(repo) {
   return { feedbackExists, feedback: feedbackExists ? readFileSync(feedbackPath, "utf-8") : "" }
 }
 
-function isStructurallyOk(variant, gtdFilesChanged, otherFilesChanged, unformatted) {
-  const expected = variant === "violation" ? [".gtd/SPEC_FEEDBACK.md"] : []
-  return (
-    JSON.stringify(gtdFilesChanged) === JSON.stringify(expected) &&
-    otherFilesChanged.length === 0 &&
-    unformatted.length === 0
-  )
+function expectedGtdFiles(variant) {
+  return variant === "violation" ? [".gtd/SPEC_FEEDBACK.md"] : []
+}
+
+function identifierOk(variant, feedback) {
+  return variant !== "violation" || feedback.includes(spec.plantedIdentifier)
+}
+
+// Tiers 1 AND 2: the shape check the deterministic asserts run, plus the
+// grep floor for `plantedIdentifier`. Without tier 2 here, a well-formed but
+// WRONG `.gtd/SPEC_FEEDBACK.md` reads as "structurally ok" and still bills a
+// full-size judge call on feedback the cheap tier already rejected.
+function isStructurallyOk(variant, gtdFilesChanged, otherFilesChanged, unformatted, feedback) {
+  const checks = [
+    JSON.stringify(gtdFilesChanged) === JSON.stringify(expectedGtdFiles(variant)),
+    otherFilesChanged.length === 0,
+    unformatted.length === 0,
+    identifierOk(variant, feedback),
+  ]
+  return checks.every(Boolean)
 }
 
 /** Lands the turn's script and reports everything the graders need about what it did. */
@@ -170,7 +199,13 @@ function landAndInspect(repo, env, variant) {
   const { gtdFilesChanged, otherFilesChanged } = changedFiles(repo, env, preLandHead, postLandHead)
   const { feedbackExists, feedback } = readFeedback(repo)
   const unformatted = unformattedGtdFiles(repo, env)
-  const structurallyOk = isStructurallyOk(variant, gtdFilesChanged, otherFilesChanged, unformatted)
+  const structurallyOk = isStructurallyOk(
+    variant,
+    gtdFilesChanged,
+    otherFilesChanged,
+    unformatted,
+    feedback,
+  )
 
   return {
     feedbackExists,

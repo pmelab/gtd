@@ -49,10 +49,17 @@ real driver turn against it (`gtd next` → `claude -p` → `gtd land`), and gra
 the result through three tiers, cheapest first: deterministic `javascript`
 asserts on which files changed, a grep floor for a planted identifier, and —
 only once both pass — an `llm-rubric` judge scoring whether the feedback is
-actually useful. The report is a pass rate **per fixture, per model** (out of
-`--repeat`'s trial count) — never averaged across fixtures or models, since a
-suite that averages a two-sided case's variants hides exactly the failure those
-variants exist to expose.
+actually useful. promptfoo's own summary line and `results.json`'s per-provider
+counts are both summed across fixtures AND models, so `npm run eval` runs
+`evals/report.mjs` over `evals/results.json` afterward — it prints the pass rate
+**per fixture, per model** (out of `--repeat`'s trial count), never averaged
+across fixtures or models, since a suite that averages a two-sided case's
+variants hides exactly the failure those variants exist to expose.
+`npm run eval` also passes `--no-cache`: `--repeat` does not disable promptfoo's
+own result cache, and running the same config by hand from `evals/` (its own
+`basePath`) makes the exec provider's script hashes resolve — without
+`--no-cache`, later trials would silently replay an earlier trial's cached JSON
+instead of a fresh turn.
 
 To add a case: write `evals/cases/<name>.mjs` exporting a frozen object shaped
 like `evals/cases/spec-review.mjs` (a `state` to enter, two-sided

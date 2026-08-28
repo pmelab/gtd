@@ -34,8 +34,12 @@ export function scrubbedEnv(overrides = {}) {
   return { ...env, ...overrides }
 }
 
+function assertTmpCwd(cwd) {
+  assert(cwd.startsWith(tmpdir()), "must never spawn outside a tmp fixture repo")
+}
+
 function git(cwd, env, ...args) {
-  assert(cwd.startsWith(tmpdir()), "git must never run outside a tmp fixture repo")
+  assertTmpCwd(cwd)
   return execFileSync("git", args, { cwd, env, encoding: "utf-8" }).trim()
 }
 
@@ -107,11 +111,13 @@ export function buildFixture(caseDef, variant, env = scrubbedEnv()) {
 
   writeFiles(repo, caseDef.variants[variant])
 
+  assertTmpCwd(repo)
   const script = execFileSync(process.execPath, [GTD_BIN, "--entry", caseDef.state], {
     cwd: repo,
     env,
     encoding: "utf-8",
   })
+  assertTmpCwd(repo)
   execFileSync("sh", ["-c", script], { cwd: repo, env, encoding: "utf-8" })
 
   return repo
