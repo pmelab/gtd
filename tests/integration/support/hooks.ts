@@ -26,10 +26,11 @@ import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 // Mutating process.env here keeps every child spawn and `{ ...process.env }`
 // spread (world.ts, driver-doc.steps.ts, project-setup.ts) hermetic from
 // one place. The vitest runner itself needs none of these vars. This runs once
-// per WORKER (module load, not per-test), so it stays safe under the
-// `e2e-inmem` project's `fileParallelism: true` — but it IS a mutation of
-// global process state, so any future step definition adding its own
-// `process.env` write here would break that parallelism silently. Don't.
+// per WORKER (module load, not per-test), so it stays safe under `e2e-inmem`'s
+// parallel file execution (vitest's default; the project sets no
+// `fileParallelism` override) — but it IS a mutation of global process state,
+// so any future step definition adding its own `process.env` write here
+// would break that parallelism silently. Don't.
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("GIT_") || key.startsWith("GTD_LOOP_")) delete process.env[key]
 }
