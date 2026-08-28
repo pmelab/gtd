@@ -37,7 +37,7 @@ prompts.
 - [ ] Grade the raw model — keep the assert as written, fixture installs no
       hook. Strictest reading of the concern; accepts that a healthy prompt may
       red on wrapping alone
-- [ ] Mirror production — the fixture builder wires the same `oxfmt --write` on
+- [x] Mirror production — the fixture builder wires the same `oxfmt --write` on
       commit that this repo runs, and the assert then checks that formatting
       CONVERGED (file is a fixed point after the hook) rather than that the
       model typed it that way
@@ -50,7 +50,7 @@ exactly one deliberate, manual command that a contributor may never run, and it
 is on the install path of every `npm install`, every fresh clone, and every CI
 job that installs to run `npm test`.
 
-- [ ] devDependency pinned in `package.json` — reproducible, offline after one
+- [x] devDependency pinned in `package.json` — reproducible, offline after one
       install, at the cost of install weight for everyone
 - [ ] `npx -y promptfoo@<pinned version>` inside the `eval` script — zero weight
       for contributors who never run evals, at the cost of a network fetch on
