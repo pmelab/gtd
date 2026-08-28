@@ -1025,6 +1025,23 @@ describe("ReviewDoc — load-bearing whitespace trims", () => {
     expect(file.endLine).toBe(8)
   })
 
+  it("treats a whitespace-only line as blank when it is the LAST line of a pointer's span", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  a note",
+      "   ",
+      "- [ ] ./src/calc.ts#9",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const file = result.changesets[0]?.files[0]!
+    expect(file.endLine).toBe(6)
+  })
+
   it("trims leading/trailing whitespace off a chunk's description line", () => {
     const content = [
       "# Review: abc1234",
