@@ -10,38 +10,6 @@ from the score entirely, so **82.81% is not "82.81% of the code"** — the
 behavioral surface actually under test is smaller than 3226 suggests. And **the
 run cannot be reproduced on this branch at all** until concern 1 lands.
 
-## Open Questions
-
-### Does closing these gaps come with an enforced mutation-score threshold?
-
-`stryker.config.json` sets no `thresholds` block today, and `test:mutation` is
-neither in `npm test` nor in `turbo.json` — the score is a diagnostic a person
-reads, never a gate that fails. Raising the score without pinning it means it
-decays again silently.
-
-- [ ] Add a `thresholds.break` floor to `stryker.config.json` set just under the
-      score this work lands at — the number stops decaying silently, and the
-      13-minute cost stays opt-in because the task is still outside `npm test`
-- [x] Leave it a manual diagnostic — a `break` threshold turns every future
-      unrelated refactor into a 13-minute argument with Stryker, and nothing
-      runs it often enough for the floor to catch a regression near the commit
-      that caused it
-- [ ] _your answer_
-
-### When triage finds a user-facing string on an unreachable path, delete it or cover it?
-
-35 of the 64 no-coverage mutants are string literals, and most of those sit in
-defensive error branches — the text a user reads when something has already gone
-wrong. The sketch leaves this per-site; the two ways to resolve a site diverge
-in what a user sees on a bad day.
-
-- [ ] Cover, don't delete — an unreached defensive message is cheap insurance
-      against a lie, and reaching it in a test proves the branch is real
-- [x] Delete unreachable branches — code no test can reach is code no user can
-      reach either, and a message that cannot fire is dead weight that fakes
-      robustness
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. Make the mutation suite runnable (TECHNICAL)
@@ -67,6 +35,16 @@ measurable until this lands, so it is first.
 Acceptance: a `tests/tooling/` test asserting both vitest configs resolve the
 same setup-file list — it fails against today's four-file drift. Plus a clean
 `npx stryker run --dryRunOnly` (or equivalent short run) that no longer aborts.
+
+**Add no `thresholds` block to `stryker.config.json`.** The score stays a
+diagnostic a person reads on purpose, never a gate that fails. Nothing runs
+`test:mutation` often enough for a `break` floor to catch a regression near the
+commit that caused it, and a floor would turn every future unrelated refactor
+into a 13-minute argument with Stryker.
+
+Risk, stated plainly: **with no floor, the score this work lands at will decay
+again and nobody will notice until the next deliberate run.** That is the
+accepted cost of keeping the task opt-in.
 
 ### 2. Pin review-document cursor geometry and the chunk-toggle rule (TECHNICAL)
 
@@ -112,12 +90,14 @@ missing:
   `refusal.patterns.length > 0 ? refusal.patterns.join(", ") : "(none)"`
   survives `true`, `>=`, `join("")`, and `""` for `"(none)"`.
 - `src/Edge.ts:1072` — the same shape for `declaredNames`.
-- `src/Edge.ts:1096` — the same shape for `it.vars` refs and `"(none found)"`;
-  additionally `refs.map((r) => \`it.vars.${r}\`).join(",
-  ")`survives mapping every ref to an empty string and to`undefined`.
-- `src/SteeringMode.ts:188` — five survivors on
-  `outcome.output.trim().length > 0 ? \`:\n${outcome.output.trimEnd()}\` :
-  ""`, covering the empty-output branch and `trimEnd`versus`trimStart`.
+- `src/Edge.ts:1096` — the same shape for `it.vars` refs and `"(none found)"`.
+  Additionally the mapper that prefixes each ref with `it.vars.` before joining
+  on `", "` survives mapping every ref to an empty string, and survives mapping
+  every ref to `undefined`.
+- `src/SteeringMode.ts:188` — five survivors on the format-failure suffix, which
+  appends a colon, a newline and the trimmed command output only when that
+  output is non-empty. They cover the empty-output branch and `trimEnd` swapped
+  for `trimStart`.
 
 Optional-field spreads, where `...(x.length > 0 ? { key } : {})` survives
 becoming `...(true ? { key } : {})` — nothing asserts the key is _omitted_.
@@ -174,8 +154,20 @@ somewhere else. Get it from ordinary line coverage over the nine files in
 `stryker.config.json`'s `mutate` array: an unreached line is an unreached line,
 and that is the entire no-coverage subset. No 13-minute run required.
 
-Decide each site under whichever rule the open question above settles, then act:
-cover it with a test that reaches the line, or delete the branch.
+**Delete unreachable branches rather than covering them.** Code no test can
+reach is code no user can reach, and a message that cannot fire is dead weight
+faking robustness. That applies to the 35 string literals too: an unreached
+defensive error string goes, it does not get a test built to reach it.
+
+The scoped condition that decision rests on, and it is not optional: **delete
+only where you can prove from the callers that the branch is unreachable.** Line
+coverage tells you a line was never executed — it cannot tell you apart
+"impossible" from "reachable but untested", and those two resolve opposite ways.
+A site that is merely untested gets a test, same as any concern above.
+
+Risk in one line: **delete a branch that some real path can still reach and you
+convert a clear error message into a crash or a silent wrong answer.** Proving
+unreachability per site is the bulk of the work here, not the deleting.
 
 Acceptance: line coverage over the nine mutated files reports zero unreached
 statements, whether a site got a test or got deleted.
@@ -206,3 +198,18 @@ silently skipping nine scenarios.
 Not in this work. A timeout is not a survivor — it is a mutant the runner could
 not classify, and chasing them means tuning Stryker's timeout budget, which is a
 different problem from missing assertions.
+
+### Does closing these gaps come with an enforced mutation-score threshold?
+
+No. `stryker.config.json` gains no `thresholds` block, and `test:mutation` stays
+outside `npm test` and `turbo.json`. A `break` floor would fire during unrelated
+refactors and still miss real regressions, because nothing triggers a 13-minute
+run near the commit that caused one. The accepted cost is that the score decays
+unnoticed between deliberate runs.
+
+### When triage finds a user-facing string on an unreachable path, delete it or cover it?
+
+Delete it. An unreachable defensive message is dead weight that fakes
+robustness. The condition: delete only where the callers prove the branch cannot
+be reached — line coverage cannot separate "impossible" from "reachable but
+untested", and a merely-untested site gets a test instead.
