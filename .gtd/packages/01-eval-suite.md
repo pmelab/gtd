@@ -163,17 +163,19 @@ and the Effect language service for no gain.
 
 - [ ] Exports one frozen object shaped:
 
-          {
-                    name: "spec-review",
-                    state: "packages.item.spec.review",
-                    plantedIdentifier: "<identifier>",
-                    base: { "<spec file>": "...", "src/<impl>.ts": "..." },
-                    variants: {
-                      violation: { "src/<impl>.ts": "...defect..." },
-                      clean:     { "src/<impl>.ts": "...correct..." },
-                    },
-                    expect: { violation: { feedback: true }, clean: { feedback: false } },
-                  }
+```js
+{
+  name: "spec-review",
+  state: "packages.item.spec.review",
+  plantedIdentifier: "<identifier>",
+  base: { "<spec file>": "...", "src/<impl>.ts": "..." },
+  variants: {
+    violation: { "src/<impl>.ts": "...defect..." },
+    clean: { "src/<impl>.ts": "...correct..." },
+  },
+  expect: { violation: { feedback: true }, clean: { feedback: false } },
+}
+```
 
 - [ ] The `violation` variant's implementation contradicts a line the spec
       states, and the contradiction is nameable by `plantedIdentifier`
@@ -235,9 +237,13 @@ and the Effect language service for no gain.
 - [ ] A third assertion on the `violation` test only; `clean` has no feedback to
       judge:
 
-          - type: llm-rubric
-                    transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
-                    provider: <pinned judge id>
+```yaml
+- type: llm-rubric
+  transform:
+    'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback :
+    "STRUCTURAL FAILURE"'
+  provider: <pinned judge id>
+```
 
 - [ ] The rubric passes only when the feedback names the concrete defect and
       says what to change; it fails vague feedback ("the package has problems")

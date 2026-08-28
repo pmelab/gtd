@@ -41,16 +41,18 @@ already writes to `evals/results.json`.
 
 - [ ] Shaped:
 
-          {
-                    "recordedAt": "<date>",
-                    "trials": 4,
-                    "rates": {
-                      "planner|violation": { "passed": 4, "total": 4 },
-                      "planner|clean":     { "passed": 4, "total": 4 },
-                      "cheap|violation":   { "passed": 3, "total": 4 },
-                      "cheap|clean":       { "passed": 4, "total": 4 }
-                    }
-                  }
+```json
+{
+  "recordedAt": "<date>",
+  "trials": 4,
+  "rates": {
+    "planner|violation": { "passed": 4, "total": 4 },
+    "planner|clean": { "passed": 4, "total": 4 },
+    "cheap|violation": { "passed": 3, "total": 4 },
+    "cheap|clean": { "passed": 4, "total": 4 }
+  }
+}
+```
 
 - [ ] Keyed `<provider label>|<variant>`, flat and per-cell. The format itself
       makes an averaged number unrepresentable — no aggregate field exists
