@@ -34,7 +34,7 @@
       "outputs": []
     },
     "typecheck": {
-      "inputs": ["src/**", "tests/**", "*.ts"],
+      "inputs": ["src/**", "tests/**", "evals/**", "*.ts"],
       "outputs": []
     },
     "deadcode": {

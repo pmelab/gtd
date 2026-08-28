@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process"
 import { readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { cellsFrom, readResults } from "./report.mjs"
+import { cellsFrom, printCells, readResults } from "./report.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RESULTS_PATH = join(HERE, "results.json")
@@ -89,9 +89,16 @@ export function record(resultsPath = RESULTS_PATH, baselinePath = BASELINE_PATH)
   console.log(`${baselinePath} recorded from ${resultsPath}`)
 }
 
+// Prints the per-cell counts itself — task 2's "prints the per-cell counts
+// and never a total spanning fixtures or models" holds for `compare()` run
+// on its own (e.g. re-checking by hand after `npm run eval:baseline`), not
+// only for the violation path. `evals/eval.mjs` relies on this to be the
+// single place the matrix is printed on a green run, so it skips its own
+// `printReport()` call once `compare()` runs.
 export function compare(resultsPath = RESULTS_PATH, baselinePath = BASELINE_PATH) {
   const cells = cellsFrom(readResults(resultsPath))
   const baseline = readBaseline(baselinePath)
+  printCells(cells)
   const violations = compareCells(baseline.rates, cells)
   if (violations.length > 0) {
     console.error("eval: regression against evals/baseline.json:")

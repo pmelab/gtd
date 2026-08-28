@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 const OXFMT_BIN = fileURLToPath(new URL("../../node_modules/.bin/oxfmt", import.meta.url))
 import { buildBaseline, compare, compareCells, record } from "../../evals/compare-baseline.mjs"
@@ -134,6 +134,43 @@ describe("compare() CLI entry point", () => {
     expect(process.exitCode).toBe(1)
     expect(violations).toHaveLength(1)
     process.exitCode = before
+  })
+
+  it("prints the per-cell counts on its own, even on a green run — not only report.mjs inside npm run eval", () => {
+    dir = mkdtempSync(join(tmpdir(), "gtd-eval-baseline-"))
+    const resultsPath = join(dir, "results.json")
+    const baselinePath = join(dir, "baseline.json")
+    writeFileSync(
+      resultsPath,
+      JSON.stringify(
+        resultsDoc({
+          "planner|clean": { passed: 4, total: 4 },
+          "cheap|violation": { passed: 3, total: 4 },
+        }),
+      ),
+    )
+    writeFileSync(
+      baselinePath,
+      JSON.stringify({
+        recordedAt: "x",
+        trials: 4,
+        rates: {
+          "planner|clean": { passed: 4, total: 4 },
+          "cheap|violation": { passed: 3, total: 4 },
+        },
+      }),
+    )
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+    const before = process.exitCode
+    process.exitCode = undefined
+    compare(resultsPath, baselinePath)
+    const printed = logSpy.mock.calls.map((call) => call[0])
+    logSpy.mockRestore()
+    process.exitCode = before
+    expect(printed).toContain("cheap|violation: 3/4")
+    expect(printed).toContain("planner|clean: 4/4")
+    // Never a total spanning fixtures or models.
+    expect(printed.some((line) => /^\d+\/\d+$/.test(line) || /total/i.test(line))).toBe(false)
   })
 
   it("exits clean on a matching baseline", () => {

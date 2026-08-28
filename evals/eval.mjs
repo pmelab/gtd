@@ -6,13 +6,16 @@
 // results table above it is unaffected and stays on screen. `evals/report.mjs`
 // then prints the real per-fixture, per-model rates from `evals/results.json`.
 // promptfoo's own exit code is preserved: `npm run eval` still fails when any
-// assertion fails. Once promptfoo itself exits clean, `evals/compare-baseline.mjs`
-// runs as a regression gate against the committed `evals/baseline.json` — a
-// per-cell rate drop fails `npm run eval` even though every promptfoo assert
-// passed.
-import { spawn, spawnSync } from "node:child_process"
+// assertion fails. Once promptfoo itself exits clean, `evals/compare-baseline.mjs`'s
+// `compare()` runs in-process as a regression gate against the committed
+// `evals/baseline.json` — a per-cell rate drop fails `npm run eval` even
+// though every promptfoo assert passed. `compare()` prints the per-cell
+// matrix itself, so on that path this file skips its own `printReport()` —
+// the matrix must print exactly once, never a duplicate copy.
+import { spawn } from "node:child_process"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { compare } from "./compare-baseline.mjs"
 import { cellsFrom, printCells, readResults } from "./report.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -110,18 +113,21 @@ function printReport() {
 // The baseline gate runs after a green promptfoo exit — a promptfoo failure
 // already fails the command, and comparing against RESULTS_PATH when
 // promptfoo never wrote it would report a confusing secondary error.
+// `compare()` prints the per-cell matrix itself, so the caller must not also
+// call `printReport()` — that would print the same matrix twice.
 function runBaselineGate() {
-  const result = spawnSync(process.execPath, [join(HERE, "compare-baseline.mjs")], {
-    stdio: "inherit",
-  })
-  return result.status ?? 1
+  compare()
+  return process.exitCode ?? 0
 }
 
 async function main() {
   const code = await runPromptfoo(process.argv.slice(2))
+  if (code === 0) {
+    const gateCode = runBaselineGate()
+    process.exit(gateCode)
+  }
   printReport()
-  const gateCode = code === 0 ? runBaselineGate() : code
-  process.exit(gateCode)
+  process.exit(code)
 }
 
 main()
