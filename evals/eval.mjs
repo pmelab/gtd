@@ -15,28 +15,45 @@ import { cellsFrom, printCells, readResults } from "./report.mjs"
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RESULTS_PATH = join(HERE, "results.json")
 
-const PROMPTFOO_ARGS = [
-  "eval",
-  "--config",
-  join(HERE, "promptfooconfig.yaml"),
-  "--repeat",
-  "4",
-  "--max-concurrency",
-  "2",
-  "--no-cache",
-  "-o",
-  RESULTS_PATH,
-]
+// `--repeat 4` and `--max-concurrency 2` are defaults, not a fixed
+// configuration — `promptfooArgs` appends whatever `npm run eval -- ...`
+// forwards AFTER them, so a user-supplied `--repeat 1` (last-flag-wins, per
+// promptfoo's own commander-based CLI) overrides the default for one run
+// without editing this committed file.
+function promptfooArgs(extraArgs) {
+  return [
+    "eval",
+    "--config",
+    join(HERE, "promptfooconfig.yaml"),
+    "--repeat",
+    "4",
+    "--max-concurrency",
+    "2",
+    "--no-cache",
+    "-o",
+    RESULTS_PATH,
+    ...extraArgs,
+  ]
+}
 
+// `onChunk` feeds bytes in as they stream; `flush` must be called once the
+// stream ends to emit whatever trailing partial line (no terminating `\n`)
+// is still buffered — without it, a final chunk with no newline is silently
+// dropped rather than ever reaching `onLine`.
 function makeLineFilter(onLine) {
   let buffered = ""
   let suppressing = false
-  return (chunk) => {
+  function onChunk(chunk) {
     buffered += chunk
     const lines = buffered.split("\n")
     buffered = lines.pop() ?? ""
     for (const line of lines) suppressing = onLine(line, suppressing)
   }
+  function flush() {
+    if (buffered) suppressing = onLine(buffered, suppressing)
+    buffered = ""
+  }
+  return { onChunk, flush }
 }
 
 function isAggregateStart(line) {
@@ -57,11 +74,14 @@ function filterAggregate(line, suppressing) {
   return false
 }
 
-function runPromptfoo() {
+function runPromptfoo(extraArgs) {
   return new Promise((resolve) => {
-    const child = spawn("promptfoo", PROMPTFOO_ARGS, { stdio: ["inherit", "pipe", "inherit"] })
-    const onChunk = makeLineFilter(filterAggregate)
-    child.stdout.on("data", (chunk) => onChunk(chunk.toString("utf-8")))
+    const child = spawn("promptfoo", promptfooArgs(extraArgs), {
+      stdio: ["inherit", "pipe", "inherit"],
+    })
+    const filter = makeLineFilter(filterAggregate)
+    child.stdout.on("data", (chunk) => filter.onChunk(chunk.toString("utf-8")))
+    child.stdout.on("end", () => filter.flush())
     // A spawn failure (promptfoo not resolvable on PATH) emits 'error'
     // instead of 'close' — without this handler it's an unhandled
     // exception and a raw stack trace, not a clear infra-failure message.
@@ -85,7 +105,7 @@ function printReport() {
 }
 
 async function main() {
-  const code = await runPromptfoo()
+  const code = await runPromptfoo(process.argv.slice(2))
   printReport()
   process.exit(code)
 }
