@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GtdError, Narrator } from "./Commentary.js"
-import { ConfigService } from "./Config.js"
+import { ConfigService, configPresentAt } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { compileTemplate } from "./workflows/templates.js"
 import { seededValidateCommand } from "./SteeringFormats.js"
@@ -558,5 +558,55 @@ describe("ConfigService — content file refs resolve against the declaring conf
     const cfg = await getConfig()
 
     expect(cfg.workflow.states["idle"]?.message).toBe("./configure && make")
+  })
+})
+
+describe("ConfigService — malformed level content", () => {
+  it("rejects invalid YAML syntax in a .gtdrc.yaml, wrapping the parser's own error", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `workflow: [unterminated\n`)
+
+    await expect(getConfig()).rejects.toThrow(/\.gtdrc\.yaml:/)
+  })
+
+  it("rejects invalid JSON syntax in a gtd.config.json, wrapping the parser's own error", async () => {
+    writeFileSync(join(projectDir, "gtd.config.json"), `{ "workflow": `)
+
+    await expect(getConfig()).rejects.toThrow(/gtd\.config\.json:/)
+  })
+
+  it("rejects a .gtdrc.yaml whose content is the YAML scalar `null`", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `null\n`)
+
+    await expect(getConfig()).rejects.toThrow(/config must be a plain object, got null/)
+  })
+
+  it("rejects a gtd.config.json whose content is the JSON literal `null`", async () => {
+    writeFileSync(join(projectDir, "gtd.config.json"), `null`)
+
+    await expect(getConfig()).rejects.toThrow(/config must be a plain object, got null/)
+  })
+
+  it("rejects a .gtdrc.yaml whose top level is an array, not a plain object", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `- a\n- b\n`)
+
+    await expect(getConfig()).rejects.toThrow(/config must be a plain object, got array/)
+  })
+})
+
+describe("configPresentAt", () => {
+  it("is true when a gtd config lives directly in the given dir", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), minimalWorkflowYaml("x"))
+
+    await expect(Effect.runPromise(configPresentAt(projectDir))).resolves.toBe(true)
+  })
+
+  it("is false when no gtd config lives directly in the given dir", async () => {
+    await expect(Effect.runPromise(configPresentAt(projectDir))).resolves.toBe(false)
+  })
+
+  it("fails when the config at the given dir fails to parse", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `workflow: [unterminated\n`)
+
+    await expect(Effect.runPromise(configPresentAt(projectDir))).rejects.toThrow()
   })
 })

@@ -765,8 +765,15 @@ const assembleStateDef = (compiled: Record<string, unknown>): StateDef => {
  * `COMPILE`'s per-kind dispatch. Operates on a QUALIFIED state entry from
  * `FlattenedWorkflow.states` — `$param`s already substituted, every
  * `on`/`retry.otherwise` target already an absolute qualified name.
+ *
+ * The non-object `raw` guard is unreachable through `compileWorkflowConfig`
+ * itself: `src/Machines.ts`'s `emitState` already normalizes every non-object
+ * state to `{}` before it lands in `FlattenedWorkflow.states`. It stays as a
+ * guard (not a cast) because `raw`'s declared type is `unknown`. Exported so
+ * that guard is directly testable, the same reasoning as
+ * `assertScopesCoverStates`.
  */
-const compileState = (
+export const compileState = (
   name: string,
   raw: unknown,
   configDir: string,

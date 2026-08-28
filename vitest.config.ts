@@ -1,11 +1,21 @@
+import { readFileSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
 import { rawMd } from "./tests/vitest.rawMd.js"
 import { SETUP_FILES } from "./tests/integration/support/setup-files.js"
 
+// Reuses stryker.config.json's `mutate` array as the coverage `include` list
+// so the coverage scope can't drift from the mutation scope.
+const strykerConfig = JSON.parse(readFileSync("./stryker.config.json", "utf8"))
+
 export default defineConfig({
   test: {
     reporters: ["./tests/vitest.reporter.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary"],
+      include: strykerConfig.mutate,
+    },
     projects: [
       {
         plugins: [rawMd()],

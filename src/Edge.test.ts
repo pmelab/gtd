@@ -89,6 +89,18 @@ describe("resolveRestFrom", () => {
     expect(!result.ok && result.error.message).toContain('HEAD rests at "renamed-away"')
     expect(!result.ok && result.error.message).toContain("gtd abandon")
   })
+
+  it("refuses a state declaring no actor — a programmer error `validateDefinition` would normally catch first, but `resolveRestFrom` doesn't trust its input either", () => {
+    const noActorDef: WorkflowDefinition = {
+      states: { idle: { message: "m", on: [["* **", "idle"]] } },
+      entries: { default: "idle", manual: [] },
+    }
+    const result = resolveRestFrom(noActorDef, "")
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error.message).toBe(
+      'gtd: resolved at state "idle" declaring no actor',
+    )
+  })
 })
 
 // ── reviewBaseFor — pure ─────────────────────────────────────────────────────
@@ -1069,6 +1081,19 @@ describe("planStep", () => {
     land(repo, plan.scripts)
     expect(repo.resolveRef("HEAD")).not.toBe(before)
     expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
+  })
+
+  it("an out-of-turn refusal names the awaited actor — unreachable through the real pipeline (`rest.actor` is always the resting state's own declared actor), but `planStep` doesn't assume its caller preserved that invariant", async () => {
+    const repo = seededStepRepo()
+    repo.commitAllWithPrefix("gtd(human): working")
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("working")
+    const mismatched = { ...rest, actor: "someone-else" }
+    const plan = await provide(planStep(mismatched), repo)
+    expect(plan.kind).toBe("refusal")
+    expect(plan.kind === "refusal" && plan.message).toBe(
+      'gtd land: out of turn — "working" awaits agent',
+    )
   })
 })
 

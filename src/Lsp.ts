@@ -437,7 +437,7 @@ const repoFilesLayerForRoot = (root: string) =>
 // Mirrors the `GTD_<NAME>` env-override half of `Edge.ts`'s `resolveVars` —
 // this call site has no resolved process, so there's no `entryVars` layer to merge.
 const GTD_ENV_PREFIX = "GTD_"
-const mergeStaticVars = (
+export const mergeStaticVars = (
   workflowVars: Record<string, string>,
   rcVars: Record<string, string>,
   env: Readonly<Record<string, string | undefined>>,
@@ -488,8 +488,8 @@ export const resolveSteeringFile: Effect.Effect<
   RestRequirements
 > = currentRest.pipe(Effect.map((rest) => ({ state: rest.state, file: rest.hints.file })))
 
-/** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. Not exported — `startLspServer` is its only caller; commit tests exercise a fake `LspEnv` instead. */
-const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => ({
+/** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. `startLspServer` is its production caller; most `Lsp.test.ts` coverage exercises a fake `LspEnv` instead, but this is exported so the real wiring (real git/config/repo-files layers) gets exercised against a real temp repo too. */
+export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => ({
   cwd: process.cwd(),
 
   steeringMapFor: async (root) => {
