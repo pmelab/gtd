@@ -13,28 +13,11 @@ code"**, and **`stryker.config.json` gains no `thresholds` block, so the score
 this work lands at will decay again unnoticed between deliberate runs.** That
 decay is the accepted cost of keeping a 13-minute run opt-in.
 
-## Open Questions
-
-### Does line coverage over the nine mutated files become a gated turbo task, or an on-demand diagnostic?
-
-- [x] On-demand diagnostic — a `coverage` script only, no `turbo.json` task, no
-      floor. Consistent with the settled refusal to gate on the mutation score,
-      and it never fires during an unrelated refactor.
-- [ ] Gated turbo task with a 100%-statements floor scoped to the nine files in
-      `stryker.config.json`'s `mutate` array — the moment a new unreached
-      statement lands, `npm test` fails at the commit that caused it, which is
-      exactly what the mutation score cannot do.
-- [ ] _your answer_
-
-### When triage proves a branch unreachable, does the site get deleted outright or replaced with a compile-time exhaustiveness guard?
-
-- [x] Delete outright — smallest diff, and the unreachability proof lives in the
-      commit message where a reviewer reads it once.
-- [ ] Replace with a `never`-typed exhaustiveness assert — a future caller that
-      makes the site reachable fails `typecheck` instead of silently falling
-      through, at the cost of keeping a line the coverage report will then count
-      as unreached.
-- [ ] _your answer_
+**Nothing here becomes a gate.** Line coverage lands as an on-demand `coverage`
+script with no `turbo.json` task and no floor, exactly as the mutation score
+does. Same accepted cost, stated twice because it now applies twice: **a new
+unreached statement can land with every gate green, and nobody sees it until
+someone runs `coverage` on purpose.**
 
 ## Package 01 — Make the mutation suite runnable
 
@@ -181,6 +164,17 @@ No 13-minute run required.
 no instrumentation step in a build that already runs through tsdown.
 `reporter: ["text", "json-summary"]`.
 
+**It ships as one `coverage` script and nothing else: no `turbo.json` task, no
+`thresholds`, no `100`-statement floor, and no entry in the `test` script's task
+list.** A floor scoped to these nine files would fire during unrelated
+refactors, and `turbo.test.ts` only demands the three-part script/task/test-list
+set for tasks that exist — a script with no task is legal and stays out of the
+graph.
+
+Risk, blunt: **with no floor, a newly-uncovered statement lands green and stays
+invisible until the next deliberate `coverage` run.** Accepted, and it is the
+same trade already accepted for the mutation score.
+
 **Read the nine-file include list out of `stryker.config.json`'s `mutate` array
 inside `vitest.config.ts`** rather than retyping it. One source of truth means
 the coverage scope cannot drift from the mutation scope, and it needs no test to
@@ -190,8 +184,13 @@ hold it.
 in the module's existing `*.test.ts`, same as package 02. Unreachable gets
 deleted — including the 35 string literals, because an unreached defensive error
 string is dead weight faking robustness and does not get a test built to reach
-it. How a proven-unreachable site is retired depends on the second open
-question.
+it.
+
+**Delete outright. No `never`-typed exhaustiveness assert stands in for the
+removed branch** — a guard would keep a line the coverage report then counts as
+unreached, defeating the acceptance criterion this package is measured by. **The
+unreachability proof goes in the commit message, naming the callers that
+establish it**, which is the one place a reviewer reads it.
 
 **The scoped condition, and it is not optional: delete only where the callers
 prove the branch is unreachable.** Line coverage tells you a line never
@@ -390,3 +389,18 @@ fallow's dead-export report and misrepresent the public API.
 Yes, one task's inputs: `test:unit` gains `vitest.stryker.config.ts`,
 `stryker.config.json`, and `tests/integration/support/**`, because the new
 tooling test reads all three. No new task, so `turbo.test.ts` is untouched.
+
+### Does line coverage over the nine mutated files become a gated turbo task, or an on-demand diagnostic?
+
+On-demand diagnostic. A `coverage` script only — no `turbo.json` task, no floor.
+It is consistent with the settled refusal to gate on the mutation score, and it
+never fires during an unrelated refactor. The cost is that a newly-uncovered
+statement lands with every gate green and stays invisible until someone runs
+`coverage` on purpose.
+
+### When triage proves a branch unreachable, does the site get deleted outright or replaced with a compile-time exhaustiveness guard?
+
+Delete outright. It is the smallest diff, and a `never`-typed guard would leave
+behind a line the coverage report counts as unreached — the exact thing this
+package is measured on. The unreachability proof lives in the commit message,
+naming the callers that establish it.
