@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
-import { rawMd } from "./tests/vitest.rawMd"
+import { rawMd } from "./tests/vitest.rawMd.js"
 import { SETUP_FILES } from "./tests/integration/support/setup-files.js"
 
 export default defineConfig({
@@ -22,7 +22,6 @@ export default defineConfig({
         test: {
           name: "e2e-inmem",
           pool: "threads",
-          fileParallelism: true,
           include: ["tests/integration/features/**/*.feature"],
           setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
@@ -40,10 +39,13 @@ export default defineConfig({
         test: {
           name: "e2e-live",
           pool: "forks",
-          // pool:'forks' + fileParallelism:false prevents cross-step IPC
-          // stalls in the @live tier (each scenario spawns real git/the gtd
-          // bundle) — a constraint the @inmem project no longer pays for.
-          fileParallelism: false,
+          // pool:'forks' + the package.json script's `--no-file-parallelism`
+          // flag prevents cross-step IPC stalls in the @live tier (each
+          // scenario spawns real git/the gtd bundle) — a constraint the
+          // @inmem project no longer pays for. `fileParallelism` can no
+          // longer live here: vitest resolves it before projects split, so
+          // it can only be set root-level (which would also slow down
+          // e2e-inmem) or, as here, per npm-script CLI flag.
           include: ["tests/integration/features/**/*.feature"],
           setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,

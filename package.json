@@ -44,7 +44,7 @@
     "format:check": "oxfmt --check .",
     "test:mutation": "stryker run",
     "test:e2e:inmem": "vitest run --project e2e-inmem",
-    "test:e2e:live": "vitest run --project e2e-live",
+    "test:e2e:live": "vitest run --project e2e-live --no-file-parallelism",
     "deadcode": "fallow --summary --quiet"
   },
   "lint-staged": {

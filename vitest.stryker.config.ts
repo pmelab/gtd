@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
-import { rawMd } from "./tests/vitest.rawMd"
+import { rawMd } from "./tests/vitest.rawMd.js"
 import { SETUP_FILES } from "./tests/integration/support/setup-files.js"
 
 export default defineConfig({
