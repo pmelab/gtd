@@ -6,25 +6,6 @@ catches prompt regressions and compares models. It burns real tokens and takes
 minutes, so it is a deliberate human action like `test:mutation`: never
 autonomous, never CI-gated, never in the turbo `test` graph.
 
-## Open Questions
-
-### Which models make up the default comparison matrix?
-
-- [ ] Just the workflow's own default model — one provider entry, cheapest run,
-      the matrix grows only when someone is actively comparing
-- [x] Two tiers side by side (the planner-tier model and one cheaper model) —
-      the matrix is the point, and a one-model run cannot show a tier trade-off
-- [ ] _your answer_
-
-### What counts as a regression against the committed baseline?
-
-- [x] Any drop in a fixture's pass rate fails the run — strictest, but with 4
-      trials a single flaky turn (4/4 → 3/4) reds it
-- [ ] Only a drop of more than one trial fails (4/4 → 2/4 reds, 4/4 → 3/4 does
-      not) — absorbs single-trial noise at the cost of missing small real
-      regressions
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. A runnable eval: the spec-review case, end to end — PRODUCT
@@ -108,10 +89,14 @@ Single-turn agent behaviour is noisy, so one trial grades nothing.
 - One promptfoo provider entry per model turns the same run into the comparison
   matrix.
 
-The default matrix's membership is the first open question above.
+**The default matrix is two models, not one: the planner-tier model the
+`specReview` state declares, plus one cheaper model.** A one-model run cannot
+show a tier trade-off, and the trade-off is what a matrix exists to show. Each
+model runs its own 4 trials per fixture, so the default run is 2 models x 2
+fixtures x 4 trials = 16 real driver turns.
 
-Acceptance: a run reports a per-fixture pass rate out of 4 for each configured
-model, with no aggregate number that spans fixtures.
+Acceptance: a run reports a per-fixture pass rate out of 4 for each of the two
+configured models, with no aggregate number that spans fixtures or models.
 
 ### 4. The baseline and its regression gate — PRODUCT
 
@@ -122,12 +107,31 @@ eval gates against it with promptfoo's `--compare --fail-on-regression`.
 records a new one and commits it as its own reviewable change. It is never
 refreshed automatically by a passing run, or the gate grades nothing.
 
-What counts as a regression is the second open question above.
+**Any drop in a fixture's pass rate fails the run — no noise tolerance.** 4/4 to
+3/4 reds it, for one model on one fixture.
 
-Acceptance: pointing the run at a baseline with a higher recorded pass rate
-exits non-zero; pointing it at a matching baseline exits clean.
+**Risk — one flaky turn reds the gate.** With 4 trials a single
+non-deterministic agent turn is a whole 25% of a fixture's rate, so a healthy
+prompt will sometimes fail. Accepted: the eval is a deliberate human action,
+never a CI gate, so a human re-runs and judges. If re-runs become routine the
+fix is more trials, never a softer threshold.
+
+Acceptance: pointing the run at a baseline recording 4/4 where this run scored
+3/4 exits non-zero; pointing it at a matching baseline exits clean.
 
 ## Answered Questions
+
+### Which models make up the default comparison matrix?
+
+Two tiers side by side: the planner-tier model the state declares, plus one
+cheaper model. A one-model run cannot show a tier trade-off, and that trade-off
+is what the matrix exists to show.
+
+### What counts as a regression against the committed baseline?
+
+Any drop in a fixture's pass rate fails the run — 4/4 to 3/4 reds it.
+Single-trial noise is accepted as the price of a strict gate a human re-runs by
+hand.
 
 ### Does documentation ship as its own concern?
 
