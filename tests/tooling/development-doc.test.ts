@@ -25,7 +25,7 @@ describe("docs/development.md ## Prompt evals", () => {
   it("names a case's state, its class, the one committed configuration, comparing models, and baseline labels", () => {
     const section = promptEvalsSection()
     expect(section).toMatch(/names a workflow `state`, never a model/)
-    expect(section).toMatch(/class[\s\S]*?picks which half of the configuration/)
+    expect(section).toMatch(/class[\s\S]*?picks which half of the configuration runs it/)
     expect(section).toMatch(/exactly ONE configuration/)
     expect(section).toMatch(/every extra provider multiplies/)
     expect(section).toMatch(/add a second `providers:` entry/)

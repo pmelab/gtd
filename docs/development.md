@@ -86,7 +86,7 @@ variant's feedback must name), add a matching `evals/asserts/<name>.mjs` grader,
 and wire both into `evals/promptfooconfig.yaml`'s `tests:`.
 
 A case names a workflow `state`, never a model: the state's class — planner or
-coder — picks which half of the configuration grades it, so a review-class case
+coder — picks which half of the configuration runs it, so a review-class case
 and a build-class case landing in the same run are each graded on the tier they
 actually ship against, never on the other class's model. The committed default
 is exactly ONE configuration, because every extra provider multiplies the run
