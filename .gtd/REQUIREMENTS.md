@@ -43,7 +43,8 @@ prompt and the file system. Verified this lap: the endpoint serves
 - [ ] An existing third-party agent CLI on `PATH` (one that honours
       `OPENAI_BASE_URL`/`OPENAI_API_KEY`) — less code to own, but trades the
       `claude`-on-`PATH` prerequisite for a different binary prerequisite
-- [ ] _your answer_
+- [x] use the pi coding agent and add it as a dev dependency to the project:
+      @earendil-works/pi-coding-agent
 
 ### May the models under test still be Claude-family ids served by the gateway?
 
@@ -54,7 +55,7 @@ The endpoint serves both Claude-family ids (`claude-4-8-opus`,
 model family. This decides what the eval measures and what every baseline cell
 means.
 
-- [ ] Claude-family ids are fine — the ban is on the `claude` CLI and the
+- [x] Claude-family ids are fine — the ban is on the `claude` CLI and the
       Anthropic API, not on the models; the eval keeps grading the tier gtd
       actually runs under
 - [ ] No Claude-family ids anywhere — the matrix and the judge move to
