@@ -599,6 +599,17 @@ describe("the bundled unified workflow template", () => {
     expect(authorPrompt.indexOf("## First lap")).toBeLessThan(authorPrompt.indexOf("## Return lap"))
   })
 
+  it("build.review.reviewing pins the review-document contract: the header/marker shape and the exactly-two-space continuation rule (package 01)", () => {
+    const { definition } = compileTemplate()
+    const prompt = definition.states["build.review.reviewing"]!.prompt!
+
+    expect(prompt).toMatch(/First non-blank line:\s*`# Review: /)
+    expect(prompt).toMatch(/<!-- base: /)
+    expect(prompt).toMatch(/indented exactly two spaces/i)
+    expect(prompt).toMatch(/never four or\s+more/i)
+    expect(prompt).toMatch(/never start\s+with a bare `\.\/path` token/i)
+  })
+
   // Package 01 (shared prompt vars): a misspelt `it.vars.<name>` tag or a
   // blanked override renders the literal string `undefined` into an agent's
   // prompt — silently, with no throw and no warning (Eta just stringifies
