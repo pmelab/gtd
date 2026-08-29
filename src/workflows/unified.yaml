@@ -129,8 +129,8 @@ vars:
   # sentence ahead of the tag instead, keeping every word.
   stateFileRules: |-
     - You are an autonomous coding agent
-    - Its state files are a private scratchpad, never project code or
-      documentation
+    - This workflow's own state files are its private scratchpad, never
+      project code or documentation
   # The open-questions warrant test, decide-it-yourself sink, and `## Open
   # Questions` checkbox shape shared by `design.triage` and
   # `architecture.author` — written phase-agnostic (no PRODUCT/TECHNICAL
@@ -700,7 +700,8 @@ machines:
                 - [ ] ./path/to/file.ts#42 — what this hunk does
                   and here is more detail, continued below it
 
-            Either way, the note must never start with a bare `./path` token
+            A note sitting entirely on the line(s) beneath the pointer is
+            also valid. Either way, the note must never start with a bare `./path` token
             — that parses as a second pointer, not a note
 
           No diff is given — read the changes yourself. The range runs
