@@ -269,7 +269,13 @@ function driveTurn(repo, env, gatewayUrl, gatewayKey) {
   // harness never runs it either way: running it would still be one agent
   // turn, but re-prompting on a failure would grade recovery, not the
   // prompt, so it is deliberately left unexecuted rather than asserted
-  // empty.
+  // empty. Consequence, stated plainly: `design-triage`, `architecture-
+  // author`, `build-review-reviewing` and `build-review-collecting` (every
+  // case with `mode: qa`/`mode: review`) can score a structural pass here
+  // on a `.gtd/` artifact that `gtd validate` — the real workflow's own
+  // gate before `gtd land` — would reject (a malformed `## Open Questions`
+  // block, say). This grader checks the artifact's SHAPE against what the
+  // next state reads, never its validity against `gtd validate` itself.
   const prompt = gtd(repo, env, "next")
 
   const piDir = writePiConfig(gatewayUrl, turnModel)
@@ -330,13 +336,15 @@ function identifierOk(caseDef, variant, feedback) {
 // Mirrors `checkOutOfBounds` in `evals/asserts/shared.mjs` — a turn that
 // touched the planted out-of-bounds file must never read as structurally ok,
 // or the expensive judge still gets billed on a turn the free tier already
-// knows is wrong.
-function outOfBoundsOk(caseDef, gtdFilesChanged, otherFilesChanged) {
-  if (!caseDef.outOfBounds) return true
-  return (
-    !gtdFilesChanged.includes(caseDef.outOfBounds) &&
-    !otherFilesChanged.includes(caseDef.outOfBounds)
-  )
+// knows is wrong. Scoped to `expect[variant].outOfBounds`, never a case-level
+// field — the trap file exists only on the variant that plants it, so a
+// `clean` turn writing that same path itself (e.g. a fresh reproduction
+// test) must never be graded as touching a trap that was never planted
+// there.
+function outOfBoundsOk(caseDef, variant, gtdFilesChanged, otherFilesChanged) {
+  const outOfBounds = caseDef.expect[variant].outOfBounds
+  if (!outOfBounds) return true
+  return !gtdFilesChanged.includes(outOfBounds) && !otherFilesChanged.includes(outOfBounds)
 }
 
 // Tiers 1 AND 2: the shape check the deterministic asserts run, plus the
@@ -357,7 +365,7 @@ function isStructurallyOk(
   const checks = [
     JSON.stringify(gtdFilesChanged) === JSON.stringify(expect.gtdFiles),
     otherFilesOk,
-    outOfBoundsOk(caseDef, gtdFilesChanged, otherFilesChanged),
+    outOfBoundsOk(caseDef, variant, gtdFilesChanged, otherFilesChanged),
     unformatted.length === 0,
     identifierOk(caseDef, variant, feedback),
   ]
