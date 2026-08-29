@@ -6,56 +6,23 @@ description: gtd prompt evals — the packages.item.spec.review spec-review case
 prompts:
   - "{{variant}}"
 
-# Each provider is one MODEL CONFIGURATION — a `planner`/`coder` pair, the
-# two model classes `src/workflows/unified.yaml` marks its prompt states
-# with. A case never names a model: it names a state, and the class that
-# state carries picks which half of the pair the turn runs under
-# (`packages.item.spec.review` is planner-class). Comparing configurations is
-# the point; running one prompt under a deliberately-too-cheap model is not.
-#
-# Both halves are pinned in every configuration even though today's single
-# case exercises only the planner half — a coder-class case added later
-# inherits the configuration instead of a stray default, and `run-turn.mjs`
-# fails at startup if either half names a model the gateway does not serve.
-#
-# The models ride on the provider's own command line, not a `config:` block,
-# so run-turn.mjs can inject them as GTD_PLANNERMODEL/GTD_CODERMODEL (never
-# `--var plannerModel=`, which an ambient env var would silently outrank).
-#
-# Measured and rejected as planner-class models, both on the full --repeat
-# rather than one trial (one trial per cell passed for BOTH of them):
-# `deepseek-v3.2` read the `violation` variant as clean and closed the
-# package with no feedback, and `gemini-3.5-flash-lite` did the mirror image
-# — it flagged the `clean` variant for "missing automated unit tests" the
-# spec never asks for. Re-measure any replacement on BOTH variants. Both
-# rejections are class-specific: `gemini-3.5-flash-lite` sits in the coder
-# half below, where nothing has measured it either way, because no
-# coder-class case exists yet.
-# ONE configuration by default: every provider added here multiplies the whole
-# run (trials = cases x variants x --repeat x providers), and each new label is
-# a new `evals/baseline.json` cell that can flake. To compare a model, add a
-# second provider, run once, and read the two rows of the per-cell matrix
-# against each other — same fixtures, same trial count, one run. It is a
-# two-line edit, and the comparison belongs in the run you make on purpose,
-# not in every run forever.
+# Two providers turn the same run into the comparison matrix: `planner` is
+# the tier packages.item.spec.review actually runs under (plannerModel),
+# `cheap` is a lower tier — a one-model run couldn't show a tier trade-off.
+# The model rides on the provider's own command line, not a `config:` block,
+# so run-turn.mjs can inject it as GTD_PLANNERMODEL (never `--var
+# plannerModel=`, which an ambient env var would silently outrank).
 providers:
-  - id: "exec:node run-turn.mjs --planner gemini-3.5-flash --coder gemini-3.5-flash-lite"
-    label: gemini-3.5
+  - id: "exec:node run-turn.mjs --model claude-4-5-opus"
+    label: planner
+  - id: "exec:node run-turn.mjs --model claude-4-5-haiku"
+    label: cheap
 
 # Two-sided by construction: a prompt that always flags fails `clean`, one
 # that never flags fails `violation` — see evals/cases/spec-review.mjs.
-# `challenge` is displayed, never executed: promptfoo's results table renders
-# one column per test VAR (`generateTable`), and `variant` alone reads as a
-# bare label with no way to tell what the fixture actually planted. The
-# prompt is `{{variant}}`, so this var reaches no model and changes no turn —
-# it exists so a reader of the table can see the challenge next to its
-# verdict. Keep each one to a single line; the column is a terminal width
-# divided by the number of columns.
 tests:
   - vars:
       variant: violation
-      challenge: "safeDivide(a, 0) returns Infinity instead of throwing DivisionByZeroError
-        — the reviewer MUST write .gtd/SPEC_FEEDBACK.md naming it"
     assert:
       # Tier 1 + 2, deterministic — no model, no cost.
       - type: javascript
@@ -68,32 +35,18 @@ tests:
       # minutes.
       - type: llm-rubric
         transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
-        # Grades NAMING the defect, deliberately not prescribing the fix. An
-        # earlier "and says specifically what to change to fix it" clause
-        # failed 7 of 8 violation trials whose feedback the judge itself
-        # called concrete and specific — it drove the violation cells to
-        # 0/4 and 1/4, which as a recorded baseline is a rate that can never
-        # regress, i.e. a dead gate. Whether spec-review feedback SHOULD
-        # prescribe the fix is a question about the workflow prompt, not
-        # something to smuggle in through the grader.
         value: >-
-          The feedback names the concrete defect in the implementation: the
-          specific behaviour that violates the spec, identified precisely
-          enough that a reader knows which code is wrong and why. It need not
-          prescribe the fix. Vague statements like "the package has problems"
-          must fail, and so must the literal text "STRUCTURAL FAILURE".
-        # Pinned, and deliberately a different vendor from the gemini models
-        # in the matrix above — a model grading its own output is not a
-        # grader. Cost is negligible here regardless of tier: the judge runs
-        # only on `violation` trials, on a few hundred tokens of feedback,
-        # next to driver turns measured in minutes. Reaches GTD_EVALS_URL through
+          The feedback names the concrete defect in the implementation and
+          says specifically what to change to fix it. Vague statements like
+          "the package has problems" must fail, and so must the literal text
+          "STRUCTURAL FAILURE".
+        # Pinned and never a model in the matrix above — a model grading its
+        # own output is not a grader. Reaches GTD_EVALS_URL through
         # OPENAI_BASE_URL/OPENAI_API_KEY, set in evals/eval.mjs's spawn env —
         # no credentials live in this file.
-        provider: "openai:chat:gpt-5.4"
+        provider: "openai:chat:claude-4-5-sonnet"
   - vars:
       variant: clean
-      challenge: "safeDivide throws DivisionByZeroError exactly as the spec requires —
-        the reviewer MUST stay silent and change nothing"
     assert:
       # clean has no feedback to judge — tiers 1/2 only.
       - type: javascript
