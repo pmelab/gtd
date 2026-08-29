@@ -31,52 +31,73 @@ builds the bundle, tags it, and publishes.
 
 ## Prompt evals
 
-`npm run eval` grades the bundled workflow's own prompts against a real model,
-using [promptfoo](https://www.promptfoo.dev/). Prerequisites are exactly two
-environment variables: `GTD_EVALS_URL` (an OpenAI-compatible gateway) and
-`GTD_EVALS_KEY` — both the driver turn, run as one `gtd next` → `pi -p` →
-`gtd land` cycle through the
+`npm run eval` grades the bundled workflow's own prompts against one model
+configuration, using [promptfoo](https://www.promptfoo.dev/). Prerequisites are
+exactly two environment variables: `GTD_EVALS_URL` (an OpenAI-compatible
+gateway) and `GTD_EVALS_KEY` — both the driver turn, run as one `gtd next` →
+`pi -p` → `gtd land` cycle through the
 [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent),
 and the `llm-rubric` judge reach the model exclusively through that gateway; no
 other credential source is read. It is not part of `npm test`: each case drives
-real, multi-minute agent turns and costs real model calls.
+real, multi-minute agent turns and costs real model calls, and `npm run eval`
+runs every case every time — hours, real tokens, no default subset, no case
+filter.
 
 ```bash
-npm run eval                              # build, then run every case against both matrix models
+npm run eval                              # build, then run every case under every model configuration
 GTD_EVAL_WORKFLOW=./my-workflow.yaml npm run eval  # grade a scratch workflow instead of the bundled default
 EVAL_CLEAN=1 npm run eval                 # delete each fixture repo after grading (kept by default, for post-mortem)
 ```
 
-Grading is versioned on two axes: the model matrix above, and the harness itself
-— pinned to `pi-coding-agent` 0.84.4, restricted to a four-tool surface (`read`,
-`write`, `edit`, `bash`). A reader comparing two baselines needs to know the
-harness moved, not just the model.
+Grading is versioned on two axes: the model configuration above, and the harness
+itself — pinned to `pi-coding-agent` 0.84.4 and spawned with
+`--tools read,write,edit,bash`, so the four-tool surface is a flag this repo
+passes, not just `pi`'s current default. A reader comparing two baselines needs
+to know the harness moved, not just the model.
 
 Each case builds a fresh, disposable fixture repo per trial, drives exactly one
 real driver turn against it (`gtd next` → `pi -p` → `gtd land`), and grades the
 result through three tiers, cheapest first: deterministic `javascript` asserts
 on which files changed, a grep floor for a planted identifier, and — only once
 both pass — an `llm-rubric` judge scoring whether the feedback is actually
-useful. promptfoo's own end-of-run summary and `results.json`'s per-provider
-counts are both summed across fixtures AND models, so `npm run eval` runs
-through `evals/eval.mjs` rather than the bare `promptfoo` CLI: it strips that
-aggregate line out of promptfoo's own output as it streams (the per-test results
-table above it is untouched) and prints `evals/report.mjs`'s own pass rate **per
-fixture, per model** (out of `--repeat`'s trial count) in its place — never
-averaged across fixtures or models, since a suite that averages a two-sided
-case's variants hides exactly the failure those variants exist to expose.
-`evals/eval.mjs` still exits with promptfoo's own exit code, so a failing
-assertion still fails `npm run eval`. `npm run eval` also passes `--no-cache`:
-`--repeat` does not disable promptfoo's own result cache, and running the same
-config by hand from `evals/` (its own `basePath`) makes the exec provider's
-script hashes resolve — without `--no-cache`, later trials would silently replay
-an earlier trial's cached JSON instead of a fresh turn.
+useful. That judge is pinned to a specific model id (`gpt-5.4`, duplicated in
+`evals/promptfooconfig.yaml` and `evals/run-turn.mjs` on purpose); bumping it
+invalidates every recorded baseline, since the judge is as much a part of what a
+baseline measures as the model under test. promptfoo's own end-of-run summary
+and `results.json`'s per-provider counts are both summed across fixtures AND
+configurations, so `npm run eval` runs through `evals/eval.mjs` rather than the
+bare `promptfoo` CLI: it strips that aggregate line out of promptfoo's own
+output as it streams (the per-test results table above it is untouched) and
+prints `evals/report.mjs`'s own pass rate **per fixture, per configuration**
+(out of `--repeat`'s trial count) in its place — never averaged across fixtures
+or configurations, since a suite that averages a two-sided case's variants hides
+exactly the failure those variants exist to expose. `evals/eval.mjs` still exits
+with promptfoo's own exit code, so a failing assertion still fails
+`npm run eval`. `npm run eval` also passes `--no-cache`: `--repeat` does not
+disable promptfoo's own result cache, and running the same config by hand from
+`evals/` (its own `basePath`) makes the exec provider's script hashes resolve —
+without `--no-cache`, later trials would silently replay an earlier trial's
+cached JSON instead of a fresh turn.
 
 To add a case: write `evals/cases/<name>.mjs` exporting a frozen object shaped
 like `evals/cases/spec-review.mjs` (a `state` to enter, two-sided
 `base`/`variants` fixture content, and a `plantedIdentifier` the defect
 variant's feedback must name), add a matching `evals/asserts/<name>.mjs` grader,
 and wire both into `evals/promptfooconfig.yaml`'s `tests:`.
+
+A case names a workflow `state`, never a model: the state's class — planner or
+coder — picks which half of the configuration grades it, so a review-class case
+and a build-class case landing in the same run are each graded on the tier they
+actually ship against, never on the other class's model. The committed default
+is exactly ONE configuration, because every extra provider multiplies the run
+(cases × variants × `--repeat` × providers) and adds a `baseline.json` cell that
+can flake, for a comparison most runs never need. To compare model choices for a
+single run, add a second `providers:` entry with its own `label` to
+`evals/promptfooconfig.yaml`, run `npm run eval` once, and read the two rows it
+adds to the per-cell results matrix — no permanent config change required.
+Baseline cells key off that provider `label`, not the model id configured under
+it, so relabeling a provider without re-recording the baseline reads as a
+newly-missing cell, not a renamed one.
 
 ### The baseline regression gate
 
@@ -92,7 +113,8 @@ exits clean and never rewrites the file.
 
 The baseline is **never** updated automatically — a passing `npm run eval` that
 refreshed its own baseline would grade nothing. To record a new one
-deliberately, after reading the printed matrix and deciding it's the new floor:
+deliberately, after reading the printed per-cell results matrix and deciding
+it's the new floor:
 
 ```bash
 npm run eval:baseline   # rewrites evals/baseline.json from the last results.json, oxfmt'd

@@ -27,6 +27,29 @@ const MODEL_ENV_VAR = Object.freeze({ planner: "GTD_PLANNERMODEL", coder: "GTD_C
 
 const TURN_TIMEOUT_MS = 600_000
 
+// Pins the harness's tool surface to the four docs/development.md promises a
+// baseline was measured under — `pi`'s own default happens to match today,
+// but a `pi` version bump could widen that default with nothing here
+// failing. Duplicated in docs/development.md's "## Prompt evals" section on
+// purpose; keep both in sync.
+export const PINNED_TOOLS = "read,write,edit,bash"
+
+export function buildPiArgv(turnModel, system, gatewayKey) {
+  return [
+    "-p",
+    "--model",
+    `gtd-evals/${turnModel}`,
+    "--system-prompt",
+    system,
+    "--api-key",
+    gatewayKey,
+    "--no-session",
+    "-nc",
+    "--tools",
+    PINNED_TOOLS,
+  ]
+}
+
 function fail(message) {
   console.error(message)
   process.exit(1)
@@ -219,21 +242,13 @@ function driveTurn(repo, env, gatewayUrl, gatewayKey) {
 
   assertTmpCwd(repo)
   try {
-    execFileSync(
-      PI_BIN,
-      [
-        "-p",
-        "--model",
-        `gtd-evals/${turnModel}`,
-        "--system-prompt",
-        system,
-        "--api-key",
-        gatewayKey,
-        "--no-session",
-        "-nc",
-      ],
-      { cwd: repo, env: piEnv, input: prompt, encoding: "utf-8", timeout: TURN_TIMEOUT_MS },
-    )
+    execFileSync(PI_BIN, buildPiArgv(turnModel, system, gatewayKey), {
+      cwd: repo,
+      env: piEnv,
+      input: prompt,
+      encoding: "utf-8",
+      timeout: TURN_TIMEOUT_MS,
+    })
   } catch (err) {
     fail(`run-turn: agent turn failed or timed out: ${err.message} (repo kept at ${repo})`)
   }
@@ -347,4 +362,9 @@ async function main() {
   process.stdout.write(JSON.stringify({ repo, variant, models: modelsField, ...result }) + "\n")
 }
 
-main().catch((err) => fail(`run-turn: unexpected error: ${err.stack ?? err.message}`))
+// Guards direct execution vs. import: `tests/tooling/run-turn.test.ts` imports
+// `buildPiArgv` for a pure unit test, and a bare import must never run a real
+// eval turn as a side effect.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => fail(`run-turn: unexpected error: ${err.stack ?? err.message}`))
+}
