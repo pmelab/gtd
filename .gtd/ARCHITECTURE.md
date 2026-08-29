@@ -7,30 +7,6 @@ a textual rewrite of agent-read blocks plus the assertion rewrites that rewrite
 forces. There is no new module, no new dependency, and no engine change: a
 workflow is data, and this changes the data.
 
-## Open Questions
-
-### What shape does a compressed block take — hard-wrapped telegraphic prose, or bullet lists?
-
-- [ ] Telegraphic prose paragraphs, hard-wrapped at the file's current width —
-      smallest diff, keeps blocks reading as continuous instruction, no risk of
-      a bullet reading as an exhaustive checklist
-- [x] `- ` bullet lists, one rule per line — highest signal-per-word and easiest
-      for an agent to scan, but restructures every block and inflates the diff;
-      note `templates.test.ts:581` bans `^\s*\d+\.\s` in `design.triage`, so
-      numbered lists are out either way and only `-` bullets are available
-- [ ] _your answer_
-
-### How do the phrasing-pinned assertions in `templates.test.ts` get rewritten?
-
-- [ ] Re-pin to the new terse literal — each regex updated to match the
-      compressed wording, same tightness as today; the pin stays exact, and the
-      next reword breaks the suite again exactly as it does now
-- [x] Loosen to keyword/structural pins — assert the surviving concept (e.g.
-      `Answered Questions` appearing after other `##` sections) rather than a
-      sentence's phrasing, so the guard survives future rewordings; weaker at
-      catching a rule silently dropped mid-sentence
-- [ ] _your answer_
-
 ## Package footprint
 
 `src/workflows/unified.yaml` — every `system:`, `prompt:` and shared `vars:`
@@ -46,6 +22,26 @@ still pass rather than assuming a comment cannot break a test.
 Untouched, and any diff to them is a defect: every `message:` body, every edge
 `describe:`, every `label:`, every `#` comment, every `script:` block, `docs/`,
 `README.md`, `turbo.json`, `package.json`.
+
+## Compressed block shape
+
+**Every compressed block is a `- ` bullet list, one rule per line.** Prose
+paragraphs survive only where a rule genuinely spans more than one clause and
+splitting it would separate a condition from what it scopes.
+
+**Numbered lists are banned outright.** `templates.test.ts:581` asserts
+`design.triage` matches no `^\s*\d+\.\s`, and `templates.test.ts:559` asserts
+the `## First lap`-to-`## Return lap` slice of both `design.triage` and
+`architecture.author` matches no `[0-9]` at all. `-` bullets are the only list
+marker available.
+
+**Risk: `humanReview.collecting` carries three numbered actionability
+triggers.** They become three `-` bullets, still three distinguishable items —
+never a merged sentence, and never `1.`/`2.`/`3.`.
+
+**Risk: a bullet list reads as exhaustive where a paragraph did not.** Where a
+block's rules are examples rather than the complete set, the bullet list carries
+a lead-in line saying so.
 
 ## Edit order inside the package
 
@@ -159,6 +155,20 @@ asserts `vars.questionBar` matches ``/before every other `##`\s+section/`` and
 matches four separate patterns on `styleFormatContract` — `/checkbox/`,
 `/##.*###.*heading/`, `/renumber or\s+rename/`, `/refuses the turn|refused/`.
 Those get rewritten. A prompt is never left verbose to satisfy a regex.
+
+**Every rewritten assertion is loosened to a keyword or structural pin, never
+re-pinned to the new terse literal.** Assert the surviving concept — that
+`## Answered Questions` appears after every other `##` section, that the
+checkbox template is present, that the never-tick ban and the format-outranks-
+voice rule each appear — rather than a sentence's exact words. The guard then
+survives the next reword instead of breaking on it.
+
+**Risk: a loosened pin cannot catch a rule silently dropped mid-sentence.** A
+keyword pin passes when the keyword survives but its qualifier does not — for
+example `styleBlock` keeping "never trim a risk" while losing "a number, a
+threshold, or a scoped condition". Two defences: pin the qualifier list itself
+where the rule has one, and read every compressed block against the
+rules-that-must-survive list in this document before calling the group done.
 
 **Risk: the `styleBlock` rewrite must keep its four attribution lines.**
 `templates.test.ts` matches the raw YAML for `attention-span`, the
@@ -340,6 +350,20 @@ Acceptance: the four prompts and `summary` are visibly shorter and `npm test` is
 green.
 
 ## Answered Questions
+
+### What shape does a compressed block take — hard-wrapped telegraphic prose, or bullet lists?
+
+`- ` bullet lists, one rule per line — highest signal-per-word and easiest for
+an agent to scan. It restructures every block and inflates the diff; that cost
+is accepted. Numbered lists stay banned by `templates.test.ts:559` and `:581`.
+
+### How do the phrasing-pinned assertions in `templates.test.ts` get rewritten?
+
+Loosened to keyword and structural pins that assert the surviving concept rather
+than a sentence's phrasing, so the guard survives future rewordings. The known
+weakness — a rule dropped mid-sentence while its keyword survives — is covered
+by pinning qualifier lists and by a manual read against this document's
+rules-that-must-survive list.
 
 ### Do the four concerns collapse into one package?
 
