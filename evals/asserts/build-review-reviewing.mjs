@@ -7,18 +7,31 @@ import { SHARED_CHECKS, runChecks } from "./shared.mjs"
 
 const fail = (reason) => ({ pass: false, score: 0, reason })
 
+function firstNonBlankLine(text) {
+  return text.split("\n").find((line) => line.trim().length > 0) ?? ""
+}
+
+// One (predicate, reason) row per shape requirement — a flat table the loop
+// below just walks, so this stays a single early-return per failure instead
+// of nested branching.
+function reviewShapeViolations(result) {
+  const firstLine = firstNonBlankLine(result.feedback)
+  return [
+    [
+      !/^# Review: [0-9a-f]{4,}/.test(firstLine),
+      `REVIEW.md's first non-blank line was "${firstLine}", expected "# Review: <hash>"`,
+    ],
+    [
+      !result.feedback.includes("<!-- base:"),
+      "REVIEW.md is missing its `<!-- base: ... -->` marker",
+    ],
+    [!/^## /m.test(result.feedback), "REVIEW.md has no `## <Chunk Title>` heading"],
+  ]
+}
+
 function checkReviewShape(result) {
-  const firstLine = result.feedback.split("\n").find((line) => line.trim().length > 0) ?? ""
-  if (!/^# Review: [0-9a-f]{4,}/.test(firstLine)) {
-    return fail(`REVIEW.md's first non-blank line was "${firstLine}", expected "# Review: <hash>"`)
-  }
-  if (!result.feedback.includes("<!-- base:")) {
-    return fail("REVIEW.md is missing its `<!-- base: ... -->` marker")
-  }
-  if (!/^## /m.test(result.feedback)) {
-    return fail("REVIEW.md has no `## <Chunk Title>` heading")
-  }
-  return undefined
+  const violation = reviewShapeViolations(result).find(([failed]) => failed)
+  return violation ? fail(violation[1]) : undefined
 }
 
 export default function grade(output, context) {
