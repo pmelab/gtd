@@ -32,20 +32,25 @@ builds the bundle, tags it, and publishes.
 ## Prompt evals
 
 `npm run eval` grades the bundled workflow's own prompts against a real model,
-using [promptfoo](https://www.promptfoo.dev/). It requires `GTD_EVALS_URL` (an
-OpenAI-compatible gateway) and `GTD_EVALS_KEY` — both the driver turn (run
-through the
-[pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent))
+using [promptfoo](https://www.promptfoo.dev/). Prerequisites are exactly two
+environment variables: `GTD_EVALS_URL` (an OpenAI-compatible gateway) and
+`GTD_EVALS_KEY` — both the driver turn, run as one `gtd next` → `pi -p` →
+`gtd land` cycle through the
+[pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent),
 and the `llm-rubric` judge reach the model exclusively through that gateway; no
-`ANTHROPIC_API_KEY` and no `claude` CLI are involved. It is not part of
-`npm test`: each case drives real, multi-minute agent turns and costs real model
-calls.
+other credential source is read. It is not part of `npm test`: each case drives
+real, multi-minute agent turns and costs real model calls.
 
 ```bash
 npm run eval                              # build, then run every case against both matrix models
 GTD_EVAL_WORKFLOW=./my-workflow.yaml npm run eval  # grade a scratch workflow instead of the bundled default
 EVAL_CLEAN=1 npm run eval                 # delete each fixture repo after grading (kept by default, for post-mortem)
 ```
+
+Grading is versioned on two axes: the model matrix above, and the harness itself
+— pinned to `pi-coding-agent` 0.84.4, restricted to a four-tool surface (`read`,
+`write`, `edit`, `bash`). A reader comparing two baselines needs to know the
+harness moved, not just the model.
 
 Each case builds a fresh, disposable fixture repo per trial, drives exactly one
 real driver turn against it (`gtd next` → `pi -p` → `gtd land`), and grades the
