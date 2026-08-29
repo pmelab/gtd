@@ -1,70 +1,83 @@
-Task 8 is still entirely undone, and one task-3 checkbox is still unmet. The
-previous round's other four findings are fixed and verified.
+Task 8 — "Re-record the whole baseline in one run" — is not done. Tasks 1–7
+check out: all 18 fixtures build, rest at `kind=prompt`, and their
+`expect[variant].gtdFiles` match what the workflow's own prompts and land
+scripts actually change (verified by driving each fixture through `gtd --entry`
+→ simulated turn → `gtd land`). `npm run format:check` and
+`npx vitest run tests/tooling` are green.
 
-## Task 8: the baseline was never re-recorded, and no new case has ever run
+## `evals/baseline.json` is still the pre-rekey two-cell file
 
-`evals/baseline.json` is byte-for-byte the pre-rekey file: two cells,
-`gemini-3.5|clean` and `gemini-3.5|violation`, both 4/4, `recordedAt`
-`2026-08-29T11:22:35.457Z`. `git log -- evals/baseline.json` still shows
-`819447e1` as its last change — an earlier lap, before any of the eight new case
-files existed.
+It holds exactly the two cells this package's rekey was supposed to retire:
 
-`evals/results.json` proves the run never happened either: 8 trials, timestamp
-`2026-08-29T11:20:45.028Z`, and every entry's `vars.case` is `undefined` — a
-pre-rekey run. The case files were written at 13:55–14:25. **No case other than
-`spec-review` has ever been executed once**, so tasks 1–7 are unverified as well
-as unrecorded: a fixture that refuses at `gtd --entry`, a state whose landed
-diff does not match its `expect[variant].gtdFiles`, or a grader that fails every
-trial would all look exactly like this.
+```
+"gemini-3.5|clean":     { "passed": 4, "total": 4 }
+"gemini-3.5|violation": { "passed": 4, "total": 4 }
+```
 
-Four task-8 checkboxes fail:
+`recordedAt` is `2026-08-29T11:22:35.457Z` — before the case files were written.
+Four of the task's eight acceptance boxes are directly false: it carries 2
+cells, not 18; no key is shaped `gemini-3.5|<case>|<variant>`; both old
+`gemini-3.5|clean` / `gemini-3.5|violation` keys remain; `recordedAt`
+corresponds to a run of the old, single-case config.
 
-- It carries 2 cells, not 18.
-- Both `gemini-3.5|clean` and `gemini-3.5|violation` still remain.
-- No key is shaped `gemini-3.5|<case>|<variant>`.
-- `recordedAt` does not correspond to a run of this config.
+The consequence is the exact four-way failure the spec's own risk note called
+out, now at nine cases instead of one: `evals/report.mjs`'s `cellKey` emits
+`gemini-3.5|<case>|<variant>`, so `compareCells` reports **18 "not recorded in
+baseline" violations plus 2 "missing from run" violations — 20 at once**, and
+`npm run eval` exits non-zero on any run, green trials or not. The rekey landed
+without the record that has to ship with it.
 
-As committed, `npm run eval` reds with 2 baseline cells missing from the run
-plus 18 run cells unrecorded — 20 gate violations, exactly the risk task 1 named
-when it said the rekey and the record must ship together.
+Fix: run `npm run eval` once against the wired config, then
+`npm run eval:baseline` (`node evals/compare-baseline.mjs --record`), and commit
+the rewritten `evals/baseline.json`. Constraints that still hold and must not be
+traded away:
 
-Run `npm run eval` once at `--max-concurrency 2`, fix whatever the first real
-run exposes, then `npm run eval:baseline`, and commit the result. Do not
-hand-edit the JSON. Do not record a suspiciously low cell — re-run it, because
-`evals/compare-baseline.mjs` only fails on a rate that DROPS, so a low cell
-becomes a permanently lowered floor.
+- **One record for the whole package**, never one per case — 9 cases × 2
+  variants × `--repeat 4` = 72 turns in a single run.
+- **`--max-concurrency` stays 2** (`evals/eval.mjs`). Raising it trades run time
+  for gateway rate-limit failures that get written down as prompt regressions.
+- **A suspiciously low cell is a flake to re-run, not a number to record** —
+  `evals/compare-baseline.mjs` only fails on a rate that DROPS, so a cell
+  recorded below its true rate is a permanently lowered floor.
+- Do not hand-edit the JSON; the file must come out of `--record`.
+- `gemini-3.5-flash-lite` is measured in the coder half for the first time here
+  (`packages-item-building`, `packages-item-fix-suite`,
+  `packages-item-fix-spec`, `build-fix`). If its coder cells come back mixed, it
+  is a candidate to replace, not a floor to record.
 
-## Task 3: every grader still throws on malformed output
+## Secondary: `packages-item-building`'s two variants grade identically
 
-Checkbox: "No grader throws on malformed output; each returns a failing verdict
-with a reason." All nine `evals/asserts/<name>.mjs` open with a bare
-`const result = JSON.parse(output)` outside any `try`. `evals/run-turn.mjs`
-exits 1 with plain text on stderr for every precondition failure (unknown case,
-unserved model, agent turn timeout, oxfmt breakage), so any of those makes
-`JSON.parse` throw inside the assert and kills the trial with a parse error
-instead of a graded failure — in a 72-trial, hours-long run that is the one
-place a reason matters most.
+`evals/cases/packages-item-building.mjs` sets both variants to `gtdFiles: []`,
+`otherFiles: "required"`, declares no `plantedIdentifier` and no `outOfBounds`,
+and `evals/promptfooconfig.yaml` gives neither variant a tier-3 rubric. Every
+check the `violation` variant runs is a check the `clean` variant also runs with
+the same expected values, so the pair measures one thing twice.
 
-Wrap the parse (in `runChecks`, or in a shared `parseResult` helper the graders
-call) and return `{pass: false, score: 0, reason}` naming the unparseable output
-instead.
+Concrete failure: a turn that implements `formatName` AND the tempting
+`formatNames` from `.gtd/packages/02-format-names-batch.md` — the exact
+over-reach the `violation` fixture plants — touches only `src/formatName.ts`, so
+`gtdFiles` is `[]`, `otherFilesChanged` is non-empty, and the trial passes. Only
+editing the planted package file itself is caught, and an agent has little
+reason to do that. Task 5's box "Each grader fails a turn that touches that
+out-of-bounds file" is technically satisfied via the `gtdFiles` check; task 7's
+"Every `violation` entry carries the tier-3 `llm-rubric`" is not.
 
-## Minor: `packages-item-fix-suite`'s fixture has no package file
+Either give the case a check that can distinguish its two sides (a
+state-specific grader assertion in `evals/asserts/packages-item-building.mjs`
+that fails a `src/formatName.ts` exporting `formatNames`), or record the
+deliberate exception where a reader will meet it — the current explanation lives
+only in a YAML comment. Decide this BEFORE the baseline run: changing the case
+after recording invalidates its two cells.
 
-Task 5 states the prerequisite plainly: "`packages.item.*` need a package file."
-`evals/cases/packages-item-fix-suite.mjs`'s `base` is `.gtd/FEEDBACK.md` +
-`src/parseAmount.ts` only — no `.gtd/NEXT.md`, unlike `packages-item-building`
-and `packages-item-fix-spec`, which both carry one. The `fix-suite` prompt does
-not itself read the package file, so this may be harmless; either add the
-package file or record in the case's comment why this one state does not need
-it.
+## Do not revert: the removed `validate` guard
 
-## Not a defect: the removed "expected no validate step" guard
-
-Task 4's checkbox "Every trial still reports an empty `validate` step" rests on
-a false premise, and the build turn was right to drop the guard rather than the
-behaviour. `resolveValidateScript` in `src/program.ts` emits a non-empty script
-whenever the resting state declares both `file:` and `mode:`, and the built-in
-`qa`/`review` modes resolve with no `modes:` config at all — so four of the five
-planner cases would fail at startup with the old assertion. No change needed
-here; do not "restore" it.
+The turn deleted run-turn.mjs's `expected no validate step` guard. That is
+correct and must stay deleted, even though task 4's box "Every trial still
+reports an empty `validate` step" reads otherwise — the spec's premise is
+factually wrong. A `mode: qa` / `mode: review` state resolves a built-in
+validator with no `modes:` config present (`src/SteeringMode.ts`
+`resolveSteeringMode` falls back to the built-in format's own parser). Measured
+on the actual fixtures: `design-triage`, `architecture-author`,
+`build-review-reviewing` and `build-review-collecting` all return a NON-EMPTY
+`gtd next --json=validate`; the other five return empty. Restoring the guard
+would fail 8 of 18 trials at startup.
