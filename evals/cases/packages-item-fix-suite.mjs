@@ -18,6 +18,24 @@ export default Object.freeze({
   artifact: "src/parseAmount.ts",
   outOfBounds: "src/parseAmount.test.ts",
   base: {
+    // Every `packages.item.*` case carries a package file, per task 5's
+    // fixture prerequisites — `fix-suite`'s own prompt never reads it (it
+    // only reads `.gtd/FEEDBACK.md`), but the fixture still matches the
+    // shape a real package build loop rests in.
+    ".gtd/NEXT.md": `# Package: parse-amount
+
+## Requirements
+
+\`src/parseAmount.ts\` exports \`parseAmount(input: string): number\`, parsing a
+dollar amount like \`"$12.50"\` into cents. Invalid input MUST throw
+\`AmountParseError\` (a custom \`Error\` subclass exported from the same file)
+rather than returning \`NaN\`.
+
+## Acceptance
+
+- [ ] \`parseAmount("$12.50")\` returns \`1250\`
+- [ ] \`parseAmount("abc")\` throws \`AmountParseError\`
+`,
     ".gtd/FEEDBACK.md": `FAIL src/parseAmount.test.ts
   ✕ parseAmount("$12.50") should return 1250 (cents)
   ✕ parseAmount("abc") should throw AmountParseError

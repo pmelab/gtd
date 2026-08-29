@@ -2,7 +2,7 @@
 // check — whether `## Open Questions` appears is exactly the two-sided axis
 // this case exercises (see evals/cases/design-triage.mjs).
 import spec from "../cases/design-triage.mjs"
-import { SHARED_CHECKS, runChecks } from "./shared.mjs"
+import { SHARED_CHECKS, safeGrade } from "./shared.mjs"
 
 const fail = (reason) => ({ pass: false, score: 0, reason })
 
@@ -18,7 +18,5 @@ function checkOpenQuestions(result, caseDef, variant) {
 }
 
 export default function grade(output, context) {
-  const result = JSON.parse(output)
-  const variant = context.vars.variant
-  return runChecks([...SHARED_CHECKS, checkOpenQuestions], result, spec, variant)
+  return safeGrade(output, context, spec, [...SHARED_CHECKS, checkOpenQuestions])
 }

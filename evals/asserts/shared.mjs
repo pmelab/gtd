@@ -73,3 +73,21 @@ export function runChecks(checks, result, caseDef, variant) {
   }
   return { pass: true, score: 1, reason: "structural checks and grep floor passed" }
 }
+
+// Every `evals/asserts/<name>.mjs` calls this instead of parsing `output`
+// itself: `run-turn.mjs` exits 1 with plain text on stderr for any
+// precondition failure (unknown case, unserved model, agent timeout, oxfmt
+// breakage), and a bare `JSON.parse` on that text would throw — killing a
+// trial with a parse error instead of a graded failure, in a run where a
+// reason matters most. Truncated so one bad trial's raw output doesn't blow
+// up the report.
+export function safeGrade(output, context, caseDef, checks) {
+  let result
+  try {
+    result = JSON.parse(output)
+  } catch (err) {
+    const raw = String(output).slice(0, 500)
+    return fail(`run-turn.mjs output was not valid JSON (${err.message}): ${raw}`)
+  }
+  return runChecks(checks, result, caseDef, context.vars.variant)
+}

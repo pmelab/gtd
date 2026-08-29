@@ -3,7 +3,7 @@
 // fixture's two concerns share a footprint (see
 // evals/cases/architecture-author.mjs).
 import spec from "../cases/architecture-author.mjs"
-import { SHARED_CHECKS, runChecks } from "./shared.mjs"
+import { SHARED_CHECKS, safeGrade } from "./shared.mjs"
 
 const fail = (reason) => ({ pass: false, score: 0, reason })
 
@@ -23,7 +23,5 @@ function checkMergedConcerns(result, caseDef, variant) {
 }
 
 export default function grade(output, context) {
-  const result = JSON.parse(output)
-  const variant = context.vars.variant
-  return runChecks([...SHARED_CHECKS, checkMergedConcerns], result, spec, variant)
+  return safeGrade(output, context, spec, [...SHARED_CHECKS, checkMergedConcerns])
 }

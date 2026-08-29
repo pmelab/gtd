@@ -3,9 +3,8 @@
 // `(output, context)`; `context.vars.variant` is the fixture variant under
 // test (`context.test.vars` per promptfoo's own assert contract).
 import spec from "../cases/spec-review.mjs"
-import { SHARED_CHECKS, runChecks } from "./shared.mjs"
+import { SHARED_CHECKS, safeGrade } from "./shared.mjs"
 
 export default function grade(output, context) {
-  const result = JSON.parse(output)
-  return runChecks(SHARED_CHECKS, result, spec, context.vars.variant)
+  return safeGrade(output, context, spec, SHARED_CHECKS)
 }

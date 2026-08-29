@@ -3,7 +3,7 @@
 // see `unified.yaml`'s `humanReview.reviewing` prompt for the contract this
 // checks.
 import spec from "../cases/build-review-reviewing.mjs"
-import { SHARED_CHECKS, runChecks } from "./shared.mjs"
+import { SHARED_CHECKS, safeGrade } from "./shared.mjs"
 
 const fail = (reason) => ({ pass: false, score: 0, reason })
 
@@ -35,7 +35,5 @@ function checkReviewShape(result) {
 }
 
 export default function grade(output, context) {
-  const result = JSON.parse(output)
-  const variant = context.vars.variant
-  return runChecks([...SHARED_CHECKS, checkReviewShape], result, spec, variant)
+  return safeGrade(output, context, spec, [...SHARED_CHECKS, checkReviewShape])
 }
