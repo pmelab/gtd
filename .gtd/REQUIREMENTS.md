@@ -21,7 +21,7 @@ a paragraph.
 
 ### Does the injected output-voice block (`styleBlock` + `styleFormatContract`) get compressed too?
 
-- [ ] Yes — it is agent-read like everything else, and the deliverables it
+- [x] Yes — it is agent-read like everything else, and the deliverables it
       governs are judged by the rules' content, not their wording
 - [ ] No — leave both verbatim; they set the voice of `REQUIREMENTS.md`,
       `ARCHITECTURE.md` and `REVIEW.md`, which humans actually read, and
@@ -32,7 +32,7 @@ a paragraph.
 
 - [ ] Yes — add a test with a per-block word budget, so the compression cannot
       erode over time
-- [ ] No — no automated budget; a word count is a bad proxy for verbosity and
+- [x] No — no automated budget; a word count is a bad proxy for verbosity and
       would block legitimate additions
 - [ ] _your answer_
 
