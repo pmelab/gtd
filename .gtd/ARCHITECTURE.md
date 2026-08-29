@@ -4,7 +4,7 @@
 
 ### Which opus id does the `planner` provider grade?
 
-- [ ] `claude-4-5-opus` — same generation as the `claude-4-5-haiku` cheap tier
+- [x] `claude-4-5-opus` — same generation as the `claude-4-5-haiku` cheap tier
       and the `claude-4-5-sonnet` judge, so the matrix compares one generation
       across three tiers and the judge is never a generation behind what it
       grades
@@ -15,7 +15,7 @@
 
 ### Does `evals/run-turn.mjs` verify the model id against `GET /models` before spawning?
 
-- [ ] Yes — one `GET $GTD_EVALS_URL/models` in `infraFailures`, failing with
+- [x] Yes — one `GET $GTD_EVALS_URL/models` in `infraFailures`, failing with
       "model X is not served by GTD_EVALS_URL" when the id is absent; a typo
       becomes a loud infra break instead of a 0/4 cell that reads as a bad
       prompt, at the cost of one extra network call and a new network dependency
