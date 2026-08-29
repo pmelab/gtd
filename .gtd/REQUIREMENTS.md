@@ -17,31 +17,17 @@ section ordering and checkbox shape, the `REVIEW.md` hunk-pointer shape (the
 `<%= %>` / `<%~ %>` template tag. Compressing any of these breaks a parser, not
 a paragraph.
 
-## Open Questions
-
-### Does the injected output-voice block (`styleBlock` + `styleFormatContract`) get compressed too?
-
-- [x] Yes — it is agent-read like everything else, and the deliverables it
-      governs are judged by the rules' content, not their wording
-- [ ] No — leave both verbatim; they set the voice of `REQUIREMENTS.md`,
-      `ARCHITECTURE.md` and `REVIEW.md`, which humans actually read, and
-      shortening the rules risks silently changing that output
-- [ ] _your answer_
-
-### Does the repo gain a check that fails when a prompt grows verbose again?
-
-- [ ] Yes — add a test with a per-block word budget, so the compression cannot
-      erode over time
-- [x] No — no automated budget; a word count is a bad proxy for verbosity and
-      would block legitimate additions
-- [ ] _your answer_
-
 ## Concern 1 — Compress the shared prompt vars and the six personas — TECHNICAL
 
 **Every prompt in the file is mostly shared text, so this concern moves the most
 words for the least risk.** In scope: `agentConduct` (~180 words), the six
-`*Persona` blocks, `stateFileRules`, `questionBar`, `questionBarReturn`, and
-`fixFeedbackPrompt` — about 1,450 words together.
+`*Persona` blocks, `stateFileRules`, `questionBar`, `questionBarReturn`,
+`fixFeedbackPrompt`, **and the output-voice pair `styleBlock` +
+`styleFormatContract` (~250 words)** — about 1,700 words together.
+
+**`styleBlock` and `styleFormatContract` are compressed like everything else.**
+They are agent-read, and the deliverables they govern are judged by the rules'
+content, not by the rules' wording.
 
 Rules that must still be stated after the rewrite, because a state machine or a
 validator depends on them:
@@ -58,6 +44,12 @@ validator depends on them:
 - Each persona's distinct identity — the reviewer being a separate mind from the
   builder, the spec reviewer's "silence is approval", the builder's
   stay-inside-this-package scope.
+- `styleBlock`'s own precedence rule: **never trim a risk, a number, a
+  threshold, or a scoped condition to save space — it outranks every other voice
+  rule.** Compressing the block must not compress that clause away, or every
+  generated deliverable loses the one rule that protects its numbers.
+- `styleFormatContract`'s claim that the format contract outranks the voice
+  rules, and that headings, `- [ ]` rows and marker lines are kept literally.
 
 **Var names do not change.** `docs/configuration.md` and `docs/driver.md` name
 `styleBlock`, `stateFileRules`, `questionBar` and all six personas in prose, and
@@ -66,14 +58,27 @@ or merging a var turns a prompt edit into a docs-and-tests change for no gain.
 
 **Risk: `templates.test.ts` pins phrasing, not behaviour.** It asserts on
 `vars.questionBar` matching `/before every other `##`\s+section/` and on
-`styleFormatContract` matching `/renumber or\s+rename/` among others. Those
-assertions get rewritten to pin the surviving concept in its new wording — the
-prompt is never left verbose to satisfy a regex. The rule behind the assertion
-must still hold; only the words it matches change.
+`styleFormatContract` matching four separate patterns — `/checkbox/`,
+`/##.*###.*heading/`, `/renumber or\s+rename/`, and `/refuses the turn|refused/`
+— among others. Those assertions get rewritten to pin the surviving concept in
+its new wording — the prompt is never left verbose to satisfy a regex. The rule
+behind the assertion must still hold; only the words it matches change.
 
-Acceptance: the six personas and the shared vars are each visibly shorter,
-`npm test` is green, and `gtd check qa` still rejects a document with
-`## Answered Questions` in the wrong position.
+**Risk: the `styleBlock` rewrite must keep its four attribution lines.**
+`templates.test.ts` matches the raw YAML for `attention-span`, the
+`https://github.com/alexgreensh/attention-span` URL, `AGPL-3.0`, and
+`version 0.6`. Those live in the `#` comment above the var, which is out of
+scope anyway — deleting them while tightening the block around them reds the
+suite and drops a licence credit.
+
+**Risk: two unit tests read `styleBlock` as the definition of gtd's voice.**
+`src/ReviewDoc.test.ts:765` and `src/OpenQuestions.test.ts:604` carry "voice
+check" comments pointing at it. Check both still pass on the compressed wording
+rather than assuming a comment cannot break a test.
+
+Acceptance: the six personas and the shared vars — output-voice pair included —
+are each visibly shorter, `npm test` is green, and `gtd check qa` still rejects
+a document with `## Answered Questions` in the wrong position.
 
 ## Concern 2 — Compress the planning prompts — TECHNICAL
 
@@ -187,3 +192,15 @@ to keep a regex green.
 No. Compression is textual only — same var names, same persona set, same splice
 points, so `docs/configuration.md`, `docs/driver.md` and the persona-set
 derivation in `templates.test.ts` stay correct.
+
+### Does the injected output-voice block (`styleBlock` + `styleFormatContract`) get compressed too?
+
+Yes. Both are agent-read like every other block, and the deliverables they
+govern are judged by the rules' content, not their wording — so they compress
+inside Concern 1, subject to that concern's two named risks.
+
+### Does the repo gain a check that fails when a prompt grows verbose again?
+
+No. No automated word budget ships: a word count is a bad proxy for verbosity
+and would block legitimate additions. Nothing new is added to `turbo.json` or
+the `test` task list.
