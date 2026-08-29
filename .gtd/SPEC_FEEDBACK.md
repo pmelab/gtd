@@ -1,65 +1,86 @@
-Task 8 — "Re-record the whole baseline in one run" — is the only unmet task.
-Tasks 1–7 are done: 18 `tests:` entries across 9 cases, 9 `llm-rubric` blocks
-(every `violation`, no `clean`), one `providers:` entry, `cellKey` rekeyed to
-`label|case|variant`, `run-turn.mjs` case-agnostic, `asserts/shared.mjs`
-extracted, `architecture-decompose.md` stated and inert.
-`npx vitest run tests/tooling` is green (28 tests).
+Task 8 was never run, so the package does not satisfy its own spec. Three
+smaller problems sit alongside it.
 
-## `evals/baseline.json` is still the pre-rekey two-cell file
+## 1. The baseline was not re-recorded — task 8 is entirely undone
 
-It holds exactly the two cells the rekey was supposed to retire:
+`evals/baseline.json` is still the two-cell file the previous package recorded:
 
 ```
-"gemini-3.5|clean":     { "passed": 4, "total": 4 }
-"gemini-3.5|violation": { "passed": 4, "total": 4 }
+recordedAt: 2026-08-29T11:22:35.457Z
+gemini-3.5|clean:     4/4
+gemini-3.5|violation: 4/4
 ```
 
-`recordedAt` is `2026-08-29T11:22:35.457Z` — a run of the old single-case
-config, before any case file existed. Four of task 8's boxes are directly false:
-2 cells not 18; no key shaped `gemini-3.5|<case>|<variant>`; both bare keys
-remain; `recordedAt` predates the config it must describe.
+Four of task 8's checkboxes fail outright:
 
-Consequence is the four-way failure the spec's own risk note predicted, now at
-nine cases: `report.mjs` emits `gemini-3.5|<case>|<variant>`, so
-`compare-baseline.mjs` reports **18 "not recorded in baseline" violations plus 2
-"missing from run" violations — 20 at once**, and `npm run eval` exits non-zero
-on every run regardless of trial results. The rekey landed without the record
-that has to ship with it.
+- It carries **2 cells, not 18**.
+- Both keys are the **old `gemini-3.5|<variant>` shape**; the spec requires
+  every key be `gemini-3.5|<case>|<variant>` and requires no old key remain.
+- `recordedAt` is **11:22Z, before any new case file existed** (the earliest is
+  13:55) — it cannot correspond to a run of this package's cases.
+- `npm run eval` therefore fails its own gate with **20 violations at once**: 18
+  run cells "not recorded in baseline" plus 2 baseline cells "missing from run".
+  This is exactly the risk task 1 wrote down ("the rekey and the record ship
+  together") and it landed unmitigated.
 
-Fix: run `npm run eval` once against the wired config, then
-`npm run eval:baseline` (`node evals/compare-baseline.mjs --record`), and commit
-the rewritten `evals/baseline.json`. Constraints that must not be traded away:
+**A re-record cannot just be run against the existing `evals/results.json`.**
+That file is from the 15:38 run, and eight cells in it are red:
 
-- **One record for the whole package**, never one per case — 9 cases × 2
-  variants × `--repeat 4` = 72 turns in a single run.
-- **`--max-concurrency` stays 2** (`evals/eval.mjs`). Raising it trades run time
-  for gateway rate-limit failures that get written down as prompt regressions.
-- **A suspiciously low cell is a flake to re-run, not a number to record** —
-  `compare-baseline.mjs` only fails on a rate that DROPS, so a cell recorded
-  below its true rate is a permanently lowered floor.
-- Do not hand-edit the JSON; the file must come out of `--record`.
-- `gemini-3.5-flash-lite` is measured in the coder half for the first time here
-  (`packages-item-building`, `packages-item-fix-suite`,
-  `packages-item-fix-spec`, `build-fix`). Mixed coder cells make it a candidate
-  to replace, not a floor to record.
+```
+build-fix|clean 0/4          build-fix|violation 0/4
+build-review-collecting|clean 0/4    build-review-collecting|violation 2/4
+build-review-reviewing|violation 1/4 design-triage|clean 0/4
+packages-item-fix-spec|violation 0/4 packages-item-fix-suite|clean 1/4
+packages-item-fix-suite|violation 0/4
+```
 
-This task needs `GTD_EVALS_URL` and `GTD_EVALS_KEY` and an hours-long paid run.
-If they are not available to the fix turn, say so plainly rather than
-hand-writing cells — a fabricated baseline is worse than a missing one.
+Several of those reds have since been fixed in `9efc8954` and `8add864e`
+(`build-fix`'s oxfmt "Expected at least one target file" crash,
+`build-review-collecting`'s unreproducible `SilentRetrySwallow` identifier, the
+`plantedIdentifier` grep floors). **The run must be repeated before anything is
+recorded** — recording from this results file would write those stale zeros in
+as the permanent floor, which the spec names as the one thing never to do ("a
+cell recorded below its true rate is a permanently lowered floor").
 
-## Do not revert: the removed `validate` guard
+## 2. Three `challenge` lines describe a fixture that no longer exists
 
-`run-turn.mjs` no longer asserts an empty `validate` step. That is correct and
-must stay deleted, even though task 4's box "Every trial still reports an empty
-`validate` step" reads otherwise — the spec's premise is factually wrong. A
-`mode: qa` / `mode: review` state resolves a built-in validator with no `modes:`
-config present, so `design-triage`, `architecture-author`,
-`build-review-reviewing` and `build-review-collecting` all return a NON-EMPTY
-`gtd next --json=validate`. Restoring the guard fails 8 of 18 trials at startup.
+`evals/promptfooconfig.yaml` lines 225, 254 and 281 all still say the violation
+fixture has "a comment nudging toward loosening its own assertion". Commit
+`8add864e` deleted that comment from all three fixtures —
+`grep -rn "NOTE:" evals/cases/` now returns nothing. The three violation
+fixtures today plant a test file asserting the **correct** behaviour with no
+nudge at all. Either restore the nudge or rewrite the three challenge lines to
+describe what the fixture actually plants.
 
-## Already fixed — do not re-do
+## 3. The "expected no validate step" guard was deleted, against task 4
 
-`packages-item-building`'s two variants no longer grade identically: its
-`violation` entry carries a tier-3 rubric and
-`asserts/packages-item-building.mjs` adds `checkNoOverreach`, which fails a
-`src/formatName.ts` that exports `formatNames`. Settled; leave it alone.
+Task 4's checkbox reads "Every trial still reports an empty `validate` step".
+The guard that enforced it —
+
+```js
+const validate = gtd(repo, env, "next", "--json=validate").trim()
+if (validate) fail(`run-turn: expected no validate step, got "${validate}"`)
+```
+
+— existed in the first version of `evals/run-turn.mjs` and was removed by this
+package. Its replacement comment states the opposite of the spec's premise: a
+`mode: qa`/`mode: review` state **always** carries a non-empty validate script,
+so the guard could never have kept passing.
+
+The code's reasoning is sound, but the checkbox is unmet and the consequence is
+ungraded: **every planner case now lands a `.gtd/` artifact that the real
+workflow's own validator never saw**, so a case can score 4/4 on an artifact
+`gtd validate` would reject. State that trade-off where it belongs (the case
+comment or `docs/development.md`), and make the checkbox reflect what actually
+ships.
+
+## 4. `outOfBounds` fires on the `clean` variant, where the file is not planted
+
+`packages-item-fix-suite`, `packages-item-fix-spec` and `build-fix` declare
+`outOfBounds` at the top level of the case, not per variant, so
+`checkOutOfBounds` (and `outOfBoundsOk` in `run-turn.mjs`) applies it to the
+`clean` variant too — where that test file was never planted. A coder turn
+following the TDD discipline the builder persona asks for would reasonably
+**write** `src/parseAmount.test.ts` to reproduce the failure, and be graded as
+having touched an out-of-bounds file. Scope the check to the variant that plants
+the file, or state in the case comment why creating it is also wrong.
