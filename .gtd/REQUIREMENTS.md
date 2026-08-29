@@ -9,38 +9,6 @@ no turbo task ever executes an eval — **`npm test` cannot catch a broken eval
 run, only broken eval source.** Every concern below therefore leaves the suite
 green trivially; the real ordering constraint is the baseline, not the tests.
 
-## Open Questions
-
-### Does `npm run eval` run every case by default, or only a named subset?
-
-Once all ten prompt states have cases, the default run is 10 cases × 2 variants
-× `--repeat 4` = **80 multi-minute agent turns, sequential, at real token
-cost.** Today's run is 8. The note asks for the cases; it does not say the
-default command must run them all.
-
-- [x] Every case, every run — one honest number, and the baseline gate covers
-      the whole workflow. Accept that `npm run eval` becomes an hours-long,
-      expensive, deliberate action.
-- [ ] `npm run eval` runs a named default subset; the full sweep is a separate
-      opt-in (a case filter or `npm run eval:all`). Keeps the everyday command
-      affordable at the cost of a partial gate.
-- [ ] _your answer_
-
-### Is the tier-3 judge pinned to a dated model id, or left as a gateway alias?
-
-The hand-edit moved the judge from `openai:chat:claude-4-5-sonnet` to
-`openai:chat:gpt-5.4` — **it swapped one floating gateway alias for another.**
-The gateway decides what `gpt-5.4` maps to today, so **a recorded baseline can
-shift with no commit in this repo**, and a regression the gate reports may be
-the judge moving rather than the prompt. The review round raised this exact
-point and the hand-edit did not settle it.
-
-- [x] Pin to a dated id the gateway serves. The baseline becomes reproducible;
-      the cost is a manual bump whenever the gateway retires that id.
-- [ ] Keep the alias and say so in the config. Grading tracks the vendor's
-      current model; baseline drift is accepted and documented.
-- [ ] _your answer_
-
 ## Replace the two-model matrix with one planner/coder configuration
 
 TECHNICAL.
@@ -120,6 +88,13 @@ rejected for planner work.** That is defensible only while no coder-class case
 exists. The moment the first one lands (see the last concern),
 `gemini-3.5-flash-lite` is a candidate under test, not a settled default, and
 must clear both variants at full trial count before its cells are recorded.
+
+**The judge is pinned to a dated model id the gateway serves, never a floating
+alias.** `gpt-5.4` is whatever the gateway maps it to today, so a baseline
+recorded against it can shift with no commit in this repo and a regression the
+gate reports may be the judge moving rather than the prompt. The cost accepted
+in exchange is a manual bump whenever the gateway retires that id — a bump that
+must be treated as a baseline-invalidating change, not a version-string edit.
 
 `JUDGE_MODEL` is duplicated in `run-turn.mjs` rather than imported from the
 YAML, on purpose — it is the startup guard that the judge is never the model
@@ -232,8 +207,11 @@ pins — a `pi` version bump could widen the surface with nothing failing.**
 Either pass the flag that pins it or soften the sentence to describe the
 default; do not leave a guarantee the code does not make.
 
-Whatever the two Open Questions above resolve to lands here too: the default
-run's scope and the judge's pinning are both facts a reader of this doc needs.
+Two settled facts belong in this doc as well: **`npm run eval` runs every case
+every time — hours, real tokens, no default subset** — and **the tier-3 judge is
+pinned to a dated model id, so bumping it invalidates the baseline.** A reader
+deciding whether to run the command needs the first; a reader comparing two
+baselines needs the second.
 
 Acceptance: no sentence in `docs/development.md` describes the providers as
 competing models rather than one configuration.
@@ -284,8 +262,15 @@ cells are recorded, on the same footing as any planner candidate.
 
 **Every case added is a new pair of baseline cells and another full re-record.**
 Recording once per case is wasted money; land the cases, then re-record the
-baseline in one run at the end. Run cost and wall clock scale linearly with the
-count — see the first Open Question.
+baseline in one run at the end.
+
+**`npm run eval` runs every case, every time — no default subset, no case
+filter.** At ten cases that is 10 × 2 variants × `--repeat 4` = **80
+multi-minute agent turns, sequential, at real token cost**, up from today's 8.
+The gate covers the whole workflow and the run yields one honest number; the
+price is that `npm run eval` becomes an hours-long, expensive action nobody
+invokes casually. It is already outside the turbo `test` graph, which is what
+makes that price payable.
 
 Acceptance: every prompt state the workflow can rest at has a two-sided case, or
 a stated reason it cannot have one.
@@ -304,3 +289,15 @@ No. The workflow states that ticking records only that the human read the hunk,
 never sign-off; this round's actionable material is the note plus the four
 hand-edited files, and a REVIEW.md finding enters the plan only where a
 hand-edit touched the same line.
+
+### Does `npm run eval` run every case by default, or only a named subset?
+
+Every case, every run. The baseline gate covers the whole workflow and the run
+reports one honest number, at the accepted cost of an hours-long, expensive
+command — 80 multi-minute turns at ten cases, versus 8 today.
+
+### Is the tier-3 judge pinned to a dated model id, or left as a gateway alias?
+
+Pinned to a dated id the gateway serves, so a recorded baseline is reproducible
+and cannot shift under the repo. The cost accepted is a manual bump whenever the
+gateway retires that id.
