@@ -19,7 +19,11 @@ const PI_BIN = join(HERE, "..", "node_modules", ".bin", "pi")
 // Pinned judge provider id, duplicated (not imported) from
 // evals/promptfooconfig.yaml on purpose: the judge is never the model under
 // test, and this is the startup guard that enforces it.
-const JUDGE_MODEL = "claude-4-5-sonnet"
+const JUDGE_MODEL = "gpt-5.4"
+
+// gtd picks a model per state by class (planner vs. coder); each class needs
+// its own `--<class> <id>` flag and its own fixture env var.
+const MODEL_ENV_VAR = Object.freeze({ planner: "GTD_PLANNERMODEL", coder: "GTD_CODERMODEL" })
 
 const TURN_TIMEOUT_MS = 600_000
 
@@ -29,16 +33,23 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const modelIdx = argv.indexOf("--model")
-  const model = modelIdx !== -1 ? argv[modelIdx + 1] : undefined
+  const models = {}
+  const consumed = new Set()
+  for (const cls of Object.keys(MODEL_ENV_VAR)) {
+    const idx = argv.indexOf(`--${cls}`)
+    models[cls] = idx !== -1 ? argv[idx + 1] : undefined
+    if (idx !== -1) {
+      consumed.add(idx)
+      consumed.add(idx + 1)
+    }
+  }
   // `exec:` hands the rendered `{{variant}}` prompt through as a plain
-  // positional — whichever slot it lands in, it is the one argument left
-  // once --model and its value are removed. With no `--model` at all,
-  // nothing is removed — filtering index 0 unconditionally would drop the
-  // variant itself and misreport a missing model as a missing variant.
-  const rest = modelIdx === -1 ? argv : argv.filter((_, i) => i !== modelIdx && i !== modelIdx + 1)
-  const variant = rest[0]
-  return { model, variant }
+  // positional — it is the first argv entry not consumed by any `--<class>`
+  // flag/value pair. With no model flags at all, nothing is consumed —
+  // filtering index 0 unconditionally would drop the variant itself and
+  // misreport a missing model as a missing variant.
+  const variant = argv.find((_, i) => !consumed.has(i))
+  return { models, variant }
 }
 
 function assertTmpCwd(cwd) {
@@ -78,22 +89,35 @@ async function checkModelServed(gatewayUrl, gatewayKey, model) {
   return ids.has(model) ? undefined : `run-turn: model "${model}" is not served by GTD_EVALS_URL`
 }
 
-// The `/models` check needs a model, a gateway URL, and a key to run at all
-// — any of those already failing makes an additional network call
-// pointless and would otherwise report a confusing secondary error.
-async function modelServedFailure(model, gatewayUrl, gatewayKey) {
-  if (!model || !gatewayUrl || !gatewayKey) return undefined
-  return checkModelServed(gatewayUrl, gatewayKey, model)
+// The `/models` check needs a gateway URL and a key to run at all — either
+// already failing makes an additional network call pointless and would
+// otherwise report a confusing secondary error. Probes each DISTINCT id once
+// (planner === coder collapses to a single call).
+async function modelServedFailures(models, gatewayUrl, gatewayKey) {
+  if (!gatewayUrl || !gatewayKey) return []
+  const failures = []
+  for (const id of new Set(Object.values(models))) {
+    if (!id) continue
+    const failure = await checkModelServed(gatewayUrl, gatewayKey, id)
+    if (failure) failures.push(failure)
+  }
+  return failures
 }
 
-function baseInfraChecks(model, variant, gatewayUrl, gatewayKey) {
+function modelClassChecks(models) {
+  return Object.keys(MODEL_ENV_VAR).flatMap((cls) => [
+    [!models[cls], `run-turn: --${cls} <model> is required`],
+    [
+      models[cls] === JUDGE_MODEL,
+      `run-turn: model under test "${models[cls]}" (${cls}) must never be the pinned judge model`,
+    ],
+  ])
+}
+
+function baseInfraChecks(models, variant, gatewayUrl, gatewayKey) {
   return [
     [!variant || !(variant in spec.variants), `run-turn: unknown or missing variant "${variant}"`],
-    [!model, "run-turn: --model <model> is required"],
-    [
-      model === JUDGE_MODEL,
-      `run-turn: model under test "${model}" must never be the pinned judge model`,
-    ],
+    ...modelClassChecks(models),
     [
       !existsSync(GTD_BIN),
       `run-turn: missing bundle at ${GTD_BIN} — run \`npx turbo run build\` first`,
@@ -104,17 +128,18 @@ function baseInfraChecks(model, variant, gatewayUrl, gatewayKey) {
   ]
 }
 
-async function infraFailures(model, variant) {
+async function infraFailures(models, variant) {
   const gatewayUrl = process.env.GTD_EVALS_URL
   const gatewayKey = process.env.GTD_EVALS_KEY
-  const checks = baseInfraChecks(model, variant, gatewayUrl, gatewayKey)
-  const modelFailure = await modelServedFailure(model, gatewayUrl, gatewayKey)
-  if (modelFailure) checks.push([true, modelFailure])
+  const checks = baseInfraChecks(models, variant, gatewayUrl, gatewayKey)
+  for (const message of await modelServedFailures(models, gatewayUrl, gatewayKey)) {
+    checks.push([true, message])
+  }
   return checks
 }
 
-async function checkInfra(model, variant) {
-  for (const [failed, message] of await infraFailures(model, variant)) {
+async function checkInfra(models, variant) {
+  for (const [failed, message] of await infraFailures(models, variant)) {
     if (failed) fail(message)
   }
 }
@@ -293,15 +318,17 @@ function landAndInspect(repo, env, variant) {
 }
 
 async function main() {
-  const { model, variant } = parseArgs(process.argv.slice(2))
-  await checkInfra(model, variant)
+  const { models, variant } = parseArgs(process.argv.slice(2))
+  await checkInfra(models, variant)
 
   // Read before scrubbing: scrubbedEnv drops every `GTD_*` var, including
   // these two.
   const gatewayUrl = process.env.GTD_EVALS_URL
   const gatewayKey = process.env.GTD_EVALS_KEY
 
-  const env = scrubbedEnv({ GTD_PLANNERMODEL: model })
+  const env = scrubbedEnv(
+    Object.fromEntries(Object.entries(MODEL_ENV_VAR).map(([cls, envVar]) => [envVar, models[cls]])),
+  )
 
   let repo
   try {
@@ -320,7 +347,8 @@ async function main() {
     console.error(`run-turn: fixture repo kept at ${repo}`)
   }
 
-  process.stdout.write(JSON.stringify({ repo, variant, model, ...result }) + "\n")
+  const modelsField = `planner=${models.planner} coder=${models.coder}`
+  process.stdout.write(JSON.stringify({ repo, variant, models: modelsField, ...result }) + "\n")
 }
 
 main().catch((err) => fail(`run-turn: unexpected error: ${err.stack ?? err.message}`))

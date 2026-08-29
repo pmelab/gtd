@@ -6,23 +6,37 @@ description: gtd prompt evals — the packages.item.spec.review spec-review case
 prompts:
   - "{{variant}}"
 
-# Two providers turn the same run into the comparison matrix: `planner` is
-# the tier packages.item.spec.review actually runs under (plannerModel),
-# `cheap` is a lower tier — a one-model run couldn't show a tier trade-off.
-# The model rides on the provider's own command line, not a `config:` block,
-# so run-turn.mjs can inject it as GTD_PLANNERMODEL (never `--var
-# plannerModel=`, which an ambient env var would silently outrank).
+# Two planner candidates were measured on the full --repeat (4 trials) on
+# BOTH variants and rejected — a single trial is not enough signal, and
+# any future replacement must clear the same bar before it replaces this
+# one:
+#   - deepseek-v3.2: read the `violation` variant as clean and closed the
+#     package with no feedback.
+#   - gemini-3.5-flash-lite: flagged the `clean` variant for "missing
+#     automated unit tests" — a requirement the spec never asks for.
+# gemini-3.5-flash-lite still sits in the CODER half below, unmeasured —
+# no coder-class case exists yet, so it was rejected only for planner
+# work. The moment a coder-class case lands, it becomes a candidate under
+# test again and must clear both variants at full trial count before its
+# cells are recorded.
+#
+# This is deliberately the only configuration in the matrix: every extra
+# provider multiplies trials = cases × variants × --repeat × providers and
+# adds a baseline.json cell that can flake. Comparing two model choices is
+# a two-line edit for one run, not a permanent cost on every run.
 providers:
-  - id: "exec:node run-turn.mjs --model claude-4-5-opus"
-    label: planner
-  - id: "exec:node run-turn.mjs --model claude-4-5-haiku"
-    label: cheap
+  - id: "exec:node run-turn.mjs --planner gemini-3.5-flash --coder gemini-3.5-flash-lite"
+    label: gemini-3.5
 
 # Two-sided by construction: a prompt that always flags fails `clean`, one
 # that never flags fails `violation` — see evals/cases/spec-review.mjs.
 tests:
   - vars:
       variant: violation
+      challenge: >-
+        safeDivide(a, 0) returns Infinity instead of throwing
+        DivisionByZeroError; the reviewer MUST write .gtd/SPEC_FEEDBACK.md
+        naming it.
     assert:
       # Tier 1 + 2, deterministic — no model, no cost.
       - type: javascript
@@ -35,18 +49,30 @@ tests:
       # minutes.
       - type: llm-rubric
         transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        # Deliberately does not require the feedback to prescribe a fix:
+        # whether spec-review feedback should prescribe the fix is a
+        # workflow-prompt question, not something to smuggle into the
+        # grader — don't re-add that clause.
         value: >-
-          The feedback names the concrete defect in the implementation and
-          says specifically what to change to fix it. Vague statements like
-          "the package has problems" must fail, and so must the literal text
-          "STRUCTURAL FAILURE".
+          The feedback names the concrete defect: the specific behaviour that
+          violates the spec, identified precisely enough that a reader knows
+          which code is wrong and why. It does not need to prescribe the fix.
+          Vague statements like "the package has problems" must fail, and so
+          must the literal text "STRUCTURAL FAILURE".
         # Pinned and never a model in the matrix above — a model grading its
         # own output is not a grader. Reaches GTD_EVALS_URL through
         # OPENAI_BASE_URL/OPENAI_API_KEY, set in evals/eval.mjs's spawn env —
-        # no credentials live in this file.
-        provider: "openai:chat:claude-4-5-sonnet"
+        # no credentials live in this file. This exact string is DUPLICATED
+        # in evals/run-turn.mjs's JUDGE_MODEL constant on purpose — that's
+        # the startup guard enforcing the judge is never the model under
+        # test. Changing the judge means changing both files, or the guard
+        # is disarmed without failing anything.
+        provider: "openai:chat:gpt-5.4"
   - vars:
       variant: clean
+      challenge: >-
+        safeDivide throws DivisionByZeroError exactly as the spec requires;
+        the reviewer MUST stay silent and change nothing.
     assert:
       # clean has no feedback to judge — tiers 1/2 only.
       - type: javascript
