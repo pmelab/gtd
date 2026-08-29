@@ -129,8 +129,8 @@ vars:
   # sentence ahead of the tag instead, keeping every word.
   stateFileRules: |-
     - You are an autonomous coding agent
-    - This workflow steers itself through its own state files — its
-      private scratchpad, never project code or documentation
+    - Its state files are a private scratchpad, never project code or
+      documentation
   # The open-questions warrant test, decide-it-yourself sink, and `## Open
   # Questions` checkbox shape shared by `design.triage` and
   # `architecture.author` — written phase-agnostic (no PRODUCT/TECHNICAL
@@ -180,12 +180,10 @@ vars:
   # the appended paragraph lands in the same position it renders in today);
   # `build.fix` renders the tag alone.
   fixFeedbackPrompt: |-
-    - The only state file this turn touches is `.gtd/FEEDBACK.md`; fix it
-      per its contents, or delete it if the feedback is wrong — no other
-      files for notes or output
-    - Read `.gtd/FEEDBACK.md` (the failing test output) and fix the code so
-      the suite passes; keep the change focused, never refactor unrelated
-      code
+    - The only state file this turn touches is `.gtd/FEEDBACK.md` — no
+      other files for notes or output
+    - Read it (the failing test output) and fix the code so the suite
+      passes; keep the change focused, never refactor unrelated code
     - If the feedback is wrong, empty or delete `.gtd/FEEDBACK.md` instead
       of "fixing" a non-issue
 
@@ -567,10 +565,13 @@ machines:
             build-on-top sequence from collapsing into one blob). This
             authority is to merge only, never to split — the whole problem
             is over-granularity
-          - Record every merge under `## Merged Concerns`, carrying both merged requirements
-            verbatim so spec review still covers each independently
-          - A merge raises no open question and stops for no human — do not route it to `architecture.gate` for a veto; the human sees it
-            when reviewing the plan, and spec review is the real safety net
+          - Record every merge under `## Merged Concerns`,
+            carrying both merged requirements verbatim so spec review
+            still covers each independently
+          - A merge raises no open question and stops for no
+            human — do not route it to `architecture.gate` for a veto; the
+            human sees it when reviewing the plan, and spec review is the
+            real safety net
           - Prefer fewer, larger packages — the smallest independently
             valuable change, not the smallest change that compiles
           - Every open point here is TECHNICAL — triage already resolved
