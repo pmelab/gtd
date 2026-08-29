@@ -32,11 +32,14 @@ builds the bundle, tags it, and publishes.
 ## Prompt evals
 
 `npm run eval` grades the bundled workflow's own prompts against a real model,
-using [promptfoo](https://www.promptfoo.dev/). It requires `ANTHROPIC_API_KEY`
-(the `llm-rubric` judge tier calls the Anthropic API directly — the driver turns
-themselves run through the `claude` CLI's own auth) and needs `claude` on
-`PATH`. It is not part of `npm test`: each case drives real, multi-minute agent
-turns and costs real model calls.
+using [promptfoo](https://www.promptfoo.dev/). It requires `GTD_EVALS_URL` (an
+OpenAI-compatible gateway) and `GTD_EVALS_KEY` — both the driver turn (run
+through the
+[pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent))
+and the `llm-rubric` judge reach the model exclusively through that gateway; no
+`ANTHROPIC_API_KEY` and no `claude` CLI are involved. It is not part of
+`npm test`: each case drives real, multi-minute agent turns and costs real model
+calls.
 
 ```bash
 npm run eval                              # build, then run every case against both matrix models
@@ -45,25 +48,24 @@ EVAL_CLEAN=1 npm run eval                 # delete each fixture repo after gradi
 ```
 
 Each case builds a fresh, disposable fixture repo per trial, drives exactly one
-real driver turn against it (`gtd next` → `claude -p` → `gtd land`), and grades
-the result through three tiers, cheapest first: deterministic `javascript`
-asserts on which files changed, a grep floor for a planted identifier, and —
-only once both pass — an `llm-rubric` judge scoring whether the feedback is
-actually useful. promptfoo's own end-of-run summary and `results.json`'s
-per-provider counts are both summed across fixtures AND models, so
-`npm run eval` runs through `evals/eval.mjs` rather than the bare `promptfoo`
-CLI: it strips that aggregate line out of promptfoo's own output as it streams
-(the per-test results table above it is untouched) and prints
-`evals/report.mjs`'s own pass rate **per fixture, per model** (out of
-`--repeat`'s trial count) in its place — never averaged across fixtures or
-models, since a suite that averages a two-sided case's variants hides exactly
-the failure those variants exist to expose. `evals/eval.mjs` still exits with
-promptfoo's own exit code, so a failing assertion still fails `npm run eval`.
-`npm run eval` also passes `--no-cache`: `--repeat` does not disable promptfoo's
-own result cache, and running the same config by hand from `evals/` (its own
-`basePath`) makes the exec provider's script hashes resolve — without
-`--no-cache`, later trials would silently replay an earlier trial's cached JSON
-instead of a fresh turn.
+real driver turn against it (`gtd next` → `pi -p` → `gtd land`), and grades the
+result through three tiers, cheapest first: deterministic `javascript` asserts
+on which files changed, a grep floor for a planted identifier, and — only once
+both pass — an `llm-rubric` judge scoring whether the feedback is actually
+useful. promptfoo's own end-of-run summary and `results.json`'s per-provider
+counts are both summed across fixtures AND models, so `npm run eval` runs
+through `evals/eval.mjs` rather than the bare `promptfoo` CLI: it strips that
+aggregate line out of promptfoo's own output as it streams (the per-test results
+table above it is untouched) and prints `evals/report.mjs`'s own pass rate **per
+fixture, per model** (out of `--repeat`'s trial count) in its place — never
+averaged across fixtures or models, since a suite that averages a two-sided
+case's variants hides exactly the failure those variants exist to expose.
+`evals/eval.mjs` still exits with promptfoo's own exit code, so a failing
+assertion still fails `npm run eval`. `npm run eval` also passes `--no-cache`:
+`--repeat` does not disable promptfoo's own result cache, and running the same
+config by hand from `evals/` (its own `basePath`) makes the exec provider's
+script hashes resolve — without `--no-cache`, later trials would silently replay
+an earlier trial's cached JSON instead of a fresh turn.
 
 To add a case: write `evals/cases/<name>.mjs` exporting a frozen object shaped
 like `evals/cases/spec-review.mjs` (a `state` to enter, two-sided
@@ -93,13 +95,6 @@ npm run eval:baseline   # rewrites evals/baseline.json from the last results.jso
 
 Commit the resulting `evals/baseline.json` as its own reviewable change, same as
 any other snapshot update.
-
-The committed `evals/baseline.json` is currently an unverified placeholder floor
-(`recordedAt` says so), not a snapshot of a real run — no `ANTHROPIC_API_KEY`
-was available to produce one when the gate was built. Re-record it with a real
-`npm run eval` / `npm run eval:baseline` pair as the first order of business
-once that's available; until then, every cell reading a perfect `4/4` reflects
-nothing observed.
 
 Because a single trial is a real, non-deterministic agent turn, a healthy prompt
 occasionally fails one out of `--repeat` trials — a single flaky turn is 25% of

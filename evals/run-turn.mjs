@@ -1,21 +1,25 @@
 #!/usr/bin/env node
 // The promptfoo `exec:` provider for the spec-review case: builds a fixture
-// repo, drives exactly ONE real driver turn against it (`gtd next` -> `claude
-// -p` -> `gtd land`), and prints one line of JSON for the graders in
+// repo, drives exactly ONE real driver turn against it (`gtd next` -> `pi -p`
+// -> `gtd land`), and prints one line of JSON for the graders in
 // `evals/asserts/spec-review.mjs` (tiers 1/2) and the `llm-rubric` in
 // `evals/promptfooconfig.yaml` (tier 3) to inspect.
-import { execFileSync, execSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import assert from "node:assert"
 import spec from "./cases/spec-review.mjs"
 import { buildFixture, scrubbedEnv, GTD_BIN, OXFMT_BIN } from "./fixture.mjs"
 
+const HERE = dirname(fileURLToPath(import.meta.url))
+const PI_BIN = join(HERE, "..", "node_modules", ".bin", "pi")
+
 // Pinned judge provider id, duplicated (not imported) from
 // evals/promptfooconfig.yaml on purpose: the judge is never the model under
 // test, and this is the startup guard that enforces it.
-const JUDGE_MODEL = "anthropic:messages:claude-sonnet-4-5-20250929"
+const JUDGE_MODEL = "claude-4-5-sonnet"
 
 const TURN_TIMEOUT_MS = 600_000
 
@@ -51,12 +55,67 @@ function gtd(cwd, env, ...args) {
   return execFileSync(process.execPath, [GTD_BIN, ...args], { cwd, env, encoding: "utf-8" })
 }
 
-function claudeOnPath() {
+// Throws on an unreachable gateway or a non-2xx response — the caller
+// treats either as a precondition failure, never a skipped check: treating
+// an unreachable gateway as "the id is probably fine" sends the run into 16
+// doomed turns instead of failing loudly at startup.
+async function fetchServedModelIds(gatewayUrl, gatewayKey) {
+  const res = await fetch(`${gatewayUrl}/models`, {
+    headers: { Authorization: `Bearer ${gatewayKey}` },
+  })
+  if (!res.ok) throw new Error(`GET ${gatewayUrl}/models responded ${res.status}`)
+  const body = await res.json()
+  return new Set((body.data ?? []).map((m) => m.id))
+}
+
+async function checkModelServed(gatewayUrl, gatewayKey, model) {
+  let ids
   try {
-    execSync("command -v claude", { stdio: "ignore" })
-    return true
-  } catch {
-    return false
+    ids = await fetchServedModelIds(gatewayUrl, gatewayKey)
+  } catch (err) {
+    return `run-turn: ${err.message}`
+  }
+  return ids.has(model) ? undefined : `run-turn: model "${model}" is not served by GTD_EVALS_URL`
+}
+
+// The `/models` check needs a model, a gateway URL, and a key to run at all
+// — any of those already failing makes an additional network call
+// pointless and would otherwise report a confusing secondary error.
+async function modelServedFailure(model, gatewayUrl, gatewayKey) {
+  if (!model || !gatewayUrl || !gatewayKey) return undefined
+  return checkModelServed(gatewayUrl, gatewayKey, model)
+}
+
+function baseInfraChecks(model, variant, gatewayUrl, gatewayKey) {
+  return [
+    [!variant || !(variant in spec.variants), `run-turn: unknown or missing variant "${variant}"`],
+    [!model, "run-turn: --model <model> is required"],
+    [
+      model === JUDGE_MODEL,
+      `run-turn: model under test "${model}" must never be the pinned judge model`,
+    ],
+    [
+      !existsSync(GTD_BIN),
+      `run-turn: missing bundle at ${GTD_BIN} — run \`npx turbo run build\` first`,
+    ],
+    [!existsSync(PI_BIN), `run-turn: missing bundle at ${PI_BIN} — run \`npm install\` first`],
+    [!gatewayUrl, "run-turn: GTD_EVALS_URL is not set"],
+    [!gatewayKey, "run-turn: GTD_EVALS_KEY is not set"],
+  ]
+}
+
+async function infraFailures(model, variant) {
+  const gatewayUrl = process.env.GTD_EVALS_URL
+  const gatewayKey = process.env.GTD_EVALS_KEY
+  const checks = baseInfraChecks(model, variant, gatewayUrl, gatewayKey)
+  const modelFailure = await modelServedFailure(model, gatewayUrl, gatewayKey)
+  if (modelFailure) checks.push([true, modelFailure])
+  return checks
+}
+
+async function checkInfra(model, variant) {
+  for (const [failed, message] of await infraFailures(model, variant)) {
+    if (failed) fail(message)
   }
 }
 
@@ -89,37 +148,44 @@ function unformattedGtdFiles(repo, env) {
   }
 }
 
-function infraFailures(model, variant) {
-  return [
-    [!variant || !(variant in spec.variants), `run-turn: unknown or missing variant "${variant}"`],
-    [!model, "run-turn: --model <model> is required"],
-    [
-      Boolean(model) && JUDGE_MODEL.includes(model),
-      `run-turn: model under test "${model}" must never be the pinned judge model`,
-    ],
-    [
-      !existsSync(GTD_BIN),
-      `run-turn: missing bundle at ${GTD_BIN} — run \`npx turbo run build\` first`,
-    ],
-    [!claudeOnPath(), "run-turn: `claude` is not on PATH"],
-    [!process.env.ANTHROPIC_API_KEY, "run-turn: ANTHROPIC_API_KEY is not set"],
-  ]
-}
-
-function checkInfra(model, variant) {
-  for (const [failed, message] of infraFailures(model, variant)) {
-    if (failed) fail(message)
+/**
+ * Writes pi's per-run config directory: a `models.json` declaring exactly
+ * the one model under test as an OpenAI-compatible provider pointed at
+ * `GTD_EVALS_URL`. The real key never lands in the file (`apiKey` is a
+ * placeholder) — it rides on `--api-key` at spawn time, because a
+ * `"$GTD_EVALS_KEY"` interpolation cannot resolve against a scrubbed
+ * environment.
+ */
+function writePiConfig(gatewayUrl, model) {
+  const piDir = mkdtempSync(join(tmpdir(), "gtd-eval-pi-"))
+  const modelsJson = {
+    providers: {
+      "gtd-evals": {
+        baseUrl: gatewayUrl,
+        api: "openai-completions",
+        apiKey: "unused",
+        compat: { supportsDeveloperRole: false },
+        models: [{ id: model, contextWindow: 200_000, maxTokens: 32_000 }],
+      },
+    },
   }
+  try {
+    writeFileSync(join(piDir, "models.json"), JSON.stringify(modelsJson, null, 2) + "\n")
+  } catch (err) {
+    // A failed write must fail the trial rather than let pi fall back to a
+    // built-in provider and grade a model nobody chose.
+    fail(`run-turn: failed to write ${piDir}/models.json: ${err.message}`)
+  }
+  return piDir
 }
 
 /** Reads the rest gtd's landed fixture is resting at, and runs the ONE agent turn against it. */
-function driveTurn(repo, env) {
+function driveTurn(repo, env, gatewayUrl, gatewayKey) {
   const kind = gtd(repo, env, "next", "--json=kind").trim()
   if (kind !== "prompt") {
     fail(`run-turn: expected a "prompt" rest, got "${kind}" (repo kept at ${repo})`)
   }
 
-  const sessionId = gtd(repo, env, "next", "--json=session.id").trim()
   const turnModel = gtd(repo, env, "next", "--json=model").trim()
   const system = gtd(repo, env, "next", "--json=system").trim()
   const validate = gtd(repo, env, "next", "--json=validate").trim()
@@ -127,21 +193,25 @@ function driveTurn(repo, env) {
 
   const prompt = gtd(repo, env, "next")
 
+  const piDir = writePiConfig(gatewayUrl, turnModel)
+  const piEnv = { ...env, PI_CODING_AGENT_DIR: piDir, PI_OFFLINE: "1" }
+
   assertTmpCwd(repo)
   try {
     execFileSync(
-      "claude",
+      PI_BIN,
       [
         "-p",
-        "--session-id",
-        sessionId,
         "--model",
-        turnModel,
+        `gtd-evals/${turnModel}`,
         "--system-prompt",
         system,
-        "--dangerously-skip-permissions",
+        "--api-key",
+        gatewayKey,
+        "--no-session",
+        "-nc",
       ],
-      { cwd: repo, env, input: prompt, encoding: "utf-8", timeout: TURN_TIMEOUT_MS },
+      { cwd: repo, env: piEnv, input: prompt, encoding: "utf-8", timeout: TURN_TIMEOUT_MS },
     )
   } catch (err) {
     fail(`run-turn: agent turn failed or timed out: ${err.message} (repo kept at ${repo})`)
@@ -224,7 +294,12 @@ function landAndInspect(repo, env, variant) {
 
 async function main() {
   const { model, variant } = parseArgs(process.argv.slice(2))
-  checkInfra(model, variant)
+  await checkInfra(model, variant)
+
+  // Read before scrubbing: scrubbedEnv drops every `GTD_*` var, including
+  // these two.
+  const gatewayUrl = process.env.GTD_EVALS_URL
+  const gatewayKey = process.env.GTD_EVALS_KEY
 
   const env = scrubbedEnv({ GTD_PLANNERMODEL: model })
 
@@ -236,7 +311,7 @@ async function main() {
     return
   }
 
-  driveTurn(repo, env)
+  driveTurn(repo, env, gatewayUrl, gatewayKey)
   const result = landAndInspect(repo, env, variant)
 
   if (process.env.EVAL_CLEAN === "1") {

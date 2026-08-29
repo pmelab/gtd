@@ -23,11 +23,16 @@ export const OXFMT_BIN = join(HERE, "..", "node_modules", ".bin", "oxfmt")
 const OXFMTRC_PATH = join(HERE, "..", ".oxfmtrc.json")
 
 /**
- * Every `GTD_*` var except a caller-supplied model override is dropped, and
- * `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GTD_LOOP_LOG` are always
- * dropped — an inherited `GIT_DIR` would write a fixture's commits into the
- * real repository instead of the throwaway one.
+ * Every `GTD_*`, `PI_*`, and `OPENAI_*` var except a caller-supplied override
+ * is dropped, and `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GTD_LOOP_LOG`
+ * are always dropped — an inherited `GIT_DIR` would write a fixture's
+ * commits into the real repository instead of the throwaway one. This also
+ * strips `GTD_EVALS_URL` and `GTD_EVALS_KEY` (both start with `GTD_`), so
+ * every read of them must happen from `process.env` in the parent, before
+ * this runs.
  */
+const SCRUBBED_PREFIXES = ["GTD_", "PI_", "OPENAI_"]
+
 export function scrubbedEnv(overrides = {}) {
   const env = { ...process.env }
   delete env.GIT_DIR
@@ -35,7 +40,7 @@ export function scrubbedEnv(overrides = {}) {
   delete env.GIT_INDEX_FILE
   delete env.GTD_LOOP_LOG
   for (const key of Object.keys(env)) {
-    if (key.startsWith("GTD_")) delete env[key]
+    if (SCRUBBED_PREFIXES.some((prefix) => key.startsWith(prefix))) delete env[key]
   }
   return { ...env, ...overrides }
 }

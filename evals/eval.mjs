@@ -82,8 +82,18 @@ function filterAggregate(line, suppressing) {
 
 function runPromptfoo(extraArgs) {
   return new Promise((resolve) => {
+    // The only place in evals/ that reads or sets OPENAI_*: the tier-3
+    // llm-rubric provider in promptfooconfig.yaml is an `openai:` provider
+    // id, which promptfoo itself points at OPENAI_BASE_URL/OPENAI_API_KEY —
+    // both mapped here from GTD_EVALS_URL/GTD_EVALS_KEY so the judge reaches
+    // the gateway too, with no credentials written into the YAML.
     const child = spawn("promptfoo", promptfooArgs(extraArgs), {
       stdio: ["inherit", "pipe", "inherit"],
+      env: {
+        ...process.env,
+        OPENAI_BASE_URL: process.env.GTD_EVALS_URL,
+        OPENAI_API_KEY: process.env.GTD_EVALS_KEY,
+      },
     })
     const filter = makeLineFilter(filterAggregate)
     child.stdout.on("data", (chunk) => filter.onChunk(chunk.toString("utf-8")))

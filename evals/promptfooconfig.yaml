@@ -13,9 +13,9 @@ prompts:
 # so run-turn.mjs can inject it as GTD_PLANNERMODEL (never `--var
 # plannerModel=`, which an ambient env var would silently outrank).
 providers:
-  - id: "exec:node run-turn.mjs --model opus"
+  - id: "exec:node run-turn.mjs --model claude-4-5-opus"
     label: planner
-  - id: "exec:node run-turn.mjs --model haiku"
+  - id: "exec:node run-turn.mjs --model claude-4-5-haiku"
     label: cheap
 
 # Two-sided by construction: a prompt that always flags fails `clean`, one
@@ -41,8 +41,10 @@ tests:
           "the package has problems" must fail, and so must the literal text
           "STRUCTURAL FAILURE".
         # Pinned and never a model in the matrix above — a model grading its
-        # own output is not a grader.
-        provider: "anthropic:messages:claude-sonnet-4-5-20250929"
+        # own output is not a grader. Reaches GTD_EVALS_URL through
+        # OPENAI_BASE_URL/OPENAI_API_KEY, set in evals/eval.mjs's spawn env —
+        # no credentials live in this file.
+        provider: "openai:chat:claude-4-5-sonnet"
   - vars:
       variant: clean
     assert:
