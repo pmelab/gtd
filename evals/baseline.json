@@ -1,20 +1,12 @@
 {
-  "recordedAt": "2026-08-29T08:58:42.912Z",
+  "recordedAt": "2026-08-29T10:24:07.059Z",
   "trials": 4,
   "rates": {
-    "cheap|clean": {
+    "gemini-3.5|clean": {
       "passed": 4,
       "total": 4
     },
-    "cheap|violation": {
-      "passed": 3,
-      "total": 4
-    },
-    "planner|clean": {
-      "passed": 4,
-      "total": 4
-    },
-    "planner|violation": {
+    "gemini-3.5|violation": {
       "passed": 4,
       "total": 4
     }

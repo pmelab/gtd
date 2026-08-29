@@ -31,7 +31,7 @@ builds the bundle, tags it, and publishes.
 
 ## Prompt evals
 
-`npm run eval` grades the bundled workflow's own prompts against a real model,
+`npm run eval` grades the bundled workflow's own prompts against real models,
 using [promptfoo](https://www.promptfoo.dev/). Prerequisites are exactly two
 environment variables: `GTD_EVALS_URL` (an OpenAI-compatible gateway) and
 `GTD_EVALS_KEY` — both the driver turn, run as one `gtd next` → `pi -p` →
@@ -42,15 +42,15 @@ other credential source is read. It is not part of `npm test`: each case drives
 real, multi-minute agent turns and costs real model calls.
 
 ```bash
-npm run eval                              # build, then run every case against both matrix models
+npm run eval                              # build, then run every case under every model configuration
 GTD_EVAL_WORKFLOW=./my-workflow.yaml npm run eval  # grade a scratch workflow instead of the bundled default
 EVAL_CLEAN=1 npm run eval                 # delete each fixture repo after grading (kept by default, for post-mortem)
 ```
 
-Grading is versioned on two axes: the model matrix above, and the harness itself
-— pinned to `pi-coding-agent` 0.84.4, restricted to a four-tool surface (`read`,
-`write`, `edit`, `bash`). A reader comparing two baselines needs to know the
-harness moved, not just the model.
+Grading is versioned on two axes: the model configurations above, and the
+harness itself — pinned to `pi-coding-agent` 0.84.4, restricted to a four-tool
+surface (`read`, `write`, `edit`, `bash`). A reader comparing two baselines
+needs to know the harness moved, not just the models.
 
 Each case builds a fresh, disposable fixture repo per trial, drives exactly one
 real driver turn against it (`gtd next` → `pi -p` → `gtd land`), and grades the
@@ -58,25 +58,37 @@ result through three tiers, cheapest first: deterministic `javascript` asserts
 on which files changed, a grep floor for a planted identifier, and — only once
 both pass — an `llm-rubric` judge scoring whether the feedback is actually
 useful. promptfoo's own end-of-run summary and `results.json`'s per-provider
-counts are both summed across fixtures AND models, so `npm run eval` runs
-through `evals/eval.mjs` rather than the bare `promptfoo` CLI: it strips that
-aggregate line out of promptfoo's own output as it streams (the per-test results
-table above it is untouched) and prints `evals/report.mjs`'s own pass rate **per
-fixture, per model** (out of `--repeat`'s trial count) in its place — never
-averaged across fixtures or models, since a suite that averages a two-sided
-case's variants hides exactly the failure those variants exist to expose.
-`evals/eval.mjs` still exits with promptfoo's own exit code, so a failing
-assertion still fails `npm run eval`. `npm run eval` also passes `--no-cache`:
-`--repeat` does not disable promptfoo's own result cache, and running the same
-config by hand from `evals/` (its own `basePath`) makes the exec provider's
-script hashes resolve — without `--no-cache`, later trials would silently replay
-an earlier trial's cached JSON instead of a fresh turn.
+counts are both summed across fixtures AND configurations, so `npm run eval`
+runs through `evals/eval.mjs` rather than the bare `promptfoo` CLI: it strips
+that aggregate line out of promptfoo's own output as it streams (the per-test
+results table above it is untouched) and prints `evals/report.mjs`'s own pass
+rate **per fixture, per configuration** (out of `--repeat`'s trial count) in its
+place — never averaged across fixtures or configurations, since a suite that
+averages a two-sided case's variants hides exactly the failure those variants
+exist to expose. `evals/eval.mjs` still exits with promptfoo's own exit code, so
+a failing assertion still fails `npm run eval`. `npm run eval` also passes
+`--no-cache`: `--repeat` does not disable promptfoo's own result cache, and
+running the same config by hand from `evals/` (its own `basePath`) makes the
+exec provider's script hashes resolve — without `--no-cache`, later trials would
+silently replay an earlier trial's cached JSON instead of a fresh turn.
 
 To add a case: write `evals/cases/<name>.mjs` exporting a frozen object shaped
 like `evals/cases/spec-review.mjs` (a `state` to enter, two-sided
 `base`/`variants` fixture content, and a `plantedIdentifier` the defect
 variant's feedback must name), add a matching `evals/asserts/<name>.mjs` grader,
 and wire both into `evals/promptfooconfig.yaml`'s `tests:`.
+
+A case names a workflow `state`, never a model. Each provider in
+`evals/promptfooconfig.yaml` is one model **configuration** — a `planner` and a
+`coder` model — and the class the state is marked with decides which half the
+turn runs under, so a review case and a build case in the same run are each
+graded on the tier they ship against. The committed default is ONE
+configuration: every extra provider multiplies the whole run and adds a baseline
+cell that can flake. To compare model choices, add a second provider, run once,
+and read the two rows of the per-cell matrix against each other. The matrix and
+`evals/baseline.json` both key off the provider's `label`, so a label that
+appears or disappears reads as an unrecorded cell or a missing one and fails the
+gate until you re-record.
 
 ### The baseline regression gate
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The promptfoo `exec:` provider for the spec-review case: builds a fixture
-// repo, drives exactly ONE real driver turn against it (`gtd next` -> `pi -p`
-// -> `gtd land`), and prints one line of JSON for the graders in
+// repo under one model CONFIGURATION (`--planner <id> --coder <id>`), drives
+// exactly ONE real driver turn against it (`gtd next` -> `pi -p` ->
+// `gtd land`), and prints one line of JSON for the graders in
 // `evals/asserts/spec-review.mjs` (tiers 1/2) and the `llm-rubric` in
 // `evals/promptfooconfig.yaml` (tier 3) to inspect.
 import { execFileSync } from "node:child_process"
@@ -19,7 +20,7 @@ const PI_BIN = join(HERE, "..", "node_modules", ".bin", "pi")
 // Pinned judge provider id, duplicated (not imported) from
 // evals/promptfooconfig.yaml on purpose: the judge is never the model under
 // test, and this is the startup guard that enforces it.
-const JUDGE_MODEL = "claude-4-5-sonnet"
+const JUDGE_MODEL = "gpt-5.4"
 
 const TURN_TIMEOUT_MS = 600_000
 
@@ -28,17 +29,41 @@ function fail(message) {
   process.exit(1)
 }
 
+// The workflow marks every prompt state with a model CLASS —
+// `plannerModel` for triage/design/review turns, `coderModel` for build/fix
+// turns (`src/workflows/unified.yaml`). A case therefore never picks its own
+// model: it names a state, and the class that state is marked with decides
+// which of the pair the turn runs under. `driveTurn` reads the resolved name
+// back out of `gtd next --json=model` rather than assuming either one.
+const MODEL_CLASSES = Object.freeze({ planner: "GTD_PLANNERMODEL", coder: "GTD_CODERMODEL" })
+
+/**
+ * `--planner <model> --coder <model> <variant>`. Both flags are always
+ * required even though a given case exercises only the class its state is
+ * marked with — a configuration is a PAIR, and letting one half go
+ * unspecified would silently grade a fallback nobody recorded.
+ */
 function parseArgs(argv) {
-  const modelIdx = argv.indexOf("--model")
-  const model = modelIdx !== -1 ? argv[modelIdx + 1] : undefined
+  const models = {}
+  const consumed = new Set()
+  for (const [name, _envVar] of Object.entries(MODEL_CLASSES)) {
+    const idx = argv.indexOf(`--${name}`)
+    if (idx === -1) continue
+    models[name] = argv[idx + 1]
+    consumed.add(idx).add(idx + 1)
+  }
   // `exec:` hands the rendered `{{variant}}` prompt through as a plain
   // positional — whichever slot it lands in, it is the one argument left
-  // once --model and its value are removed. With no `--model` at all,
-  // nothing is removed — filtering index 0 unconditionally would drop the
-  // variant itself and misreport a missing model as a missing variant.
-  const rest = modelIdx === -1 ? argv : argv.filter((_, i) => i !== modelIdx && i !== modelIdx + 1)
-  const variant = rest[0]
-  return { model, variant }
+  // once every flag and its value are removed.
+  const variant = argv.filter((_, i) => !consumed.has(i))[0]
+  return { models, variant }
+}
+
+/** `planner=<id> coder=<id>`, the configuration label's expansion, for the result JSON. */
+function describeModels(models) {
+  return Object.entries(models)
+    .map(([cls, id]) => `${cls}=${id}`)
+    .join(" ")
 }
 
 function assertTmpCwd(cwd) {
@@ -80,20 +105,34 @@ async function checkModelServed(gatewayUrl, gatewayKey, model) {
 
 // The `/models` check needs a model, a gateway URL, and a key to run at all
 // — any of those already failing makes an additional network call
-// pointless and would otherwise report a confusing secondary error.
-async function modelServedFailure(model, gatewayUrl, gatewayKey) {
-  if (!model || !gatewayUrl || !gatewayKey) return undefined
-  return checkModelServed(gatewayUrl, gatewayKey, model)
+// pointless and would otherwise report a confusing secondary error. Every
+// class in the configuration is checked, not just the one this case's state
+// happens to use: a typo in the unused half must fail at startup rather
+// than lie dormant until a case of that class is added.
+async function modelServedFailures(models, gatewayUrl, gatewayKey) {
+  if (!gatewayUrl || !gatewayKey) return []
+  const failures = []
+  for (const id of new Set(Object.values(models).filter(Boolean))) {
+    const failure = await checkModelServed(gatewayUrl, gatewayKey, id)
+    if (failure) failures.push(failure)
+  }
+  return failures
 }
 
-function baseInfraChecks(model, variant, gatewayUrl, gatewayKey) {
+function modelClassChecks(models) {
+  return Object.keys(MODEL_CLASSES).flatMap((cls) => [
+    [!models[cls], `run-turn: --${cls} <model> is required`],
+    [
+      models[cls] === JUDGE_MODEL,
+      `run-turn: ${cls} model "${models[cls]}" must never be the pinned judge model`,
+    ],
+  ])
+}
+
+function baseInfraChecks(models, variant, gatewayUrl, gatewayKey) {
   return [
     [!variant || !(variant in spec.variants), `run-turn: unknown or missing variant "${variant}"`],
-    [!model, "run-turn: --model <model> is required"],
-    [
-      model === JUDGE_MODEL,
-      `run-turn: model under test "${model}" must never be the pinned judge model`,
-    ],
+    ...modelClassChecks(models),
     [
       !existsSync(GTD_BIN),
       `run-turn: missing bundle at ${GTD_BIN} — run \`npx turbo run build\` first`,
@@ -104,17 +143,18 @@ function baseInfraChecks(model, variant, gatewayUrl, gatewayKey) {
   ]
 }
 
-async function infraFailures(model, variant) {
+async function infraFailures(models, variant) {
   const gatewayUrl = process.env.GTD_EVALS_URL
   const gatewayKey = process.env.GTD_EVALS_KEY
-  const checks = baseInfraChecks(model, variant, gatewayUrl, gatewayKey)
-  const modelFailure = await modelServedFailure(model, gatewayUrl, gatewayKey)
-  if (modelFailure) checks.push([true, modelFailure])
+  const checks = baseInfraChecks(models, variant, gatewayUrl, gatewayKey)
+  for (const failure of await modelServedFailures(models, gatewayUrl, gatewayKey)) {
+    checks.push([true, failure])
+  }
   return checks
 }
 
-async function checkInfra(model, variant) {
-  for (const [failed, message] of await infraFailures(model, variant)) {
+async function checkInfra(models, variant) {
+  for (const [failed, message] of await infraFailures(models, variant)) {
     if (failed) fail(message)
   }
 }
@@ -293,15 +333,21 @@ function landAndInspect(repo, env, variant) {
 }
 
 async function main() {
-  const { model, variant } = parseArgs(process.argv.slice(2))
-  await checkInfra(model, variant)
+  const { models, variant } = parseArgs(process.argv.slice(2))
+  await checkInfra(models, variant)
 
   // Read before scrubbing: scrubbedEnv drops every `GTD_*` var, including
   // these two.
   const gatewayUrl = process.env.GTD_EVALS_URL
   const gatewayKey = process.env.GTD_EVALS_KEY
 
-  const env = scrubbedEnv({ GTD_PLANNERMODEL: model })
+  // Both classes are injected for every case. The state under test consumes
+  // exactly one of them; the other is still pinned so a case of that class
+  // added later inherits the configuration instead of a stray default.
+  const modelEnv = Object.fromEntries(
+    Object.entries(MODEL_CLASSES).map(([cls, envVar]) => [envVar, models[cls]]),
+  )
+  const env = scrubbedEnv(modelEnv)
 
   let repo
   try {
@@ -320,7 +366,9 @@ async function main() {
     console.error(`run-turn: fixture repo kept at ${repo}`)
   }
 
-  process.stdout.write(JSON.stringify({ repo, variant, model, ...result }) + "\n")
+  process.stdout.write(
+    JSON.stringify({ repo, variant, models: describeModels(models), ...result }) + "\n",
+  )
 }
 
 main().catch((err) => fail(`run-turn: unexpected error: ${err.stack ?? err.message}`))
