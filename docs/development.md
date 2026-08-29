@@ -90,8 +90,14 @@ paths that variant's turn may change) and `expect[variant].otherFiles` (`"none"`
 for a planner case that must never touch repo code, `"required"` for a coder
 case that must), an optional `artifact` (the repo-relative path read back as
 `feedback` for the tier-3 rubric, absent for a case with no contracted state
-file), and a `plantedIdentifier` the `violation` variant's `feedback` must name.
-Then add a matching `evals/asserts/<name>.mjs` grader — it wires
+file — that case's `tests:` entries then carry no `llm-rubric` either, since
+there is nothing to judge), a `plantedIdentifier` the `violation` variant's
+`feedback` must name (choose text the fix must INTRODUCE, never text already
+sitting in `base` — a bug's exception class declared but not yet thrown greps
+true on an untouched file), and an optional `outOfBounds` (the repo-relative
+path a coder case's obvious wrong move would touch; both `isStructurallyOk` here
+and `checkOutOfBounds` in `evals/asserts/shared.mjs` fail a turn that touches
+it). Then add a matching `evals/asserts/<name>.mjs` grader — it wires
 `evals/asserts/shared.mjs`'s case-independent checks first, then adds whatever
 check is specific to that state — and wire both into
 `evals/promptfooconfig.yaml`'s `tests:`, one entry per variant, each carrying

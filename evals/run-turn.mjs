@@ -319,6 +319,18 @@ function identifierOk(caseDef, variant, feedback) {
   )
 }
 
+// Mirrors `checkOutOfBounds` in `evals/asserts/shared.mjs` — a turn that
+// touched the planted out-of-bounds file must never read as structurally ok,
+// or the expensive judge still gets billed on a turn the free tier already
+// knows is wrong.
+function outOfBoundsOk(caseDef, gtdFilesChanged, otherFilesChanged) {
+  if (!caseDef.outOfBounds) return true
+  return (
+    !gtdFilesChanged.includes(caseDef.outOfBounds) &&
+    !otherFilesChanged.includes(caseDef.outOfBounds)
+  )
+}
+
 // Tiers 1 AND 2: the shape check the deterministic asserts run, plus the
 // grep floor for `plantedIdentifier`. Without tier 2 here, a well-formed but
 // WRONG artifact reads as "structurally ok" and still bills a full-size
@@ -337,6 +349,7 @@ function isStructurallyOk(
   const checks = [
     JSON.stringify(gtdFilesChanged) === JSON.stringify(expect.gtdFiles),
     otherFilesOk,
+    outOfBoundsOk(caseDef, gtdFilesChanged, otherFilesChanged),
     unformatted.length === 0,
     identifierOk(caseDef, variant, feedback),
   ]

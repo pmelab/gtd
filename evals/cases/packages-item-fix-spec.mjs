@@ -7,7 +7,12 @@
 export default Object.freeze({
   name: "packages-item-fix-spec",
   state: "packages.item.fix-spec",
-  plantedIdentifier: "EmptyNameError",
+  // The grep floor must fail a turn that never actually throws — the class
+  // declaration alone (`export class EmptyNameError ...`) already sits in
+  // `base`, unchanged by any turn, so grepping for the bare class name would
+  // pass even on an untouched file. This is the text only a real fix
+  // introduces.
+  plantedIdentifier: "throw new EmptyNameError",
   artifact: "src/greet.ts",
   outOfBounds: "src/greet.test.ts",
   base: {

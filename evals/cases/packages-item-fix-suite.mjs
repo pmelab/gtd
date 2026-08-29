@@ -9,7 +9,12 @@
 export default Object.freeze({
   name: "packages-item-fix-suite",
   state: "packages.item.fix-suite",
-  plantedIdentifier: "AmountParseError",
+  // The grep floor must fail a turn that never actually throws — the class
+  // declaration alone (`export class AmountParseError ...`) already sits in
+  // `base`, unchanged by any turn, so grepping for the bare class name would
+  // pass even on an untouched file. This is the text only a real fix
+  // introduces.
+  plantedIdentifier: "throw new AmountParseError",
   artifact: "src/parseAmount.ts",
   outOfBounds: "src/parseAmount.test.ts",
   base: {

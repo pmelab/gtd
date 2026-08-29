@@ -8,7 +8,12 @@
 export default Object.freeze({
   name: "build-fix",
   state: "build.fix",
-  plantedIdentifier: "MaxRetriesExceededError",
+  // The grep floor must fail a turn that never actually throws — the class
+  // declaration alone (`export class MaxRetriesExceededError ...`) already
+  // sits in `base`, unchanged by any turn, so grepping for the bare class
+  // name would pass even on an untouched file. This is the text only a real
+  // fix introduces.
+  plantedIdentifier: "throw new MaxRetriesExceededError",
   artifact: "src/retryFetch.ts",
   outOfBounds: "src/retryFetch.test.ts",
   base: {
