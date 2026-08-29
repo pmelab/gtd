@@ -1,14 +1,22 @@
-// `packages.item.building`: the TDD implementer turn. No contracted state
-// file — the artifact IS the repo code, so `artifact` stays unset and the
-// grader never reads one back. Two-sided as "produces the code" vs. "does
-// so with the obvious wrong move available": `violation` plants a second,
-// unrelated package file that looks like a natural next step; the prompt's
-// own rule ("leave every other package file untouched") forbids touching
-// it, and doing so already fails the shared `gtdFiles` check (it lives
-// under `.gtd/`) without any case-specific check.
+// `packages.item.building`: the TDD implementer turn. `artifact` reads back
+// `src/formatName.ts` itself — not a `.gtd/` state file, but the same
+// "path whose content feeds the grader and the tier-3 rubric" contract —
+// because the two variants are otherwise indistinguishable: the over-reach
+// `violation` plants (implementing `formatNames`, from the tempting second
+// package file) lands INSIDE the one file both variants are expected to
+// touch, so a file-list diff alone (`gtdFiles`/`otherFilesChanged`) can't
+// tell a disciplined turn from a scope-creeping one. `evals/asserts/
+// packages-item-building.mjs`'s `checkNoOverreach` greps the read-back
+// content for the over-reach instead. Two-sided as "produces the code" vs.
+// "does so with the obvious wrong move available": `violation` plants a
+// second, unrelated package file that looks like a natural next step; the
+// prompt's own rule ("leave every other package file untouched") also
+// forbids touching that file directly, which the shared `gtdFiles` check
+// (it lives under `.gtd/`) already catches on its own.
 export default Object.freeze({
   name: "packages-item-building",
   state: "packages.item.building",
+  artifact: "src/formatName.ts",
   base: {
     ".gtd/NEXT.md": `# Package: format-name
 

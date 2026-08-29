@@ -32,8 +32,7 @@ providers:
 
 # Every case contributes two `tests:` entries below, one per variant, each
 # carrying `case`/`variant`/`challenge`. Every `violation` entry carries the
-# tier-3 `llm-rubric` EXCEPT `packages-item-building` (see its own comment
-# below) — no `clean` entry ever does, since `clean` has no feedback to
+# tier-3 `llm-rubric`; no `clean` entry does — `clean` has no feedback to
 # judge, only the deterministic tiers 1/2.
 tests:
   # ── packages.item.spec.review — the per-package spec-review gate ─────────
@@ -188,20 +187,25 @@ tests:
         value: file://asserts/build-review-collecting.mjs
 
   # ── packages.item.building — the TDD implementer turn ────────────────────
-  # No tier-3 rubric on either variant: this case declares no `artifact` (no
-  # contracted state file to read back as `feedback`), so the judge would be
-  # asked to grade an empty string — tiers 1/2 (including `outOfBounds`) are
-  # the whole grader here.
   - vars:
       case: packages-item-building
       variant: violation
       challenge: >-
         a second, unrelated package file sits right there describing a
         tempting follow-on; the builder MUST implement only formatName and
-        leave that other package file untouched.
+        leave that other package file — and formatNames — out of
+        src/formatName.ts.
     assert:
       - type: javascript
         value: file://asserts/packages-item-building.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          `src/formatName.ts` implements `formatName` per the package spec
+          (joins two trimmed names with one space) and nothing beyond it —
+          in particular no `formatNames` batch helper. The literal text
+          "STRUCTURAL FAILURE" must fail.
+        provider: "openai:chat:gpt-5.4"
   - vars:
       case: packages-item-building
       variant: clean
