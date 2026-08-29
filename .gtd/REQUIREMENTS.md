@@ -3,6 +3,44 @@ sign-off — left one note, and hand-edited four files. The hand-edits are a
 sketch of intent, not finished work: the lap that follows re-derives them from
 scratch and must not treat any of those lines as final.
 
+`npm test` is green at this commit, so no suite-repair concern leads the list.
+`evals/**` is an input to `lint`, `typecheck`, `deadcode` and `test:unit`, but
+no turbo task ever executes an eval — **`npm test` cannot catch a broken eval
+run, only broken eval source.** Every concern below therefore leaves the suite
+green trivially; the real ordering constraint is the baseline, not the tests.
+
+## Open Questions
+
+### Does `npm run eval` run every case by default, or only a named subset?
+
+Once all ten prompt states have cases, the default run is 10 cases × 2 variants
+× `--repeat 4` = **80 multi-minute agent turns, sequential, at real token
+cost.** Today's run is 8. The note asks for the cases; it does not say the
+default command must run them all.
+
+- [ ] Every case, every run — one honest number, and the baseline gate covers
+      the whole workflow. Accept that `npm run eval` becomes an hours-long,
+      expensive, deliberate action.
+- [ ] `npm run eval` runs a named default subset; the full sweep is a separate
+      opt-in (a case filter or `npm run eval:all`). Keeps the everyday command
+      affordable at the cost of a partial gate.
+- [ ] _your answer_
+
+### Is the tier-3 judge pinned to a dated model id, or left as a gateway alias?
+
+The hand-edit moved the judge from `openai:chat:claude-4-5-sonnet` to
+`openai:chat:gpt-5.4` — **it swapped one floating gateway alias for another.**
+The gateway decides what `gpt-5.4` maps to today, so **a recorded baseline can
+shift with no commit in this repo**, and a regression the gate reports may be
+the judge moving rather than the prompt. The review round raised this exact
+point and the hand-edit did not settle it.
+
+- [ ] Pin to a dated id the gateway serves. The baseline becomes reproducible;
+      the cost is a manual bump whenever the gateway retires that id.
+- [ ] Keep the alias and say so in the config. Grading tracks the vendor's
+      current model; baseline drift is accepted and documented.
+- [ ] _your answer_
+
 ## Replace the two-model matrix with one planner/coder configuration
 
 TECHNICAL.
@@ -39,6 +77,14 @@ and adds a `evals/baseline.json` cell that can flake. Comparing two model
 choices is a deliberate two-line edit for one run, read as two rows of the
 per-cell matrix — never a permanent cost on every run.
 
+The env-var names `GTD_PLANNERMODEL` and `GTD_CODERMODEL` are not free
+identifiers: they are the `GTD_<NAME>` overrides for the `plannerModel` and
+`coderModel` vars declared at the top of `src/workflows/unified.yaml`. **Rename
+either var there and this map goes silently stale** — the turn would run on the
+workflow default while the result JSON still reports the id that was asked for.
+The existing read-back of the resolved name from `gtd next --json=model` is the
+only thing that would expose it, so keep it.
+
 Acceptance: a run with only one of the two flags fails at startup naming the
 missing class; a run naming an unserved model in the _unused_ class fails at
 startup; the result JSON carries both ids.
@@ -69,6 +115,17 @@ on BOTH variants at the full trial count**, never one trial. Both rejections are
 class-specific: `gemini-3.5-flash-lite` still sits in the coder half, where
 nothing has measured it either way, because no coder-class case exists yet.
 
+**Risk, stated plainly: the coder half is unmeasured and its chosen model was
+rejected for planner work.** That is defensible only while no coder-class case
+exists. The moment the first one lands (see the last concern),
+`gemini-3.5-flash-lite` is a candidate under test, not a settled default, and
+must clear both variants at full trial count before its cells are recorded.
+
+`JUDGE_MODEL` is duplicated in `run-turn.mjs` rather than imported from the
+YAML, on purpose — it is the startup guard that the judge is never the model
+under test. **Changing the judge means changing two files**, and a mismatch
+disarms the guard without failing anything.
+
 Acceptance: the config states the rejected candidates, their failure mode, and
 the both-variants re-measurement rule.
 
@@ -90,6 +147,10 @@ does the literal text `STRUCTURAL FAILURE`.
 **Whether spec-review feedback SHOULD prescribe the fix is a question about the
 workflow prompt, not something to smuggle in through the grader.** Do not re-add
 the clause here.
+
+**This change moves the violation cell's pass rate, so it invalidates the
+baseline exactly as a label change does** — it must land before the re-record
+concern below, not after.
 
 Acceptance: a violation cell scoring 0/4 or 1/4 under a rubric change is treated
 as a broken gate, not a recordable baseline.
@@ -114,6 +175,9 @@ The two it wrote:
 **Keep each one to a single line** — the column is a terminal width divided by
 the number of columns.
 
+Every case added by the last concern owes its own pair of `challenge` lines;
+this is the convention they follow, not a one-off for spec-review.
+
 Acceptance: the results table shows the challenge next to its verdict, and no
 turn's behaviour changes when the text is edited.
 
@@ -132,6 +196,16 @@ The sketch hand-wrote the file down to two `gemini-3.5|clean` and
 unverified placeholder this repo already removed once. The lap must produce it
 from a real `npm run eval` / `npm run eval:baseline` pair, not by editing
 JSON.**
+
+**This concern must land last of the four above it.** The label change, the
+model change and the rubric change each move the recorded rates; re-recording
+before all three are in place buys a snapshot that is stale on arrival, at the
+price of a full multi-minute, real-token run.
+
+`compare-baseline.mjs` only fails on a rate that _drops_. **A cell recorded
+below its true rate is a permanently lowered floor** — the review round already
+caught one such cell at 3/4. Record only cells whose run you would defend, and
+treat a suspiciously low cell as a flake to re-run, not a number to write down.
 
 Acceptance: `recordedAt` corresponds to a real run, and the cell keys match the
 committed provider labels.
@@ -152,6 +226,15 @@ each graded on the tier they ship against; the committed default is ONE
 configuration and why; how to compare model choices for one run; and that
 baseline cells key off the provider label.
 
+The doc also claims the harness is "restricted to a four-tool surface (`read`,
+`write`, `edit`, `bash`)". **That is `pi`'s default, not something this repo
+pins — a `pi` version bump could widen the surface with nothing failing.**
+Either pass the flag that pins it or soften the sentence to describe the
+default; do not leave a guarantee the code does not make.
+
+Whatever the two Open Questions above resolve to lands here too: the default
+run's scope and the judge's pinning are both facts a reader of this doc needs.
+
 Acceptance: no sentence in `docs/development.md` describes the providers as
 competing models rather than one configuration.
 
@@ -161,21 +244,63 @@ PRODUCT.
 
 The human's note: **"build out the eval cases for all other prompts as well".**
 
-Today one case exists — `spec-review`, covering `packages.item.spec.review`.
-Every other prompt state in the bundled workflow is ungraded. Each new case
-needs the full shape the docs already describe: an `evals/cases/<name>.mjs`
-frozen object naming a `state` with two-sided `clean`/`violation` fixtures and
-the identifier the violation's feedback must name, a matching
-`evals/asserts/<name>.mjs` grader, and both wired into
-`evals/promptfooconfig.yaml`'s `tests:`.
+`src/workflows/unified.yaml` has **ten `actor: agent` prompt states. One is
+covered.** The inventory, with the model class its machine carries and the
+artifact its turn contracts to touch:
+
+| State                       | Class   | Contracted artifact                         |
+| --------------------------- | ------- | ------------------------------------------- |
+| `design.triage`             | planner | `.gtd/REQUIREMENTS.md`, mode `qa`           |
+| `architecture.author`       | planner | `.gtd/ARCHITECTURE.md`, mode `qa`           |
+| `architecture.decompose`    | planner | `.gtd/packages/*` — no single file          |
+| `build.review.reviewing`    | planner | `.gtd/REVIEW.md`, mode `review`             |
+| `build.review.collecting`   | planner | `.gtd/REQUIREMENTS.md`, mode `qa`           |
+| `packages.item.spec.review` | planner | `.gtd/SPEC_FEEDBACK.md` — **covered today** |
+| `packages.item.building`    | coder   | repo code, no state file                    |
+| `packages.item.fix-suite`   | coder   | `.gtd/FEEDBACK.md` + repo code              |
+| `packages.item.fix-spec`    | coder   | `.gtd/SPEC_FEEDBACK.md` + repo code         |
+| `build.fix`                 | coder   | `.gtd/FEEDBACK.md` + repo code              |
+
+Each new case needs the full shape the docs already describe: an
+`evals/cases/<name>.mjs` frozen object naming a `state` with two-sided
+`clean`/`violation` fixtures and the identifier the violation's feedback must
+name, a matching `evals/asserts/<name>.mjs` grader, both wired into
+`evals/promptfooconfig.yaml`'s `tests:`, and a one-line `challenge` per variant.
+
+**Two-sided means "must act" versus "must not act", and four of the ten states
+have no natural silent side.** `packages.item.building`,
+`packages.item.fix-suite`, `packages.item.fix-spec` and `build.fix` always
+produce work; their pair is instead "produces the contracted artifact and a
+passing suite" versus "produces it against a fixture where the obvious wrong
+move is available". A state that genuinely cannot be made two-sided ships a
+stated reason instead of a case — `architecture.decompose` is the likeliest,
+since it writes a variable set of package files rather than one contracted
+artifact.
 
 **A coder-class case is the first one that exercises the unused half of the
 configuration, and `gemini-3.5-flash-lite` has never been measured in that
 half** — it must be measured on both variants at full trial count before its
 cells are recorded, on the same footing as any planner candidate.
 
-Each case added is a new pair of baseline cells and multiplies run cost and wall
-clock; that is the trade the note accepts.
+**Every case added is a new pair of baseline cells and another full re-record.**
+Recording once per case is wasted money; land the cases, then re-record the
+baseline in one run at the end. Run cost and wall clock scale linearly with the
+count — see the first Open Question.
 
 Acceptance: every prompt state the workflow can rest at has a two-sided case, or
 a stated reason it cannot have one.
+
+## Answered Questions
+
+### Does "build out the eval cases for all other prompts" override the original no-coverage-driven-cases constraint?
+
+Yes. The entry sketch in `.gtd/TODO.md` said "only encode past regressions as
+cases — no coverage-driven case writing", but the human's review-round note is
+later and explicit, so it supersedes that constraint for prompt-state coverage.
+
+### Should the review round's ticked `.gtd/REVIEW.md` findings be treated as accepted work?
+
+No. The workflow states that ticking records only that the human read the hunk,
+never sign-off; this round's actionable material is the note plus the four
+hand-edited files, and a REVIEW.md finding enters the plan only where a
+hand-edit touched the same line.
