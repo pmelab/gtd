@@ -1,48 +1,5 @@
 # Architecture
 
-## Open Questions
-
-### How does a case identify itself to `run-turn.mjs`, and what keys its baseline cell?
-
-- [x] Case rides in the prompt — `prompts:` becomes `"{{case}}:{{variant}}"`,
-      `run-turn.mjs` splits the single positional and dynamically imports
-      `./cases/<case>.mjs`; `report.mjs`'s `cellKey` becomes
-      `label|case|variant`, and every `evals/baseline.json` key gains a case
-      segment. One provider entry survives, so the configuration stays singular.
-- [ ] Case rides on the provider command line — one provider per (configuration
-      × case), `exec:node run-turn.mjs --planner … --coder … --case <name>` with
-      `label: gemini-3.5-<case>`; `cellKey` stays `label|variant` because the
-      label already carries the case. Ten providers for one configuration, and
-      `--repeat` multiplies against all of them.
-- [ ] _your answer_
-
-### Do coder-class cases run the fixture's test suite?
-
-- [x] No — grade the landed diff only. The eval's contract stays exactly one
-      agent turn plus `gtd land`; `packages.item.building`'s pair becomes "wrote
-      the contracted code, touched nothing else" versus "took the obvious wrong
-      move", and no fixture ever needs a runnable `testCommand`. The suite half
-      of "produces a passing suite" goes ungraded.
-- [ ] Yes — fixtures ship a real suite. Each coder case's `base` adds a
-      `package.json` whose `test` script runs `node --test` over a committed
-      test file, and `run-turn.mjs` advances one beat past `land` so
-      `packages.item.health.check` actually executes it; the resulting rest
-      (`spec.review` vs `fix-suite`) becomes a graded signal. Adds a second beat
-      and a node-test dependency to every coder fixture.
-- [ ] _your answer_
-
-### Does `architecture.decompose` get a case or a stated reason?
-
-- [x] Stated reason. It writes a variable set of `.gtd/packages/*` files, so the
-      "only the contracted artifact changed" check that every other case leans
-      on has nothing to compare against. The reason ships as
-      `evals/cases/architecture-decompose.md`, next to the cases it explains.
-- [ ] Case, graded on invariants instead of a file list: `violation` plants an
-      `.gtd/ARCHITECTURE.md` with a `## Merged Concerns` heading and grades that
-      no package file was written for it, `clean` grades one package file per
-      concern in order. Costs two more cells and eight more turns per run.
-- [ ] _your answer_
-
 ## Merged Concerns
 
 Five concerns merge into one package. Every one of them edits
@@ -421,8 +378,42 @@ a stated reason it cannot have one.
 Primary paths: `evals/run-turn.mjs`, `evals/asserts/*.mjs`, `evals/cases/*.mjs`,
 `evals/promptfooconfig.yaml`, `evals/report.mjs`, `evals/baseline.json`.
 
-This package is one refactor plus nine cases. **The refactor is the hard part;
-each case is then a data file and a thin grader.**
+This package is one refactor plus eight new cases. **The refactor is the hard
+part; each case is then a data file and a thin grader.**
+
+**Eight, not nine: `architecture.decompose` ships a stated reason instead of a
+case.** It writes a variable set of `.gtd/packages/*` files, so the "only the
+contracted artifact changed" check every other case leans on has nothing to
+compare against. The reason ships as `evals/cases/architecture-decompose.md`,
+sitting next to the cases it explains — a `.md` file in `evals/cases/` is inert,
+since the config lists its tests one by one and never globs the directory.
+
+**Nine cases total including today's spec-review: 9 × 2 variants × `--repeat 4`
+= 72 trials, and 18 baseline cells.** The requirement's 80 assumed ten cases.
+
+#### Case identity and the baseline cell key
+
+The case rides in the prompt. `prompts:` becomes `"{{case}}:{{variant}}"`, each
+`tests:` entry gains a `case` var alongside `variant` and `challenge`, and
+`run-turn.mjs` splits the single positional on the first `:` and dynamically
+imports `./cases/<case>.mjs`. **One provider entry survives, so the
+configuration stays singular** — the rejected alternative was one provider per
+(configuration × case), which would put ten providers behind a plan whose whole
+point is one.
+
+`report.mjs`'s `cellKey` becomes `` `${label}|${case}|${variant}` ``. Every key
+in `evals/baseline.json` gains a case segment; nothing else in
+`compare-baseline.mjs` changes, because it treats the key as an opaque string.
+
+**Risk: this rekeys the cells the first package recorded.** The moment the key
+changes, `gemini-3.5|clean` and `gemini-3.5|violation` read as baseline cells
+missing from the run AND the new `gemini-3.5|spec-review|*` cells read as
+unrecorded — four violations at once. `npm run eval` fails until this package's
+own re-record lands, so the rekey and the record must ship in the same package.
+
+`case` is a real prompt var, unlike `challenge`. The rendered prompt is the
+whole argument `run-turn.mjs` parses, so a case whose name contains `:` breaks
+the split — names stay `[a-z-]+`, matching every existing case file.
 
 #### Make `run-turn.mjs` case-agnostic
 
@@ -444,11 +435,18 @@ provider, and a future report without executing anything:
   replacing `expectedGtdFiles`. Today's `expect: {violation: {feedback: true}}`
   becomes an explicit list; the empty list is what makes a "must not act"
   variant checkable.
-- `expect[variant].otherFiles` — `"none"` for the six planner cases,
-  `"required"` for the coder cases, which must change repo code. **The current
-  hard rule "`otherFilesChanged` must be empty" is planner-only and cannot
-  survive as a global**; a coder case that changes nothing is the failure, not
-  the pass.
+- `expect[variant].otherFiles` — `"none"` for the five planner cases,
+  `"required"` for the four coder cases, which must change repo code. **The
+  current hard rule "`otherFilesChanged` must be empty" is planner-only and
+  cannot survive as a global**; a coder case that changes nothing is the
+  failure, not the pass.
+
+**No fixture runs a test suite.** A trial stays exactly one agent turn plus
+`gtd land`, and the landed diff is the only thing graded — no fixture ships a
+runnable `testCommand`, and `run-turn.mjs` never advances a second beat into
+`packages.item.health.check`. **Risk, stated plainly: the "and a passing suite"
+half of a coder pair goes ungraded.** A coder case can only prove the turn wrote
+the contracted artifact and took the right move, never that its code runs.
 
 `isStructurallyOk` reads those fields instead of branching on the variant name.
 It keeps its job: gate the expensive judge behind the free checks, so a broken
@@ -467,11 +465,12 @@ specific to that state.
 Genuinely specific, per class:
 
 - Planner cases (`design.triage`, `architecture.author`,
-  `build.review.reviewing`, `build.review.collecting`) — the artifact must parse
-  as the shape the next state reads. `build.review.collecting` writes
-  `.gtd/REQUIREMENTS.md`, so its grader checks the concerns carry a
-  PRODUCT/TECHNICAL classification; `architecture.author` checks
-  `## Merged Concerns` is present or absent, never malformed.
+  `build.review.reviewing`, `build.review.collecting`, and today's
+  `packages.item.spec.review`) — the artifact must parse as the shape the next
+  state reads. `build.review.collecting` writes `.gtd/REQUIREMENTS.md`, so its
+  grader checks the concerns carry a PRODUCT/TECHNICAL classification;
+  `architecture.author` checks `## Merged Concerns` is present or absent, never
+  malformed.
 - Coder cases — `otherFilesChanged` must be non-empty and must **not** include
   any file the fixture's spec puts out of bounds. The planted wrong move is a
   file the fixture makes tempting; touching it fails.
@@ -503,16 +502,16 @@ whole contract** — a second turn would grade recovery, not the prompt.
 
 #### Cost, stated plainly
 
-**80 multi-minute turns per `npm run eval`, at `--max-concurrency 2` — hours,
+**72 multi-minute turns per `npm run eval`, at `--max-concurrency 2` — hours,
 real tokens.** That concurrency stays at 2: the cost was accepted upstream, and
 raising it trades a shorter run for gateway rate-limit failures that read as
 prompt regressions in the recorded baseline.
 
-The last task, after all nine cases are wired: one `npm run eval` followed by
-`npm run eval:baseline`. **One record for the whole package, never one per
-case.** `gemini-3.5-flash-lite` is under test in the coder half for the first
-time here — if its coder cells come back mixed, it is a candidate to replace,
-not a floor to record.
+The last task, after all eight new cases are wired: one `npm run eval` followed
+by `npm run eval:baseline`, writing all 18 cells. **One record for the whole
+package, never one per case.** `gemini-3.5-flash-lite` is under test in the
+coder half for the first time here — if its coder cells come back mixed, it is a
+candidate to replace, not a floor to record.
 
 ## Answered Questions
 
@@ -545,8 +544,9 @@ gateway retires that id.
 
 Twice across the whole plan, and never more. The configuration package records
 its own two cells because the gate fails on an unrecorded cell and the package
-must land green on its own; the cases package records all twenty at the end. The
-"recording once per case is wasted money" rule bars ten runs, not two.
+must land green on its own; the cases package rekeys those two and records all
+18 at the end. The "recording once per case is wasted money" rule bars ten runs,
+not two.
 
 ### Do the new cases configure a `modes:` validator in their fixtures?
 
@@ -572,3 +572,23 @@ would be a second source of truth that goes stale silently.
 No. It stays at 2. The hours-long cost was accepted upstream, and a rate-limited
 trial fails as a prompt regression, which poisons the recorded baseline with a
 number that has nothing to do with the prompt.
+
+### How does a case identify itself to `run-turn.mjs`, and what keys its baseline cell?
+
+The case rides in the prompt: `prompts:` becomes `"{{case}}:{{variant}}"`,
+`run-turn.mjs` splits the single positional and dynamically imports
+`./cases/<case>.mjs`, and `report.mjs`'s `cellKey` becomes `label|case|variant`,
+so every `evals/baseline.json` key gains a case segment. One provider entry
+survives, keeping the configuration singular.
+
+### Do coder-class cases run the fixture's test suite?
+
+No. A trial stays exactly one agent turn plus `gtd land`, and the landed diff is
+the only thing graded — no fixture ships a runnable `testCommand`. The "and a
+passing suite" half of a coder pair goes ungraded.
+
+### Does `architecture.decompose` get a case or a stated reason?
+
+A stated reason, shipped as `evals/cases/architecture-decompose.md`. It writes a
+variable set of `.gtd/packages/*` files, so the "only the contracted artifact
+changed" check every other case leans on has nothing to compare against.
