@@ -1,10 +1,22 @@
 {
-  "recordedAt": "unrecorded — placeholder floor, never produced by a real `npm run eval` run; re-record with `npm run eval:baseline` before trusting it",
+  "recordedAt": "2026-08-29T08:50:12.828Z",
   "trials": 4,
   "rates": {
-    "cheap|clean": { "passed": 4, "total": 4 },
-    "cheap|violation": { "passed": 4, "total": 4 },
-    "planner|clean": { "passed": 4, "total": 4 },
-    "planner|violation": { "passed": 4, "total": 4 }
+    "cheap|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "cheap|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "planner|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "planner|violation": {
+      "passed": 4,
+      "total": 4
+    }
   }
 }
