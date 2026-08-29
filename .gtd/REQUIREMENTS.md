@@ -18,7 +18,7 @@ Once all ten prompt states have cases, the default run is 10 cases × 2 variants
 cost.** Today's run is 8. The note asks for the cases; it does not say the
 default command must run them all.
 
-- [ ] Every case, every run — one honest number, and the baseline gate covers
+- [x] Every case, every run — one honest number, and the baseline gate covers
       the whole workflow. Accept that `npm run eval` becomes an hours-long,
       expensive, deliberate action.
 - [ ] `npm run eval` runs a named default subset; the full sweep is a separate
@@ -35,7 +35,7 @@ shift with no commit in this repo**, and a regression the gate reports may be
 the judge moving rather than the prompt. The review round raised this exact
 point and the hand-edit did not settle it.
 
-- [ ] Pin to a dated id the gateway serves. The baseline becomes reproducible;
+- [x] Pin to a dated id the gateway serves. The baseline becomes reproducible;
       the cost is a manual bump whenever the gateway retires that id.
 - [ ] Keep the alias and say so in the config. Grading tracks the vendor's
       current model; baseline drift is accepted and documented.
