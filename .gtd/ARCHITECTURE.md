@@ -4,7 +4,7 @@
 
 ### How does a case identify itself to `run-turn.mjs`, and what keys its baseline cell?
 
-- [ ] Case rides in the prompt — `prompts:` becomes `"{{case}}:{{variant}}"`,
+- [x] Case rides in the prompt — `prompts:` becomes `"{{case}}:{{variant}}"`,
       `run-turn.mjs` splits the single positional and dynamically imports
       `./cases/<case>.mjs`; `report.mjs`'s `cellKey` becomes
       `label|case|variant`, and every `evals/baseline.json` key gains a case
@@ -18,7 +18,7 @@
 
 ### Do coder-class cases run the fixture's test suite?
 
-- [ ] No — grade the landed diff only. The eval's contract stays exactly one
+- [x] No — grade the landed diff only. The eval's contract stays exactly one
       agent turn plus `gtd land`; `packages.item.building`'s pair becomes "wrote
       the contracted code, touched nothing else" versus "took the obvious wrong
       move", and no fixture ever needs a runnable `testCommand`. The suite half
@@ -33,7 +33,7 @@
 
 ### Does `architecture.decompose` get a case or a stated reason?
 
-- [ ] Stated reason. It writes a variable set of `.gtd/packages/*` files, so the
+- [x] Stated reason. It writes a variable set of `.gtd/packages/*` files, so the
       "only the contracted artifact changed" check that every other case leans
       on has nothing to compare against. The reason ships as
       `evals/cases/architecture-decompose.md`, next to the cases it explains.
