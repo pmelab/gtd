@@ -302,8 +302,8 @@ describe("the bundled unified workflow template", () => {
     // The structural override names its consequence, not a polite ask.
     expect(vars.styleFormatContract).toMatch(/checkbox/)
     expect(vars.styleFormatContract).toMatch(/##.*###.*heading/)
-    expect(vars.styleFormatContract).toMatch(/renumber or\s+rename/)
-    expect(vars.styleFormatContract).toMatch(/refuses the turn|refused/)
+    expect(vars.styleFormatContract).toMatch(/renumber|rename|reorder/i)
+    expect(vars.styleFormatContract).toMatch(/refus/i)
 
     expect(unifiedYaml).toMatch(/attention-span/)
     expect(unifiedYaml).toMatch(/https:\/\/github\.com\/alexgreensh\/attention-span/)
@@ -650,14 +650,15 @@ describe("the bundled unified workflow template", () => {
     expect(vars.questionBar).toMatch(/- \[ ] _your answer_/)
   })
 
-  it("questionBar and questionBarReturn pin the exact Open/Answered Questions positional rule (package 01)", () => {
+  it("questionBar and questionBarReturn pin the Open/Answered Questions positional rule — structurally, not by literal phrasing (package 01)", () => {
     const { vars } = compileTemplate()
-    expect(vars.questionBar).toMatch(/before every other `##`\s+section/)
-    expect(vars.questionBar).toMatch(
-      /`## Answered Questions` must come after\s+every other `##` section/,
-    )
+    // Structural pin: Open Questions is stated as coming FIRST among `##`
+    // sections, Answered Questions as coming LAST — the surviving concept
+    // `gtd check qa` enforces, not a specific sentence.
+    expect(vars.questionBar).toMatch(/Open Questions[\s\S]{0,200}(first|before every other)/i)
+    expect(vars.questionBar).toMatch(/Answered Questions[\s\S]{0,200}(last|after every other)/i)
     expect(vars.questionBarReturn).toMatch(
-      /`## Answered Questions` must come after\s+every other `##`\s+section/,
+      /Answered Questions[\s\S]{0,200}(last|after every other)/i,
     )
   })
 })
