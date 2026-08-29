@@ -1,15 +1,59 @@
-The human ticked every box in `.gtd/REVIEW.md` — that records reading, not
-sign-off — left one note, and hand-edited four files. The hand-edits are a
-sketch of intent, not finished work: the lap that follows re-derives them from
-scratch and must not treat any of those lines as final.
+# Architecture
 
-`npm test` is green at this commit, so no suite-repair concern leads the list.
-`evals/**` is an input to `lint`, `typecheck`, `deadcode` and `test:unit`, but
-no turbo task ever executes an eval — **`npm test` cannot catch a broken eval
-run, only broken eval source.** Every concern below therefore leaves the suite
-green trivially; the real ordering constraint is the baseline, not the tests.
+## Open Questions
 
-## Replace the two-model matrix with one planner/coder configuration
+### How does a case identify itself to `run-turn.mjs`, and what keys its baseline cell?
+
+- [ ] Case rides in the prompt — `prompts:` becomes `"{{case}}:{{variant}}"`,
+      `run-turn.mjs` splits the single positional and dynamically imports
+      `./cases/<case>.mjs`; `report.mjs`'s `cellKey` becomes
+      `label|case|variant`, and every `evals/baseline.json` key gains a case
+      segment. One provider entry survives, so the configuration stays singular.
+- [ ] Case rides on the provider command line — one provider per (configuration
+      × case), `exec:node run-turn.mjs --planner … --coder … --case <name>` with
+      `label: gemini-3.5-<case>`; `cellKey` stays `label|variant` because the
+      label already carries the case. Ten providers for one configuration, and
+      `--repeat` multiplies against all of them.
+- [ ] _your answer_
+
+### Do coder-class cases run the fixture's test suite?
+
+- [ ] No — grade the landed diff only. The eval's contract stays exactly one
+      agent turn plus `gtd land`; `packages.item.building`'s pair becomes "wrote
+      the contracted code, touched nothing else" versus "took the obvious wrong
+      move", and no fixture ever needs a runnable `testCommand`. The suite half
+      of "produces a passing suite" goes ungraded.
+- [ ] Yes — fixtures ship a real suite. Each coder case's `base` adds a
+      `package.json` whose `test` script runs `node --test` over a committed
+      test file, and `run-turn.mjs` advances one beat past `land` so
+      `packages.item.health.check` actually executes it; the resulting rest
+      (`spec.review` vs `fix-suite`) becomes a graded signal. Adds a second beat
+      and a node-test dependency to every coder fixture.
+- [ ] _your answer_
+
+### Does `architecture.decompose` get a case or a stated reason?
+
+- [ ] Stated reason. It writes a variable set of `.gtd/packages/*` files, so the
+      "only the contracted artifact changed" check that every other case leans
+      on has nothing to compare against. The reason ships as
+      `evals/cases/architecture-decompose.md`, next to the cases it explains.
+- [ ] Case, graded on invariants instead of a file list: `violation` plants an
+      `.gtd/ARCHITECTURE.md` with a `## Merged Concerns` heading and grades that
+      no package file was written for it, `clean` grades one package file per
+      concern in order. Costs two more cells and eight more turns per run.
+- [ ] _your answer_
+
+## Merged Concerns
+
+Five concerns merge into one package. Every one of them edits
+`evals/promptfooconfig.yaml`, and the fifth is the recorded output of a run of
+the other four — none of them is independently landable, because each moves the
+pass rate the others are measured against. The requirements below are carried
+verbatim so the per-package spec review covers each one on its own.
+
+### Merged into "One model configuration, one honest rubric, one recorded baseline"
+
+#### Replace the two-model matrix with one planner/coder configuration
 
 TECHNICAL.
 
@@ -57,7 +101,7 @@ Acceptance: a run with only one of the two flags fails at startup naming the
 missing class; a run naming an unserved model in the _unused_ class fails at
 startup; the result JSON carries both ids.
 
-## Pick the default configuration and record what was rejected
+#### Pick the default configuration and record what was rejected
 
 TECHNICAL.
 
@@ -104,7 +148,7 @@ disarms the guard without failing anything.
 Acceptance: the config states the rejected candidates, their failure mode, and
 the both-variants re-measurement rule.
 
-## Grade naming the defect, not prescribing the fix
+#### Grade naming the defect, not prescribing the fix
 
 PRODUCT.
 
@@ -130,7 +174,7 @@ concern below, not after.
 Acceptance: a violation cell scoring 0/4 or 1/4 under a rubric change is treated
 as a broken gate, not a recordable baseline.
 
-## Show each variant's challenge in the results table
+#### Show each variant's challenge in the results table
 
 PRODUCT.
 
@@ -156,7 +200,7 @@ this is the convention they follow, not a one-off for spec-review.
 Acceptance: the results table shows the challenge next to its verdict, and no
 turn's behaviour changes when the text is edited.
 
-## Re-record the baseline for the new configuration
+#### Re-record the baseline for the new configuration
 
 TECHNICAL.
 
@@ -184,6 +228,80 @@ treat a suspiciously low cell as a flake to re-run, not a number to write down.
 
 Acceptance: `recordedAt` corresponds to a real run, and the cell keys match the
 committed provider labels.
+
+## One model configuration, one honest rubric, one recorded baseline
+
+Primary paths: `evals/promptfooconfig.yaml`, `evals/run-turn.mjs`,
+`evals/baseline.json`.
+
+Everything here is a data and comment edit to two files plus one recorded
+artifact. **No new module, no new dependency, no new file.**
+
+### `run-turn.mjs` — the class→env-var map
+
+Replace the single `--model` flag with a frozen `MODEL_CLASSES` object mapping
+`planner`→`GTD_PLANNERMODEL` and `coder`→`GTD_CODERMODEL`. Everything that used
+to read `model` reads that map instead, so adding a third class later is one
+entry, never a new branch:
+
+- `parseArgs` loops the map's keys, records the indices each `--<class> <id>`
+  pair consumed in a `Set`, and takes the first surviving positional as the
+  variant. **The index bookkeeping is load-bearing** — `exec:` hands the
+  rendered prompt through as a bare positional in whatever slot it lands.
+- `modelClassChecks` emits two checks per class — flag present, and the id is
+  not `JUDGE_MODEL` — flattened into the existing `baseInfraChecks` array.
+- `modelServedFailures` replaces `modelServedFailure`: it probes `/models` once
+  per **distinct** id (`new Set(Object.values(models))`), so a configuration
+  whose halves are equal costs one call, and the unused half still fails at
+  startup.
+- `scrubbedEnv` receives both vars, built by mapping the class map, so the
+  unused half is pinned rather than left to the workflow default.
+- The printed JSON's `model` field becomes `models: "planner=<id> coder=<id>"`.
+
+**Error strategy is unchanged and stays: `fail()` writes to stderr and exits 1
+before any token is spent.** Every new check is a startup check, never a
+mid-turn one — a trial that reaches the agent has already proved its whole
+configuration is servable.
+
+`gtd next --json=model` read-back stays exactly where it is. It is the only
+thing that would expose a renamed `plannerModel`/`coderModel` var in
+`src/workflows/unified.yaml`, and the class map has no way to detect that rename
+itself.
+
+### `promptfooconfig.yaml` — one provider, two vars, one rubric
+
+One `providers:` entry:
+`exec:node run-turn.mjs --planner gemini-3.5-flash --coder gemini-3.5-flash-lite`,
+`label: gemini-3.5`. The rejection evidence for `deepseek-v3.2` and
+`gemini-3.5-flash-lite` lives as a comment directly above that entry — **the
+config is the only place the next person picking a model looks**, and there is
+no markdown file that may carry it (`AGENTS.md` forbids prose that restates
+code).
+
+The judge provider becomes `openai:chat:gpt-5.4`, and `JUDGE_MODEL` in
+`run-turn.mjs` becomes the same string. Those two constants are deliberately
+duplicated; the comment at each says so.
+
+Each `tests:` entry gains a single-line `challenge` var. It is a display var —
+the `prompts:` template never interpolates it, so promptfoo renders it as a
+column and nothing else reads it.
+
+The `llm-rubric` `value:` drops the prescribe-the-fix clause and grades naming
+the defect. `transform:` is untouched — `STRUCTURAL FAILURE` remains the
+sentinel the rubric explicitly fails.
+
+### Recording the baseline
+
+The last task in this package, after every edit above is in the tree: run
+`npm run eval`, read the per-cell matrix, then `npm run eval:baseline` to write
+`evals/baseline.json` from that run's `results.json`. **Never hand-edit the
+JSON.** Two cells, four trials each: eight real agent turns.
+
+**A cell that comes back below 4/4 is a flake to re-run, not a number to
+record** — `compare-baseline.mjs` only fails on a rate that drops, so an
+under-recorded cell is a permanently lowered floor with nothing to catch it. A
+violation cell at 0/4 or 1/4 means the rubric change is wrong, not that the
+baseline is low.
 
 ## Rewrite the eval docs around configurations
 
@@ -215,6 +333,29 @@ baselines needs the second.
 
 Acceptance: no sentence in `docs/development.md` describes the providers as
 competing models rather than one configuration.
+
+### How
+
+Primary path: `docs/development.md`, `## Prompt evals` section only. Prose edit;
+no code.
+
+**Resolve the four-tool claim by pinning, not by softening.** `run-turn.mjs`
+already spawns `pi` with an explicit argv; add the tool-restriction flag to that
+argv and the doc's sentence becomes a fact the code states. Softening leaves a
+reader guessing which tools a recorded baseline was measured under, and the
+harness axis of the two-axis versioning claim then covers nothing. If the
+installed `pi` 0.84.4 exposes no such flag, the sentence is rewritten to name
+the default explicitly ("`pi`'s default surface, not pinned here") — never left
+as an unqualified guarantee.
+
+That one flag is the only code touched by this package, and it lives in the same
+argv the pin is claimed about. It does not move any pass rate, so **this package
+does not invalidate the baseline.**
+
+Every renamed term is a search-and-replace with a check:
+`grep -in "matrix\|per model\|both models" docs/development.md` must come back
+empty except where the word describes the per-cell results _matrix_, which is
+still a matrix.
 
 ## Build eval cases for the remaining prompts
 
@@ -275,6 +416,104 @@ makes that price payable.
 Acceptance: every prompt state the workflow can rest at has a two-sided case, or
 a stated reason it cannot have one.
 
+### How
+
+Primary paths: `evals/run-turn.mjs`, `evals/asserts/*.mjs`, `evals/cases/*.mjs`,
+`evals/promptfooconfig.yaml`, `evals/report.mjs`, `evals/baseline.json`.
+
+This package is one refactor plus nine cases. **The refactor is the hard part;
+each case is then a data file and a thin grader.**
+
+#### Make `run-turn.mjs` case-agnostic
+
+Today it does `import spec from "./cases/spec-review.mjs"` at module scope, and
+three functions hardcode that case's contract: `readFeedback` opens
+`.gtd/SPEC_FEEDBACK.md`, `expectedGtdFiles` maps variant→that one path, and
+`identifierOk` greps `spec.plantedIdentifier`. All three become data reads off
+the loaded case.
+
+The case object grows three fields, and **every one of them is data the case
+already implies — no case gains a behaviour hook, no case exports a function.**
+A case file stays a frozen plain object so it can be imported by the grader, the
+provider, and a future report without executing anything:
+
+- `artifact` — the repo-relative path whose content is read back as `feedback`
+  and fed to the tier-3 rubric. Absent for a case that produces no state file
+  (`packages.item.building`).
+- `expect[variant].gtdFiles` — the exact `.gtd/` paths the turn may change,
+  replacing `expectedGtdFiles`. Today's `expect: {violation: {feedback: true}}`
+  becomes an explicit list; the empty list is what makes a "must not act"
+  variant checkable.
+- `expect[variant].otherFiles` — `"none"` for the six planner cases,
+  `"required"` for the coder cases, which must change repo code. **The current
+  hard rule "`otherFilesChanged` must be empty" is planner-only and cannot
+  survive as a global**; a coder case that changes nothing is the failure, not
+  the pass.
+
+`isStructurallyOk` reads those fields instead of branching on the variant name.
+It keeps its job: gate the expensive judge behind the free checks, so a broken
+turn costs a two-token rubric call rather than a full-size one.
+
+#### Nine graders, one shared core
+
+`evals/asserts/<name>.mjs` stays one file per case, as the docs already promise
+— **that is the file a reader opens when a specific case fails, and a single
+generic grader would put the case's own rules somewhere else.** But its four
+current checks are case-independent once they read `expect`, so they move to
+`evals/asserts/shared.mjs` and each case's grader becomes: import the shared
+check list, import its own case, run them, then add whatever is genuinely
+specific to that state.
+
+Genuinely specific, per class:
+
+- Planner cases (`design.triage`, `architecture.author`,
+  `build.review.reviewing`, `build.review.collecting`) — the artifact must parse
+  as the shape the next state reads. `build.review.collecting` writes
+  `.gtd/REQUIREMENTS.md`, so its grader checks the concerns carry a
+  PRODUCT/TECHNICAL classification; `architecture.author` checks
+  `## Merged Concerns` is present or absent, never malformed.
+- Coder cases — `otherFilesChanged` must be non-empty and must **not** include
+  any file the fixture's spec puts out of bounds. The planted wrong move is a
+  file the fixture makes tempting; touching it fails.
+
+Errors stay where they are: a grader returns `{pass: false, score: 0, reason}`
+and never throws, so one bad trial reports a reason instead of killing the run.
+
+#### Fixture reach for the nine new states
+
+`buildFixture` needs no change — `gtd --entry <state>` already takes any state
+path, and each case's `base` supplies whatever that state reads. The work per
+case is picking the prerequisite files:
+
+- `design.triage` and `build.review.collecting` need an entry diff and (for
+  collecting) a `.gtd/REVIEW.md`; the fixture commits the base then leaves the
+  variant's change uncommitted, exactly as today.
+- `architecture.author` needs a `.gtd/REQUIREMENTS.md` in `base`.
+- `packages.item.*` need a `.gtd/NEXT.md` package file, as spec-review already
+  has.
+- `build.fix` and `packages.item.fix-suite` need a `.gtd/FEEDBACK.md`;
+  `packages.item.fix-spec` needs a `.gtd/SPEC_FEEDBACK.md`.
+
+**Fixtures leave `modes:` unset in `.gtdrc.json`.** Four of the new states carry
+`mode: qa` or `mode: review`, but a fixture with no `modes:` config resolves
+`gtd next --json=validate` to nothing, so `run-turn.mjs`'s existing "expected no
+validate step" guard keeps passing untouched. Configuring a validator would
+require a re-prompt loop, and **exactly one agent turn per trial is the eval's
+whole contract** — a second turn would grade recovery, not the prompt.
+
+#### Cost, stated plainly
+
+**80 multi-minute turns per `npm run eval`, at `--max-concurrency 2` — hours,
+real tokens.** That concurrency stays at 2: the cost was accepted upstream, and
+raising it trades a shorter run for gateway rate-limit failures that read as
+prompt regressions in the recorded baseline.
+
+The last task, after all nine cases are wired: one `npm run eval` followed by
+`npm run eval:baseline`. **One record for the whole package, never one per
+case.** `gemini-3.5-flash-lite` is under test in the coder half for the first
+time here — if its coder cells come back mixed, it is a candidate to replace,
+not a floor to record.
+
 ## Answered Questions
 
 ### Does "build out the eval cases for all other prompts" override the original no-coverage-driven-cases constraint?
@@ -301,3 +540,35 @@ command — 80 multi-minute turns at ten cases, versus 8 today.
 Pinned to a dated id the gateway serves, so a recorded baseline is reproducible
 and cannot shift under the repo. The cost accepted is a manual bump whenever the
 gateway retires that id.
+
+### Does the baseline get recorded once, or once per package?
+
+Twice across the whole plan, and never more. The configuration package records
+its own two cells because the gate fails on an unrecorded cell and the package
+must land green on its own; the cases package records all twenty at the end. The
+"recording once per case is wasted money" rule bars ten runs, not two.
+
+### Do the new cases configure a `modes:` validator in their fixtures?
+
+No. A fixture with no `modes:` config emits no `validate` step, which keeps the
+existing one-turn guard in `run-turn.mjs` intact. Running a validator would
+require re-prompting the agent on failure, and the eval grades exactly one turn.
+
+### Does each case keep its own grader file, or share one generic grader?
+
+Its own file, over a shared check list in `evals/asserts/shared.mjs`. The
+per-case file is what a reader opens when a named cell fails, and the docs
+already promise `evals/asserts/<name>.mjs` exists.
+
+### How does `run-turn.mjs` learn which model class a state runs under?
+
+It does not, and must not. Both `GTD_PLANNERMODEL` and `GTD_CODERMODEL` are
+injected on every trial and the workflow itself picks; `gtd next --json=model`
+reads the resolved id back. Duplicating the state→class table into the eval
+would be a second source of truth that goes stale silently.
+
+### Should `--max-concurrency` rise to shorten an 80-turn run?
+
+No. It stays at 2. The hours-long cost was accepted upstream, and a rate-limited
+trial fails as a prompt regression, which poisons the recorded baseline with a
+number that has nothing to do with the prompt.
