@@ -1,9 +1,13 @@
-#!/usr/bin/env node
-// The promptfoo `exec:` provider for the spec-review case: builds a fixture
-// repo, drives exactly ONE real driver turn against it (`gtd next` -> `pi -p`
-// -> `gtd land`), and prints one line of JSON for the graders in
-// `evals/asserts/spec-review.mjs` (tiers 1/2) and the `llm-rubric` in
-// `evals/promptfooconfig.yaml` (tier 3) to inspect.
+// The promptfoo `exec:` provider for every case: builds a fixture repo,
+// drives exactly ONE real driver turn against it (`gtd next` -> `pi -p` ->
+// `gtd land`), and prints one line of JSON for each case's own
+// `evals/asserts/<name>.mjs` (tiers 1/2) and the `llm-rubric` in
+// `evals/promptfooconfig.yaml` (tier 3) to inspect. No `#!` here on purpose:
+// `evals/promptfooconfig.yaml` always spawns this as `node run-turn.mjs`,
+// never `./run-turn.mjs` directly, and a leading shebang breaks Vite's SSR
+// transform of the dynamic `import(`./cases/${caseName}.mjs`)` below —
+// `tests/tooling/run-turn.test.ts`'s static import of this module would fail
+// to even parse with one present.
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
