@@ -12,7 +12,7 @@ function providerLabel(r) {
 }
 
 function cellKey(r) {
-  return `${providerLabel(r)}|${r.vars?.variant}`
+  return `${providerLabel(r)}|${r.vars?.case}|${r.vars?.variant}`
 }
 
 function cellsFrom(results) {

@@ -6,6 +6,7 @@ export default Object.freeze({
   name: "spec-review",
   state: "packages.item.spec.review",
   plantedIdentifier: "DivisionByZeroError",
+  artifact: ".gtd/SPEC_FEEDBACK.md",
   base: {
     ".gtd/NEXT.md": `# Package: safe-divide
 
@@ -48,7 +49,7 @@ export const safeDivide = (a: number, b: number): number => {
     },
   },
   expect: {
-    violation: { feedback: true },
-    clean: { feedback: false },
+    violation: { gtdFiles: [".gtd/SPEC_FEEDBACK.md"], otherFiles: "none" },
+    clean: { gtdFiles: [], otherFiles: "none" },
   },
 })

@@ -10,7 +10,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert"
-import spec from "./cases/spec-review.mjs"
 import { buildFixture, scrubbedEnv, GTD_BIN, OXFMT_BIN } from "./fixture.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -66,13 +65,29 @@ function parseArgs(argv) {
       consumed.add(idx + 1)
     }
   }
-  // `exec:` hands the rendered `{{variant}}` prompt through as a plain
-  // positional — it is the first argv entry not consumed by any `--<class>`
-  // flag/value pair. With no model flags at all, nothing is consumed —
-  // filtering index 0 unconditionally would drop the variant itself and
-  // misreport a missing model as a missing variant.
-  const variant = argv.find((_, i) => !consumed.has(i))
-  return { models, variant }
+  // `exec:` hands the rendered `{{case}}:{{variant}}` prompt through as a
+  // plain positional — it is the first argv entry not consumed by any
+  // `--<class>` flag/value pair. With no model flags at all, nothing is
+  // consumed — filtering index 0 unconditionally would drop the positional
+  // itself and misreport a missing model as a missing case/variant.
+  const positional = argv.find((_, i) => !consumed.has(i))
+  // A case name stays `[a-z-]+` (never containing `:`), so splitting on the
+  // FIRST `:` is unambiguous.
+  const sep = positional?.indexOf(":") ?? -1
+  const caseName = sep === -1 ? undefined : positional.slice(0, sep)
+  const variant = sep === -1 ? undefined : positional.slice(sep + 1)
+  return { models, caseName, variant }
+}
+
+/** Dynamically imports `./cases/<caseName>.mjs` — a frozen plain object, never executed for behaviour. */
+async function loadCase(caseName) {
+  if (!caseName) return undefined
+  try {
+    const mod = await import(`./cases/${caseName}.mjs`)
+    return mod.default
+  } catch {
+    return undefined
+  }
 }
 
 function assertTmpCwd(cwd) {
@@ -133,9 +148,13 @@ function modelClassChecks(models) {
   ])
 }
 
-function baseInfraChecks(models, variant, gatewayUrl, gatewayKey) {
+function baseInfraChecks(models, caseName, caseDef, variant, gatewayUrl, gatewayKey) {
   return [
-    [!variant || !(variant in spec.variants), `run-turn: unknown or missing variant "${variant}"`],
+    [!caseDef, `run-turn: unknown case "${caseName}"`],
+    [
+      !!caseDef && (!variant || !(variant in caseDef.variants)),
+      `run-turn: unknown or missing variant "${variant}"`,
+    ],
     ...modelClassChecks(models),
     [
       !existsSync(GTD_BIN),
@@ -147,18 +166,18 @@ function baseInfraChecks(models, variant, gatewayUrl, gatewayKey) {
   ]
 }
 
-async function infraFailures(models, variant) {
+async function infraFailures(models, caseName, caseDef, variant) {
   const gatewayUrl = process.env.GTD_EVALS_URL
   const gatewayKey = process.env.GTD_EVALS_KEY
-  const checks = baseInfraChecks(models, variant, gatewayUrl, gatewayKey)
+  const checks = baseInfraChecks(models, caseName, caseDef, variant, gatewayUrl, gatewayKey)
   for (const message of await modelServedFailures(models, gatewayUrl, gatewayKey)) {
     checks.push([true, message])
   }
   return checks
 }
 
-async function checkInfra(models, variant) {
-  for (const [failed, message] of await infraFailures(models, variant)) {
+async function checkInfra(models, caseName, caseDef, variant) {
+  for (const [failed, message] of await infraFailures(models, caseName, caseDef, variant)) {
     if (failed) fail(message)
   }
 }
@@ -232,9 +251,13 @@ function driveTurn(repo, env, gatewayUrl, gatewayKey) {
 
   const turnModel = gtd(repo, env, "next", "--json=model").trim()
   const system = gtd(repo, env, "next", "--json=system").trim()
-  const validate = gtd(repo, env, "next", "--json=validate").trim()
-  if (validate) fail(`run-turn: expected no validate step, got "${validate}"`)
-
+  // A `mode: qa`/`mode: review` state ALWAYS carries a non-empty validate
+  // script (the built-in modes validate in-process, independent of any
+  // `modes:` config) — there is no fixture shape that makes it empty. This
+  // harness never runs it either way: running it would still be one agent
+  // turn, but re-prompting on a failure would grade recovery, not the
+  // prompt, so it is deliberately left unexecuted rather than asserted
+  // empty.
   const prompt = gtd(repo, env, "next")
 
   const piDir = writePiConfig(gatewayUrl, turnModel)
@@ -274,42 +297,57 @@ function changedFiles(repo, env, preLandHead, postLandHead) {
   }
 }
 
-function readFeedback(repo) {
-  const feedbackPath = join(repo, ".gtd/SPEC_FEEDBACK.md")
+// `caseDef.artifact` is absent for a case that produces no state file
+// (`packages.item.building`) — skip cleanly rather than reading a path that
+// was never contracted.
+function readFeedback(repo, caseDef) {
+  if (!caseDef.artifact) return { feedbackExists: false, feedback: "" }
+  const feedbackPath = join(repo, caseDef.artifact)
   const feedbackExists = existsSync(feedbackPath)
   return { feedbackExists, feedback: feedbackExists ? readFileSync(feedbackPath, "utf-8") : "" }
 }
 
-function expectedGtdFiles(variant) {
-  return variant === "violation" ? [".gtd/SPEC_FEEDBACK.md"] : []
-}
-
-function identifierOk(variant, feedback) {
-  return variant !== "violation" || feedback.includes(spec.plantedIdentifier)
+function identifierOk(caseDef, variant, feedback) {
+  return (
+    variant !== "violation" ||
+    !caseDef.plantedIdentifier ||
+    feedback.includes(caseDef.plantedIdentifier)
+  )
 }
 
 // Tiers 1 AND 2: the shape check the deterministic asserts run, plus the
 // grep floor for `plantedIdentifier`. Without tier 2 here, a well-formed but
-// WRONG `.gtd/SPEC_FEEDBACK.md` reads as "structurally ok" and still bills a
-// full-size judge call on feedback the cheap tier already rejected.
-function isStructurallyOk(variant, gtdFilesChanged, otherFilesChanged, unformatted, feedback) {
+// WRONG artifact reads as "structurally ok" and still bills a full-size
+// judge call on feedback the cheap tier already rejected.
+function isStructurallyOk(
+  caseDef,
+  variant,
+  gtdFilesChanged,
+  otherFilesChanged,
+  unformatted,
+  feedback,
+) {
+  const expect = caseDef.expect[variant]
+  const otherFilesOk =
+    expect.otherFiles === "none" ? otherFilesChanged.length === 0 : otherFilesChanged.length > 0
   const checks = [
-    JSON.stringify(gtdFilesChanged) === JSON.stringify(expectedGtdFiles(variant)),
-    otherFilesChanged.length === 0,
+    JSON.stringify(gtdFilesChanged) === JSON.stringify(expect.gtdFiles),
+    otherFilesOk,
     unformatted.length === 0,
-    identifierOk(variant, feedback),
+    identifierOk(caseDef, variant, feedback),
   ]
   return checks.every(Boolean)
 }
 
 /** Lands the turn's script and reports everything the graders need about what it did. */
-function landAndInspect(repo, env, variant) {
+function landAndInspect(repo, env, caseDef, variant) {
   const { preLandHead, postLandHead } = land(repo, env)
   const landedSubject = git(repo, env, "log", "-1", "--format=%s")
   const { gtdFilesChanged, otherFilesChanged } = changedFiles(repo, env, preLandHead, postLandHead)
-  const { feedbackExists, feedback } = readFeedback(repo)
+  const { feedbackExists, feedback } = readFeedback(repo, caseDef)
   const unformatted = unformattedGtdFiles(repo, env)
   const structurallyOk = isStructurallyOk(
+    caseDef,
     variant,
     gtdFilesChanged,
     otherFilesChanged,
@@ -329,8 +367,9 @@ function landAndInspect(repo, env, variant) {
 }
 
 async function main() {
-  const { models, variant } = parseArgs(process.argv.slice(2))
-  await checkInfra(models, variant)
+  const { models, caseName, variant } = parseArgs(process.argv.slice(2))
+  const caseDef = await loadCase(caseName)
+  await checkInfra(models, caseName, caseDef, variant)
 
   // Read before scrubbing: scrubbedEnv drops every `GTD_*` var, including
   // these two.
@@ -343,14 +382,14 @@ async function main() {
 
   let repo
   try {
-    repo = buildFixture(spec, variant, env)
+    repo = buildFixture(caseDef, variant, env)
   } catch (err) {
     fail(`run-turn: fixture build failed: ${err.message}`)
     return
   }
 
   driveTurn(repo, env, gatewayUrl, gatewayKey)
-  const result = landAndInspect(repo, env, variant)
+  const result = landAndInspect(repo, env, caseDef, variant)
 
   if (process.env.EVAL_CLEAN === "1") {
     execFileSync("rm", ["-rf", repo])
@@ -359,7 +398,9 @@ async function main() {
   }
 
   const modelsField = `planner=${models.planner} coder=${models.coder}`
-  process.stdout.write(JSON.stringify({ repo, variant, models: modelsField, ...result }) + "\n")
+  process.stdout.write(
+    JSON.stringify({ repo, case: caseName, variant, models: modelsField, ...result }) + "\n",
+  )
 }
 
 // Guards direct execution vs. import: `tests/tooling/run-turn.test.ts` imports

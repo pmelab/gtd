@@ -32,10 +32,14 @@ builds the bundle, tags it, and publishes.
 ## Prompt evals
 
 `npm run eval` grades the bundled workflow's own prompts against one model
-configuration, using [promptfoo](https://www.promptfoo.dev/). Prerequisites are
-exactly two environment variables: `GTD_EVALS_URL` (an OpenAI-compatible
-gateway) and `GTD_EVALS_KEY` — both the driver turn, run as one `gtd next` →
-`pi -p` → `gtd land` cycle through the
+configuration, using [promptfoo](https://www.promptfoo.dev/). Every
+`actor: agent` prompt state the workflow can rest at gets a two-sided case —
+nine of the ten today; `architecture.decompose` ships a stated reason instead,
+in `evals/cases/architecture-decompose.md`, since it writes a variable-sized set
+of package files rather than one contracted artifact. Prerequisites are exactly
+two environment variables: `GTD_EVALS_URL` (an OpenAI-compatible gateway) and
+`GTD_EVALS_KEY` — both the driver turn, run as one `gtd next` → `pi -p` →
+`gtd land` cycle through the
 [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent),
 and the `llm-rubric` judge reach the model exclusively through that gateway; no
 other credential source is read. It is not part of `npm test`: each case drives
@@ -68,22 +72,30 @@ and `results.json`'s per-provider counts are both summed across fixtures AND
 configurations, so `npm run eval` runs through `evals/eval.mjs` rather than the
 bare `promptfoo` CLI: it strips that aggregate line out of promptfoo's own
 output as it streams (the per-test results table above it is untouched) and
-prints `evals/report.mjs`'s own pass rate **per fixture, per configuration**
-(out of `--repeat`'s trial count) in its place — never averaged across fixtures
-or configurations, since a suite that averages a two-sided case's variants hides
-exactly the failure those variants exist to expose. `evals/eval.mjs` still exits
-with promptfoo's own exit code, so a failing assertion still fails
-`npm run eval`. `npm run eval` also passes `--no-cache`: `--repeat` does not
-disable promptfoo's own result cache, and running the same config by hand from
-`evals/` (its own `basePath`) makes the exec provider's script hashes resolve —
-without `--no-cache`, later trials would silently replay an earlier trial's
-cached JSON instead of a fresh turn.
+prints `evals/report.mjs`'s own pass rate **per case, per variant, per
+configuration** (out of `--repeat`'s trial count) in its place — never averaged
+across cases, variants, or configurations, since a suite that averages a
+two-sided case's variants hides exactly the failure those variants exist to
+expose. `evals/eval.mjs` still exits with promptfoo's own exit code, so a
+failing assertion still fails `npm run eval`. `npm run eval` also passes
+`--no-cache`: `--repeat` does not disable promptfoo's own result cache, and
+running the same config by hand from `evals/` (its own `basePath`) makes the
+exec provider's script hashes resolve — without `--no-cache`, later trials would
+silently replay an earlier trial's cached JSON instead of a fresh turn.
 
-To add a case: write `evals/cases/<name>.mjs` exporting a frozen object shaped
-like `evals/cases/spec-review.mjs` (a `state` to enter, two-sided
-`base`/`variants` fixture content, and a `plantedIdentifier` the defect
-variant's feedback must name), add a matching `evals/asserts/<name>.mjs` grader,
-and wire both into `evals/promptfooconfig.yaml`'s `tests:`.
+To add a case: write `evals/cases/<name>.mjs` exporting a frozen plain object
+shaped like `evals/cases/spec-review.mjs` — a `state` to enter, two-sided
+`base`/`variants` fixture content, `expect[variant].gtdFiles` (the exact `.gtd/`
+paths that variant's turn may change) and `expect[variant].otherFiles` (`"none"`
+for a planner case that must never touch repo code, `"required"` for a coder
+case that must), an optional `artifact` (the repo-relative path read back as
+`feedback` for the tier-3 rubric, absent for a case with no contracted state
+file), and a `plantedIdentifier` the `violation` variant's `feedback` must name.
+Then add a matching `evals/asserts/<name>.mjs` grader — it wires
+`evals/asserts/shared.mjs`'s case-independent checks first, then adds whatever
+check is specific to that state — and wire both into
+`evals/promptfooconfig.yaml`'s `tests:`, one entry per variant, each carrying
+`case`/`variant`/`challenge`.
 
 A case names a workflow `state`, never a model: the state's class — planner or
 coder — picks which half of the configuration runs it, so a review-class case
@@ -102,13 +114,13 @@ newly-missing cell, not a renamed one.
 ### The baseline regression gate
 
 `evals/baseline.json` is a committed snapshot of the pass rate each
-`(provider label, fixture variant)` cell scored on a past green run — exactly
-like a test snapshot. After a clean `promptfoo` exit, `npm run eval` runs
+`(provider label, case, variant)` cell scored on a past green run — exactly like
+a test snapshot. After a clean `promptfoo` exit, `npm run eval` runs
 `evals/compare-baseline.mjs` against the `evals/results.json` the run just
 wrote: any cell whose rate is lower than the baseline's fails the whole command,
 naming the cell and both rates, with no tolerance band (4/4 to 3/4 reds it, for
-one model on one fixture). A cell missing from either side — an unrecorded
-fixture, or one silently dropped from the run — fails too. A higher-scoring run
+one model on one case/variant). A cell missing from either side — an unrecorded
+case, or one silently dropped from the run — fails too. A higher-scoring run
 exits clean and never rewrites the file.
 
 The baseline is **never** updated automatically — a passing `npm run eval` that
