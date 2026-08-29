@@ -1,31 +1,5 @@
 # Architecture
 
-## Open Questions
-
-### Which opus id does the `planner` provider grade?
-
-- [x] `claude-4-5-opus` — same generation as the `claude-4-5-haiku` cheap tier
-      and the `claude-4-5-sonnet` judge, so the matrix compares one generation
-      across three tiers and the judge is never a generation behind what it
-      grades
-- [ ] `claude-4-8-opus` — the newest opus the gateway lists, so the planner cell
-      measures the tier a person would actually point `plannerModel: smart` at
-      today
-- [ ] _your answer_
-
-### Does `evals/run-turn.mjs` verify the model id against `GET /models` before spawning?
-
-- [x] Yes — one `GET $GTD_EVALS_URL/models` in `infraFailures`, failing with
-      "model X is not served by GTD_EVALS_URL" when the id is absent; a typo
-      becomes a loud infra break instead of a 0/4 cell that reads as a bad
-      prompt, at the cost of one extra network call and a new network dependency
-      in startup on every one of the 16 trials
-- [ ] No — the two ids live in `evals/promptfooconfig.yaml` and are caught by
-      review; the harness stays network-free until the turn itself, and a wrong
-      id shows up as an identical failure in all four trials of one cell, which
-      a human reading the matrix can tell from a flaky prompt
-- [ ] _your answer_
-
 ## Merged Concerns
 
 Concerns 1, 2 and 3 merge into one package. **All three center on the same two
@@ -370,10 +344,32 @@ deleted — the import becomes unused and reds oxlint if left.** The list become
   missing-bundle check
 - **unset `GTD_EVALS_URL`**
 - **unset `GTD_EVALS_KEY`**
-- optionally, the `GET /models` check — see the open question
+- **the model under test is not in `GET $GTD_EVALS_URL/models`** — fails with
+  "model X is not served by GTD_EVALS_URL"
 
 **The property these exist for is unchanged and is the reason to keep every one
-of them: an infra break must never read as a passing grade.**
+of them: an infra break must never read as a passing grade.** The `/models`
+check is that property applied to a typo: without it a mistyped id fails as a
+model error mid-turn and lands as a 0/4 cell that reads as a bad prompt.
+
+**The `/models` check makes `infraFailures` async, and that is the one
+structural change it forces.** It calls `fetch` (built in on Node 22+, and
+`engines` is `>=22`) with the `Authorization: Bearer <GTD_EVALS_KEY>` header,
+reads `data[].id`, and tests exact membership of the bare id. `infraFailures`
+and `checkInfra` become `async`, and `main` already awaits — no other caller
+exists.
+
+**The key and URL come from `process.env`, before `scrubbedEnv` strips them,**
+same as every other read of the two variables.
+
+**Cost, stated: one extra network call on every one of the 16 trials, and
+startup now depends on the network.** A gateway that is up enough to serve
+`/models` is up enough to serve the turn, so this adds no new class of outage —
+it only moves the failure earlier and names it correctly.
+
+**A `/models` request that throws or returns non-2xx is itself a precondition
+failure,** not a skipped check. Treating an unreachable gateway as "id is
+probably fine" would let the whole run proceed into 16 doomed turns.
 
 ### Error handling
 
@@ -397,7 +393,7 @@ the labels `planner` and `cheap`:**
 
 ```yaml
 providers:
-  - id: "exec:node run-turn.mjs --model <opus id — see open question>"
+  - id: "exec:node run-turn.mjs --model claude-4-5-opus"
     label: planner
   - id: "exec:node run-turn.mjs --model claude-4-5-haiku"
     label: cheap
@@ -407,6 +403,14 @@ providers:
 `claude-4-6-opus`, `claude-4-7-opus`, `claude-4-8-opus`, `claude-4-5-haiku`,
 `claude-4-5-sonnet`, `claude-4-6-sonnet` and `claude-5-sonnet`, so both matrix
 ids and the judge id are real.
+
+**`claude-4-5-opus` is the planner tier, not a newer opus.** It is the same
+generation as the `claude-4-5-haiku` cheap tier and the `claude-4-5-sonnet`
+judge, so the matrix compares one generation across three tiers and the judge is
+never a generation behind what it grades. **The cost: the planner cell does not
+measure the newest opus the gateway serves,** so a person pointing
+`plannerModel: smart` at `claude-4-8-opus` is reading a floor recorded one
+generation down.
 
 **The injection route does not change:** the model rides on the provider's own
 command line as `--model`, deliberately not a promptfoo `--var` an ambient env
@@ -545,6 +549,23 @@ to fix.
 doc's prerequisites paragraph names both variables.
 
 ## Answered Questions
+
+### Which opus id does the `planner` provider grade?
+
+`claude-4-5-opus`. It is the same generation as the `claude-4-5-haiku` cheap
+tier and the `claude-4-5-sonnet` judge, so the matrix compares one generation
+across three tiers and the judge is never a generation behind what it grades.
+The accepted cost is that the planner cell does not measure `claude-4-8-opus`,
+the newest opus the gateway lists.
+
+### Does `evals/run-turn.mjs` verify the model id against `GET /models` before spawning?
+
+Yes. `infraFailures` gains a `GET $GTD_EVALS_URL/models` check that fails with
+"model X is not served by GTD_EVALS_URL" when the bare id is absent, so a typo
+is a loud infra break instead of a 0/4 cell that reads as a bad prompt. The
+accepted costs are one extra network call on every one of the 16 trials and a
+network dependency in startup; the check makes `infraFailures` and `checkInfra`
+async.
 
 ### What drives the one graded turn now that `claude -p` is gone?
 
