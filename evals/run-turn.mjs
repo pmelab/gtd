@@ -95,13 +95,9 @@ async function checkModelServed(gatewayUrl, gatewayKey, model) {
 // (planner === coder collapses to a single call).
 async function modelServedFailures(models, gatewayUrl, gatewayKey) {
   if (!gatewayUrl || !gatewayKey) return []
-  const failures = []
-  for (const id of new Set(Object.values(models))) {
-    if (!id) continue
-    const failure = await checkModelServed(gatewayUrl, gatewayKey, id)
-    if (failure) failures.push(failure)
-  }
-  return failures
+  const ids = [...new Set(Object.values(models))].filter(Boolean)
+  const failures = await Promise.all(ids.map((id) => checkModelServed(gatewayUrl, gatewayKey, id)))
+  return failures.filter(Boolean)
 }
 
 function modelClassChecks(models) {
