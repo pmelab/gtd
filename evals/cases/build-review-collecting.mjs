@@ -9,7 +9,11 @@
 export default Object.freeze({
   name: "build-review-collecting",
   state: "build.review.collecting",
-  plantedIdentifier: "SilentRetrySwallow",
+  // A real code-level identifier (a file path), not an invented label — a
+  // classifying agent naturally names the affected file when writing a
+  // concern down; an artificial camelCase nickname isn't something free
+  // prose reliably reproduces verbatim (measured: it wasn't).
+  plantedIdentifier: "src/retry.ts",
   artifact: ".gtd/REQUIREMENTS.md",
   base: {
     "src/retry.ts": `export const withRetry = async <T>(fn: () => Promise<T>): Promise<T> => fn()
@@ -22,8 +26,8 @@ whether it's actionable.
 
 The human left this note on \`.gtd/REVIEW.md\`, on the hunk touching
 \`src/retry.ts\`: "This catches every error and returns undefined instead of
-re-throwing after the last attempt — SilentRetrySwallow. Callers can't tell
-a retry exhausted from a real success. Needs a concern to fix it."
+re-throwing after the last attempt. Callers can't tell a retry exhausted from
+a real success. Needs a concern to fix it."
 `,
     },
     clean: {

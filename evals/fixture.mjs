@@ -124,6 +124,13 @@ export function buildFixture(caseDef, variant, env = scrubbedEnv()) {
   writeOxfmtConfig(repo)
   writeEvalWorkflowConfig(repo)
   writeFile(repo, "README.md", "# gtd eval fixture\n")
+  // A coder-class turn following TDD discipline (the builder persona's own
+  // instruction) may reasonably run `npm install && npm test` to verify its
+  // fix — with no `.gitignore`, the resulting `node_modules/` (and vitest's
+  // own cache under it) would land in `git diff --name-only` as tracked
+  // "changed" files, polluting `otherFilesChanged` with build artifacts no
+  // grader should ever see.
+  writeFile(repo, ".gitignore", "node_modules/\n")
   git(repo, env, "add", "-A")
   git(repo, env, "commit", "-q", "-m", "chore: initial commit")
 

@@ -26,13 +26,19 @@ must show customers, so it can't ship without a number.
 `,
     },
     // Fully specified — nothing left for a human to decide, so no question
-    // is warranted.
+    // is warranted. Measured: an earlier draft left "what happens to the
+    // order after a refund" and "are partial refunds supported" open, and a
+    // real triage correctly raised THOSE as genuine forks — settling every
+    // one explicitly is what actually earns silence here.
     clean: {
       ".gtd/TODO.md": `# TODO
 
 Add order refunds. Customers can request a refund within
 \`RefundWindowDays = 30\` days of purchase; requests after that window are
-rejected with no further configuration needed.
+rejected. Refunds are always for the full order amount — there is no partial
+refund. A successful refund marks the order's status as \`"refunded"\` and
+leaves its total unchanged, so purchase history stays accurate. No further
+configuration is required.
 `,
     },
   },

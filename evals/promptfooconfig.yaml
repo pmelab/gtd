@@ -163,18 +163,19 @@ tests:
       case: build-review-collecting
       variant: violation
       challenge: >-
-        the review round's captured note flags a real bug
-        (SilentRetrySwallow); collecting MUST write .gtd/REQUIREMENTS.md
-        with a classified concern naming it.
+        the review round's captured note flags a real bug in src/retry.ts (a
+        swallowed retry error); collecting MUST write .gtd/REQUIREMENTS.md
+        with a classified concern naming the file.
     assert:
       - type: javascript
         value: file://asserts/build-review-collecting.mjs
       - type: llm-rubric
         transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
         value: >-
-          The concern names the SilentRetrySwallow defect precisely enough
-          for a build lap to act on, under a PRODUCT or TECHNICAL
-          classification. The literal text "STRUCTURAL FAILURE" must fail.
+          The concern names the swallowed-retry-error defect in src/retry.ts
+          precisely enough for a build lap to act on, under a PRODUCT or
+          TECHNICAL classification. The literal text "STRUCTURAL FAILURE"
+          must fail.
         provider: "openai:chat:gpt-5.4"
   - vars:
       case: build-review-collecting

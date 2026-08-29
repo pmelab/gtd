@@ -210,6 +210,14 @@ function unformattedGtdFiles(repo, env) {
         .split("\n")
         .filter(Boolean)
     }
+    // A coder turn that deletes `.gtd/FEEDBACK.md` (leaving only a dotfile
+    // fixture marker oxfmt's own ignore rules never match) makes `.gtd`
+    // contain zero target files — oxfmt exits 2 with "Expected at least one
+    // target file" rather than 1. Zero checkable files is vacuously zero
+    // UNFORMATTED files, never a broken run: the turn's own gtdFiles check
+    // is what grades whether deleting FEEDBACK.md was the right move.
+    const stderr = String(err.stderr ?? err.message ?? "")
+    if (stderr.includes("Expected at least one target file")) return []
     fail(`run-turn: oxfmt --list-different failed unexpectedly: ${err.message}`)
     return []
   }
