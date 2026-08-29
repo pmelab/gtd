@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-08-29T08:50:12.828Z",
+  "recordedAt": "2026-08-29T08:58:42.912Z",
   "trials": 4,
   "rates": {
     "cheap|clean": {
@@ -7,7 +7,7 @@
       "total": 4
     },
     "cheap|violation": {
-      "passed": 4,
+      "passed": 3,
       "total": 4
     },
     "planner|clean": {
