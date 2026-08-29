@@ -814,3 +814,279 @@ describe("voice styling (styled review exemplar)", () => {
     ])
   })
 })
+
+describe("REVIEW_FORMAT.actions — cursor geometry (hunk and chunk span boundaries)", () => {
+  // Three chunks: A has a hunk with a multi-line note (sourceLine !== endLine)
+  // followed by a plain hunk, B has zero file pointers, C is the last chunk
+  // (exercises the `?? lines.length` fallback for the chunk-end computation).
+  const geoDoc = [
+    "# Review: abc1234", // 0
+    "<!-- base: abc1234def5678901234567890123456789abcd -->", // 1
+    "", // 2
+    "## Chunk A", // 3
+    "", // 4
+    "- [ ] ./src/a.ts#1", // 5
+    "  first line note", // 6
+    "  second line note", // 7
+    "", // 8
+    "- [x] ./src/a.ts#5", // 9
+    "", // 10
+    "## Chunk B", // 11
+    "", // 12
+    "Just prose, no pointers.", // 13
+    "", // 14
+    "## Chunk C", // 15
+    "", // 16
+    "- [ ] ./src/c.ts#1", // 17
+    "", // 18
+  ].join("\n")
+
+  const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+  const titles = (line: number) => REVIEW_FORMAT.actions(geoDoc, at(line)).map((a) => a.title)
+
+  it.each([
+    [5, true, "gtd: check this hunk", "hunk 1's own sourceLine"],
+    [7, true, "gtd: check this hunk", "hunk 1's endLine (multi-line note, endLine > sourceLine)"],
+    [8, false, "gtd: check this hunk", "one line past hunk 1's endLine"],
+    [9, true, "gtd: uncheck this hunk", "hunk 2, where sourceLine === endLine"],
+  ])("hunk action at line %i — offered: %s (%s / %s)", (line, expected, title) => {
+    const t = titles(line)
+    if (expected) expect(t).toContain(title)
+    else expect(t).not.toContain(title)
+  })
+
+  it.each([
+    [3, true, "Chunk A's headingLine"],
+    [10, true, "Chunk A's computed end (last line before Chunk B's heading)"],
+    [11, false, "one line past Chunk A's end (Chunk B's headingLine)"],
+  ])("chunk A action at line %i — offered: %s (%s)", (line, expected) => {
+    const t = titles(line)
+    const title = 'gtd: check all hunks in "Chunk A"'
+    if (expected) expect(t).toContain(title)
+    else expect(t).not.toContain(title)
+  })
+
+  it.each([
+    [15, true, "Chunk C's headingLine (last chunk)"],
+    [18, true, "Chunk C's computed end (last line of the doc, no next chunk)"],
+    [19, false, "one line past Chunk C's end (past the document)"],
+  ])("chunk C action at line %i — offered: %s (%s)", (line, expected) => {
+    const t = titles(line)
+    const title = 'gtd: check all hunks in "Chunk C"'
+    if (expected) expect(t).toContain(title)
+    else expect(t).not.toContain(title)
+  })
+
+  it("offers no chunk action anywhere inside Chunk B, which has zero file pointers", () => {
+    for (const line of [11, 12, 13, 14]) {
+      const t = titles(line)
+      expect(t.some((title) => title.includes("Chunk B"))).toBe(false)
+    }
+  })
+})
+
+describe("REVIEW_FORMAT.outline — last-chunk end-of-range fallback", () => {
+  const threeChunkLines = (trailingNewline: boolean) => {
+    const lines = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk One",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+      "## Chunk Two",
+      "",
+      "- [ ] ./src/b.ts#1",
+      "",
+      "## Chunk Three",
+      "",
+      "- [ ] ./src/c.ts#1",
+    ]
+    return (trailingNewline ? [...lines, ""] : lines).join("\n")
+  }
+
+  it("the last chunk's outline range ends at the document's last line when the doc has a trailing newline", () => {
+    const content = threeChunkLines(true)
+    const nodes = REVIEW_FORMAT.outline(content)
+    const last = nodes[nodes.length - 1]!
+    expect(last.name).toBe("Chunk Three (0/1)")
+    expect(last.range.end.line).toBe(14)
+  })
+
+  it("the last chunk's outline range still ends correctly when the doc has NO trailing newline", () => {
+    const content = threeChunkLines(false)
+    const nodes = REVIEW_FORMAT.outline(content)
+    const last = nodes[nodes.length - 1]!
+    expect(last.name).toBe("Chunk Three (0/1)")
+    expect(last.range.end.line).toBe(13)
+  })
+})
+
+describe("REVIEW_FORMAT.actions — chunk-toggle majority rule (even split checks)", () => {
+  const chunkWithCheckedCount = (checkedCount: number) => {
+    const box = (i: number) => (i < checkedCount ? "x" : " ")
+    return [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Four hunks",
+      "",
+      `- [${box(0)}] ./src/a.ts#1`,
+      `- [${box(1)}] ./src/a.ts#2`,
+      `- [${box(2)}] ./src/a.ts#3`,
+      `- [${box(3)}] ./src/a.ts#4`,
+      "",
+    ].join("\n")
+  }
+
+  const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+
+  it.each([
+    [1, 'gtd: check all hunks in "Four hunks"', "1 of 4 checked — minority, checks"],
+    [2, 'gtd: check all hunks in "Four hunks"', "2 of 4 checked — even split, checks"],
+    [3, 'gtd: uncheck all hunks in "Four hunks"', "3 of 4 checked — strict majority, unchecks"],
+  ])("with %i of 4 hunks checked, the chunk action is %j (%s)", (checkedCount, expectedTitle) => {
+    const content = chunkWithCheckedCount(checkedCount)
+    const titles = REVIEW_FORMAT.actions(content, at(3)).map((a) => a.title)
+    expect(titles).toContain(expectedTitle)
+  })
+})
+
+describe("ReviewDoc — LF/CRLF produce identical results", () => {
+  const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+
+  it("parseReviewDoc, outline, and actions are unaffected by CRLF line endings", () => {
+    const crlfDoc = reviewDoc.replaceAll("\n", "\r\n")
+    expect(parseReviewDoc(crlfDoc)).toEqual(parseReviewDoc(reviewDoc))
+    expect(REVIEW_FORMAT.outline(crlfDoc)).toEqual(REVIEW_FORMAT.outline(reviewDoc))
+    const lfActions = REVIEW_FORMAT.actions(reviewDoc, at(3))
+    const crlfActions = REVIEW_FORMAT.actions(crlfDoc, at(3))
+    expect(lfActions.length).toBeGreaterThan(0)
+    expect(crlfActions).toEqual(lfActions)
+  })
+})
+
+describe("ReviewDoc — inline-segment whitespace splitting", () => {
+  it("a second-pointer separated by two-or-more spaces is detected identically to a single space", () => {
+    const build = (gap: string) =>
+      [
+        "# Review: abc1234",
+        "<!-- base: abc1234def5678901234567890123456789abcd -->",
+        "",
+        "## Add thing.ts",
+        "",
+        `- [ ] ./a.ts#1${gap}./b.ts#2`,
+        "",
+      ].join("\n")
+    const singleSpace = build(" ")
+    const multiSpace = build("   ")
+    expect(REVIEW_FORMAT.validate(multiSpace)).toEqual(REVIEW_FORMAT.validate(singleSpace))
+    expect(REVIEW_FORMAT.validate(singleSpace)).toEqual([
+      {
+        message:
+          'Chunk "Add thing.ts" hunk ./a.ts#1\'s note starts with a second pointer (./b.ts#2) — give it its own "- [ ]" line',
+        line: 5,
+      },
+    ])
+  })
+})
+
+describe("ReviewDoc — load-bearing whitespace trims", () => {
+  it("trims leading/trailing whitespace off the header line before matching it", () => {
+    const content = [
+      "   # Review: abc1234   ",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/x.ts#1",
+      "",
+    ].join("\n")
+    expect(parseReviewDoc(content).shortHash).toBe("abc1234")
+  })
+
+  it("skips a whitespace-only line before the header when finding the first non-blank line", () => {
+    const content = [
+      "   ",
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/x.ts#1",
+      "",
+    ].join("\n")
+    expect(parseReviewDoc(content).shortHash).toBe("abc1234")
+  })
+
+  it("treats a whitespace-only line as blank inside a pointer's span, not as a break or as note content", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  first paragraph",
+      "   ",
+      "  second paragraph",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const file = result.changesets[0]?.files[0]!
+    expect(file.note).toBe("first paragraph second paragraph")
+    expect(file.endLine).toBe(8)
+  })
+
+  it("treats a whitespace-only line as blank when it is the LAST line of a pointer's span", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "  a note",
+      "   ",
+      "- [ ] ./src/calc.ts#9",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const file = result.changesets[0]?.files[0]!
+    expect(file.endLine).toBe(6)
+  })
+
+  it("trims leading/trailing whitespace off a chunk's description line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "   Indented chunk prose.   ",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("Indented chunk prose.")
+  })
+
+  it("computes the toggle's character offset correctly for an indented pointer line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "  - [ ] ./src/x.ts#1",
+      "",
+    ].join("\n")
+    const line = content.split("\n")[5]!
+    const edit = toggleFilePointer(content, 5)
+    expect(edit).toBeDefined()
+    expect(line.slice(edit!.range.start.character, edit!.range.end.character)).toBe(" ")
+    expect(edit!.newText).toBe("x")
+    expect(edit!.range.start.character).toBe(5)
+  })
+})

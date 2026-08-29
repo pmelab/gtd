@@ -517,6 +517,39 @@ describe("formatSteeringFile", () => {
     }
   })
 
+  it("fails hard with no output suffix at all when the `format:` command's output is empty", async () => {
+    const { layer } = scriptedRunner({ status: 4, output: "" })
+    const exit = await runExitWith(
+      formatSteeringFile({ mode: "adr", formatCommand: "exit 4" }, "adr.md", context()),
+      layer,
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe('mode "adr": format command exited with status 4')
+    }
+  })
+
+  it("trims only trailing whitespace off the `format:` command's output, keeping leading whitespace intact", async () => {
+    const { layer } = scriptedRunner({
+      status: 4,
+      output: "  keep this leading\ntrailing removed   ",
+    })
+    const exit = await runExitWith(
+      formatSteeringFile({ mode: "adr", formatCommand: "exit 4" }, "adr.md", context()),
+      layer,
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe(
+        'mode "adr": format command exited with status 4:\n  keep this leading\ntrailing removed',
+      )
+    }
+  })
+
   it("formats nothing for a mode that declares only a `validate:` command", async () => {
     await runWith(
       formatSteeringFile(

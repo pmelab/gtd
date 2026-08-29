@@ -594,10 +594,10 @@ const withRenderedOn = (
 /**
  * Build the `PatternTemplates.TemplateContext` for rendering `state`'s content
  * at the resolved rest. `edges` must already be rendered by the caller
- * (`renderOnEdges`). `currentCost`/`currentModel` are the in-flight step's own
- * `--cost`/`--model`, folded into the process's committed cost entries so
- * `it.processCost`/`it.processCostByModel` total the whole process (`0`/absent
- * for the pure emitters, where no step runs). No diff is computed here —
+ * (`renderOnEdges`). `it.processCost`/`it.processCostByModel` total only the
+ * process's already-committed cost entries — rest resolution always happens
+ * BEFORE a step's own `--cost`/`--model` exist, so there is never an
+ * in-flight step's cost to fold in here. No diff is computed here —
  * `it.reviewBase`/`it.processBase` are bases a template tells the agent to
  * `git diff` itself.
  */
@@ -609,8 +609,6 @@ const buildTemplateContext = (
   run: ProcessRun,
   vars: Record<string, string>,
   edges: readonly OnEdge[] | undefined,
-  currentCost: number,
-  currentModel: string | undefined,
   reviewBase: string,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
@@ -618,13 +616,6 @@ const buildTemplateContext = (
     const previousCommit = yield* git
       .resolveRef("HEAD~1")
       .pipe(Effect.catchAll(() => Effect.succeed(run.startParentHash)))
-    // Fold the in-flight step's own cost into the committed entries so
-    // it.processCost/it.processCostByModel count the in-flight step too.
-    const stepEntry =
-      currentCost > 0 || currentModel !== undefined
-        ? [{ cost: currentCost, model: currentModel ?? UNATTRIBUTED_MODEL }]
-        : []
-    const allCostEntries = [...run.costEntries, ...stepEntry]
     return {
       startCommit: run.diffBase,
       currentCommit,
@@ -633,8 +624,8 @@ const buildTemplateContext = (
       actor,
       reviewBase,
       processBase: run.startParentHash,
-      processCost: totalCostOf(allCostEntries),
-      processCostByModel: costByModel(allCostEntries),
+      processCost: totalCostOf(run.costEntries),
+      processCostByModel: costByModel(run.costEntries),
       read,
       vars,
       edges: toTemplateEdges(edges),
@@ -669,8 +660,6 @@ export const summaryTemplateContext = (
       "",
       run,
       vars,
-      undefined,
-      0,
       undefined,
       reviewBase,
     )
@@ -755,8 +744,6 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       run,
       vars,
       on,
-      0,
-      undefined,
       reviewBase,
     )
     const memory = memoryKeyFor(config.stateScopes, resolved, run)

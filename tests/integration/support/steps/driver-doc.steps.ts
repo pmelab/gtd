@@ -115,7 +115,7 @@ When("I run the driver from the docs", async (world: GtdWorld) => {
   const path = world.driverDocPath
   assert.ok(path, 'no driver — run "Given the driver pasted from docs/driver.md" first')
   try {
-    // 60s, matching e2e-live's own `stepTimeout` (see vitest.config.ts):
+    // 120s, matching e2e-live's own `stepTimeout` (see vitest.config.ts):
     // the reference driver now issues one real subprocess per field read
     // (`gtd next --json=<path>`/`gtd land --json=<path>`) instead of one
     // combined `--sh` read per beat, so a multi-beat scenario like the
@@ -124,7 +124,7 @@ When("I run the driver from the docs", async (world: GtdWorld) => {
       cwd: world.repoDir,
       env: driverEnv(world),
       encoding: "utf-8",
-      timeout: 60_000,
+      timeout: 120_000,
     })
     world.lastResult = { exitCode: 0, stdout, stderr }
   } catch (err: unknown) {

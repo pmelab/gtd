@@ -708,6 +708,29 @@ describe("step — structural errors", () => {
       /declares no actor/,
     )
   })
+
+  it("throws when an `on` edge targets a state absent from the definition", () => {
+    const workflow: WorkflowDefinition = def(
+      { a: { actor: "human", message: "x", on: [["* *", "ghost"]] } },
+      "a",
+    )
+    expect(() =>
+      step(workflow, "a", "human", { changes: [change("A", "x.md")], processTrace: [] }),
+    ).toThrow(/transitions to undefined state "ghost"/)
+  })
+
+  it("throws when an `on` edge targets a state that itself declares no actor", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        a: { actor: "human", message: "x", on: [["* *", "sink"]] },
+        sink: { message: "done" },
+      },
+      "a",
+    )
+    expect(() =>
+      step(workflow, "a", "human", { changes: [change("A", "x.md")], processTrace: [] }),
+    ).toThrow(/"sink" declares no actor/)
+  })
 })
 
 // ── Retry redirection ─────────────────────────────────────────────────────────
