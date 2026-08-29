@@ -14,7 +14,7 @@ workflow is data, and this changes the data.
 - [ ] Telegraphic prose paragraphs, hard-wrapped at the file's current width —
       smallest diff, keeps blocks reading as continuous instruction, no risk of
       a bullet reading as an exhaustive checklist
-- [ ] `- ` bullet lists, one rule per line — highest signal-per-word and easiest
+- [x] `- ` bullet lists, one rule per line — highest signal-per-word and easiest
       for an agent to scan, but restructures every block and inflates the diff;
       note `templates.test.ts:581` bans `^\s*\d+\.\s` in `design.triage`, so
       numbered lists are out either way and only `-` bullets are available
@@ -25,7 +25,7 @@ workflow is data, and this changes the data.
 - [ ] Re-pin to the new terse literal — each regex updated to match the
       compressed wording, same tightness as today; the pin stays exact, and the
       next reword breaks the suite again exactly as it does now
-- [ ] Loosen to keyword/structural pins — assert the surviving concept (e.g.
+- [x] Loosen to keyword/structural pins — assert the surviving concept (e.g.
       `Answered Questions` appearing after other `##` sections) rather than a
       sentence's phrasing, so the guard survives future rewordings; weaker at
       catching a rule silently dropped mid-sentence
