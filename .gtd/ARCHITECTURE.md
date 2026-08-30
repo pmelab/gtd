@@ -9,7 +9,7 @@ build-on-top exception, not a shared footprint.
 
 ### How does a case declare a non-exact `.gtd/` file expectation?
 
-- [ ] Make `gtdFiles` polymorphic — it stays an exact array for the nine
+- [x] Make `gtdFiles` polymorphic — it stays an exact array for the nine
       existing cases, and accepts a descriptor object
       (`{exact: [...], matching: {pattern, count}}`) for this one. One field,
       one place in `docs/development.md` to read, but every future case author
