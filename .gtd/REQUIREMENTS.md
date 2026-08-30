@@ -10,24 +10,6 @@ case, because it writes a variable-sized set of files with nothing fixed to
 compare against. The sketch settles the disagreement: pin the concern count in
 the fixture, and the file count stops being variable.
 
-## Open Questions
-
-### What does the `violation` side of the decompose case test?
-
-Every other case is two-sided — one fixture the state must act on, one it must
-leave alone. The sketch names only the clean side (3 concerns → 3 files). The
-violation side decides what the suite actually protects.
-
-- [ ] A `## Merged Concerns` record — the ARCHITECTURE.md carries 3 concerns
-      plus a `## Merged Concerns` section recording an earlier merge; the prompt
-      says write no package file for it, so the turn must still produce exactly
-      3 files, never 4. Tests the one trap the prompt calls out by name.
-- [x] Re-splitting a merged concern — the ARCHITECTURE.md carries 3 concerns,
-      one of which visibly bundles two requirements; the turn must carry the
-      settled grouping over verbatim as 3 files, not re-split it into 4. Tests
-      "do not merge or split concerns here."
-- [ ] _your answer_
-
 ## Concern 1 — Ship the `architecture.decompose` eval case
 
 **PRODUCT.** The tenth prompt state gets the two-sided case every other one
@@ -40,11 +22,19 @@ What ships:
 
 - `evals/cases/architecture-decompose.mjs` — a frozen case object with
   `state: "architecture.decompose"`, a `base`, and two variants. Each variant's
-  `.gtd/ARCHITECTURE.md` carries **exactly 3 obvious, disjoint concerns**, so
-  the correct output file count is fixed at 3, not variable.
+  `.gtd/ARCHITECTURE.md` carries **exactly 3 concerns**, so the correct output
+  file count is fixed at 3, not variable.
+  - `clean` — 3 obvious, disjoint concerns, each one requirement. Nothing tempts
+    a regrouping; the turn writes 3 files.
+  - `violation` — the same 3 concerns, except **one visibly bundles two
+    requirements** that `architecture.author` merged. The tempting wrong move is
+    re-splitting it into its two halves for 4 files. The turn must carry the
+    settled grouping over verbatim and still write **exactly 3**. This is the
+    prompt's own instruction under test: "Do not merge or split concerns here."
 - `evals/asserts/architecture-decompose.mjs` — the shared checks plus this
   state's own check: **exactly 3 files under `.gtd/packages/`, plus
-  `.gtd/ARCHITECTURE.md` deleted**.
+  `.gtd/ARCHITECTURE.md` deleted**. Both variants assert the same count — the
+  two sides differ in the fixture's temptation, not in the expected output.
 - Two `tests:` entries in `evals/promptfooconfig.yaml`, descriptions
   `architecture-decompose:clean` and `architecture-decompose:violation`, each
   carrying `case`/`variant`/`challenge`.
@@ -83,6 +73,17 @@ exact list, in **both** places — the grader and `run-turn.mjs`'s own copy.
 Missing the `run-turn.mjs` copy makes the cell report `structurallyOk: false` no
 matter what the grader says. How that check is expressed is a TECHNICAL decision
 for the next phase.
+
+### Risk: both variants expect the same output, so a lazy pass looks identical
+
+Every other case's two sides expect DIFFERENT artifacts — feedback written vs.
+silence, a merge recorded vs. not. Here both sides expect exactly 3 package
+files and a deleted `.gtd/ARCHITECTURE.md`. **A turn that ignores the fixture
+entirely and always emits one file per `##` heading passes both cells**, because
+the bundled concern is still one heading. The violation fixture must therefore
+make the bundled concern's two requirements structurally tempting to split — two
+named requirements under one concern heading — and the `challenge` text must say
+so, or the case grades nothing the `clean` cell did not already grade.
 
 ### Risk: a failed decompose turn may crash the trial instead of failing it
 
@@ -125,7 +126,15 @@ rather than updating it.
 
 Yes. The one-sided assertion the sketch describes ("3 concerns → 3 files") is
 the `clean` variant; the suite's own convention is a matching `violation`
-fixture, and the open question above picks which trap it plants.
+fixture, and the resolved question below picks which trap it plants.
+
+### What does the `violation` side of the decompose case test?
+
+Re-splitting a merged concern. The `violation` fixture's `.gtd/ARCHITECTURE.md`
+carries 3 concerns, one of which visibly bundles two requirements; the turn must
+carry that settled grouping over verbatim as 3 package files, never re-split it
+into 4. It grades the prompt's own "do not merge or split concerns here"
+instruction.
 
 ### Should the baseline recording ship in the same concern as the case?
 
