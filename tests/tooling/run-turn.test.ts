@@ -11,6 +11,7 @@ import {
   PI_TOOLS,
   readFeedback,
 } from "../../evals/run-turn.mjs"
+import { matchGtdFiles } from "../../evals/expect.mjs"
 
 describe("buildPiArgv", () => {
   it("pins pi's tool surface to the four docs/development.md promises", () => {
@@ -88,9 +89,9 @@ describe("AGENTS", () => {
   })
 })
 
-// No bundled case currently declares no `artifact` (every one of the nine
-// needs some content read back), so this branch has no live case exercising
-// it end to end — this is that coverage instead.
+// `architecture-decompose` is the one bundled case that declares no
+// `artifact` (every other case needs some content read back) — this pins
+// the branch independent of a paid eval run.
 describe("readFeedback", () => {
   let dir: string
 
@@ -118,5 +119,57 @@ describe("readFeedback", () => {
       feedbackExists: true,
       feedback: "export const x = 1\n",
     })
+  })
+})
+
+describe("matchGtdFiles", () => {
+  it("behaves byte-identically to a JSON.stringify equality for an exact-array expectation", () => {
+    expect(matchGtdFiles([".gtd/ARCHITECTURE.md"], [".gtd/ARCHITECTURE.md"])).toBeUndefined()
+    expect(matchGtdFiles([], [".gtd/ARCHITECTURE.md"])).toBe(
+      'gtdFilesChanged was [], expected [".gtd/ARCHITECTURE.md"]',
+    )
+  })
+
+  it("passes a descriptor expectation only when every exact path is present, the remaining count matches, and the remaining paths match the pattern", () => {
+    const expected = {
+      exact: [".gtd/ARCHITECTURE.md"],
+      matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 2 },
+    }
+    expect(
+      matchGtdFiles(
+        [".gtd/ARCHITECTURE.md", ".gtd/packages/01-a.md", ".gtd/packages/02-b.md"],
+        expected,
+      ),
+    ).toBeUndefined()
+  })
+
+  it("fails a descriptor expectation when an exact path is missing", () => {
+    const expected = { exact: [".gtd/ARCHITECTURE.md"], matching: { pattern: "^.*$", count: 0 } }
+    expect(matchGtdFiles([], expected)).toMatch(/missing exact path/)
+  })
+
+  it("fails a descriptor expectation when the remaining count doesn't match", () => {
+    const expected = {
+      exact: [".gtd/ARCHITECTURE.md"],
+      matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 3 },
+    }
+    expect(matchGtdFiles([".gtd/ARCHITECTURE.md", ".gtd/packages/01-a.md"], expected)).toMatch(
+      /expected 3 matching/,
+    )
+  })
+
+  it("fails a descriptor expectation when a remaining path doesn't match the pattern", () => {
+    const expected = {
+      exact: [".gtd/ARCHITECTURE.md"],
+      matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 1 },
+    }
+    expect(matchGtdFiles([".gtd/ARCHITECTURE.md", ".gtd/NOTES.md"], expected)).toMatch(
+      /do not match pattern/,
+    )
+  })
+
+  it("returns a reason naming the missing key for a descriptor missing exact or matching, never a pass", () => {
+    expect(matchGtdFiles([], { matching: { pattern: "^.*$", count: 0 } })).toMatch(/"exact"/)
+    expect(matchGtdFiles([], { exact: [] })).toMatch(/"matching"/)
   })
 })

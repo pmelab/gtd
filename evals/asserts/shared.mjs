@@ -4,14 +4,13 @@
 // pair coexists with a planner case's "must stay silent" pair under the same
 // checks. A grader wires `runChecks(SHARED_CHECKS, ...)` first, then adds
 // whatever check is specific to its own state.
+import { matchGtdFiles } from "../expect.mjs"
+
 const fail = (reason) => ({ pass: false, score: 0, reason })
 
 export function checkGtdFilesChanged(result, caseDef, variant) {
-  const expected = caseDef.expect[variant].gtdFiles
-  if (JSON.stringify(result.gtdFilesChanged) === JSON.stringify(expected)) return undefined
-  return fail(
-    `gtdFilesChanged was ${JSON.stringify(result.gtdFilesChanged)}, expected ${JSON.stringify(expected)}`,
-  )
+  const reason = matchGtdFiles(result.gtdFilesChanged, caseDef.expect[variant].gtdFiles)
+  return reason ? fail(reason) : undefined
 }
 
 // "none" is planner shape (must never touch repo code); "required" is coder

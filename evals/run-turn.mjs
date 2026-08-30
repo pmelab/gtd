@@ -9,12 +9,13 @@
 // `tests/tooling/run-turn.test.ts`'s static import of this module would fail
 // to even parse with one present.
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert"
 import { buildFixture, scrubbedEnv, GTD_BIN, OXFMT_BIN } from "./fixture.mjs"
+import { matchGtdFiles } from "./expect.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PI_BIN = join(HERE, "..", "node_modules", ".bin", "pi")
@@ -414,12 +415,12 @@ function changedFiles(repo, env, preLandHead, postLandHead) {
 }
 
 // `caseDef.artifact` is absent for a case that declares no read-back path —
-// skip cleanly rather than reading a path that was never contracted. No
-// bundled case currently ships with `artifact` unset (every one of the nine
-// needs *some* content read back, for the grep floor or the tier-3 rubric or
-// both), so this branch has no live case exercising it end to end;
-// `tests/tooling/run-turn.test.ts`'s `readFeedback` unit test is what proves
-// it instead. Exported for exactly that reason.
+// skip cleanly rather than reading a path that was never contracted.
+// `architecture-decompose` is the one bundled case that ships with
+// `artifact` unset, since it writes a variable-sized set of package files
+// rather than one contracted path; `tests/tooling/run-turn.test.ts`'s
+// `readFeedback` unit test still pins the branch independent of a paid eval
+// run. Exported for exactly that reason.
 export function readFeedback(repo, caseDef) {
   if (!caseDef.artifact) return { feedbackExists: false, feedback: "" }
   const feedbackPath = join(repo, caseDef.artifact)
@@ -465,7 +466,7 @@ function isStructurallyOk(
   const otherFilesOk =
     expect.otherFiles === "none" ? otherFilesChanged.length === 0 : otherFilesChanged.length > 0
   const checks = [
-    JSON.stringify(gtdFilesChanged) === JSON.stringify(expect.gtdFiles),
+    !matchGtdFiles(gtdFilesChanged, expect.gtdFiles),
     otherFilesOk,
     outOfBoundsOk(caseDef, variant, gtdFilesChanged, otherFilesChanged),
     unformatted.length === 0,
@@ -474,9 +475,43 @@ function isStructurallyOk(
   return checks.every(Boolean)
 }
 
-/** Lands the turn's script and reports everything the graders need about what it did. */
+// A path-to-content map of `.gtd/packages/`, empty when the directory
+// doesn't exist. Only `evals/asserts/architecture-decompose.mjs` reads
+// this — the case declares no `artifact`, so there's no single contracted
+// path `readFeedback` can read back for it.
+function readPackageFiles(repo) {
+  const dir = join(repo, ".gtd", "packages")
+  if (!existsSync(dir)) return {}
+  return Object.fromEntries(
+    readdirSync(dir)
+      .filter((name) => name.endsWith(".md"))
+      .map((name) => [`.gtd/packages/${name}`, readFileSync(join(dir, name), "utf-8")]),
+  )
+}
+
+// `gtd land` refuses (a dirty tree matching no edge) by exiting non-zero —
+// `--json=script` throws before any shell script even runs. That must fail
+// the TRIAL, never crash the harness: printing a stack trace with
+// byte-empty stdout means promptfoo's `exec:` provider hands the graders
+// nothing to parse.
 function landAndInspect(repo, env, caseDef, variant) {
-  const { preLandHead, postLandHead } = land(repo, env)
+  let preLandHead, postLandHead
+  try {
+    ;({ preLandHead, postLandHead } = land(repo, env))
+  } catch (err) {
+    return {
+      feedbackExists: false,
+      feedback: "",
+      gtdFilesChanged: [],
+      otherFilesChanged: [],
+      unformatted: [],
+      landedSubject: "",
+      structurallyOk: false,
+      packageFiles: {},
+      landError: err.message,
+    }
+  }
+
   const landedSubject = git(repo, env, "log", "-1", "--format=%s")
   const { gtdFilesChanged, otherFilesChanged } = changedFiles(repo, env, preLandHead, postLandHead)
   const { feedbackExists, feedback } = readFeedback(repo, caseDef)
@@ -498,6 +533,7 @@ function landAndInspect(repo, env, caseDef, variant) {
     unformatted,
     landedSubject,
     structurallyOk,
+    packageFiles: readPackageFiles(repo),
   }
 }
 

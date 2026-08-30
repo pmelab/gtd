@@ -47,9 +47,10 @@ providers:
 # `<case>:<variant>` — that description is the only handle promptfoo's
 # `--filter-pattern` has, so it is what makes re-running one case after a
 # grader fix possible (`npm run eval -- --filter-pattern '^design-triage:'`)
-# without paying for all eighteen cells. Every `violation` entry carries the
-# tier-3 `llm-rubric`; no `clean` entry does — `clean` has no feedback to
-# judge, only the deterministic tiers 1/2.
+# without paying for all twenty cells. Every `violation` entry carries the
+# tier-3 `llm-rubric` except `architecture-decompose`'s — that case declares
+# no `artifact`, so there is no feedback to judge; every `clean` entry is the
+# same way, graded on the deterministic tiers 1/2 only.
 tests:
   # ── packages.item.spec.review — the per-package spec-review gate ─────────
   - description: "spec-review:violation"
@@ -334,3 +335,28 @@ tests:
     assert:
       - type: javascript
         value: file://asserts/build-fix.mjs
+
+  # ── architecture.decompose — writing one package file per settled concern ─
+  - description: "architecture-decompose:violation"
+    vars:
+      case: architecture-decompose
+      variant: violation
+      challenge: >-
+        `.gtd/ARCHITECTURE.md` already bundles two requirements (email
+        validation and email normalization) under one heading, recorded as
+        a merge under `## Merged Concerns`; the turn MUST write exactly 3
+        package files and must not re-split the bundled concern back into
+        two.
+    assert:
+      - type: javascript
+        value: file://asserts/architecture-decompose.mjs
+  - description: "architecture-decompose:clean"
+    vars:
+      case: architecture-decompose
+      variant: clean
+      challenge: >-
+        `.gtd/ARCHITECTURE.md` holds 3 disjoint concerns, one requirement
+        each; the turn MUST write exactly 3 package files, one per concern.
+    assert:
+      - type: javascript
+        value: file://asserts/architecture-decompose.mjs
