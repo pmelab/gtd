@@ -8,6 +8,16 @@ import { matchGtdFiles } from "../expect.mjs"
 
 const fail = (reason) => ({ pass: false, score: 0, reason })
 
+// A refused `gtd land` leaves every file-list field empty — indistinguishable
+// from a legitimate "changed nothing" expectation without this check, which
+// is why a `clean` variant expecting `gtdFiles: []`/`otherFiles: "none"`
+// would otherwise pass on a turn that produced no reviewed output at all.
+// Ordered first so the reason names the refusal, not a downstream symptom.
+export function checkLandError(result) {
+  if (!result.landError) return undefined
+  return fail(`gtd land refused: ${result.landError}`)
+}
+
 export function checkGtdFilesChanged(result, caseDef, variant) {
   const reason = matchGtdFiles(result.gtdFilesChanged, caseDef.expect[variant].gtdFiles)
   return reason ? fail(reason) : undefined
@@ -60,6 +70,7 @@ export function checkOutOfBounds(result, caseDef, variant) {
 }
 
 export const SHARED_CHECKS = [
+  checkLandError,
   checkGtdFilesChanged,
   checkOtherFilesChanged,
   checkFormatted,

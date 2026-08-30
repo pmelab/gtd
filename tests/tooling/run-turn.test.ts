@@ -12,6 +12,7 @@ import {
   readFeedback,
 } from "../../evals/run-turn.mjs"
 import { matchGtdFiles } from "../../evals/expect.mjs"
+import { checkLandError, SHARED_CHECKS, safeGrade } from "../../evals/asserts/shared.mjs"
 
 describe("buildPiArgv", () => {
   it("pins pi's tool surface to the four docs/development.md promises", () => {
@@ -171,5 +172,61 @@ describe("matchGtdFiles", () => {
   it("returns a reason naming the missing key for a descriptor missing exact or matching, never a pass", () => {
     expect(matchGtdFiles([], { matching: { pattern: "^.*$", count: 0 } })).toMatch(/"exact"/)
     expect(matchGtdFiles([], { exact: [] })).toMatch(/"matching"/)
+  })
+
+  it("returns a reason instead of throwing on an invalid matching.pattern", () => {
+    expect(() =>
+      matchGtdFiles([".gtd/A.md"], { exact: [".gtd/A.md"], matching: { pattern: "[", count: 0 } }),
+    ).not.toThrow()
+    expect(
+      matchGtdFiles([".gtd/A.md"], { exact: [".gtd/A.md"], matching: { pattern: "[", count: 0 } }),
+    ).toMatch(/not a valid regular expression/)
+  })
+
+  it("returns a reason instead of throwing on a non-array exact", () => {
+    const expected = { exact: ".gtd/A.md", matching: { pattern: "^.*$", count: 0 } }
+    expect(() => matchGtdFiles([], expected)).not.toThrow()
+    expect(matchGtdFiles([], expected)).toMatch(/"exact" must be an array/)
+  })
+})
+
+describe("checkLandError", () => {
+  it("fails whenever result.landError is present, independent of any other field", () => {
+    expect(
+      checkLandError({ landError: "gtd: refusing, no pending change matches an edge" }),
+    ).toEqual({
+      pass: false,
+      score: 0,
+      reason: expect.stringContaining("refusing, no pending change"),
+    })
+  })
+
+  it("passes through when landError is absent", () => {
+    expect(checkLandError({})).toBeUndefined()
+  })
+
+  // The bug this regression test pins: a refused land leaves every file-list
+  // field empty, which used to read as a clean pass for a variant whose OWN
+  // expectation is "changed nothing".
+  it("makes safeGrade fail a land refusal even when the case expects no changes", () => {
+    const caseDef = { expect: { clean: { gtdFiles: [], otherFiles: "none" } } }
+    const result = {
+      feedbackExists: false,
+      feedback: "",
+      gtdFilesChanged: [],
+      otherFilesChanged: [],
+      unformatted: [],
+      landedSubject: "",
+      structurallyOk: false,
+      packageFiles: {},
+      landError: "refusing",
+    }
+    const verdict = safeGrade(
+      JSON.stringify(result),
+      { vars: { variant: "clean" } },
+      caseDef,
+      SHARED_CHECKS,
+    )
+    expect(verdict).toEqual({ pass: false, score: 0, reason: "gtd land refused: refusing" })
   })
 })

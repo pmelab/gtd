@@ -23,6 +23,12 @@ export function matchGtdFiles(changed, expected) {
   if (!expected.matching) {
     return `gtdFiles descriptor is missing "matching": ${JSON.stringify(expected)}`
   }
+  if (!Array.isArray(expected.exact)) {
+    return `gtdFiles descriptor's "exact" must be an array, got ${JSON.stringify(expected.exact)}`
+  }
+  if (typeof expected.matching.count !== "number") {
+    return `gtdFiles descriptor's "matching.count" must be a number, got ${JSON.stringify(expected.matching.count)}`
+  }
 
   const missingExact = expected.exact.filter((path) => !changed.includes(path))
   if (missingExact.length > 0) {
@@ -34,7 +40,12 @@ export function matchGtdFiles(changed, expected) {
     return `gtdFilesChanged had ${remaining.length} path(s) beyond "exact" (${JSON.stringify(remaining)}), expected ${expected.matching.count} matching ${expected.matching.pattern}`
   }
 
-  const pattern = new RegExp(expected.matching.pattern)
+  let pattern
+  try {
+    pattern = new RegExp(expected.matching.pattern)
+  } catch (err) {
+    return `gtdFiles descriptor's "matching.pattern" (${JSON.stringify(expected.matching.pattern)}) is not a valid regular expression: ${err.message}`
+  }
   const notMatching = remaining.filter((path) => !pattern.test(path))
   if (notMatching.length > 0) {
     return `gtdFilesChanged path(s) ${JSON.stringify(notMatching)} do not match pattern ${expected.matching.pattern}`
