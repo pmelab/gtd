@@ -117,18 +117,6 @@ recovery, not the prompt. The grader's job stays scoped to the artifact's SHAPE
 `gtd validate` itself — a trial can score a structural pass on a `.gtd/` file
 the real workflow would still reject before `gtd land`.
 
-RECONCILIATION: the package spec that added these four cases carried a task 4
-checkbox — "Every trial still reports an empty `validate` step" — on the
-assumption that a fixture with no `modes:` config resolves `--json=validate` to
-nothing. Measured against the actual fixtures, that assumption is false:
-`resolveSteeringMode` in `src/SteeringMode.ts` falls back to the built-in
-`qa`/`review` parser with no `modes:` config present at all, so all four of
-these cases return a NON-EMPTY `--json=validate`. The
-`expected no validate step` guard `run-turn.mjs` carried before this package was
-removed rather than kept failing 4 of 9 cases at startup; the checkbox is the
-stale assumption, this paragraph is the correction, and the trade-off it
-describes is deliberate.
-
 A case names a workflow `state`, never a model: the state's class — planner or
 coder — picks which half of the configuration runs it, so a review-class case
 and a build-class case landing in the same run are each graded on the tier they
