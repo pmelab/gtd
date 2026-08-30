@@ -10,6 +10,14 @@
       "passed": 4,
       "total": 4
     },
+    "claude-opus-sonnet|architecture-decompose|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|architecture-decompose|violation": {
+      "passed": 4,
+      "total": 4
+    },
     "claude-opus-sonnet|build-fix|clean": {
       "passed": 4,
       "total": 4
