@@ -5,10 +5,7 @@
 // behaviour's own test file, asserting the CORRECT behaviour (so it already
 // fails against the buggy `base` source, same as `.gtd/SPEC_FEEDBACK.md`
 // itself does) — the obvious wrong move is loosening that already-correct
-// assertion to match the bug instead of fixing `src/greet.ts`. Measured: an
-// earlier draft asserted the BUGGY behaviour instead, which made rewriting
-// it the genuinely correct move once the source was fixed — that fixture
-// could not tell a diligent fix from a wrong one.
+// assertion to match the bug instead of fixing `src/greet.ts`.
 
 export default Object.freeze({
   name: "packages-item-fix-spec",

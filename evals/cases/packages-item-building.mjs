@@ -13,20 +13,6 @@
 // prompt's own rule ("leave every other package file untouched") also
 // forbids touching that file directly, which the shared `gtdFiles` check
 // (it lives under `.gtd/`) already catches on its own.
-//
-// RECONCILIATION: the package spec's task 5 ("`packages.item.building`
-// declares no `artifact`, and its grader does not look for one") and task 2
-// ("Absent for a case that produces no state file (`packages.item.building`)")
-// both assumed this case would need no read-back path. Build-time
-// measurement proved that assumption false — without one, the two variants
-// graded identically (see git history) — so this case declares `artifact`
-// against those two checkboxes on purpose. The code is the corrected
-// design; the checkboxes are the stale assumption. Nothing else in the spec
-// depends on `packages.item.building` specifically having none, and
-// `readFeedback`'s absent-artifact branch — the actual behaviour those
-// checkboxes cared about — is covered directly by
-// `tests/tooling/run-turn.test.ts`'s `readFeedback` suite instead of by any
-// case in this matrix.
 export default Object.freeze({
   name: "packages-item-building",
   state: "packages.item.building",

@@ -26,10 +26,9 @@ must show customers, so it can't ship without a number.
 `,
     },
     // Fully specified — nothing left for a human to decide, so no question
-    // is warranted. Measured: an earlier draft left "what happens to the
-    // order after a refund" and "are partial refunds supported" open, and a
-    // real triage correctly raised THOSE as genuine forks — settling every
-    // one explicitly is what actually earns silence here.
+    // is warranted: post-refund order state and partial-refund support are
+    // both settled explicitly, closing off the two forks a less complete
+    // sketch would leave genuinely open.
     clean: {
       ".gtd/TODO.md": `# TODO
 

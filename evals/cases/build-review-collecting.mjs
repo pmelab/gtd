@@ -11,13 +11,9 @@ export default Object.freeze({
   state: "build.review.collecting",
   // A real code-level identifier (a file path), not an invented label — a
   // classifying agent naturally names the affected file when writing a
-  // concern down; an artificial camelCase nickname isn't something free
-  // prose reliably reproduces verbatim (measured: it wasn't). Even the file
-  // path failed 4/4 on a first attempt that mentioned it only in the
-  // surrounding scene-setting prose ("on the hunk touching `src/retry.ts`")
-  // — a classifying agent paraphrases stage directions away and keeps only
-  // the human's own words. The path has to be the grammatical subject of
-  // the human's OWN quoted sentence to survive paraphrasing.
+  // concern down, but only when the path is the grammatical subject of the
+  // human's OWN quoted sentence below; mentioned only in surrounding
+  // scene-setting prose, a classifying agent paraphrases it away.
   plantedIdentifier: "src/retry.ts",
   artifact: ".gtd/REQUIREMENTS.md",
   base: {
