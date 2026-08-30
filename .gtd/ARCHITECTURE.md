@@ -5,21 +5,6 @@ merge:** concern 1 owns the eval harness and its case files, concern 2 owns
 `evals/baseline.json` alone and only consumes the cells concern 1 creates — the
 build-on-top exception, not a shared footprint.
 
-## Open Questions
-
-### How does a case declare a non-exact `.gtd/` file expectation?
-
-- [x] Make `gtdFiles` polymorphic — it stays an exact array for the nine
-      existing cases, and accepts a descriptor object
-      (`{exact: [...], matching: {pattern, count}}`) for this one. One field,
-      one place in `docs/development.md` to read, but every future case author
-      must learn two shapes behind one name.
-- [ ] Add a separate optional `gtdFilesShape` field that replaces the exact
-      comparison when present. `gtdFiles` keeps exactly one meaning forever; the
-      cost is a second field with a documented precedence rule and a "declare
-      one, never both" check.
-- [ ] _your answer_
-
 ## Concern 1 — Ship the `architecture.decompose` eval case
 
 **PRODUCT.** The tenth prompt state gets the two-sided case every other one
@@ -56,20 +41,27 @@ build; `evals/expect.mjs` is imported by both a `node` script and a promptfoo
 has two importers from day one, so it is reachable — but a helper split out of
 it and used by only one caller is not. Keep the module to the one export.
 
-### The exact-list expectation stays exact for every other case
+### `gtdFiles` is one polymorphic field, not two fields
 
-`matchGtdFiles` treats the existing exact-array form as the default path, so the
-nine current cases keep byte-identical behaviour and their recorded baseline
-cells stay comparable. Only `architecture-decompose` opts into the
-count-and-shape form. The form itself is the open question above; the matcher's
-signature and its two call sites do not depend on which answer wins.
+`gtdFiles` keeps accepting the exact array the nine current cases declare, and
+additionally accepts a descriptor object:
+`{exact: [".gtd/ARCHITECTURE.md"], matching: {pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 3}}`.
+`matchGtdFiles` branches on `Array.isArray(expected)` and treats the array as
+the default path, so the nine current cases keep byte-identical behaviour and
+their recorded baseline cells stay comparable. **No second field, no precedence
+rule.**
 
-Whichever form ships, the decompose expectation asserts three facts together:
-`.gtd/ARCHITECTURE.md` appears in the changed list (the turn deleted it),
-exactly **3** other paths appear, and every one of those 3 matches
-`^\.gtd/packages/\d\d-[a-z0-9-]+\.md$`. **A count alone is not enough** — three
-files named anything would pass it, and the `NN` order prefix is settled by the
-prompt while the `name` segment is the agent's.
+**Risk: a future case author must learn two shapes behind one name.** Pay it
+down in `docs/development.md`'s `gtdFiles` paragraph — document both shapes in
+one place — and by having `matchGtdFiles` reject a descriptor missing `exact` or
+`matching` with a named reason, never a silent pass.
+
+The decompose expectation asserts three facts together: `.gtd/ARCHITECTURE.md`
+appears in the changed list (the turn deleted it), exactly **3** other paths
+appear, and every one of those 3 matches `^\.gtd/packages/\d\d-[a-z0-9-]+\.md$`.
+**A count alone is not enough** — three files named anything would pass it, and
+the `NN` order prefix is settled by the prompt while the `name` segment is the
+agent's.
 
 ### The case object
 
@@ -210,6 +202,12 @@ recording; a rate below 4/4 is a signal to fix the fixture or the prompt, not to
 record it.
 
 ## Answered Questions
+
+### How does a case declare a non-exact `.gtd/` file expectation?
+
+`gtdFiles` becomes polymorphic: still an exact array for the nine existing
+cases, and a `{exact, matching: {pattern, count}}` descriptor for this one. One
+field with one documented paragraph beats a second field with a precedence rule.
 
 ### Does the "ships no eval case" note stay, amended?
 
