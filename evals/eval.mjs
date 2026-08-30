@@ -130,11 +130,24 @@ function runBaselineGate() {
   return process.exitCode ?? 0
 }
 
+// A filtered run measures a SUBSET of cells, so gating it against a whole
+// baseline is meaningless: every cell the filter excluded reads as "missing
+// from run" and reds a command that ran exactly what it was asked to. The
+// per-cell report still prints — that is the point of a filtered run — but
+// the floor is only ever compared, or recorded, on a full one.
+function isFiltered(extraArgs) {
+  return extraArgs.some((arg) => arg.startsWith("--filter-"))
+}
+
 async function main() {
-  const code = await runPromptfoo(process.argv.slice(2))
-  if (code === 0) {
+  const extraArgs = process.argv.slice(2)
+  const code = await runPromptfoo(extraArgs)
+  if (code === 0 && !isFiltered(extraArgs)) {
     const gateCode = runBaselineGate()
     process.exit(gateCode)
+  }
+  if (code === 0) {
+    console.error("eval: filtered run — baseline gate skipped (it can only gate a full run)")
   }
   printReport()
   process.exit(code)

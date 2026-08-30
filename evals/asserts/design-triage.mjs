@@ -6,14 +6,30 @@ import { SHARED_CHECKS, safeGrade } from "./shared.mjs"
 
 const fail = (reason) => ({ pass: false, score: 0, reason })
 
+/** The `## Open Questions` section of a REQUIREMENTS.md, heading excluded, or "" when absent. */
+function openQuestions(feedback) {
+  const start = feedback.search(/^## Open Questions\s*$/m)
+  if (start === -1) return ""
+  const body = feedback.slice(start).replace(/^## .*\n/, "")
+  const end = body.search(/^## /m)
+  return end === -1 ? body : body.slice(0, end)
+}
+
+// Grades WHICH decision is left open, never whether the document asks
+// anything at all. The two fixtures differ on exactly one point — the
+// `settledDecision` — so re-raising it on the clean side is the failure, and
+// raising it on the violation side is the requirement. A clean-side turn
+// that settles it and then asks about some genuinely open point it
+// discovered (what a "day" means, what a repeat refund does) is passing
+// `unified.yaml`'s own question bar, not failing this case.
 function checkOpenQuestions(result, caseDef, variant) {
-  const hasOpenQuestions = /^## Open Questions/m.test(result.feedback)
-  const shouldHave = variant === "violation"
-  if (hasOpenQuestions === shouldHave) return undefined
+  const raised = openQuestions(result.feedback).includes(caseDef.settledDecision)
+  const shouldRaise = variant === "violation"
+  if (raised === shouldRaise) return undefined
   return fail(
-    shouldHave
-      ? "REQUIREMENTS.md has no `## Open Questions` section for a genuinely undecided product fork"
-      : "REQUIREMENTS.md raised `## Open Questions` for a decision the sketch already settled",
+    shouldRaise
+      ? `\`## Open Questions\` does not raise "${caseDef.settledDecision}", a genuinely undecided product fork`
+      : `\`## Open Questions\` re-raises "${caseDef.settledDecision}", which the sketch already settled`,
   )
 }
 

@@ -8,35 +8,52 @@ description: gtd prompt evals — one two-sided case per prompt state the bundle
 prompts:
   - "{{case}}:{{variant}}"
 
-# Two planner candidates were measured on the full --repeat (4 trials) on
-# BOTH variants of the spec-review case and rejected — a single trial is not
-# enough signal, and any future replacement must clear the same bar before
-# it replaces this one:
+# The committed configuration drives each turn with the LOCAL Claude Code
+# install (`--agent claude`, run-turn.mjs's default), because the everyday
+# question these cases answer is "does this prompt still work" — and that is
+# answered against the agent the workflow actually ships against, with no
+# gateway and no model ids to keep served. `--planner`/`--coder` are Claude
+# model aliases here; the tier-3 judge still reaches GTD_EVALS_URL, since it
+# is promptfoo's own provider, not the turn's.
+#
+# To grade a non-Claude model instead, swap the id below for the pi agent,
+# which reaches its model exclusively through GTD_EVALS_URL:
+#
+#   - id: "exec:node run-turn.mjs --agent pi --planner gemini-3.5-flash --coder gemini-3.5-flash-lite"
+#     label: gemini-3.5
+#
+# Two planner candidates were measured that way, on the full --repeat (4
+# trials) on BOTH variants of the spec-review case, and rejected — a single
+# trial is not enough signal, and any future replacement must clear the same
+# bar:
 #   - deepseek-v3.2: read the `violation` variant as clean and closed the
 #     package with no feedback.
 #   - gemini-3.5-flash-lite: flagged the `clean` variant for "missing
 #     automated unit tests" — a requirement the spec never asks for.
-# gemini-3.5-flash-lite was rejected only for PLANNER work — the four coder
-# cases below (packages-item-building, packages-item-fix-suite,
-# packages-item-fix-spec, build-fix) are the first to measure it in the
-# coder half. If its coder cells come back mixed, it is a candidate to
-# replace, not a floor to record.
 #
-# This is deliberately the only configuration in the matrix: every extra
-# provider multiplies trials = cases × variants × --repeat × providers and
-# adds a baseline.json cell that can flake. Comparing two model choices is
-# a two-line edit for one run, not a permanent cost on every run.
+# One configuration is deliberately the whole matrix: every extra provider
+# multiplies trials = cases × variants × --repeat × providers and adds a
+# baseline.json cell that can flake. Comparing two agents or two models is a
+# two-line edit for one run, not a permanent cost on every run. Baseline
+# cells key off `label`, so a label must name the agent AND the models under
+# it — changing either without re-recording reads as a newly-missing cell,
+# not a changed one.
 providers:
-  - id: "exec:node run-turn.mjs --planner gemini-3.5-flash --coder gemini-3.5-flash-lite"
-    label: gemini-3.5
+  - id: "exec:node run-turn.mjs --agent claude --planner opus --coder sonnet"
+    label: claude-opus-sonnet
 
 # Every case contributes two `tests:` entries below, one per variant, each
-# carrying `case`/`variant`/`challenge`. Every `violation` entry carries the
+# carrying `case`/`variant`/`challenge` and a `description` of exactly
+# `<case>:<variant>` — that description is the only handle promptfoo's
+# `--filter-pattern` has, so it is what makes re-running one case after a
+# grader fix possible (`npm run eval -- --filter-pattern '^design-triage:'`)
+# without paying for all eighteen cells. Every `violation` entry carries the
 # tier-3 `llm-rubric`; no `clean` entry does — `clean` has no feedback to
 # judge, only the deterministic tiers 1/2.
 tests:
   # ── packages.item.spec.review — the per-package spec-review gate ─────────
-  - vars:
+  - description: "spec-review:violation"
+    vars:
       case: spec-review
       variant: violation
       challenge: >-
@@ -63,7 +80,8 @@ tests:
         # test. Changing the judge means changing both files, or the guard
         # is disarmed without failing anything.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "spec-review:clean"
+    vars:
       case: spec-review
       variant: clean
       challenge: >-
@@ -74,7 +92,8 @@ tests:
         value: file://asserts/spec-review.mjs
 
   # ── design.triage — grouping a raw entry diff into classified concerns ───
-  - vars:
+  - description: "design-triage:violation"
+    vars:
       case: design-triage
       variant: violation
       challenge: >-
@@ -92,7 +111,8 @@ tests:
           restatement of the sketch. The literal text "STRUCTURAL FAILURE"
           must fail.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "design-triage:clean"
+    vars:
       case: design-triage
       variant: clean
       challenge: >-
@@ -103,7 +123,8 @@ tests:
         value: file://asserts/design-triage.mjs
 
   # ── architecture.author — the how, with sole authority to merge concerns ─
-  - vars:
+  - description: "architecture-author:violation"
+    vars:
       case: architecture-author
       variant: violation
       challenge: >-
@@ -120,7 +141,8 @@ tests:
           and explains the shared footprint (src/pricing/discount.ts) that
           forced the merge. The literal text "STRUCTURAL FAILURE" must fail.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "architecture-author:clean"
+    vars:
       case: architecture-author
       variant: clean
       challenge: >-
@@ -131,7 +153,8 @@ tests:
         value: file://asserts/architecture-author.mjs
 
   # ── build.review.reviewing — describing a diff for a human to review ────
-  - vars:
+  - description: "build-review-reviewing:violation"
+    vars:
       case: build-review-reviewing
       variant: violation
       challenge: >-
@@ -148,7 +171,8 @@ tests:
           config change" note. The literal text "STRUCTURAL FAILURE" must
           fail.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "build-review-reviewing:clean"
+    vars:
       case: build-review-reviewing
       variant: clean
       challenge: >-
@@ -159,7 +183,8 @@ tests:
         value: file://asserts/build-review-reviewing.mjs
 
   # ── build.review.collecting — judging a review round's actionability ────
-  - vars:
+  - description: "build-review-collecting:violation"
+    vars:
       case: build-review-collecting
       variant: violation
       challenge: >-
@@ -177,7 +202,8 @@ tests:
           TECHNICAL classification. The literal text "STRUCTURAL FAILURE"
           must fail.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "build-review-collecting:clean"
+    vars:
       case: build-review-collecting
       variant: clean
       challenge: >-
@@ -188,7 +214,8 @@ tests:
         value: file://asserts/build-review-collecting.mjs
 
   # ── packages.item.building — the TDD implementer turn ────────────────────
-  - vars:
+  - description: "packages-item-building:violation"
+    vars:
       case: packages-item-building
       variant: violation
       challenge: >-
@@ -207,7 +234,8 @@ tests:
           in particular no `formatNames` batch helper. The literal text
           "STRUCTURAL FAILURE" must fail.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "packages-item-building:clean"
+    vars:
       case: packages-item-building
       variant: clean
       challenge: >-
@@ -218,7 +246,8 @@ tests:
         value: file://asserts/packages-item-building.mjs
 
   # ── packages.item.fix-suite — fixing a red suite inside a package build ──
-  - vars:
+  - description: "packages-item-fix-suite:violation"
+    vars:
       case: packages-item-fix-suite
       variant: violation
       challenge: >-
@@ -235,7 +264,8 @@ tests:
           and throws AmountParseError on invalid input, per
           .gtd/FEEDBACK.md. The literal text "STRUCTURAL FAILURE" must fail.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "packages-item-fix-suite:clean"
+    vars:
       case: packages-item-fix-suite
       variant: clean
       challenge: >-
@@ -246,7 +276,8 @@ tests:
         value: file://asserts/packages-item-fix-suite.mjs
 
   # ── packages.item.fix-spec — addressing spec-review feedback ─────────────
-  - vars:
+  - description: "packages-item-fix-spec:violation"
+    vars:
       case: packages-item-fix-spec
       variant: violation
       challenge: >-
@@ -263,7 +294,8 @@ tests:
           .gtd/SPEC_FEEDBACK.md. The literal text "STRUCTURAL FAILURE" must
           fail.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "packages-item-fix-spec:clean"
+    vars:
       case: packages-item-fix-spec
       variant: clean
       challenge: >-
@@ -274,7 +306,8 @@ tests:
         value: file://asserts/packages-item-fix-spec.mjs
 
   # ── build.fix — the closing identity's late-breaking-failure fix ────────
-  - vars:
+  - description: "build-fix:violation"
+    vars:
       case: build-fix
       variant: violation
       challenge: >-
@@ -291,7 +324,8 @@ tests:
           are exhausted, per .gtd/FEEDBACK.md. The literal text "STRUCTURAL
           FAILURE" must fail.
         provider: "openai:chat:gpt-5.4"
-  - vars:
+  - description: "build-fix:clean"
+    vars:
       case: build-fix
       variant: clean
       challenge: >-

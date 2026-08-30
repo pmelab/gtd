@@ -1,76 +1,76 @@
 {
-  "recordedAt": "2026-08-30T03:46:44.797Z",
+  "recordedAt": "2026-08-30T07:37:10.868Z",
   "trials": 4,
   "rates": {
-    "gemini-3.5|architecture-author|clean": {
+    "claude-opus-sonnet|architecture-author|clean": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|architecture-author|violation": {
+    "claude-opus-sonnet|architecture-author|violation": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|build-fix|clean": {
-      "passed": 2,
-      "total": 4
-    },
-    "gemini-3.5|build-fix|violation": {
-      "passed": 1,
-      "total": 4
-    },
-    "gemini-3.5|build-review-collecting|clean": {
+    "claude-opus-sonnet|build-fix|clean": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|build-review-collecting|violation": {
-      "passed": 0,
-      "total": 4
-    },
-    "gemini-3.5|build-review-reviewing|clean": {
+    "claude-opus-sonnet|build-fix|violation": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|build-review-reviewing|violation": {
-      "passed": 2,
-      "total": 4
-    },
-    "gemini-3.5|design-triage|clean": {
-      "passed": 2,
-      "total": 4
-    },
-    "gemini-3.5|design-triage|violation": {
-      "passed": 3,
-      "total": 4
-    },
-    "gemini-3.5|packages-item-building|clean": {
+    "claude-opus-sonnet|build-review-collecting|clean": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|packages-item-building|violation": {
+    "claude-opus-sonnet|build-review-collecting|violation": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|packages-item-fix-spec|clean": {
+    "claude-opus-sonnet|build-review-reviewing|clean": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|packages-item-fix-spec|violation": {
+    "claude-opus-sonnet|build-review-reviewing|violation": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|packages-item-fix-suite|clean": {
-      "passed": 0,
-      "total": 4
-    },
-    "gemini-3.5|packages-item-fix-suite|violation": {
-      "passed": 0,
-      "total": 4
-    },
-    "gemini-3.5|spec-review|clean": {
+    "claude-opus-sonnet|design-triage|clean": {
       "passed": 4,
       "total": 4
     },
-    "gemini-3.5|spec-review|violation": {
+    "claude-opus-sonnet|design-triage|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-building|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-building|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-fix-spec|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-fix-spec|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-fix-suite|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-fix-suite|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|spec-review|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|spec-review|violation": {
       "passed": 4,
       "total": 4
     }

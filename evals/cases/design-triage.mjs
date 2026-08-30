@@ -7,6 +7,14 @@
 export default Object.freeze({
   name: "design-triage",
   state: "design.triage",
+  // The one decision the two fixtures disagree about: `violation` leaves it
+  // undecided, `clean` settles it outright. The grader tests whether an open
+  // question re-raises THIS decision, never whether the document raises any
+  // question at all — a triage turn that settles RefundWindowDays and then
+  // asks about something genuinely open (what "day" means, what a repeat
+  // refund does) is doing its job, and the clean side must not fail it for
+  // that.
+  settledDecision: "RefundWindowDays",
   plantedIdentifier: "RefundWindowDays",
   artifact: ".gtd/REQUIREMENTS.md",
   base: {
