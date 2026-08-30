@@ -28,6 +28,9 @@ read the code. When you find one, DELETE it rather than update it.
 - `npm run test:mutation` is a deliberate user action — never run it
   autonomously; it takes 10+ minutes and is only meaningful when triggered on
   purpose
+- never run a process in the background when its output is what you are after —
+  a long test run, an eval, a build. Run it in the foreground and wait for the
+  result; a backgrounded run gets reported on from a partial log or not at all
 - create cucumber.js scenarios for each new feature
 - use composable "Given" steps (small, reusable steps) instead of one-off setup
   steps
