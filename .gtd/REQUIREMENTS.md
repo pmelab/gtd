@@ -22,7 +22,7 @@ violation side decides what the suite actually protects.
       plus a `## Merged Concerns` section recording an earlier merge; the prompt
       says write no package file for it, so the turn must still produce exactly
       3 files, never 4. Tests the one trap the prompt calls out by name.
-- [ ] Re-splitting a merged concern — the ARCHITECTURE.md carries 3 concerns,
+- [x] Re-splitting a merged concern — the ARCHITECTURE.md carries 3 concerns,
       one of which visibly bundles two requirements; the turn must carry the
       settled grouping over verbatim as 3 files, not re-split it into 4. Tests
       "do not merge or split concerns here."
