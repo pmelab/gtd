@@ -315,10 +315,14 @@ function changedFiles(repo, env, preLandHead, postLandHead) {
   }
 }
 
-// `caseDef.artifact` is absent for a case that produces no state file
-// (`packages.item.building`) — skip cleanly rather than reading a path that
-// was never contracted.
-function readFeedback(repo, caseDef) {
+// `caseDef.artifact` is absent for a case that declares no read-back path —
+// skip cleanly rather than reading a path that was never contracted. No
+// bundled case currently ships with `artifact` unset (every one of the nine
+// needs *some* content read back, for the grep floor or the tier-3 rubric or
+// both), so this branch has no live case exercising it end to end;
+// `tests/tooling/run-turn.test.ts`'s `readFeedback` unit test is what proves
+// it instead. Exported for exactly that reason.
+export function readFeedback(repo, caseDef) {
   if (!caseDef.artifact) return { feedbackExists: false, feedback: "" }
   const feedbackPath = join(repo, caseDef.artifact)
   const feedbackExists = existsSync(feedbackPath)

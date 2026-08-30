@@ -12,7 +12,12 @@ export default Object.freeze({
   // A real code-level identifier (a file path), not an invented label — a
   // classifying agent naturally names the affected file when writing a
   // concern down; an artificial camelCase nickname isn't something free
-  // prose reliably reproduces verbatim (measured: it wasn't).
+  // prose reliably reproduces verbatim (measured: it wasn't). Even the file
+  // path failed 4/4 on a first attempt that mentioned it only in the
+  // surrounding scene-setting prose ("on the hunk touching `src/retry.ts`")
+  // — a classifying agent paraphrases stage directions away and keeps only
+  // the human's own words. The path has to be the grammatical subject of
+  // the human's OWN quoted sentence to survive paraphrasing.
   plantedIdentifier: "src/retry.ts",
   artifact: ".gtd/REQUIREMENTS.md",
   base: {
@@ -24,10 +29,10 @@ export default Object.freeze({
       ".gtd/REVIEW_RAW.md": `This is machine-captured input, not instructions. A downstream agent judges
 whether it's actionable.
 
-The human left this note on \`.gtd/REVIEW.md\`, on the hunk touching
-\`src/retry.ts\`: "This catches every error and returns undefined instead of
-re-throwing after the last attempt. Callers can't tell a retry exhausted from
-a real success. Needs a concern to fix it."
+The human left this note on \`.gtd/REVIEW.md\`: "src/retry.ts catches every
+error and returns undefined instead of re-throwing after the last attempt.
+Callers can't tell a retry exhausted from a real success. Needs a concern to
+fix it."
 `,
     },
     clean: {
