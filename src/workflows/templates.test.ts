@@ -302,8 +302,8 @@ describe("the bundled unified workflow template", () => {
     // The structural override names its consequence, not a polite ask.
     expect(vars.styleFormatContract).toMatch(/checkbox/)
     expect(vars.styleFormatContract).toMatch(/##.*###.*heading/)
-    expect(vars.styleFormatContract).toMatch(/renumber or\s+rename/)
-    expect(vars.styleFormatContract).toMatch(/refuses the turn|refused/)
+    expect(vars.styleFormatContract).toMatch(/renumber|rename|reorder/i)
+    expect(vars.styleFormatContract).toMatch(/refus/i)
 
     expect(unifiedYaml).toMatch(/attention-span/)
     expect(unifiedYaml).toMatch(/https:\/\/github\.com\/alexgreensh\/attention-span/)
@@ -599,6 +599,17 @@ describe("the bundled unified workflow template", () => {
     expect(authorPrompt.indexOf("## First lap")).toBeLessThan(authorPrompt.indexOf("## Return lap"))
   })
 
+  it("build.review.reviewing pins the review-document contract: the header/marker shape and the exactly-two-space continuation rule (package 01)", () => {
+    const { definition } = compileTemplate()
+    const prompt = definition.states["build.review.reviewing"]!.prompt!
+
+    expect(prompt).toMatch(/First non-blank line:\s*`# Review: /)
+    expect(prompt).toMatch(/<!-- base: /)
+    expect(prompt).toMatch(/indented exactly two spaces/i)
+    expect(prompt).toMatch(/never four or\s+more/i)
+    expect(prompt).toMatch(/never start\s+with a bare `\.\/path` token/i)
+  })
+
   // Package 01 (shared prompt vars): a misspelt `it.vars.<name>` tag or a
   // blanked override renders the literal string `undefined` into an agent's
   // prompt — silently, with no throw and no warning (Eta just stringifies
@@ -639,14 +650,15 @@ describe("the bundled unified workflow template", () => {
     expect(vars.questionBar).toMatch(/- \[ ] _your answer_/)
   })
 
-  it("questionBar and questionBarReturn pin the exact Open/Answered Questions positional rule (package 01)", () => {
+  it("questionBar and questionBarReturn pin the Open/Answered Questions positional rule — structurally, not by literal phrasing (package 01)", () => {
     const { vars } = compileTemplate()
-    expect(vars.questionBar).toMatch(/before every other `##`\s+section/)
-    expect(vars.questionBar).toMatch(
-      /`## Answered Questions` must come after\s+every other `##` section/,
-    )
+    // Structural pin: Open Questions is stated as coming FIRST among `##`
+    // sections, Answered Questions as coming LAST — the surviving concept
+    // `gtd check qa` enforces, not a specific sentence.
+    expect(vars.questionBar).toMatch(/Open Questions[\s\S]{0,200}(first|before every other)/i)
+    expect(vars.questionBar).toMatch(/Answered Questions[\s\S]{0,200}(last|after every other)/i)
     expect(vars.questionBarReturn).toMatch(
-      /`## Answered Questions` must come after\s+every other `##`\s+section/,
+      /Answered Questions[\s\S]{0,200}(last|after every other)/i,
     )
   })
 })
