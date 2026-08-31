@@ -690,3 +690,218 @@ describe("voice styling (styled qa exemplar)", () => {
     expect(questions[0]!.answered).toBe(false)
   })
 })
+
+describe("QA_FORMAT.outline fold end (last question)", () => {
+  const threeQuestions = [
+    "## Open Questions",
+    "",
+    "### Q1?",
+    "",
+    "a1.",
+    "",
+    "### Q2?",
+    "",
+    "a2.",
+    "",
+    "### Q3?",
+    "",
+    "a3.",
+    "",
+  ].join("\n")
+
+  it("clamps the last question's range.end.line to the last line when there is no next heading", () => {
+    const nodes = QA_FORMAT.outline(threeQuestions)
+    expect(nodes).toHaveLength(3)
+    // lines: 0..13 (14 lines total, trailing "" from the trailing "\n"), last
+    // heading is at line 10, so end must fall back to lines.length - 1 = 13.
+    expect(nodes[2]?.range.end.line).toBe(13)
+  })
+
+  it("clamps the last question's range.end.line to the true last line when the fixture has no trailing newline", () => {
+    const noTrailingNewline = [
+      "## Open Questions",
+      "",
+      "### Q1?",
+      "",
+      "a1.",
+      "",
+      "### Q2?",
+      "",
+      "a2.",
+      "",
+      "### Q3?",
+      "",
+      "a3.",
+    ].join("\n")
+    const nodes = QA_FORMAT.outline(noTrailingNewline)
+    expect(nodes).toHaveLength(3)
+    // 13 lines total (indices 0..12), last heading at line 10, so end falls
+    // back to lines.length - 1 = 12, the "a3." line itself.
+    expect(nodes[2]?.range.end.line).toBe(12)
+  })
+})
+
+describe("QA_FORMAT.outline children (optional field)", () => {
+  it("omits `children` entirely for a question with no options", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which operations?",
+      "",
+      "add and subtract.",
+      "",
+    ].join("\n")
+    const nodes = QA_FORMAT.outline(content)
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]).not.toHaveProperty("children")
+  })
+
+  it("includes `children` with the exact option leaves for a question with options", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [x] GraphQL",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
+    const nodes = QA_FORMAT.outline(content)
+    expect(nodes[0]).toHaveProperty("children")
+    expect(nodes[0]?.children).toHaveLength(3)
+    expect(nodes[0]?.children?.map((c) => c.name)).toEqual([
+      "[ ] REST",
+      "[x] GraphQL",
+      "[ ] your answer",
+    ])
+  })
+})
+
+describe("LF/CRLF line splitting", () => {
+  const lfFixture = [
+    "## Open Questions",
+    "",
+    "### Which API?",
+    "",
+    "- [ ] REST",
+    "- [x] GraphQL",
+    "",
+    "### Which database?",
+    "",
+    "- [ ] Postgres",
+    "- [ ] MySQL",
+    "",
+    "## Answered Questions",
+    "",
+    "### Already resolved?",
+    "",
+    "Yes.",
+    "",
+  ].join("\n")
+  const crlfFixture = lfFixture.replaceAll("\n", "\r\n")
+
+  it("parseOpenQuestions produces identical results for LF and CRLF line endings", () => {
+    expect(parseOpenQuestions(crlfFixture)).toEqual(parseOpenQuestions(lfFixture))
+  })
+
+  it("QA_FORMAT.outline produces identical results for LF and CRLF line endings", () => {
+    expect(QA_FORMAT.outline(crlfFixture)).toEqual(QA_FORMAT.outline(lfFixture))
+  })
+})
+
+describe("heading regex anchors", () => {
+  it("does not treat a line with leading text before '###' as a heading (requires the '^' anchor)", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "foo ### not a heading",
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions).toHaveLength(1)
+    expect(questions[0]!.text).toBe("foo ### not a heading")
+  })
+
+  it("rejects a run of more than 6 '#' as a heading (requires the '$' anchor)", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "####### not a real heading, just prose",
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions).toHaveLength(1)
+    expect(questions[0]!.text).toBe("####### not a real heading, just prose")
+  })
+
+  it("parses a heading separated from its text by two or more spaces identically to a single space", () => {
+    const singleSpace = ["## Open Questions", "", "### Which API?", "", "a1.", ""].join("\n")
+    const multiSpace = ["## Open Questions", "", "###   Which API?", "", "a1.", ""].join("\n")
+    expect(parseOpenQuestions(multiSpace)).toEqual(parseOpenQuestions(singleSpace))
+  })
+})
+
+describe("load-bearing whitespace trimming", () => {
+  it("recognizes a '###' heading indented with leading whitespace", () => {
+    const content = ["## Open Questions", "", "   ###   Which API?   ", "", "a1.", ""].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions).toHaveLength(1)
+    expect(questions[0]!.question).toBe("Which API?")
+  })
+
+  it("trims extra whitespace around a checkbox option's text", () => {
+    const content = ["## Open Questions", "", "### Which API?", "", "-   [ ]    REST   ", ""].join(
+      "\n",
+    )
+    const { questions } = parseOpenQuestions(content)
+    expect(questions[0]!.options[0]).toMatchObject({ text: "REST" })
+  })
+
+  it("treats a whitespace-only continuation line as blank, ending the option's span", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST, specifically",
+      "   ",
+      "a wrapped line after the whitespace-only line",
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions[0]!.options[0]).toMatchObject({ sourceLine: 4, endLine: 4 })
+  })
+
+  it("treats a whitespace-only body line as blank when computing the question's summary text", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which operations?",
+      "   ",
+      "   add and subtract.   ",
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions[0]!.text).toBe("add and subtract.")
+  })
+
+  it("normalizes the free-text placeholder even with surrounding whitespace", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      `- [x]   ${FREE_TEXT_PLACEHOLDER}   `,
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    const chosen = questions[0]!.options.find((o) => o.checked)!
+    expect(chosen.text).toBe("")
+  })
+})

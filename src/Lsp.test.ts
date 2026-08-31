@@ -1,5 +1,10 @@
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { PassThrough } from "node:stream"
 import { Effect } from "effect"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   basenameFallbackMode,
   bindSteeringServer,
@@ -7,7 +12,9 @@ import {
   capabilitiesForDocument,
   diagnosticsFor,
   externalValidatorNotice,
+  makeNodeLspEnv,
   makeSteeringLanguageService,
+  mergeStaticVars,
   resolveSteeringFile,
   resolvedModeForDocument,
   resolveWorkspaceRoot,
@@ -22,7 +29,11 @@ import {
   type SteeringDocuments,
   type SteeringLanguageService,
 } from "./Lsp.js"
-import { DiagnosticSeverity, type Diagnostic } from "vscode-languageserver/node"
+import {
+  DiagnosticSeverity,
+  TextDocumentSyncKind,
+  type Diagnostic,
+} from "vscode-languageserver/node"
 import { resolveBuiltInMode, resolveSteeringMode } from "./SteeringMode.js"
 import { QA_FORMAT } from "./OpenQuestions.js"
 import { REVIEW_FORMAT } from "./ReviewDoc.js"
@@ -359,6 +370,49 @@ describe("makeSteeringLanguageService", () => {
     expect(symbols.map((s) => s.name)).toContain("Chunk (0/1)")
   })
 
+  it("initialize records the workspace root and advertises the server's capabilities", () => {
+    const service = makeSteeringLanguageService(fakeEnv(), () => {})
+    const result = service.initialize({
+      processId: null,
+      rootUri: "file:///repo",
+      capabilities: {},
+    } as never)
+    expect(result.capabilities.textDocumentSync).toBe(TextDocumentSyncKind.Incremental)
+    expect(result.capabilities.documentSymbolProvider).toBe(true)
+    expect(result.capabilities.codeActionProvider).toBe(true)
+    expect(result.capabilities.definitionProvider).toBe(true)
+    expect(result.capabilities.executeCommandProvider).toEqual({
+      commands: ["gtd.openSteeringFile"],
+    })
+  })
+
+  it("codeAction maps a mapped document's actions, and returns none for an unmapped one", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]) })
+    const service = makeSteeringLanguageService(env, () => {})
+    const range = { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } }
+    const actions = await service.codeAction("file:///repo/REVIEW.md", reviewDoc, range)
+    expect(actions.length).toBeGreaterThan(0)
+    expect(actions[0]?.edit?.changes?.["file:///repo/REVIEW.md"]).toBeDefined()
+    const unmapped = await service.codeAction("file:///repo/OTHER.md", reviewDoc, range)
+    expect(unmapped).toEqual([])
+  })
+
+  it("definition swallows a rejecting gitTopLevel and falls back to the workspace root", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const env = fakeEnv({
+      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      gitTopLevel: () => Promise.reject(new Error("not a git repo")),
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    service.initialize({ rootUri: "file:///repo", capabilities: {} } as never)
+    const locations = await service.definition("file:///repo/REVIEW.md", reviewDoc, {
+      line: 5,
+      character: 0,
+    })
+    expect(locations).toEqual([{ uri: "file:///repo/src/a.ts", range: expect.anything() }])
+  })
+
   it("definition returns nothing when neither gitTopLevel nor the workspace root resolves", async () => {
     const resolved = resolveBuiltInMode("review")!
     const env = fakeEnv({
@@ -640,6 +694,62 @@ describe("resolveSteeringFile", () => {
   })
 })
 
+describe("mergeStaticVars", () => {
+  it("layers rcVars over workflowVars, then a GTD_<NAME> env override over both", () => {
+    const merged = mergeStaticVars(
+      { todoFile: ".gtd/TODO.md", reviewFile: ".gtd/REVIEW.md" },
+      { reviewFile: ".gtd/REVIEW2.md" },
+      { GTD_TODOFILE: "/override/TODO.md" },
+    )
+    expect(merged).toEqual({
+      todoFile: "/override/TODO.md",
+      reviewFile: ".gtd/REVIEW2.md",
+    })
+  })
+
+  it("ignores env entries that don't match a GTD_<NAME> for a known var", () => {
+    const merged = mergeStaticVars({ todoFile: ".gtd/TODO.md" }, {}, { GTD_OTHER: "x" })
+    expect(merged).toEqual({ todoFile: ".gtd/TODO.md" })
+  })
+})
+
+describe("makeNodeLspEnv", () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "gtd-lsp-node-env-test-"))
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
+    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], { cwd: dir })
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it("wires the real git/config/repo-files layers: steeringMapFor, gitTopLevel and currentSteeringFile all resolve against a real repo", async () => {
+    const env = makeNodeLspEnv(() => {})
+
+    const map = await env.steeringMapFor(dir)
+    expect(map).toBeInstanceOf(Map)
+
+    const realDir = realpathSync(dir)
+    const topLevel = await env.gitTopLevel(dir)
+    expect(topLevel).toBe(realDir)
+
+    const { state, file } = await env.currentSteeringFile(dir)
+    expect(state).toBe("idle")
+    expect(file).toBe(".gtd/TODO.md")
+
+    // Calling again for the same root exercises the memoised-runtime path
+    // (`runtimeFor`'s cache hit) rather than constructing a fresh one.
+    const topLevelAgain = await env.gitTopLevel(dir)
+    expect(topLevelAgain).toBe(realDir)
+  })
+})
+
 describe("startLspServer's requirement set", () => {
   it("requires nothing at the type level — CommandRunner (or any other service) can never quietly reappear", () => {
     // A type-only assertion: this line fails to COMPILE (not merely to run)
@@ -650,5 +760,35 @@ describe("startLspServer's requirement set", () => {
     // only executes its generator body when the Effect is actually run.
     const typedAsRequiringNothing: Effect.Effect<void, Error, never> = startLspServer()
     expect(typedAsRequiringNothing).toBeDefined()
+  })
+
+  it("resolves once the client sends the LSP `exit` notification, running the generator to completion", async () => {
+    // A PassThrough never emits `end`/`close` on its own (see the `gtd lsp`
+    // test in src/program.test.ts for why that matters — a real stdin's
+    // `end`/`close` listener calls `process.exit(1)`), so it's safe to swap
+    // in here without risking the test process itself. `process.stdout` is
+    // left alone — swapping it out here breaks vitest's own coverage-report
+    // IPC, which relies on the real stdout/stderr streams surviving the run;
+    // its `write` is stubbed instead, since `vscode-languageserver`'s own
+    // `exit` handling unconditionally calls `process.exit` (vitest turns
+    // that into a thrown error, logged as a JSON-RPC notice on stdout) on
+    // top of our own `onExit` — noise this test isn't about.
+    const stdin = new PassThrough()
+    const savedStdin = Object.getOwnPropertyDescriptor(process, "stdin")
+    Object.defineProperty(process, "stdin", { value: stdin, configurable: true })
+    const writeSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true)
+    const send = (message: Record<string, unknown>): void => {
+      const body = JSON.stringify(message)
+      stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
+    }
+    try {
+      const result = Effect.runPromise(startLspServer())
+      send({ jsonrpc: "2.0", method: "exit" })
+      await expect(result).resolves.toBeUndefined()
+      await new Promise((resolve) => setImmediate(resolve))
+    } finally {
+      writeSpy.mockRestore()
+      if (savedStdin) Object.defineProperty(process, "stdin", savedStdin)
+    }
   })
 })

@@ -46,7 +46,10 @@
         "src/**",
         "tests/tooling/**",
         "tests/vitest.*.ts",
+        "tests/integration/support/**",
         "vitest.config.ts",
+        "vitest.stryker.config.ts",
+        "stryker.config.json",
         "turbo.json",
         "docs/**",
         "evals/**"

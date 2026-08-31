@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import {
   assertScopesCoverStates,
+  compileState,
   compileWorkflowConfig,
   inlineWorkflowFileRefs,
+  type FileRefReader,
 } from "./PatternConfig.js"
 import { isSeededValidateCommand, seededValidateCommand } from "./SteeringFormats.js"
 import { resolveSteeringMode, renderSteeringCommands } from "./SteeringMode.js"
@@ -568,6 +570,40 @@ describe("compileWorkflowConfig — file references", () => {
       ),
     ).toThrowError(/file reference "\.\/does-not-exist\.sh" does not exist/)
   })
+
+  it("an existing but unreadable file reference is a load error naming the read failure", () => {
+    writeFileSync(join(dir, "check.sh"), "#!/bin/sh\nnpm test\n")
+    const throwingFileRefs: FileRefReader = {
+      exists: () => true,
+      read: () => {
+        throw new Error("EACCES: permission denied")
+      },
+    }
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "checking",
+              states: {
+                checking: {
+                  actor: "check",
+                  script: "./check.sh",
+                  on: { "* *": "done" },
+                },
+                done: { actor: "human", message: "chore: done" },
+              },
+            },
+          },
+        },
+        dir,
+        undefined,
+        true,
+        throwingFileRefs,
+      ),
+    ).toThrowError(/file reference "\.\/check\.sh" could not be read: EACCES: permission denied/)
+  })
 })
 
 describe("compileWorkflowConfig — config-shape validation", () => {
@@ -590,6 +626,14 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig({ entry: { default: "root" }, machines: {} }, "/dir"),
     ).toThrowError(/entry\.default: unknown machine "root"/)
+  })
+
+  it("rejects a non-object `machines:` value", () => {
+    expect(() =>
+      compileWorkflowConfig({ entry: { default: "root" }, machines: "nope" }, "/dir"),
+    ).toThrowError(
+      /"machines" must be a mapping of machine name -> \{ params\?, entry, states \}, got string/,
+    )
   })
 
   it("rejects a non-object state", () => {
@@ -1498,6 +1542,23 @@ describe("the `stateFile` compiler — `file:` prepend and its four rejections",
     ).toThrowError(/"mode" must name a mode this workflow knows \(qa, review\).*\(got "yolo"\)/)
   })
 
+  it("rejects a non-object `retry` value", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { actor: "human", message: "hi", retry: "nope" } },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "retry" must be an object with "max" and "otherwise"/)
+  })
+
   it("rejects a malformed `retry` block", () => {
     expect(() =>
       compileWorkflowConfig(
@@ -2099,6 +2160,47 @@ describe("inlineWorkflowFileRefs — machine-level `system`/`model` file referen
     expect(errors).toEqual([])
     expect(result.machines.root.model).toBe("./m.txt")
   })
+
+  it("a non-object state entry inside an otherwise-well-formed `states:` passes through untouched", () => {
+    const errors: string[] = []
+    const result = inlineWorkflowFileRefs(
+      { machines: { root: { states: { a: "nope" } } } },
+      dir,
+      errors,
+    ) as { machines: { root: { states: Record<string, unknown> } } }
+    expect(errors).toEqual([])
+    expect(result.machines.root.states["a"]).toBe("nope")
+  })
+})
+
+describe("inlineWorkflowFileRefs — top-level `summary` file reference", () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "gtd-pattern-config-summary-fileref-"))
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it("inlines a `./`-relative top-level `summary` from the declaring config file's directory", () => {
+    writeFileSync(join(dir, "summary.md"), "Wrap it up.\n")
+    const errors: string[] = []
+    const result = inlineWorkflowFileRefs({ summary: "./summary.md" }, dir, errors) as {
+      summary: string
+    }
+    expect(errors).toEqual([])
+    expect(result.summary).toBe("Wrap it up.\n")
+  })
+
+  it("a missing top-level `summary` file reference is a load error", () => {
+    const errors: string[] = []
+    inlineWorkflowFileRefs({ summary: "./missing.md" }, dir, errors)
+    expect(errors).toEqual([
+      `"summary": file reference "./missing.md" does not exist (resolved to "${join(dir, "missing.md")}")`,
+    ])
+  })
 })
 
 describe("compileWorkflowConfig — `scopes`", () => {
@@ -2136,6 +2238,15 @@ describe("compileWorkflowConfig — `scopes`", () => {
       "/dir",
     )
     expect(scopes).toEqual({ "child.working": "child", "child.done": "child" })
+  })
+})
+
+describe("compileState — non-object `raw` guard", () => {
+  it("pushes a finding and compiles to an empty StateDef when `raw` isn't an object — unreachable via compileWorkflowConfig itself, since src/Machines.ts's emitState already normalizes a non-object state to {} before compileState ever sees it", () => {
+    const errors: string[] = []
+    const def = compileState("bogus", "nope", "/dir", errors, true)
+    expect(def).toEqual({})
+    expect(errors).toEqual(['state "bogus": must be an object, got string'])
   })
 })
 
