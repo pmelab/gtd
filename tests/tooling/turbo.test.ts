@@ -44,6 +44,18 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["test:e2e:live"].inputs).toContain("docs/**")
   })
 
+  it("lists evals/** as an input to typecheck, lint, deadcode, and test:unit", () => {
+    // tests/tooling/eval-baseline.test.ts imports evals/compare-baseline.mjs,
+    // and tsconfig.json's allowJs+include pulls that .mjs into `tsc --noEmit`
+    // — a change to evals/**/*.mjs that breaks the type-check must invalidate
+    // every task that actually depends on it, or Turborepo replays a stale
+    // cached green.
+    expect(turbo.tasks["typecheck"].inputs).toContain("evals/**")
+    expect(turbo.tasks["lint"].inputs).toContain("evals/**")
+    expect(turbo.tasks["deadcode"].inputs).toContain("evals/**")
+    expect(turbo.tasks["test:unit"].inputs).toContain("evals/**")
+  })
+
   it("declares an explicit inputs array for every task except format:check", () => {
     for (const key of taskKeys) {
       if (key === "format:check") continue

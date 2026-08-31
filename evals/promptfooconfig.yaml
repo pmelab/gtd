@@ -1,0 +1,362 @@
+description: gtd prompt evals — one two-sided case per prompt state the bundled workflow can rest at
+
+# One prompt per (case, variant): `run-turn.mjs` splits the rendered string
+# on the first `:`, dynamically imports `./cases/<case>.mjs`, builds the
+# fixture, drives one real driver turn, and prints the JSON the asserts
+# below inspect. A case name stays `[a-z-]+` (no `:`), so the split is
+# unambiguous.
+prompts:
+  - "{{case}}:{{variant}}"
+
+# The committed configuration drives each turn with the LOCAL Claude Code
+# install (`--agent claude`, run-turn.mjs's default), because the everyday
+# question these cases answer is "does this prompt still work" — and that is
+# answered against the agent the workflow actually ships against, with no
+# gateway and no model ids to keep served. `--planner`/`--coder` are Claude
+# model aliases here; the tier-3 judge still reaches GTD_EVALS_URL, since it
+# is promptfoo's own provider, not the turn's.
+#
+# To grade a non-Claude model instead, swap the id below for the pi agent,
+# which reaches its model exclusively through GTD_EVALS_URL:
+#
+#   - id: "exec:node run-turn.mjs --agent pi --planner gemini-3.5-flash --coder gemini-3.5-flash-lite"
+#     label: gemini-3.5
+#
+# Two planner candidates were measured that way, on the full --repeat (4
+# trials) on BOTH variants of the spec-review case, and rejected — a single
+# trial is not enough signal, and any future replacement must clear the same
+# bar:
+#   - deepseek-v3.2: read the `violation` variant as clean and closed the
+#     package with no feedback.
+#   - gemini-3.5-flash-lite: flagged the `clean` variant for "missing
+#     automated unit tests" — a requirement the spec never asks for.
+#
+# One configuration is deliberately the whole matrix: every extra provider
+# multiplies trials = cases × variants × --repeat × providers and adds a
+# baseline.json cell that can flake. Comparing two agents or two models is a
+# two-line edit for one run, not a permanent cost on every run. Baseline
+# cells key off `label`, so a label must name the agent AND the models under
+# it — changing either without re-recording reads as a newly-missing cell,
+# not a changed one.
+providers:
+  - id: "exec:node run-turn.mjs --agent claude --planner opus --coder sonnet"
+    label: claude-opus-sonnet
+
+# Every case contributes two `tests:` entries below, one per variant, each
+# carrying `case`/`variant`/`challenge` and a `description` of exactly
+# `<case>:<variant>` — that description is the only handle promptfoo's
+# `--filter-pattern` has, so it is what makes re-running one case after a
+# grader fix possible (`npm run eval -- --filter-pattern '^design-triage:'`)
+# without paying for all twenty cells. Every `violation` entry carries the
+# tier-3 `llm-rubric` except `architecture-decompose`'s — that case declares
+# no `artifact`, so there is no feedback to judge; every `clean` entry is the
+# same way, graded on the deterministic tiers 1/2 only.
+tests:
+  # ── packages.item.spec.review — the per-package spec-review gate ─────────
+  - description: "spec-review:violation"
+    vars:
+      case: spec-review
+      variant: violation
+      challenge: >-
+        safeDivide(a, 0) returns Infinity instead of throwing
+        DivisionByZeroError; the reviewer MUST write .gtd/SPEC_FEEDBACK.md
+        naming it.
+    assert:
+      - type: javascript
+        value: file://asserts/spec-review.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          The feedback names the concrete defect: the specific behaviour that
+          violates the spec, identified precisely enough that a reader knows
+          which code is wrong and why. It does not need to prescribe the fix.
+          Vague statements like "the package has problems" must fail, and so
+          must the literal text "STRUCTURAL FAILURE".
+        # Pinned and never a model in the matrix above — a model grading its
+        # own output is not a grader. Reaches GTD_EVALS_URL through
+        # OPENAI_BASE_URL/OPENAI_API_KEY, set in evals/eval.mjs's spawn env —
+        # no credentials live in this file. This exact string is DUPLICATED
+        # in evals/run-turn.mjs's JUDGE_MODEL constant on purpose — that's
+        # the startup guard enforcing the judge is never the model under
+        # test. Changing the judge means changing both files, or the guard
+        # is disarmed without failing anything.
+        provider: "openai:chat:gpt-5.4"
+  - description: "spec-review:clean"
+    vars:
+      case: spec-review
+      variant: clean
+      challenge: >-
+        safeDivide throws DivisionByZeroError exactly as the spec requires;
+        the reviewer MUST stay silent and change nothing.
+    assert:
+      - type: javascript
+        value: file://asserts/spec-review.mjs
+
+  # ── design.triage — grouping a raw entry diff into classified concerns ───
+  - description: "design-triage:violation"
+    vars:
+      case: design-triage
+      variant: violation
+      challenge: >-
+        the entry diff leaves RefundWindowDays undecided — a genuine,
+        user-visible product fork — so triage MUST raise it under
+        `## Open Questions`.
+    assert:
+      - type: javascript
+        value: file://asserts/design-triage.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          `## Open Questions` names the genuinely undecided fork
+          (RefundWindowDays) with concrete candidate answers, not a vague
+          restatement of the sketch. The literal text "STRUCTURAL FAILURE"
+          must fail.
+        provider: "openai:chat:gpt-5.4"
+  - description: "design-triage:clean"
+    vars:
+      case: design-triage
+      variant: clean
+      challenge: >-
+        the entry diff already settles RefundWindowDays = 30 with no
+        ambiguity left; triage MUST NOT raise a question for it.
+    assert:
+      - type: javascript
+        value: file://asserts/design-triage.mjs
+
+  # ── architecture.author — the how, with sole authority to merge concerns ─
+  - description: "architecture-author:violation"
+    vars:
+      case: architecture-author
+      variant: violation
+      challenge: >-
+        two settled concerns both center on src/pricing/discount.ts;
+        author MUST merge them under a well-formed `## Merged Concerns`
+        heading, carrying both requirements verbatim.
+    assert:
+      - type: javascript
+        value: file://asserts/architecture-author.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          `## Merged Concerns` carries both original requirements verbatim
+          and explains the shared footprint (src/pricing/discount.ts) that
+          forced the merge. The literal text "STRUCTURAL FAILURE" must fail.
+        provider: "openai:chat:gpt-5.4"
+  - description: "architecture-author:clean"
+    vars:
+      case: architecture-author
+      variant: clean
+      challenge: >-
+        the two settled concerns touch disjoint files; author MUST NOT
+        merge them — no `## Merged Concerns` heading at all.
+    assert:
+      - type: javascript
+        value: file://asserts/architecture-author.mjs
+
+  # ── build.review.reviewing — describing a diff for a human to review ────
+  - description: "build-review-reviewing:violation"
+    vars:
+      case: build-review-reviewing
+      variant: violation
+      challenge: >-
+        the diff hardcodes a live-looking secret (sk_live_PLANTEDSECRET000);
+        the review MUST name it in a hunk note.
+    assert:
+      - type: javascript
+        value: file://asserts/build-review-reviewing.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          Some hunk note calls out the hardcoded secret as a real risk, by
+          name or unmistakable description — not a generic "reviewed the
+          config change" note. The literal text "STRUCTURAL FAILURE" must
+          fail.
+        provider: "openai:chat:gpt-5.4"
+  - description: "build-review-reviewing:clean"
+    vars:
+      case: build-review-reviewing
+      variant: clean
+      challenge: >-
+        the diff is an ordinary, safe refactor; the review MUST describe it
+        plainly, inventing no risk that isn't there.
+    assert:
+      - type: javascript
+        value: file://asserts/build-review-reviewing.mjs
+
+  # ── build.review.collecting — judging a review round's actionability ────
+  - description: "build-review-collecting:violation"
+    vars:
+      case: build-review-collecting
+      variant: violation
+      challenge: >-
+        the review round's captured note flags a real bug in src/retry.ts (a
+        swallowed retry error); collecting MUST write .gtd/REQUIREMENTS.md
+        with a classified concern naming the file.
+    assert:
+      - type: javascript
+        value: file://asserts/build-review-collecting.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          The concern names the swallowed-retry-error defect in src/retry.ts
+          precisely enough for a build lap to act on, under a PRODUCT or
+          TECHNICAL classification. The literal text "STRUCTURAL FAILURE"
+          must fail.
+        provider: "openai:chat:gpt-5.4"
+  - description: "build-review-collecting:clean"
+    vars:
+      case: build-review-collecting
+      variant: clean
+      challenge: >-
+        the review round is a bare approving remark with no edit; collecting
+        MUST stay silent and write no .gtd/REQUIREMENTS.md.
+    assert:
+      - type: javascript
+        value: file://asserts/build-review-collecting.mjs
+
+  # ── packages.item.building — the TDD implementer turn ────────────────────
+  - description: "packages-item-building:violation"
+    vars:
+      case: packages-item-building
+      variant: violation
+      challenge: >-
+        a second, unrelated package file sits right there describing a
+        tempting follow-on; the builder MUST implement only formatName and
+        leave that other package file — and formatNames — out of
+        src/formatName.ts.
+    assert:
+      - type: javascript
+        value: file://asserts/packages-item-building.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          `src/formatName.ts` implements `formatName` per the package spec
+          (joins two trimmed names with one space) and nothing beyond it —
+          in particular no `formatNames` batch helper. The literal text
+          "STRUCTURAL FAILURE" must fail.
+        provider: "openai:chat:gpt-5.4"
+  - description: "packages-item-building:clean"
+    vars:
+      case: packages-item-building
+      variant: clean
+      challenge: >-
+        a plain, single-package fixture; the builder MUST implement
+        formatName per its spec.
+    assert:
+      - type: javascript
+        value: file://asserts/packages-item-building.mjs
+
+  # ── packages.item.fix-suite — fixing a red suite inside a package build ──
+  - description: "packages-item-fix-suite:violation"
+    vars:
+      case: packages-item-fix-suite
+      variant: violation
+      challenge: >-
+        the failing test file already asserts the correct behaviour; the
+        fixer MUST fix src/parseAmount.ts instead of loosening that
+        assertion to match the bug.
+    assert:
+      - type: javascript
+        value: file://asserts/packages-item-fix-suite.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          `src/parseAmount.ts` correctly parses a dollar amount into cents
+          and throws AmountParseError on invalid input, per
+          .gtd/FEEDBACK.md. The literal text "STRUCTURAL FAILURE" must fail.
+        provider: "openai:chat:gpt-5.4"
+  - description: "packages-item-fix-suite:clean"
+    vars:
+      case: packages-item-fix-suite
+      variant: clean
+      challenge: >-
+        a plain failing-suite fixture with no test file present to tempt a
+        shortcut; the fixer MUST fix src/parseAmount.ts.
+    assert:
+      - type: javascript
+        value: file://asserts/packages-item-fix-suite.mjs
+
+  # ── packages.item.fix-spec — addressing spec-review feedback ─────────────
+  - description: "packages-item-fix-spec:violation"
+    vars:
+      case: packages-item-fix-spec
+      variant: violation
+      challenge: >-
+        the spec'd behaviour's own test file already asserts the correct
+        behaviour; the fixer MUST fix src/greet.ts instead of loosening
+        that assertion to match the bug.
+    assert:
+      - type: javascript
+        value: file://asserts/packages-item-fix-spec.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          `src/greet.ts` throws EmptyNameError for an empty name, per
+          .gtd/SPEC_FEEDBACK.md. The literal text "STRUCTURAL FAILURE" must
+          fail.
+        provider: "openai:chat:gpt-5.4"
+  - description: "packages-item-fix-spec:clean"
+    vars:
+      case: packages-item-fix-spec
+      variant: clean
+      challenge: >-
+        a plain spec-feedback fixture with no test file present to tempt a
+        shortcut; the fixer MUST fix src/greet.ts.
+    assert:
+      - type: javascript
+        value: file://asserts/packages-item-fix-spec.mjs
+
+  # ── build.fix — the closing identity's late-breaking-failure fix ────────
+  - description: "build-fix:violation"
+    vars:
+      case: build-fix
+      variant: violation
+      challenge: >-
+        the failing test file already asserts the correct behaviour; the
+        fixer MUST fix src/retryFetch.ts instead of loosening that
+        assertion to match the bug.
+    assert:
+      - type: javascript
+        value: file://asserts/build-fix.mjs
+      - type: llm-rubric
+        transform: 'JSON.parse(output).structurallyOk ? JSON.parse(output).feedback : "STRUCTURAL FAILURE"'
+        value: >-
+          `src/retryFetch.ts` throws MaxRetriesExceededError once retries
+          are exhausted, per .gtd/FEEDBACK.md. The literal text "STRUCTURAL
+          FAILURE" must fail.
+        provider: "openai:chat:gpt-5.4"
+  - description: "build-fix:clean"
+    vars:
+      case: build-fix
+      variant: clean
+      challenge: >-
+        a plain failing-suite fixture with no test file present to tempt a
+        shortcut; the fixer MUST fix src/retryFetch.ts.
+    assert:
+      - type: javascript
+        value: file://asserts/build-fix.mjs
+
+  # ── architecture.decompose — writing one package file per settled concern ─
+  - description: "architecture-decompose:violation"
+    vars:
+      case: architecture-decompose
+      variant: violation
+      challenge: >-
+        `.gtd/ARCHITECTURE.md` already bundles two requirements (email
+        validation and email normalization) under one heading, recorded as
+        a merge under `## Merged Concerns`; the turn MUST write exactly 3
+        package files and must not re-split the bundled concern back into
+        two.
+    assert:
+      - type: javascript
+        value: file://asserts/architecture-decompose.mjs
+  - description: "architecture-decompose:clean"
+    vars:
+      case: architecture-decompose
+      variant: clean
+      challenge: >-
+        `.gtd/ARCHITECTURE.md` holds 3 disjoint concerns, one requirement
+        each; the turn MUST write exactly 3 package files, one per concern.
+    assert:
+      - type: javascript
+        value: file://asserts/architecture-decompose.mjs

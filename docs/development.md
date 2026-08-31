@@ -28,3 +28,168 @@ run `npm install` on a fresh clone — it runs
 Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
 or breaking changes) to `main` and semantic-release computes the next version,
 builds the bundle, tags it, and publishes.
+
+## Prompt evals
+
+`npm run eval` grades the bundled workflow's own prompts against one
+configuration, using [promptfoo](https://www.promptfoo.dev/). Every
+`actor: agent` prompt state the workflow can rest at gets a two-sided case — all
+ten today. It is not part of `npm test`: each case drives real, multi-minute
+agent turns and costs real model calls, and `npm run eval` runs every case every
+time — hours, real tokens, no default subset. To re-run one case after changing
+its grader or its prompt, filter by the `<case>:<variant>` description each test
+carries:
+
+```bash
+npm run eval -- --filter-pattern '^(design-triage|architecture-author):'
+```
+
+A filtered run prints its per-cell rates and **skips the baseline gate** — a
+subset cannot be gated against a whole baseline, since every excluded cell would
+read as missing. Compare, and record, only from a full run.
+
+The turn's agent is swappable, and the committed default is `--agent claude`:
+your local [Claude Code](https://claude.com/claude-code) install, its own login,
+the same agent the workflow ships against. That is the configuration to run when
+the question is "does this prompt still work" — it needs no gateway and no model
+ids kept served, and `--planner`/`--coder` take plain Claude aliases (`opus`,
+`sonnet`). Pass `--agent pi` instead to grade a NON-Claude model through the
+[pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent);
+only that agent reads `GTD_EVALS_URL` (an OpenAI-compatible gateway) and
+`GTD_EVALS_KEY`, and it reaches its model exclusively through them.
+
+Both are set on the provider id in `evals/promptfooconfig.yaml`, never by an
+environment variable, because a baseline cell keys off the provider `label` — an
+env var could silently change what a cell measures without changing its name.
+
+`GTD_EVALS_URL`/`GTD_EVALS_KEY` are still required by `npm run eval` under
+either agent: the tier-3 `llm-rubric` judge is promptfoo's own provider and
+always runs through that gateway, independent of what drove the turn.
+
+```bash
+npm run eval                              # build, then run every case under every model configuration
+GTD_EVAL_WORKFLOW=./my-workflow.yaml npm run eval  # grade a scratch workflow instead of the bundled default
+EVAL_CLEAN=1 npm run eval                 # delete each fixture repo after grading (kept by default, for post-mortem)
+```
+
+Grading is versioned on two axes: the configuration above, and the harness
+itself — the four-tool surface is a flag this repo passes rather than either
+agent's current default (`--tools read,write,edit,bash` for `pi`, pinned to
+0.84.4; `--tools Read,Write,Edit,Bash` for `claude`). The Claude turn also
+passes `--system-prompt` (a REPLACEMENT, never `--append-system-prompt` — the
+state's prompt is what is under test, not gtd's prompt stacked on Claude
+Code's), `--permission-mode bypassPermissions`, `--no-session-persistence`, and
+`--setting-sources ""`, which loads no user, project or local settings, so a
+machine's own hooks and output style never reach a graded turn. Auth is
+untouched by that flag; the local login still applies. A reader comparing two
+baselines needs to know the harness moved, not just the model.
+
+Each case builds a fresh, disposable fixture repo per trial, drives exactly one
+real driver turn against it (`gtd next` → the agent → `gtd land`), and grades
+the result through three tiers, cheapest first: deterministic `javascript`
+asserts on which files changed, a grep floor for a planted identifier, and —
+only once both pass — an `llm-rubric` judge scoring whether the feedback is
+actually useful. That judge is pinned to a specific model id (`gpt-5.4`,
+duplicated in `evals/promptfooconfig.yaml` and `evals/run-turn.mjs` on purpose);
+bumping it invalidates every recorded baseline, since the judge is as much a
+part of what a baseline measures as the model under test. promptfoo's own
+end-of-run summary and `results.json`'s per-provider counts are both summed
+across fixtures AND configurations, so `npm run eval` runs through
+`evals/eval.mjs` rather than the bare `promptfoo` CLI: it strips that aggregate
+line out of promptfoo's own output as it streams (the per-test results table
+above it is untouched) and prints `evals/report.mjs`'s own pass rate **per case,
+per variant, per configuration** (out of `--repeat`'s trial count) in its place
+— never averaged across cases, variants, or configurations, since a suite that
+averages a two-sided case's variants hides exactly the failure those variants
+exist to expose. `evals/eval.mjs` still exits with promptfoo's own exit code, so
+a failing assertion still fails `npm run eval`. `npm run eval` also passes
+`--no-cache`: `--repeat` does not disable promptfoo's own result cache, and
+running the same config by hand from `evals/` (its own `basePath`) makes the
+exec provider's script hashes resolve — without `--no-cache`, later trials would
+silently replay an earlier trial's cached JSON instead of a fresh turn.
+
+To add a case: write `evals/cases/<name>.mjs` exporting a frozen plain object
+shaped like `evals/cases/spec-review.mjs` — a `state` to enter, two-sided
+`base`/`variants` fixture content, `expect[variant].gtdFiles` and
+`expect[variant].otherFiles` (`"none"` for a planner case that must never touch
+repo code, `"required"` for a coder case that must). `gtdFiles` takes one of two
+shapes, both graded by `evals/expect.mjs`'s `matchGtdFiles`: the exact array of
+`.gtd/` paths that variant's turn may change (every case but
+`architecture-decompose`), or, for a state whose turn writes a variable-sized
+set of paths, a descriptor `{exact: [...], matching: {pattern, count}}` — every
+`exact` path must be present, and every OTHER changed path must match `pattern`,
+with exactly `count` of them. An optional `artifact` (the repo-relative path
+read back as `feedback` for the tier-3 rubric, absent for a case with no
+contracted state file — that case's `tests:` entries then carry no `llm-rubric`
+either, since there is nothing to judge; `architecture-decompose` is that case,
+since it writes a variable-sized set of package files rather than one contracted
+path), a `plantedIdentifier` the `violation` variant's `feedback` must name
+(choose text the fix must INTRODUCE, never text already sitting in `base` — a
+bug's exception class declared but not yet thrown greps true on an untouched
+file), and an optional `expect[variant].outOfBounds` (the repo-relative path
+THAT variant's fixture plants as a coder case's obvious wrong move; both
+`isStructurallyOk` here and `checkOutOfBounds` in `evals/asserts/shared.mjs`
+fail a turn that touches it). Scoped per variant, never a case-level field: the
+trap file exists only on the variant whose fixture plants it, so a `clean` turn
+writing that same path itself (e.g. a fresh reproduction test, following the TDD
+discipline the builder persona asks for) is never graded as touching a trap.
+Then add a matching `evals/asserts/<name>.mjs` grader — it wires
+`evals/asserts/shared.mjs`'s case-independent checks first, then adds whatever
+check is specific to that state — and wire both into
+`evals/promptfooconfig.yaml`'s `tests:`, one entry per variant, each carrying
+`case`/`variant`/`challenge`.
+
+A `mode: qa`/`mode: review` case (`design-triage`, `architecture-author`,
+`build-review-reviewing`, `build-review-collecting`) never has its landed
+`.gtd/` artifact run through `gtd validate` — `run-turn.mjs` reads but never
+executes that state's `--json=validate` script, on purpose, since running it
+would still cost one agent turn but re-prompting on a failure would grade
+recovery, not the prompt. The grader's job stays scoped to the artifact's SHAPE
+(does it parse the way the next state reads it), never its validity against
+`gtd validate` itself — a trial can score a structural pass on a `.gtd/` file
+the real workflow would still reject before `gtd land`.
+
+A case names a workflow `state`, never a model or an agent: the state's class —
+planner or coder — picks which half of the configuration runs it, so a
+review-class case and a build-class case landing in the same run are each graded
+on the tier they actually ship against, never on the other class's model. The
+committed default is exactly ONE configuration, because every extra provider
+multiplies the run (cases × variants × `--repeat` × providers) and adds a
+`baseline.json` cell that can flake, for a comparison most runs never need. To
+compare two agents, or two model choices, for a single run, add a second
+`providers:` entry with its own `label` to `evals/promptfooconfig.yaml`, run
+`npm run eval` once, and read the two rows it adds to the per-cell results
+matrix — no permanent config change required. Baseline cells key off that
+provider `label`, not the agent or model id configured under it, so relabeling a
+provider without re-recording the baseline reads as a newly-missing cell, not a
+renamed one — and so a label must name both the agent and the models under it.
+
+### The baseline regression gate
+
+`evals/baseline.json` is a committed snapshot of the pass rate each
+`(provider label, case, variant)` cell scored on a past green run — exactly like
+a test snapshot. After a clean `promptfoo` exit, `npm run eval` runs
+`evals/compare-baseline.mjs` against the `evals/results.json` the run just
+wrote: any cell whose rate is lower than the baseline's fails the whole command,
+naming the cell and both rates, with no tolerance band (4/4 to 3/4 reds it, for
+one model on one case/variant). A cell missing from either side — an unrecorded
+case, or one silently dropped from the run — fails too. A higher-scoring run
+exits clean and never rewrites the file.
+
+The baseline is **never** updated automatically — a passing `npm run eval` that
+refreshed its own baseline would grade nothing. To record a new one
+deliberately, after reading the printed per-cell results matrix and deciding
+it's the new floor:
+
+```bash
+npm run eval:baseline   # rewrites evals/baseline.json from the last results.json, oxfmt'd
+```
+
+Commit the resulting `evals/baseline.json` as its own reviewable change, same as
+any other snapshot update.
+
+Because a single trial is a real, non-deterministic agent turn, a healthy prompt
+occasionally fails one out of `--repeat` trials — a single flaky turn is 25% of
+a 4-trial cell's rate. That's expected: the eval is a deliberate human action,
+never a CI gate, so a human re-runs and judges. If re-runs become routine, the
+fix is more trials, never a softer threshold.

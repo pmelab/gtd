@@ -1,0 +1,86 @@
+{
+  "recordedAt": "2026-08-30T07:37:10.868Z",
+  "trials": 4,
+  "rates": {
+    "claude-opus-sonnet|architecture-author|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|architecture-author|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|architecture-decompose|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|architecture-decompose|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|build-fix|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|build-fix|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|build-review-collecting|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|build-review-collecting|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|build-review-reviewing|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|build-review-reviewing|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|design-triage|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|design-triage|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-building|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-building|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-fix-spec|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-fix-spec|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-fix-suite|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|packages-item-fix-suite|violation": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|spec-review|clean": {
+      "passed": 4,
+      "total": 4
+    },
+    "claude-opus-sonnet|spec-review|violation": {
+      "passed": 4,
+      "total": 4
+    }
+  }
+}

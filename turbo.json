@@ -12,7 +12,16 @@
       "outputs": []
     },
     "lint": {
-      "inputs": ["src/**", "tests/**", "scripts/**", "dev/**", "*.ts", "*.mjs", ".oxlintrc.json"],
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "scripts/**",
+        "dev/**",
+        "evals/**",
+        "*.ts",
+        "*.mjs",
+        ".oxlintrc.json"
+      ],
       "outputs": []
     },
     "lint:sh": {
@@ -25,11 +34,11 @@
       "outputs": []
     },
     "typecheck": {
-      "inputs": ["src/**", "tests/**", "*.ts"],
+      "inputs": ["src/**", "tests/**", "evals/**", "*.ts"],
       "outputs": []
     },
     "deadcode": {
-      "inputs": ["src/**", "tests/**", "*.ts", ".fallowrc.json"],
+      "inputs": ["src/**", "tests/**", "evals/**", "*.ts", ".fallowrc.json"],
       "outputs": []
     },
     "test:unit": {
@@ -42,7 +51,8 @@
         "vitest.stryker.config.ts",
         "stryker.config.json",
         "turbo.json",
-        "docs/**"
+        "docs/**",
+        "evals/**"
       ],
       "outputs": []
     },

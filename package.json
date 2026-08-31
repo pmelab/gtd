@@ -46,12 +46,15 @@
     "test:e2e:inmem": "vitest run --project e2e-inmem",
     "test:e2e:live": "vitest run --project e2e-live --no-file-parallelism",
     "deadcode": "fallow --summary --quiet",
-    "coverage": "vitest run --project unit --coverage"
+    "coverage": "vitest run --project unit --coverage",
+    "eval": ": \"${GTD_EVALS_URL:?GTD_EVALS_URL is required — the OpenAI-compatible gateway every graded turn and the judge run through}\" && : \"${GTD_EVALS_KEY:?GTD_EVALS_KEY is required — the gateway bearer key}\" && npx turbo run build && node evals/eval.mjs",
+    "eval:baseline": "node evals/compare-baseline.mjs --record"
   },
   "lint-staged": {
     "*": "oxfmt --no-error-on-unmatched-pattern --write"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.4",
     "@effect/language-service": "^0.72.0",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
@@ -70,6 +73,7 @@
     "oxfmt": "^0.59.0",
     "oxlint": "^1.74.0",
     "prettier": "^3.8.1",
+    "promptfoo": "0.122.1",
     "quickpickle": "1.11.2",
     "semantic-release": "^25.0.5",
     "tsdown": "^0.22.8",

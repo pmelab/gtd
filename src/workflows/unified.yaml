@@ -226,14 +226,17 @@ vars:
   # the appended paragraph lands in the same position it renders in today);
   # `build.fix` renders the tag alone.
   fixFeedbackPrompt: |-
-    The only state file this turn touches is `.gtd/FEEDBACK.md`; fix it per its
-    contents, or delete it if the feedback turns out to be wrong. Do not
-    create other files to hold notes or output.
+    The only state file this turn touches is `.gtd/FEEDBACK.md`; address it,
+    then delete it. Do not create other files to hold notes or output.
 
     Read `.gtd/FEEDBACK.md` (the failing test output) and fix the
     code so the suite passes. Keep the change focused — do not refactor
-    unrelated code. If the feedback is wrong, empty or delete
-    `.gtd/FEEDBACK.md` instead of "fixing" a non-issue.
+    unrelated code. If the feedback is wrong, fix nothing rather than
+    "fixing" a non-issue.
+
+    Delete `.gtd/FEEDBACK.md` either way — once the suite passes, or once
+    you have established the feedback was wrong. Leaving it in place is
+    never the right end state: the next check writes its own.
 
 # `gtd summary`'s prompt — printed cold, no session identity, no diff inlined.
 # Names the hashes/range for the agent to inspect itself; renders the same
