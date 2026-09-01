@@ -1105,14 +1105,14 @@ describe("clearFilePointerTicks", () => {
     expect(clearFilePointerTicks("- [X] ./src/calc.ts#1")).toBe("- [ ] ./src/calc.ts#1")
   })
 
-  it("preserves path, inline note, continuation lines, indentation, chunk headings, the base comment, and the header byte for byte", () => {
+  it("preserves path, inline note, continuation lines, chunk headings, the base comment, and the header byte for byte", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
       "",
       "## Add calculator",
       "",
-      "  - [x] ./src/calc.ts#1 — new add function",
+      "- [x] ./src/calc.ts#1 — new add function",
       "    continuation note text",
       "",
       "- [X] ./src/index.ts#10",
@@ -1124,13 +1124,20 @@ describe("clearFilePointerTicks", () => {
       "",
       "## Add calculator",
       "",
-      "  - [ ] ./src/calc.ts#1 — new add function",
+      "- [ ] ./src/calc.ts#1 — new add function",
       "    continuation note text",
       "",
       "- [ ] ./src/index.ts#10",
       "",
     ].join("\n")
     expect(clearFilePointerTicks(content)).toBe(expected)
+  })
+
+  it("leaves an indented `- [x] <token>` line alone — FILE_POINTER_RE requires the box at column 0, so an indented pointer-shaped line is a continuation/note, never a pointer", () => {
+    const content = ["- [ ] ./src/calc.ts#1", "  - [x] not a real path, just note prose", ""].join(
+      "\n",
+    )
+    expect(clearFilePointerTicks(content)).toBe(content)
   })
 
   it("leaves a [x] in prose alone", () => {
@@ -1150,6 +1157,16 @@ describe("clearFilePointerTicks", () => {
 
   it("leaves a `- [x]` line with no whitespace-delimited pointer token after the box alone", () => {
     const content = "- [x]"
+    expect(clearFilePointerTicks(content)).toBe(content)
+  })
+
+  it("leaves a `- [x]` line with nothing after the box alone even when the NEXT line has content — the token must be on the same line", () => {
+    const content = "- [x]\n./src/calc.ts#1\n"
+    expect(clearFilePointerTicks(content)).toBe(content)
+  })
+
+  it("leaves a `- [x]` line with only trailing horizontal whitespace after the box alone, even when the next line has content", () => {
+    const content = "- [x]   \n./src/calc.ts#1\n"
     expect(clearFilePointerTicks(content)).toBe(content)
   })
 

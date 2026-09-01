@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
 # FEEDBACK iff the human left a REVIEW.md note or hand-edited any
 # file this round outside .gtd/; otherwise a clean sign-off. No
-# [ ]/[x] normalization is needed here: `gtd uncheck` (emitted ahead
-# of every human-review-gate commit, package 01) already resets
-# every tick before this commit is made, so no `[x]` can ever reach
-# it — a byte-for-byte comparison is enough. This turn only
+# [ ]/[x] normalization is needed here: `gtd uncheck` (emitted
+# ahead of every human-review-gate commit) already resets every
+# tick before this commit is made, so no `[x]` can ever reach it —
+# a byte-for-byte comparison is enough. This turn only
 # CAPTURES the raw material into REVIEW_RAW.md — collecting judges
 # actionability. A/M REVIEW_RAW.md rows are declared before D
 # REVIEW.md so a feedback round (which also deletes REVIEW.md)

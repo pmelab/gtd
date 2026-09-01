@@ -16,11 +16,11 @@ Feature: A tick with no comment signs off — build.review.deciding's script rea
   guards against lives in the script's own shell logic, which `@inmem`
   scenarios never run (see AGENTS.md).
 
-  Since package 01, no `[x]` can reach a commit through gtd's own landing
-  path (`gtd uncheck` resets every tick ahead of the human's own commit) —
-  this scenario lands the human turn through `gtd land` itself, rather than
-  hand-committing a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by
-  the time `deciding`'s script runs its diff comparison.
+  `gtd uncheck` resets every tick ahead of the human's own commit, so no
+  `[x]` can reach a commit through gtd's own landing path — this scenario
+  lands the human turn through `gtd land` itself, rather than hand-committing
+  a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by the time
+  `deciding`'s script runs its diff comparison.
 
   Scenario: a tick with no comment signs off — deciding's script lands an ordinary commit entering idle
     Given a test project

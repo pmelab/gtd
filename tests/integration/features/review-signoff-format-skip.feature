@@ -18,11 +18,11 @@ Feature: A review sign-off lands even when its mode declares a format: command t
   check script`) rather than simulating its outcome by hand — `@inmem`
   scenarios never run the emitted script at all.
 
-  Since package 01, no `[x]` can reach a commit through gtd's own landing
-  path (`gtd uncheck` resets every tick ahead of the human's own commit) —
-  this scenario lands the human turn through `gtd land` itself, rather than
-  hand-committing a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by
-  the time `deciding`'s script runs its diff comparison.
+  `gtd uncheck` resets every tick ahead of the human's own commit, so no
+  `[x]` can reach a commit through gtd's own landing path — this scenario
+  lands the human turn through `gtd land` itself, rather than hand-committing
+  a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by the time
+  `deciding`'s script runs its diff comparison.
 
   Scenario: the sign-off still lands when the review mode declares a format command that fails on a missing file
     Given a test project

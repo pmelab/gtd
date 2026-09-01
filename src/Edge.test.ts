@@ -1476,7 +1476,7 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
   })
 })
 
-// ── renderDecision — the review-gate uncheck reset (package 01) ─────────────
+// ── renderDecision — the review-gate uncheck reset ───────────────────────────
 
 const REVIEW_GATE_WORKFLOW = [
   "workflow:",

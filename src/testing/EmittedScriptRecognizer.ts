@@ -473,11 +473,12 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
 const GTD_UNCHECK_RE = /^gtd uncheck (.+)$/
 
 /**
- * `gtd uncheck <file>` — the review-gate reset `renderDecision` (`src/Edge.ts`)
- * prepends ahead of the human's own commit (package 01). Re-runs the real
- * `clearFilePointerTicks` against the repo's current content, writing back
- * only on an actual change, mirroring `runUncheckCommand`'s own behavior
- * (`src/program.ts`) — an absent file is a no-op, same as a real invocation.
+ * `gtd uncheck <file>` — the review-gate reset `renderDecision`
+ * (`src/Edge.ts`) prepends ahead of the human's own commit, so no tick ever
+ * reaches it. Re-runs the real `clearFilePointerTicks` against the repo's
+ * current content, writing back only on an actual change, mirroring
+ * `runUncheckCommand`'s own behavior (`src/program.ts`) — an absent file is
+ * a no-op, same as a real invocation.
  */
 const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const match = GTD_UNCHECK_RE.exec(block)

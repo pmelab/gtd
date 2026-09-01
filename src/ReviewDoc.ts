@@ -52,13 +52,22 @@ const CHUNK_HEADING_RE = /^##\s+(.+)$/
 /** One `- [ ]`/`- [x]` pointer line: the box, the whitespace-delimited pointer token, and the inline note segment that trails it. */
 const FILE_POINTER_RE = /^-\s*\[([ xX])\]\s*(\S+)(?:\s+(.*))?$/
 /**
- * Matches only the `x`/`X` box character of a `- [x]`/`- [X]` pointer line,
- * leading indentation and all — mirrors `FILE_POINTER_RE`'s shape (box then a
- * whitespace-delimited token) via a lookahead, so nothing but that one
- * character is ever part of the match. A prose line, a chunk heading, or a
- * `- [x]` with no token after the box never matches at all.
+ * Matches only the `x`/`X` box character of a `- [x]`/`- [X]` pointer line —
+ * mirrors `FILE_POINTER_RE`'s shape (box then a whitespace-delimited token)
+ * via a lookahead, so nothing but that one character is ever part of the
+ * match. `[ \t]`, never `\s`, everywhere this mirrors `FILE_POINTER_RE`'s own
+ * `\s`: `FILE_POINTER_RE` is applied per already-split line, where `\s` can
+ * only ever mean horizontal whitespace, but a `\s` here (over the whole
+ * multiline document, `gm`) also matches `\n` — letting `-` anchor past a
+ * blank line, or the lookahead's token search cross onto a LATER line
+ * entirely. Both silently widen the match past what `FILE_POINTER_RE` itself
+ * accepts: an indented line (which is a chunk's own continuation/note text,
+ * never a pointer — `FILE_POINTER_RE` requires `-` at column 0, with no
+ * leading-indentation allowance of its own) and a `- [x]` with no token on
+ * its OWN line. A prose line, a chunk heading, or a `- [x]` with no token
+ * after the box never matches at all.
  */
-const FILE_POINTER_TICK_RE = /^(\s*-\s*\[)[xX](?=\]\s*\S)/gm
+const FILE_POINTER_TICK_RE = /^(-[ \t]*\[)[xX](?=\][ \t]*\S)/gm
 /** A pointer token's trailing `#<line>` (greedy, so a `#` inside the path stays in it). */
 const POINTER_LINE_RE = /^(.*)#(\d+)$/
 /** The optional dash that may lead the inline note segment or a continuation line — em dash, en dash, or hyphens. */
