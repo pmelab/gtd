@@ -3,62 +3,35 @@
 One concern, one package. No merges — there is nothing to merge a single concern
 with, so there is no `## Merged Concerns` section.
 
-## Open Questions
-
-### Where does the tick reset run — in gtd's own process during `gtd land`, or as a step in the landing script it emits?
-
-- [ ] In-process, in `planLanding` (`src/program.ts`) right after
-      `enforceStepGuards` passes — no new CLI surface, no new emitted step, and
-      `src/ReviewDoc.ts`'s rewrite is called directly. Cost: `gtd land` stops
-      being a pure emitter and rewrites the working tree even when the driver
-      never pipes the printed script into `sh`, so a previewed-then-abandoned
-      land clears the human's boxes with no commit behind it
-- [x] As the first step of the emitted `required` script, ahead of `git add -A`,
-      invoking a new standalone `gtd uncheck <file>` subcommand (a `sed -i`
-      literal is not portable across GNU/BSD, so the step has to be a gtd
-      invocation — the same way the seeded `gtd check <mode> '<file>'` already
-      appears in emitted scripts). Mutation happens only when the script
-      actually runs. Cost: a new public command, a new row in `docs/cli.md`'s
-      pinned `## Commands` block, and `src/Cli.test.ts` +
-      `tests/integration/features/command-surface.feature` churn
-- [ ] _your answer_
-
-### Does the sign-off comparison keep its `[ ]`/`[x]` normalisation as defence-in-depth, or drop it as dead code?
-
-- [ ] Keep the `sed -E 's/\[[ xX]\]/[_]/g'` pipeline in
-      `build.review.deciding`'s script (`src/workflows/unified.yaml`), with a
-      comment saying the reset is now the primary mechanism. Zero test churn:
-      `deciding-signoff.feature` and `review-signoff-format-skip.feature` both
-      hand-commit a `[x]` `.gtd/REVIEW.md` as the human turn and keep passing
-      untouched
-- [x] Drop it. No `[x]` can reach a commit through gtd's own landing path once
-      the reset ships, and a normalisation whose only remaining job is to mask a
-      broken reset is dead defence. Cost: both features above simulate the human
-      turn with a hand-commit rather than `gtd land`, so both must be rewritten
-      to land through `gtd land` — more faithful, but two `@live` scenarios
-      rewritten
-- [ ] _your answer_
-
 ## Reset review checkboxes when the review turn lands
 
-**The whole change is one pure string rewrite plus one call site.** No new data
-model, no new dependency, no new type — the rewrite is `string -> string`, and
-the file it rewrites is already parsed by a module that ships today.
+**The whole change is one pure string rewrite, one new standalone CLI command
+that applies it, and one extra step in the emitted landing script.** No new data
+model, no new dependency, no new type, no new exit code — the rewrite is
+`string -> string`, and the file it rewrites is already parsed by a module that
+ships today.
 
 ### File footprint
 
 - `src/ReviewDoc.ts` — the rewrite itself, beside the `FILE_POINTER_RE` it
   reuses
 - `src/ReviewDoc.test.ts` — unit coverage of the rewrite
+- `src/Cli.ts` — the `uncheck` row in the command token table and its `Command`
+  variant
+- `src/Cli.test.ts` — the command-table and pinned-help assertions
+- `src/program.ts` — `runUncheckCommand` and its dispatch arm
 - `src/StepGuards.ts` — the state selector, promoted to a shared export
-- `src/program.ts` — the call site (both open-question branches land here; the
-  second also touches `src/Cli.ts` and `docs/cli.md`)
+- `src/Edge.ts` — `renderDecision`, where the reset step is prepended to the
+  commit
 - `src/workflows/unified.yaml` — the `await-review` message, the `collecting`
   prompt, and `deciding`'s script
+- `docs/cli.md` — the pinned `## Commands` block, regenerated
 - `tests/integration/features/review-tick-reset.feature` — new, `@live`
+- `tests/integration/features/command-surface.feature` — the new command's
+  surface
 - `tests/integration/features/deciding-signoff.feature`,
-  `tests/integration/features/review-signoff-format-skip.feature` — touched only
-  if the second open question drops the normalisation
+  `tests/integration/features/review-signoff-format-skip.feature` — both
+  rewritten to land the human turn through `gtd land`
 
 ### The rewrite
 
@@ -81,14 +54,48 @@ human edited something real".
 document as a structure, so a structurally broken `.gtd/REVIEW.md` still gets
 its ticks cleared and still lands. The reset must not become a second validator.
 
-### Where it is called from
+### The `gtd uncheck <file>` command
 
-The call site is selected by the same predicate `reviewDocGuard` already uses —
+A new standalone command, shaped exactly like `gtd check <mode> <file>`: it
+resolves no workflow state, reads no config, and runs from any directory with
+the file given explicitly. It reads `<file>`, applies `clearFilePointerTicks`,
+and writes the result back only when the bytes actually changed — an untouched
+file is never rewritten, so its mtime never moves and no watcher fires for
+nothing.
+
+**It takes no `<mode>` argument, and must never grow one.** A
+`gtd uncheck qa <file>` would clear the `- [x]` answers in
+`.gtd/REQUIREMENTS.md`, unanswer every open question, and refuse every
+subsequent land. The command means review-mode file pointers and nothing else.
+
+Exit codes are the existing closed set: 0 on success and on a missing file, 2
+for bad arity, 1 for an unreadable or unwritable file. `docs/cli.md`'s exit-code
+table is unchanged; only its `## Commands` block moves, and it is regenerated
+from `renderHelp()`, not hand-edited.
+
+### Where the step is emitted
+
+`renderDecision` (`src/Edge.ts`) is the one place a decision becomes git
+commands, and both landing surfaces route through it, so one edit covers every
+caller. It prepends a single `{kind: "command"}` step — `gtd uncheck '<file>'`,
+quoted through `shellQuote` — ahead of the existing `commitAll` step, when and
+only when the resting state is the human review gate. `renderDecision` stays
+pure: no git read, no new failure mode.
+
+The step is selected by the same predicate `reviewDocGuard` already uses —
 `stateDef.actor === "human" && stateDef.mode === "review"`. Promote that
 predicate to a single exported helper in `src/StepGuards.ts` (where
 `REVIEW_MODE` already lives) so the guard and the reset cannot drift apart. The
 file it rewrites is `rest.hints.file`, never a hard-coded `.gtd/REVIEW.md`, so a
 custom workflow's own human review gate gets the same behaviour.
+
+**Never guard the step with `fileExistsGuard`.** That builder emits
+`[ -f <file> ] || exit 0`, which exits the whole script 0 — on a missing
+`.gtd/REVIEW.md` it would skip the commit and silently land nothing. The step is
+unconditional; `gtd uncheck` absorbs the missing-file case itself.
+
+**The step assumes `gtd` is on `$PATH`** — the same assumption the seeded
+`gtd check <mode> '<file>'` validate command already makes in emitted scripts.
 
 **Ordering is load-bearing in both directions, and getting it wrong deadlocks
 the process.**
@@ -98,6 +105,9 @@ the process.**
   `rest.changes` is computed and a tick-only round goes clean — `step` returns
   `{kind: "noop"}` (`src/PatternMachine.ts`), `gtd land` commits nothing and
   exits zero, and the process sits at `await-review` forever with no way out.
+  Emitting the step rather than mutating in-process satisfies this by
+  construction: nothing runs until the driver pipes the script into `sh`, long
+  after the decision is made.
 - **Before `git add -A`.** The commit is `commitAll` (`src/GitScript.ts`); the
   reset has to be on disk before that line runs or the ticks land in the commit,
   which is the bug.
@@ -111,26 +121,28 @@ tick-only rounds.** A feedback round where the human ticked boxes _and_ left a
 note must commit the note without the ticks. On a round with no ticks the
 rewrite is byte-identical, so it dirties nothing and changes no outcome.
 
-It inherits `enforceStepGuards`'s bypasses: nothing runs for a `noop` decision
-or an attempt commit. (An attempt commit is impossible at a `message` state
-anyway — only `prompt` states produce one.)
+Nothing is emitted for a `noop` decision or an attempt commit — `renderDecision`
+is only ever called for a commit decision, and an attempt commit is impossible
+at a `message` state anyway, since only `prompt` states produce one.
 
 ### Error handling
 
-- **File missing.** No-op, silently. The review-doc guard already refuses a
-  _deleted_ `.gtd/REVIEW.md`, but a never-provisioned one still reaches here.
-  In-process: treat `RepoFiles.working` returning `undefined` as nothing to do.
-  In-script: emit the existing `fileExistsGuard(file)` builder ahead of the
-  step.
-- **File unreadable (EPERM and friends).** Loud failure, tree untouched, nothing
-  committed. In-process that is an Effect failure formatted `gtd land: …`; in
-  the emitted script `set -eu` aborts before `git add -A` ever runs.
+- **File missing.** `gtd uncheck` writes nothing and exits 0. The review-doc
+  guard already refuses a _deleted_ `.gtd/REVIEW.md`, but a never-provisioned
+  one still reaches the step, and `build.review.deciding` already detects and
+  routes that case itself by the file's absence.
+- **File unreadable or unwritable.** `gtd uncheck` exits 1 with a message; the
+  landing script's `set -eu` aborts before `git add -A` ever runs, so the tree
+  is untouched and nothing is committed.
 - **Malformed document.** Not an error — see the line-wise note above.
 
 ### The three things that ship with it
 
-- `build.review.deciding`'s tick normalisation in `src/workflows/unified.yaml`
-  is no longer load-bearing. Its fate is the second open question above.
+- `build.review.deciding`'s `sed -E 's/\[[ xX]\]/[_]/g'` tick normalisation in
+  `src/workflows/unified.yaml` is deleted, along with the comment explaining it.
+  No `[x]` can reach a commit through gtd's own landing path once the reset
+  ships, and a normalisation whose only remaining job is to mask a broken reset
+  is dead defence.
 - `build.review.collecting`'s prompt drops its checkbox caveat. The rule becomes
   plainly "a note on `.gtd/REVIEW.md` is a concern" — delete the "anything
   beyond a checkbox flip, ticked or not (ticking only means 'I read this hunk',
@@ -138,14 +150,22 @@ anyway — only `prompt` states produce one.)
 - `await-review`'s message stops promising the tick persists. It says ticks are
   read-progress only, are cleared when you land, and are not kept.
 
+**Dropping the normalisation breaks two existing `@live` scenarios, and both
+must be rewritten in this package.** `deciding-signoff.feature` and
+`review-signoff-format-skip.feature` each hand-commit a ticked `.gtd/REVIEW.md`
+as the human turn instead of landing it through `gtd land`; with the `sed` gone
+that commit reads as a real edit and routes to feedback, not sign-off. Rewrite
+both to land the human turn with `gtd land` — the more faithful setup, and the
+one that exercises the reset.
+
 ### Scope guard
 
 **`qa` mode's ticks must survive, and breaking that deadlocks every answer
 gate.** `.gtd/REQUIREMENTS.md`'s and `.gtd/ARCHITECTURE.md`'s `- [x]` boxes ARE
 the answer: `answerCompletenessGuard` refuses a step until exactly one option
 per question is ticked, so clearing them would unanswer every question and
-refuse the land forever. The selector above is what keeps them safe — it matches
-on `mode: review`, and the rewrite lives in `src/ReviewDoc.ts`, which
+refuse the land forever. Two things keep them safe — the step is emitted only
+for `mode: review`, and the rewrite lives in `src/ReviewDoc.ts`, which
 `src/OpenQuestions.ts` never calls. A regression scenario pins it.
 
 ### Tests
@@ -154,6 +174,10 @@ Unit, `src/ReviewDoc.test.ts`: `[x]` and `[X]` both cleared; a `[x]` in prose or
 inside a note untouched; pointer path and inline note preserved; CRLF line
 endings preserved; trailing-newline state unchanged; idempotent; a `- [x]` with
 no pointer token after it untouched.
+
+Unit, `src/Cli.test.ts` and `src/program.test.ts`: `uncheck` appears in the
+command table and the rendered help; bad arity exits 2; a missing file exits 0
+and writes nothing; an unchanged file is not rewritten.
 
 `@live` e2e, new `tests/integration/features/review-tick-reset.feature` —
 `@live` because the emitted landing script and `deciding`'s shell logic both
@@ -169,10 +193,30 @@ have to actually execute:
 - **`qa` regression.** At an answer gate (`mode: qa`, `.gtd/REQUIREMENTS.md`) a
   ticked option survives the land untouched.
 
-No new Turborepo task: `src/**` and `tests/**` are already declared inputs of
-the existing checks.
+No new Turborepo task: `src/**`, `tests/**` and `docs/**` are already declared
+inputs of the existing checks.
 
 ## Answered Questions
+
+### Where does the tick reset run — in gtd's own process during `gtd land`, or as a step in the landing script it emits?
+
+As a step in the emitted script. `renderDecision` (`src/Edge.ts`) prepends
+`gtd uncheck '<file>'` ahead of `git add -A`, invoking a new standalone
+subcommand — a `sed -i` literal is not portable across GNU and BSD, so the step
+has to be a gtd invocation, the same way the seeded `gtd check <mode> '<file>'`
+already appears in emitted scripts. `gtd land` stays a pure emitter: a
+previewed-then-abandoned land leaves the human's boxes alone, because nothing
+mutates until the driver runs the script. The cost is a new public command, a
+regenerated `## Commands` block in `docs/cli.md`, and the command-surface tests.
+
+### Does the sign-off comparison keep its `[ ]`/`[x]` normalisation as defence-in-depth, or drop it as dead code?
+
+Drop it. No `[x]` can reach a commit through gtd's own landing path once the
+reset ships, and a normalisation whose only remaining job is to mask a broken
+reset is dead defence. The cost is real and is part of this package:
+`deciding-signoff.feature` and `review-signoff-format-skip.feature` both
+hand-commit a ticked `.gtd/REVIEW.md` as the human turn, so both must be
+rewritten to land it through `gtd land`.
 
 ### Should the record of which hunks the human read survive the round at all?
 
@@ -207,17 +251,25 @@ heading, or inside a continuation note is left alone. Reusing the parser's own
 regex is what keeps the reset and the format from disagreeing about what a
 pointer line is.
 
-### Does the reset need a new library or data model?
+### Does `gtd uncheck` take a `<mode>` argument like `gtd check` does?
+
+No — one argument, the file, and review-mode pointer semantics baked in. A
+`gtd uncheck qa <file>` would clear the answers in `.gtd/REQUIREMENTS.md` and
+deadlock every answer gate, so the generality is a hazard with no use.
+
+### Does the reset need a new library, data model, or exit code?
 
 No. It is a pure string rewrite with no new type, no new dependency, and no
-persisted state — the smallest thing that can satisfy the concern.
+persisted state, and the new command reuses the existing closed exit-code set —
+the smallest thing that can satisfy the concern.
 
 ### Does a missing `.gtd/REVIEW.md` fail the land?
 
-No, it is a silent no-op. The deleted-file case is already refused by
-`reviewDocGuard`; a never-provisioned file must not turn into a second refusal
-path, because `build.review.deciding` already detects and routes that case
-itself by the file's absence.
+No. `gtd uncheck` writes nothing and exits 0, and the step is emitted
+unconditionally rather than wrapped in `fileExistsGuard` — that builder's
+`|| exit 0` would skip the commit itself. The deleted-file case is already
+refused by `reviewDocGuard`, and `build.review.deciding` already detects a
+never-provisioned file by its absence.
 
 ### Does the reset run on every review land, or only when the round is a sign-off?
 
