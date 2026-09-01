@@ -13,7 +13,7 @@ with, so there is no `## Merged Concerns` section.
       being a pure emitter and rewrites the working tree even when the driver
       never pipes the printed script into `sh`, so a previewed-then-abandoned
       land clears the human's boxes with no commit behind it
-- [ ] As the first step of the emitted `required` script, ahead of `git add -A`,
+- [x] As the first step of the emitted `required` script, ahead of `git add -A`,
       invoking a new standalone `gtd uncheck <file>` subcommand (a `sed -i`
       literal is not portable across GNU/BSD, so the step has to be a gtd
       invocation — the same way the seeded `gtd check <mode> '<file>'` already
@@ -31,7 +31,7 @@ with, so there is no `## Merged Concerns` section.
       `deciding-signoff.feature` and `review-signoff-format-skip.feature` both
       hand-commit a `[x]` `.gtd/REVIEW.md` as the human turn and keep passing
       untouched
-- [ ] Drop it. No `[x]` can reach a commit through gtd's own landing path once
+- [x] Drop it. No `[x]` can reach a commit through gtd's own landing path once
       the reset ships, and a normalisation whose only remaining job is to mask a
       broken reset is dead defence. Cost: both features above simulate the human
       turn with a hand-commit rather than `gtd land`, so both must be rewritten
