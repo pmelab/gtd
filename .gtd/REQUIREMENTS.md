@@ -11,7 +11,7 @@ Today the ticks live in exactly one place — the human review turn's commit —
 `.gtd/REVIEW.md` is deleted on the very next turn. Clearing the boxes before the
 commit erases that record permanently.
 
-- [ ] No — erase them. A tick means "I read this hunk", never sign-off; once the
+- [x] No — erase them. A tick means "I read this hunk", never sign-off; once the
       round closes nobody consults it, and keeping it is the churn we are
       removing
 - [ ] Yes — keep a record outside the file. Clear the boxes, but carry the list
@@ -21,7 +21,7 @@ commit erases that record permanently.
 
 ### Does the human's own copy of the file visibly clear, or only the commit?
 
-- [ ] Clear the file on disk at `gtd land` — the human watches every box empty
+- [x] Clear the file on disk at `gtd land` — the human watches every box empty
       in their editor as the turn commits. Simple, and the file is deleted next
       turn anyway
 - [ ] Clear only what gets committed — the file on disk stays exactly as the
