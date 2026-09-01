@@ -27,6 +27,7 @@ import {
   modeContradictionSkipNotice,
 } from "../ModeContradiction.js"
 import { OUTCOME_MARKER } from "../OutcomeScript.js"
+import { clearFilePointerTicks } from "../ReviewDoc.js"
 import { steeringFormatFor } from "../SteeringFormats.js"
 import type { SteeringFormat } from "../SteeringFormat.js"
 import type { InMemRepo } from "./InMemRepo.js"
@@ -469,6 +470,27 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
   return { kind: "noop" }
 }
 
+const GTD_UNCHECK_RE = /^gtd uncheck (.+)$/
+
+/**
+ * `gtd uncheck <file>` — the review-gate reset `renderDecision` (`src/Edge.ts`)
+ * prepends ahead of the human's own commit (package 01). Re-runs the real
+ * `clearFilePointerTicks` against the repo's current content, writing back
+ * only on an actual change, mirroring `runUncheckCommand`'s own behavior
+ * (`src/program.ts`) — an absent file is a no-op, same as a real invocation.
+ */
+const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
+  const match = GTD_UNCHECK_RE.exec(block)
+  if (!match) return undefined
+  const [file] = extractQuotedTokens(match[1]!)
+  if (file === undefined) return undefined
+  const content = repo.readFile(file)
+  if (content === undefined) return { kind: "noop" }
+  const cleared = clearFilePointerTicks(content)
+  if (cleared !== content) repo.writeFile(file, cleared)
+  return { kind: "noop" }
+}
+
 /**
  * `Emit.ts`'s `combinedScript` leading comment — `gtd land`/`gtd --entry`'s
  * whole plain-text artifact opens with this line ahead of the required
@@ -611,6 +633,7 @@ const recognizersFor = (
   (block) => recognizeModeContradictionSkipNotice(block),
   (block) => recognizeModeContradictionCheck(repo, commands, block),
   (block) => recognizeGtdCheck(repo, block),
+  (block) => recognizeGtdUncheck(repo, block),
   (block) => recognizeOutcome(block),
   (block) => recognizeScriptedCommand(repo, commands, block),
 ]

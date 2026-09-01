@@ -1476,6 +1476,77 @@ describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
   })
 })
 
+// ── renderDecision — the review-gate uncheck reset (package 01) ─────────────
+
+const REVIEW_GATE_WORKFLOW = [
+  "workflow:",
+  "  entry:",
+  "    default: root",
+  "  machines:",
+  "    root:",
+  "      entry: awaitreview",
+  "      states:",
+  "        awaitreview:",
+  "          actor: human",
+  "          message: review-message",
+  "          file: REVIEW.md",
+  "          mode: review",
+  "          on:",
+  '            "* **": awaitreview',
+  "",
+].join("\n")
+
+const reviewGateRepo = (): InMemRepo => {
+  const repo = new InMemRepo()
+  repo.writeFile(".gtdrc.yaml", REVIEW_GATE_WORKFLOW)
+  repo.writeFile(".gtd/REVIEW.md", "# Review: abc1234\n")
+  repo.commitAllWithPrefix("chore: add review-gate workflow")
+  return repo
+}
+
+describe("renderDecision — the review-gate uncheck reset", () => {
+  it("prepends a `gtd uncheck '<file>'` command step ahead of the commit, at the human review gate", async () => {
+    const repo = reviewGateRepo()
+    repo.writeFile(".gtd/REVIEW.md", "# Review: abc1234\n\n- [x] ./src/calc.ts#1\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest), repo)
+    if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
+      throw new Error("expected a commit plan")
+    }
+
+    const steps = renderDecision(rest, plan.decision, undefined, undefined)
+    expect(steps[0]).toEqual({ kind: "command", command: "gtd uncheck '.gtd/REVIEW.md'" })
+    expect(steps).toHaveLength(3)
+    expect(steps[1]).toEqual({ kind: "gitWrite", command: commitAll(plan.decision.subject) })
+  })
+
+  it("emits no uncheck step at a human state that isn't the review gate", async () => {
+    const repo = seededStepRepo()
+    repo.writeFile("README.md", "edited\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest), repo)
+    if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
+      throw new Error("expected a commit plan")
+    }
+    const steps = renderDecision(rest, plan.decision, undefined, undefined)
+    expect(steps.some((s) => s.kind === "command")).toBe(false)
+  })
+
+  it("emits the uncheck step unconditionally — even on a review round with no ticks to clear", async () => {
+    const repo = reviewGateRepo()
+    // No ticks — REVIEW.md is unchanged from what the gate started with, but
+    // the human still lands (e.g. a code edit elsewhere triggers the commit).
+    repo.writeFile("NOTE.md", "a code edit\n")
+    const rest = await provide(currentRest, repo)
+    const plan = await provide(planStep(rest), repo)
+    if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
+      throw new Error("expected a commit plan")
+    }
+    const steps = renderDecision(rest, plan.decision, undefined, undefined)
+    expect(steps[0]).toEqual({ kind: "command", command: "gtd uncheck '.gtd/REVIEW.md'" })
+  })
+})
+
 // ── restAt — always resolves against real HEAD (Part C) ─────────────────────
 
 describe("restAt — resolves against real HEAD, with no window ref to consult", () => {

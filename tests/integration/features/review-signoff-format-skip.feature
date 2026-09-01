@@ -18,6 +18,12 @@ Feature: A review sign-off lands even when its mode declares a format: command t
   check script`) rather than simulating its outcome by hand — `@inmem`
   scenarios never run the emitted script at all.
 
+  Since package 01, no `[x]` can reach a commit through gtd's own landing
+  path (`gtd uncheck` resets every tick ahead of the human's own commit) —
+  this scenario lands the human turn through `gtd land` itself, rather than
+  hand-committing a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by
+  the time `deciding`'s script runs its diff comparison.
+
   Scenario: the sign-off still lands when the review mode declares a format command that fails on a missing file
     Given a test project
     And the workflow
@@ -31,7 +37,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
               exit 2
             }
       """
-    And a commit "gtd(agent): build.health.check → build.review.reviewing" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -41,7 +47,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And a commit "gtd(human): build.review.await-review → build.review.deciding" that adds ".gtd/REVIEW.md" with:
+    And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
 
@@ -51,6 +57,9 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       - [x] ./src/calc.ts#1
       new add function
       """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
     When I run gtd next with "--json"
     And I execute the printed check script
     And I run gtd land

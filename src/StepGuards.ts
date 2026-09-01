@@ -59,10 +59,20 @@ const isCodePath = (path: string): boolean => !isPlumbingPath(path)
 /** The `mode:` name of gtd's built-in REVIEW.md checkbox format — the only mode the review-doc guard understands. */
 const REVIEW_MODE = "review"
 
+/**
+ * Selects exactly the human review gate (`await-review` in the bundled
+ * template) — a human-actor state declaring `mode: review`. Exported so
+ * `src/Edge.ts#renderDecision` can emit the `gtd uncheck` reset step at
+ * precisely the same state this guard applies to — one predicate, so the
+ * guard and the reset can't drift apart.
+ */
+export const isHumanReviewGate = (rest: ResolvedRest): boolean =>
+  rest.stateDef.actor === "human" && rest.stateDef.mode === REVIEW_MODE
+
 /** Selects exactly the human review gate (`await-review` in the bundled template) — a human-actor state declaring `mode: review`. */
 const reviewDocGuard: StepGuard = {
   name: "review-doc",
-  appliesTo: (rest) => rest.stateDef.actor === "human" && rest.stateDef.mode === REVIEW_MODE,
+  appliesTo: isHumanReviewGate,
   check: (ctx) =>
     Effect.succeed(
       ctx.fileDeleted

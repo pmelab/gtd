@@ -46,6 +46,7 @@ export type Command =
       readonly file: string
       readonly openQuestions?: boolean
     }
+  | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "install" }
   | { readonly kind: "summary" }
   | { readonly kind: "base" }
@@ -443,6 +444,23 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
+    token: "uncheck",
+    kind: "uncheck",
+    arity: { name: "file" },
+    details: [
+      "Read <file> and reset every review-mode `- [x]`/`- [X]`",
+      "file-pointer box back to `- [ ]`, writing the result back",
+      "only when the bytes actually changed. Resolves no workflow",
+      "state and reads no config — standalone, runnable from any",
+      "directory with <file> given explicitly. This is what the",
+      "landing script runs ahead of the commit at the human review",
+      "gate, so no tick ever reaches a commit. Takes no <mode> —",
+      "it means review-mode file pointers and nothing else, never",
+      "qa-mode's answered-question boxes. A missing file writes",
+      "nothing and exits 0",
+    ],
+  },
+  {
     token: "install",
     kind: "install",
     arity: "none",
@@ -566,7 +584,7 @@ export const renderHelp = (): string => {
     commandBlocks[0], // init
     commandBlocks[1], // land
     ENTRY_SHORT_FORM,
-    ...commandBlocks.slice(2), // abandon..check
+    ...commandBlocks.slice(2), // abandon..base
     VERSION_BLOCK,
     HELP_BLOCK,
   ].join("")
@@ -922,6 +940,15 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
           ? { openQuestions: bag["--open-questions"] }
           : {}),
       },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "uncheck") {
+    return {
+      kind: "command",
+      command: { kind: "uncheck", file: restPositionals[0]! },
       json,
       verbose,
     }

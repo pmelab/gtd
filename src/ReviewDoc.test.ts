@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { parseReviewDoc, toggleFilePointer, REVIEW_FORMAT } from "./ReviewDoc.js"
+import {
+  clearFilePointerTicks,
+  parseReviewDoc,
+  toggleFilePointer,
+  REVIEW_FORMAT,
+} from "./ReviewDoc.js"
 
 describe("parseReviewDoc", () => {
   it("parses a well-formed review with one chunk, no explanations", () => {
@@ -1088,5 +1093,86 @@ describe("ReviewDoc — load-bearing whitespace trims", () => {
     expect(line.slice(edit!.range.start.character, edit!.range.end.character)).toBe(" ")
     expect(edit!.newText).toBe("x")
     expect(edit!.range.start.character).toBe(5)
+  })
+})
+
+describe("clearFilePointerTicks", () => {
+  it("clears a [x] pointer box to [ ]", () => {
+    expect(clearFilePointerTicks("- [x] ./src/calc.ts#1")).toBe("- [ ] ./src/calc.ts#1")
+  })
+
+  it("clears [X] as well as [x]", () => {
+    expect(clearFilePointerTicks("- [X] ./src/calc.ts#1")).toBe("- [ ] ./src/calc.ts#1")
+  })
+
+  it("preserves path, inline note, continuation lines, indentation, chunk headings, the base comment, and the header byte for byte", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "  - [x] ./src/calc.ts#1 — new add function",
+      "    continuation note text",
+      "",
+      "- [X] ./src/index.ts#10",
+      "",
+    ].join("\n")
+    const expected = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "  - [ ] ./src/calc.ts#1 — new add function",
+      "    continuation note text",
+      "",
+      "- [ ] ./src/index.ts#10",
+      "",
+    ].join("\n")
+    expect(clearFilePointerTicks(content)).toBe(expected)
+  })
+
+  it("leaves a [x] in prose alone", () => {
+    const content = "This hunk was already reviewed [x] by someone."
+    expect(clearFilePointerTicks(content)).toBe(content)
+  })
+
+  it("leaves a [x] in a chunk heading alone", () => {
+    const content = "## Done already [x]\n\n- [ ] ./src/calc.ts#1"
+    expect(clearFilePointerTicks(content)).toBe(content)
+  })
+
+  it("leaves a [x] inside a continuation note alone", () => {
+    const content = ["- [ ] ./src/calc.ts#1", "  this note mentions [x] as done already"].join("\n")
+    expect(clearFilePointerTicks(content)).toBe(content)
+  })
+
+  it("leaves a `- [x]` line with no whitespace-delimited pointer token after the box alone", () => {
+    const content = "- [x]"
+    expect(clearFilePointerTicks(content)).toBe(content)
+  })
+
+  it("preserves CRLF line endings and trailing-newline state", () => {
+    const content = "- [x] ./src/calc.ts#1\r\n- [ ] ./src/index.ts#2\r\n"
+    expect(clearFilePointerTicks(content)).toBe(
+      "- [ ] ./src/calc.ts#1\r\n- [ ] ./src/index.ts#2\r\n",
+    )
+  })
+
+  it("leaves a file with no trailing newline without adding one", () => {
+    const content = "- [x] ./src/calc.ts#1"
+    expect(clearFilePointerTicks(content).endsWith("\n")).toBe(false)
+  })
+
+  it("is idempotent", () => {
+    const content = "- [x] ./src/calc.ts#1\n- [X] ./src/index.ts#2\n"
+    const once = clearFilePointerTicks(content)
+    expect(clearFilePointerTicks(once)).toBe(once)
+  })
+
+  it("is total and never throws on an empty or malformed string", () => {
+    expect(clearFilePointerTicks("")).toBe("")
+    expect(clearFilePointerTicks("not a review doc at all")).toBe("not a review doc at all")
   })
 })

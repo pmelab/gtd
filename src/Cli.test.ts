@@ -488,6 +488,44 @@ describe("parseArgv — gtd check <mode> <file>", () => {
   })
 })
 
+describe("parseArgv — gtd uncheck <file>", () => {
+  it("parses to an uncheck command carrying file", () => {
+    const plan = parseArgv(["node", "gtd.js", "uncheck", ".gtd/REVIEW.md"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "uncheck", file: ".gtd/REVIEW.md" })
+      expect(plan.json).toEqual({ kind: "off" })
+    }
+  })
+
+  it("missing the file argument is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "uncheck"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("missing file argument")
+  })
+
+  it("too many arguments is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "uncheck", "REVIEW.md", "extra"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("too many arguments")
+      expect(plan.message).toContain("extra")
+    }
+  })
+
+  it("takes no mode argument — a second positional is rejected as extra, never accepted as mode", () => {
+    const plan = parseArgv(["node", "gtd.js", "uncheck", "qa", "REVIEW.md"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+
+  it("a scoped-out flag (e.g. --cost) is rejected on uncheck", () => {
+    const plan = parseArgv(["node", "gtd.js", "uncheck", "REVIEW.md", "--cost=5"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
+  })
+})
+
 describe("parseArgv — gtd check --open-questions", () => {
   it("parses to a check command carrying openQuestions: true", () => {
     const plan = parseArgv(["node", "gtd.js", "check", "qa", ".gtd/TODO.md", "--open-questions"])
@@ -691,13 +729,14 @@ describe("parseArgv — gtd install", () => {
 })
 
 describe("standaloneKinds / needsOf", () => {
-  it("pins the five standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check", "install"])
+  it("pins the six standalone kinds", () => {
+    expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check", "uncheck", "install"])
   })
 
   it("needsOf matches none/fs/config for the standalone kinds and state for everything else", () => {
     expect(needsOf("lsp")).toBe("none")
     expect(needsOf("check")).toBe("fs")
+    expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("init")).toBe("fs")
     expect(needsOf("visualize")).toBe("config")
     expect(needsOf("install")).toBe("none")
