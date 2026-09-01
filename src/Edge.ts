@@ -33,9 +33,10 @@ import {
   type TemplateContext,
   type TemplateEdge,
 } from "./PatternTemplates.js"
-import { commitAll } from "./GitScript.js"
+import { commitAll, shellQuote } from "./GitScript.js"
 import { emitScripts, type EmitStep, type EmittedScripts } from "./Emit.js"
 import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
+import { isHumanReviewGate } from "./StepGuards.js"
 
 // git's empty-tree object — the diff/reset base when a process (or the whole
 // repo) has no earlier commit to compare against.
@@ -913,6 +914,16 @@ const commitDecisionOutcome = (decision: {
  * produce its git effect — the ONE place a decision becomes git commands.
  * Pure: no git read, no failure mode — a commit decision always becomes an
  * ordinary commit plus its outcome report.
+ *
+ * At the human review gate (`isHumanReviewGate`, the same predicate
+ * `StepGuards.ts`'s `reviewDocGuard` applies) an unconditional
+ * `gtd uncheck '<file>'` step runs ahead of the commit, resetting every
+ * `- [x]`/`- [X]` pointer box in `rest.hints.file` before `git add -A` picks
+ * it up — a tick is read-progress, never sign-off, and must never reach a
+ * commit (see `src/ReviewDoc.ts#clearFilePointerTicks`). Never wrapped in
+ * `fileExistsGuard`: that guard's `[ -f <file> ] || exit 0` would exit the
+ * WHOLE script on a missing file, silently skipping the commit — `gtd
+ * uncheck` already treats a missing file as a no-op itself.
  */
 export const renderDecision = (
   rest: Rest,
@@ -921,7 +932,12 @@ export const renderDecision = (
   model: string | undefined,
 ): readonly EmitStep[] => {
   const command = commitAll(withCostTrailer(decision.subject, cost, model))
-  return [{ kind: "gitWrite", command }, commitDecisionOutcome(decision)]
+  const file = rest.hints.file
+  const uncheckStep: readonly EmitStep[] =
+    isHumanReviewGate(rest) && file !== undefined
+      ? [{ kind: "command", command: `gtd uncheck ${shellQuote(file)}` }]
+      : []
+  return [...uncheckStep, { kind: "gitWrite", command }, commitDecisionOutcome(decision)]
 }
 
 /** The `EmittedScripts` a `"commit"` `StepPlan` carries alongside `perform` — built from `renderDecision`'s output. */

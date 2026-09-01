@@ -84,6 +84,16 @@ Commands:
                    workflow's emitted validation script invokes as a leaf step.
                    --open-questions runs the qa unanswered-questions predicate
                    instead (see --help)
+  uncheck <file>   Read <file> and reset every review-mode `- [x]`/`- [X]`
+                   file-pointer box back to `- [ ]`, writing the result back
+                   only when the bytes actually changed. Resolves no workflow
+                   state and reads no config — standalone, runnable from any
+                   directory with <file> given explicitly. This is what the
+                   landing script runs ahead of the commit at the human review
+                   gate, so no tick ever reaches a commit. Takes no <mode> —
+                   it means review-mode file pointers and nothing else, never
+                   qa-mode's answered-question boxes. A missing file writes
+                   nothing and exits 0
   install          Print a complete, self-contained briefing that teaches an
                    agent (or a human) to build a gtd driver in any shell or
                    runtime — the self-serve version of

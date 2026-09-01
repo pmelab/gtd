@@ -51,6 +51,23 @@ const BASE_COMMENT_RE = /^<!--\s*base:\s*(\S+)\s*-->$/
 const CHUNK_HEADING_RE = /^##\s+(.+)$/
 /** One `- [ ]`/`- [x]` pointer line: the box, the whitespace-delimited pointer token, and the inline note segment that trails it. */
 const FILE_POINTER_RE = /^-\s*\[([ xX])\]\s*(\S+)(?:\s+(.*))?$/
+/**
+ * Matches only the `x`/`X` box character of a `- [x]`/`- [X]` pointer line —
+ * mirrors `FILE_POINTER_RE`'s shape (box then a whitespace-delimited token)
+ * via a lookahead, so nothing but that one character is ever part of the
+ * match. `[ \t]`, never `\s`, everywhere this mirrors `FILE_POINTER_RE`'s own
+ * `\s`: `FILE_POINTER_RE` is applied per already-split line, where `\s` can
+ * only ever mean horizontal whitespace, but a `\s` here (over the whole
+ * multiline document, `gm`) also matches `\n` — letting `-` anchor past a
+ * blank line, or the lookahead's token search cross onto a LATER line
+ * entirely. Both silently widen the match past what `FILE_POINTER_RE` itself
+ * accepts: an indented line (which is a chunk's own continuation/note text,
+ * never a pointer — `FILE_POINTER_RE` requires `-` at column 0, with no
+ * leading-indentation allowance of its own) and a `- [x]` with no token on
+ * its OWN line. A prose line, a chunk heading, or a `- [x]` with no token
+ * after the box never matches at all.
+ */
+const FILE_POINTER_TICK_RE = /^(-[ \t]*\[)[xX](?=\][ \t]*\S)/gm
 /** A pointer token's trailing `#<line>` (greedy, so a `#` inside the path stays in it). */
 const POINTER_LINE_RE = /^(.*)#(\d+)$/
 /** The optional dash that may lead the inline note segment or a continuation line — em dash, en dash, or hyphens. */
@@ -326,6 +343,21 @@ export const parseReviewDoc = (content: string): ReviewDoc => {
     errors: findings.map((f) => f.message),
   }
 }
+
+/**
+ * Resets every `- [x]`/`- [X]` pointer box in `content` back to `- [ ]` —
+ * ticks are read-progress, never sign-off, and are cleared on every land at
+ * the human review gate (see `src/Edge.ts#renderDecision`). An anchored
+ * multiline regex replace, NOT `split(/\r?\n/)` + `join("\n")`: a split/join
+ * would normalize CRLF and rewrite every line of a CRLF checkout, turning a
+ * tick-only round into a whole-file diff (`src/Git.ts`'s `hashObjects` warns
+ * of the same failure mode). Line-wise, not document-wise: it never parses
+ * the document as a structure, so a structurally broken file still gets its
+ * ticks cleared. Total — never throws, and idempotent since the result has no
+ * `[xX]` left for a second pass to find.
+ */
+export const clearFilePointerTicks = (content: string): string =>
+  content.replace(FILE_POINTER_TICK_RE, "$1 ")
 
 /** Flips the `[ ]`/`[x]` box of the hunk line at `line`, preserving path/note text exactly. */
 export const toggleFilePointer = (content: string, line: number): SteeringEdit | undefined => {

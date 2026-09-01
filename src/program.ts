@@ -42,6 +42,7 @@ import {
 } from "./Visualize.js"
 import { enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
+import { clearFilePointerTicks } from "./ReviewDoc.js"
 import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
 import type { SteeringFinding } from "./SteeringFormat.js"
 import {
@@ -874,6 +875,33 @@ const runOpenQuestionsCheckCommand = (
     )
   })
 
+/**
+ * `gtd uncheck <file>`: read `<file>`, apply `clearFilePointerTicks`, and
+ * write the result back only when the bytes actually changed — an untouched
+ * file is never rewritten, so its mtime never moves. Resolves no workflow
+ * state and reads no config — standalone, runnable from any directory with
+ * `<file>` given explicitly, shaped exactly like `gtd check <mode> <file>`.
+ *
+ * Takes no `<mode>` argument, and must never grow one: this command means
+ * review-mode file pointers and nothing else — `gtd check <mode> <file>`
+ * already handles `qa`-mode's answered-question boxes, which this command
+ * must never touch. A missing file writes nothing and exits 0, mirroring
+ * `gtd check`'s absent-file behavior.
+ */
+const runUncheckCommand = (file: string): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
+    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
+    if (!present) return
+
+    const content = yield* fs.readFileString(file).pipe(Effect.mapError(toError))
+    const cleared = clearFilePointerTicks(content)
+    if (cleared === content) return
+
+    yield* fs.writeFileString(file, cleared).pipe(Effect.mapError(toError))
+  })
+
 /** Which declared `on` pattern (if any) each pending change matches. `onEdges` must already be rendered against `it.vars`, so the reported pattern is the one a real `gtd land` would match against. */
 const computeStatusChanges = (
   onEdges: readonly OnEdge[],
@@ -1086,6 +1114,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
       return "none"
     case "init":
     case "check":
+    case "uncheck":
       return "fs"
     case "visualize":
       return "config"
@@ -1094,12 +1123,13 @@ export const needsOf = (kind: Command["kind"]): Needs => {
   }
 }
 
-/** The five kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
+/** The six kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "init",
   "visualize",
   "check",
+  "uncheck",
   "install",
 ]
 
@@ -1144,6 +1174,8 @@ const dispatchVoidCommand = (
       return runValidateCommand(out)
     case "check":
       return runCheckCommand(command.mode, command.file, command.openQuestions ?? false)
+    case "uncheck":
+      return runUncheckCommand(command.file)
     case "install":
       return runInstallCommand(out)
     case "summary":

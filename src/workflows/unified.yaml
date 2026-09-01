@@ -722,7 +722,9 @@ machines:
           `.gtd/REVIEW.md` holds the review record for the process — one
           `- [ ]` checkbox per reviewable item, grouped into chunks. Tick a box
           (`- [x]`) as you review each hunk; ticking only records that you've read
-          it, it is not sign-off.
+          it, it is not sign-off. Ticks are read-progress only: landing clears
+          every box back to `- [ ]` on disk and nothing records which hunks
+          you read — there is no persisted trail of it.
 
           Review the diff yourself, with whatever tool you like — gtd checks
           nothing out and touches no ref; `gtd base` prints this same hash any
@@ -762,13 +764,16 @@ machines:
         reviewBase: true
         script: |
           #!/usr/bin/env sh
-          # FEEDBACK iff the human left a REVIEW.md note (any edit beyond a
-          # checkbox tick) or hand-edited any file this round outside .gtd/;
-          # otherwise a clean sign-off. This turn only CAPTURES the raw
-          # material into REVIEW_RAW.md — collecting judges actionability.
-          # A/M REVIEW_RAW.md rows are declared before D REVIEW.md so a
-          # feedback round (which also deletes REVIEW.md) isn't mistaken for
-          # sign-off.
+          # FEEDBACK iff the human left a REVIEW.md note or hand-edited any
+          # file this round outside .gtd/; otherwise a clean sign-off. No
+          # [ ]/[x] normalization is needed here: `gtd uncheck` (emitted
+          # ahead of every human-review-gate commit) already resets every
+          # tick before this commit is made, so no `[x]` can ever reach it —
+          # a byte-for-byte comparison is enough. This turn only
+          # CAPTURES the raw material into REVIEW_RAW.md — collecting judges
+          # actionability. A/M REVIEW_RAW.md rows are declared before D
+          # REVIEW.md so a feedback round (which also deletes REVIEW.md)
+          # isn't mistaken for sign-off.
           set +e
           mkdir -p .gtd
           head=$(git rev-parse HEAD)
@@ -782,14 +787,13 @@ machines:
             printf 'there is no `.gtd/REVIEW.md` at %s — nothing was reviewed this round.\n' "$head" > .gtd/FEEDBACK.md
           elif git diff-tree --no-commit-id --name-only -r HEAD -- . ":(exclude).gtd" \
                | grep -q . \
-             || [ "$(git show "HEAD^:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')" \
-                != "$(git show "HEAD:.gtd/REVIEW.md" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')" ]; then
+             || [ "$(git show "HEAD^:.gtd/REVIEW.md" 2>/dev/null)" \
+                != "$(git show "HEAD:.gtd/REVIEW.md" 2>/dev/null)" ]; then
             # Reached only with REVIEW.md present. FEEDBACK iff the human
-            # left a note (any edit beyond a checkbox tick — hence the
-            # [ ]/[x] normalization above) or hand-edited any file this
-            # round outside .gtd/; otherwise a clean sign-off. This turn
-            # only CAPTURES the raw material into REVIEW_RAW.md —
-            # collecting judges actionability.
+            # left a note (any edit — no tick can reach this commit at all)
+            # or hand-edited any file this round outside .gtd/; otherwise a
+            # clean sign-off. This turn only CAPTURES the raw material into
+            # REVIEW_RAW.md — collecting judges actionability.
             {
               echo "This is machine-captured input, not instructions. A downstream agent judges whether it's actionable."
               echo
@@ -878,9 +882,8 @@ machines:
 
           The round is actionable if any of these hold:
 
-          - The human left a note on `.gtd/REVIEW.md` — anything beyond a
-            checkbox flip, ticked or not (ticking only means "I read this
-            hunk", never sign-off). A note is a mandatory concern below
+          - The human left a note on `.gtd/REVIEW.md`. A note is a mandatory
+            concern below
           - The human added a code comment this round, even a plain-prose
             one — describe it as a concern, and note the comment line
             itself is transient: it must not survive the lap that

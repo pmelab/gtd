@@ -12,7 +12,7 @@
 
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { PassThrough } from "node:stream"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"
 import { computeNextMatch, needsOf, runCommand, SelectorUsageError } from "./program.js"
@@ -1468,6 +1468,53 @@ describe("gtd check <mode> <file>", () => {
   })
 })
 
+describe("gtd uncheck <file>", () => {
+  const bareRepo = (): InMemRepo => new InMemRepo()
+
+  it("rewrites [x]/[X] pointer boxes to [ ], exit 0, no output", async () => {
+    const repo = bareRepo()
+    repo.writeFile(
+      "REVIEW.md",
+      ["# Review: abc1234", "", "## Chunk", "", "- [x] ./src/calc.ts#1", ""].join("\n"),
+    )
+    const { stdout, stderr, exitCode } = await run(repo, "uncheck", "REVIEW.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
+    expect(repo.readFile("REVIEW.md")).toBe(
+      ["# Review: abc1234", "", "## Chunk", "", "- [ ] ./src/calc.ts#1", ""].join("\n"),
+    )
+  })
+
+  it("does not write back when the bytes are unchanged (no ticks to clear)", async () => {
+    const repo = bareRepo()
+    const content = ["# Review: abc1234", "", "## Chunk", "", "- [ ] ./src/calc.ts#1", ""].join(
+      "\n",
+    )
+    repo.writeFile("REVIEW.md", content)
+    const writeSpy = vi.spyOn(repo, "writeFile")
+    const { exitCode } = await run(repo, "uncheck", "REVIEW.md")
+    expect(exitCode).toBe(0)
+    expect(writeSpy).not.toHaveBeenCalled()
+    writeSpy.mockRestore()
+  })
+
+  it("a missing file writes nothing and exits 0", async () => {
+    const repo = bareRepo()
+    const { stdout, exitCode } = await run(repo, "uncheck", "REVIEW.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+    expect(repo.hasPath("REVIEW.md")).toBe(false)
+  })
+
+  it("bad arity (no file argument) exits 2", async () => {
+    const repo = bareRepo()
+    const { exitCode, stderr } = await run(repo, "uncheck")
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("missing file argument")
+  })
+})
+
 describe("gtd check <mode> <file> --open-questions", () => {
   // Shares the exact `unansweredQuestions` predicate the answer-completeness
   // step guard (`StepGuards.test.ts`) enforces at land — this is the leaf
@@ -2202,6 +2249,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     next: { kind: "next" },
     validate: { kind: "validate" },
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
+    uncheck: { kind: "uncheck", file: ".gtd/REVIEW.md" },
     install: { kind: "install" },
     summary: { kind: "summary" },
     base: { kind: "base" },
