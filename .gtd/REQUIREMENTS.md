@@ -1,33 +1,7 @@
-One concern: **`.gtd/REVIEW.md`'s checkboxes go back to `- [ ]` when the human's
-review turn lands**, so a round in which the human only ticked boxes commits an
-empty diff for that file, and the feedback collector never has to reason about a
-tick again.
-
-## Open Questions
-
-### Should the record of which hunks the human read survive the round at all?
-
-Today the ticks live in exactly one place — the human review turn's commit — and
-`.gtd/REVIEW.md` is deleted on the very next turn. Clearing the boxes before the
-commit erases that record permanently.
-
-- [x] No — erase them. A tick means "I read this hunk", never sign-off; once the
-      round closes nobody consults it, and keeping it is the churn we are
-      removing
-- [ ] Yes — keep a record outside the file. Clear the boxes, but carry the list
-      of read hunks into the turn commit's message (or `.gtd/REVIEW_RAW.md`), so
-      the round still shows what was read without a file diff
-- [ ] _your answer_
-
-### Does the human's own copy of the file visibly clear, or only the commit?
-
-- [x] Clear the file on disk at `gtd land` — the human watches every box empty
-      in their editor as the turn commits. Simple, and the file is deleted next
-      turn anyway
-- [ ] Clear only what gets committed — the file on disk stays exactly as the
-      human left it, ticks and all, until the next turn deletes it. Nothing
-      changes under an open editor
-- [ ] _your answer_
+One concern: **`.gtd/REVIEW.md`'s checkboxes go back to `- [ ]` on disk when the
+human's review turn lands**, so a round in which the human only ticked boxes
+commits an empty diff for that file, and the feedback collector never has to
+reason about a tick again.
 
 ## Reset review checkboxes when the review turn lands
 
@@ -39,6 +13,17 @@ sees at the review gate.
 human's notes, hunk pointers, chunk headings, and the base comment are untouched
 — **only the box character is reset.**
 
+**The reset rewrites the file on disk, not just the committed blob.** The human
+watches every box empty in their editor as `gtd land` runs. That is accepted:
+the file is deleted on the very next turn anyway, so there is nothing to
+preserve on disk past the land.
+
+**The ticks are erased, and nothing records them anywhere else.** No list of
+read hunks goes into the turn commit message, into `.gtd/REVIEW_RAW.md`, or into
+any other file. A tick means "I read this hunk", never sign-off; once the round
+closes nobody consults it. Accepted risk, stated plainly: **after this change
+there is no record, in history or on disk, of which hunks the human read.**
+
 **Three things follow from it, and all three ship together:**
 
 - The tick-tolerance in the round's sign-off-vs-feedback decision (the
@@ -47,12 +32,13 @@ human's notes, hunk pointers, chunk headings, and the base comment are untouched
 - The feedback collector stops being told to ignore checkbox flips. Its rule
   becomes plainly "a note on `.gtd/REVIEW.md` is a concern" with no tick caveat.
 - The `await-review` message stops promising the tick persists. It should say
-  ticks are read-progress only and are cleared when you land.
+  ticks are read-progress only, are cleared when you land, and are not kept.
 
 **Acceptance:** a scenario where the human ticks boxes in `.gtd/REVIEW.md` and
-changes nothing else, then lands — the review turn's commit shows no change to
-`.gtd/REVIEW.md`, and the round is judged a clean sign-off, not feedback. It
-fails today (the commit carries the flipped boxes) and passes after.
+changes nothing else, then lands — the file on disk carries no `[x]` after the
+land, the review turn's commit shows no change to `.gtd/REVIEW.md`, and the
+round is judged a clean sign-off, not feedback. It fails today (the commit
+carries the flipped boxes) and passes after.
 
 **Scope guard, and it is a real hazard:** this applies to `review` mode only.
 `qa` mode's `- [ ]` boxes in `.gtd/REQUIREMENTS.md` ARE the answer — an open
@@ -67,6 +53,17 @@ home); and whether the sign-off comparison keeps its tick normalisation as
 defence-in-depth or drops it as dead code.
 
 ## Answered Questions
+
+### Should the record of which hunks the human read survive the round at all?
+
+No — erase them, and record them nowhere. A tick only ever meant "I read this
+hunk", never sign-off, and nothing downstream reads it once the round closes;
+keeping it is exactly the churn this change removes.
+
+### Does the human's own copy of the file visibly clear, or only the commit?
+
+The file on disk clears at `gtd land`. Boxes empty in the human's open editor as
+the turn commits, which is acceptable because the next turn deletes the file.
 
 ### Is the `package-lock.json` change in the entry commit part of the intent?
 
