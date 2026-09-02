@@ -2,25 +2,6 @@ Footnotes become gtd's commenting tool in planning and review files: a marker
 sits at a specific word or sentence, and the comment itself lives below the
 block it annotates. Three concerns, in build order.
 
-## Open Questions
-
-### Do the human's footnotes survive the lap that folds them in?
-
-- [x] Consumed — the agent deletes each footnote once it is folded into a
-      concern or package, so the file never carries a comment that was already
-      acted on and no stale footnote can be re-read next lap
-- [ ] Kept — footnotes persist as the record of what was asked and why; only the
-      review gate's existing tick reset touches the file
-- [ ] _your answer_
-
-### May the agent write footnotes of its own?
-
-- [x] Human-only — a footnote is input. The agent answers in
-      `.gtd/REQUIREMENTS.md` prose and never annotates a review file
-- [ ] Two-way — the agent may reply with its own footnote at the same anchor,
-      turning a review file into a threaded comment thread
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. Footnotes are structure in the `qa` and `review` steering formats — TECHNICAL
@@ -39,7 +20,10 @@ paragraph, list, or hunk that carries the marker.
   `note` and a question option's `text` both exclude it today only by accident,
   and must exclude it by rule
 - Validation reports, positioned at the offending line: a marker with no
-  definition, a definition no marker references, and a duplicate name
+  definition, a definition no marker references, and a duplicate name. The
+  orphan-definition finding is load-bearing, not cosmetic: footnotes are
+  CONSUMED once folded in, so a half-deletion that drops the marker and leaves
+  the definition must be caught by the validator, not left to rot
 - The outline shows each footnote as a leaf under the node it annotates
 
 **Risk: everything under `.gtd/` is oxfmt-formatted and covered by
@@ -63,6 +47,12 @@ message on the feedback path learns the shape:
   hunk, alongside "a note on a line" and "a code edit"
 - `build.review.collecting` — each footnote is a mandatory concern, described
   against its anchor's hunk, never flattened into a whole-file remark
+- **Every prompt that folds a footnote in DELETES it in the same turn** — marker
+  and definition together — the way a transient hand-written code comment is
+  already treated. No lap ever re-reads a footnote that was already acted on
+- **No prompt ever tells an agent to WRITE a footnote.** A footnote is human
+  input only; an agent replies in `.gtd/REQUIREMENTS.md` prose and never
+  annotates a review file
 - `design.gate.answer` and `design.triage`'s loop-back read — a footnote in
   `.gtd/REQUIREMENTS.md`, and a footnote in the reverted review-round edit read
   back out of history
@@ -72,7 +62,8 @@ message on the feedback path learns the shape:
 
 Acceptance: `src/workflows/templates.test.ts` pins the new prompt text, and an
 `evals/` case grades that a footnote anchored on one hunk becomes a concern
-about that hunk rather than a generic one.
+about that hunk rather than a generic one, and that the footnote is gone from
+the file the turn wrote.
 
 ### 3. `gtd lsp` writes and navigates footnotes — TECHNICAL
 
@@ -85,6 +76,8 @@ both ways.**
   unique within the document
 - Definition jumps marker → footnote and footnote → marker, within the one
   document
+- The action serves a human in an editor and nothing else — footnotes are human
+  input, so there is no agent-facing authoring path to build here
 
 **The `SteeringFormat` seam does not carry either of these yet:** `pointerAt`
 takes a line and returns a foreign file path, and the LSP's `definition`
@@ -121,3 +114,15 @@ exactly one ticked option per open question.
 
 Both formats — `qa` (`.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`) and
 `review` (`.gtd/REVIEW.md`) — per the sketch's "planning and review files".
+
+### Do the human's footnotes survive the lap that folds them in?
+
+No — consumed. The agent deletes each footnote, marker and definition together,
+in the turn that folds it into a concern or package, so no stale comment can be
+re-read on a later lap.
+
+### May the agent write footnotes of its own?
+
+No — human-only. A footnote is input. The agent answers in
+`.gtd/REQUIREMENTS.md` prose and never annotates a review file, so there is no
+threaded comment thread to design.
