@@ -6,7 +6,7 @@ block it annotates. Three concerns, in build order.
 
 ### Do the human's footnotes survive the lap that folds them in?
 
-- [ ] Consumed — the agent deletes each footnote once it is folded into a
+- [x] Consumed — the agent deletes each footnote once it is folded into a
       concern or package, so the file never carries a comment that was already
       acted on and no stale footnote can be re-read next lap
 - [ ] Kept — footnotes persist as the record of what was asked and why; only the
@@ -15,7 +15,7 @@ block it annotates. Three concerns, in build order.
 
 ### May the agent write footnotes of its own?
 
-- [ ] Human-only — a footnote is input. The agent answers in
+- [x] Human-only — a footnote is input. The agent answers in
       `.gtd/REQUIREMENTS.md` prose and never annotates a review file
 - [ ] Two-way — the agent may reply with its own footnote at the same anchor,
       turning a review file into a threaded comment thread
