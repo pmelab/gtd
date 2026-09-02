@@ -1417,7 +1417,7 @@ describe("'gtd: add a footnote' action", () => {
     const action = footnoteAction(content, 6, 2)! // cursor inside "first paragraph"
     const defEdit = action.edits[1]!
     // Placed right after line 8 ("second paragraph"), never between the two paragraphs.
-    expect(defEdit.range.start.line).toBe(8)
+    expect(defEdit.range.start.line).toBe(9)
     expect(defEdit.newText).toContain("[^fn1]: your comment")
   })
 
@@ -1435,12 +1435,58 @@ describe("'gtd: add a footnote' action", () => {
       "",
     ].join("\n")
     const action = footnoteAction(content, 5, 2)! // cursor inside "some description"
-    expect(action.edits[1]!.range.start.line).toBe(6) // "continues here", not split from its own paragraph
+    expect(action.edits[1]!.range.start.line).toBe(7) // "continues here", not split from its own paragraph
   })
 
   it("is offered everywhere, always titled 'gtd: add a footnote', carrying exactly two edits", () => {
     const action = footnoteAction(REVIEW_FORMAT.sample, 0, 0)
     expect(action).toBeDefined()
     expect(action!.edits).toHaveLength(2)
+  })
+
+  it("never shares a start position between its two edits, even with the cursor at the very end of the hunk's own last line (regression)", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1 some trailing prose",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 5, "- [ ] ./src/a.ts#1 some trailing prose".length)!
+    const [markerEdit, definitionEdit] = action.edits
+    expect(definitionEdit!.range.start.line).toBeGreaterThan(markerEdit!.range.start.line)
+  })
+
+  it("is refused with the cursor inside an existing marker's [^name] span — planting a new marker there would nest it", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1[^fn1]",
+      "",
+      "[^fn1]: the reason",
+      "",
+    ].join("\n")
+    const character = content.split("\n")[5]!.indexOf("[^fn1]") + 2 // inside the name
+    expect(footnoteAction(content, 5, character)).toBeUndefined()
+  })
+
+  it("is refused with the cursor on an existing definition's own label line — planting a definition there would split it", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1[^fn1]",
+      "",
+      "[^fn1]: the reason",
+      "",
+    ].join("\n")
+    expect(footnoteAction(content, 7, 3)).toBeUndefined()
   })
 })

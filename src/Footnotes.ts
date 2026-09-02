@@ -255,6 +255,35 @@ export const proseBlockEnd = (lines: readonly string[], index: number): number =
   return end
 }
 
+/** The marker whose `[^name]` span (inclusive of both brackets) contains `position`, or `undefined`. Shared by `footnotePointerAt` and `isOnExistingFootnote` so the two can never disagree about what counts as "inside a marker". */
+const markerAt = (
+  markers: readonly FootnoteMarker[],
+  position: { readonly line: number; readonly character: number },
+): FootnoteMarker | undefined =>
+  markers.find((m) => {
+    if (m.line !== position.line) return false
+    const end = m.character + m.name.length + 3 // `[^` + name + `]`
+    return position.character >= m.character && position.character <= end
+  })
+
+/**
+ * True when `position` sits inside an EXISTING marker's `[^name]` span, or on
+ * an existing definition's own line (its `[^name]:` label line or an indented
+ * continuation) — the guard "gtd: add a footnote" uses to refuse itself
+ * rather than plant a new marker/definition into already-written footnote
+ * syntax (which would corrupt it: a marker inserted inside another marker's
+ * name, or a definition inserted between an existing definition's label and
+ * its own name).
+ */
+export const isOnExistingFootnote = (
+  content: string,
+  position: { readonly line: number; readonly character: number },
+): boolean => {
+  const { markers } = parseFootnotes(content)
+  if (markerAt(markers, position)) return true
+  return isFootnoteDefinitionLine(content.split(/\r?\n/), position.line)
+}
+
 /**
  * The two edits behind "gtd: add a footnote": a marker inserted at the
  * cursor (via `footnoteMarkerColumn`) and a definition seeded with
@@ -265,6 +294,18 @@ export const proseBlockEnd = (lines: readonly string[], index: number): number =
  * `blockEndLine` and the next non-blank content (or EOF) with exactly one
  * blank line, the definition, and — unless at EOF — one more blank line, so
  * the result is deterministic regardless of the surrounding whitespace.
+ *
+ * The definition edit's range starts at `(blockEndLine + 1, 0)` — the line
+ * AFTER `blockEndLine` — never at the end of `blockEndLine` itself, even when
+ * that line doesn't literally exist yet (a document with no trailing
+ * newline): a `line` past the document's last index is a legal LSP position,
+ * clamped to end-of-file, per the protocol. The marker edit's own position is
+ * always on or before `blockEndLine` (callers only ever pass a `blockEndLine`
+ * at or after the cursor's line), so anchoring one line later guarantees the
+ * two edits' ranges never touch: two edits that share a start position have
+ * no defined application order (LSP forbids overlapping — including
+ * coincident-zero-length — ranges in one action), and a naive apply corrupts
+ * whichever text sits at the shared offset.
  */
 export const footnoteAdditionEdits = (
   content: string,
@@ -284,19 +325,15 @@ export const footnoteAdditionEdits = (
     newText: `[^${name}]`,
   }
 
-  const nextContentLine = firstNonBlankFrom(lines, blockEndLine + 1)
+  const insertLine = blockEndLine + 1
+  const start = { line: insertLine, character: 0 }
+  const nextContentLine = firstNonBlankFrom(lines, insertLine)
   const atEof = nextContentLine >= lines.length
-  const lastLine = lines.length - 1
   const definitionEdit: SteeringEdit = {
-    range: {
-      start: { line: blockEndLine, character: (lines[blockEndLine] ?? "").length },
-      end: atEof
-        ? { line: lastLine, character: (lines[lastLine] ?? "").length }
-        : { line: nextContentLine, character: 0 },
-    },
+    range: { start, end: atEof ? start : { line: nextContentLine, character: 0 } },
     newText: atEof
-      ? `\n\n[^${name}]: ${PLACEHOLDER_BODY}\n`
-      : `\n\n[^${name}]: ${PLACEHOLDER_BODY}\n\n`,
+      ? `\n[^${name}]: ${PLACEHOLDER_BODY}\n`
+      : `\n[^${name}]: ${PLACEHOLDER_BODY}\n\n`,
   }
 
   return [markerEdit, definitionEdit]
@@ -319,11 +356,7 @@ export const footnotePointerAt = (
 ): { readonly pointer: SteeringPointer | undefined } | undefined => {
   const { markers, definitions } = parseFootnotes(content)
 
-  const marker = markers.find((m) => {
-    if (m.line !== position.line) return false
-    const end = m.character + m.name.length + 3 // `[^` + name + `]`
-    return position.character >= m.character && position.character <= end
-  })
+  const marker = markerAt(markers, position)
   if (marker) {
     const definition = definitions.find((d) => d.name === marker.name)
     return { pointer: definition ? { line: definition.line } : undefined }

@@ -3,6 +3,7 @@ import {
   footnoteAdditionEdits,
   footnotePointerAt,
   isFootnoteDefinitionLine,
+  isOnExistingFootnote,
   parseFootnotes,
   proseBlockEnd,
   stripFootnoteMarkers,
@@ -509,20 +510,28 @@ const footnoteBlockEnd = (
   return hunk ? hunk.endLine : proseBlockEnd(lines, cursorLine)
 }
 
-/** Actions for `.gtd/REVIEW.md`: "check/uncheck this hunk" when `range` sits on a hunk line, "check/uncheck all hunks" when `range` sits anywhere in a chunk (heading or body), and "add a footnote" everywhere. */
+/**
+ * Actions for `.gtd/REVIEW.md`: "check/uncheck this hunk" when `range` sits
+ * on a hunk line, "check/uncheck all hunks" when `range` sits anywhere in a
+ * chunk (heading or body), and "add a footnote" everywhere EXCEPT inside an
+ * existing marker's span or on an existing definition's own line — planting
+ * a new marker/definition there would corrupt the footnote already written.
+ */
 const reviewActions: SteeringFormat["actions"] = (content, range) => {
   const { changesets } = parseReviewDoc(content)
   const lines = content.split(/\r?\n/)
   const cursorLine = range.start.line
   const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
-  actions.push({
-    title: "gtd: add a footnote",
-    edits: footnoteAdditionEdits(
-      content,
-      range.start,
-      footnoteBlockEnd(content, lines, cursorLine),
-    ),
-  })
+  if (!isOnExistingFootnote(content, range.start)) {
+    actions.push({
+      title: "gtd: add a footnote",
+      edits: footnoteAdditionEdits(
+        content,
+        range.start,
+        footnoteBlockEnd(content, lines, cursorLine),
+      ),
+    })
+  }
 
   // fallow-ignore-next-line complexity
   changesets.forEach((chunk, i) => {

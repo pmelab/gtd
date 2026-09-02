@@ -1055,7 +1055,7 @@ describe("'gtd: add a footnote' action", () => {
       "",
     ].join("\n")
     const action = footnoteAction(content, 4, 3)! // cursor on the REST line
-    expect(action.edits[1]!.range.start.line).toBe(6) // after "_your answer_", not after REST
+    expect(action.edits[1]!.range.start.line).toBe(7) // after "_your answer_", not after REST
   })
 
   it("in ordinary prose (question-body text before any options), lands after the current block's last line", () => {
@@ -1072,12 +1072,38 @@ describe("'gtd: add a footnote' action", () => {
       "",
     ].join("\n")
     const action = footnoteAction(content, 4, 2)! // cursor inside "some prose"
-    expect(action.edits[1]!.range.start.line).toBe(5) // "continues here", not the options list
+    expect(action.edits[1]!.range.start.line).toBe(6) // "continues here", not the options list
   })
 
   it("is offered everywhere, always titled 'gtd: add a footnote', carrying exactly two edits", () => {
     const action = footnoteAction(QA_FORMAT.sample, 0, 0)
     expect(action).toBeDefined()
     expect(action!.edits).toHaveLength(2)
+  })
+
+  it("never shares a start position between its two edits, even with the cursor at the very end of the block's last line (regression)", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 5, "- [ ] _your answer_".length)!
+    const [markerEdit, definitionEdit] = action.edits
+    expect(definitionEdit!.range.start.line).toBeGreaterThan(markerEdit!.range.start.line)
+  })
+
+  it("is refused with the cursor inside an existing marker's [^name] span — planting a new marker there would nest it", () => {
+    const content = ["- [ ] Option A[^fn1]", "", "[^fn1]: reason", ""].join("\n")
+    const character = content.split("\n")[0]!.indexOf("[^fn1]") + 2 // inside the name
+    expect(footnoteAction(content, 0, character)).toBeUndefined()
+  })
+
+  it("is refused with the cursor on an existing definition's own label line — planting a definition there would split it", () => {
+    const content = ["- [ ] Option A[^fn1]", "", "[^fn1]: reason", ""].join("\n")
+    expect(footnoteAction(content, 2, 3)).toBeUndefined()
   })
 })

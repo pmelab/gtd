@@ -229,4 +229,60 @@ describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", 
     expect(findings.length).toBeGreaterThan(0)
     expect(formatWithOxfmt(applied)).toBe(applied)
   })
+
+  it("qa: a cursor inside the LAST word of the block's last line does not corrupt the marker (regression: the two edits used to share a start position)", () => {
+    const cursor = { line: 8, character: 18 } // inside "_your answer_", the last option — blockEndLine itself
+    const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
+      (a) => a.title === "gtd: add a footnote",
+    )!
+    const applied = applyEdits(QA_FORMAT.sample, action.edits)
+    expect(applied).toContain("_your answer_[^fn2]")
+    const findings = QA_FORMAT.validate(applied).map((f) => f.message)
+    expect(findings.every((m) => m.includes("still has its seeded placeholder body"))).toBe(true)
+    expect(findings.length).toBeGreaterThan(0)
+    expect(formatWithOxfmt(applied)).toBe(applied)
+  })
+
+  it("review: a cursor at end-of-line on the hunk's own last line does not corrupt the marker (regression, same shape as the qa case)", () => {
+    const content = [
+      "# Review: abc1234",
+      "",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1 some trailing prose",
+      "",
+    ].join("\n")
+    // The fixture itself must already be an oxfmt fixed point, or the
+    // assertion below would fail on unrelated reflow, not the regression
+    // this test targets.
+    expect(formatWithOxfmt(content)).toBe(content)
+    const cursor = { line: 6, character: "- [ ] ./src/a.ts#1 some trailing prose".length } // end of blockEndLine
+    const action = REVIEW_FORMAT.actions(content, { start: cursor, end: cursor }).find(
+      (a) => a.title === "gtd: add a footnote",
+    )!
+    const applied = applyEdits(content, action.edits)
+    expect(applied).toContain("some trailing prose[^fn1]")
+    const findings = REVIEW_FORMAT.validate(applied).map((f) => f.message)
+    expect(findings.every((m) => m.includes("still has its seeded placeholder body"))).toBe(true)
+    expect(findings.length).toBeGreaterThan(0)
+    expect(formatWithOxfmt(applied)).toBe(applied)
+  })
+
+  it("qa: refuses the action with the cursor inside an existing marker's [^name] span, rather than nesting a new marker into it", () => {
+    const cursor = { line: 6, character: 19 } // "- [ ] Option A[^fn1]" — between the name and its "]"
+    const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
+      (a) => a.title === "gtd: add a footnote",
+    )
+    expect(action).toBeUndefined()
+  })
+
+  it("qa: refuses the action with the cursor on an existing definition's own label line, rather than splitting it", () => {
+    const cursor = { line: 10, character: 6 } // "[^fn1]:" — the definition's own label line
+    const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
+      (a) => a.title === "gtd: add a footnote",
+    )
+    expect(action).toBeUndefined()
+  })
 })

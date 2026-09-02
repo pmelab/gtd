@@ -3,6 +3,7 @@ import {
   footnoteAdditionEdits,
   footnotePointerAt,
   isFootnoteDefinitionLine,
+  isOnExistingFootnote,
   parseFootnotes,
   proseBlockEnd,
   stripFootnoteMarkers,
@@ -433,22 +434,27 @@ const footnoteBlockEnd = (
 /**
  * Actions for a `qa`-mode file: anywhere on an open question's option's list
  * item, "pick this option" (radio semantics) or "uncheck this option" when
- * it's already chosen; "add a footnote" everywhere. No pick/uncheck action
- * off an option's span, or on an answered-section (prose) question.
+ * it's already chosen; "add a footnote" everywhere EXCEPT inside an existing
+ * marker's span or on an existing definition's own line — planting a new
+ * marker/definition there would corrupt the footnote already written. No
+ * pick/uncheck action off an option's span, or on an answered-section
+ * (prose) question.
  */
 const questionActions: SteeringFormat["actions"] = (content, range) => {
   const { questions } = parseOpenQuestions(content)
   const lines = content.split(/\r?\n/)
   const cursorLine = range.start.line
   const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
-  actions.push({
-    title: "gtd: add a footnote",
-    edits: footnoteAdditionEdits(
-      content,
-      range.start,
-      footnoteBlockEnd(content, lines, cursorLine),
-    ),
-  })
+  if (!isOnExistingFootnote(content, range.start)) {
+    actions.push({
+      title: "gtd: add a footnote",
+      edits: footnoteAdditionEdits(
+        content,
+        range.start,
+        footnoteBlockEnd(content, lines, cursorLine),
+      ),
+    })
+  }
   for (const question of questions) {
     if (question.status !== "open") continue
     const option = question.options.find(

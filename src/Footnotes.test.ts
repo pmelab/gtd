@@ -5,6 +5,7 @@ import {
   footnoteMarkerColumn,
   footnotePointerAt,
   isFootnoteDefinitionLine,
+  isOnExistingFootnote,
   nextFootnoteName,
   parseFootnotes,
   proseBlockEnd,
@@ -237,7 +238,7 @@ describe("proseBlockEnd", () => {
 })
 
 describe("footnoteAdditionEdits", () => {
-  it("inserts the marker at the cursor's word-scanned column, and a placeholder definition after blockEndLine, separated by blank lines", () => {
+  it("inserts the marker at the cursor's word-scanned column, and a placeholder definition anchored one line PAST blockEndLine, separated by blank lines", () => {
     const content = ["Option A here", "", "next paragraph"].join("\n")
     const edits = footnoteAdditionEdits(content, { line: 0, character: 7 }, 0)
     expect(edits).toHaveLength(2)
@@ -245,22 +246,36 @@ describe("footnoteAdditionEdits", () => {
       range: { start: { line: 0, character: 8 }, end: { line: 0, character: 8 } },
       newText: "[^fn1]",
     })
-    expect(edits[1]!.newText).toBe("\n\n[^fn1]: your comment\n\n")
-    expect(edits[1]!.range.start).toEqual({ line: 0, character: "Option A here".length })
+    expect(edits[1]!.newText).toBe("\n[^fn1]: your comment\n\n")
+    expect(edits[1]!.range.start).toEqual({ line: 1, character: 0 })
     expect(edits[1]!.range.end).toEqual({ line: 2, character: 0 })
   })
 
   it("at end of file, seeds the definition with a single trailing newline, no extra blank line after", () => {
     const content = "Option A here"
     const edits = footnoteAdditionEdits(content, { line: 0, character: 7 }, 0)
-    expect(edits[1]!.newText).toBe("\n\n[^fn1]: your comment\n")
-    expect(edits[1]!.range.end).toEqual({ line: 0, character: content.length })
+    expect(edits[1]!.newText).toBe("\n[^fn1]: your comment\n")
+    expect(edits[1]!.range.start).toEqual({ line: 1, character: 0 })
+    expect(edits[1]!.range.end).toEqual({ line: 1, character: 0 })
   })
 
   it("generates the next unused name, never colliding with an existing footnote", () => {
     const content = ["a[^fn1]", "", "[^fn1]: reason"].join("\n")
     const edits = footnoteAdditionEdits(content, { line: 0, character: 1 }, 0)
     expect(edits[0]!.newText).toBe("[^fn2]")
+  })
+
+  it("never shares a start position between the two edits, even when the cursor sits at the very end of blockEndLine itself — the collision that corrupted the marker (regression)", () => {
+    const content = ["some trailing prose", "", "next paragraph"].join("\n")
+    const cursorCharacter = "some trailing prose".length // end of blockEndLine's own line
+    const edits = footnoteAdditionEdits(content, { line: 0, character: cursorCharacter }, 0)
+    const [markerEdit, definitionEdit] = edits
+    // Same line as the marker would be a collision; one line later never is.
+    expect(definitionEdit!.range.start.line).toBeGreaterThan(markerEdit!.range.start.line)
+    expect(
+      definitionEdit!.range.start.line === markerEdit!.range.end.line &&
+        definitionEdit!.range.start.character === markerEdit!.range.end.character,
+    ).toBe(false)
   })
 })
 
@@ -294,5 +309,31 @@ describe("footnotePointerAt", () => {
 
   it("returns undefined (not applicable) for a position that is neither a marker nor a definition", () => {
     expect(footnotePointerAt(doc, { line: 0, character: 8 })).toBeUndefined() // "b", not the marker
+  })
+})
+
+describe("isOnExistingFootnote", () => {
+  const doc = ["a[^fn1] b", "", "[^fn1]: the reason", ""].join("\n")
+
+  it("is true inside an existing marker's [^name] span", () => {
+    const character = doc.split("\n")[0]!.indexOf("[^fn1]") + 2 // inside the name
+    expect(isOnExistingFootnote(doc, { line: 0, character })).toBe(true)
+  })
+
+  it("is true on a definition's own label line", () => {
+    expect(isOnExistingFootnote(doc, { line: 2, character: 3 })).toBe(true)
+  })
+
+  it("is true on a definition's indented continuation line", () => {
+    const content = ["a[^fn1]", "", "[^fn1]:", "    continued body"].join("\n")
+    expect(isOnExistingFootnote(content, { line: 3, character: 4 })).toBe(true)
+  })
+
+  it("is false for ordinary text, even right next to a marker", () => {
+    expect(isOnExistingFootnote(doc, { line: 0, character: 8 })).toBe(false) // "b"
+  })
+
+  it("is false for a document with no footnotes at all", () => {
+    expect(isOnExistingFootnote("just prose", { line: 0, character: 0 })).toBe(false)
   })
 })
