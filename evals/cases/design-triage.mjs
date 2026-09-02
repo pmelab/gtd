@@ -1,9 +1,12 @@
-// `design.triage`: the first planner turn, grouping a raw entry diff into
-// classified concerns. Two-sided on the same open-questions bar the workflow
-// itself states (`vars.questionBar`): `violation` plants a genuine PRODUCT
-// fork with no default the sketch settles, which MUST surface under
-// `## Open Questions`; `clean` plants a fully-specified decision, which must
-// NOT raise a question — it gets decided silently instead.
+// `design.triage`: the planner turn, grouping a raw entry diff (or a return
+// lap's answered file) into classified concerns. `violation`/`clean` are
+// two-sided on the same open-questions bar the workflow itself states
+// (`vars.questionBar`): `violation` plants a genuine PRODUCT fork with no
+// default the sketch settles, which MUST surface under `## Open Questions`;
+// `clean` plants a fully-specified decision, which must NOT raise a
+// question — it gets decided silently instead. `footnote` is a third,
+// orthogonal axis: a return lap whose answered file also carries a human
+// footnote, which MUST be folded in and deleted.
 export default Object.freeze({
   name: "design-triage",
   state: "design.triage",
@@ -50,16 +53,20 @@ configuration is required.
     },
     // A RETURN lap, not a first lap: `.gtd/REQUIREMENTS.md` already exists
     // (triage's own prior output), the human ticked an answer to its one
-    // open question, and left a footnote alongside that same ticked line —
+    // open question, and left a footnote alongside that ticked answer —
     // never a substitute for ticking, additional input carried with it.
     // `.gtd/TODO.md` is deliberately absent: in the real workflow `unwind`
     // has already reverted it out of the tree by the time triage runs, and
-    // a footnote in `.gtd/TODO.md` could never be re-read here anyway,
-    // since triage never rewrites that file — this is the file triage
-    // actually rewrites, so deletion is real and gradeable. This turn must
-    // fold the ticked answer into the concern's prose, move the question
-    // under `## Answered Questions`, and delete the footnote — marker and
-    // definition together — leaving no `[^` behind.
+    // triage never rewrites that file at all — `.gtd/REQUIREMENTS.md` is
+    // the one file this turn actually rewrites, so deletion is real and
+    // gradeable. The footnote deliberately comments on something OTHER than
+    // `settledDecision` (RefundWindowDays, already ticked and settled) — an
+    // audit-logging ask, not an argument to re-open the window — so folding
+    // it in correctly never looks like re-raising the settled question. This
+    // turn must fold the ticked answer into the concern's prose, move the
+    // question under `## Answered Questions`, fold the footnote in as its
+    // own concern detail, and delete the footnote — marker and definition
+    // together — leaving no `[^` behind.
     footnote: {
       // `## Open Questions` first, `qa`'s own section-order rule — this
       // file is the human's own gate-answer edit, already valid `qa` before
@@ -68,18 +75,17 @@ configuration is required.
 
 ### How many days after purchase is a refund still allowed (\`RefundWindowDays\`)?
 
-- [x] 30 days — matches the existing return-window policy[^enterprise]
+- [x] 30 days — matches the existing return-window policy
 - [ ] 60 days
 - [ ] _your answer_
 
-[^enterprise]: double check with support before shipping — some enterprise
-  customers negotiated a longer refund window in their contracts, so a flat
-  30 may not hold for every account.
-
 ## Add order refunds
 
-PRODUCT. Customers can request a refund on a past order. Touches
+PRODUCT. Customers can request a refund on a past order[^audit]. Touches
 \`src/orders.ts\`.
+
+[^audit]: compliance asked that every refund also log its reason somewhere,
+  for the audit trail — make sure the concern below covers that too.
 `,
     },
   },

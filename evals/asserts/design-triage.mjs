@@ -1,6 +1,11 @@
-// `design.triage`'s grader: the shared core plus the one state-specific
-// check — whether `## Open Questions` appears is exactly the two-sided axis
-// this case exercises (see evals/cases/design-triage.mjs).
+// `design.triage`'s grader: the shared core plus two state-specific checks —
+// whether `## Open Questions` re-raises `settledDecision` (the
+// violation/clean axis) and whether a footnote was consumed (the orthogonal
+// `footnote` variant — see evals/cases/design-triage.mjs). The footnote
+// fixture's own footnote deliberately comments on something OTHER than
+// `settledDecision`, so `checkOpenQuestions`'s clean-side bar (never
+// re-raise `settledDecision`) and folding the footnote in correctly never
+// contradict each other.
 import spec from "../cases/design-triage.mjs"
 import { SHARED_CHECKS, safeGrade } from "./shared.mjs"
 
@@ -34,10 +39,10 @@ function checkOpenQuestions(result, caseDef, variant) {
 }
 
 // Consumption: the footnote variant's whole point. The turn reads a
-// footnote-bearing `.gtd/TODO.md` and folds it in — the written
-// `.gtd/REQUIREMENTS.md` must carry no `[^` left, marker or definition
-// alike, proving it was acted on and deleted rather than copied through or
-// silently dropped.
+// footnote-bearing `.gtd/REQUIREMENTS.md` (a return lap) and folds it in —
+// the rewritten `.gtd/REQUIREMENTS.md` must carry no `[^` left, marker or
+// definition alike, proving it was acted on and deleted rather than copied
+// through or silently dropped.
 function checkFootnoteConsumed(result, caseDef, variant) {
   if (variant !== "footnote") return undefined
   if (!result.feedback.includes("[^")) return undefined

@@ -1,11 +1,13 @@
 // `build.review.collecting`: judges whether a review round is actionable.
 // `.gtd/REVIEW_RAW.md`'s content is inlined verbatim into the prompt (see
 // `it.read` in `unified.yaml`), so this fixture authors that narrative
-// directly rather than any real git history. Two-sided by construction:
-// `violation`'s round carries a hand-edit note that MUST become a classified
-// concern in `.gtd/REQUIREMENTS.md`; `clean`'s round is a bare approving
-// remark that MUST NOT produce one — consuming the capture with no other
-// change IS the sign-off.
+// directly rather than any real git history. Three variants: `violation`'s
+// round carries a hand-edit note that MUST become a classified concern in
+// `.gtd/REQUIREMENTS.md`; `clean`'s round is a bare approving remark that
+// MUST NOT produce one — consuming the capture with no other change IS the
+// sign-off; `footnote`'s round carries a footnote anchored to one named
+// hunk, which MUST become a concern grounded in that hunk, not a whole-file
+// remark.
 export default Object.freeze({
   name: "build-review-collecting",
   state: "build.review.collecting",
@@ -23,7 +25,7 @@ export default Object.freeze({
   // file-level paraphrase ("src/checkout.ts is under-tested overall", which
   // names the path but not the hunk) still fails: only a concern naming
   // the anchored defect itself proves the hunk, not just the file, was read.
-  footnoteSubstance: /round|fractional cent/i,
+  footnoteSubstance: /\brounding\b|\brounds\b|fractional cent/i,
   artifact: ".gtd/REQUIREMENTS.md",
   base: {
     "src/retry.ts": `export const withRetry = async <T>(fn: () => Promise<T>): Promise<T> => fn()

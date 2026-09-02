@@ -202,7 +202,8 @@ vars:
       flagged as unfilled, so write your own words there)
     - A footnote is a comment on that exact spot — the hunk, line, or
       paragraph it marks — never a whole-file remark
-    - `name` is yours to pick; it only has to be unique in this document
+    - `name` is yours to pick; only a definition's name must be unique in
+      this document — the same name may mark more than one spot
   # The agent-facing half — injected into the three prompts that fold a
   # footnote in (`design.triage`, `architecture.author`,
   # `build.review.collecting`). `build.review.reviewing`, the one state that
