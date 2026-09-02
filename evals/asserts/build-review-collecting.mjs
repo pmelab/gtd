@@ -14,16 +14,22 @@ function checkClassification(result, caseDef, variant) {
 
 // Reuses the same planted-identifier machinery `checkPlantedIdentifier`
 // applies to `violation` (grep the anchor verbatim into the written
-// concern), scoped to the `footnote` variant's own anchor field instead —
-// proving the concern is grounded in the footnote's exact hunk
-// (`src/checkout.ts`), not a paraphrase of the src/retry.ts scene-setting
-// prose or a generic whole-file remark.
+// concern), scoped to the `footnote` variant's own fields instead — and
+// requires BOTH the anchor path and the footnote's own substance, so a
+// file-level paraphrase ("src/checkout.ts is under-tested overall", which
+// names the path but never the hunk) still fails. Only a concern naming the
+// anchored defect itself proves the hunk was read, not just the file.
 function checkFootnoteAnchor(result, caseDef, variant) {
   if (variant !== "footnote") return undefined
-  if (result.feedback.includes(caseDef.footnoteAnchor)) return undefined
-  return fail(
-    `feedback did not name the footnote's anchored hunk "${caseDef.footnoteAnchor}" — looks like a whole-file remark instead`,
-  )
+  if (!result.feedback.includes(caseDef.footnoteAnchor)) {
+    return fail(`feedback did not name the footnote's anchored file "${caseDef.footnoteAnchor}"`)
+  }
+  if (!caseDef.footnoteSubstance.test(result.feedback)) {
+    return fail(
+      `feedback names "${caseDef.footnoteAnchor}" but not the footnote's own defect — looks like a whole-file remark instead of the anchored hunk`,
+    )
+  }
+  return undefined
 }
 
 export default function grade(output, context) {

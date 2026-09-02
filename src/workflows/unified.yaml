@@ -195,8 +195,11 @@ vars:
   # half; the two never share text, different audience and content.
   footnoteRules: |-
     - Leave a footnote anywhere: mark the exact spot with `[^name]` (any
-      name, no whitespace or `]`), then define it below as `[^name]: your
-      comment` — indent a longer comment's continuation lines
+      name, no whitespace or `]`), then define it below as `[^name]:
+      explain what you mean` — indent a longer comment's continuation
+      lines. (The literal words "your comment" are this format's seeded
+      placeholder body — a definition still holding them exactly is
+      flagged as unfilled, so write your own words there)
     - A footnote is a comment on that exact spot — the hunk, line, or
       paragraph it marks — never a whole-file remark
     - `name` is yours to pick; it only has to be unique in this document
@@ -532,7 +535,9 @@ machines:
             answer, replace `_your answer_` with your text and tick that
             line. Stepping is refused while any question is unanswered.
 
-            You can also leave a footnote instead of ticking a box:
+            You can also leave a footnote alongside an answer — it never
+            substitutes for ticking a box, which is still required before
+            stepping is allowed:
 
             <%~ it.vars.footnoteRules %>
 
@@ -638,7 +643,9 @@ machines:
             answer, replace `_your answer_` with your text and tick that
             line. Stepping is refused while any question is unanswered.
 
-            You can also leave a footnote instead of ticking a box:
+            You can also leave a footnote alongside an answer — it never
+            substitutes for ticking a box, which is still required before
+            stepping is allowed:
 
             <%~ it.vars.footnoteRules %>
 

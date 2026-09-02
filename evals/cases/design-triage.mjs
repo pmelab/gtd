@@ -48,24 +48,38 @@ leaves its total unchanged, so purchase history stays accurate. No further
 configuration is required.
 `,
     },
-    // Same fully-specified sketch as `clean`, plus a human footnote —
-    // marker and definition — anchored to the one clause it comments on.
-    // Consumption is the whole point of this variant: the concern it folds
-    // into must carry the footnote's content, and the written
-    // `.gtd/REQUIREMENTS.md` must carry no `[^` marker or definition left —
-    // this turn is the one that acts on it.
+    // A RETURN lap, not a first lap: `.gtd/REQUIREMENTS.md` already exists
+    // (triage's own prior output), the human ticked an answer to its one
+    // open question, and left a footnote alongside that same ticked line —
+    // never a substitute for ticking, additional input carried with it.
+    // `.gtd/TODO.md` is deliberately absent: in the real workflow `unwind`
+    // has already reverted it out of the tree by the time triage runs, and
+    // a footnote in `.gtd/TODO.md` could never be re-read here anyway,
+    // since triage never rewrites that file — this is the file triage
+    // actually rewrites, so deletion is real and gradeable. This turn must
+    // fold the ticked answer into the concern's prose, move the question
+    // under `## Answered Questions`, and delete the footnote — marker and
+    // definition together — leaving no `[^` behind.
     footnote: {
-      ".gtd/TODO.md": `# TODO
+      // `## Open Questions` first, `qa`'s own section-order rule — this
+      // file is the human's own gate-answer edit, already valid `qa` before
+      // triage ever reads it.
+      ".gtd/REQUIREMENTS.md": `## Open Questions
 
-Add order refunds. Customers can request a refund within
-\`RefundWindowDays = 30\` days of purchase[^enterprise]; requests after that
-window are rejected. Refunds are always for the full order amount — there is
-no partial refund. A successful refund marks the order's status as
-\`"refunded"\` and leaves its total unchanged, so purchase history stays
-accurate. No further configuration is required.
+### How many days after purchase is a refund still allowed (\`RefundWindowDays\`)?
+
+- [x] 30 days — matches the existing return-window policy[^enterprise]
+- [ ] 60 days
+- [ ] _your answer_
 
 [^enterprise]: double check with support before shipping — some enterprise
-  customers negotiated a longer window in their contracts.
+  customers negotiated a longer refund window in their contracts, so a flat
+  30 may not hold for every account.
+
+## Add order refunds
+
+PRODUCT. Customers can request a refund on a past order. Touches
+\`src/orders.ts\`.
 `,
     },
   },

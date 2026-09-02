@@ -129,10 +129,11 @@ tests:
       case: design-triage
       variant: footnote
       challenge: >-
-        the entry diff carries a human footnote ([^enterprise]) commenting on
-        the RefundWindowDays clause; triage MUST fold it into that concern
-        and delete the marker and definition — no `[^` may survive into
-        .gtd/REQUIREMENTS.md.
+        a return lap: .gtd/REQUIREMENTS.md already has an answered
+        RefundWindowDays question, with a footnote ([^enterprise])
+        commenting on the ticked line; triage MUST fold the answer AND the
+        footnote into the concern, then delete the marker and definition —
+        no `[^` may survive into .gtd/REQUIREMENTS.md.
     assert:
       - type: javascript
         value: file://asserts/design-triage.mjs

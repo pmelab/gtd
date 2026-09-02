@@ -19,6 +19,11 @@ export default Object.freeze({
   // names it is grounded in the anchored hunk, never a paraphrase of the
   // scene-setting prose that also mentions src/retry.ts.
   footnoteAnchor: "src/checkout.ts",
+  // The footnote's own substance — checked ALONGSIDE `footnoteAnchor` so a
+  // file-level paraphrase ("src/checkout.ts is under-tested overall", which
+  // names the path but not the hunk) still fails: only a concern naming
+  // the anchored defect itself proves the hunk, not just the file, was read.
+  footnoteSubstance: /round|fractional cent/i,
   artifact: ".gtd/REQUIREMENTS.md",
   base: {
     "src/retry.ts": `export const withRetry = async <T>(fn: () => Promise<T>): Promise<T> => fn()
