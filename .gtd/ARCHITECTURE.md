@@ -2,35 +2,6 @@ Footnotes become gtd's anchored-comment mechanism: one new parsing module both
 built-in steering formats consume, prompt changes on the feedback path, and an
 LSP code action plus a two-way jump. Three concerns, in build order, no merges.
 
-## Open Questions
-
-### Where does the "add a footnote" code action put the definition when the cursor sits inside a review hunk's multi-paragraph note?
-
-A `review` hunk's note span deliberately admits blank lines, so "below the
-current paragraph" can land the definition in the MIDDLE of a note — and the
-parser must then break the span there, silently truncating the note to its first
-paragraph and orphaning the rest.
-
-- [x] Below the whole hunk span — the last non-blank line before the next
-      pointer or `##` heading. The note stays intact; the definition may sit
-      several paragraphs away from its marker
-- [ ] Below the current paragraph, and teach the note parser to SKIP a
-      definition block and resume gathering the paragraphs after it, so a
-      mid-note definition costs nothing. Definition stays close to its marker,
-      note parsing gets materially harder
-- [ ] _your answer_
-
-### Is "the definition sits directly below its annotated block" a validated rule or only where the code action puts it?
-
-- [x] Code-action convention only — the parser accepts a definition anywhere in
-      the document, matched to its marker by NAME alone. A hand-placed footnote
-      never refuses a turn
-- [ ] A fourth validator finding — a definition not directly below the block
-      carrying its marker is reported at its own line. The format enforces the
-      shape it documents, at the cost of block-ownership parsing and a real
-      deadlock risk if the rule and oxfmt ever disagree
-- [ ] _your answer_
-
 ## 1. Footnotes are structure in the `qa` and `review` steering formats
 
 **One new module, `src/Footnotes.ts`, parses footnotes once; both formats
@@ -72,6 +43,10 @@ itself.
 - Definition: `[^name]:` at COLUMN 0 only, then optional same-line body, then
   the run of following indented non-blank lines. A blank line or an unindented
   line ends it
+- **A definition may sit anywhere in the document; a marker and a definition are
+  matched by NAME alone.** "Directly below the annotated block" is where the
+  code action puts one, never a rule the parser enforces — so a hand-placed
+  footnote can never refuse a turn
 - **Scanning skips fenced code blocks and inline-code spans.** A document that
   QUOTES footnote syntax in backticks — `docs/configuration.md`'s own examples,
   and every planning file that discusses this feature — must not trip the
@@ -110,6 +85,8 @@ characters, so `src/ModeContradiction.ts`'s round-trip through the mode's
 | A duplicate definition name                             | the second definition's line |
 | A definition whose body is still the seeded placeholder | the definition's line        |
 
+**There is deliberately no placement finding.** Those four are the whole set.
+
 **The orphan-definition finding is load-bearing.** Footnotes are consumed once
 folded in, so a half-deletion that drops the marker and leaves the definition
 must refuse the turn rather than rot. `validate` findings make `gtd check` exit
@@ -141,6 +118,12 @@ to one definition.
 - `pointerEndIndex` breaks on a definition line; `gatherNote` skips definition
   lines and their continuations. **This is the rule the requirement demands: a
   hunk's `note` excludes its footnote body by rule, not by accident**
+- The span BREAKS at a definition and does not resume. **Risk: a human who
+  hand-places a definition in the middle of a multi-paragraph hunk note silently
+  truncates that note to its first paragraph, and the paragraphs after the
+  definition are gathered into nothing.** It never refuses the turn — that is
+  the accepted cost of matching by name alone — and the code action never
+  creates the situation, because it always writes below the whole hunk span
 - `note` also has markers stripped, so the outline and the feedback prompts read
   clean prose
 - `secondPointerError` is untouched — a marker is not a pointer token
@@ -278,7 +261,12 @@ validator reports a definition still carrying the placeholder as a finding, so a
 never-filled footnote can never reach an agent as a concern — the same mechanism
 `FREE_TEXT_PLACEHOLDER` already uses for an unfilled answer slot.
 
-Definition placement depends on the first open question above.
+**Definition placement: below the whole block the marker sits in — for a
+`review` hunk, the last non-blank line before the next pointer or `##` heading;
+for a list, the last line of the contiguous list; otherwise the next blank line
+or EOF.** Never below the current paragraph alone: inside a multi-paragraph hunk
+note that would split the note span. The definition may therefore sit several
+paragraphs away from its marker, which is what go-to-symbol exists for.
 
 ### Go-to-symbol, both directions
 
@@ -366,3 +354,16 @@ replaced, so an unfilled footnote never reaches an agent.
 
 No. Concern 3 consumes the interface concern 1 creates, which the merge rule
 exempts explicitly.
+
+### Where does the "add a footnote" code action put the definition when the cursor sits inside a review hunk's multi-paragraph note?
+
+Below the whole hunk span — the last non-blank line before the next pointer or
+`##` heading. The note stays intact. The definition may sit several paragraphs
+away from its marker, and go-to-symbol covers that distance.
+
+### Is "the definition sits directly below its annotated block" a validated rule or only where the code action puts it?
+
+Code-action convention only. The parser accepts a definition anywhere and
+matches it to its marker by name alone, so a hand-placed footnote never refuses
+a turn. No placement finding exists, and no block-ownership parsing is built —
+which also removes the deadlock risk of a placement rule disagreeing with oxfmt.
