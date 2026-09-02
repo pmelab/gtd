@@ -110,6 +110,37 @@ const computeFindings = (
   return findings.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
 }
 
+/** Parses the `[^name]:` definition starting at `lines[index]`, plus its indented continuation run. Returns the parsed definition and the index of the first line past it. */
+const parseDefinitionAt = (
+  lines: readonly string[],
+  index: number,
+  defMatch: RegExpExecArray,
+): { readonly definition: FootnoteDefinition; readonly nextIndex: number } => {
+  const name = defMatch[1]!
+  const sameLineBody = (defMatch[2] ?? "").trim()
+  const bodyParts: string[] = sameLineBody.length > 0 ? [sameLineBody] : []
+  let endLine = index
+  let j = index + 1
+  while (j < lines.length && isContinuationLine(lines[j]!)) {
+    bodyParts.push(lines[j]!.trim())
+    endLine = j
+    j += 1
+  }
+  return { definition: { name, line: index, endLine, body: bodyParts.join(" ") }, nextIndex: j }
+}
+
+/** Every marker on `line` (after masking inline-code spans), anchored at `lineIndex`. */
+const scanMarkers = (line: string, lineIndex: number): FootnoteMarker[] => {
+  const masked = maskInlineCode(line)
+  const re = new RegExp(MARKER_RE)
+  const found: FootnoteMarker[] = []
+  let match: RegExpExecArray | null
+  while ((match = re.exec(masked)) !== null) {
+    found.push({ name: match[1]!, line: lineIndex, character: match.index })
+  }
+  return found
+}
+
 /**
  * Parses every footnote marker and definition out of `content`. Total and
  * side-effect-free: always returns a result, never throws. Scanning skips
@@ -140,28 +171,13 @@ export const parseFootnotes = (content: string): Footnotes => {
 
     const defMatch = DEFINITION_START_RE.exec(line)
     if (defMatch) {
-      const name = defMatch[1]!
-      const sameLineBody = (defMatch[2] ?? "").trim()
-      const startLine = i
-      const bodyParts: string[] = sameLineBody.length > 0 ? [sameLineBody] : []
-      let endLine = i
-      let j = i + 1
-      while (j < lines.length && isContinuationLine(lines[j]!)) {
-        bodyParts.push(lines[j]!.trim())
-        endLine = j
-        j += 1
-      }
-      definitions.push({ name, line: startLine, endLine, body: bodyParts.join(" ") })
-      i = j
+      const { definition, nextIndex } = parseDefinitionAt(lines, i, defMatch)
+      definitions.push(definition)
+      i = nextIndex
       continue
     }
 
-    const masked = maskInlineCode(line)
-    const re = new RegExp(MARKER_RE)
-    let match: RegExpExecArray | null
-    while ((match = re.exec(masked)) !== null) {
-      markers.push({ name: match[1]!, line: i, character: match.index })
-    }
+    markers.push(...scanMarkers(line, i))
     i += 1
   }
 
