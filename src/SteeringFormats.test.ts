@@ -171,3 +171,62 @@ describe("footnote formatter round-trip (real oxfmt, measured not assumed)", () 
     expect(formatWithOxfmt(content)).toBe(content)
   })
 })
+
+/**
+ * Applies a set of `SteeringEdit`s (LSP-shaped `TextEdit`s) to `content` —
+ * every position converted to a flat offset assuming `\n` line separators
+ * (fixture content only), edits applied back-to-front so earlier ranges'
+ * offsets stay valid.
+ */
+const applyEdits = (
+  content: string,
+  edits: readonly {
+    readonly range: {
+      readonly start: { readonly line: number; readonly character: number }
+      readonly end: { readonly line: number; readonly character: number }
+    }
+    readonly newText: string
+  }[],
+): string => {
+  const lines = content.split("\n")
+  const offsetOf = (pos: { readonly line: number; readonly character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < pos.line; i += 1) offset += lines[i]!.length + 1
+    return offset + pos.character
+  }
+  const sorted = [...edits].sort((a, b) => offsetOf(b.range.start) - offsetOf(a.range.start))
+  let result = content
+  for (const edit of sorted) {
+    result =
+      result.slice(0, offsetOf(edit.range.start)) +
+      edit.newText +
+      result.slice(offsetOf(edit.range.end))
+  }
+  return result
+}
+
+describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", () => {
+  it("qa: applying the action's edits to the sample validates clean apart from the placeholder finding, and is an oxfmt fixed point", () => {
+    const cursor = { line: 7, character: 8 } // inside "Option B"
+    const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
+      (a) => a.title === "gtd: add a footnote",
+    )!
+    const applied = applyEdits(QA_FORMAT.sample, action.edits)
+    const findings = QA_FORMAT.validate(applied).map((f) => f.message)
+    expect(findings.every((m) => m.includes("still has its seeded placeholder body"))).toBe(true)
+    expect(findings.length).toBeGreaterThan(0)
+    expect(formatWithOxfmt(applied)).toBe(applied)
+  })
+
+  it("review: applying the action's edits to the sample validates clean apart from the placeholder finding, and is an oxfmt fixed point", () => {
+    const cursor = { line: 6, character: 20 } // inside "what" on the hunk pointer line
+    const action = REVIEW_FORMAT.actions(REVIEW_FORMAT.sample, { start: cursor, end: cursor }).find(
+      (a) => a.title === "gtd: add a footnote",
+    )!
+    const applied = applyEdits(REVIEW_FORMAT.sample, action.edits)
+    const findings = REVIEW_FORMAT.validate(applied).map((f) => f.message)
+    expect(findings.every((m) => m.includes("still has its seeded placeholder body"))).toBe(true)
+    expect(findings.length).toBeGreaterThan(0)
+    expect(formatWithOxfmt(applied)).toBe(applied)
+  })
+})

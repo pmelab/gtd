@@ -569,15 +569,15 @@ describe("QA_FORMAT", () => {
     ].join("\n")
     const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
     const actions = QA_FORMAT.actions(doc, at(4)) // the REST line
-    expect(actions).toHaveLength(1)
-    expect(actions[0]?.title).toBe("gtd: pick this option")
-    const edits = actions[0]?.edits ?? []
+    const pick = actions.find((a) => a.title === "gtd: pick this option")
+    expect(pick).toBeDefined()
+    const edits = pick?.edits ?? []
     expect(edits.map((e) => e.range.start.line).sort()).toEqual([4, 5])
     expect(edits.find((e) => e.range.start.line === 4)?.newText).toBe("x")
     expect(edits.find((e) => e.range.start.line === 5)?.newText).toBe(" ")
   })
 
-  it("actions offer 'uncheck this option' on the already-ticked option, and nothing off an option line", () => {
+  it("actions offer 'uncheck this option' on the already-ticked option, and only 'add a footnote' off an option line", () => {
     const doc = [
       "## Open Questions",
       "",
@@ -590,13 +590,13 @@ describe("QA_FORMAT", () => {
     ].join("\n")
     const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
     const actions = QA_FORMAT.actions(doc, at(5))
-    expect(actions[0]?.title).toBe("gtd: uncheck this option")
-    expect(actions[0]?.edits).toHaveLength(1)
-    expect(QA_FORMAT.actions(doc, at(2))).toEqual([]) // the ### heading
+    const uncheck = actions.find((a) => a.title === "gtd: uncheck this option")
+    expect(uncheck?.edits).toHaveLength(1)
+    expect(QA_FORMAT.actions(doc, at(2)).map((a) => a.title)).toEqual(["gtd: add a footnote"]) // the ### heading
   })
 
-  it("has no pointerAt", () => {
-    expect(QA_FORMAT.pointerAt).toBeUndefined()
+  it("has a pointerAt (footnote jumps only)", () => {
+    expect(QA_FORMAT.pointerAt).toBeDefined()
   })
 })
 
@@ -1032,5 +1032,52 @@ describe("footnotes wired into the qa format", () => {
     const optionNode = nodes[0]!.children!.find((c) => c.name.startsWith("[x] GraphQL"))!
     expect(optionNode.children).toBeUndefined()
     expect(optionNode.leaf).toBe(true)
+  })
+})
+
+describe("'gtd: add a footnote' action", () => {
+  const at = (line: number, character = 0) => ({
+    start: { line, character },
+    end: { line, character },
+  })
+  const footnoteAction = (content: string, line: number, character = 0) =>
+    QA_FORMAT.actions(content, at(line, character)).find((a) => a.title === "gtd: add a footnote")
+
+  it("inside a question's option list, lands after the last line of the contiguous list — not between two items", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [ ] GraphQL",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 4, 3)! // cursor on the REST line
+    expect(action.edits[1]!.range.start.line).toBe(6) // after "_your answer_", not after REST
+  })
+
+  it("in ordinary prose (question-body text before any options), lands after the current block's last line", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "some prose",
+      "continues here",
+      "",
+      "- [ ] REST",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 4, 2)! // cursor inside "some prose"
+    expect(action.edits[1]!.range.start.line).toBe(5) // "continues here", not the options list
+  })
+
+  it("is offered everywhere, always titled 'gtd: add a footnote', carrying exactly two edits", () => {
+    const action = footnoteAction(QA_FORMAT.sample, 0, 0)
+    expect(action).toBeDefined()
+    expect(action!.edits).toHaveLength(2)
   })
 })

@@ -1,5 +1,12 @@
 import type { FootnoteMarker } from "./Footnotes.js"
-import { isFootnoteDefinitionLine, parseFootnotes, stripFootnoteMarkers } from "./Footnotes.js"
+import {
+  footnoteAdditionEdits,
+  footnotePointerAt,
+  isFootnoteDefinitionLine,
+  parseFootnotes,
+  proseBlockEnd,
+  stripFootnoteMarkers,
+} from "./Footnotes.js"
 import type {
   SteeringEdit,
   SteeringFinding,
@@ -484,12 +491,38 @@ const toggleChunkEdits = (content: string, headingLine: number): SteeringEdit[] 
   return edits
 }
 
-/** Actions for `.gtd/REVIEW.md`: "check/uncheck this hunk" when `range` sits on a hunk line, "check/uncheck all hunks" when `range` sits anywhere in a chunk (heading or body). */
+/**
+ * The block a footnote lands after when "add a footnote" fires with the
+ * cursor at `cursorLine`: the containing hunk's own span (never split, even
+ * across a multi-paragraph note) when the cursor sits in one, otherwise the
+ * surrounding prose block (the next blank line or EOF).
+ */
+const footnoteBlockEnd = (
+  content: string,
+  lines: readonly string[],
+  cursorLine: number,
+): number => {
+  const { changesets } = parseReviewDoc(content)
+  const hunk = changesets
+    .flatMap((chunk) => chunk.files)
+    .find((file) => cursorLine >= file.sourceLine && cursorLine <= file.endLine)
+  return hunk ? hunk.endLine : proseBlockEnd(lines, cursorLine)
+}
+
+/** Actions for `.gtd/REVIEW.md`: "check/uncheck this hunk" when `range` sits on a hunk line, "check/uncheck all hunks" when `range` sits anywhere in a chunk (heading or body), and "add a footnote" everywhere. */
 const reviewActions: SteeringFormat["actions"] = (content, range) => {
   const { changesets } = parseReviewDoc(content)
   const lines = content.split(/\r?\n/)
   const cursorLine = range.start.line
   const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
+  actions.push({
+    title: "gtd: add a footnote",
+    edits: footnoteAdditionEdits(
+      content,
+      range.start,
+      footnoteBlockEnd(content, lines, cursorLine),
+    ),
+  })
 
   // fallow-ignore-next-line complexity
   changesets.forEach((chunk, i) => {
@@ -538,7 +571,7 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
  * concern, not this module's — the path returned here is the pointer's raw
  * `./`-relative text.
  */
-const reviewPointerAt = (
+const hunkPointerAt = (
   content: string,
   line: number,
 ): { path: string; line: number } | undefined => {
@@ -546,6 +579,20 @@ const reviewPointerAt = (
   const hunk = changesets.flatMap((chunk) => chunk.files).find((file) => file.sourceLine === line)
   if (!hunk) return undefined
   return { path: hunk.path, line: hunk.line !== undefined ? hunk.line - 1 : 0 }
+}
+
+/**
+ * `.gtd/REVIEW.md`'s `pointerAt`: footnotes resolve FIRST (they're
+ * column-scoped, the hunk jump is line-scoped — a marker sitting in a hunk's
+ * inline note would otherwise be shadowed by it), the hunk-pointer jump to
+ * another file second. An orphan marker/definition resolves (via
+ * `footnotePointerAt`) to "handled, but no pointer" — so it returns
+ * `undefined` here too, rather than falling through to the hunk jump.
+ */
+const reviewPointerAt: SteeringFormat["pointerAt"] = (content, position) => {
+  const footnote = footnotePointerAt(content, position)
+  if (footnote) return footnote.pointer
+  return hunkPointerAt(content, position.line)
 }
 
 export const REVIEW_FORMAT: SteeringFormat = {

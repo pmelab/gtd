@@ -721,7 +721,7 @@ describe("REVIEW_FORMAT", () => {
   })
 
   it("pointerAt jumps to the hunk's file at its 1-based #line, mapped to a 0-based position", () => {
-    const pointer = REVIEW_FORMAT.pointerAt?.(reviewDoc, 7)
+    const pointer = REVIEW_FORMAT.pointerAt?.(reviewDoc, { line: 7, character: 0 })
     expect(pointer).toEqual({ path: "./src/calc.ts", line: 4 })
   })
 
@@ -734,11 +734,14 @@ describe("REVIEW_FORMAT", () => {
       "",
       "- [ ] ./src/bare.ts",
     ].join("\n")
-    expect(REVIEW_FORMAT.pointerAt?.(doc, 5)).toEqual({ path: "./src/bare.ts", line: 0 })
+    expect(REVIEW_FORMAT.pointerAt?.(doc, { line: 5, character: 0 })).toEqual({
+      path: "./src/bare.ts",
+      line: 0,
+    })
   })
 
   it("pointerAt returns undefined when the line is not a hunk pointer", () => {
-    expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, 3)).toBeUndefined() // "## Add calculator"
+    expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, { line: 3, character: 0 })).toBeUndefined() // "## Add calculator"
   })
 
   it("go-to-definition and the check/uncheck action DISAGREE at a continuation line: the action fires, go-to-definition does not — asserted at the SAME cursor position", () => {
@@ -747,7 +750,9 @@ describe("REVIEW_FORMAT", () => {
     expect(REVIEW_FORMAT.actions(reviewDoc, at(continuationLine)).map((a) => a.title)).toContain(
       "gtd: check this hunk",
     )
-    expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, continuationLine)).toBeUndefined()
+    expect(
+      REVIEW_FORMAT.pointerAt?.(reviewDoc, { line: continuationLine, character: 0 }),
+    ).toBeUndefined()
   })
 
   it("pointerAt on a hyphenated hunk line returns the full path, not a truncated prefix", () => {
@@ -760,7 +765,7 @@ describe("REVIEW_FORMAT", () => {
       "- [ ] ./src/server/email/budget-threshold.ts#31",
       "  non-obvious import",
     ].join("\n")
-    expect(REVIEW_FORMAT.pointerAt?.(doc, 5)).toEqual({
+    expect(REVIEW_FORMAT.pointerAt?.(doc, { line: 5, character: 0 })).toEqual({
       path: "./src/server/email/budget-threshold.ts",
       line: 30,
     })
@@ -1357,7 +1362,10 @@ describe("footnotes wired into the review format", () => {
     expect(hunk.path).toBe("./a.ts")
     expect(hunk.line).toBe(1)
     expect(errors).toEqual([])
-    expect(REVIEW_FORMAT.pointerAt!(content, hunk.sourceLine)).toEqual({ path: "./a.ts", line: 0 })
+    expect(REVIEW_FORMAT.pointerAt!(content, { line: hunk.sourceLine, character: 0 })).toEqual({
+      path: "./a.ts",
+      line: 0,
+    })
   })
 
   it("strips a marker from the chunk title and description", () => {
@@ -1378,5 +1386,61 @@ describe("footnotes wired into the review format", () => {
     const { changesets } = parseReviewDoc(content)
     expect(changesets[0]!.title).toBe("Add calculator")
     expect(changesets[0]!.description).toBe("some description")
+  })
+})
+
+describe("'gtd: add a footnote' action", () => {
+  const at = (line: number, character = 0) => ({
+    start: { line, character },
+    end: { line, character },
+  })
+  const footnoteAction = (content: string, line: number, character = 0) =>
+    REVIEW_FORMAT.actions(content, at(line, character)).find(
+      (a) => a.title === "gtd: add a footnote",
+    )
+
+  it("in a multi-paragraph hunk note, lands after the LAST non-blank line of the hunk's span — the note is not split", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "first paragraph",
+      "",
+      "second paragraph",
+      "",
+      "## Next chunk",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 6, 2)! // cursor inside "first paragraph"
+    const defEdit = action.edits[1]!
+    // Placed right after line 8 ("second paragraph"), never between the two paragraphs.
+    expect(defEdit.range.start.line).toBe(8)
+    expect(defEdit.newText).toContain("[^fn1]: your comment")
+  })
+
+  it("in ordinary prose (a chunk's description, before any hunk), lands after the current block's last line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "some description",
+      "continues here",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 5, 2)! // cursor inside "some description"
+    expect(action.edits[1]!.range.start.line).toBe(6) // "continues here", not split from its own paragraph
+  })
+
+  it("is offered everywhere, always titled 'gtd: add a footnote', carrying exactly two edits", () => {
+    const action = footnoteAction(REVIEW_FORMAT.sample, 0, 0)
+    expect(action).toBeDefined()
+    expect(action!.edits).toHaveLength(2)
   })
 })

@@ -1,4 +1,4 @@
-import type { SteeringFinding } from "./SteeringFormat.js"
+import type { SteeringEdit, SteeringFinding, SteeringPointer } from "./SteeringFormat.js"
 
 /** One `[^name]` marker's anchor: line AND column of its opening `[` — never the word or sentence it follows, which the reader reads itself. */
 export interface FootnoteMarker {
@@ -21,7 +21,7 @@ export interface Footnotes {
   readonly findings: readonly SteeringFinding[]
 }
 
-/** The seeded placeholder a hand-authored definition starts as — still present means the human never filled it in. */
+/** The seeded placeholder a hand-authored definition starts as — still present means the human never filled it in. `footnoteAdditionEdits` (below) seeds new definitions with this exact text, so `computeFindings`'s placeholder check fires until a human replaces it. */
 const PLACEHOLDER_BODY = "your comment"
 
 /** A definition's start line: `[^name]:` at COLUMN 0, nothing before it. */
@@ -203,4 +203,144 @@ export const parseFootnotes = (content: string): Footnotes => {
   }
 
   return { markers, definitions, findings: computeFindings(markers, definitions) }
+}
+
+/** The first integer unused by any `fnN` marker or definition already in the document — deterministic (no clock, no randomness), so "add a footnote" is testable and idempotent under re-run: applying it twice yields `fn1` then `fn2`, never a collision. */
+export const nextFootnoteName = (content: string): string => {
+  const { markers, definitions } = parseFootnotes(content)
+  const NAME_RE = /^fn(\d+)$/
+  const used = new Set<number>()
+  for (const name of [...markers.map((m) => m.name), ...definitions.map((d) => d.name)]) {
+    const match = NAME_RE.exec(name)
+    if (match) used.add(Number(match[1]))
+  }
+  let n = 1
+  while (used.has(n)) n += 1
+  return `fn${n}`
+}
+
+/**
+ * Where "add a footnote" plants the marker: scan right from `character` while
+ * the character at that position is a word character, and stop there. One
+ * rule, no branching — a cursor inside a word lands at the word's end, a
+ * cursor already just past a word (or on whitespace/punctuation) doesn't
+ * move at all, landing right at the cursor.
+ */
+export const footnoteMarkerColumn = (line: string, character: number): number => {
+  let i = character
+  while (i < line.length && /\w/.test(line[i]!)) i += 1
+  return i
+}
+
+/** The first line index at or after `from` that is non-blank, or `lines.length` when none remain (EOF). */
+const firstNonBlankFrom = (lines: readonly string[], from: number): number => {
+  let i = from
+  while (i < lines.length && lines[i]!.trim().length === 0) i += 1
+  return i
+}
+
+/**
+ * The last non-blank line of the current prose block starting at `index` —
+ * the "otherwise" placement rule for "add a footnote": the next blank line,
+ * or end of file. Shared by both formats' fallback case (a hunk's own span
+ * and a question's option-list span are format-specific and computed by the
+ * caller instead).
+ */
+export const proseBlockEnd = (lines: readonly string[], index: number): number => {
+  let end = index
+  for (let i = index + 1; i < lines.length; i += 1) {
+    if (lines[i]!.trim().length === 0) break
+    end = i
+  }
+  return end
+}
+
+/**
+ * The two edits behind "gtd: add a footnote": a marker inserted at the
+ * cursor (via `footnoteMarkerColumn`) and a definition seeded with
+ * `PLACEHOLDER_BODY`, planted right after `blockEndLine` — the caller's own
+ * notion of "the current block's last line" (a hunk's span in `ReviewDoc.ts`,
+ * an option-list's span in `OpenQuestions.ts`, or `proseBlockEnd` otherwise).
+ * The definition edit REPLACES any existing blank-line run between
+ * `blockEndLine` and the next non-blank content (or EOF) with exactly one
+ * blank line, the definition, and — unless at EOF — one more blank line, so
+ * the result is deterministic regardless of the surrounding whitespace.
+ */
+export const footnoteAdditionEdits = (
+  content: string,
+  position: { readonly line: number; readonly character: number },
+  blockEndLine: number,
+): readonly SteeringEdit[] => {
+  const lines = content.split(/\r?\n/)
+  const cursorLine = lines[position.line] ?? ""
+  const markerColumn = footnoteMarkerColumn(cursorLine, position.character)
+  const name = nextFootnoteName(content)
+
+  const markerEdit: SteeringEdit = {
+    range: {
+      start: { line: position.line, character: markerColumn },
+      end: { line: position.line, character: markerColumn },
+    },
+    newText: `[^${name}]`,
+  }
+
+  const nextContentLine = firstNonBlankFrom(lines, blockEndLine + 1)
+  const atEof = nextContentLine >= lines.length
+  const lastLine = lines.length - 1
+  const definitionEdit: SteeringEdit = {
+    range: {
+      start: { line: blockEndLine, character: (lines[blockEndLine] ?? "").length },
+      end: atEof
+        ? { line: lastLine, character: (lines[lastLine] ?? "").length }
+        : { line: nextContentLine, character: 0 },
+    },
+    newText: atEof
+      ? `\n\n[^${name}]: ${PLACEHOLDER_BODY}\n`
+      : `\n\n[^${name}]: ${PLACEHOLDER_BODY}\n\n`,
+  }
+
+  return [markerEdit, definitionEdit]
+}
+
+/**
+ * The footnote half of `pointerAt`, shared by `qa` (which serves footnote
+ * jumps ONLY) and `review` (which tries this FIRST — footnotes are
+ * column-scoped and the hunk jump is line-scoped, so a marker sitting in a
+ * hunk's inline note would otherwise be shadowed by it). Returns `undefined`
+ * when `position` isn't on a footnote at all (the caller should try its own
+ * next resolver); returns `{ pointer: undefined }` for an orphan marker or
+ * definition — resolved, but to nothing, so the caller must NOT fall through
+ * to another resolver (an orphan marker inside a review hunk's note must not
+ * jump to the hunk).
+ */
+export const footnotePointerAt = (
+  content: string,
+  position: { readonly line: number; readonly character: number },
+): { readonly pointer: SteeringPointer | undefined } | undefined => {
+  const { markers, definitions } = parseFootnotes(content)
+
+  const marker = markers.find((m) => {
+    if (m.line !== position.line) return false
+    const end = m.character + m.name.length + 3 // `[^` + name + `]`
+    return position.character >= m.character && position.character <= end
+  })
+  if (marker) {
+    const definition = definitions.find((d) => d.name === marker.name)
+    return { pointer: definition ? { line: definition.line } : undefined }
+  }
+
+  const lines = content.split(/\r?\n/)
+  if (isFootnoteDefinitionLine(lines, position.line)) {
+    const definition = definitions.find(
+      (d) => position.line >= d.line && position.line <= d.endLine,
+    )
+    const firstMarker = definition ? markers.find((m) => m.name === definition.name) : undefined
+    return {
+      pointer: firstMarker
+        ? { line: firstMarker.line, character: firstMarker.character }
+        : undefined,
+    }
+  }
+
+  return undefined
 }

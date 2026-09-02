@@ -38,10 +38,17 @@ export interface SteeringOutlineNode {
   readonly children?: readonly SteeringOutlineNode[]
 }
 
-/** Where a cursor position in a steering file points to — a `review`-mode hunk's target file/line, for go-to-definition. */
+/**
+ * Where a cursor position in a steering file points to, for go-to-definition
+ * — a `review`-mode hunk's target file/line, OR a same-document footnote
+ * jump. `path` absent means "this same document" — the minimal shape that
+ * carries a footnote jump without a discriminated union. `character`
+ * defaults to 0 when absent.
+ */
 export interface SteeringPointer {
-  readonly path: string
+  readonly path?: string
   readonly line: number
+  readonly character?: number
 }
 
 /** One validation finding. `line` is 0-based; absent when the finding is about the document as a whole. */
@@ -80,5 +87,8 @@ export interface SteeringFormat {
       readonly end: { readonly line: number; readonly character: number }
     },
   ) => readonly SteeringAction[]
-  readonly pointerAt?: (content: string, line: number) => SteeringPointer | undefined
+  readonly pointerAt?: (
+    content: string,
+    position: { readonly line: number; readonly character: number },
+  ) => SteeringPointer | undefined
 }

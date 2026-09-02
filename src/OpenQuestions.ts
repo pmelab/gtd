@@ -1,5 +1,12 @@
 import type { FootnoteMarker } from "./Footnotes.js"
-import { isFootnoteDefinitionLine, parseFootnotes, stripFootnoteMarkers } from "./Footnotes.js"
+import {
+  footnoteAdditionEdits,
+  footnotePointerAt,
+  isFootnoteDefinitionLine,
+  parseFootnotes,
+  proseBlockEnd,
+  stripFootnoteMarkers,
+} from "./Footnotes.js"
 import type { SteeringEdit, SteeringFormat, SteeringOutlineNode } from "./SteeringFormat.js"
 
 export type OpenQuestionStatus = "open" | "answered"
@@ -400,15 +407,48 @@ const optionAction = (
 }
 
 /**
+ * The block a footnote lands after when "add a footnote" fires with the
+ * cursor at `cursorLine`: the whole contiguous option list's own span (its
+ * first option's `sourceLine` through its last option's `endLine`, never
+ * split between two items) when the cursor sits inside one, otherwise the
+ * surrounding prose block (the next blank line or EOF) — covers question-body
+ * prose ABOVE a list, a question with no options at all, and any cursor
+ * position outside every question.
+ */
+const footnoteBlockEnd = (
+  content: string,
+  lines: readonly string[],
+  cursorLine: number,
+): number => {
+  const { questions } = parseOpenQuestions(content)
+  for (const question of questions) {
+    if (question.options.length === 0) continue
+    const first = question.options[0]!.sourceLine
+    const last = question.options[question.options.length - 1]!.endLine
+    if (cursorLine >= first && cursorLine <= last) return last
+  }
+  return proseBlockEnd(lines, cursorLine)
+}
+
+/**
  * Actions for a `qa`-mode file: anywhere on an open question's option's list
  * item, "pick this option" (radio semantics) or "uncheck this option" when
- * it's already chosen. No action off an option's span, or on an
- * answered-section (prose) question.
+ * it's already chosen; "add a footnote" everywhere. No pick/uncheck action
+ * off an option's span, or on an answered-section (prose) question.
  */
 const questionActions: SteeringFormat["actions"] = (content, range) => {
   const { questions } = parseOpenQuestions(content)
+  const lines = content.split(/\r?\n/)
   const cursorLine = range.start.line
   const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
+  actions.push({
+    title: "gtd: add a footnote",
+    edits: footnoteAdditionEdits(
+      content,
+      range.start,
+      footnoteBlockEnd(content, lines, cursorLine),
+    ),
+  })
   for (const question of questions) {
     if (question.status !== "open") continue
     const option = question.options.find(
@@ -421,7 +461,15 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
   return actions
 }
 
-/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, and code actions, no `pointerAt` (an open question's options have nothing to jump to). Its structural findings are positionless, but a footnote finding carries the offending marker's or definition's `line`. */
+/**
+ * `qa`'s `pointerAt`: footnote jumps only (an open question's options have
+ * nothing else to jump to) — marker → definition, definition → first marker,
+ * both within the same document.
+ */
+const questionsPointerAt: SteeringFormat["pointerAt"] = (content, position) =>
+  footnotePointerAt(content, position)?.pointer
+
+/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Its structural findings are positionless, but a footnote finding carries the offending marker's or definition's `line`. */
 export const QA_FORMAT: SteeringFormat = {
   sample: QA_SAMPLE,
   validate: (content) => [
@@ -430,4 +478,5 @@ export const QA_FORMAT: SteeringFormat = {
   ],
   outline: questionsOutline,
   actions: questionActions,
+  pointerAt: questionsPointerAt,
 }

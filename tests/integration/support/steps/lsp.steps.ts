@@ -30,6 +30,10 @@ interface LspClient {
   readonly stderr: string[]
   /** Requests the SERVER sent to this client (e.g. `window/showDocument`), oldest → newest — auto-acknowledged (see `dispatch`) so the server's own await unblocks; recorded here for assertions. */
   readonly serverRequests: JsonRpcResponse[]
+  /** The most recently `didOpen`-ed document's own text — what "applies the edits of the code action" edits against. */
+  lastDocumentText?: string
+  /** The result of applying a code action's edits to `lastDocumentText` — what "the applied document contains" reads. */
+  appliedDocument?: string
 }
 
 const clients = new WeakMap<GtdWorld, LspClient>()
@@ -176,10 +180,43 @@ When("the LSP client sends an initialize request", async (world: GtdWorld) => {
 // each step only supplies the request that differs.
 function openDocument(client: LspClient, world: GtdWorld, path: string, content: string): string {
   const uri = pathToFileURL(join(world.repoDir, path)).toString()
+  client.lastDocumentText = content
   notify(client, "textDocument/didOpen", {
     textDocument: { uri, languageId: "markdown", version: 1, text: content },
   })
   return uri
+}
+
+/** One `SteeringEdit`-shaped `TextEdit`, as it round-trips over JSON-RPC. */
+interface TextEditLike {
+  readonly range: {
+    readonly start: { readonly line: number; readonly character: number }
+    readonly end: { readonly line: number; readonly character: number }
+  }
+  readonly newText: string
+}
+
+/**
+ * Applies `edits` to `content` — offsets computed assuming `\n` line
+ * separators (fixture content only), edits applied back-to-front so an
+ * earlier edit's own offsets stay valid after a later one shifts the text.
+ */
+function applyTextEdits(content: string, edits: readonly TextEditLike[]): string {
+  const lines = content.split("\n")
+  const offsetOf = (pos: { readonly line: number; readonly character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < pos.line; i += 1) offset += lines[i]!.length + 1
+    return offset + pos.character
+  }
+  const sorted = [...edits].sort((a, b) => offsetOf(b.range.start) - offsetOf(a.range.start))
+  let result = content
+  for (const edit of sorted) {
+    result =
+      result.slice(0, offsetOf(edit.range.start)) +
+      edit.newText +
+      result.slice(offsetOf(edit.range.end))
+  }
+  return result
 }
 
 When(
@@ -224,6 +261,36 @@ When(
   },
 )
 
+When(
+  "the LSP client requests code actions at line {int} character {int} in {string} containing:",
+  async (world: GtdWorld, line: number, character: number, path: string, content: string) => {
+    const client = clients.get(world)!
+    const uri = openDocument(client, world, path, content)
+    const response = await request(client, "textDocument/codeAction", {
+      textDocument: { uri },
+      range: {
+        start: { line, character },
+        end: { line, character },
+      },
+      context: { diagnostics: [] },
+    })
+    ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  },
+)
+
+When(
+  "the LSP client requests a definition at line {int} character {int} in {string} containing:",
+  async (world: GtdWorld, line: number, character: number, path: string, content: string) => {
+    const client = clients.get(world)!
+    const uri = openDocument(client, world, path, content)
+    const response = await request(client, "textDocument/definition", {
+      textDocument: { uri },
+      position: { line, character },
+    })
+    ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  },
+)
+
 Then(
   "the LSP response result points to {string} at line {int}",
   (world: GtdWorld, path: string, line: number) => {
@@ -242,6 +309,50 @@ Then(
     assert.strictEqual(location.range.start.line, line)
   },
 )
+
+Then(
+  "the LSP response result points to {string} at line {int} character {int}",
+  (world: GtdWorld, path: string, line: number, character: number) => {
+    const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    const result = response.result as
+      | { uri: string; range: { start: { line: number; character: number } } }
+      | ReadonlyArray<{ uri: string; range: { start: { line: number; character: number } } }>
+    const location = Array.isArray(result) ? result[0] : result
+    assert.ok(location, `Expected a definition Location, got: ${JSON.stringify(response.result)}`)
+    assert.ok(
+      location.uri.endsWith(`/${path}`),
+      `Expected a Location ending in "/${path}", got: ${location.uri}`,
+    )
+    assert.strictEqual(location.range.start.line, line)
+    assert.strictEqual(location.range.start.character, character)
+  },
+)
+
+When(
+  "the LSP client applies the edits of the code action titled {string}",
+  (world: GtdWorld, title: string) => {
+    const client = clients.get(world)!
+    const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    const actions = response.result as ReadonlyArray<{
+      readonly title: string
+      readonly edit?: { readonly changes?: Record<string, readonly TextEditLike[]> }
+    }>
+    const action = actions.find((a) => a.title === title)
+    assert.ok(action, `Expected a code action titled "${title}". Got: ${JSON.stringify(actions)}`)
+    const edits = Object.values(action.edit?.changes ?? {})[0] ?? []
+    assert.ok(client.lastDocumentText !== undefined, "No document has been opened yet")
+    client.appliedDocument = applyTextEdits(client.lastDocumentText, edits)
+  },
+)
+
+Then("the applied document contains {string}", (world: GtdWorld, substring: string) => {
+  const client = clients.get(world)!
+  assert.ok(client.appliedDocument !== undefined, "No code action has been applied yet")
+  assert.ok(
+    client.appliedDocument.includes(substring),
+    `Expected the applied document to contain "${substring}". Got:\n${client.appliedDocument}`,
+  )
+})
 
 When(
   "the LSP client sends a workspace\\/executeCommand request for {string}",
