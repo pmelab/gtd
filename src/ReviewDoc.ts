@@ -115,11 +115,18 @@ const isPointerToken = (token: string): boolean => {
   return path.length > 2 // `./` with nothing after it is not a path
 }
 
-/** One `- [ ]` / `- [x]` file-pointer line, or `undefined` if `line` isn't one. Text trailing the pointer token on its own line still parses as the note's inline segment, not an error. */
+/**
+ * One `- [ ]` / `- [x]` file-pointer line, or `undefined` if `line` isn't
+ * one. Text trailing the pointer token on its own line still parses as the
+ * note's inline segment, not an error. A marker written directly against the
+ * token (`./a.ts#1[^fn1]`, the most natural way to comment on a hunk) is
+ * stripped before path/line parsing — otherwise it's swallowed into the
+ * `\S+` token capture and corrupts the path.
+ */
 const parseFilePointer = (line: string, sourceLine: number): ParsedPointer | undefined => {
   const match = FILE_POINTER_RE.exec(line)
   if (!match) return undefined
-  const token = match[2]!
+  const token = stripFootnoteMarkers(match[2]!)
   if (!isPointerToken(token)) return undefined
   const lineMatch = POINTER_LINE_RE.exec(token)
   const path = lineMatch ? lineMatch[1]! : token
@@ -273,7 +280,7 @@ const parseChunkBody = (
     if (error) errors.push(error)
     i = nextIndex
   }
-  return { description: descriptionLines.join(" "), files, errors }
+  return { description: stripFootnoteMarkers(descriptionLines.join(" ")), files, errors }
 }
 
 const splitChunks = (
@@ -287,7 +294,7 @@ const splitChunks = (
       i += 1
       continue
     }
-    const title = chunkMatch[1]!.trim()
+    const title = stripFootnoteMarkers(chunkMatch[1]!.trim())
     const headingLine = i
     i += 1
     const body: BodyLine[] = []

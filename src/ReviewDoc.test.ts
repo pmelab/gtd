@@ -1339,4 +1339,44 @@ describe("footnotes wired into the review format", () => {
   it("REVIEW_FORMAT.validate(REVIEW_FORMAT.sample) returns zero findings", () => {
     expect(REVIEW_FORMAT.validate(REVIEW_FORMAT.sample)).toEqual([])
   })
+
+  it("strips a marker written directly against the pointer token, instead of corrupting the path", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./a.ts#1[^fn1]",
+      "",
+      "[^fn1]: reason",
+      "",
+    ].join("\n")
+    const { changesets, errors } = parseReviewDoc(content)
+    const hunk = changesets[0]!.files[0]!
+    expect(hunk.path).toBe("./a.ts")
+    expect(hunk.line).toBe(1)
+    expect(errors).toEqual([])
+    expect(REVIEW_FORMAT.pointerAt!(content, hunk.sourceLine)).toEqual({ path: "./a.ts", line: 0 })
+  })
+
+  it("strips a marker from the chunk title and description", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator[^fn1]",
+      "",
+      "some description[^fn2]",
+      "",
+      "- [ ] ./a.ts#1",
+      "",
+      "[^fn1]: reason one",
+      "[^fn2]: reason two",
+      "",
+    ].join("\n")
+    const { changesets } = parseReviewDoc(content)
+    expect(changesets[0]!.title).toBe("Add calculator")
+    expect(changesets[0]!.description).toBe("some description")
+  })
 })

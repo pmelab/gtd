@@ -168,4 +168,16 @@ describe("isFootnoteDefinitionLine", () => {
   it("is false past the end of the array", () => {
     expect(isFootnoteDefinitionLine(["one line"], 5)).toBe(false)
   })
+
+  it("is false for a '[^x]:'-shaped line inside a fenced code block, agreeing with parseFootnotes's own fence skip", () => {
+    const lines = ["```", "[^x]: not a real definition, it's code", "```"]
+    expect(isFootnoteDefinitionLine(lines, 1)).toBe(false)
+    // parseFootnotes must agree: no definition parsed for the fenced line.
+    expect(parseFootnotes(lines.join("\n")).definitions).toEqual([])
+  })
+
+  it("is false for an indented continuation line that is itself inside a fence", () => {
+    const lines = ["[^fn1]:", "```", "    still fenced, not a continuation", "```"]
+    expect(isFootnoteDefinitionLine(lines, 2)).toBe(false)
+  })
 })

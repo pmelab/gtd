@@ -108,7 +108,7 @@ const splitQuestionBlocks = (lines: readonly string[], start: number): readonly 
       continue
     }
 
-    const question = heading.text
+    const question = stripFootnoteMarkers(heading.text)
     const headingLine = i
     i += 1
     const body: string[] = []
@@ -321,10 +321,12 @@ const footnoteLeaf = (
 
 /**
  * The outline tree for a `qa`-mode file's open/answered questions, each
- * option a `leaf: true` child of its open question. A footnote is a further
- * `leaf: true` child of whichever node's span contains its marker — an
- * option when the marker sits inside that option's span, otherwise the
- * question itself.
+ * option a `leaf: true` child of its open question — unless it carries a
+ * footnote of its own, in which case it's a container instead (`leaf` and
+ * `children` are never both set; see `SteeringFormat.ts`'s `leaf` doc). A
+ * footnote is itself always a `leaf: true` child of whichever node's span
+ * contains its marker — an option when the marker sits inside that option's
+ * span, otherwise the question itself.
  */
 const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { questions } = parseOpenQuestions(content)
@@ -347,8 +349,10 @@ const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
         name: `${option.checked ? "[x]" : "[ ]"} ${option.text || "your answer"}`,
         range: spanRange(lines, option.sourceLine, option.endLine),
         selectionRange: lineRange(lines, option.sourceLine),
-        leaf: true,
-        ...(footnotes.length > 0 ? { children: footnotes } : {}),
+        // `leaf: true` means "no children of its own" (SteeringFormat.ts) —
+        // an option with a footnote child is no longer one, matching
+        // ReviewDoc.ts's chunk nodes (children, no `leaf`).
+        ...(footnotes.length > 0 ? { children: footnotes } : { leaf: true }),
       }
     })
 

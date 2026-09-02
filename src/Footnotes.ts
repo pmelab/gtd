@@ -39,22 +39,48 @@ const maskInlineCode = (line: string): string =>
 const isContinuationLine = (line: string): boolean => line.trim().length > 0 && /^\s+\S/.test(line)
 
 /**
+ * For each line in `lines`, whether it's inside (or is the delimiter of) a
+ * fenced code block — content that "scanning skips code" excludes from both
+ * marker and definition recognition. The one shared source of truth for
+ * fence state: `parseFootnotes` and `isFootnoteDefinitionLine` both consult
+ * this instead of tracking fences independently, so the two can never
+ * disagree about what a definition is.
+ */
+const computeFenceSkip = (lines: readonly string[]): boolean[] => {
+  const skip: boolean[] = []
+  let inFence = false
+  for (const line of lines) {
+    if (FENCE_RE.test(line)) {
+      skip.push(true)
+      inFence = !inFence
+    } else {
+      skip.push(inFence)
+    }
+  }
+  return skip
+}
+
+/**
  * True when `lines[index]` is part of a footnote definition — either the
- * `[^name]:` start line itself, or one of its indented continuation lines.
- * Walks backward through the contiguous run of indented non-blank lines
- * above `index` to find the start; a blank or unindented line (or the top of
- * `lines`) ends the search with `false`. Exported so `OpenQuestions.ts` and
- * `ReviewDoc.ts` can break their own item/pointer spans on a definition
+ * `[^name]:` start line itself, or one of its indented continuation lines —
+ * and is not itself fenced-code content. Walks backward through the
+ * contiguous run of indented non-blank lines above `index` to find the
+ * start; a blank line, an unindented line, fenced-code content, or the top
+ * of `lines` ends the search with `false`. Exported so `OpenQuestions.ts`
+ * and `ReviewDoc.ts` can break their own item/pointer spans on a definition
  * without re-parsing the whole document.
  */
 export const isFootnoteDefinitionLine = (lines: readonly string[], index: number): boolean => {
   const line = lines[index]
   if (line === undefined) return false
+  const fenceSkip = computeFenceSkip(lines)
+  if (fenceSkip[index]) return false
   if (DEFINITION_START_RE.test(line)) return true
   if (!isContinuationLine(line)) return false
 
   let i = index - 1
   while (i >= 0) {
+    if (fenceSkip[i]) return false
     const prev = lines[i]!
     if (DEFINITION_START_RE.test(prev)) return true
     if (!isContinuationLine(prev)) return false
@@ -151,20 +177,15 @@ const scanMarkers = (line: string, lineIndex: number): FootnoteMarker[] => {
  */
 export const parseFootnotes = (content: string): Footnotes => {
   const lines = content.split(/\r?\n/)
+  const fenceSkip = computeFenceSkip(lines)
   const markers: FootnoteMarker[] = []
   const definitions: FootnoteDefinition[] = []
 
-  let inFence = false
   let i = 0
   while (i < lines.length) {
     const line = lines[i]!
 
-    if (FENCE_RE.test(line)) {
-      inFence = !inFence
-      i += 1
-      continue
-    }
-    if (inFence) {
+    if (fenceSkip[i]) {
       i += 1
       continue
     }

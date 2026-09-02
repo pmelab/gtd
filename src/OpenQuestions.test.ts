@@ -1003,4 +1003,34 @@ describe("footnotes wired into the qa format", () => {
   it("QA_FORMAT.validate(QA_FORMAT.sample) returns zero findings", () => {
     expect(QA_FORMAT.validate(QA_FORMAT.sample)).toEqual([])
   })
+
+  it("strips a marker from the question heading text", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API[^fn1]?",
+      "",
+      "- [ ] REST",
+      "- [ ] _your answer_",
+      "",
+      "[^fn1]: reason",
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions[0]!.question).toBe("Which API?")
+  })
+
+  it("does not set leaf: true on an option node that carries footnote children", () => {
+    const nodes = QA_FORMAT.outline(doc)
+    const optionNode = nodes[0]!.children!.find((c) => c.name.startsWith("[ ] REST"))!
+    expect(optionNode.children).toHaveLength(1)
+    expect(optionNode.leaf).toBeUndefined()
+  })
+
+  it("still sets leaf: true on an option node with no footnote children", () => {
+    const nodes = QA_FORMAT.outline(doc)
+    const optionNode = nodes[0]!.children!.find((c) => c.name.startsWith("[x] GraphQL"))!
+    expect(optionNode.children).toBeUndefined()
+    expect(optionNode.leaf).toBe(true)
+  })
 })
