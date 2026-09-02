@@ -49,10 +49,12 @@ providers:
 # `<case>:<variant>` — that description is the only handle promptfoo's
 # `--filter-pattern` has, so it is what makes re-running one case after a
 # grader fix possible (`npm run eval -- --filter-pattern '^design-triage:'`)
-# without paying for all twenty cells. Every `violation` entry carries the
-# tier-3 `llm-rubric` except `architecture-decompose`'s — that case declares
-# no `artifact`, so there is no feedback to judge; every `clean` entry is the
-# same way, graded on the deterministic tiers 1/2 only.
+# without paying for all twenty-two cells. The rule is by TIER, not by
+# variant name: every `violation` entry carries the tier-3 `llm-rubric`
+# except `architecture-decompose`'s — that case declares no `artifact`, so
+# there is no feedback to judge — and every non-`violation` entry (`clean`,
+# and the two `footnote` cells) is graded on the deterministic tiers 1/2
+# only, with no `llm-rubric`.
 tests:
   # ── packages.item.spec.review — the per-package spec-review gate ─────────
   - description: "spec-review:violation"
@@ -130,10 +132,11 @@ tests:
       variant: footnote
       challenge: >-
         a return lap: .gtd/REQUIREMENTS.md already has an answered
-        RefundWindowDays question, with a footnote ([^enterprise])
-        commenting on the ticked line; triage MUST fold the answer AND the
-        footnote into the concern, then delete the marker and definition —
-        no `[^` may survive into .gtd/REQUIREMENTS.md.
+        RefundWindowDays question, plus a footnote ([^audit]) anchored in
+        the "Add order refunds" concern's own prose (an audit-logging ask,
+        not the settled window decision); triage MUST fold the answer AND
+        the footnote into the concern, then delete the marker and
+        definition — no `[^` may survive into .gtd/REQUIREMENTS.md.
     assert:
       - type: javascript
         value: file://asserts/design-triage.mjs
