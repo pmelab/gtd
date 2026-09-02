@@ -33,6 +33,21 @@ function checkOpenQuestions(result, caseDef, variant) {
   )
 }
 
+// Consumption: the footnote variant's whole point. The turn reads a
+// footnote-bearing `.gtd/TODO.md` and folds it in — the written
+// `.gtd/REQUIREMENTS.md` must carry no `[^` left, marker or definition
+// alike, proving it was acted on and deleted rather than copied through or
+// silently dropped.
+function checkFootnoteConsumed(result, caseDef, variant) {
+  if (variant !== "footnote") return undefined
+  if (!result.feedback.includes("[^")) return undefined
+  return fail("REQUIREMENTS.md still carries a `[^` footnote marker or definition")
+}
+
 export default function grade(output, context) {
-  return safeGrade(output, context, spec, [...SHARED_CHECKS, checkOpenQuestions])
+  return safeGrade(output, context, spec, [
+    ...SHARED_CHECKS,
+    checkOpenQuestions,
+    checkFootnoteConsumed,
+  ])
 }

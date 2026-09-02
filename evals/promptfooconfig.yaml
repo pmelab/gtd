@@ -42,7 +42,9 @@ providers:
   - id: "exec:node run-turn.mjs --agent claude --planner opus --coder sonnet"
     label: claude-opus-sonnet
 
-# Every case contributes two `tests:` entries below, one per variant, each
+# Every case contributes one `tests:` entry per variant declared in its
+# `evals/cases/<name>.mjs` (most declare two — `violation`/`clean` — and
+# `design-triage`/`build-review-collecting` add a third, `footnote`), each
 # carrying `case`/`variant`/`challenge` and a `description` of exactly
 # `<case>:<variant>` — that description is the only handle promptfoo's
 # `--filter-pattern` has, so it is what makes re-running one case after a
@@ -119,6 +121,18 @@ tests:
       challenge: >-
         the entry diff already settles RefundWindowDays = 30 with no
         ambiguity left; triage MUST NOT raise a question for it.
+    assert:
+      - type: javascript
+        value: file://asserts/design-triage.mjs
+  - description: "design-triage:footnote"
+    vars:
+      case: design-triage
+      variant: footnote
+      challenge: >-
+        the entry diff carries a human footnote ([^enterprise]) commenting on
+        the RefundWindowDays clause; triage MUST fold it into that concern
+        and delete the marker and definition — no `[^` may survive into
+        .gtd/REQUIREMENTS.md.
     assert:
       - type: javascript
         value: file://asserts/design-triage.mjs
@@ -210,6 +224,18 @@ tests:
       challenge: >-
         the review round is a bare approving remark with no edit; collecting
         MUST stay silent and write no .gtd/REQUIREMENTS.md.
+    assert:
+      - type: javascript
+        value: file://asserts/build-review-collecting.mjs
+  - description: "build-review-collecting:footnote"
+    vars:
+      case: build-review-collecting
+      variant: footnote
+      challenge: >-
+        the round's note is a footnote ([^rounding]) anchored to
+        ./src/checkout.ts#2, with src/retry.ts merely skimmed with no
+        comment; collecting MUST write a classified concern naming
+        src/checkout.ts, not a generic whole-file remark.
     assert:
       - type: javascript
         value: file://asserts/build-review-collecting.mjs

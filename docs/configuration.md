@@ -498,6 +498,19 @@ order: `## Open Questions` must come before every other `##` section in the
 file, and `## Answered Questions` must come after every other `##` section — a
 file that gets this backwards fails `gtd check qa` / `gtd validate`.
 
+Both formats also understand **footnotes** — your own comment attached to an
+exact spot in the file, for the next agent turn to read as a mandatory note
+rather than as an instruction. Mark the spot with `[^name]` (any name, no
+whitespace or `]`, unique within the file), then define it anywhere below — on
+its own line, at the start of the line — as `[^name]: your comment`; indent a
+longer comment's continuation lines so they stay part of the same definition.
+The next agent turn folds the comment into its own work and deletes both the
+marker and the definition — a footnote is never carried forward or left for a
+later turn to re-read. `gtd check`/`gtd validate` flag four things about a
+footnote: a marker with no matching definition, a definition with no matching
+marker, the same name defined twice, and a definition still holding its seeded
+placeholder body — each fails the file until fixed.
+
 This writes a minimal `.gtdrc.json` seeding the one variable most projects
 change — the test command (`vars.testCommand`, defaulting to `npm test`) — plus
 a top-level `modes:` block suggesting **Prettier** as the steering-file

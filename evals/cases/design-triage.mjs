@@ -48,9 +48,30 @@ leaves its total unchanged, so purchase history stays accurate. No further
 configuration is required.
 `,
     },
+    // Same fully-specified sketch as `clean`, plus a human footnote —
+    // marker and definition — anchored to the one clause it comments on.
+    // Consumption is the whole point of this variant: the concern it folds
+    // into must carry the footnote's content, and the written
+    // `.gtd/REQUIREMENTS.md` must carry no `[^` marker or definition left —
+    // this turn is the one that acts on it.
+    footnote: {
+      ".gtd/TODO.md": `# TODO
+
+Add order refunds. Customers can request a refund within
+\`RefundWindowDays = 30\` days of purchase[^enterprise]; requests after that
+window are rejected. Refunds are always for the full order amount — there is
+no partial refund. A successful refund marks the order's status as
+\`"refunded"\` and leaves its total unchanged, so purchase history stays
+accurate. No further configuration is required.
+
+[^enterprise]: double check with support before shipping — some enterprise
+  customers negotiated a longer window in their contracts.
+`,
+    },
   },
   expect: {
     violation: { gtdFiles: [".gtd/REQUIREMENTS.md"], otherFiles: "none" },
     clean: { gtdFiles: [".gtd/REQUIREMENTS.md"], otherFiles: "none" },
+    footnote: { gtdFiles: [".gtd/REQUIREMENTS.md"], otherFiles: "none" },
   },
 })
