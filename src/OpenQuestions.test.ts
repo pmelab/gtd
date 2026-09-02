@@ -905,3 +905,102 @@ describe("load-bearing whitespace trimming", () => {
     expect(chosen.text).toBe("")
   })
 })
+
+describe("footnotes wired into the qa format", () => {
+  const doc = [
+    "## Open Questions",
+    "",
+    "### Which API?",
+    "",
+    "- [ ] REST[^fn1]",
+    "- [x] GraphQL",
+    "- [ ] _your answer_",
+    "",
+    "[^fn1]: a reason that lives below the option",
+    "",
+  ].join("\n")
+
+  it("parses the anchored footnote's column, and excludes marker + definition body from the option's text", () => {
+    const { questions } = parseOpenQuestions(doc)
+    const option = questions[0]!.options[0]!
+    expect(option.text).toBe("REST")
+    expect(option.endLine).toBe(4) // the option's own line only, not the definition below it
+  })
+
+  it("still normalizes a ticked free-text option with a trailing marker to ''", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      `- [x] ${FREE_TEXT_PLACEHOLDER}[^fn1]`,
+      "",
+      "[^fn1]: explanation",
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    const chosen = questions[0]!.options.find((o) => o.checked)!
+    expect(chosen.text).toBe("")
+    expect(questions[0]!.answered).toBe(false)
+  })
+
+  it("surfaces all four footnote findings, each with its line", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Q1",
+      "",
+      "orphan marker[^missing]",
+      "",
+      "[^unreferenced]: nobody points here",
+      "[^dup]: first",
+      "[^dup]: second",
+      "[^placeholder]: your comment",
+      "",
+    ].join("\n")
+    // give dup and placeholder markers so only the intended findings fire per name
+    const findings = QA_FORMAT.validate(content)
+    const messages = findings.map((f) => f.message)
+    expect(messages.some((m) => m.includes('"[^missing]" has no matching definition'))).toBe(true)
+    expect(messages.some((m) => m.includes('"[^unreferenced]" has no marker referencing it'))).toBe(
+      true,
+    )
+    expect(messages.some((m) => m.includes('Duplicate footnote definition "[^dup]"'))).toBe(true)
+    expect(
+      messages.some((m) => m.includes('"[^placeholder]" still has its seeded placeholder body')),
+    ).toBe(true)
+    expect(findings.every((f) => f.line !== undefined)).toBe(true)
+  })
+
+  it("outline places a footnote leaf under the option whose span holds its marker", () => {
+    const nodes = QA_FORMAT.outline(doc)
+    const optionNode = nodes[0]!.children!.find((c) => c.name.startsWith("[ ] REST"))!
+    expect(optionNode.children).toHaveLength(1)
+    expect(optionNode.children![0]!.name).toBe("[^fn1] a reason that lives below the option")
+    expect(optionNode.children![0]!.leaf).toBe(true)
+  })
+
+  it("outline places a footnote leaf under the question when its marker is in question-body prose", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "question-level note[^fn1]",
+      "",
+      "- [ ] REST",
+      "- [x] _your answer_",
+      "",
+      "[^fn1]: a reason",
+      "",
+    ].join("\n")
+    const nodes = QA_FORMAT.outline(content)
+    const questionFootnote = nodes[0]!.children!.find((c) => c.name.startsWith("[^fn1]"))!
+    expect(questionFootnote.leaf).toBe(true)
+  })
+
+  it("QA_FORMAT.validate(QA_FORMAT.sample) returns zero findings", () => {
+    expect(QA_FORMAT.validate(QA_FORMAT.sample)).toEqual([])
+  })
+})

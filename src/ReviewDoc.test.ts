@@ -5,6 +5,7 @@ import {
   toggleFilePointer,
   REVIEW_FORMAT,
 } from "./ReviewDoc.js"
+import { parseFootnotes } from "./Footnotes.js"
 
 describe("parseReviewDoc", () => {
   it("parses a well-formed review with one chunk, no explanations", () => {
@@ -1191,5 +1192,151 @@ describe("clearFilePointerTicks", () => {
   it("is total and never throws on an empty or malformed string", () => {
     expect(clearFilePointerTicks("")).toBe("")
     expect(clearFilePointerTicks("not a review doc at all")).toBe("not a review doc at all")
+  })
+})
+
+describe("footnotes wired into the review format", () => {
+  it("excludes a definition below a hunk pointer from that hunk's note and endLine span", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "explanation line",
+      "",
+      "[^fn1]: a definition below the note",
+      "",
+    ].join("\n")
+    const { changesets } = parseReviewDoc(content)
+    const hunk = changesets[0]!.files[0]!
+    expect(hunk.note).toBe("explanation line")
+    expect(hunk.endLine).toBe(6) // "explanation line", not the definition below it
+  })
+
+  it("strips a marker from a hunk's inline note but the marker still parses with its anchor column", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 new add function[^fn1]",
+      "",
+      "[^fn1]: a reason",
+      "",
+    ].join("\n")
+    const { changesets } = parseReviewDoc(content)
+    expect(changesets[0]!.files[0]!.note).toBe("new add function")
+    const { markers } = parseFootnotes(content)
+    expect(markers).toEqual([
+      { name: "fn1", line: 5, character: content.split("\n")[5]!.indexOf("[^fn1]") },
+    ])
+  })
+
+  it("attributes a definition between two hunk pointers to neither hunk's note, and the second hunk still parses", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "first hunk note",
+      "",
+      "[^fn1]: a definition between hunks",
+      "",
+      "- [ ] ./src/index.ts#2",
+      "second hunk note",
+      "",
+    ].join("\n")
+    const { changesets } = parseReviewDoc(content)
+    expect(changesets[0]!.files).toHaveLength(2)
+    expect(changesets[0]!.files[0]!.note).toBe("first hunk note")
+    expect(changesets[0]!.files[1]!.note).toBe("second hunk note")
+    expect(changesets[0]!.files[1]!.path).toBe("./src/index.ts")
+  })
+
+  it("truncates a note at a hand-placed mid-note definition and reports no finding for it", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "first paragraph",
+      "",
+      "[^fn1]: mid-note definition",
+      "",
+      "second paragraph, silently dropped",
+      "",
+    ].join("\n")
+    const { changesets, errors } = parseReviewDoc(content)
+    expect(changesets[0]!.files[0]!.note).toBe("first paragraph")
+    expect(errors.filter((e) => e.toLowerCase().includes("placement"))).toEqual([])
+  })
+
+  it("surfaces all four footnote findings through REVIEW_FORMAT.validate, each with its line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 orphan marker[^missing]",
+      "",
+      "[^unreferenced]: nobody points here",
+      "[^dup]: first",
+      "[^dup]: second",
+      "[^placeholder]: your comment",
+      "",
+    ].join("\n")
+    const findings = REVIEW_FORMAT.validate(content)
+    const messages = findings.map((f) => f.message)
+    expect(messages.some((m) => m.includes('"[^missing]" has no matching definition'))).toBe(true)
+    expect(messages.some((m) => m.includes('"[^unreferenced]" has no marker referencing it'))).toBe(
+      true,
+    )
+    expect(messages.some((m) => m.includes('Duplicate footnote definition "[^dup]"'))).toBe(true)
+    expect(
+      messages.some((m) => m.includes('"[^placeholder]" still has its seeded placeholder body')),
+    ).toBe(true)
+    expect(findings.every((f) => f.line !== undefined)).toBe(true)
+  })
+
+  it("outline lists footnote leaves under their chunk, and a fully-checked chunk still appears when it carries a footnote", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [x] ./src/calc.ts#1 done[^fn1]",
+      "",
+      "[^fn1]: a reason",
+      "",
+    ].join("\n")
+    const nodes = REVIEW_FORMAT.outline(content)
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]!.children).toHaveLength(1)
+    expect(nodes[0]!.children![0]!.name).toBe("[^fn1] a reason")
+    expect(nodes[0]!.children![0]!.leaf).toBe(true)
+  })
+
+  it("clearFilePointerTicks leaves a footnote definition line byte-identical", () => {
+    const content = [
+      "- [x] ./src/calc.ts#1",
+      "",
+      "[^fn1]: a definition line, starting with '[' not '-'",
+      "",
+    ].join("\n")
+    const cleared = clearFilePointerTicks(content)
+    expect(cleared).toContain("[^fn1]: a definition line, starting with '[' not '-'")
+  })
+
+  it("REVIEW_FORMAT.validate(REVIEW_FORMAT.sample) returns zero findings", () => {
+    expect(REVIEW_FORMAT.validate(REVIEW_FORMAT.sample)).toEqual([])
   })
 })

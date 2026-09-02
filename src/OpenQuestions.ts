@@ -1,3 +1,5 @@
+import type { FootnoteMarker } from "./Footnotes.js"
+import { isFootnoteDefinitionLine, parseFootnotes, stripFootnoteMarkers } from "./Footnotes.js"
 import type { SteeringEdit, SteeringFormat, SteeringOutlineNode } from "./SteeringFormat.js"
 
 export type OpenQuestionStatus = "open" | "answered"
@@ -10,16 +12,26 @@ export type OpenQuestionStatus = "open" | "answered"
  */
 export const FREE_TEXT_PLACEHOLDER = "_your answer_"
 
-/** `QA_FORMAT`'s canonical sample: one open question with two options plus the unfilled free-text slot. Not authored to survive any particular formatter. */
+/**
+ * `QA_FORMAT`'s canonical sample: one open question with two options plus the
+ * unfilled free-text slot, and one anchored footnote on an option with a body
+ * over 80 characters — pinned already in oxfmt's own wrapped four-space form
+ * (see `src/SteeringFormats.test.ts`'s formatter round-trip). Not authored to
+ * survive any particular formatter.
+ */
 const QA_SAMPLE = `Sample plan. Add a thing.
 
 ## Open Questions
 
 ### Which option?
 
-- [ ] Option A
+- [ ] Option A[^fn1]
 - [ ] Option B
 - [ ] ${FREE_TEXT_PLACEHOLDER}
+
+[^fn1]:
+    This option keeps the current behavior exactly as it is today, which is the
+    safer default for most reviewers.
 `
 
 /** One checkbox option under an OPEN question: its ticked state, its text (the free-text placeholder normalized to `""`), and its source line span for editor tooling. */
@@ -123,7 +135,9 @@ const itemEndIndex = (body: readonly string[], index: number): number => {
   let end = index
   for (let i = index + 1; i < body.length; i += 1) {
     const line = body[i]!
-    if (line.trim().length === 0 || CHECKBOX_RE.test(line)) break
+    if (line.trim().length === 0 || CHECKBOX_RE.test(line) || isFootnoteDefinitionLine(body, i)) {
+      break
+    }
     end = i
   }
   return end
@@ -141,7 +155,7 @@ const parseOptions = (body: readonly string[], bodyStart: number): QuestionOptio
     if (!match) return
     raw.push({
       checked: match[1] !== " ",
-      text: match[2]!.trim(),
+      text: stripFootnoteMarkers(match[2]!).trim(),
       sourceLine: bodyStart + i,
       bodyIndex: i,
     })
@@ -185,7 +199,10 @@ const parseQuestionBlock = (
     }
   }
 
-  const firstNonBlank = block.body.map((line) => line.trim()).find((line) => line.length > 0) ?? ""
+  const firstNonBlankLine = block.body.find(
+    (line, i) => line.trim().length > 0 && !isFootnoteDefinitionLine(block.body, i),
+  )
+  const firstNonBlank = firstNonBlankLine ? stripFootnoteMarkers(firstNonBlankLine.trim()) : ""
   const options = status === "open" ? parseOptions(block.body, block.headingLine + 1) : []
 
   return {
@@ -290,19 +307,56 @@ const statusMarker = (question: OpenQuestion): string => {
   return question.answered ? "[answered]" : "[unanswered]"
 }
 
-/** The outline tree for a `qa`-mode file's open/answered questions, each option a `leaf: true` child of its open question. */
+/** One footnote marker rendered as an outline leaf: `[^name] <body>`. */
+const footnoteLeaf = (
+  lines: readonly string[],
+  definitionByName: ReadonlyMap<string, string>,
+  marker: FootnoteMarker,
+): SteeringOutlineNode => ({
+  name: `[^${marker.name}] ${definitionByName.get(marker.name) ?? ""}`.trim(),
+  range: lineRange(lines, marker.line),
+  selectionRange: lineRange(lines, marker.line),
+  leaf: true,
+})
+
+/**
+ * The outline tree for a `qa`-mode file's open/answered questions, each
+ * option a `leaf: true` child of its open question. A footnote is a further
+ * `leaf: true` child of whichever node's span contains its marker — an
+ * option when the marker sits inside that option's span, otherwise the
+ * question itself.
+ */
 const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { questions } = parseOpenQuestions(content)
+  const { markers, definitions } = parseFootnotes(content)
+  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   const lines = content.split(/\r?\n/)
   return questions.map((question, i) => {
     const start = question.headingLine
     const end = Math.max(start, (questions[i + 1]?.headingLine ?? lines.length) - 1)
-    const children: SteeringOutlineNode[] = question.options.map((option) => ({
-      name: `${option.checked ? "[x]" : "[ ]"} ${option.text || "your answer"}`,
-      range: spanRange(lines, option.sourceLine, option.endLine),
-      selectionRange: lineRange(lines, option.sourceLine),
-      leaf: true,
-    }))
+    const questionMarkers = markers.filter((m) => m.line >= start && m.line <= end)
+    const assigned = new Set<FootnoteMarker>()
+
+    const optionChildren: SteeringOutlineNode[] = question.options.map((option) => {
+      const optionMarkers = questionMarkers.filter(
+        (m) => m.line >= option.sourceLine && m.line <= option.endLine,
+      )
+      optionMarkers.forEach((m) => assigned.add(m))
+      const footnotes = optionMarkers.map((m) => footnoteLeaf(lines, definitionByName, m))
+      return {
+        name: `${option.checked ? "[x]" : "[ ]"} ${option.text || "your answer"}`,
+        range: spanRange(lines, option.sourceLine, option.endLine),
+        selectionRange: lineRange(lines, option.sourceLine),
+        leaf: true,
+        ...(footnotes.length > 0 ? { children: footnotes } : {}),
+      }
+    })
+
+    const questionFootnotes = questionMarkers
+      .filter((m) => !assigned.has(m))
+      .map((m) => footnoteLeaf(lines, definitionByName, m))
+    const children = [...optionChildren, ...questionFootnotes]
+
     return {
       name: `${statusMarker(question)} ${question.question}`,
       detail: question.text,
@@ -363,10 +417,13 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
   return actions
 }
 
-/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, and code actions, no `pointerAt` (an open question's options have nothing to jump to). Its one finding is always positionless — this format has no notion of a per-line problem. */
+/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, and code actions, no `pointerAt` (an open question's options have nothing to jump to). Its structural findings are positionless, but a footnote finding carries the offending marker's or definition's `line`. */
 export const QA_FORMAT: SteeringFormat = {
   sample: QA_SAMPLE,
-  validate: (content) => parseOpenQuestions(content).errors.map((message) => ({ message })),
+  validate: (content) => [
+    ...parseOpenQuestions(content).errors.map((message) => ({ message })),
+    ...parseFootnotes(content).findings,
+  ],
   outline: questionsOutline,
   actions: questionActions,
 }

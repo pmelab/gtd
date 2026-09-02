@@ -1,3 +1,5 @@
+import type { FootnoteMarker } from "./Footnotes.js"
+import { isFootnoteDefinitionLine, parseFootnotes, stripFootnoteMarkers } from "./Footnotes.js"
 import type {
   SteeringEdit,
   SteeringFinding,
@@ -34,16 +36,23 @@ export interface ReviewDoc {
 
 /**
  * `REVIEW_FORMAT`'s canonical sample — a minimal, valid `review`-mode
- * document: the header, the base comment, and one chunk with one file
- * pointer. Deliberately not authored to survive any particular formatter.
+ * document: the header, the base comment, one chunk with one file pointer,
+ * and one anchored footnote on that hunk's note with a body over 80
+ * characters — pinned already in oxfmt's own wrapped four-space form (see
+ * `src/SteeringFormats.test.ts`'s formatter round-trip). Deliberately not
+ * authored to survive any particular formatter beyond that.
  */
 const REVIEW_SAMPLE = `# Review: sample123
+
 <!-- base: 0000000000000000000000000000000000000000 -->
 
 ## Sample chunk
 
-- [ ] ./sample.ts#1
-what this hunk does
+- [ ] ./sample.ts#1 what this hunk does[^fn1]
+
+[^fn1]:
+    This note explains why the hunk exists in more detail than fits on one line
+    for a reviewer.
 `
 
 const HEADER_RE = /^#\s+Review:\s*(\S+)\s*$/
@@ -141,20 +150,30 @@ interface BodyLine {
  * next pointer/heading isn't absorbed.
  */
 const pointerEndIndex = (body: readonly BodyLine[], index: number): number => {
+  const texts = body.map((b) => b.text)
   let end = index
   for (let i = index + 1; i < body.length; i += 1) {
     const trimmed = body[i]!.text.trim()
     if (trimmed.length === 0) continue
-    if (parseFilePointer(trimmed, body[i]!.line)) break
+    if (parseFilePointer(trimmed, body[i]!.line) || isFootnoteDefinitionLine(texts, i)) break
     end = i
   }
   return end
 }
 
-/** Joins a pointer's gathered explanation: every non-blank line strictly between `startIndex` and `endIndex` (inclusive), each stripped of a leading dash, joined with a single space. */
+/**
+ * Joins a pointer's gathered explanation: every non-blank line strictly
+ * between `startIndex` and `endIndex` (inclusive), each stripped of a
+ * leading dash, joined with a single space. A footnote definition line (and
+ * its continuations) is never gathered — `pointerEndIndex` already stops the
+ * span before reaching one, so this skip only matters for a definition that
+ * begins exactly at `endIndex` itself.
+ */
 const gatherNote = (body: readonly BodyLine[], startIndex: number, endIndex: number): string => {
+  const texts = body.map((b) => b.text)
   const noteLines: string[] = []
   for (let j = startIndex + 1; j <= endIndex; j += 1) {
+    if (isFootnoteDefinitionLine(texts, j)) continue
     const t = body[j]!.text.trim()
     if (t.length > 0) noteLines.push(t.replace(NOTE_SEPARATOR_RE, ""))
   }
@@ -203,7 +222,9 @@ const parsePointerSpan = (
   const endIndex = pointerEndIndex(body, index)
   const inlineSegment = (pointer.inlineNote ?? "").replace(NOTE_SEPARATOR_RE, "")
   const belowNote = gatherNote(body, index, endIndex)
-  const note = [inlineSegment, belowNote].filter((segment) => segment.length > 0).join(" ")
+  const note = stripFootnoteMarkers(
+    [inlineSegment, belowNote].filter((segment) => segment.length > 0).join(" "),
+  )
   const { inlineNote: _inlineNote, ...pointerFields } = pointer
   const file: ReviewFile = {
     ...pointerFields,
@@ -233,10 +254,11 @@ const parseChunkBody = (
   const files: ReviewFile[] = []
   const errors: SteeringFinding[] = []
   const descriptionLines: string[] = []
+  const texts = body.map((b) => b.text)
   let i = 0
   while (i < body.length) {
     const trimmed = body[i]!.text.trim()
-    if (trimmed.length === 0) {
+    if (trimmed.length === 0 || isFootnoteDefinitionLine(texts, i)) {
       i += 1
       continue
     }
@@ -384,20 +406,45 @@ const spanRange = (lines: readonly string[], startLine: number, endLine: number)
   end: { line: endLine, character: (lines[endLine] ?? "").length },
 })
 
-/** Document outline for `.gtd/REVIEW.md`: only the headlines of chunks (the user-facing "work packages") that still carry at least one unchecked hunk — the outline is the list of packages left to review, nothing else. No children — a chunk headline is the whole node. */
+/** One footnote marker rendered as an outline leaf: `[^name] <body>`. */
+const footnoteLeaf = (
+  lines: readonly string[],
+  definitionByName: ReadonlyMap<string, string>,
+  marker: FootnoteMarker,
+): SteeringOutlineNode => ({
+  name: `[^${marker.name}] ${definitionByName.get(marker.name) ?? ""}`.trim(),
+  range: lineRange(lines, marker.line),
+  selectionRange: lineRange(lines, marker.line),
+  leaf: true,
+})
+
+/**
+ * Document outline for `.gtd/REVIEW.md`: the headlines of chunks (the
+ * user-facing "work packages") that still carry at least one unchecked hunk
+ * — the outline is the list of packages left to review — PLUS any chunk
+ * that carries at least one footnote, even when every hunk in it is ticked:
+ * `reviewOutline` otherwise drops a fully-checked chunk, which would make a
+ * human's own comment vanish the moment they tick the last box. A chunk's
+ * footnotes are `leaf: true` children; a chunk with none has no children.
+ */
 const reviewOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { changesets } = parseReviewDoc(content)
+  const { markers, definitions } = parseFootnotes(content)
+  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   const lines = content.split(/\r?\n/)
   return changesets
     .map((chunk, i) => {
       const start = chunk.headingLine
       const end = Math.max(start, (changesets[i + 1]?.headingLine ?? lines.length) - 1)
       const checkedCount = chunk.files.filter((file) => file.checked).length
+      const chunkMarkers = markers.filter((m) => m.line >= start && m.line <= end)
+      const children = chunkMarkers.map((m) => footnoteLeaf(lines, definitionByName, m))
       return {
         name: `${chunk.title} (${checkedCount}/${chunk.files.length})`,
         range: spanRange(lines, start, end),
         selectionRange: lineRange(lines, start),
-        unchecked: checkedCount < chunk.files.length,
+        ...(children.length > 0 ? { children } : {}),
+        unchecked: checkedCount < chunk.files.length || chunkMarkers.length > 0,
       }
     })
     .filter((node) => node.unchecked)
@@ -496,7 +543,10 @@ const reviewPointerAt = (
 
 export const REVIEW_FORMAT: SteeringFormat = {
   sample: REVIEW_SAMPLE,
-  validate: (content) => parseReviewFindings(content).findings,
+  validate: (content) => [
+    ...parseReviewFindings(content).findings,
+    ...parseFootnotes(content).findings,
+  ],
   outline: reviewOutline,
   actions: reviewActions,
   pointerAt: reviewPointerAt,
