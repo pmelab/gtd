@@ -11,7 +11,7 @@ current paragraph" can land the definition in the MIDDLE of a note — and the
 parser must then break the span there, silently truncating the note to its first
 paragraph and orphaning the rest.
 
-- [ ] Below the whole hunk span — the last non-blank line before the next
+- [x] Below the whole hunk span — the last non-blank line before the next
       pointer or `##` heading. The note stays intact; the definition may sit
       several paragraphs away from its marker
 - [ ] Below the current paragraph, and teach the note parser to SKIP a
@@ -22,7 +22,7 @@ paragraph and orphaning the rest.
 
 ### Is "the definition sits directly below its annotated block" a validated rule or only where the code action puts it?
 
-- [ ] Code-action convention only — the parser accepts a definition anywhere in
+- [x] Code-action convention only — the parser accepts a definition anywhere in
       the document, matched to its marker by NAME alone. A hand-placed footnote
       never refuses a turn
 - [ ] A fourth validator finding — a definition not directly below the block
