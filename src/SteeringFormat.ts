@@ -62,8 +62,9 @@ export interface SteeringFinding {
  * build its outline, offer code actions at a range, and (optionally) resolve
  * a cursor position to a pointer elsewhere. `validate` returns the same
  * `findings` shape `gtd validate` and the capture gate both consume (empty =
- * valid). `pointerAt` is absent for a format with nothing to jump to (`qa`
- * has none; `review` does).
+ * valid). `pointerAt` is absent for a format with nothing to jump to; both
+ * built-ins declare one — `qa` for footnote jumps only, `review` for
+ * footnote jumps plus its hunk-pointer jump into another file.
  */
 export interface SteeringFormat {
   /**
