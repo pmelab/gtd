@@ -99,7 +99,11 @@ describe("parseFootnotes", () => {
     const content = "orphan marker[^fn1] here"
     const { findings } = parseFootnotes(content)
     expect(findings).toEqual([
-      { message: 'Footnote marker "[^fn1]" has no matching definition', line: 0 },
+      {
+        message: 'Footnote marker "[^fn1]" has no matching definition',
+        line: 0,
+        range: { start: { line: 0, character: 13 }, end: { line: 0, character: 19 } },
+      },
     ])
   })
 
@@ -107,14 +111,22 @@ describe("parseFootnotes", () => {
     const content = "no markers here\n\n[^fn1]: orphan definition"
     const { findings } = parseFootnotes(content)
     expect(findings).toEqual([
-      { message: 'Footnote definition "[^fn1]" has no marker referencing it', line: 2 },
+      {
+        message: 'Footnote definition "[^fn1]" has no marker referencing it',
+        line: 2,
+        range: { start: { line: 2, character: 0 }, end: { line: 2, character: 25 } },
+      },
     ])
   })
 
   it("reports a duplicate definition name at the second definition's line", () => {
     const content = ["a[^fn1]", "", "[^fn1]: first", "[^fn1]: second"].join("\n")
     const { findings } = parseFootnotes(content)
-    expect(findings).toContainEqual({ message: 'Duplicate footnote definition "[^fn1]"', line: 3 })
+    expect(findings).toContainEqual({
+      message: 'Duplicate footnote definition "[^fn1]"',
+      line: 3,
+      range: { start: { line: 3, character: 0 }, end: { line: 3, character: 14 } },
+    })
   })
 
   it("reports a definition whose body is still the seeded placeholder", () => {
@@ -123,6 +135,7 @@ describe("parseFootnotes", () => {
     expect(findings).toContainEqual({
       message: 'Footnote definition "[^fn1]" still has its seeded placeholder body',
       line: 2,
+      range: { start: { line: 2, character: 0 }, end: { line: 2, character: 20 } },
     })
   })
 
@@ -187,7 +200,11 @@ describe("parseFootnotes", () => {
       const { findings, markers } = parseFootnotes(content)
       expect(markers).toEqual([{ name: "fn1", line: 0, character: 9, endCharacter: 15 }])
       expect(findings).toEqual([
-        { message: 'Footnote marker "[^fn1]" has no matching definition', line: 0 },
+        {
+          message: 'Footnote marker "[^fn1]" has no matching definition',
+          line: 0,
+          range: { start: { line: 0, character: 9 }, end: { line: 0, character: 15 } },
+        },
       ])
     })
 
@@ -393,6 +410,7 @@ describe("case-insensitive definition matching", () => {
     expect(findings).toContainEqual({
       message: 'Footnote definition "[^FN1]" has no marker referencing it',
       line: 2,
+      range: { start: { line: 2, character: 0 }, end: { line: 2, character: 25 } },
     })
   })
 })

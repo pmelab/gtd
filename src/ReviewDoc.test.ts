@@ -37,7 +37,7 @@ describe("parseReviewDoc", () => {
           ],
         },
       ],
-      errors: [],
+      findings: [],
     })
   })
 
@@ -58,7 +58,7 @@ describe("parseReviewDoc", () => {
     ].join("\n")
 
     const result = parseReviewDoc(content)
-    expect(result.errors).toEqual([])
+    expect(result.findings).toEqual([])
     expect(result.changesets).toEqual([
       {
         title: "Add calculator",
@@ -221,7 +221,7 @@ describe("parseReviewDoc", () => {
     ].join("\n")
     const result = parseReviewDoc(content)
     expect(result.shortHash).toBeUndefined()
-    expect(result.errors).toContain(
+    expect(result.findings.map((f) => f.message)).toContain(
       "Missing or malformed '# Review: <hash>' header as the document's first line",
     )
   })
@@ -237,7 +237,9 @@ describe("parseReviewDoc", () => {
     ].join("\n")
     const result = parseReviewDoc(content)
     expect(result.fullHash).toBeUndefined()
-    expect(result.errors).toContain("Missing '<!-- base: <hash> -->' comment")
+    expect(result.findings.map((f) => f.message)).toContain(
+      "Missing '<!-- base: <hash> -->' comment",
+    )
   })
 
   it("errors when a chunk has no file pointers", () => {
@@ -251,7 +253,9 @@ describe("parseReviewDoc", () => {
       "",
     ].join("\n")
     const result = parseReviewDoc(content)
-    expect(result.errors).toContain('Chunk "Add calculator" has no file pointers')
+    expect(result.findings.map((f) => f.message)).toContain(
+      'Chunk "Add calculator" has no file pointers',
+    )
     expect(result.changesets).toEqual([
       {
         title: "Add calculator",
@@ -271,13 +275,13 @@ describe("parseReviewDoc", () => {
       "",
     ].join("\n")
     const result = parseReviewDoc(content)
-    expect(result.errors).toContain("REVIEW.md has no '##' chunks")
+    expect(result.findings.map((f) => f.message)).toContain("REVIEW.md has no '##' chunks")
     expect(result.changesets).toEqual([])
   })
 
   it("collects all applicable errors at once for a fully malformed document", () => {
     const result = parseReviewDoc("Just some text\n")
-    expect(result.errors).toEqual([
+    expect(result.findings.map((f) => f.message)).toEqual([
       "Missing or malformed '# Review: <hash>' header as the document's first line",
       "Missing '<!-- base: <hash> -->' comment",
       "REVIEW.md has no '##' chunks",
@@ -296,7 +300,7 @@ describe("parseReviewDoc", () => {
       "",
     ].join("\n")
     const result = parseReviewDoc(content)
-    expect(result.errors).toEqual([])
+    expect(result.findings).toEqual([])
     expect(result.changesets[0]?.files).toEqual([
       {
         path: "./src/server/email/budget-threshold.ts",
@@ -387,8 +391,8 @@ describe("parseReviewDoc — a same-line note (trailing the pointer on its own l
       "- [ ] ./src/Edge.ts#42 — what this hunk does",
       "",
     ].join("\n")
-    const errors = parseReviewDoc(content).errors
-    expect(errors.some((e) => e.includes("no file pointers"))).toBe(false)
+    const messages = parseReviewDoc(content).findings.map((f) => f.message)
+    expect(messages.some((m) => m.includes("no file pointers"))).toBe(false)
   })
 
   it("a hyphen inside a filename is never read as a separator — the separator is only recognized after whitespace splits it from the path", () => {
@@ -466,6 +470,7 @@ describe("parseReviewDoc — a note starting with a second pointer is a position
         message:
           'Chunk "Add thing.ts" hunk ./a.ts#1\'s note starts with a second pointer (./b.ts#2) — give it its own "- [ ]" line',
         line: 5,
+        range: { start: { line: 5, character: 15 }, end: { line: 5, character: 23 } },
       },
     ])
   })
@@ -485,6 +490,7 @@ describe("parseReviewDoc — a note starting with a second pointer is a position
         message:
           'Chunk "Add thing.ts" hunk ./a.ts#1\'s note starts with a second pointer (./b.ts#2) — give it its own "- [ ]" line',
         line: 5,
+        range: { start: { line: 5, character: 17 }, end: { line: 5, character: 25 } },
       },
     ])
   })
@@ -636,18 +642,20 @@ describe("toggleFilePointer", () => {
 })
 
 describe("REVIEW_FORMAT", () => {
-  it("validate delegates to the review findings, header/base-comment/no-chunks findings carrying no line", () => {
+  it("validate delegates to the review findings — the header finding spans the wrong first block node, base/no-chunks findings carry no line", () => {
     expect(REVIEW_FORMAT.validate(reviewDoc)).toEqual([])
     expect(REVIEW_FORMAT.validate("Just some text\n")).toEqual([
       {
         message: "Missing or malformed '# Review: <hash>' header as the document's first line",
+        line: 0,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 14 } },
       },
       { message: "Missing '<!-- base: <hash> -->' comment" },
       { message: "REVIEW.md has no '##' chunks" },
     ])
   })
 
-  it("no-file-pointers finding also carries no line", () => {
+  it("no-file-pointers finding spans the chunk's own heading node", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -658,7 +666,11 @@ describe("REVIEW_FORMAT", () => {
       "",
     ].join("\n")
     expect(REVIEW_FORMAT.validate(content)).toEqual([
-      { message: 'Chunk "Add calculator" has no file pointers' },
+      {
+        message: 'Chunk "Add calculator" has no file pointers',
+        line: 3,
+        range: { start: { line: 3, character: 0 }, end: { line: 3, character: 17 } },
+      },
     ])
   })
 
@@ -923,12 +935,12 @@ describe("REVIEW_FORMAT.outline — last-chunk end-of-range fallback", () => {
     return (trailingNewline ? [...lines, ""] : lines).join("\n")
   }
 
-  it("the last chunk's outline range ends at the document's last line when the doc has a trailing newline", () => {
+  it("the last chunk's outline range ends at its own last block, not the trailing blank line", () => {
     const content = threeChunkLines(true)
     const nodes = REVIEW_FORMAT.outline(content)
     const last = nodes[nodes.length - 1]!
     expect(last.name).toBe("Chunk Three (0/1)")
-    expect(last.range.end.line).toBe(14)
+    expect(last.range.end.line).toBe(13)
   })
 
   it("the last chunk's outline range still ends correctly when the doc has NO trailing newline", () => {
@@ -998,12 +1010,17 @@ describe("ReviewDoc — inline-segment whitespace splitting", () => {
       ].join("\n")
     const singleSpace = build(" ")
     const multiSpace = build("   ")
-    expect(REVIEW_FORMAT.validate(multiSpace)).toEqual(REVIEW_FORMAT.validate(singleSpace))
+    // The GAP differs, so the second token's own column differs too — only
+    // the message (and the fact that a range was found at all) is common.
+    expect(REVIEW_FORMAT.validate(multiSpace).map((f) => f.message)).toEqual(
+      REVIEW_FORMAT.validate(singleSpace).map((f) => f.message),
+    )
     expect(REVIEW_FORMAT.validate(singleSpace)).toEqual([
       {
         message:
           'Chunk "Add thing.ts" hunk ./a.ts#1\'s note starts with a second pointer (./b.ts#2) — give it its own "- [ ]" line',
         line: 5,
+        range: { start: { line: 5, character: 15 }, end: { line: 5, character: 23 } },
       },
     ])
   })
@@ -1293,9 +1310,9 @@ describe("footnotes wired into the review format", () => {
       "second paragraph, silently dropped",
       "",
     ].join("\n")
-    const { changesets, errors } = parseReviewDoc(content)
+    const { changesets, findings } = parseReviewDoc(content)
     expect(changesets[0]!.files[0]!.note).toBe("first paragraph")
-    expect(errors.filter((e) => e.toLowerCase().includes("placement"))).toEqual([])
+    expect(findings.filter((f) => f.message.toLowerCase().includes("placement"))).toEqual([])
   })
 
   it("surfaces all four footnote findings through REVIEW_FORMAT.validate, each with its line", () => {
@@ -1372,11 +1389,11 @@ describe("footnotes wired into the review format", () => {
       "[^fn1]: reason",
       "",
     ].join("\n")
-    const { changesets, errors } = parseReviewDoc(content)
+    const { changesets, findings } = parseReviewDoc(content)
     const hunk = changesets[0]!.files[0]!
     expect(hunk.path).toBe("./a.ts")
     expect(hunk.line).toBe(1)
-    expect(errors).toEqual([])
+    expect(findings).toEqual([])
     expect(REVIEW_FORMAT.pointerAt!(content, { line: hunk.sourceLine, character: 0 })).toEqual({
       path: "./a.ts",
       line: 0,
@@ -1526,7 +1543,7 @@ describe("ReviewDoc — header, base comment, and chunk headings come from nodes
     ].join("\n")
     const result = parseReviewDoc(content)
     expect(result.shortHash).toBeUndefined()
-    expect(result.errors).toContain(
+    expect(result.findings.map((f) => f.message)).toContain(
       "Missing or malformed '# Review: <hash>' header as the document's first line",
     )
   })
@@ -1544,7 +1561,7 @@ describe("ReviewDoc — header, base comment, and chunk headings come from nodes
     ].join("\n")
     const result = parseReviewDoc(content)
     expect(result.fullHash).toBe("abc1234def5678901234567890123456789abcd")
-    expect(result.errors).toEqual([])
+    expect(result.findings).toEqual([])
   })
 
   it("a '## ' chunk heading inside a fence is not a chunk", () => {

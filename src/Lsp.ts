@@ -13,6 +13,7 @@ import {
   type CodeAction,
   type Connection,
   type Diagnostic,
+  type DocumentLink,
   type DocumentSymbol,
   type InitializeParams,
   type InitializeResult,
@@ -39,6 +40,7 @@ import {
 import type {
   SteeringAction,
   SteeringFinding,
+  SteeringLink,
   SteeringOutlineNode,
   SteeringPointer,
 } from "./SteeringFormat.js"
@@ -88,14 +90,15 @@ export const toLocation =
     },
   })
 
-/** One `SteeringFinding` → a `Diagnostic`: a positioned finding underlines exactly its own line, a positionless one spans the whole document. Not exported on its own — `diagnosticsFor`'s tests cover it in context. */
+/** One `SteeringFinding` → a `Diagnostic`: a finding's own `range` hands straight through (it already spans the node the finding is about), a `line` with no `range` falls back to that whole line, and a positionless finding spans the whole document. Not exported on its own — `diagnosticsFor`'s tests cover it in context. */
 const toDiagnostic =
   (lines: readonly string[]) =>
   (finding: SteeringFinding): Diagnostic => ({
     range:
-      finding.line !== undefined
+      finding.range ??
+      (finding.line !== undefined
         ? spanRange(lines, finding.line, finding.line)
-        : spanRange(lines, 0, Math.max(0, lines.length - 1)),
+        : spanRange(lines, 0, Math.max(0, lines.length - 1))),
     message: finding.message,
     severity: DiagnosticSeverity.Warning,
     source: "gtd",
@@ -123,6 +126,24 @@ export const diagnosticsFor = (
     return [externalValidatorNotice(resolved.mode, resolved.validate.command)]
   }
   return []
+}
+
+/** A `SteeringLink` → a `DocumentLink`, resolving its target file against `root` — same resolution `toLocation` already does for a foreign `pointerAt` jump. `line` is 0-based; the target URI's `#L<line+1>` fragment names the 1-based line, mirroring a familiar (GitHub-style) file-link convention. */
+export const toDocumentLink =
+  (root: string) =>
+  (link: SteeringLink): DocumentLink => ({
+    range: link.range,
+    target: `${pathToFileURL(resolvePath(root, link.path)).toString()}#L${link.line + 1}`,
+  })
+
+/** Document links for one document, given its resolved mode and `root` (needed to resolve each link's target path). `undefined` mode, or a format declaring no `documentLinks` (`qa`), yields none. */
+export const documentLinksFor = (
+  resolved: ResolvedMode | undefined,
+  content: string,
+  root: string,
+): DocumentLink[] => {
+  const caps = steeringCapabilities(resolved)
+  return (caps.format?.documentLinks?.(content) ?? []).map(toDocumentLink(root))
 }
 
 // ── Config-driven path→mode dispatch (pure) ─────────────────────────────────
@@ -253,6 +274,7 @@ export interface SteeringLanguageService {
   readonly codeAction: (uri: string, text: string, range: Range) => Promise<CodeAction[]>
   readonly definition: (uri: string, text: string, position: Position) => Promise<Location[]>
   readonly diagnostics: (uri: string, text: string) => Promise<Diagnostic[]>
+  readonly documentLink: (uri: string, text: string) => Promise<DocumentLink[]>
   readonly executeCommand: (
     command: string,
     args: ReadonlyArray<unknown> | undefined,
@@ -306,6 +328,7 @@ export const makeSteeringLanguageService = (
           documentSymbolProvider: true,
           codeActionProvider: true,
           definitionProvider: true,
+          documentLinkProvider: { resolveProvider: false },
           executeCommandProvider: { commands: [OPEN_STEERING_FILE_COMMAND] },
         },
       }
@@ -335,6 +358,13 @@ export const makeSteeringLanguageService = (
       return diagnosticsFor(resolvedModeForDocument(uri, map), text)
     },
 
+    documentLink: async (uri, text) => {
+      const map = await safeSteeringMap(rootFor(uri))
+      const root = (await safeGitTopLevel(dirname(fileURLToPath(uri)))) ?? workspaceRoot
+      if (root === undefined) return []
+      return documentLinksFor(resolvedModeForDocument(uri, map), text, root)
+    },
+
     executeCommand: async (command) => {
       if (command !== OPEN_STEERING_FILE_COMMAND) return { kind: "unknown" }
       const root = workspaceRoot ?? env.cwd
@@ -361,6 +391,7 @@ export type SteeringConnection = Pick<
   | "onDocumentSymbol"
   | "onCodeAction"
   | "onDefinition"
+  | "onDocumentLinks"
   | "onExecuteCommand"
   | "sendDiagnostics"
   | "console"
@@ -403,6 +434,11 @@ export const bindSteeringServer = (
   connection.onDefinition(async (params) => {
     const document = documents.get(params.textDocument.uri)
     return document ? service.definition(document.uri, document.getText(), params.position) : []
+  })
+
+  connection.onDocumentLinks(async (params) => {
+    const document = documents.get(params.textDocument.uri)
+    return document ? service.documentLink(document.uri, document.getText()) : []
   })
 
   connection.onExecuteCommand(async (params) => {

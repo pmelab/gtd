@@ -904,6 +904,57 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "path-shim:"
     And stderr contains the gtd version under test
 
+  @live
+  Scenario: a validate: that shells out to `gtd check qa` returns each finding as an opaque message with the column riding inside the text, not a structured position
+    # A shell command's findings can never carry gtd's own line/column
+    # fields — SteeringMode.ts's findingsFrom wraps each stdout line as a bare
+    # `{ message }`. Package 04's settled scope: `gtd check`'s own
+    # `file:line:col:` prefix still shows up, but only INSIDE that message
+    # text, exactly as the line number already did before this package.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          qa:
+            validate: "gtd check qa '<%= it.file %>'"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": drafting
+              drafting:
+                actor: agent
+                prompt: "Write the plan."
+                file: docs/PLAN.md
+                mode: qa
+                on:
+                  "* **": idle
+      """
+    And a commit "gtd(human): drafting" that adds ".gtd/docs/PLAN.md" with:
+      """
+      Build a thing.
+
+      ## Answered Questions
+
+      ### Already resolved?
+
+      Yes.
+
+      ## Notes
+
+      some notes.
+      """
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains ".gtd/docs/PLAN.md:9:1: A '##' section appears after '## Answered Questions', which must come last"
+
   # ── The mode-contradiction round-trip (package 2, Requirement B) ──────────
   # A mode whose declared `format:` breaks its own validator is a config bug
   # gtd can detect mechanically: format a copy of the built-in format's own

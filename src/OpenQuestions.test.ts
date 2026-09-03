@@ -11,14 +11,14 @@ describe("parseOpenQuestions", () => {
   it("returns zero questions and zero errors when there is no questions section", () => {
     expect(parseOpenQuestions("# Plan\n\nBuild a calculator.\n")).toEqual({
       questions: [],
-      errors: [],
+      findings: [],
     })
   })
 
   it("returns zero questions and zero errors when the Open Questions section is present but empty", () => {
     expect(parseOpenQuestions("# Plan\n\nBuild a calculator.\n\n## Open Questions\n")).toEqual({
       questions: [],
-      errors: [],
+      findings: [],
     })
   })
 
@@ -46,7 +46,7 @@ describe("parseOpenQuestions", () => {
           answered: false,
         },
       ],
-      errors: [],
+      findings: [],
     })
   })
 
@@ -70,7 +70,7 @@ describe("parseOpenQuestions", () => {
           answered: false,
         },
       ],
-      errors: [],
+      findings: [],
     })
   })
 
@@ -87,7 +87,7 @@ describe("parseOpenQuestions", () => {
           answered: false,
         },
       ],
-      errors: [],
+      findings: [],
     })
   })
 
@@ -117,7 +117,7 @@ describe("parseOpenQuestions", () => {
           answered: false,
         },
       ],
-      errors: [],
+      findings: [],
     })
   })
 
@@ -125,7 +125,7 @@ describe("parseOpenQuestions", () => {
     const content = ["## Open Questions", "", "###", "", "some body.", ""].join("\n")
     const result = parseOpenQuestions(content)
     expect(result.questions).toEqual([])
-    expect(result.errors).toEqual([
+    expect(result.findings.map((f) => f.message)).toEqual([
       "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
     ])
   })
@@ -152,7 +152,7 @@ describe("parseOpenQuestions", () => {
         answered: false,
       },
     ])
-    expect(result.errors).toHaveLength(1)
+    expect(result.findings).toHaveLength(1)
   })
 
   describe("checkbox options", () => {
@@ -261,7 +261,7 @@ describe("parseOpenQuestions", () => {
         "add and subtract.",
         "",
       ].join("\n")
-      expect(parseOpenQuestions(content).errors).toEqual([
+      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([
         "A '##' section appears before '## Open Questions', which must come first",
       ])
     })
@@ -279,7 +279,7 @@ describe("parseOpenQuestions", () => {
         "some notes.",
         "",
       ].join("\n")
-      expect(parseOpenQuestions(content).errors).toEqual([
+      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([
         "A '##' section appears after '## Answered Questions', which must come last",
       ])
     })
@@ -301,7 +301,7 @@ describe("parseOpenQuestions", () => {
         "add and subtract.",
         "",
       ].join("\n")
-      expect(parseOpenQuestions(content).errors).toEqual([
+      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([
         "A '##' section appears before '## Open Questions', which must come first",
       ])
     })
@@ -321,7 +321,7 @@ describe("parseOpenQuestions", () => {
         "add and subtract.",
         "",
       ].join("\n")
-      expect(parseOpenQuestions(content).errors).toEqual([
+      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([
         "A '##' section appears before '## Open Questions', which must come first",
         "A '##' section appears after '## Answered Questions', which must come last",
       ])
@@ -329,19 +329,19 @@ describe("parseOpenQuestions", () => {
 
     it("reports no ordering finding with only '## Open Questions' present", () => {
       const content = ["## Open Questions", "", "### Which operations?", "", "add.", ""].join("\n")
-      expect(parseOpenQuestions(content).errors).toEqual([])
+      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
     })
 
     it("reports no ordering finding with only '## Answered Questions' present", () => {
       const content = ["## Answered Questions", "", "### Already resolved?", "", "Yes.", ""].join(
         "\n",
       )
-      expect(parseOpenQuestions(content).errors).toEqual([])
+      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
     })
 
     it("reports no ordering finding when neither section is present", () => {
       const content = ["## Implementation Notes", "", "some notes.", ""].join("\n")
-      expect(parseOpenQuestions(content).errors).toEqual([])
+      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
     })
 
     it("reports no finding for lead prose and a level-1 title above '## Open Questions'", () => {
@@ -357,7 +357,7 @@ describe("parseOpenQuestions", () => {
         "add and subtract.",
         "",
       ].join("\n")
-      expect(parseOpenQuestions(content).errors).toEqual([])
+      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
     })
   })
 
@@ -524,12 +524,14 @@ describe("QA_FORMAT", () => {
     "",
   ].join("\n")
 
-  it("validate delegates to parseOpenQuestions's errors, each wrapped as a positionless finding", () => {
+  it("validate delegates to parseOpenQuestions's findings, the bare-heading finding spanning the heading node", () => {
     const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
     expect(QA_FORMAT.validate(malformed)).toEqual([
       {
         message:
           "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+        line: 2,
+        range: { start: { line: 2, character: 0 }, end: { line: 2, character: 3 } },
       },
     ])
     expect(QA_FORMAT.validate(questionsDoc)).toEqual([])
@@ -723,12 +725,13 @@ describe("QA_FORMAT.outline fold end (last question)", () => {
     "",
   ].join("\n")
 
-  it("clamps the last question's range.end.line to the last line when there is no next heading", () => {
+  it("ends the last question's range at its own last block, not the trailing blank run", () => {
     const nodes = QA_FORMAT.outline(threeQuestions)
     expect(nodes).toHaveLength(3)
     // lines: 0..13 (14 lines total, trailing "" from the trailing "\n"), last
-    // heading is at line 10, so end must fall back to lines.length - 1 = 13.
-    expect(nodes[2]?.range.end.line).toBe(13)
+    // heading is at line 10, its own last block ("a3.") is at line 12 — the
+    // trailing blank line (13) is never part of the section's real span.
+    expect(nodes[2]?.range.end.line).toBe(12)
   })
 
   it("clamps the last question's range.end.line to the true last line when the fixture has no trailing newline", () => {
@@ -1230,7 +1233,7 @@ describe("sections and questions come from heading NODES, not string search", ()
       "",
     ].join("\n")
     const result = parseOpenQuestions(content)
-    expect(result.errors).toEqual([])
+    expect(result.findings).toEqual([])
     expect(result.questions).toEqual([
       {
         question: "Real question?",
@@ -1256,7 +1259,7 @@ describe("sections and questions come from heading NODES, not string search", ()
       "an answer.",
       "",
     ].join("\n")
-    expect(parseOpenQuestions(content).errors).toEqual([])
+    expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
   })
 })
 
@@ -1270,11 +1273,17 @@ describe("strict indentation reading", () => {
 
   it("a '###' heading indented four spaces is indented code, not a question heading — reported as a positioned refusal, not silently dropped", () => {
     const content = ["## Open Questions", "", "    ### four spaces", "", "a1.", ""].join("\n")
-    const { questions, errors } = parseOpenQuestions(content)
+    const { questions, findings } = parseOpenQuestions(content)
     expect(questions).toEqual([])
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toContain("### four spaces")
-    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 2 }])
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toContain("### four spaces")
+    expect(QA_FORMAT.validate(content)).toEqual([
+      {
+        message: findings[0]!.message,
+        line: 2,
+        range: { start: { line: 2, character: 0 }, end: { line: 2, character: 19 } },
+      },
+    ])
   })
 
   it("a '- [ ]' option indented two or three spaces still counts as an option", () => {
@@ -1293,13 +1302,19 @@ describe("strict indentation reading", () => {
 
   it("a '- [ ]' option indented four spaces is indented code, not an option — reported as a positioned refusal, not silently dropped", () => {
     const content = ["## Open Questions", "", "### Which API?", "", "    - [ ] REST", ""].join("\n")
-    const { questions, errors } = parseOpenQuestions(content)
+    const { questions, findings } = parseOpenQuestions(content)
     expect(questions[0]!.options).toEqual([])
     expect(questions[0]!.answered).toBe(false)
     expect(unansweredQuestions(content).map((q) => q.question)).toEqual(["Which API?"])
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toContain("- [ ] REST")
-    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 4 }])
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toContain("- [ ] REST")
+    expect(QA_FORMAT.validate(content)).toEqual([
+      {
+        message: findings[0]!.message,
+        line: 4,
+        range: { start: { line: 4, character: 0 }, end: { line: 4, character: 14 } },
+      },
+    ])
   })
 
   it("a '- [ ]' option indented four spaces directly under a prose line — a LAZY PARAGRAPH CONTINUATION, never a `code` node — is still reported, not silently dropped", () => {
@@ -1311,12 +1326,18 @@ describe("strict indentation reading", () => {
       "Pick one:",
       "    - [ ] REST",
     ].join("\n")
-    const { questions, errors } = parseOpenQuestions(content)
+    const { questions, findings } = parseOpenQuestions(content)
     expect(questions[0]!.options).toEqual([])
     expect(unansweredQuestions(content).map((q) => q.question)).toEqual(["Which API?"])
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toContain("- [ ] REST")
-    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toContain("- [ ] REST")
+    expect(QA_FORMAT.validate(content)).toEqual([
+      {
+        message: findings[0]!.message,
+        line: 5,
+        range: { start: { line: 5, character: 0 }, end: { line: 5, character: 14 } },
+      },
+    ])
   })
 
   it("a '###' heading indented four spaces directly under a prose line — a LAZY PARAGRAPH CONTINUATION, never a `code` node — is still reported, and the whole question it would have started stays missing", () => {
@@ -1330,11 +1351,17 @@ describe("strict indentation reading", () => {
       "",
       "x",
     ].join("\n")
-    const { questions, errors } = parseOpenQuestions(content)
+    const { questions, findings } = parseOpenQuestions(content)
     expect(questions.map((q) => q.question)).toEqual(["Real?"])
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toContain("### four spaces")
-    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toContain("### four spaces")
+    expect(QA_FORMAT.validate(content)).toEqual([
+      {
+        message: findings[0]!.message,
+        line: 5,
+        range: { start: { line: 5, character: 0 }, end: { line: 5, character: 19 } },
+      },
+    ])
   })
 
   it("a 4+-space NESTED option under a real option is a genuine CommonMark sub-list — but it is still reported, not silently absorbed: the old CHECKBOX_RE counted it as an option too", () => {
@@ -1347,11 +1374,17 @@ describe("strict indentation reading", () => {
       "    - [ ] GraphQL",
       "",
     ].join("\n")
-    const { questions, errors } = parseOpenQuestions(content)
+    const { questions, findings } = parseOpenQuestions(content)
     expect(questions[0]!.options.map((o) => o.text)).toEqual(["REST"])
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toContain("- [ ] GraphQL")
-    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toContain("- [ ] GraphQL")
+    expect(QA_FORMAT.validate(content)).toEqual([
+      {
+        message: findings[0]!.message,
+        line: 5,
+        range: { start: { line: 5, character: 0 }, end: { line: 5, character: 17 } },
+      },
+    ])
   })
 
   it("a 4+-space heading folded into a preceding option's own lazy continuation is a genuine nested heading node — but it is still reported, and the question it would have started stays missing from `questions`", () => {
@@ -1365,11 +1398,17 @@ describe("strict indentation reading", () => {
       "",
       "- [ ] two",
     ].join("\n")
-    const { questions, errors } = parseOpenQuestions(content)
+    const { questions, findings } = parseOpenQuestions(content)
     expect(questions.map((q) => q.question)).toEqual(["A?"])
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toContain("### B?")
-    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toContain("### B?")
+    expect(QA_FORMAT.validate(content)).toEqual([
+      {
+        message: findings[0]!.message,
+        line: 5,
+        range: { start: { line: 5, character: 0 }, end: { line: 5, character: 10 } },
+      },
+    ])
   })
 
   it("a genuinely shallow (under 4 spaces) nested option is untouched — real sub-list, no finding, matching CommonMark's own reading", () => {
@@ -1382,7 +1421,7 @@ describe("strict indentation reading", () => {
       "  - [ ] GraphQL",
       "",
     ].join("\n")
-    expect(parseOpenQuestions(content).errors).toEqual([])
+    expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
   })
 })
 

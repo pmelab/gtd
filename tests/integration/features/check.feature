@@ -55,7 +55,10 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stderr contains "has no question text"
 
   @inmem
-  Scenario: a qa file with Answered Questions before Open Questions fails ordering validation
+  Scenario: a qa file with Answered Questions before Open Questions fails ordering validation, each finding printed as file:line:col:
+    # `## Answered Questions` is followed by another `##` section ('## Open
+    # Questions' itself) — the package-04 acceptance case: each ordering
+    # finding now carries both a line AND a column, not a bare message.
     Given a file "NOTES.md" with:
       """
       Build a thing.
@@ -76,8 +79,8 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     When I run gtd with args "check qa NOTES.md"
     Then it fails
     And stdout is empty
-    And stderr contains "A '##' section appears before '## Open Questions', which must come first"
-    And stderr contains "A '##' section appears after '## Answered Questions', which must come last"
+    And stderr contains "NOTES.md:3:1: A '##' section appears before '## Open Questions', which must come first"
+    And stderr contains "NOTES.md:9:1: A '##' section appears after '## Answered Questions', which must come last"
 
   @inmem
   Scenario: a qa file with Open Questions before Answered Questions validates cleanly and exits 0 silently

@@ -98,7 +98,7 @@ export interface OpenQuestion {
 
 export interface OpenQuestionsDoc {
   readonly questions: readonly OpenQuestion[]
-  readonly errors: readonly string[]
+  readonly findings: readonly SteeringFinding[]
 }
 
 /**
@@ -283,17 +283,27 @@ const isAnswered = (options: readonly QuestionOption[]): boolean => {
   return !(chosen.freeText && chosen.text.length === 0)
 }
 
+/** A heading node's own span (the `#` run through its own line's end) as a `SteeringFinding.range` — the NODE a heading-shaped finding is about. */
+const headingRange = (heading: Heading) => ({
+  start: toLspPosition(heading.position!.start),
+  end: toLspPosition(heading.position!.end),
+})
+
 const parseQuestionBlock = (
   content: string,
   lines: readonly string[],
   block: QuestionBlock,
   status: OpenQuestionStatus,
-): OpenQuestion | { readonly error: string } => {
+): OpenQuestion | { readonly error: SteeringFinding } => {
   const question = headingText(content, block.heading)
   if (question.length === 0) {
     return {
-      error:
-        "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+      error: {
+        message:
+          "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+        line: toLspPosition(block.heading.position!.start).line,
+        range: headingRange(block.heading),
+      },
     }
   }
 
@@ -327,17 +337,35 @@ const parseQuestionBlock = (
  * `strictReadingFindings` only covers the `### ` heading and `- [ ]` option
  * shapes this package's acceptance criteria name, not the section heading.
  */
-const checkSectionOrder = (tree: Root, content: string): readonly string[] => {
+/**
+ * `## Open Questions` must precede every other level-2 section, and
+ * `## Answered Questions` must follow every other level-2 section (see the
+ * doc comment above). Each finding's range points at ONE offending heading —
+ * the first section (`h2[0]`) for the "before" violation, the last
+ * (`h2[h2.length - 1]`) for the "after" one — since either is, by
+ * construction, always one of the offenders when its violation fires.
+ */
+const checkSectionOrder = (tree: Root, content: string): readonly SteeringFinding[] => {
   const h2 = tree.children.filter((n): n is Heading => n.type === "heading" && n.depth === 2)
   const openIndex = h2.findIndex((h) => headingText(content, h) === "Open Questions")
   const answeredIndex = h2.findIndex((h) => headingText(content, h) === "Answered Questions")
 
-  const findings: string[] = []
+  const findings: SteeringFinding[] = []
   if (openIndex !== -1 && h2.some((_h, i) => i !== openIndex && i < openIndex)) {
-    findings.push("A '##' section appears before '## Open Questions', which must come first")
+    const offender = h2[0]!
+    findings.push({
+      message: "A '##' section appears before '## Open Questions', which must come first",
+      line: toLspPosition(offender.position!.start).line,
+      range: headingRange(offender),
+    })
   }
   if (answeredIndex !== -1 && h2.some((_h, i) => i !== answeredIndex && i > answeredIndex)) {
-    findings.push("A '##' section appears after '## Answered Questions', which must come last")
+    const offender = h2[h2.length - 1]!
+    findings.push({
+      message: "A '##' section appears after '## Answered Questions', which must come last",
+      line: toLspPosition(offender.position!.start).line,
+      range: headingRange(offender),
+    })
   }
   return findings
 }
@@ -515,7 +543,16 @@ const strictReadingFindingsInRange = (
     const raw = lines[line] ?? ""
     if (raw.length - raw.trimStart().length < 4) continue
     const message = strictReadingMessage(raw.trim())
-    if (message) findings.push({ message, line })
+    // No real node exists for this line (that's the whole violation — the
+    // content never became one) so its range is the raw line itself, start
+    // to end, rather than a node span.
+    if (message) {
+      findings.push({
+        message,
+        line,
+        range: { start: { line, character: 0 }, end: { line, character: raw.length } },
+      })
+    }
   }
   return findings
 }
@@ -550,25 +587,21 @@ const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] =
 
 /**
  * Parses the open-questions structure out of `content`, plus every finding
- * `QA_FORMAT.validate` reports — each carrying a `line` when the underlying
- * violation is positioned (currently only `strictReadingFindings`'s; section-
- * order and empty-heading findings stay positionless, as before). Shared by
- * `parseOpenQuestions` (the `errors: string[]` compatibility shape) and
- * `QA_FORMAT.validate` (which needs each finding's `line`), so the two can
- * never drift apart — mirrors `ReviewDoc.ts`'s `parseReviewFindings`.
+ * `QA_FORMAT.validate` reports — every finding here carries a `line` AND a
+ * `range` spanning the node it's about (the section-order and empty-heading
+ * findings included; only `strictReadingFindings`' own line-shaped findings
+ * never had a real node to begin with, so their range spans the raw offending
+ * line instead). This IS `parseOpenQuestions` — there is no second parse
+ * function to route around its own return type, mirroring `ReviewDoc.ts`'s
+ * single `parseReviewDoc`.
  */
-const parseOpenQuestionsFindings = (
-  content: string,
-): {
-  readonly questions: readonly OpenQuestion[]
-  readonly findings: readonly SteeringFinding[]
-} => {
+export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
 
   const questions: OpenQuestion[] = []
   const findings: SteeringFinding[] = [
-    ...checkSectionOrder(tree, content).map((message) => ({ message })),
+    ...checkSectionOrder(tree, content),
     ...strictReadingFindings(tree, content),
   ]
 
@@ -587,7 +620,7 @@ const parseOpenQuestionsFindings = (
     for (const block of splitQuestionBlocks(tree, index)) {
       const result = parseQuestionBlock(content, lines, block, status)
       if ("error" in result) {
-        findings.push({ message: result.error })
+        findings.push(result.error)
       } else {
         questions.push(result)
       }
@@ -596,18 +629,6 @@ const parseOpenQuestionsFindings = (
 
   questions.sort((a, b) => a.headingLine - b.headingLine)
   return { questions, findings }
-}
-
-/**
- * Parses the open-questions structure out of `content`. Total and
- * side-effect-free: always returns a result, never throws. Questions are
- * returned in document order (by heading line). `errors` drops each
- * finding's `line` (see `parseOpenQuestionsFindings`, which `QA_FORMAT.validate`
- * uses instead) — kept as plain messages for this function's own callers.
- */
-export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
-  const { questions, findings } = parseOpenQuestionsFindings(content)
-  return { questions, errors: findings.map((f) => f.message) }
 }
 
 /** Every OPEN question that is not answered — the answer-completeness guard (`src/StepGuards.ts`) refuses a step while this is non-empty. */
@@ -687,14 +708,44 @@ const footnoteLeaf = (
  * contains its marker — an option when the marker sits inside that option's
  * span, otherwise the question itself.
  */
+/**
+ * One question block's own outline range end: its last body block's own end
+ * line, or the heading's own end line for a bare/empty block — never "the
+ * next heading's line minus one", which would swallow trailing blank lines
+ * (or, worse, unrelated content) between this question and the next.
+ */
+const blockEndLine = (block: QuestionBlock): number => {
+  const last = [...block.body].reverse().find((n) => n.position !== undefined)
+  return toLspPosition((last?.position ?? block.heading.position!).end).line
+}
+
+/** Every question/answered heading's own line → its outline range's real end line (`blockEndLine`), across both sections — the node-boundary replacement for the old "next sibling's heading minus one" guess. */
+const questionEndLines = (content: string): ReadonlyMap<number, number> => {
+  const tree = parseMarkdown(content)
+  const map = new Map<number, number>()
+  for (const sectionName of ["Open Questions", "Answered Questions"]) {
+    const headingNode = tree.children.find(
+      (n): n is Heading =>
+        n.type === "heading" && n.depth === 2 && headingText(content, n) === sectionName,
+    )
+    if (!headingNode) continue
+    const index = tree.children.indexOf(headingNode)
+    for (const block of splitQuestionBlocks(tree, index)) {
+      map.set(toLspPosition(block.heading.position!.start).line, blockEndLine(block))
+    }
+  }
+  return map
+}
+
 const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { questions } = parseOpenQuestions(content)
   const { markers, definitions } = parseFootnotes(content)
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   const lines = content.split(/\r?\n/)
-  return questions.map((question, i) => {
+  const endLines = questionEndLines(content)
+  return questions.map((question) => {
     const start = question.headingLine
-    const end = Math.max(start, (questions[i + 1]?.headingLine ?? lines.length) - 1)
+    const end = Math.max(start, endLines.get(start) ?? start)
     const questionMarkers = markers.filter((m) => m.line >= start && m.line <= end)
     const assigned = new Set<FootnoteMarker>()
 
@@ -817,11 +868,11 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
 const questionsPointerAt: SteeringFormat["pointerAt"] = (content, position) =>
   footnotePointerAt(content, position)?.pointer
 
-/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Most structural findings are positionless, but the strict-reading refusal and a footnote finding both carry the offending line. */
+/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Every structural finding carries a line and a range spanning the node it's about. */
 export const QA_FORMAT: SteeringFormat = {
   sample: QA_SAMPLE,
   validate: (content) => [
-    ...parseOpenQuestionsFindings(content).findings,
+    ...parseOpenQuestions(content).findings,
     ...parseFootnotes(content).findings,
   ],
   outline: questionsOutline,

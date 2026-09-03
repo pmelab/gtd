@@ -778,9 +778,20 @@ const runValidateCommand = (out: ArtifactOut): Effect.Effect<void, Error, Comman
     )
   })
 
-/** `<line+1>`: findings are stored 0-based, printed 1-based. */
-const formatFinding = (file: string, finding: SteeringFinding): string =>
-  finding.line !== undefined ? `${file}:${finding.line + 1}: ${finding.message}` : finding.message
+/**
+ * `file:line:col: message` — the shape editors and grep-style tools already
+ * jump on. The column comes from `range.start`, 0-based stored, 1-based
+ * printed like `line`. A finding with a `line` but no `range` prints
+ * `file:line: message` instead (no built-in format produces that shape any
+ * more — a range always carries a column — but the flat, optional
+ * `SteeringFinding` shape still allows it, for a future format). A
+ * positionless finding prints its bare message.
+ */
+export const formatFinding = (file: string, finding: SteeringFinding): string => {
+  if (finding.line === undefined) return finding.message
+  const col = finding.range !== undefined ? `:${finding.range.start.character + 1}` : ""
+  return `${file}:${finding.line + 1}${col}: ${finding.message}`
+}
 
 /**
  * `gtd check <mode> <file>`: read `<file>` and run the built-in steering

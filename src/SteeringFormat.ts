@@ -51,10 +51,38 @@ export interface SteeringPointer {
   readonly character?: number
 }
 
-/** One validation finding. `line` is 0-based; absent when the finding is about the document as a whole. */
+/**
+ * One validation finding. `line` is 0-based; absent when the finding is
+ * about the document as a whole. `range` is a separate, independently
+ * optional field (never a discriminated union) — `SteeringMode.ts`'s
+ * `findingsFrom` must keep constructing a bare `{ message }` for every line a
+ * shell `validate:` command prints, which can never carry a position at all.
+ * A `range` is meaningless without `line`, and its start line always equals
+ * `line` — both pinned by tests, not the type, since the type stays flat.
+ */
 export interface SteeringFinding {
   readonly message: string
   readonly line?: number
+  readonly range?: {
+    readonly start: { readonly line: number; readonly character: number }
+    readonly end: { readonly line: number; readonly character: number }
+  }
+}
+
+/**
+ * One hunk pointer's document-link target: `range` covers exactly the
+ * pointer token (`./path#42`) inside the source document; `path`/`line` name
+ * where it points — `line` is 0-based, exactly like `SteeringPointer.line`:
+ * a `#42` suffix resolves 1-based-to-0-based, and a bare `./path` with no
+ * `#line` lands at line 0.
+ */
+export interface SteeringLink {
+  readonly range: {
+    readonly start: { readonly line: number; readonly character: number }
+    readonly end: { readonly line: number; readonly character: number }
+  }
+  readonly path: string
+  readonly line: number
 }
 
 /**
@@ -92,4 +120,11 @@ export interface SteeringFormat {
     content: string,
     position: { readonly line: number; readonly character: number },
   ) => SteeringPointer | undefined
+  /**
+   * Every hunk-pointer document link in `content`, declared by `review` and
+   * absent on `qa`. Walks the parsed hunks directly rather than calling
+   * `pointerAt` per line — that path is one call per line and cannot yield
+   * the token's own range, which is the whole point of a document link.
+   */
+  readonly documentLinks?: (content: string) => readonly SteeringLink[]
 }

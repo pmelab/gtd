@@ -20,7 +20,9 @@ import {
   resolveWorkspaceRoot,
   startLspServer,
   steeringFileOutcome,
+  documentLinksFor,
   toCodeAction,
+  toDocumentLink,
   toDocumentSymbol,
   toLocation,
   type ExecuteCommandOutcome,
@@ -257,6 +259,51 @@ describe("toLocation", () => {
   })
 })
 
+describe("toDocumentLink", () => {
+  it("resolves a SteeringLink's path against root, appending the 1-based line as a #L fragment", () => {
+    const link = toDocumentLink("/repo")({
+      range: { start: { line: 5, character: 6 }, end: { line: 5, character: 18 } },
+      path: "./src/a.ts",
+      line: 0,
+    })
+    expect(link.range).toEqual({
+      start: { line: 5, character: 6 },
+      end: { line: 5, character: 18 },
+    })
+    expect(link.target).toBe("file:///repo/src/a.ts#L1")
+  })
+})
+
+describe("documentLinksFor", () => {
+  it("returns one link per hunk pointer for a review-mode document", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const links = documentLinksFor(resolveBuiltInMode("review"), content, "/repo")
+    expect(links).toEqual([
+      {
+        range: { start: { line: 5, character: 6 }, end: { line: 5, character: 18 } },
+        target: "file:///repo/src/a.ts#L1",
+      },
+    ])
+  })
+
+  it("returns none for a qa-mode document — qa declares no documentLinks member", () => {
+    const content = ["## Open Questions", "", "### Which API?", "", "- [ ] REST", ""].join("\n")
+    expect(documentLinksFor(resolveBuiltInMode("qa"), content, "/repo")).toEqual([])
+  })
+
+  it("returns none for an unresolved mode", () => {
+    expect(documentLinksFor(undefined, "anything", "/repo")).toEqual([])
+  })
+})
+
 describe("externalValidatorNotice", () => {
   it("names the mode and the command, pointing at gtd validate", () => {
     const diagnostic = externalValidatorNotice("qa", "npx my-linter <%= it.file %>")
@@ -295,7 +342,7 @@ describe("diagnosticsFor", () => {
     expect(diagnosticsFor(undefined, "anything")).toEqual([])
   })
 
-  it("underlines exactly one line for a positioned review finding (a second-pointer note)", () => {
+  it("underlines exactly the second pointer token for a positioned review finding, not the whole line", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -308,13 +355,36 @@ describe("diagnosticsFor", () => {
     const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
     expect(diagnostics).toHaveLength(1)
     expect(diagnostics[0]?.message).toContain("starts with a second pointer")
+    // The finding's own range (the second pointer token, `./src/other.ts#2`)
+    // hands straight through — never re-derived as the whole line.
     expect(diagnostics[0]?.range).toEqual({
-      start: { line: 5, character: 0 },
-      end: { line: 5, character: content.split("\n")[5]!.length },
+      start: { line: 5, character: 25 },
+      end: { line: 5, character: 41 },
     })
   })
 
-  it("spans the whole document for a positionless review finding (a missing header)", () => {
+  it("underlines the offending heading, not the whole document, for a section-order finding", () => {
+    const content = [
+      "## Answered Questions",
+      "",
+      "### Already resolved?",
+      "",
+      "Yes.",
+      "",
+      "## Notes",
+      "",
+      "some notes.",
+      "",
+    ].join("\n")
+    const diagnostics = diagnosticsFor(resolveBuiltInMode("qa"), content)
+    const ordering = diagnostics.find((d) => String(d.message).includes("must come last"))
+    expect(ordering?.range).toEqual({
+      start: { line: 6, character: 0 },
+      end: { line: 6, character: "## Notes".length },
+    })
+  })
+
+  it("underlines the wrong first block node for a missing-header finding, when the document has one", () => {
     const content = [
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
       "",
@@ -323,10 +393,27 @@ describe("diagnosticsFor", () => {
       "- [ ] ./src/thing.ts#1",
       "",
     ].join("\n")
-    const lines = content.split("\n")
     const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
     const headerFinding = diagnostics.find((d) => String(d.message).includes("# Review: <hash>"))
     expect(headerFinding?.range).toEqual({
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: "<!-- base: abc1234def5678901234567890123456789abcd -->".length },
+    })
+  })
+
+  it("spans the whole document for a genuinely positionless finding (a missing base comment)", () => {
+    const content = [
+      "# Review: abc1234",
+      "",
+      "## Add thing.ts",
+      "",
+      "- [ ] ./src/thing.ts#1",
+      "",
+    ].join("\n")
+    const lines = content.split("\n")
+    const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
+    const baseFinding = diagnostics.find((d) => String(d.message).includes("base: <hash>"))
+    expect(baseFinding?.range).toEqual({
       start: { line: 0, character: 0 },
       end: { line: lines.length - 1, character: lines[lines.length - 1]!.length },
     })
@@ -396,6 +483,7 @@ describe("makeSteeringLanguageService", () => {
     expect(result.capabilities.documentSymbolProvider).toBe(true)
     expect(result.capabilities.codeActionProvider).toBe(true)
     expect(result.capabilities.definitionProvider).toBe(true)
+    expect(result.capabilities.documentLinkProvider).toEqual({ resolveProvider: false })
     expect(result.capabilities.executeCommandProvider).toEqual({
       commands: ["gtd.openSteeringFile"],
     })
@@ -562,6 +650,43 @@ describe("makeSteeringLanguageService", () => {
     expect(locations).toEqual([])
   })
 
+  it("documentLink resolves each hunk pointer to a link covering exactly the token, resolved against gitTopLevel", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const env = fakeEnv({
+      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      gitTopLevel: async () => "/repo",
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    const links = await service.documentLink("file:///repo/REVIEW.md", reviewDoc)
+    expect(links).toHaveLength(1)
+    expect(links[0]).toEqual({
+      range: { start: { line: 5, character: 6 }, end: { line: 5, character: 18 } },
+      target: "file:///repo/src/a.ts#L1",
+    })
+  })
+
+  it("documentLink returns none for a qa-mode document — qa declares no documentLinks member", async () => {
+    const resolved = resolveBuiltInMode("qa")!
+    const env = fakeEnv({
+      steeringMapFor: async () => new Map([["/repo/PLAN.md", resolved]]),
+      gitTopLevel: async () => "/repo",
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    const links = await service.documentLink("file:///repo/PLAN.md", questionsDoc)
+    expect(links).toEqual([])
+  })
+
+  it("documentLink returns none when neither gitTopLevel nor the workspace root resolves", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const env = fakeEnv({
+      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      gitTopLevel: async () => undefined,
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    const links = await service.documentLink("file:///repo/REVIEW.md", reviewDoc)
+    expect(links).toEqual([])
+  })
+
   it("degrades to an empty steering map (and warns) when steeringMapFor rejects, instead of rejecting the request", async () => {
     const warnings: string[] = []
     const env = fakeEnv({ steeringMapFor: () => Promise.reject(new Error("bad .gtdrc")) })
@@ -622,6 +747,7 @@ const fakeConnection = () => {
     onDocumentSymbol: register("onDocumentSymbol"),
     onCodeAction: register("onCodeAction"),
     onDefinition: register("onDefinition"),
+    onDocumentLinks: register("onDocumentLinks"),
     onExecuteCommand: register("onExecuteCommand"),
     sendDiagnostics: vi.fn(),
     console: { warn: vi.fn() },
@@ -673,6 +799,7 @@ const fakeService = (
   codeAction: vi.fn(async () => []),
   definition: vi.fn(async () => []),
   diagnostics: vi.fn(async () => []),
+  documentLink: vi.fn(async () => []),
   executeCommand: vi.fn(async (): Promise<ExecuteCommandOutcome> => ({ kind: "unknown" })),
   ...overrides,
 })
@@ -782,6 +909,9 @@ describe("bindSteeringServer", () => {
       position: { line: 0, character: 0 },
     })
     expect(service.definition).toHaveBeenCalled()
+
+    await handlers["onDocumentLinks"]!({ textDocument: { uri: "file:///repo/PLAN.md" } })
+    expect(service.documentLink).toHaveBeenCalledWith("file:///repo/PLAN.md", "content")
   })
 
   it("listens on both documents and the connection", () => {

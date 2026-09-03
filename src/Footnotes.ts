@@ -52,7 +52,20 @@ const ORPHAN_MARKER_RE = /\[\^([^\s\]]+)\]/g
 /** Markdown-whitespace-collapsed, case-folded form of a footnote name, for matching a marker to its definition regardless of authored casing — mirrors mdast's own `identifier` normalization (footnote names never contain internal whitespace, so case-folding alone suffices here). */
 const foldName = (name: string): string => name.toLowerCase()
 
+/** A `FootnoteMarker`'s own `[^name]` span, as a `SteeringFinding.range` — the marker NODE the finding is about. */
+const markerRange = (marker: FootnoteMarker) => ({
+  start: { line: marker.line, character: marker.character },
+  end: { line: marker.line, character: marker.endCharacter },
+})
+
+/** A `FootnoteDefinition`'s own span (its `[^name]:` line through its last continuation line), as a `SteeringFinding.range` — the definition NODE the finding is about. */
+const definitionRange = (lines: readonly string[], def: FootnoteDefinition) => ({
+  start: { line: def.line, character: 0 },
+  end: { line: def.endLine, character: (lines[def.endLine] ?? "").length },
+})
+
 const computeFindings = (
+  lines: readonly string[],
   markers: readonly FootnoteMarker[],
   definitions: readonly FootnoteDefinition[],
 ): readonly SteeringFinding[] => {
@@ -66,6 +79,7 @@ const computeFindings = (
       findings.push({
         message: `Footnote marker "[^${marker.name}]" has no matching definition`,
         line: marker.line,
+        range: markerRange(marker),
       })
     }
   }
@@ -76,6 +90,7 @@ const computeFindings = (
       findings.push({
         message: `Duplicate footnote definition "[^${def.name}]"`,
         line: def.line,
+        range: definitionRange(lines, def),
       })
     } else {
       seenDefinitionIds.add(id)
@@ -84,12 +99,14 @@ const computeFindings = (
       findings.push({
         message: `Footnote definition "[^${def.name}]" has no marker referencing it`,
         line: def.line,
+        range: definitionRange(lines, def),
       })
     }
     if (def.body.trim().toLowerCase() === PLACEHOLDER_BODY) {
       findings.push({
         message: `Footnote definition "[^${def.name}]" still has its seeded placeholder body`,
         line: def.line,
+        range: definitionRange(lines, def),
       })
     }
   }
@@ -217,7 +234,8 @@ export const parseFootnotes = (content: string): Footnotes => {
   markers.push(...orphanMarkers(content, tree))
   markers.sort((a, b) => a.line - b.line || a.character - b.character)
 
-  return { markers, definitions, findings: computeFindings(markers, definitions) }
+  const lines = content.split(/\r?\n/)
+  return { markers, definitions, findings: computeFindings(lines, markers, definitions) }
 }
 
 /** The first integer unused by any `fnN` marker or definition already in the document — deterministic (no clock, no randomness), so "add a footnote" is testable and idempotent under re-run: applying it twice yields `fn1` then `fn2`, never a collision. Counts orphan markers too (via `parseFootnotes`), so it never reuses a name that's already written but undefined. */

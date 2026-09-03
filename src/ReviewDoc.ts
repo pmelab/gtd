@@ -18,6 +18,7 @@ import type {
   SteeringEdit,
   SteeringFinding,
   SteeringFormat,
+  SteeringLink,
   SteeringOutlineNode,
 } from "./SteeringFormat.js"
 
@@ -45,7 +46,7 @@ export interface ReviewDoc {
   readonly shortHash?: string
   readonly fullHash?: string
   readonly changesets: readonly Changeset[]
-  readonly errors: readonly string[]
+  readonly findings: readonly SteeringFinding[]
 }
 
 /**
@@ -99,6 +100,12 @@ const headingText = (content: string, heading: Heading): string => {
   return sourceText(content, synthetic).replace(/\s+/g, " ").trim()
 }
 
+/** A node's own span as a `SteeringFinding.range` — the NODE a heading- or block-shaped finding is about. */
+const nodeRange = (node: RootContent) => ({
+  start: toLspPosition(node.position!.start),
+  end: toLspPosition(node.position!.end),
+})
+
 /** The `# Review: <hash>` header, required as the document's first top-level node — never a heading found merely somewhere inside a fenced example. */
 const parseHeader = (tree: Root, content: string): string | undefined => {
   const first = tree.children[0]
@@ -148,6 +155,7 @@ const isPointerToken = (token: string): boolean => {
  * the pointer's own `sourceLine` so it renders as a positioned finding.
  */
 const secondPointerError = (
+  range: SteeringFinding["range"],
   title: string,
   file: ReviewFile,
   secondToken: string,
@@ -156,6 +164,7 @@ const secondPointerError = (
   return {
     message: `Chunk "${title}" hunk ${target}'s note starts with a second pointer (${secondToken}) — give it its own "- [ ]" line`,
     line: file.sourceLine,
+    ...(range ? { range } : {}),
   }
 }
 
@@ -238,6 +247,22 @@ const buildHunkFile = (
   }
 }
 
+/** The second pointer token's own `[start, end)` character range on `sourceLine` — found by searching forward from right after the FIRST token, so an earlier, coincidentally-matching substring can never be picked up. `undefined` only if the token somehow isn't found (never happens for a real match; kept total). */
+const secondTokenRange = (
+  lines: readonly string[],
+  sourceLine: number,
+  firstTokenEnd: number,
+  secondToken: string,
+): SteeringFinding["range"] => {
+  const raw = lines[sourceLine] ?? ""
+  const start = raw.indexOf(secondToken, firstTokenEnd)
+  if (start === -1) return undefined
+  return {
+    start: { line: sourceLine, character: start },
+    end: { line: sourceLine, character: start + secondToken.length },
+  }
+}
+
 /** The second-pointer finding for one hunk, or `undefined` when its inline (same-line) segment doesn't itself open with a pointer token. */
 const hunkSecondPointerFinding = (
   content: string,
@@ -250,7 +275,13 @@ const hunkSecondPointerFinding = (
 ): SteeringFinding | undefined => {
   const inlineSegment = hunkInlineSegment(content, lines, item, token, sourceLine)
   const secondToken = inlineSegment.split(/\s+/)[0] ?? ""
-  return isPointerToken(secondToken) ? secondPointerError(title, file, secondToken) : undefined
+  if (!isPointerToken(secondToken)) return undefined
+  const contentOffset = firstParagraphContentOffset(item)
+  const contentPos =
+    contentOffset !== undefined ? toLspPositionFromOffset(content, contentOffset) : undefined
+  const firstTokenEnd = (contentPos?.character ?? 0) + token.length
+  const range = secondTokenRange(lines, sourceLine, firstTokenEnd, secondToken)
+  return secondPointerError(range, title, file, secondToken)
 }
 
 /** One pointer's parse result: its `ReviewFile`, plus the second-pointer finding when its inline (same-line) segment itself opens with a pointer token. `undefined` when `item`'s first paragraph's first word isn't a pointer token at all — a real task-list item whose content isn't a hunk pointer. */
@@ -348,22 +379,42 @@ const parseChangesets = (
     const title = headingText(content, heading)
     const { description, files, errors: bodyErrors } = parseChunkBody(content, lines, title, body)
     errors.push(...bodyErrors)
-    if (files.length === 0) errors.push({ message: `Chunk "${title}" has no file pointers` })
+    if (files.length === 0) {
+      errors.push({
+        message: `Chunk "${title}" has no file pointers`,
+        line: headingLine,
+        range: nodeRange(heading),
+      })
+    }
     changesets.push({ title, description, files, headingLine })
   }
   if (changesets.length === 0) errors.push({ message: "REVIEW.md has no '##' chunks" })
   return { changesets, errors }
 }
 
-/** Shared by `parseReviewDoc` and `REVIEW_FORMAT.validate` — the latter needs each finding's `line`, which `ReviewDoc.errors` (plain strings) drops. */
-const parseReviewFindings = (
-  content: string,
-): {
-  readonly shortHash?: string
-  readonly fullHash?: string
-  readonly changesets: readonly Changeset[]
-  readonly findings: readonly SteeringFinding[]
-} => {
+/**
+ * The missing-header finding: "the wrong first block node" — `tree.children[0]`
+ * — is the node this finding is ABOUT, so its range spans that node. An empty
+ * document (no first node at all) has no token to point at, so the finding
+ * stays positionless in that one case.
+ */
+const missingHeaderFinding = (tree: Root): SteeringFinding => {
+  const first = tree.children[0]
+  const message = "Missing or malformed '# Review: <hash>' header as the document's first line"
+  if (first === undefined || !first.position) return { message }
+  return { message, line: toLspPosition(first.position.start).line, range: nodeRange(first) }
+}
+
+/**
+ * Parses the review structure out of `content` (the raw text of
+ * `.gtd/REVIEW.md`). Total and side-effect-free: always returns a result,
+ * never throws — `parseMarkdown`'s `fromMarkdown` never does either.
+ * `findings` is non-empty exactly when the document violates the required
+ * structure — the caller decides what to do with that (`gtd validate` exits
+ * non-zero with them; the LSP publishes them as diagnostics). The one parse
+ * function: there is no second one routing around this return type.
+ */
+export const parseReviewDoc = (content: string): ReviewDoc => {
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
   const shortHash = parseHeader(tree, content)
@@ -371,13 +422,8 @@ const parseReviewFindings = (
   const { changesets, errors: chunkFindings } = parseChangesets(tree, content, lines)
 
   const findings: SteeringFinding[] = [
-    ...(shortHash
-      ? []
-      : [
-          {
-            message: "Missing or malformed '# Review: <hash>' header as the document's first line",
-          },
-        ]),
+    ...(shortHash ? [] : [missingHeaderFinding(tree)]),
+    // A missing base comment has no offending token to point at — stays positionless.
     ...(fullHash ? [] : [{ message: "Missing '<!-- base: <hash> -->' comment" }]),
     ...chunkFindings,
   ]
@@ -387,24 +433,6 @@ const parseReviewFindings = (
     ...(fullHash ? { fullHash } : {}),
     changesets,
     findings,
-  }
-}
-
-/**
- * Parses the review structure out of `content` (the raw text of
- * `.gtd/REVIEW.md`). Total and side-effect-free: always returns a result,
- * never throws — `parseMarkdown`'s `fromMarkdown` never does either. `errors`
- * is non-empty exactly when the document violates the required structure —
- * the caller decides what to do with that (`gtd validate` exits non-zero with
- * them; the LSP publishes them as diagnostics).
- */
-export const parseReviewDoc = (content: string): ReviewDoc => {
-  const { shortHash, fullHash, changesets, findings } = parseReviewFindings(content)
-  return {
-    ...(shortHash ? { shortHash } : {}),
-    ...(fullHash ? { fullHash } : {}),
-    changesets,
-    errors: findings.map((f) => f.message),
   }
 }
 
@@ -494,6 +522,25 @@ const footnoteLeaf = (
 })
 
 /**
+ * One chunk block's own outline range end: its last body block's own end
+ * line, or the heading's own end line for an empty chunk — never "the next
+ * chunk's heading minus one", which would swallow trailing blank lines (or
+ * unrelated content) between this chunk and the next.
+ */
+const chunkBlockEndLine = (block: ChunkBlock): number => {
+  const last = [...block.body].reverse().find((n) => n.position !== undefined)
+  return toLspPosition((last?.position ?? block.heading.position!).end).line
+}
+
+/** Every chunk heading's own line → its outline range's real end line (`chunkBlockEndLine`) — the node-boundary replacement for the old "next chunk's heading minus one" guess. */
+const chunkEndLines = (content: string): ReadonlyMap<number, number> => {
+  const tree = parseMarkdown(content)
+  const map = new Map<number, number>()
+  for (const block of splitChunks(tree)) map.set(block.headingLine, chunkBlockEndLine(block))
+  return map
+}
+
+/**
  * Document outline for `.gtd/REVIEW.md`: the headlines of chunks (the
  * user-facing "work packages") that still carry at least one unchecked hunk
  * — the outline is the list of packages left to review — PLUS any chunk
@@ -507,10 +554,11 @@ const reviewOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { markers, definitions } = parseFootnotes(content)
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   const lines = content.split(/\r?\n/)
+  const endLines = chunkEndLines(content)
   return changesets
-    .map((chunk, i) => {
+    .map((chunk) => {
       const start = chunk.headingLine
-      const end = Math.max(start, (changesets[i + 1]?.headingLine ?? lines.length) - 1)
+      const end = Math.max(start, endLines.get(start) ?? start)
       const checkedCount = chunk.files.filter((file) => file.checked).length
       const chunkMarkers = markers.filter((m) => m.line >= start && m.line <= end)
       const children = chunkMarkers.map((m) => footnoteLeaf(lines, definitionByName, m))
@@ -664,13 +712,51 @@ const reviewPointerAt: SteeringFormat["pointerAt"] = (content, position) => {
   return hunkPointerAt(content, position.line)
 }
 
+/**
+ * One hunk's document link, or `undefined` when `item`'s first paragraph's
+ * first word isn't a pointer token — mirrors `parseHunk`'s own recognition so
+ * the two can never disagree about what counts as a hunk. The token's range
+ * is derived directly from its own source offset (`firstParagraphContentOffset`),
+ * never by calling `pointerAt` per line — that path is one call per line and
+ * cannot yield the token's own range in the first place.
+ */
+const hunkLinkFor = (content: string, item: ListItem): SteeringLink | undefined => {
+  const paragraph = item.children.find((c) => c.type === "paragraph")
+  if (!paragraph || !item.position) return undefined
+  const token = sourceText(content, paragraph)
+    .split(/\s+/)
+    .find((w) => w.length > 0)
+  if (!token || !isPointerToken(token)) return undefined
+  const offset = firstParagraphContentOffset(item)
+  if (offset === undefined) return undefined
+  const start = toLspPositionFromOffset(content, offset)
+  const end = toLspPositionFromOffset(content, offset + token.length)
+  const lineMatch = POINTER_LINE_RE.exec(token)
+  return {
+    range: { start, end },
+    path: lineMatch ? lineMatch[1]! : token,
+    line: lineMatch ? Number(lineMatch[2]) - 1 : 0,
+  }
+}
+
+/** Every hunk-pointer document link in `content`, at any nesting depth. */
+const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
+  const tree = parseMarkdown(content)
+  const links: SteeringLink[] = []
+  for (const block of splitChunks(tree)) {
+    for (const item of block.body.flatMap((n) => taskItems(n))) {
+      const link = hunkLinkFor(content, item)
+      if (link) links.push(link)
+    }
+  }
+  return links
+}
+
 export const REVIEW_FORMAT: SteeringFormat = {
   sample: REVIEW_SAMPLE,
-  validate: (content) => [
-    ...parseReviewFindings(content).findings,
-    ...parseFootnotes(content).findings,
-  ],
+  validate: (content) => [...parseReviewDoc(content).findings, ...parseFootnotes(content).findings],
   outline: reviewOutline,
   actions: reviewActions,
   pointerAt: reviewPointerAt,
+  documentLinks: reviewDocumentLinks,
 }
