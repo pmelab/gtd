@@ -1,3 +1,10 @@
+import type { Root } from "mdast"
+import {
+  parseMarkdown,
+  sourceText,
+  toLspPosition,
+  toLspPositionFromOffset,
+} from "./MarkdownTree.js"
 import type { SteeringEdit, SteeringFinding, SteeringPointer } from "./SteeringFormat.js"
 
 /** One `[^name]` marker's anchor: line AND column of its opening `[` — never the word or sentence it follows, which the reader reads itself. */
@@ -24,33 +31,40 @@ export interface Footnotes {
 /** The seeded placeholder a hand-authored definition starts as — still present means the human never filled it in. `footnoteAdditionEdits` (below) seeds new definitions with this exact text, so `computeFindings`'s placeholder check fires until a human replaces it. */
 const PLACEHOLDER_BODY = "your comment"
 
-/** A definition's start line: `[^name]:` at COLUMN 0, nothing before it. */
-const DEFINITION_START_RE = /^\[\^([^\s\]]+)\]:\s?(.*)$/
-/** A marker anywhere on a line: `[^name]`, name has no whitespace and no `]`. */
-const MARKER_RE = /\[\^([^\s\]]+)\]/g
-/** A fenced-code-block delimiter line (any indent, ``` or more backticks). */
-const FENCE_RE = /^\s*```/
+/**
+ * A marker's shape once it's plain text: `[^name]`, name has no whitespace
+ * and no `]`. Used both to strip markers out of already-extracted text
+ * (`stripFootnoteMarkers`) and to recognize an ORPHAN `[^name]` sitting
+ * inside an ordinary `text` node — GFM only turns `[^name]` into a real
+ * `footnoteReference` node when a matching definition exists; without one it
+ * stays literal text, which is exactly the shape this pattern matches.
+ */
+const ORPHAN_MARKER_RE = /\[\^([^\s\]]+)\]/g
 
-/** Blanks out inline-code spans (\`...\`) while preserving line length, so marker column offsets stay accurate. */
-const maskInlineCode = (line: string): string =>
-  line.replace(/`[^`]*`/g, (m) => " ".repeat(m.length))
+/** A definition's start line: `[^name]:` at COLUMN 0, nothing before it. Local to `isFootnoteDefinitionLine`, the one caller still walking raw lines instead of the tree. */
+const LINE_DEFINITION_START_RE = /^\[\^([^\s\]]+)\]:\s?(.*)$/
 
-/** A non-blank line that starts with leading whitespace — the shape of a definition's continuation line. */
-const isContinuationLine = (line: string): boolean => line.trim().length > 0 && /^\s+\S/.test(line)
+/** A fenced-code-block delimiter line (any indent, ``` or more backticks) — local to `computeFenceSkip`, `isFootnoteDefinitionLine`'s one remaining caller. */
+const LINE_FENCE_RE = /^\s*```/
+
+/** A non-blank line that starts with leading whitespace — the shape of a definition's continuation line, for `isFootnoteDefinitionLine`'s own line-based walk. */
+const isIndentedContinuationLine = (line: string): boolean =>
+  line.trim().length > 0 && /^\s+\S/.test(line)
 
 /**
  * For each line in `lines`, whether it's inside (or is the delimiter of) a
- * fenced code block — content that "scanning skips code" excludes from both
- * marker and definition recognition. The one shared source of truth for
- * fence state: `parseFootnotes` and `isFootnoteDefinitionLine` both consult
- * this instead of tracking fences independently, so the two can never
- * disagree about what a definition is.
+ * fenced code block — content that `isFootnoteDefinitionLine` excludes from
+ * definition recognition. Survives ONLY as `isFootnoteDefinitionLine`'s
+ * helper now that `parseFootnotes` reads real definitions off the tree
+ * instead; goes away entirely once `isFootnoteDefinitionLine` itself moves
+ * onto the tree, which it doesn't in this package (both steering formats
+ * still call it line-based against `REVIEW.md`/`QUESTIONS.md` line arrays).
  */
 const computeFenceSkip = (lines: readonly string[]): boolean[] => {
   const skip: boolean[] = []
   let inFence = false
   for (const line of lines) {
-    if (FENCE_RE.test(line)) {
+    if (LINE_FENCE_RE.test(line)) {
       skip.push(true)
       inFence = !inFence
     } else {
@@ -75,34 +89,37 @@ export const isFootnoteDefinitionLine = (lines: readonly string[], index: number
   if (line === undefined) return false
   const fenceSkip = computeFenceSkip(lines)
   if (fenceSkip[index]) return false
-  if (DEFINITION_START_RE.test(line)) return true
-  if (!isContinuationLine(line)) return false
+  if (LINE_DEFINITION_START_RE.test(line)) return true
+  if (!isIndentedContinuationLine(line)) return false
 
   let i = index - 1
   while (i >= 0) {
     if (fenceSkip[i]) return false
     const prev = lines[i]!
-    if (DEFINITION_START_RE.test(prev)) return true
-    if (!isContinuationLine(prev)) return false
+    if (LINE_DEFINITION_START_RE.test(prev)) return true
+    if (!isIndentedContinuationLine(prev)) return false
     i -= 1
   }
   return false
 }
 
 /** Strips every `[^name]` marker out of `text` — applied to every extracted text field so a marker never leaks into an option's or note's text. */
-export const stripFootnoteMarkers = (text: string): string => text.replace(MARKER_RE, "")
+export const stripFootnoteMarkers = (text: string): string => text.replace(ORPHAN_MARKER_RE, "")
+
+/** Markdown-whitespace-collapsed, case-folded form of a footnote name, for matching a marker to its definition regardless of authored casing — mirrors mdast's own `identifier` normalization (footnote names never contain internal whitespace, so case-folding alone suffices here). */
+const foldName = (name: string): string => name.toLowerCase()
 
 const computeFindings = (
   markers: readonly FootnoteMarker[],
   definitions: readonly FootnoteDefinition[],
 ): readonly SteeringFinding[] => {
   const findings: SteeringFinding[] = []
-  const definedNames = new Set(definitions.map((d) => d.name))
-  const referencedNames = new Set(markers.map((m) => m.name))
-  const seenDefinitionNames = new Set<string>()
+  const definedIds = new Set(definitions.map((d) => foldName(d.name)))
+  const referencedIds = new Set(markers.map((m) => foldName(m.name)))
+  const seenDefinitionIds = new Set<string>()
 
   for (const marker of markers) {
-    if (!definedNames.has(marker.name)) {
+    if (!definedIds.has(foldName(marker.name))) {
       findings.push({
         message: `Footnote marker "[^${marker.name}]" has no matching definition`,
         line: marker.line,
@@ -111,15 +128,16 @@ const computeFindings = (
   }
 
   for (const def of definitions) {
-    if (seenDefinitionNames.has(def.name)) {
+    const id = foldName(def.name)
+    if (seenDefinitionIds.has(id)) {
       findings.push({
         message: `Duplicate footnote definition "[^${def.name}]"`,
         line: def.line,
       })
     } else {
-      seenDefinitionNames.add(def.name)
+      seenDefinitionIds.add(id)
     }
-    if (!referencedNames.has(def.name)) {
+    if (!referencedIds.has(id)) {
       findings.push({
         message: `Footnote definition "[^${def.name}]" has no marker referencing it`,
         line: def.line,
@@ -136,79 +154,100 @@ const computeFindings = (
   return findings.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
 }
 
-/** Parses the `[^name]:` definition starting at `lines[index]`, plus its indented continuation run. Returns the parsed definition and the index of the first line past it. */
-const parseDefinitionAt = (
-  lines: readonly string[],
-  index: number,
-  defMatch: RegExpExecArray,
-): { readonly definition: FootnoteDefinition; readonly nextIndex: number } => {
-  const name = defMatch[1]!
-  const sameLineBody = (defMatch[2] ?? "").trim()
-  const bodyParts: string[] = sameLineBody.length > 0 ? [sameLineBody] : []
-  let endLine = index
-  let j = index + 1
-  while (j < lines.length && isContinuationLine(lines[j]!)) {
-    bodyParts.push(lines[j]!.trim())
-    endLine = j
-    j += 1
-  }
-  return { definition: { name, line: index, endLine, body: bodyParts.join(" ") }, nextIndex: j }
-}
-
-/** Every marker on `line` (after masking inline-code spans), anchored at `lineIndex`. */
-const scanMarkers = (line: string, lineIndex: number): FootnoteMarker[] => {
-  const masked = maskInlineCode(line)
-  const re = new RegExp(MARKER_RE)
+/**
+ * Every `[^name]` found inside an ordinary `text` node's own SOURCE slice
+ * (never `node.value`: a character reference like `&amp;` makes `value`
+ * shorter than its source, which would throw off every subsequent column in
+ * that node) — each hit is, by construction, an orphan marker: GFM only
+ * keeps `[^name]` as literal text when no definition matches, so anything
+ * this scan finds already failed to become a real `footnoteReference` node.
+ * A `text` node can span several source lines (a lazy list-item wrap parses
+ * as one node), so each hit's position is computed from the node's own
+ * offset plus the match's index in the slice, never from assuming one line
+ * per node.
+ */
+const orphanMarkers = (content: string, tree: Root): FootnoteMarker[] => {
   const found: FootnoteMarker[] = []
-  let match: RegExpExecArray | null
-  while ((match = re.exec(masked)) !== null) {
-    found.push({ name: match[1]!, line: lineIndex, character: match.index })
+  const walk = (node: {
+    readonly type: string
+    readonly position?: unknown
+    readonly children?: unknown
+  }): void => {
+    if (node.type === "text" && node.position) {
+      const { start, end } = node.position as { start: { offset: number }; end: { offset: number } }
+      const slice = content.slice(start.offset, end.offset)
+      const re = new RegExp(ORPHAN_MARKER_RE)
+      let match: RegExpExecArray | null
+      while ((match = re.exec(slice)) !== null) {
+        const position = toLspPositionFromOffset(content, start.offset + match.index)
+        found.push({ name: match[1]!, line: position.line, character: position.character })
+      }
+    }
+    const children = node.children as readonly (typeof node)[] | undefined
+    if (children) children.forEach(walk)
   }
+  walk(tree)
   return found
 }
 
 /**
- * Parses every footnote marker and definition out of `content`. Total and
- * side-effect-free: always returns a result, never throws. Scanning skips
- * fenced code blocks entirely and blanks inline-code spans before looking for
- * markers, so `[^x]` inside either never counts. A definition's own body
- * (same-line plus indented continuation lines) is excluded from marker
- * scanning — a `[^y]` written there is ordinary text.
+ * Parses every footnote marker and definition out of `content` off a single
+ * mdast parse (`parseMarkdown`'s own memo makes a second call on the same
+ * string free). Total and side-effect-free: always returns a result, never
+ * throws, because `parseMarkdown` never does. Fenced code, indented code,
+ * and inline-code spans are excluded from marker/definition recognition
+ * structurally — they simply parse as other node types — rather than by a
+ * hand-rolled skip list.
  */
 export const parseFootnotes = (content: string): Footnotes => {
-  const lines = content.split(/\r?\n/)
-  const fenceSkip = computeFenceSkip(lines)
+  const tree = parseMarkdown(content)
   const markers: FootnoteMarker[] = []
   const definitions: FootnoteDefinition[] = []
 
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i]!
-
-    if (fenceSkip[i]) {
-      i += 1
-      continue
+  const walk = (node: {
+    readonly type: string
+    readonly position?: unknown
+    readonly children?: unknown
+    readonly label?: string
+    readonly identifier?: string
+  }): void => {
+    if (node.type === "footnoteReference" && node.position) {
+      const position = toLspPosition(
+        (node.position as { start: { line: number; column: number } }).start,
+      )
+      markers.push({ name: node.label ?? node.identifier ?? "", ...position })
+    } else if (node.type === "footnoteDefinition" && node.position) {
+      const pos = node.position as {
+        start: { line: number; column: number }
+        end: { line: number; column: number }
+      }
+      const children = (node.children as readonly Parameters<typeof sourceText>[1][]) ?? []
+      const body = children
+        .map((child) => sourceText(content, child))
+        .join(" ")
+        .trim()
+      definitions.push({
+        name: node.label ?? node.identifier ?? "",
+        line: toLspPosition(pos.start).line,
+        endLine: toLspPosition(pos.end).line,
+        body,
+      })
     }
-
-    const defMatch = DEFINITION_START_RE.exec(line)
-    if (defMatch) {
-      const { definition, nextIndex } = parseDefinitionAt(lines, i, defMatch)
-      definitions.push(definition)
-      i = nextIndex
-      continue
-    }
-
-    markers.push(...scanMarkers(line, i))
-    i += 1
+    const children = node.children as readonly (typeof node)[] | undefined
+    if (children) children.forEach(walk)
   }
+  walk(tree)
+
+  markers.push(...orphanMarkers(content, tree))
+  markers.sort((a, b) => a.line - b.line || a.character - b.character)
 
   return { markers, definitions, findings: computeFindings(markers, definitions) }
 }
 
-/** The first integer unused by any `fnN` marker or definition already in the document — deterministic (no clock, no randomness), so "add a footnote" is testable and idempotent under re-run: applying it twice yields `fn1` then `fn2`, never a collision. */
+/** The first integer unused by any `fnN` marker or definition already in the document — deterministic (no clock, no randomness), so "add a footnote" is testable and idempotent under re-run: applying it twice yields `fn1` then `fn2`, never a collision. Counts orphan markers too (via `parseFootnotes`), so it never reuses a name that's already written but undefined. */
 export const nextFootnoteName = (content: string): string => {
   const { markers, definitions } = parseFootnotes(content)
-  const NAME_RE = /^fn(\d+)$/
+  const NAME_RE = /^fn(\d+)$/i
   const used = new Set<number>()
   for (const name of [...markers.map((m) => m.name), ...definitions.map((d) => d.name)]) {
     const match = NAME_RE.exec(name)
@@ -358,7 +397,7 @@ export const footnotePointerAt = (
 
   const marker = markerAt(markers, position)
   if (marker) {
-    const definition = definitions.find((d) => d.name === marker.name)
+    const definition = definitions.find((d) => foldName(d.name) === foldName(marker.name))
     return { pointer: definition ? { line: definition.line } : undefined }
   }
 
@@ -367,7 +406,9 @@ export const footnotePointerAt = (
     const definition = definitions.find(
       (d) => position.line >= d.line && position.line <= d.endLine,
     )
-    const firstMarker = definition ? markers.find((m) => m.name === definition.name) : undefined
+    const firstMarker = definition
+      ? markers.find((m) => foldName(m.name) === foldName(definition.name))
+      : undefined
     return {
       pointer: firstMarker
         ? { line: firstMarker.line, character: firstMarker.character }

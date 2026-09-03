@@ -136,6 +136,28 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stdout is empty
 
   @inmem
+  Scenario: a qa file that quotes a footnote-shaped line inside a fenced code block still validates clean
+    Given a file "NOTES.md" with:
+      """
+      Build a thing.
+
+      ## Open Questions
+
+      ### How should the driver doc show a footnote example?
+
+      Like this, inside a fence so it's never treated as a real definition:
+
+      ```
+      claim[^fn1]
+
+      [^fn1]: not a real footnote, just documentation
+      ```
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
   Scenario: a malformed review file prints the parser's findings on stderr and fails
     Given a file "REVIEW.md" with:
       """
