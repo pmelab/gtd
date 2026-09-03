@@ -1163,11 +1163,13 @@ describe("strict indentation reading", () => {
     expect(questions[0]!.question).toBe("two spaces")
   })
 
-  it("a '###' heading indented four spaces is indented code, not a question heading — the question is silently lost from the tree", () => {
+  it("a '###' heading indented four spaces is indented code, not a question heading — reported as a positioned refusal, not silently dropped", () => {
     const content = ["## Open Questions", "", "    ### four spaces", "", "a1.", ""].join("\n")
     const { questions, errors } = parseOpenQuestions(content)
     expect(questions).toEqual([])
-    expect(errors).toEqual([])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("### four spaces")
+    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 2 }])
   })
 
   it("a '- [ ]' option indented two or three spaces still counts as an option", () => {
@@ -1184,12 +1186,15 @@ describe("strict indentation reading", () => {
     expect(questions[0]!.options.map((o) => o.text)).toEqual(["REST", "GraphQL"])
   })
 
-  it("a '- [ ]' option indented four spaces is indented code, not an option — the question is left with zero options, unanswered rather than silently answered", () => {
+  it("a '- [ ]' option indented four spaces is indented code, not an option — reported as a positioned refusal, not silently dropped", () => {
     const content = ["## Open Questions", "", "### Which API?", "", "    - [ ] REST", ""].join("\n")
-    const { questions } = parseOpenQuestions(content)
+    const { questions, errors } = parseOpenQuestions(content)
     expect(questions[0]!.options).toEqual([])
     expect(questions[0]!.answered).toBe(false)
     expect(unansweredQuestions(content).map((q) => q.question)).toEqual(["Which API?"])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("- [ ] REST")
+    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 4 }])
   })
 })
 

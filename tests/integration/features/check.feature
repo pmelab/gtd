@@ -180,6 +180,29 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stdout is empty
 
   @inmem
+  Scenario: a '- [ ]' option indented four spaces no longer counts as one, and the structural check names its exact line
+    # Four (or more) leading spaces before a "- [ ]" line is CommonMark
+    # indented code, not a list item — without a dedicated check this option
+    # would vanish from the tree with no signal at all. `gtd check qa` (the
+    # structural path, no --open-questions) must instead fail and point at
+    # the exact line the option was written on.
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+          - [ ] SQLite — zero-config, file-based
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stdout is empty
+    And stderr contains "NOTES.md:7:"
+    And stderr contains "- [ ] SQLite"
+
+  @inmem
   Scenario: a malformed review file prints the parser's findings on stderr and fails
     Given a file "REVIEW.md" with:
       """

@@ -1,4 +1,4 @@
-import type { Heading, List, ListItem, Root, RootContent } from "mdast"
+import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
 import type { FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
@@ -15,7 +15,12 @@ import {
   toLspPosition,
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
-import type { SteeringEdit, SteeringFormat, SteeringOutlineNode } from "./SteeringFormat.js"
+import type {
+  SteeringEdit,
+  SteeringFinding,
+  SteeringFormat,
+  SteeringOutlineNode,
+} from "./SteeringFormat.js"
 
 export type OpenQuestionStatus = "open" | "answered"
 
@@ -296,17 +301,108 @@ const checkSectionOrder = (tree: Root, content: string): readonly string[] => {
   return findings
 }
 
+/** A line shaped like a '### ' question heading, dedented from an indented `code` node — used only by `strictReadingFindings` to recognize what fell through. */
+const HEADING_SHAPE_RE = /^#{3}(?:\s|$)/
+
+/** A line shaped like a '- [ ]'/'- [x]'/'* [X]' task-list option, dedented from an indented `code` node — used only by `strictReadingFindings` to recognize what fell through. */
+const OPTION_SHAPE_RE = /^[-*]\s*\[[ xX]\]/
+
 /**
- * Parses the open-questions structure out of `content`. Total and
- * side-effect-free: always returns a result, never throws. Questions are
- * returned in document order (by heading line).
+ * True when the `code` node at `node` is FENCED (```` ``` ````/`~~~`), never
+ * indented — both parse to the same `code` node type, so telling them apart
+ * means checking the delimiter that actually opens the block, back in the
+ * source. A fenced block quoting `### ` or `- [ ]` text is a legitimate
+ * example, not a dropped heading/option — `strictReadingFindings` must not
+ * fire on it.
  */
-export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
+const isFencedCode = (content: string, node: Code): boolean => {
+  if (!node.position) return false
+  const lines = content.split(/\r?\n/)
+  const raw = (lines[toLspPosition(node.position.start).line] ?? "").trim()
+  return raw.startsWith("```") || raw.startsWith("~~~")
+}
+
+/** A depth-2 section's top-level node range: from just after `headingIndex` up to (but excluding) the next depth-1/2 heading, or the end of the document. */
+const sectionRange = (
+  tree: Root,
+  headingIndex: number,
+): { readonly start: number; readonly end: number } => {
+  let end = tree.children.length
+  for (let i = headingIndex + 1; i < tree.children.length; i += 1) {
+    const node = tree.children[i]!
+    if (node.type === "heading" && node.depth <= 2) {
+      end = i
+      break
+    }
+  }
+  return { start: headingIndex + 1, end }
+}
+
+/**
+ * The strict reading's positioned refusal: a `### `-shaped or `- [ ]`-shaped
+ * line indented 4+ spaces parses as INDENTED CODE, never a real heading or
+ * list item — so without this check it vanishes from the tree with no signal
+ * at all (a whole question silently dropped, or left with zero options and
+ * read as merely unanswered). Scans every non-fenced `code` node inside a
+ * `## Open Questions`/`## Answered Questions` section for such a line and
+ * reports it at that EXACT source line, rather than let it disappear.
+ */
+const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] => {
+  const findings: SteeringFinding[] = []
+  for (const sectionName of ["Open Questions", "Answered Questions"]) {
+    const headingIndex = tree.children.findIndex(
+      (n): n is Heading =>
+        n.type === "heading" && n.depth === 2 && headingText(content, n) === sectionName,
+    )
+    if (headingIndex === -1) continue
+    const { start, end } = sectionRange(tree, headingIndex)
+    for (let i = start; i < end; i += 1) {
+      const node = tree.children[i]!
+      if (node.type !== "code" || !node.position || isFencedCode(content, node)) continue
+      const startLine = toLspPosition(node.position.start).line
+      node.value.split("\n").forEach((raw, offset) => {
+        const trimmed = raw.trim()
+        const line = startLine + offset
+        if (HEADING_SHAPE_RE.test(trimmed)) {
+          findings.push({
+            message: `An indented (4+ space) "${trimmed}" is markdown indented code, not a question heading — it is silently dropped otherwise`,
+            line,
+          })
+        } else if (OPTION_SHAPE_RE.test(trimmed)) {
+          findings.push({
+            message: `An indented (4+ space) "${trimmed}" is markdown indented code, not an option — it is silently dropped otherwise`,
+            line,
+          })
+        }
+      })
+    }
+  }
+  return findings
+}
+
+/**
+ * Parses the open-questions structure out of `content`, plus every finding
+ * `QA_FORMAT.validate` reports — each carrying a `line` when the underlying
+ * violation is positioned (currently only `strictReadingFindings`'s; section-
+ * order and empty-heading findings stay positionless, as before). Shared by
+ * `parseOpenQuestions` (the `errors: string[]` compatibility shape) and
+ * `QA_FORMAT.validate` (which needs each finding's `line`), so the two can
+ * never drift apart — mirrors `ReviewDoc.ts`'s `parseReviewFindings`.
+ */
+const parseOpenQuestionsFindings = (
+  content: string,
+): {
+  readonly questions: readonly OpenQuestion[]
+  readonly findings: readonly SteeringFinding[]
+} => {
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
 
   const questions: OpenQuestion[] = []
-  const errors: string[] = [...checkSectionOrder(tree, content)]
+  const findings: SteeringFinding[] = [
+    ...checkSectionOrder(tree, content).map((message) => ({ message })),
+    ...strictReadingFindings(tree, content),
+  ]
 
   const sections: readonly (readonly [string, OpenQuestionStatus])[] = [
     ["Open Questions", "open"],
@@ -323,7 +419,7 @@ export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
     for (const block of splitQuestionBlocks(tree, index)) {
       const result = parseQuestionBlock(content, lines, block, status)
       if ("error" in result) {
-        errors.push(result.error)
+        findings.push({ message: result.error })
       } else {
         questions.push(result)
       }
@@ -331,7 +427,19 @@ export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   }
 
   questions.sort((a, b) => a.headingLine - b.headingLine)
-  return { questions, errors }
+  return { questions, findings }
+}
+
+/**
+ * Parses the open-questions structure out of `content`. Total and
+ * side-effect-free: always returns a result, never throws. Questions are
+ * returned in document order (by heading line). `errors` drops each
+ * finding's `line` (see `parseOpenQuestionsFindings`, which `QA_FORMAT.validate`
+ * uses instead) — kept as plain messages for this function's own callers.
+ */
+export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
+  const { questions, findings } = parseOpenQuestionsFindings(content)
+  return { questions, errors: findings.map((f) => f.message) }
 }
 
 /** Every OPEN question that is not answered — the answer-completeness guard (`src/StepGuards.ts`) refuses a step while this is non-empty. */
@@ -548,11 +656,11 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
 const questionsPointerAt: SteeringFormat["pointerAt"] = (content, position) =>
   footnotePointerAt(content, position)?.pointer
 
-/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Its structural findings are positionless, but a footnote finding carries the offending marker's or definition's `line`. */
+/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Most structural findings are positionless, but the strict-reading refusal and a footnote finding both carry the offending line. */
 export const QA_FORMAT: SteeringFormat = {
   sample: QA_SAMPLE,
   validate: (content) => [
-    ...parseOpenQuestions(content).errors.map((message) => ({ message })),
+    ...parseOpenQuestionsFindings(content).findings,
     ...parseFootnotes(content).findings,
   ],
   outline: questionsOutline,
