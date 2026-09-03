@@ -170,6 +170,13 @@ const firstBodyLineText = (lines: readonly string[], body: readonly RootContent[
  * continuation indented far enough to form a nested list under an option is
  * not itself an option). `listItem.checked` — set by the GFM task-list
  * extension — replaces the old checkbox regex entirely.
+ *
+ * Scope decision: a genuinely NESTED task-list item (indented under an
+ * existing option, so CommonMark parses it as that option's own sub-list,
+ * not indented code) is deliberately excluded from `options` — this format
+ * has no notion of a sub-option. It is a real, correctly-recognized node, not
+ * lost text, so `strictReadingFindings` (below) never flags it either; that
+ * refusal exists only for a shape that the tree drops entirely.
  */
 const optionListItems = (body: readonly RootContent[]): readonly ListItem[] => {
   const items: ListItem[] = []
@@ -285,6 +292,12 @@ const parseQuestionBlock = (
  * and — because this walks `heading` NODES, never a string search — a
  * `## Open Questions` line quoted inside a fenced code block (a `code` node,
  * not a heading) never counts as the section either.
+ *
+ * Known gap, out of this package's scope: a `## Open Questions` heading
+ * itself indented 4+ spaces parses as indented code too, so the whole
+ * section (and every question in it) goes unrecognized with no finding —
+ * `strictReadingFindings` only covers the `### ` heading and `- [ ]` option
+ * shapes this package's acceptance criteria name, not the section heading.
  */
 const checkSectionOrder = (tree: Root, content: string): readonly string[] => {
   const h2 = tree.children.filter((n): n is Heading => n.type === "heading" && n.depth === 2)
@@ -301,10 +314,10 @@ const checkSectionOrder = (tree: Root, content: string): readonly string[] => {
   return findings
 }
 
-/** A line shaped like a '### ' question heading, dedented from an indented `code` node — used only by `strictReadingFindings` to recognize what fell through. */
+/** A line shaped like a '### ' question heading, indented past what CommonMark still parses as a real heading — used only by `strictReadingFindings` to recognize what fell through. */
 const HEADING_SHAPE_RE = /^#{3}(?:\s|$)/
 
-/** A line shaped like a '- [ ]'/'- [x]'/'* [X]' task-list option, dedented from an indented `code` node — used only by `strictReadingFindings` to recognize what fell through. */
+/** A line shaped like a '- [ ]'/'- [x]'/'* [X]' task-list option, indented past what CommonMark still parses as a real list item — used only by `strictReadingFindings` to recognize what fell through. */
 const OPTION_SHAPE_RE = /^[-*]\s*\[[ xX]\]/
 
 /**
@@ -322,59 +335,113 @@ const isFencedCode = (content: string, node: Code): boolean => {
   return raw.startsWith("```") || raw.startsWith("~~~")
 }
 
-/** A depth-2 section's top-level node range: from just after `headingIndex` up to (but excluding) the next depth-1/2 heading, or the end of the document. */
-const sectionRange = (
+/**
+ * Every 0-based line inside a NODE matching `predicate`, at any nesting
+ * depth — the general walk both `recognizedStructureLines` and
+ * `fencedCodeLines` share, so `strictReadingFindings` can exclude a line for
+ * either reason with the same logic.
+ */
+const linesWhere = (tree: Root, predicate: (node: RootContent) => boolean): Set<number> => {
+  const lines = new Set<number>()
+  const walk = (node: RootContent | Root): void => {
+    if (node.type !== "root" && predicate(node) && node.position) {
+      const start = toLspPosition(node.position.start).line
+      const end = toLspPosition(node.position.end).line
+      for (let l = start; l <= end; l += 1) lines.add(l)
+    }
+    const children = (node as { children?: readonly RootContent[] }).children
+    if (children) children.forEach(walk)
+  }
+  walk(tree)
+  return lines
+}
+
+/**
+ * Every 0-based line already inside a REAL, recognized `heading` (any depth)
+ * or task-list `listItem` (any nesting depth — a genuinely nested option,
+ * which `optionListItems` deliberately excludes from `options` but which is
+ * still a correctly-parsed node, not lost text) — `strictReadingFindings`
+ * never flags these: they're legitimately part of the tree already, however
+ * this format chooses to use (or not use) them.
+ */
+const recognizedStructureLines = (tree: Root): Set<number> =>
+  linesWhere(tree, (n) => n.type === "heading" || (n.type === "listItem" && n.checked !== null))
+
+/** Every 0-based line inside a FENCED code block — a legitimate quoted example, never a strict-reading violation (unlike an indented code block, or an indented lazy paragraph continuation, which the refusal exists to catch). */
+const fencedCodeLines = (tree: Root, content: string): Set<number> =>
+  linesWhere(tree, (n) => n.type === "code" && isFencedCode(content, n))
+
+/**
+ * A depth-2 section heading's own body line range: from just after the
+ * heading's own line to (but excluding) the next depth-1/2 heading's line,
+ * or the document's last line. Line-based (not node-index-based) because the
+ * whole point of `strictReadingFindings` is to catch source that DIDN'T
+ * become a distinct top-level node — a lazy paragraph continuation folds
+ * into the PRECEDING paragraph's own node, so there is no node boundary to
+ * walk between here.
+ */
+const sectionLineRange = (
   tree: Root,
-  headingIndex: number,
+  content: string,
+  heading: Heading,
 ): { readonly start: number; readonly end: number } => {
-  let end = tree.children.length
-  for (let i = headingIndex + 1; i < tree.children.length; i += 1) {
+  const lines = content.split(/\r?\n/)
+  const index = tree.children.indexOf(heading)
+  const start = toLspPosition(heading.position!.end).line + 1
+  let end = lines.length - 1
+  for (let i = index + 1; i < tree.children.length; i += 1) {
     const node = tree.children[i]!
-    if (node.type === "heading" && node.depth <= 2) {
-      end = i
+    if (node.type === "heading" && node.depth <= 2 && node.position) {
+      end = toLspPosition(node.position.start).line - 1
       break
     }
   }
-  return { start: headingIndex + 1, end }
+  return { start, end }
 }
 
 /**
  * The strict reading's positioned refusal: a `### `-shaped or `- [ ]`-shaped
- * line indented 4+ spaces parses as INDENTED CODE, never a real heading or
- * list item — so without this check it vanishes from the tree with no signal
- * at all (a whole question silently dropped, or left with zero options and
- * read as merely unanswered). Scans every non-fenced `code` node inside a
- * `## Open Questions`/`## Answered Questions` section for such a line and
- * reports it at that EXACT source line, rather than let it disappear.
+ * line indented 4+ spaces is never a real heading or list item — either
+ * INDENTED CODE (when it opens its own block) or, just as easily, a LAZY
+ * PARAGRAPH CONTINUATION of whatever non-blank line precedes it (when it
+ * doesn't) — so without this check it vanishes with no signal at all: a
+ * whole question silently dropped, or left with zero options and read as
+ * merely unanswered. Scans every RAW line of a `## Open Questions`/
+ * `## Answered Questions` section's own body for such a line (excluding
+ * lines already inside a real heading/list-item node, or inside a fenced
+ * code block) and reports it at that EXACT source line, rather than let it
+ * disappear regardless of which of the two swallowed it.
  */
 const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] => {
   const findings: SteeringFinding[] = []
+  const lines = content.split(/\r?\n/)
+  const skip = recognizedStructureLines(tree)
+  const fenced = fencedCodeLines(tree, content)
+
   for (const sectionName of ["Open Questions", "Answered Questions"]) {
-    const headingIndex = tree.children.findIndex(
+    const heading = tree.children.find(
       (n): n is Heading =>
         n.type === "heading" && n.depth === 2 && headingText(content, n) === sectionName,
     )
-    if (headingIndex === -1) continue
-    const { start, end } = sectionRange(tree, headingIndex)
-    for (let i = start; i < end; i += 1) {
-      const node = tree.children[i]!
-      if (node.type !== "code" || !node.position || isFencedCode(content, node)) continue
-      const startLine = toLspPosition(node.position.start).line
-      node.value.split("\n").forEach((raw, offset) => {
-        const trimmed = raw.trim()
-        const line = startLine + offset
-        if (HEADING_SHAPE_RE.test(trimmed)) {
-          findings.push({
-            message: `An indented (4+ space) "${trimmed}" is markdown indented code, not a question heading — it is silently dropped otherwise`,
-            line,
-          })
-        } else if (OPTION_SHAPE_RE.test(trimmed)) {
-          findings.push({
-            message: `An indented (4+ space) "${trimmed}" is markdown indented code, not an option — it is silently dropped otherwise`,
-            line,
-          })
-        }
-      })
+    if (!heading?.position) continue
+    const { start, end } = sectionLineRange(tree, content, heading)
+
+    for (let line = start; line <= end; line += 1) {
+      if (skip.has(line) || fenced.has(line)) continue
+      const raw = lines[line] ?? ""
+      if (raw.length - raw.trimStart().length < 4) continue
+      const trimmed = raw.trim()
+      if (HEADING_SHAPE_RE.test(trimmed)) {
+        findings.push({
+          message: `An indented (4+ space) "${trimmed}" is markdown indented code (or a lazy paragraph continuation), not a question heading — it is silently dropped otherwise`,
+          line,
+        })
+      } else if (OPTION_SHAPE_RE.test(trimmed)) {
+        findings.push({
+          message: `An indented (4+ space) "${trimmed}" is markdown indented code (or a lazy paragraph continuation), not an option — it is silently dropped otherwise`,
+          line,
+        })
+      }
     }
   }
   return findings

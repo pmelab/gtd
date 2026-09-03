@@ -203,6 +203,29 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stderr contains "- [ ] SQLite"
 
   @inmem
+  Scenario: the same four-space-indented option is still caught with PROSE directly above it, not a blank line — a lazy paragraph continuation, never its own `code` node
+    # With a non-blank line directly above it, the indented "- [ ]" line is a
+    # LAZY PARAGRAPH CONTINUATION of that prose (CommonMark), not an indented
+    # code block — a structurally different way for the same option to
+    # vanish from the tree, which the refusal must catch just the same.
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      Pick one:
+          - [ ] SQLite — zero-config, file-based
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stdout is empty
+    And stderr contains "NOTES.md:8:"
+    And stderr contains "- [ ] SQLite"
+
+  @inmem
   Scenario: a malformed review file prints the parser's findings on stderr and fails
     Given a file "REVIEW.md" with:
       """

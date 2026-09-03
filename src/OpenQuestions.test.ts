@@ -1196,6 +1196,54 @@ describe("strict indentation reading", () => {
     expect(errors[0]).toContain("- [ ] REST")
     expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 4 }])
   })
+
+  it("a '- [ ]' option indented four spaces directly under a prose line — a LAZY PARAGRAPH CONTINUATION, never a `code` node — is still reported, not silently dropped", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "Pick one:",
+      "    - [ ] REST",
+    ].join("\n")
+    const { questions, errors } = parseOpenQuestions(content)
+    expect(questions[0]!.options).toEqual([])
+    expect(unansweredQuestions(content).map((q) => q.question)).toEqual(["Which API?"])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("- [ ] REST")
+    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
+  })
+
+  it("a '###' heading indented four spaces directly under a prose line — a LAZY PARAGRAPH CONTINUATION, never a `code` node — is still reported, and the whole question it would have started stays missing", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Real?",
+      "",
+      "prose here",
+      "    ### four spaces",
+      "",
+      "x",
+    ].join("\n")
+    const { questions, errors } = parseOpenQuestions(content)
+    expect(questions.map((q) => q.question)).toEqual(["Real?"])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("### four spaces")
+    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
+  })
+
+  it("a real, correctly-recognized NESTED option (indented under its parent option, not a bare prose/blank predecessor) is never flagged — it is a legitimate nested list item, just excluded from `options` by design", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "    - [ ] nested, not itself a top-level option",
+      "",
+    ].join("\n")
+    expect(parseOpenQuestions(content).errors).toEqual([])
+  })
 })
 
 describe("a footnoteDefinition directly below the last option, no blank line between", () => {
