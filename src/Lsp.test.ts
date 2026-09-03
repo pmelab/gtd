@@ -294,6 +294,29 @@ describe("documentLinksFor", () => {
     ])
   })
 
+  it("does not turn a footnote marker inside a hunk's inline note into a document link", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1 — see docs[^fn1]",
+      "",
+      "[^fn1]: details",
+      "",
+    ].join("\n")
+    const links = documentLinksFor(resolveBuiltInMode("review"), content, "/repo")
+    // Exactly one link — the pointer token itself, never the `[^fn1]` marker
+    // sitting later in the same note.
+    expect(links).toEqual([
+      {
+        range: { start: { line: 5, character: 6 }, end: { line: 5, character: 18 } },
+        target: "file:///repo/src/a.ts#L1",
+      },
+    ])
+  })
+
   it("returns none for a qa-mode document — qa declares no documentLinks member", () => {
     const content = ["## Open Questions", "", "### Which API?", "", "- [ ] REST", ""].join("\n")
     expect(documentLinksFor(resolveBuiltInMode("qa"), content, "/repo")).toEqual([])

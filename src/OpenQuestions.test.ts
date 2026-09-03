@@ -734,6 +734,15 @@ describe("QA_FORMAT.outline fold end (last question)", () => {
     expect(nodes[2]?.range.end.line).toBe(12)
   })
 
+  it("ends an interior question's range at its own last block too, not at the next heading minus one", () => {
+    const nodes = QA_FORMAT.outline(threeQuestions)
+    // Old guess ("next sibling's heading minus one") would put Q1's end at
+    // line 5 (the blank line before "### Q2?") and Q2's at line 9 — both
+    // swallow the blank line separating questions.
+    expect(nodes[0]?.range.end.line).toBe(4)
+    expect(nodes[1]?.range.end.line).toBe(8)
+  })
+
   it("clamps the last question's range.end.line to the true last line when the fixture has no trailing newline", () => {
     const noTrailingNewline = [
       "## Open Questions",

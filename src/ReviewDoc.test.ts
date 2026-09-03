@@ -943,6 +943,18 @@ describe("REVIEW_FORMAT.outline — last-chunk end-of-range fallback", () => {
     expect(last.range.end.line).toBe(13)
   })
 
+  it("an interior chunk's outline range ends at its own last block too, not at the next heading minus one", () => {
+    const content = threeChunkLines(true)
+    const nodes = REVIEW_FORMAT.outline(content)
+    // Old guess ("next sibling's heading minus one") would put Chunk One's
+    // end at line 6 (the blank line before "## Chunk Two") and Chunk Two's
+    // at line 10 — both swallow the blank line separating chunks.
+    expect(nodes[0]!.name).toBe("Chunk One (0/1)")
+    expect(nodes[0]!.range.end.line).toBe(5)
+    expect(nodes[1]!.name).toBe("Chunk Two (0/1)")
+    expect(nodes[1]!.range.end.line).toBe(9)
+  })
+
   it("the last chunk's outline range still ends correctly when the doc has NO trailing newline", () => {
     const content = threeChunkLines(false)
     const nodes = REVIEW_FORMAT.outline(content)

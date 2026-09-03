@@ -700,15 +700,6 @@ const footnoteLeaf = (
 })
 
 /**
- * The outline tree for a `qa`-mode file's open/answered questions, each
- * option a `leaf: true` child of its open question — unless it carries a
- * footnote of its own, in which case it's a container instead (`leaf` and
- * `children` are never both set; see `SteeringFormat.ts`'s `leaf` doc). A
- * footnote is itself always a `leaf: true` child of whichever node's span
- * contains its marker — an option when the marker sits inside that option's
- * span, otherwise the question itself.
- */
-/**
  * One question block's own outline range end: its last body block's own end
  * line, or the heading's own end line for a bare/empty block — never "the
  * next heading's line minus one", which would swallow trailing blank lines
@@ -737,6 +728,15 @@ const questionEndLines = (content: string): ReadonlyMap<number, number> => {
   return map
 }
 
+/**
+ * The outline tree for a `qa`-mode file's open/answered questions, each
+ * option a `leaf: true` child of its open question — unless it carries a
+ * footnote of its own, in which case it's a container instead (`leaf` and
+ * `children` are never both set; see `SteeringFormat.ts`'s `leaf` doc). A
+ * footnote is itself always a `leaf: true` child of whichever node's span
+ * contains its marker — an option when the marker sits inside that option's
+ * span, otherwise the question itself.
+ */
 const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { questions } = parseOpenQuestions(content)
   const { markers, definitions } = parseFootnotes(content)
