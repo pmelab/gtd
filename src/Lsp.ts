@@ -68,14 +68,23 @@ export const toCodeAction =
     edit: { changes: { [uri]: [...action.edits] } },
   })
 
-/** A `SteeringPointer` → a `Location` resolved against `root` — a collapsed range (a cursor, not a selection), the target file never stat-ed. */
+/**
+ * A `SteeringPointer` → a `Location` — a collapsed range (a cursor, not a
+ * selection). An absent `pointer.path` means "this same document": the
+ * `Location` uses `documentUri` untouched, and `root` (needed only to
+ * resolve a foreign `path` against the git working tree) goes unused. An
+ * absent `pointer.character` lands at column 0.
+ */
 export const toLocation =
-  (root: string) =>
+  (root: string, documentUri: string) =>
   (pointer: SteeringPointer): Location => ({
-    uri: pathToFileURL(resolvePath(root, pointer.path)).toString(),
+    uri:
+      pointer.path === undefined
+        ? documentUri
+        : pathToFileURL(resolvePath(root, pointer.path)).toString(),
     range: {
-      start: { line: pointer.line, character: 0 },
-      end: { line: pointer.line, character: 0 },
+      start: { line: pointer.line, character: pointer.character ?? 0 },
+      end: { line: pointer.line, character: pointer.character ?? 0 },
     },
   })
 
@@ -314,10 +323,11 @@ export const makeSteeringLanguageService = (
 
     definition: async (uri, text, position) => {
       const caps = await capabilitiesFor(uri)
-      const pointer = caps.format?.pointerAt?.(text, position.line)
+      const pointer = caps.format?.pointerAt?.(text, position)
       if (pointer === undefined) return []
+      if (pointer.path === undefined) return [toLocation("", uri)(pointer)]
       const root = (await safeGitTopLevel(dirname(fileURLToPath(uri)))) ?? workspaceRoot
-      return root === undefined ? [] : [toLocation(root)(pointer)]
+      return root === undefined ? [] : [toLocation(root, uri)(pointer)]
     },
 
     diagnostics: async (uri, text) => {

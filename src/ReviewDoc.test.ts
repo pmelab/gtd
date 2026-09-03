@@ -5,6 +5,7 @@ import {
   toggleFilePointer,
   REVIEW_FORMAT,
 } from "./ReviewDoc.js"
+import { parseFootnotes } from "./Footnotes.js"
 
 describe("parseReviewDoc", () => {
   it("parses a well-formed review with one chunk, no explanations", () => {
@@ -720,7 +721,7 @@ describe("REVIEW_FORMAT", () => {
   })
 
   it("pointerAt jumps to the hunk's file at its 1-based #line, mapped to a 0-based position", () => {
-    const pointer = REVIEW_FORMAT.pointerAt?.(reviewDoc, 7)
+    const pointer = REVIEW_FORMAT.pointerAt?.(reviewDoc, { line: 7, character: 0 })
     expect(pointer).toEqual({ path: "./src/calc.ts", line: 4 })
   })
 
@@ -733,11 +734,14 @@ describe("REVIEW_FORMAT", () => {
       "",
       "- [ ] ./src/bare.ts",
     ].join("\n")
-    expect(REVIEW_FORMAT.pointerAt?.(doc, 5)).toEqual({ path: "./src/bare.ts", line: 0 })
+    expect(REVIEW_FORMAT.pointerAt?.(doc, { line: 5, character: 0 })).toEqual({
+      path: "./src/bare.ts",
+      line: 0,
+    })
   })
 
   it("pointerAt returns undefined when the line is not a hunk pointer", () => {
-    expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, 3)).toBeUndefined() // "## Add calculator"
+    expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, { line: 3, character: 0 })).toBeUndefined() // "## Add calculator"
   })
 
   it("go-to-definition and the check/uncheck action DISAGREE at a continuation line: the action fires, go-to-definition does not — asserted at the SAME cursor position", () => {
@@ -746,7 +750,9 @@ describe("REVIEW_FORMAT", () => {
     expect(REVIEW_FORMAT.actions(reviewDoc, at(continuationLine)).map((a) => a.title)).toContain(
       "gtd: check this hunk",
     )
-    expect(REVIEW_FORMAT.pointerAt?.(reviewDoc, continuationLine)).toBeUndefined()
+    expect(
+      REVIEW_FORMAT.pointerAt?.(reviewDoc, { line: continuationLine, character: 0 }),
+    ).toBeUndefined()
   })
 
   it("pointerAt on a hyphenated hunk line returns the full path, not a truncated prefix", () => {
@@ -759,7 +765,7 @@ describe("REVIEW_FORMAT", () => {
       "- [ ] ./src/server/email/budget-threshold.ts#31",
       "  non-obvious import",
     ].join("\n")
-    expect(REVIEW_FORMAT.pointerAt?.(doc, 5)).toEqual({
+    expect(REVIEW_FORMAT.pointerAt?.(doc, { line: 5, character: 0 })).toEqual({
       path: "./src/server/email/budget-threshold.ts",
       line: 30,
     })
@@ -1191,5 +1197,296 @@ describe("clearFilePointerTicks", () => {
   it("is total and never throws on an empty or malformed string", () => {
     expect(clearFilePointerTicks("")).toBe("")
     expect(clearFilePointerTicks("not a review doc at all")).toBe("not a review doc at all")
+  })
+})
+
+describe("footnotes wired into the review format", () => {
+  it("excludes a definition below a hunk pointer from that hunk's note and endLine span", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "explanation line",
+      "",
+      "[^fn1]: a definition below the note",
+      "",
+    ].join("\n")
+    const { changesets } = parseReviewDoc(content)
+    const hunk = changesets[0]!.files[0]!
+    expect(hunk.note).toBe("explanation line")
+    expect(hunk.endLine).toBe(6) // "explanation line", not the definition below it
+  })
+
+  it("strips a marker from a hunk's inline note but the marker still parses with its anchor column", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 new add function[^fn1]",
+      "",
+      "[^fn1]: a reason",
+      "",
+    ].join("\n")
+    const { changesets } = parseReviewDoc(content)
+    expect(changesets[0]!.files[0]!.note).toBe("new add function")
+    const { markers } = parseFootnotes(content)
+    expect(markers).toEqual([
+      { name: "fn1", line: 5, character: content.split("\n")[5]!.indexOf("[^fn1]") },
+    ])
+  })
+
+  it("attributes a definition between two hunk pointers to neither hunk's note, and the second hunk still parses", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "first hunk note",
+      "",
+      "[^fn1]: a definition between hunks",
+      "",
+      "- [ ] ./src/index.ts#2",
+      "second hunk note",
+      "",
+    ].join("\n")
+    const { changesets } = parseReviewDoc(content)
+    expect(changesets[0]!.files).toHaveLength(2)
+    expect(changesets[0]!.files[0]!.note).toBe("first hunk note")
+    expect(changesets[0]!.files[1]!.note).toBe("second hunk note")
+    expect(changesets[0]!.files[1]!.path).toBe("./src/index.ts")
+  })
+
+  it("truncates a note at a hand-placed mid-note definition and reports no finding for it", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "first paragraph",
+      "",
+      "[^fn1]: mid-note definition",
+      "",
+      "second paragraph, silently dropped",
+      "",
+    ].join("\n")
+    const { changesets, errors } = parseReviewDoc(content)
+    expect(changesets[0]!.files[0]!.note).toBe("first paragraph")
+    expect(errors.filter((e) => e.toLowerCase().includes("placement"))).toEqual([])
+  })
+
+  it("surfaces all four footnote findings through REVIEW_FORMAT.validate, each with its line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 orphan marker[^missing]",
+      "",
+      "[^unreferenced]: nobody points here",
+      "[^dup]: first",
+      "[^dup]: second",
+      "[^placeholder]: your comment",
+      "",
+    ].join("\n")
+    const findings = REVIEW_FORMAT.validate(content)
+    const messages = findings.map((f) => f.message)
+    expect(messages.some((m) => m.includes('"[^missing]" has no matching definition'))).toBe(true)
+    expect(messages.some((m) => m.includes('"[^unreferenced]" has no marker referencing it'))).toBe(
+      true,
+    )
+    expect(messages.some((m) => m.includes('Duplicate footnote definition "[^dup]"'))).toBe(true)
+    expect(
+      messages.some((m) => m.includes('"[^placeholder]" still has its seeded placeholder body')),
+    ).toBe(true)
+    expect(findings.every((f) => f.line !== undefined)).toBe(true)
+  })
+
+  it("outline lists footnote leaves under their chunk, and a fully-checked chunk still appears when it carries a footnote", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [x] ./src/calc.ts#1 done[^fn1]",
+      "",
+      "[^fn1]: a reason",
+      "",
+    ].join("\n")
+    const nodes = REVIEW_FORMAT.outline(content)
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]!.children).toHaveLength(1)
+    expect(nodes[0]!.children![0]!.name).toBe("[^fn1] a reason")
+    expect(nodes[0]!.children![0]!.leaf).toBe(true)
+  })
+
+  it("clearFilePointerTicks leaves a footnote definition line byte-identical", () => {
+    const content = [
+      "- [x] ./src/calc.ts#1",
+      "",
+      "[^fn1]: a definition line, starting with '[' not '-'",
+      "",
+    ].join("\n")
+    const cleared = clearFilePointerTicks(content)
+    expect(cleared).toContain("[^fn1]: a definition line, starting with '[' not '-'")
+  })
+
+  it("REVIEW_FORMAT.validate(REVIEW_FORMAT.sample) returns zero findings", () => {
+    expect(REVIEW_FORMAT.validate(REVIEW_FORMAT.sample)).toEqual([])
+  })
+
+  it("strips a marker written directly against the pointer token, instead of corrupting the path", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./a.ts#1[^fn1]",
+      "",
+      "[^fn1]: reason",
+      "",
+    ].join("\n")
+    const { changesets, errors } = parseReviewDoc(content)
+    const hunk = changesets[0]!.files[0]!
+    expect(hunk.path).toBe("./a.ts")
+    expect(hunk.line).toBe(1)
+    expect(errors).toEqual([])
+    expect(REVIEW_FORMAT.pointerAt!(content, { line: hunk.sourceLine, character: 0 })).toEqual({
+      path: "./a.ts",
+      line: 0,
+    })
+  })
+
+  it("strips a marker from the chunk title and description", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator[^fn1]",
+      "",
+      "some description[^fn2]",
+      "",
+      "- [ ] ./a.ts#1",
+      "",
+      "[^fn1]: reason one",
+      "[^fn2]: reason two",
+      "",
+    ].join("\n")
+    const { changesets } = parseReviewDoc(content)
+    expect(changesets[0]!.title).toBe("Add calculator")
+    expect(changesets[0]!.description).toBe("some description")
+  })
+})
+
+describe("'gtd: add a footnote' action", () => {
+  const at = (line: number, character = 0) => ({
+    start: { line, character },
+    end: { line, character },
+  })
+  const footnoteAction = (content: string, line: number, character = 0) =>
+    REVIEW_FORMAT.actions(content, at(line, character)).find(
+      (a) => a.title === "gtd: add a footnote",
+    )
+
+  it("in a multi-paragraph hunk note, lands after the LAST non-blank line of the hunk's span — the note is not split", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "first paragraph",
+      "",
+      "second paragraph",
+      "",
+      "## Next chunk",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 6, 2)! // cursor inside "first paragraph"
+    const defEdit = action.edits[1]!
+    // Placed right after line 8 ("second paragraph"), never between the two paragraphs.
+    expect(defEdit.range.start.line).toBe(9)
+    expect(defEdit.newText).toContain("[^fn1]: your comment")
+  })
+
+  it("in ordinary prose (a chunk's description, before any hunk), lands after the current block's last line", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "some description",
+      "continues here",
+      "",
+      "- [ ] ./src/calc.ts#1",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 5, 2)! // cursor inside "some description"
+    expect(action.edits[1]!.range.start.line).toBe(7) // "continues here", not split from its own paragraph
+  })
+
+  it("is offered everywhere, always titled 'gtd: add a footnote', carrying exactly two edits", () => {
+    const action = footnoteAction(REVIEW_FORMAT.sample, 0, 0)
+    expect(action).toBeDefined()
+    expect(action!.edits).toHaveLength(2)
+  })
+
+  it("never shares a start position between its two edits, even with the cursor at the very end of the hunk's own last line (regression)", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1 some trailing prose",
+      "",
+    ].join("\n")
+    const action = footnoteAction(content, 5, "- [ ] ./src/a.ts#1 some trailing prose".length)!
+    const [markerEdit, definitionEdit] = action.edits
+    expect(definitionEdit!.range.start.line).toBeGreaterThan(markerEdit!.range.start.line)
+  })
+
+  it("is refused with the cursor inside an existing marker's [^name] span — planting a new marker there would nest it", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1[^fn1]",
+      "",
+      "[^fn1]: the reason",
+      "",
+    ].join("\n")
+    const character = content.split("\n")[5]!.indexOf("[^fn1]") + 2 // inside the name
+    expect(footnoteAction(content, 5, character)).toBeUndefined()
+  })
+
+  it("is refused with the cursor on an existing definition's own label line — planting a definition there would split it", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1[^fn1]",
+      "",
+      "[^fn1]: the reason",
+      "",
+    ].join("\n")
+    expect(footnoteAction(content, 7, 3)).toBeUndefined()
   })
 })

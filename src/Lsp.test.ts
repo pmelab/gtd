@@ -235,10 +235,25 @@ describe("toCodeAction", () => {
 
 describe("toLocation", () => {
   it("resolves a SteeringPointer's path against root into a collapsed-range Location", () => {
-    const location = toLocation("/repo")({ path: "./src/calc.ts", line: 4 })
+    const location = toLocation(
+      "/repo",
+      "file:///repo/REVIEW.md",
+    )({ path: "./src/calc.ts", line: 4 })
     expect(location.uri).toBe("file:///repo/src/calc.ts")
     expect(location.range.start).toEqual({ line: 4, character: 0 })
     expect(location.range.end).toEqual({ line: 4, character: 0 })
+  })
+
+  it("uses the document's own URI when the pointer's path is absent (a same-document footnote jump)", () => {
+    const location = toLocation("/repo", "file:///repo/PLAN.md")({ line: 9, character: 3 })
+    expect(location.uri).toBe("file:///repo/PLAN.md")
+    expect(location.range.start).toEqual({ line: 9, character: 3 })
+    expect(location.range.end).toEqual({ line: 9, character: 3 })
+  })
+
+  it("defaults an absent character to column 0", () => {
+    const location = toLocation("/repo", "file:///repo/PLAN.md")({ line: 9 })
+    expect(location.range.start).toEqual({ line: 9, character: 0 })
   })
 })
 
@@ -439,6 +454,112 @@ describe("makeSteeringLanguageService", () => {
       character: 0,
     })
     expect(locations).toEqual([{ uri: "file:///repo/src/a.ts", range: expect.anything() }])
+  })
+
+  it("definition on a footnote marker jumps within the SAME document, never touching gitTopLevel", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const gitTopLevel = vi.fn(async () => "/repo")
+    const footnoteDoc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1[^fn1]",
+      "",
+      "[^fn1]: the reason",
+      "",
+    ].join("\n")
+    const env = fakeEnv({
+      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      gitTopLevel,
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    const locations = await service.definition("file:///repo/REVIEW.md", footnoteDoc, {
+      line: 5,
+      character: 19, // inside "[^fn1]"
+    })
+    expect(locations).toEqual([
+      {
+        uri: "file:///repo/REVIEW.md",
+        range: { start: { line: 7, character: 0 }, end: { line: 7, character: 0 } },
+      },
+    ])
+    expect(gitTopLevel).not.toHaveBeenCalled()
+  })
+
+  it("definition on a footnote definition line jumps to its first marker's line AND exact (non-zero) column, within the SAME document", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const gitTopLevel = vi.fn(async () => "/repo")
+    const footnoteDoc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1[^fn1]",
+      "",
+      "[^fn1]: the reason",
+      "",
+    ].join("\n")
+    const env = fakeEnv({
+      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      gitTopLevel,
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    const locations = await service.definition("file:///repo/REVIEW.md", footnoteDoc, {
+      line: 7,
+      character: 0,
+    })
+    expect(locations).toEqual([
+      {
+        uri: "file:///repo/REVIEW.md",
+        range: { start: { line: 5, character: 18 }, end: { line: 5, character: 18 } },
+      },
+    ])
+    expect(gitTopLevel).not.toHaveBeenCalled()
+  })
+
+  it("definition on an orphan marker (no matching definition) returns [], never throwing", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]) })
+    const service = makeSteeringLanguageService(env, () => {})
+    const orphanDoc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1 orphan marker[^missing]",
+      "",
+    ].join("\n")
+    const locations = await service.definition("file:///repo/REVIEW.md", orphanDoc, {
+      line: 5,
+      character: 34, // inside "[^missing]"
+    })
+    expect(locations).toEqual([])
+  })
+
+  it("definition on an orphan definition (no marker references it) returns [], never throwing", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]) })
+    const service = makeSteeringLanguageService(env, () => {})
+    const orphanDoc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+      "[^missing]: nobody points here",
+      "",
+    ].join("\n")
+    const locations = await service.definition("file:///repo/REVIEW.md", orphanDoc, {
+      line: 7,
+      character: 0,
+    })
+    expect(locations).toEqual([])
   })
 
   it("degrades to an empty steering map (and warns) when steeringMapFor rejects, instead of rejecting the request", async () => {

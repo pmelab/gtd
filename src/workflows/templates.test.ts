@@ -661,6 +661,71 @@ describe("the bundled unified workflow template", () => {
       /Answered Questions[\s\S]{0,200}(last|after every other)/i,
     )
   })
+
+  // `footnoteRules` (how a human types one) wires into exactly these three
+  // human-gate messages; `footnoteFoldIn` (fold-in/delete/human-only rules)
+  // wires into exactly these three agent prompts. Table-driven by name AND
+  // count so a seventh injection site added later fails loudly (package 02).
+  const FOOTNOTE_RULES_STATES = [
+    "design.gate.answer",
+    "architecture.gate.answer",
+    "build.review.await-review",
+  ]
+  const FOOTNOTE_FOLD_IN_STATES = [
+    "design.triage",
+    "architecture.author",
+    "build.review.collecting",
+  ]
+
+  it("declares footnoteRules and footnoteFoldIn, each non-empty (package 02)", () => {
+    const { vars } = compileTemplate()
+    expect(vars.footnoteRules).toBeTruthy()
+    expect(vars.footnoteFoldIn).toBeTruthy()
+  })
+
+  it("wires footnoteRules into exactly the three human-gate messages named above and nowhere else (package 02)", () => {
+    const { definition } = compileTemplate()
+    expect(statesReferencing(definition, "footnoteRules")).toEqual(
+      [...FOOTNOTE_RULES_STATES].sort(),
+    )
+  })
+
+  it("wires footnoteFoldIn into exactly the three agent prompts named above and nowhere else (package 02)", () => {
+    const { definition } = compileTemplate()
+    expect(statesReferencing(definition, "footnoteFoldIn")).toEqual(
+      [...FOOTNOTE_FOLD_IN_STATES].sort(),
+    )
+  })
+
+  it("every footnote injection site uses the raw (unescaped) tag form, matching the existing voice-variable wiring (package 02)", () => {
+    const { definition } = compileTemplate()
+    for (const name of FOOTNOTE_RULES_STATES) {
+      expect(definition.states[name]?.message, `state "${name}"`).toMatch(
+        /<%~\s*it\.vars\.footnoteRules\s*%>/,
+      )
+    }
+    for (const name of FOOTNOTE_FOLD_IN_STATES) {
+      expect(definition.states[name]?.prompt, `state "${name}"`).toMatch(
+        /<%~\s*it\.vars\.footnoteFoldIn\s*%>/,
+      )
+    }
+  })
+
+  it("build.review.reviewing — the one state that WRITES a review file — references neither footnote tag (package 02)", () => {
+    const { definition } = compileTemplate()
+    const reviewing = definition.states["build.review.reviewing"]
+    expect(reviewing?.prompt).not.toContain("footnoteRules")
+    expect(reviewing?.prompt).not.toContain("footnoteFoldIn")
+  })
+
+  it("footnoteFoldIn structurally carries the human-input-only rule and the delete-in-the-same-turn rule, not just exact phrasing (package 02)", () => {
+    const { vars } = compileTemplate()
+    expect(vars.footnoteFoldIn).toMatch(/human input only|never write one yourself|never author/i)
+    expect(vars.footnoteFoldIn).toMatch(/delete/i)
+    expect(vars.footnoteFoldIn).toMatch(/same turn/i)
+    expect(vars.footnoteFoldIn).toMatch(/anchor|hunk|paragraph/i)
+    expect(vars.footnoteFoldIn).toMatch(/whole-file/i)
+  })
 })
 
 describe("the bundled template's machine boundaries line up with conversational identity (package 08/02)", () => {

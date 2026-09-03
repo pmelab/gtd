@@ -356,3 +356,102 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     Then the LSP response has no error
     And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/PLAN.md" with exactly one Warning diagnostic containing "has no question text"
+
+  Scenario: 'gtd: add a footnote' inserts a marker and a seeded definition; applying the edits shows both
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests code actions at line 5 character 22 in ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1 new add function
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a code action titled "gtd: add a footnote"
+    When the LSP client applies the edits of the code action titled "gtd: add a footnote"
+    Then the applied document contains "new[^fn1] add function"
+    And the applied document contains "[^fn1]: your comment"
+
+  Scenario: a textDocument/definition round trip jumps marker to definition, then definition back to the marker's exact column
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests a definition at line 5 character 39 in ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1 new add function[^fn1]
+
+      [^fn1]:
+          the reason
+      """
+    Then the LSP response has no error
+    And the LSP response result points to ".gtd/REVIEW.md" at line 7
+    When the LSP client requests a definition at line 7 character 0 in ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1 new add function[^fn1]
+
+      [^fn1]:
+          the reason
+      """
+    Then the LSP response has no error
+    And the LSP response result points to ".gtd/REVIEW.md" at line 5 character 38
+
+  Scenario: a marker in a qa file jumps to its definition — proving qa now serves pointerAt
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: "PLAN.md"
+                mode: qa
+                prompt: "develop the plan"
+                on:
+                  "* **": idle
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests a definition at line 6 character 9 in ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      - [ ] add[^fn1]
+      - [ ] subtract
+      - [ ] _your answer_
+
+      [^fn1]:
+          why add is an option
+      """
+    Then the LSP response has no error
+    And the LSP response result points to ".gtd/PLAN.md" at line 10

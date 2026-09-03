@@ -31,6 +31,13 @@
 - symbols over a `qa`-mode file's open questions, plus "pick this option" /
   "uncheck this option" code actions on each option — offered anywhere on the
   option's list item, including wrapped continuation lines
+- a "gtd: add a footnote" code action in both formats: it plants a `[^name]`
+  marker right after the word your cursor sits in (or at the cursor itself) and
+  a seeded definition below the current block, so leaving a footnote never means
+  hand-typing the syntax
+- go-to-definition on a footnote jumps both ways — marker to definition,
+  definition to its first marker's exact column — in both formats, within the
+  same file
 - live diagnostics for both formats as you edit
 - a `gtd.openSteeringFile` command that jumps to the current state's steering
   file, falling back to `.gtd/TODO.md` when the resting state declares none, so

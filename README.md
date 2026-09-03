@@ -268,7 +268,10 @@ command opens the empty `.gtd/TODO.md`, and whatever you write there is the
 first sketch the whole process gets planned from. As a final step, if it finds
 an LSP-capable editor, the briefing also offers to wire up live diagnostics and
 review actions in it — asking first and naming the exact file, and merging
-rather than overwriting your editor's config.
+rather than overwriting your editor's config. That editor integration also adds
+a footnote where your cursor sits with one code action, and jumps between a
+footnote's marker and its definition both ways — so leaving a comment for the
+next agent turn never means hand-typing the `[^name]` syntax yourself.
 
 ### The workflow it ships with
 

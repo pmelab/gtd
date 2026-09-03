@@ -189,6 +189,37 @@ vars:
       you have established the feedback was wrong; leaving it in place is
       never the right end state, the next check writes its own
 
+  # The human-facing half of footnotes — how to type one, injected into the
+  # three human-gate messages (`design.gate.answer`, `architecture.gate.answer`,
+  # `build.review.await-review`). `footnoteFoldIn` below is the agent-facing
+  # half; the two never share text, different audience and content.
+  footnoteRules: |-
+    - Leave a footnote anywhere: mark the exact spot with `[^name]` (any
+      name, no whitespace or `]`), then define it below as `[^name]:
+      explain what you mean` — indent a longer comment's continuation
+      lines. (The literal words "your comment" are this format's seeded
+      placeholder body — a definition still holding them exactly is
+      flagged as unfilled, so write your own words there)
+    - A footnote is a comment on that exact spot — the hunk, line, or
+      paragraph it marks — never a whole-file remark
+    - `name` is yours to pick; only a definition's name must be unique in
+      this document — the same name may mark more than one spot
+  # The agent-facing half — injected into the three prompts that fold a
+  # footnote in (`design.triage`, `architecture.author`,
+  # `build.review.collecting`). `build.review.reviewing`, the one state that
+  # WRITES a review file, references neither tag — the agent never authors a
+  # footnote.
+  footnoteFoldIn: |-
+    - A footnote (`[^name]` plus its `[^name]:` definition) is a comment on
+      its exact anchor — fold it in as a mandatory concern described
+      against that anchor's hunk or paragraph, never flattened into a
+      whole-file remark
+    - DELETE it in this same turn — marker and definition together — the
+      way a transient hand-written code comment is already treated. Never
+      re-read a footnote already acted on
+    - A footnote is human input only — you reply in prose; never write one
+      yourself
+
 # `gtd summary`'s prompt — printed cold, no session identity, no diff inlined.
 # Names the hashes/range for the agent to inspect itself; renders the same
 # it.processCost/it.processCostByModel the old squash finale used to.
@@ -402,6 +433,8 @@ machines:
 
           <%~ it.vars.stateFileRules %>
 
+          <%~ it.vars.footnoteFoldIn %>
+
           - The only state file this turn touches is `.gtd/REQUIREMENTS.md`
             — no other files for notes or output
           - `.gtd/TODO.md` is the likely home of the sketch that started
@@ -503,6 +536,12 @@ machines:
             answer, replace `_your answer_` with your text and tick that
             line. Stepping is refused while any question is unanswered.
 
+            You can also leave a footnote alongside an answer — it never
+            substitutes for ticking a box, which is still required before
+            stepping is allowed:
+
+            <%~ it.vars.footnoteRules %>
+
             What each change does next (then run `gtd land`):
             <% it.edges.forEach(function (e) { if (e.describe) { %>
             <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
@@ -535,6 +574,8 @@ machines:
 
 
           <%~ it.vars.stateFileRules %>
+
+          <%~ it.vars.footnoteFoldIn %>
 
           - The only state files this turn touches are
             `.gtd/ARCHITECTURE.md` (write it) and `.gtd/REQUIREMENTS.md`
@@ -602,6 +643,12 @@ machines:
             question by ticking exactly one box (`- [x]`); for your own
             answer, replace `_your answer_` with your text and tick that
             line. Stepping is refused while any question is unanswered.
+
+            You can also leave a footnote alongside an answer — it never
+            substitutes for ticking a box, which is still required before
+            stepping is allowed:
+
+            <%~ it.vars.footnoteRules %>
 
             What each change does next (then run `gtd land`):
             <% it.edges.forEach(function (e) { if (e.describe) { %>
@@ -741,14 +788,19 @@ machines:
             branch; run `gtd summary` afterward for a closing-message
             prompt.
           - **Request changes** — leave a comment: a note on a
-            `.gtd/REVIEW.md` line, or a direct code edit — to send a FULL
-            development lap (**review.deciding** → **review.collecting** →
+            `.gtd/REVIEW.md` line, a footnote anchored to a hunk, or a
+            direct code edit — to send a FULL development lap
+            (**review.deciding** → **review.collecting** →
             re-triage). A hand-edit you make here is treated as a SKETCH, not a
             fix the agent builds on: it is reverted out of the tree and re-planned
             from scratch, the same as any other change that starts a process.
             There is no baseline check on the way back into planning — only a
             genuinely non-actionable comment (an approving remark with no code
             edit) skips the lap and signs off straight away.
+
+          A footnote works the same way here as a line note:
+
+          <%~ it.vars.footnoteRules %>
 
           Deleting `.gtd/REVIEW.md` is refused.
         on:
@@ -869,6 +921,8 @@ machines:
           You are judging and classifying a round of review feedback.
 
           <%~ it.vars.stateFileRules %>
+
+          <%~ it.vars.footnoteFoldIn %>
 
           - The only state files this turn touches are
             `.gtd/REQUIREMENTS.md` and `.gtd/REVIEW_RAW.md` (deleted) —
