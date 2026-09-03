@@ -317,6 +317,25 @@ describe("documentLinksFor", () => {
     ])
   })
 
+  it("a bare pointer with no '#line' lands the link at line 0", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts",
+      "",
+    ].join("\n")
+    const links = documentLinksFor(resolveBuiltInMode("review"), content, "/repo")
+    expect(links).toEqual([
+      {
+        range: { start: { line: 5, character: 6 }, end: { line: 5, character: 16 } },
+        target: "file:///repo/src/a.ts#L1",
+      },
+    ])
+  })
+
   it("returns none for a qa-mode document — qa declares no documentLinks member", () => {
     const content = ["## Open Questions", "", "### Which API?", "", "- [ ] REST", ""].join("\n")
     expect(documentLinksFor(resolveBuiltInMode("qa"), content, "/repo")).toEqual([])

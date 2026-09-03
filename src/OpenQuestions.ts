@@ -329,21 +329,17 @@ const parseQuestionBlock = (
  * many competing sections offend it. Level-1 headings and prose don't count,
  * and — because this walks `heading` NODES, never a string search — a
  * `## Open Questions` line quoted inside a fenced code block (a `code` node,
- * not a heading) never counts as the section either.
+ * not a heading) never counts as the section either. Each finding's range
+ * points at ONE offending heading — the first section (`h2[0]`) for the
+ * "before" violation, the last (`h2[h2.length - 1]`) for the "after" one —
+ * since either is, by construction, always one of the offenders when its
+ * violation fires.
  *
  * Known gap, out of this package's scope: a `## Open Questions` heading
  * itself indented 4+ spaces parses as indented code too, so the whole
  * section (and every question in it) goes unrecognized with no finding —
  * `strictReadingFindings` only covers the `### ` heading and `- [ ]` option
  * shapes this package's acceptance criteria name, not the section heading.
- */
-/**
- * `## Open Questions` must precede every other level-2 section, and
- * `## Answered Questions` must follow every other level-2 section (see the
- * doc comment above). Each finding's range points at ONE offending heading —
- * the first section (`h2[0]`) for the "before" violation, the last
- * (`h2[h2.length - 1]`) for the "after" one — since either is, by
- * construction, always one of the offenders when its violation fires.
  */
 const checkSectionOrder = (tree: Root, content: string): readonly SteeringFinding[] => {
   const h2 = tree.children.filter((n): n is Heading => n.type === "heading" && n.depth === 2)

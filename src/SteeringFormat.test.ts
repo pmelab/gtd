@@ -38,7 +38,7 @@ const MALFORMED_SAMPLES: readonly (readonly [string, SteeringFormat, string])[] 
       "",
       "###",
       "",
-      "    #### dropped heading",
+      "    ### dropped heading",
       "",
       "    - [ ] dropped option",
       "",
