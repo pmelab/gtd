@@ -158,6 +158,28 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stdout is empty
 
   @inmem
+  Scenario: a qa file that quotes '## Open Questions' inside a fenced code block still validates clean
+    Given a file "NOTES.md" with:
+      """
+      Build a thing. Plan: add src/thing.ts exporting `thing`.
+
+      This file documents its own format, quoting the section heading itself:
+
+      ```
+      ## Open Questions
+      ```
+
+      ## Open Questions
+
+      ### Should thing export a default too?
+
+      No, named export only.
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
   Scenario: a malformed review file prints the parser's findings on stderr and fails
     Given a file "REVIEW.md" with:
       """
@@ -242,6 +264,27 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     When I run gtd with args "check qa NOTES.md --open-questions"
     Then it succeeds
     And stdout is empty
+
+  @inmem
+  Scenario: --open-questions fails when the only option is indented four spaces and no longer counts as one
+    # Four (or more) leading spaces before a "- [ ]" line is CommonMark
+    # indented code, not a list item — the option is silently lost from the
+    # tree, so the question is left with zero options and reads as
+    # unanswered rather than answered by an option nobody can see.
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+          - [ ] SQLite — zero-config, file-based
+      """
+    When I run gtd with args "check qa NOTES.md --open-questions"
+    Then it fails
+    And stdout is empty
+    And stderr contains "Which storage backend?"
 
   @inmem
   Scenario: --open-questions on a missing file fails and names the path — unlike the no-flag path's silent exit 0

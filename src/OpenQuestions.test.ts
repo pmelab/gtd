@@ -1107,3 +1107,141 @@ describe("'gtd: add a footnote' action", () => {
     expect(footnoteAction(content, 2, 3)).toBeUndefined()
   })
 })
+
+describe("sections and questions come from heading NODES, not string search", () => {
+  it("a '## Open Questions' line quoted inside a fenced code block does not count as the section", () => {
+    const content = [
+      "Build a thing. This file documents its own format.",
+      "",
+      "```",
+      "## Open Questions",
+      "```",
+      "",
+      "## Open Questions",
+      "",
+      "### Real question?",
+      "",
+      "an answer.",
+      "",
+    ].join("\n")
+    const result = parseOpenQuestions(content)
+    expect(result.errors).toEqual([])
+    expect(result.questions).toEqual([
+      {
+        question: "Real question?",
+        status: "open",
+        text: "an answer.",
+        headingLine: 8,
+        options: [],
+        answered: false,
+      },
+    ])
+  })
+
+  it("a '## Open Questions' heading preceded by a fenced block that merely LOOKS like a competing section still validates clean", () => {
+    const content = [
+      "```",
+      "## Implementation Notes",
+      "```",
+      "",
+      "## Open Questions",
+      "",
+      "### Real question?",
+      "",
+      "an answer.",
+      "",
+    ].join("\n")
+    expect(parseOpenQuestions(content).errors).toEqual([])
+  })
+})
+
+describe("strict indentation reading", () => {
+  it("a '###' heading indented two spaces still counts as a question", () => {
+    const content = ["## Open Questions", "", "  ### two spaces", "", "a1.", ""].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions).toHaveLength(1)
+    expect(questions[0]!.question).toBe("two spaces")
+  })
+
+  it("a '###' heading indented four spaces is indented code, not a question heading — the question is silently lost from the tree", () => {
+    const content = ["## Open Questions", "", "    ### four spaces", "", "a1.", ""].join("\n")
+    const { questions, errors } = parseOpenQuestions(content)
+    expect(questions).toEqual([])
+    expect(errors).toEqual([])
+  })
+
+  it("a '- [ ]' option indented two or three spaces still counts as an option", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "  - [ ] REST",
+      "   - [ ] GraphQL",
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions[0]!.options.map((o) => o.text)).toEqual(["REST", "GraphQL"])
+  })
+
+  it("a '- [ ]' option indented four spaces is indented code, not an option — the question is left with zero options, unanswered rather than silently answered", () => {
+    const content = ["## Open Questions", "", "### Which API?", "", "    - [ ] REST", ""].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    expect(questions[0]!.options).toEqual([])
+    expect(questions[0]!.answered).toBe(false)
+    expect(unansweredQuestions(content).map((q) => q.question)).toEqual(["Which API?"])
+  })
+})
+
+describe("a footnoteDefinition directly below the last option, no blank line between", () => {
+  it("is not part of the last option's span", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [ ] _your answer_",
+      "[^fn1]: a reason directly below, no blank line",
+      "",
+    ].join("\n")
+    const { questions } = parseOpenQuestions(content)
+    const [, last] = questions[0]!.options
+    expect(last).toMatchObject({ sourceLine: 5, endLine: 5 })
+  })
+})
+
+describe("toggleCheckbox's exact box offset", () => {
+  it("toggles the box, not a '[' that appears in the option's own text", () => {
+    const doc = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] [priority] Ship it",
+      "",
+    ].join("\n")
+    const edit = toggleCheckbox(doc, 4)!
+    const lines = doc.split("\n")
+    const line = lines[4]!
+    expect(line[edit.range.start.character]).toBe(" ")
+    const applied =
+      line.slice(0, edit.range.start.character) +
+      edit.newText +
+      line.slice(edit.range.end.character)
+    expect(applied).toBe("- [x] [priority] Ship it")
+  })
+
+  it("flips exactly one character, leaving every other byte of the line untouched", () => {
+    const doc = ["## Open Questions", "", "### Which API?", "", "- [ ] REST option", ""].join("\n")
+    const edit = toggleCheckbox(doc, 4)!
+    expect(edit.range.end.character - edit.range.start.character).toBe(1)
+    const lines = doc.split("\n")
+    const line = lines[4]!
+    const applied =
+      line.slice(0, edit.range.start.character) +
+      edit.newText +
+      line.slice(edit.range.end.character)
+    expect(applied).toBe("- [x] REST option")
+  })
+})
