@@ -393,20 +393,6 @@ const nestedBlockLines = (item: ListItem): Set<number> => {
   return lines
 }
 
-/**
- * Every 0-based line already inside a TOP-LEVEL `heading` (depth 2 or 3 —
- * the only depths this format recognizes) or a TOP-LEVEL task-list
- * `listItem`'s own span (a direct child of a `list` that is itself a direct
- * child of the tree) — MINUS any `heading`/`list` nested inside that item
- * (`nestedBlockLines`). `strictReadingFindings` never flags a line in what's
- * left: it's legitimately part of the tree already, in a shape this format
- * actually consumes. Anything at a DEEPER nesting depth is NOT excluded,
- * however validly CommonMark parses it — `optionListItems` never looks past
- * the top level, so that content is just as lost from this format's output
- * as an unindented line would be, and the refusal must still be able to
- * flag it. A genuinely shallow (under 4 spaces) nested sub-item is unaffected
- * either way, via the `raw` indent guard in `strictReadingFindingsInRange`.
- */
 /** Marks a top-level `list` node's own TOP-LEVEL task-list items into `lines`, each minus its own `nestedBlockLines` — split out of `recognizedStructureLines` to keep that function's own complexity down. */
 const markTopLevelListItems = (lines: Set<number>, list: List): void => {
   for (const item of list.children) {
@@ -416,11 +402,38 @@ const markTopLevelListItems = (lines: Set<number>, list: List): void => {
   }
 }
 
+/**
+ * Every 0-based line already inside a TOP-LEVEL `heading` (depth 2 or 3 —
+ * the only depths this format recognizes), a TOP-LEVEL task-list `listItem`'s
+ * own span (a direct child of a `list` that is itself a direct child of the
+ * tree) — MINUS any `heading`/`list` nested inside that item
+ * (`nestedBlockLines`) — or a `footnoteDefinition`'s ENTIRE span, whole.
+ * `strictReadingFindings` never flags a line in what's left.
+ *
+ * The heading/list-item exclusion covers what's legitimately part of the
+ * tree already, in a shape this format actually consumes; anything at a
+ * DEEPER nesting depth there is NOT excluded, however validly CommonMark
+ * parses it — `optionListItems` never looks past the top level, so that
+ * content is just as lost from this format's output as an unindented line
+ * would be, and the refusal must still be able to flag it. A genuinely
+ * shallow (under 4 spaces) nested sub-item is unaffected either way, via the
+ * `raw` indent guard in `strictReadingFindingsInRange`.
+ *
+ * A footnote definition is different in kind, not degree: it is the human's
+ * own free-text comment channel, never itself a candidate heading or option
+ * under ANY reading (loose or strict) — the refusal exists to catch content
+ * lost from this format's OUTPUT, and a footnote body was never part of that
+ * output to begin with. So its whole span is excluded unconditionally, at
+ * whatever nesting a human happens to write inside it — this repo's own
+ * footnote style (`QA_SAMPLE`) indents a definition's continuation lines
+ * four spaces, exactly the threshold that would otherwise misfire here.
+ */
 const recognizedStructureLines = (tree: Root): Set<number> => {
   const lines = new Set<number>()
   for (const node of tree.children) {
     if (node.type === "heading" && (node.depth === 2 || node.depth === 3)) markRange(lines, node)
     if (node.type === "list") markTopLevelListItems(lines, node)
+    if (node.type === "footnoteDefinition") markRange(lines, node)
   }
   return lines
 }
@@ -726,22 +739,19 @@ const optionAction = (
 
 /**
  * The block a footnote lands after when "add a footnote" fires with the
- * cursor at `cursorLine`: the whole contiguous option list's own span (its
- * first option's `sourceLine` through its last option's `endLine`, never
- * split between two items) when the cursor sits inside one; otherwise the
- * containing top-level block NODE's own end line (`blockNodeAt`) — covers
- * question-body prose ABOVE a list, a question with no options at all, and
- * any cursor position outside every question. Falls back to `cursorLine`
- * itself only past the end of the document, where no block node exists.
+ * cursor at `cursorLine`: the containing top-level block NODE's own end line
+ * (`blockNodeAt`) — a `list` node's own span IS the whole contiguous list
+ * (never split between two items), so this covers "inside a question's
+ * option list" the same way it covers question-body prose ABOVE a list, a
+ * question with no options at all, and any cursor position outside every
+ * question — one rule, not a special case per shape. Resolving from the
+ * cursor's OWN containing node (rather than aggregating every option across
+ * a whole question) also means a question with TWO separate option lists
+ * resolves prose written between them to that prose's own span, never to the
+ * second list's end. Falls back to `cursorLine` itself only past the end of
+ * the document, where no block node exists.
  */
-const footnoteBlockEnd = (content: string, tree: Root, cursorLine: number): number => {
-  const { questions } = parseOpenQuestions(content)
-  for (const question of questions) {
-    if (question.options.length === 0) continue
-    const first = question.options[0]!.sourceLine
-    const last = question.options[question.options.length - 1]!.endLine
-    if (cursorLine >= first && cursorLine <= last) return last
-  }
+const footnoteBlockEnd = (tree: Root, cursorLine: number): number => {
   const block = blockNodeAt(tree, cursorLine)
   return block?.position ? toLspPosition(block.position.end).line : cursorLine
 }
@@ -763,11 +773,7 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
   if (!isOnExistingFootnote(content, range.start)) {
     actions.push({
       title: "gtd: add a footnote",
-      edits: footnoteAdditionEdits(
-        content,
-        range.start,
-        footnoteBlockEnd(content, tree, cursorLine),
-      ),
+      edits: footnoteAdditionEdits(content, range.start, footnoteBlockEnd(tree, cursorLine)),
     })
   }
   for (const question of questions) {

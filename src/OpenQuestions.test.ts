@@ -1033,6 +1033,46 @@ describe("footnotes wired into the qa format", () => {
     expect(optionNode.children).toBeUndefined()
     expect(optionNode.leaf).toBe(true)
   })
+
+  it("a '- [ ]'-shaped line quoted inside a footnote definition's own body is not a dropped option — it was never an option under any reading", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Q?",
+      "",
+      "- [ ] A[^fn1]",
+      "- [ ] _your answer_",
+      "",
+      "[^fn1]:",
+      "    I considered writing it as",
+      "",
+      "    - [ ] a checkbox",
+      "",
+      "    but decided against it.",
+      "",
+    ].join("\n")
+    expect(QA_FORMAT.validate(content)).toEqual([])
+  })
+
+  it("a '### '-shaped line quoted inside a footnote definition's own body is not a dropped heading either", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Q?",
+      "",
+      "- [ ] A[^fn1]",
+      "- [ ] _your answer_",
+      "",
+      "[^fn1]:",
+      "    I thought about a heading like",
+      "",
+      "    ### Not real",
+      "",
+      "    but decided against it.",
+      "",
+    ].join("\n")
+    expect(QA_FORMAT.validate(content)).toEqual([])
+  })
 })
 
 describe("'gtd: add a footnote' action", () => {
@@ -1056,6 +1096,24 @@ describe("'gtd: add a footnote' action", () => {
     ].join("\n")
     const action = footnoteAction(content, 4, 3)! // cursor on the REST line
     expect(action.edits[1]!.range.start.line).toBe(7) // after "_your answer_", not after REST
+  })
+
+  it("with TWO separate option lists in one question, prose written BETWEEN them lands after that prose, never after the second list", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Q?",
+      "",
+      "- [ ] A",
+      "- [ ] B",
+      "",
+      "prose between",
+      "",
+      "- [ ] C",
+      "- [ ] _your answer_",
+    ].join("\n")
+    const action = footnoteAction(content, 7, 3)! // cursor on "prose between"
+    expect(action.edits[1]!.range.start.line).toBe(8) // right after "prose between", not after the second list
   })
 
   it("in ordinary prose (question-body text before any options), lands after the current block's last line", () => {
