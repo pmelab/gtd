@@ -1603,7 +1603,7 @@ describe("gtd check <mode> <file> --open-questions", () => {
     )
     expect(exitCode).not.toBe(0)
     expect(stdout).toBe("")
-    expect(stderr).toContain("Which operations?")
+    expect(stderr).toContain(".gtd/TODO.md:5: Which operations?")
   })
 
   it("exits 0 with no output when every open question has a ticked box", async () => {

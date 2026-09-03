@@ -271,7 +271,9 @@ review actions in it — asking first and naming the exact file, and merging
 rather than overwriting your editor's config. That editor integration also adds
 a footnote where your cursor sits with one code action, and jumps between a
 footnote's marker and its definition both ways — so leaving a comment for the
-next agent turn never means hand-typing the `[^name]` syntax yourself.
+next agent turn never means hand-typing the `[^name]` syntax yourself. In a
+review file, a `./path#42` hunk pointer is also a clickable link straight to
+that file and line, no go-to-definition required.
 
 ### The workflow it ships with
 

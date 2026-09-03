@@ -234,7 +234,7 @@ describe("answer-completeness guard", () => {
       }),
     )
     expect(refusal).toContain("1 open question(s)")
-    expect(refusal).toContain("Which API?")
+    expect(refusal).toContain(".gtd/FILE.md:5: Which API?")
   })
 
   it("allows when every open question has exactly one tick", async () => {

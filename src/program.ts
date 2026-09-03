@@ -876,7 +876,9 @@ const runOpenQuestionsCheckCommand = (
     }
     const content = yield* fs.readFileString(file).pipe(Effect.mapError(toError))
 
-    const errors = unansweredQuestions(content).map((q) => q.question)
+    const errors = unansweredQuestions(content).map(
+      (q) => `${file}:${q.headingLine + 1}: ${q.question}`,
+    )
     if (errors.length === 0) return
 
     return yield* Effect.fail(
