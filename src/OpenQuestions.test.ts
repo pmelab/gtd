@@ -1081,6 +1081,39 @@ describe("'gtd: add a footnote' action", () => {
     expect(action!.edits).toHaveLength(2)
   })
 
+  it("in a question with no options at all, lands after that question's own containing block", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "Some prose with no options at all.",
+      "",
+      "### Next question?",
+      "",
+      "more.",
+    ].join("\n")
+    const action = footnoteAction(content, 4, 3)! // cursor inside the option-less question's prose
+    expect(action.edits[1]!.range.start.line).toBe(5) // right after that one-line paragraph, not the next question
+  })
+
+  it("outside every question (lead prose above '## Open Questions'), lands after the current block's last line", () => {
+    const content = [
+      "# Plan",
+      "",
+      "Some lead prose.",
+      "",
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [ ] _your answer_",
+    ].join("\n")
+    const action = footnoteAction(content, 2, 3)! // cursor inside the lead prose, above any question
+    expect(action.edits[1]!.range.start.line).toBe(3) // right after "Some lead prose.", never inside the options list
+  })
+
   it("never shares a start position between its two edits, even with the cursor at the very end of the block's last line (regression)", () => {
     const content = [
       "## Open Questions",
@@ -1232,14 +1265,49 @@ describe("strict indentation reading", () => {
     expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
   })
 
-  it("a real, correctly-recognized NESTED option (indented under its parent option, not a bare prose/blank predecessor) is never flagged — it is a legitimate nested list item, just excluded from `options` by design", () => {
+  it("a 4+-space NESTED option under a real option is a genuine CommonMark sub-list — but it is still reported, not silently absorbed: the old CHECKBOX_RE counted it as an option too", () => {
     const content = [
       "## Open Questions",
       "",
       "### Which API?",
       "",
       "- [ ] REST",
-      "    - [ ] nested, not itself a top-level option",
+      "    - [ ] GraphQL",
+      "",
+    ].join("\n")
+    const { questions, errors } = parseOpenQuestions(content)
+    expect(questions[0]!.options.map((o) => o.text)).toEqual(["REST"])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("- [ ] GraphQL")
+    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
+  })
+
+  it("a 4+-space heading folded into a preceding option's own lazy continuation is a genuine nested heading node — but it is still reported, and the question it would have started stays missing from `questions`", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### A?",
+      "",
+      "- [ ] one",
+      "    ### B?",
+      "",
+      "- [ ] two",
+    ].join("\n")
+    const { questions, errors } = parseOpenQuestions(content)
+    expect(questions.map((q) => q.question)).toEqual(["A?"])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("### B?")
+    expect(QA_FORMAT.validate(content)).toEqual([{ message: errors[0], line: 5 }])
+  })
+
+  it("a genuinely shallow (under 4 spaces) nested option is untouched — real sub-list, no finding, matching CommonMark's own reading", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "  - [ ] GraphQL",
       "",
     ].join("\n")
     expect(parseOpenQuestions(content).errors).toEqual([])

@@ -174,9 +174,16 @@ const firstBodyLineText = (lines: readonly string[], body: readonly RootContent[
  * Scope decision: a genuinely NESTED task-list item (indented under an
  * existing option, so CommonMark parses it as that option's own sub-list,
  * not indented code) is deliberately excluded from `options` — this format
- * has no notion of a sub-option. It is a real, correctly-recognized node, not
- * lost text, so `strictReadingFindings` (below) never flags it either; that
- * refusal exists only for a shape that the tree drops entirely.
+ * has no notion of a sub-option. Below a shallow (under 4 spaces) indent this
+ * is unremarkable — a real sub-list CommonMark itself distinguishes from a
+ * top-level option, no different from any other nested content. At 4+
+ * spaces, though, it's exactly the shape the old indent-tolerant
+ * `CHECKBOX_RE` DID count as an option — so it's genuinely lost from this
+ * format's output at that indent, and `recognizedStructureLines` (below)
+ * does NOT protect it from `strictReadingFindings`: only a node at or above
+ * the TOP level is excluded from that refusal, precisely so a 4+-space
+ * nested option (or a heading folded into a lazy continuation the same way)
+ * still gets a positioned finding instead of silently vanishing.
  */
 const optionListItems = (body: readonly RootContent[]): readonly ListItem[] => {
   const items: ListItem[] = []
@@ -337,9 +344,8 @@ const isFencedCode = (content: string, node: Code): boolean => {
 
 /**
  * Every 0-based line inside a NODE matching `predicate`, at any nesting
- * depth — the general walk both `recognizedStructureLines` and
- * `fencedCodeLines` share, so `strictReadingFindings` can exclude a line for
- * either reason with the same logic.
+ * depth — used by `fencedCodeLines` (a fenced block is a legitimate quoted
+ * example regardless of how deep it's nested).
  */
 const linesWhere = (tree: Root, predicate: (node: RootContent) => boolean): Set<number> => {
   const lines = new Set<number>()
@@ -356,16 +362,68 @@ const linesWhere = (tree: Root, predicate: (node: RootContent) => boolean): Set<
   return lines
 }
 
+const markRange = (lines: Set<number>, node: RootContent): void => {
+  if (!node.position) return
+  const start = toLspPosition(node.position.start).line
+  const end = toLspPosition(node.position.end).line
+  for (let l = start; l <= end; l += 1) lines.add(l)
+}
+
 /**
- * Every 0-based line already inside a REAL, recognized `heading` (any depth)
- * or task-list `listItem` (any nesting depth — a genuinely nested option,
- * which `optionListItems` deliberately excludes from `options` but which is
- * still a correctly-parsed node, not lost text) — `strictReadingFindings`
- * never flags these: they're legitimately part of the tree already, however
- * this format chooses to use (or not use) them.
+ * Every 0-based line inside a NESTED `heading` or `list` descendant of a
+ * top-level task-list `item` — the part of that item's own span this
+ * format's `optionListItems` (above) never looks past. A lazy continuation
+ * heading or a nested sub-list is real, correctly-parsed tree structure, but
+ * it's still lost from this format's OUTPUT (no option, no question — the
+ * old indent-tolerant `CHECKBOX_RE` would have counted it as one), so
+ * `recognizedStructureLines` must not blanket-exclude it just because it
+ * sits inside a real item's overall span.
  */
-const recognizedStructureLines = (tree: Root): Set<number> =>
-  linesWhere(tree, (n) => n.type === "heading" || (n.type === "listItem" && n.checked !== null))
+const nestedBlockLines = (item: ListItem): Set<number> => {
+  const lines = new Set<number>()
+  const walk = (node: RootContent): void => {
+    if (node.type === "heading" || node.type === "list") {
+      markRange(lines, node)
+      return
+    }
+    const children = (node as { children?: readonly RootContent[] }).children
+    if (children) children.forEach(walk)
+  }
+  item.children.forEach(walk)
+  return lines
+}
+
+/**
+ * Every 0-based line already inside a TOP-LEVEL `heading` (depth 2 or 3 —
+ * the only depths this format recognizes) or a TOP-LEVEL task-list
+ * `listItem`'s own span (a direct child of a `list` that is itself a direct
+ * child of the tree) — MINUS any `heading`/`list` nested inside that item
+ * (`nestedBlockLines`). `strictReadingFindings` never flags a line in what's
+ * left: it's legitimately part of the tree already, in a shape this format
+ * actually consumes. Anything at a DEEPER nesting depth is NOT excluded,
+ * however validly CommonMark parses it — `optionListItems` never looks past
+ * the top level, so that content is just as lost from this format's output
+ * as an unindented line would be, and the refusal must still be able to
+ * flag it. A genuinely shallow (under 4 spaces) nested sub-item is unaffected
+ * either way, via the `raw` indent guard in `strictReadingFindingsInRange`.
+ */
+/** Marks a top-level `list` node's own TOP-LEVEL task-list items into `lines`, each minus its own `nestedBlockLines` — split out of `recognizedStructureLines` to keep that function's own complexity down. */
+const markTopLevelListItems = (lines: Set<number>, list: List): void => {
+  for (const item of list.children) {
+    if (item.checked === null) continue
+    markRange(lines, item)
+    for (const nested of nestedBlockLines(item)) lines.delete(nested)
+  }
+}
+
+const recognizedStructureLines = (tree: Root): Set<number> => {
+  const lines = new Set<number>()
+  for (const node of tree.children) {
+    if (node.type === "heading" && (node.depth === 2 || node.depth === 3)) markRange(lines, node)
+    if (node.type === "list") markTopLevelListItems(lines, node)
+  }
+  return lines
+}
 
 /** Every 0-based line inside a FENCED code block — a legitimate quoted example, never a strict-reading violation (unlike an indented code block, or an indented lazy paragraph continuation, which the refusal exists to catch). */
 const fencedCodeLines = (tree: Root, content: string): Set<number> =>

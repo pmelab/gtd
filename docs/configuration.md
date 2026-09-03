@@ -496,7 +496,11 @@ the ordinary mode-resolution rules already documented under
 [The `workflow:` key](#the-workflow-key). The `qa` format also checks section
 order: `## Open Questions` must come before every other `##` section in the
 file, and `## Answered Questions` must come after every other `##` section — a
-file that gets this backwards fails `gtd check qa` / `gtd validate`.
+file that gets this backwards fails `gtd check qa` / `gtd validate`. A `###`
+question heading or a `- [ ]` option indented 4 or more spaces stops counting as
+one (it's Markdown indented code, or a lazy continuation of the line above it)
+and fails `gtd check qa` / `gtd validate` naming the exact line; 2 or 3 spaces
+of indent are still fine.
 
 Both formats also understand **footnotes** — your own comment attached to an
 exact spot in the file, for the next agent turn to read as a mandatory note
