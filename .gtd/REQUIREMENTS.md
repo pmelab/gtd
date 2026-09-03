@@ -11,25 +11,18 @@ fenced block. The footnotes work that just landed already had to pay for this
 twice, with a hand-rolled fence tracker and an inline-code masker, and accepted
 an O(n²) rescan as the price.
 
-## Open Questions
+**CommonMark is the contract wherever the tree and today's scanner disagree.** A
+construct the tree does not see as a checkbox, heading, or footnote stops
+counting, and a file that silently half-parsed today reports a positioned
+finding instead of quietly losing an option or a hunk. Concretely that means
+indent depth now decides: up to three spaces is still a list item or a heading,
+four or more is an indented code block and no longer structure at all.
 
-### When the tree disagrees with today's line scanner about a file a human already wrote, does the stricter reading win?
-
-- [x] Yes — CommonMark is the contract. A construct the tree does not see as a
-      checkbox, heading, or footnote stops counting, and a file that silently
-      half-parsed today reports a positioned finding instead of quietly losing
-      an option or a hunk
-- [ ] No — keep today's leniency wherever the two disagree, so no steering file
-      already sitting in a repo can start refusing a turn mid-process
-- [ ] _your answer_
-
-### Do `gtd check`'s printed findings grow a column?
-
-- [x] Yes — print `file:line:col: message`, the shape editors and grep-style
-      tools already jump on, so a driver's raw output becomes clickable
-- [ ] No — keep `file:line: message` so anything parsing that output keeps
-      working; columns stay inside the LSP
-- [ ] _your answer_
+**Risk, blunt**: a steering file already sitting in a repo can start refusing a
+turn mid-process — that is the accepted cost of the strict reading, and it lands
+the moment the format it belongs to migrates. Every concern below that changes
+what counts must name the construct it stops accepting, so the refusal is a
+stated finding and not a surprise.
 
 ## Concerns
 
@@ -55,10 +48,12 @@ before the slice starts is invisible to it. And parsing a 2000-line document
 performs one parse, not one per line, asserted by counting parses rather than by
 timing.
 
-Two more real mis-reads fall out of the same change and want their own cases: a
-`[^name]` inside a four-space indented code block (the fence tracker only knows
-backtick fences, never `~~~` and never indented blocks), and a marker inside a
-double-backtick span (the inline-code masker handles single backticks only).
+Three more real mis-reads fall out of the same change and want their own cases:
+a `[^name]` inside a four-space indented code block (the fence tracker only
+knows backtick fences, never `~~~` and never indented blocks), a marker inside a
+double-backtick span (the inline-code masker handles single backticks only), and
+a definition inside an inline-code span (masking is applied before marker
+scanning but not before the definition match).
 
 Adding dependencies rewrites `package-lock.json`; the human's tree already
 carried unrelated lock churn from an install, which lands here as noise.
@@ -74,9 +69,17 @@ inferred from continuation-line indentation.
 **Acceptance**: a `## Open Questions` line inside a fenced code block is not
 that section. Today `checkSectionOrder` does a bare `findIndex` for the literal
 string with no fence awareness, so a requirements file that documents its own
-format reports a bogus section-order finding. Second case: an indented `### `
-nested inside a list item is not a question heading — the heading check trims
-the line before matching, so today it is one.
+format reports a bogus section-order finding.
+
+**Acceptance, strict reading**: a `### ` indented four or more spaces is
+indented code and no longer a question heading, and a `- [ ]` indented four or
+more spaces is no longer an option. Today both count, because the heading check
+trims the line before matching and the checkbox regex is indent-tolerant. Two or
+three spaces still count, per CommonMark. A file relying on the loose reading
+loses that question or option and says so with a positioned finding.
+
+The free-text slot stays identified positionally — the last option in the block
+— not by label. Nothing about the tree changes that.
 
 ### 3. The `review` format on the tree — PRODUCT
 
@@ -86,14 +89,15 @@ ticking stops being a document-wide multiline regex — the one the code itself
 documents as able to anchor across a blank line and drag a later line into the
 match — and becomes an edit per list item.
 
-**Acceptance**: an indented `- [x] ./file.ts#1` is either cleared by
-`gtd uncheck` or not a hunk pointer at all. Today it is both: the chunk-body
-parser matches it on the _trimmed_ line, so it counts as a ticked hunk, while
-the clearing regex anchors its `-` at column 0 and never touches it — so that
-tick reaches a commit, which is exactly what the review-gate reset exists to
-prevent. Second case: a `- [x] ./file.ts#1`-shaped line inside a fenced code
-block in a chunk description is neither a hunk pointer nor touched by ticking
-the chunk.
+**Acceptance**: a `- [x] ./file.ts#1` indented two spaces is a hunk pointer AND
+is cleared by `gtd uncheck`; the same line indented four spaces is indented code
+and neither. Today the two-space case is the live bug: the chunk-body parser
+matches it on the _trimmed_ line, so it counts as a ticked hunk, while the
+clearing regex anchors its `-` at column 0 and never touches it — so that tick
+reaches a commit, which is exactly what the review-gate reset exists to prevent.
+
+**Acceptance**: a `- [x] ./file.ts#1`-shaped line inside a fenced code block in
+a chunk description is neither a hunk pointer nor touched by ticking the chunk.
 
 **Risk, blunt**: `gtd uncheck`'s clearing pass must stay byte-preserving outside
 the one changed character. It is a whole-document regex replace today precisely
@@ -114,6 +118,12 @@ four footnote findings know the marker's column and drop it, because a finding
 has no column field to put it in. Unanswered-question output names the question
 and not its heading line.
 
+**`gtd check` prints `file:line:col: message`** — the shape editors and
+grep-style tools already jump on, so a driver's raw output becomes clickable.
+The column is omitted, leaving today's `file:line: message`, only for a finding
+that has a line and no column; a finding about the whole document still prints
+its bare message.
+
 Outline node ranges stop being computed as _next sibling's heading minus one_ —
 a guess that swallows trailing blank lines and any intervening content — and
 come from real node boundaries. With a precise range on the pointer token,
@@ -121,12 +131,31 @@ come from real node boundaries. With a precise range on the pointer token,
 through go-to-definition.
 
 **Acceptance**: `gtd check qa` on a file whose `## Answered Questions` is
-followed by another `##` section reports that finding with a line number; today
-it prints a bare message. And the LSP diagnostic for it underlines the offending
-heading instead of spanning the whole document, which is the current fallback
-for any unpositioned finding.
+followed by another `##` section reports that finding with both a line and a
+column; today it prints a bare message with no position at all. And the LSP
+diagnostic for it underlines the offending heading instead of spanning the whole
+document, which is the current fallback for any unpositioned finding.
+
+**Scoped condition, not a regression**: a mode whose `validate:` shells out to
+`gtd check` gets each stdout line back as an opaque message with no position,
+because a shell command's findings can never carry one. On that path the new
+column rides inside the message text, exactly as the line number already does.
+`gtd validate` emits a script and reads no files, so it is untouched.
 
 ## Answered Questions
+
+### When the tree disagrees with today's line scanner about a file a human already wrote, does the stricter reading win?
+
+Yes. CommonMark is the contract: a construct the tree does not see as a
+checkbox, heading, or footnote stops counting, and a file that silently
+half-parsed today reports a positioned finding rather than quietly losing an
+option or a hunk. The cost — an existing steering file can start refusing a turn
+— is accepted and named at the top of this document.
+
+### Do `gtd check`'s printed findings grow a column?
+
+Yes. It prints `file:line:col: message`, the format editors and grep-style tools
+already jump on.
 
 ### Does the migration also replace the steering modes' `format:` command with a tree-based serializer?
 
