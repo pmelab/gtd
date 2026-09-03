@@ -15,7 +15,7 @@ an O(n²) rescan as the price.
 
 ### When the tree disagrees with today's line scanner about a file a human already wrote, does the stricter reading win?
 
-- [ ] Yes — CommonMark is the contract. A construct the tree does not see as a
+- [x] Yes — CommonMark is the contract. A construct the tree does not see as a
       checkbox, heading, or footnote stops counting, and a file that silently
       half-parsed today reports a positioned finding instead of quietly losing
       an option or a hunk
@@ -25,7 +25,7 @@ an O(n²) rescan as the price.
 
 ### Do `gtd check`'s printed findings grow a column?
 
-- [ ] Yes — print `file:line:col: message`, the shape editors and grep-style
+- [x] Yes — print `file:line:col: message`, the shape editors and grep-style
       tools already jump on, so a driver's raw output becomes clickable
 - [ ] No — keep `file:line: message` so anything parsing that output keeps
       working; columns stay inside the LSP
