@@ -1235,8 +1235,14 @@ describe("footnotes wired into the review format", () => {
     const { changesets } = parseReviewDoc(content)
     expect(changesets[0]!.files[0]!.note).toBe("new add function")
     const { markers } = parseFootnotes(content)
+    const markerColumn = content.split("\n")[5]!.indexOf("[^fn1]")
     expect(markers).toEqual([
-      { name: "fn1", line: 5, character: content.split("\n")[5]!.indexOf("[^fn1]") },
+      {
+        name: "fn1",
+        line: 5,
+        character: markerColumn,
+        endCharacter: markerColumn + "[^fn1]".length,
+      },
     ])
   })
 

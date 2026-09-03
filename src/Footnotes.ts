@@ -7,14 +7,23 @@ import {
 } from "./MarkdownTree.js"
 import type { SteeringEdit, SteeringFinding, SteeringPointer } from "./SteeringFormat.js"
 
-/** One `[^name]` marker's anchor: line AND column of its opening `[` — never the word or sentence it follows, which the reader reads itself. */
+/** One `[^name]` marker's anchor: line AND column of its opening `[` — never the word or sentence it follows, which the reader reads itself. `endCharacter` is the column right after the closing `]`, on the same line (a marker's name has no whitespace, so it never spans a line) — the reference node's (or, for an orphan, the regex match's) own end, never hand-computed from `name.length`. */
 export interface FootnoteMarker {
   readonly name: string
   readonly line: number
   readonly character: number
+  readonly endCharacter: number
 }
 
-/** One `[^name]:` definition — matched to its marker(s) by NAME alone, never by position. */
+/**
+ * One `[^name]:` definition — matched to its marker(s) by NAME alone, never
+ * by position. `line`/`endLine` are the real GFM continuation span (from the
+ * tree, not a hand-rolled rule): a continuation line needs FOUR spaces of
+ * indent, not the two the old line-based parser used to accept, and an
+ * unindented line right after one still extends the body as a LAZY paragraph
+ * continuation — both a change from this package's predecessor, since GFM's
+ * own rule differs from it.
+ */
 export interface FootnoteDefinition {
   readonly name: string
   readonly line: number
@@ -180,7 +189,16 @@ const orphanMarkers = (content: string, tree: Root): FootnoteMarker[] => {
       let match: RegExpExecArray | null
       while ((match = re.exec(slice)) !== null) {
         const position = toLspPositionFromOffset(content, start.offset + match.index)
-        found.push({ name: match[1]!, line: position.line, character: position.character })
+        const endPosition = toLspPositionFromOffset(
+          content,
+          start.offset + match.index + match[0].length,
+        )
+        found.push({
+          name: match[1]!,
+          line: position.line,
+          character: position.character,
+          endCharacter: endPosition.character,
+        })
       }
     }
     const children = node.children as readonly (typeof node)[] | undefined
@@ -207,12 +225,20 @@ type FootnoteTreeNode = {
   readonly identifier?: string
 }
 
-/** Pushes `node` (a real `footnoteReference`) onto `markers` as a `FootnoteMarker`. */
+/** Pushes `node` (a real `footnoteReference`) onto `markers` as a `FootnoteMarker`, its span taken from the reference node's own start/end — never hand-computed from `name.length`. */
 const collectMarker = (node: FootnoteTreeNode, markers: FootnoteMarker[]): void => {
-  const position = toLspPosition(
-    (node.position as { start: { line: number; column: number } }).start,
-  )
-  markers.push({ name: node.label ?? node.identifier ?? "", ...position })
+  const pos = node.position as {
+    start: { line: number; column: number }
+    end: { line: number; column: number }
+  }
+  const position = toLspPosition(pos.start)
+  const endPosition = toLspPosition(pos.end)
+  markers.push({
+    name: node.label ?? node.identifier ?? "",
+    line: position.line,
+    character: position.character,
+    endCharacter: endPosition.character,
+  })
 }
 
 /** Pushes `node` (a real `footnoteDefinition`) onto `definitions` as a `FootnoteDefinition`, its body joined from `sourceText` over each child. */
@@ -317,8 +343,7 @@ const markerAt = (
 ): FootnoteMarker | undefined =>
   markers.find((m) => {
     if (m.line !== position.line) return false
-    const end = m.character + m.name.length + 3 // `[^` + name + `]`
-    return position.character >= m.character && position.character <= end
+    return position.character >= m.character && position.character <= m.endCharacter
   })
 
 /**
@@ -417,14 +442,16 @@ export const footnotePointerAt = (
     return { pointer: definition ? { line: definition.line } : undefined }
   }
 
-  const lines = content.split(/\r?\n/)
-  if (isFootnoteDefinitionLine(lines, position.line)) {
-    const definition = definitions.find(
-      (d) => position.line >= d.line && position.line <= d.endLine,
-    )
-    const firstMarker = definition
-      ? markers.find((m) => foldName(m.name) === foldName(definition.name))
-      : undefined
+  // The definition's OWN span (from the tree), never `isFootnoteDefinitionLine`:
+  // that helper's line-based continuation rule (any indent) and the tree's real
+  // GFM one (four spaces, plus lazy-paragraph continuation) disagree on some
+  // lines, and trusting the wrong one here would resolve a position to "on a
+  // definition, but no pointer" when it isn't on this definition at all —
+  // wrongly blocking a caller's fallback (e.g. `review`'s hunk jump) instead of
+  // correctly not applying.
+  const definition = definitions.find((d) => position.line >= d.line && position.line <= d.endLine)
+  if (definition) {
+    const firstMarker = markers.find((m) => foldName(m.name) === foldName(definition.name))
     return {
       pointer: firstMarker
         ? { line: firstMarker.line, character: firstMarker.character }

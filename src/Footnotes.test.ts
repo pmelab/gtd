@@ -33,7 +33,7 @@ describe("parseFootnotes", () => {
   it("yields the exact 0-based column of a marker mid-sentence", () => {
     const content = "Some prose, a claim[^fn1], continues.\n\n[^fn1]: the reason\n"
     const { markers } = parseFootnotes(content)
-    expect(markers).toEqual([{ name: "fn1", line: 0, character: 19 }])
+    expect(markers).toEqual([{ name: "fn1", line: 0, character: 19, endCharacter: 25 }])
   })
 
   it("parses a single-line definition with endLine === line and its body", () => {
@@ -188,7 +188,7 @@ describe("parseFootnotes", () => {
     it("reports 'has no matching definition' for a marker with no definition anywhere", () => {
       const content = "Some text[^fn1] here."
       const { findings, markers } = parseFootnotes(content)
-      expect(markers).toEqual([{ name: "fn1", line: 0, character: 9 }])
+      expect(markers).toEqual([{ name: "fn1", line: 0, character: 9, endCharacter: 15 }])
       expect(findings).toEqual([
         { message: 'Footnote marker "[^fn1]" has no matching definition', line: 0 },
       ])
@@ -198,13 +198,13 @@ describe("parseFootnotes", () => {
       const content = "&amp;[^fn1] after"
       const { markers } = parseFootnotes(content)
       // Source column is after the literal "&amp;" (5 chars), not the decoded "&" (1 char).
-      expect(markers).toEqual([{ name: "fn1", line: 0, character: 5 }])
+      expect(markers).toEqual([{ name: "fn1", line: 0, character: 5, endCharacter: 11 }])
     })
 
     it("reports line two, not the text node's start line, for an orphan on the second line of a lazy list-item wrap", () => {
       const content = ["- some text", "  continues[^fn1] here"].join("\n")
       const { markers } = parseFootnotes(content)
-      expect(markers).toEqual([{ name: "fn1", line: 1, character: 11 }])
+      expect(markers).toEqual([{ name: "fn1", line: 1, character: 11, endCharacter: 17 }])
     })
 
     it("reports nothing for an orphan inside a fence, an indented code block, or an inline-code span", () => {
@@ -387,6 +387,15 @@ describe("footnotePointerAt", () => {
 
   it("returns undefined (not applicable) for a position that is neither a marker nor a definition", () => {
     expect(footnotePointerAt(doc, { line: 0, character: 8 })).toBeUndefined() // "b", not the marker
+  })
+
+  it("returns undefined — not 'resolved, no pointer' — for a two-space-indented line that LOOKS like a continuation but isn't one per real GFM (regression: used to dead-end via isFootnoteDefinitionLine's looser rule)", () => {
+    const content = ["text[^fn1]", "", "[^fn1]:", "  the reason"].join("\n")
+    // `isFootnoteDefinitionLine` (still line-based, any indent continues) would
+    // say line 3 is part of the definition; the tree disagrees (endLine is 2,
+    // GFM needs four spaces) — the caller must be free to fall through instead
+    // of getting stuck on "handled, but no pointer".
+    expect(footnotePointerAt(content, { line: 3, character: 2 })).toBeUndefined()
   })
 })
 

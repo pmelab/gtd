@@ -6,8 +6,10 @@ import {
   parseMarkdown,
   sourceText,
   taskItems,
+  toLspPosition,
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
+import { QA_FORMAT } from "./OpenQuestions.js"
 import type { List, ListItem, Paragraph } from "mdast"
 
 describe("parseMarkdown", () => {
@@ -30,10 +32,11 @@ describe("parseMarkdown", () => {
   it("converts a node starting at source line 1 column 1 to LSP line 0 character 0", () => {
     const tree = parseMarkdown("hello\n")
     const paragraph = tree.children[0]!
-    expect(paragraph.position!.start.line).toBe(1)
-    expect(paragraph.position!.start.column).toBe(1)
-    expect(paragraph.position!.start.line - 1).toBe(0)
-    expect(paragraph.position!.start.column - 1).toBe(0)
+    // Sanity: mdast itself is 1-based — if this ever isn't true, the real
+    // assertion below (going through `toLspPosition`) would trivially pass
+    // for the wrong reason.
+    expect(paragraph.position!.start).toEqual({ line: 1, column: 1, offset: 0 })
+    expect(toLspPosition(paragraph.position!.start)).toEqual({ line: 0, character: 0 })
   })
 
   describe("memo", () => {
@@ -73,6 +76,24 @@ describe("parseMarkdown", () => {
       parseMarkdown(content)
       expect(getParseCount()).toBe(before + 1)
     })
+
+    it("performs exactly one parse across one qa validate() call — the structural pass and the footnote pass share it", () => {
+      const content = [
+        "Build a thing.",
+        ...Array.from({ length: 1990 }, (_, i) => `Line ${i} of padding prose.`),
+        "",
+        "## Open Questions",
+        "",
+        "### Which backend?",
+        "",
+        "- [x] SQLite",
+        "- [ ] Postgres",
+        "",
+      ].join("\n")
+      const before = getParseCount()
+      QA_FORMAT.validate(content)
+      expect(getParseCount()).toBe(before + 1)
+    })
   })
 })
 
@@ -110,6 +131,13 @@ describe("sourceText", () => {
     const content = "one\ntwo\nthree\n"
     const tree = parseMarkdown(content)
     expect(sourceText(content, tree.children[0]!)).toBe("one two three")
+  })
+
+  it("keeps a link and emphasis verbatim, alongside a dropped footnote reference", () => {
+    const content = "See [the docs](https://example.com) for *why*[^fn1].\n\n[^fn1]: def\n"
+    const tree = parseMarkdown(content)
+    const paragraph = tree.children[0] as Paragraph
+    expect(sourceText(content, paragraph)).toBe("See [the docs](https://example.com) for *why*.")
   })
 })
 
