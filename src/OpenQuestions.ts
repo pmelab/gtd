@@ -5,7 +5,6 @@ import {
   footnotePointerAt,
   isOnExistingFootnote,
   parseFootnotes,
-  stripFootnoteMarkers,
 } from "./Footnotes.js"
 import {
   blockNodeAt,
@@ -23,6 +22,21 @@ import type {
 } from "./SteeringFormat.js"
 
 export type OpenQuestionStatus = "open" | "answered"
+
+/**
+ * A marker's shape once it's plain text: `[^name]`, no whitespace, no `]` —
+ * mirrors `Footnotes.ts`'s own orphan-marker pattern. Local to this module:
+ * `headingText`, `firstBodyLineText`, and `optionText` (below) each extract
+ * text that is NOT a full node's own tree span (a heading's synthetic
+ * children span, or a raw line slice) — `sourceText`'s own real-reference
+ * exclusion only covers the former, so a marker (real, matched-by-definition
+ * as much as orphan) still needs stripping out of the resulting string by
+ * its own literal shape either way.
+ */
+const MARKER_TEXT_RE = /\[\^([^\s\]]+)\]/g
+
+/** Strips every `[^name]`-shaped marker out of already-extracted `text` — see `MARKER_TEXT_RE`. */
+const stripMarkerText = (text: string): string => text.replace(MARKER_TEXT_RE, "")
 
 /**
  * The sentinel an UNFILLED free-text option carries — the human answers by
@@ -106,7 +120,7 @@ const headingText = (content: string, heading: Heading): string => {
     children,
     position: { start: first.position.start, end: last.position.end },
   }
-  return stripFootnoteMarkers(sourceText(content, synthetic)).replace(/\s+/g, " ").trim()
+  return stripMarkerText(sourceText(content, synthetic)).replace(/\s+/g, " ").trim()
 }
 
 /** One `###` heading node under a questions section, with its raw body block nodes (up to the next heading of any level). */
@@ -161,7 +175,7 @@ const firstBodyLineText = (lines: readonly string[], body: readonly RootContent[
   const node = body.find((n) => n.type !== "footnoteDefinition")
   if (!node?.position) return ""
   const lineIndex = toLspPosition(node.position.start).line
-  return stripFootnoteMarkers((lines[lineIndex] ?? "").trim())
+  return stripMarkerText((lines[lineIndex] ?? "").trim())
 }
 
 /**
@@ -231,7 +245,7 @@ const optionText = (content: string, lines: readonly string[], item: ListItem): 
   const contentPosition = toLspPositionFromOffset(content, offset)
   if (contentPosition.line !== sourceLine) return ""
   const raw = (lines[sourceLine] ?? "").slice(contentPosition.character)
-  return stripFootnoteMarkers(raw).trim()
+  return stripMarkerText(raw).trim()
 }
 
 /** Extracts the checkbox options from a question block's body, in document order. */

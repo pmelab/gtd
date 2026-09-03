@@ -42,16 +42,12 @@ const PLACEHOLDER_BODY = "your comment"
 
 /**
  * A marker's shape once it's plain text: `[^name]`, name has no whitespace
- * and no `]`. Used both to strip markers out of already-extracted text
- * (`stripFootnoteMarkers`) and to recognize an ORPHAN `[^name]` sitting
- * inside an ordinary `text` node — GFM only turns `[^name]` into a real
+ * and no `]`. Used to recognize an ORPHAN `[^name]` sitting inside an
+ * ordinary `text` node — GFM only turns `[^name]` into a real
  * `footnoteReference` node when a matching definition exists; without one it
  * stays literal text, which is exactly the shape this pattern matches.
  */
 const ORPHAN_MARKER_RE = /\[\^([^\s\]]+)\]/g
-
-/** Strips every `[^name]` marker out of `text` — applied to every extracted text field so a marker never leaks into an option's or note's text. */
-export const stripFootnoteMarkers = (text: string): string => text.replace(ORPHAN_MARKER_RE, "")
 
 /** Markdown-whitespace-collapsed, case-folded form of a footnote name, for matching a marker to its definition regardless of authored casing — mirrors mdast's own `identifier` normalization (footnote names never contain internal whitespace, so case-folding alone suffices here). */
 const foldName = (name: string): string => name.toLowerCase()
@@ -292,7 +288,8 @@ export const isOnExistingFootnote = (
  * cursor (via `footnoteMarkerColumn`) and a definition seeded with
  * `PLACEHOLDER_BODY`, planted right after `blockEndLine` — the caller's own
  * notion of "the current block's last line" (a hunk's span in `ReviewDoc.ts`,
- * an option-list's span in `OpenQuestions.ts`, or `proseBlockEnd` otherwise).
+ * or a containing block node's own end line otherwise — each caller resolves
+ * its own fallback; this module has no generic "prose block end" of its own).
  * The definition edit REPLACES any existing blank-line run between
  * `blockEndLine` and the next non-blank content (or EOF) with exactly one
  * blank line, the definition, and — unless at EOF — one more blank line, so
@@ -365,13 +362,13 @@ export const footnotePointerAt = (
     return { pointer: definition ? { line: definition.line } : undefined }
   }
 
-  // The definition's OWN span (from the tree), never `isFootnoteDefinitionLine`:
-  // that helper's line-based continuation rule (any indent) and the tree's real
-  // GFM one (four spaces, plus lazy-paragraph continuation) disagree on some
-  // lines, and trusting the wrong one here would resolve a position to "on a
-  // definition, but no pointer" when it isn't on this definition at all —
-  // wrongly blocking a caller's fallback (e.g. `review`'s hunk jump) instead of
-  // correctly not applying.
+  // The definition's OWN span, from the tree's real GFM continuation rule
+  // (four spaces, plus lazy-paragraph continuation) — a looser, hand-rolled
+  // "any indent continues" rule would disagree with it on some lines, and
+  // trusting that instead would resolve a position to "on a definition, but
+  // no pointer" when it isn't on this definition at all — wrongly blocking a
+  // caller's fallback (e.g. `review`'s hunk jump) instead of correctly not
+  // applying.
   const definition = definitions.find((d) => position.line >= d.line && position.line <= d.endLine)
   if (definition) {
     const firstMarker = markers.find((m) => foldName(m.name) === foldName(definition.name))

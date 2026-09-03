@@ -7,7 +7,6 @@ import {
   isOnExistingFootnote,
   nextFootnoteName,
   parseFootnotes,
-  stripFootnoteMarkers,
 } from "./Footnotes.js"
 
 describe("parseFootnotes", () => {
@@ -215,16 +214,6 @@ describe("parseFootnotes", () => {
   })
 })
 
-describe("stripFootnoteMarkers", () => {
-  it("removes a marker from text", () => {
-    expect(stripFootnoteMarkers("Option A[^fn1]")).toBe("Option A")
-  })
-
-  it("leaves text with no marker untouched", () => {
-    expect(stripFootnoteMarkers("plain text")).toBe("plain text")
-  })
-})
-
 describe("nextFootnoteName", () => {
   it("is fn1 for a document with no footnotes at all", () => {
     expect(nextFootnoteName("just prose")).toBe("fn1")
@@ -337,12 +326,12 @@ describe("footnotePointerAt", () => {
     expect(footnotePointerAt(doc, { line: 0, character: 8 })).toBeUndefined() // "b", not the marker
   })
 
-  it("returns undefined — not 'resolved, no pointer' — for a two-space-indented line that LOOKS like a continuation but isn't one per real GFM (regression: used to dead-end via isFootnoteDefinitionLine's looser rule)", () => {
+  it("returns undefined — not 'resolved, no pointer' — for a two-space-indented line that LOOKS like a continuation but isn't one per real GFM (regression: a since-deleted line-based helper used to dead-end here on its own looser 'any indent continues' rule)", () => {
     const content = ["text[^fn1]", "", "[^fn1]:", "  the reason"].join("\n")
-    // `isFootnoteDefinitionLine` (still line-based, any indent continues) would
-    // say line 3 is part of the definition; the tree disagrees (endLine is 2,
-    // GFM needs four spaces) — the caller must be free to fall through instead
-    // of getting stuck on "handled, but no pointer".
+    // The tree's real GFM continuation span ends at line 2 (four spaces are
+    // required; this is indented only two) — line 3 is NOT part of the
+    // definition, so the caller must be free to fall through instead of
+    // getting stuck on "handled, but no pointer".
     expect(footnotePointerAt(content, { line: 3, character: 2 })).toBeUndefined()
   })
 })

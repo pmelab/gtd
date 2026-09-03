@@ -1588,6 +1588,31 @@ describe("ReviewDoc — nested hunks are the same hunks", () => {
     expect(cleared).not.toContain("[x]")
   })
 
+  it("REJECTS the package spec's literal 'four spaces' wording — a four-space indent is still a NESTED HUNK, not code, because the list item's own content column (2, from '- ') pushes the real GFM indented-code threshold to column 6", () => {
+    // Measured directly against real CommonMark/GFM, not asserted from the
+    // spec prose: the requirement text ("the same line indented four spaces
+    // is indented code and neither") and this package's own "nested hunks"
+    // task ("the same line indented four spaces is a `code` node and is not
+    // a hunk") are both wrong about the absolute column. This test pins the
+    // actual (correct) behavior at four spaces so the rejection is recorded
+    // in the suite, not just in a renamed test title elsewhere in this file.
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "    - [x] ./src/b.ts#2",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files).toEqual([
+      { path: "./src/a.ts", line: 1, checked: false, sourceLine: 5, endLine: 5 },
+      { path: "./src/b.ts", line: 2, checked: true, sourceLine: 6, endLine: 6 },
+    ])
+  })
+
   it("the same line indented past the item's own content column plus 4 is a 'code' node and is NOT a hunk", () => {
     // The list item's own content column is 2 (from "- "), so real GFM's
     // indented-code threshold sits at column 6 here — not the "four spaces"
