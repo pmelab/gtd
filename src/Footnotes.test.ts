@@ -4,11 +4,9 @@ import {
   footnoteAdditionEdits,
   footnoteMarkerColumn,
   footnotePointerAt,
-  isFootnoteDefinitionLine,
   isOnExistingFootnote,
   nextFootnoteName,
   parseFootnotes,
-  proseBlockEnd,
   stripFootnoteMarkers,
 } from "./Footnotes.js"
 
@@ -227,44 +225,6 @@ describe("stripFootnoteMarkers", () => {
   })
 })
 
-describe("isFootnoteDefinitionLine", () => {
-  it("is true for a definition's start line", () => {
-    const lines = ["[^fn1]: reason"]
-    expect(isFootnoteDefinitionLine(lines, 0)).toBe(true)
-  })
-
-  it("is true for an indented continuation line", () => {
-    const lines = ["[^fn1]:", "    continued here"]
-    expect(isFootnoteDefinitionLine(lines, 1)).toBe(true)
-  })
-
-  it("is false for a blank line", () => {
-    const lines = ["[^fn1]:", "    continued", "", "not part of it"]
-    expect(isFootnoteDefinitionLine(lines, 2)).toBe(false)
-    expect(isFootnoteDefinitionLine(lines, 3)).toBe(false)
-  })
-
-  it("is false for an ordinary line", () => {
-    expect(isFootnoteDefinitionLine(["just prose"], 0)).toBe(false)
-  })
-
-  it("is false past the end of the array", () => {
-    expect(isFootnoteDefinitionLine(["one line"], 5)).toBe(false)
-  })
-
-  it("is false for a '[^x]:'-shaped line inside a fenced code block, agreeing with parseFootnotes's own fence skip", () => {
-    const lines = ["```", "[^x]: not a real definition, it's code", "```"]
-    expect(isFootnoteDefinitionLine(lines, 1)).toBe(false)
-    // parseFootnotes must agree: no definition parsed for the fenced line.
-    expect(parseFootnotes(lines.join("\n")).definitions).toEqual([])
-  })
-
-  it("is false for an indented continuation line that is itself inside a fence", () => {
-    const lines = ["[^fn1]:", "```", "    still fenced, not a continuation", "```"]
-    expect(isFootnoteDefinitionLine(lines, 2)).toBe(false)
-  })
-})
-
 describe("nextFootnoteName", () => {
   it("is fn1 for a document with no footnotes at all", () => {
     expect(nextFootnoteName("just prose")).toBe("fn1")
@@ -300,18 +260,6 @@ describe("footnoteMarkerColumn", () => {
   it("stays at the cursor when it sits on whitespace or punctuation", () => {
     expect(footnoteMarkerColumn("hello, world", 5)).toBe(5) // on the comma
     expect(footnoteMarkerColumn("hello world", 5)).toBe(5) // on the space
-  })
-})
-
-describe("proseBlockEnd", () => {
-  it("stops at the next blank line", () => {
-    const lines = ["a", "b", "", "c"]
-    expect(proseBlockEnd(lines, 0)).toBe(1)
-  })
-
-  it("runs to end of file when there is no blank line", () => {
-    const lines = ["a", "b", "c"]
-    expect(proseBlockEnd(lines, 0)).toBe(2)
   })
 })
 

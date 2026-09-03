@@ -37,7 +37,7 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
       workflow:
         modes:
           review:
-            format: "sed -i.bak 's/^- \\[/* [/' <%= it.file %> && rm -f <%= it.file %>.bak"
+            format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' <%= it.file %> && rm -f <%= it.file %>.bak"
         entry:
           default: root
         machines:

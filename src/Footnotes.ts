@@ -50,68 +50,6 @@ const PLACEHOLDER_BODY = "your comment"
  */
 const ORPHAN_MARKER_RE = /\[\^([^\s\]]+)\]/g
 
-/** A definition's start line: `[^name]:` at COLUMN 0, nothing before it. Local to `isFootnoteDefinitionLine`, the one caller still walking raw lines instead of the tree. */
-const LINE_DEFINITION_START_RE = /^\[\^([^\s\]]+)\]:\s?(.*)$/
-
-/** A fenced-code-block delimiter line (any indent, ``` or more backticks) — local to `computeFenceSkip`, `isFootnoteDefinitionLine`'s one remaining caller. */
-const LINE_FENCE_RE = /^\s*```/
-
-/** A non-blank line that starts with leading whitespace — the shape of a definition's continuation line, for `isFootnoteDefinitionLine`'s own line-based walk. */
-const isIndentedContinuationLine = (line: string): boolean =>
-  line.trim().length > 0 && /^\s+\S/.test(line)
-
-/**
- * For each line in `lines`, whether it's inside (or is the delimiter of) a
- * fenced code block — content that `isFootnoteDefinitionLine` excludes from
- * definition recognition. Survives ONLY as `isFootnoteDefinitionLine`'s
- * helper now that `parseFootnotes` reads real definitions off the tree
- * instead; goes away entirely once `isFootnoteDefinitionLine` itself moves
- * onto the tree, which it doesn't in this package (both steering formats
- * still call it line-based against `REVIEW.md`/`QUESTIONS.md` line arrays).
- */
-const computeFenceSkip = (lines: readonly string[]): boolean[] => {
-  const skip: boolean[] = []
-  let inFence = false
-  for (const line of lines) {
-    if (LINE_FENCE_RE.test(line)) {
-      skip.push(true)
-      inFence = !inFence
-    } else {
-      skip.push(inFence)
-    }
-  }
-  return skip
-}
-
-/**
- * True when `lines[index]` is part of a footnote definition — either the
- * `[^name]:` start line itself, or one of its indented continuation lines —
- * and is not itself fenced-code content. Walks backward through the
- * contiguous run of indented non-blank lines above `index` to find the
- * start; a blank line, an unindented line, fenced-code content, or the top
- * of `lines` ends the search with `false`. Exported so `OpenQuestions.ts`
- * and `ReviewDoc.ts` can break their own item/pointer spans on a definition
- * without re-parsing the whole document.
- */
-export const isFootnoteDefinitionLine = (lines: readonly string[], index: number): boolean => {
-  const line = lines[index]
-  if (line === undefined) return false
-  const fenceSkip = computeFenceSkip(lines)
-  if (fenceSkip[index]) return false
-  if (LINE_DEFINITION_START_RE.test(line)) return true
-  if (!isIndentedContinuationLine(line)) return false
-
-  let i = index - 1
-  while (i >= 0) {
-    if (fenceSkip[i]) return false
-    const prev = lines[i]!
-    if (LINE_DEFINITION_START_RE.test(prev)) return true
-    if (!isIndentedContinuationLine(prev)) return false
-    i -= 1
-  }
-  return false
-}
-
 /** Strips every `[^name]` marker out of `text` — applied to every extracted text field so a marker never leaks into an option's or note's text. */
 export const stripFootnoteMarkers = (text: string): string => text.replace(ORPHAN_MARKER_RE, "")
 
@@ -320,22 +258,6 @@ const firstNonBlankFrom = (lines: readonly string[], from: number): number => {
   return i
 }
 
-/**
- * The last non-blank line of the current prose block starting at `index` —
- * the "otherwise" placement rule for "add a footnote": the next blank line,
- * or end of file. Shared by both formats' fallback case (a hunk's own span
- * and a question's option-list span are format-specific and computed by the
- * caller instead).
- */
-export const proseBlockEnd = (lines: readonly string[], index: number): number => {
-  let end = index
-  for (let i = index + 1; i < lines.length; i += 1) {
-    if (lines[i]!.trim().length === 0) break
-    end = i
-  }
-  return end
-}
-
 /** The marker whose `[^name]` span (inclusive of both brackets) contains `position`, or `undefined`. Shared by `footnotePointerAt` and `isOnExistingFootnote` so the two can never disagree about what counts as "inside a marker". */
 const markerAt = (
   markers: readonly FootnoteMarker[],
@@ -349,19 +271,20 @@ const markerAt = (
 /**
  * True when `position` sits inside an EXISTING marker's `[^name]` span, or on
  * an existing definition's own line (its `[^name]:` label line or an indented
- * continuation) — the guard "gtd: add a footnote" uses to refuse itself
- * rather than plant a new marker/definition into already-written footnote
- * syntax (which would corrupt it: a marker inserted inside another marker's
- * name, or a definition inserted between an existing definition's label and
- * its own name).
+ * continuation — the definition's real GFM span, from the tree) — the guard
+ * "gtd: add a footnote" uses to refuse itself rather than plant a new
+ * marker/definition into already-written footnote syntax (which would
+ * corrupt it: a marker inserted inside another marker's name, or a
+ * definition inserted between an existing definition's label and its own
+ * name).
  */
 export const isOnExistingFootnote = (
   content: string,
   position: { readonly line: number; readonly character: number },
 ): boolean => {
-  const { markers } = parseFootnotes(content)
+  const { markers, definitions } = parseFootnotes(content)
   if (markerAt(markers, position)) return true
-  return isFootnoteDefinitionLine(content.split(/\r?\n/), position.line)
+  return definitions.some((d) => position.line >= d.line && position.line <= d.endLine)
 }
 
 /**

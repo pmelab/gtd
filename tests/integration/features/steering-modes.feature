@@ -915,19 +915,19 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
   @live
   Scenario: a built-in mode paired with a format: that breaks its own validator is caught before any real file exists
-    # The hostile one-liner rewrites every "- [ ]" review hunk marker to
-    # "* [ ]" — REVIEW_FORMAT's parser only recognizes a hunk pointer that
-    # starts with "- [", so the round-trip's re-validation finds the
-    # reformatted sample invalid. No `.gtd/REVIEW.md` is ever written in this
-    # scenario — the whole point is that the check still fires at this
-    # first-write beat, ahead of `fileExistsGuard`.
+    # The hostile one-liner mangles the required "# Review: <hash>" header
+    # line — REVIEW_FORMAT's parser requires it verbatim as the document's
+    # first heading, so the round-trip's re-validation finds the reformatted
+    # sample invalid. No `.gtd/REVIEW.md` is ever written in this scenario —
+    # the whole point is that the check still fires at this first-write beat,
+    # ahead of `fileExistsGuard`.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
         modes:
           review:
-            format: "sed -i.bak 's/^- \\[/* [/' <%= it.file %> && rm -f <%= it.file %>.bak"
+            format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' <%= it.file %> && rm -f <%= it.file %>.bak"
         entry:
           default: root
         machines:

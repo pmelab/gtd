@@ -87,6 +87,81 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
     And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
     And ".gtd/REVIEW_RAW.md" exists
 
+  Scenario: ticking a two-space-indented (nested) hunk is cleared at the review gate too — the live bug this rewrite fixes
+    Given a test project
+    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1
+        - [ ] ./src/calc.ts#2
+      """
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1
+        - [x] ./src/calc.ts#2
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And ".gtd/REVIEW.md" contains "  - [ ] ./src/calc.ts#2"
+    And ".gtd/REVIEW.md" does not contain "[x]"
+    When I run gtd next with "--json"
+    And I execute the printed check script
+    And I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → idle"
+
+  Scenario: a '- [x]' line inside a fenced code block in a chunk description is never a hunk pointer, and ticking the chunk never touches it
+    Given a test project
+    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      Example of the OLD format, quoted for context:
+
+      ```
+      - [x] ./src/legacy.ts#1
+      ```
+
+      - [ ] ./src/calc.ts#1
+      new add function
+      """
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      Example of the OLD format, quoted for context:
+
+      ```
+      - [x] ./src/legacy.ts#1
+      ```
+
+      - [x] ./src/calc.ts#1
+      new add function
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And ".gtd/REVIEW.md" contains "- [ ] ./src/calc.ts#1"
+    And ".gtd/REVIEW.md" contains "- [x] ./src/legacy.ts#1"
+
   Scenario: a ticked answer at a qa-mode gate survives the land — gtd uncheck never runs there
     Given a test project
     And the workflow

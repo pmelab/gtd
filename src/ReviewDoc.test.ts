@@ -532,8 +532,14 @@ describe("parseReviewDoc — a note starting with a second pointer is a position
 })
 
 describe("parseReviewDoc — continuation-line dash stripping", () => {
-  it("strips a leading em dash, en dash, or hyphen run from a continuation line", () => {
-    for (const dash of ["—", "–", "-", "---"]) {
+  it("strips a leading em dash or en dash from a continuation line", () => {
+    // Not a plain "-"/"---": a literal hyphen run at the START of a
+    // continuation line is genuinely ambiguous with a nested list bullet in
+    // real CommonMark (the tree parser reads it as a NESTED list, not a
+    // separator) — that's the one behavior this tree-based rewrite can't
+    // preserve from the old line-based regex, and it's covered instead by
+    // the "nested hunks are the same hunks" tests below.
+    for (const dash of ["—", "–"]) {
       const content = [
         "# Review: abc1234",
         "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -1139,11 +1145,14 @@ describe("clearFilePointerTicks", () => {
     expect(clearFilePointerTicks(content)).toBe(expected)
   })
 
-  it("leaves an indented `- [x] <token>` line alone — FILE_POINTER_RE requires the box at column 0, so an indented pointer-shaped line is a continuation/note, never a pointer", () => {
+  it("clears an indented checked task item too — the offset splice walks every real GFM task item, not just top-level hunk pointers, regardless of whether its content is a valid path", () => {
     const content = ["- [ ] ./src/calc.ts#1", "  - [x] not a real path, just note prose", ""].join(
       "\n",
     )
-    expect(clearFilePointerTicks(content)).toBe(content)
+    const expected = ["- [ ] ./src/calc.ts#1", "  - [ ] not a real path, just note prose", ""].join(
+      "\n",
+    )
+    expect(clearFilePointerTicks(content)).toBe(expected)
   })
 
   it("leaves a [x] in prose alone", () => {
@@ -1166,14 +1175,14 @@ describe("clearFilePointerTicks", () => {
     expect(clearFilePointerTicks(content)).toBe(content)
   })
 
-  it("leaves a `- [x]` line with nothing after the box alone even when the NEXT line has content — the token must be on the same line", () => {
+  it("clears a `- [x]` box even with nothing after it on its own line, when the next unindented line lazily continues the SAME task item — a real GFM checked item regardless of what its content resolves to", () => {
     const content = "- [x]\n./src/calc.ts#1\n"
-    expect(clearFilePointerTicks(content)).toBe(content)
+    expect(clearFilePointerTicks(content)).toBe("- [ ]\n./src/calc.ts#1\n")
   })
 
-  it("leaves a `- [x]` line with only trailing horizontal whitespace after the box alone, even when the next line has content", () => {
+  it("clears a `- [x]` box with only trailing horizontal whitespace after it, when the next line lazily continues the same item", () => {
     const content = "- [x]   \n./src/calc.ts#1\n"
-    expect(clearFilePointerTicks(content)).toBe(content)
+    expect(clearFilePointerTicks(content)).toBe("- [ ]   \n./src/calc.ts#1\n")
   })
 
   it("preserves CRLF line endings and trailing-newline state", () => {
@@ -1415,7 +1424,11 @@ describe("'gtd: add a footnote' action", () => {
       "- [ ] ./src/calc.ts#1",
       "first paragraph",
       "",
-      "second paragraph",
+      // 2-space indent (matching the "- " bullet's own content column) is
+      // load-bearing here: real CommonMark only keeps a blank-line-separated
+      // paragraph inside the SAME list item when it's indented to that
+      // column — flush-left would break out of the item entirely.
+      "  second paragraph",
       "",
       "## Next chunk",
       "",
@@ -1494,5 +1507,221 @@ describe("'gtd: add a footnote' action", () => {
       "",
     ].join("\n")
     expect(footnoteAction(content, 7, 3)).toBeUndefined()
+  })
+})
+
+describe("ReviewDoc — header, base comment, and chunk headings come from nodes", () => {
+  it("a '# Review: <hash>' line inside a fence is not the header", () => {
+    const content = [
+      "```",
+      "# Review: abc1234",
+      "```",
+      "",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.shortHash).toBeUndefined()
+    expect(result.errors).toContain(
+      "Missing or malformed '# Review: <hash>' header as the document's first line",
+    )
+  })
+
+  it("finds the base comment as an html node wherever it appears in the document, not just right after the header", () => {
+    const content = [
+      "# Review: abc1234",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.fullHash).toBe("abc1234def5678901234567890123456789abcd")
+    expect(result.errors).toEqual([])
+  })
+
+  it("a '## ' chunk heading inside a fence is not a chunk", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Real chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+      "```",
+      "## Not a chunk",
+      "```",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets.map((c) => c.title)).toEqual(["Real chunk"])
+  })
+})
+
+describe("ReviewDoc — nested hunks are the same hunks", () => {
+  it("a '- [x] ./file.ts#1' indented two spaces IS a hunk pointer, and is cleared by clearFilePointerTicks — the live bug this package fixes", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "  - [x] ./src/b.ts#2",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files).toEqual([
+      { path: "./src/a.ts", line: 1, checked: false, sourceLine: 5, endLine: 5 },
+      { path: "./src/b.ts", line: 2, checked: true, sourceLine: 6, endLine: 6 },
+    ])
+    const cleared = clearFilePointerTicks(content)
+    expect(cleared).toContain("  - [ ] ./src/b.ts#2")
+    expect(cleared).not.toContain("[x]")
+  })
+
+  it("the same line indented past the item's own content column plus 4 is a 'code' node and is NOT a hunk", () => {
+    // The list item's own content column is 2 (from "- "), so real GFM's
+    // indented-code threshold sits at column 6 here — not the "four spaces"
+    // an absolute, document-level reading might suggest.
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+      "      - [x] ./src/b.ts#2",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    // Exactly one hunk (not two): the indented block is `code`, part of the
+    // FIRST hunk's own note text — same as the old line-based reading, which
+    // never special-cased indentation either — never a second hunk pointer.
+    expect(result.changesets[0]?.files).toEqual([
+      {
+        path: "./src/a.ts",
+        line: 1,
+        checked: false,
+        note: "[x] ./src/b.ts#2",
+        sourceLine: 5,
+        endLine: 7,
+      },
+    ])
+  })
+
+  it("the parent hunk's note does NOT contain its nested hunk's text", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1 parent note",
+      "  - [ ] ./src/b.ts#2 nested note",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files[0]?.note).toBe("parent note")
+    expect(result.changesets[0]?.files[1]?.note).toBe("nested note")
+  })
+
+  it("the parent hunk's own span does not swallow the nested hunk for 'add a footnote' placement", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1 parent note",
+      "  - [ ] ./src/b.ts#2 nested note",
+      "",
+    ].join("\n")
+    const at = (line: number, character = 0) => ({
+      start: { line, character },
+      end: { line, character },
+    })
+    const action = REVIEW_FORMAT.actions(content, at(5, 2)).find(
+      (a) => a.title === "gtd: add a footnote",
+    )!
+    // Lands right after line 5 (the parent's OWN span), never past line 6
+    // (the nested hunk) — the parent's span excludes it.
+    expect(action.edits[1]!.range.start.line).toBe(6)
+  })
+})
+
+describe("ReviewDoc — total over a structurally broken document", () => {
+  it("clearFilePointerTicks still clears ticks in a structurally broken document — micromark never fails", () => {
+    const content =
+      "# Review\n\n<!-- base: 0 -->\n\n## Chunk\n\n- [x] ./a.ts#1\n```\nunclosed fence"
+    const cleared = clearFilePointerTicks(content)
+    expect(cleared).toContain("- [ ] ./a.ts#1")
+  })
+
+  it("parseReviewDoc never throws on arbitrary/malformed input", () => {
+    expect(() => parseReviewDoc("### %%% [x] not markdown-ish at all ```")).not.toThrow()
+    expect(() => parseReviewDoc("")).not.toThrow()
+  })
+})
+
+describe("ReviewDoc — chunk ticking as an edit per list item", () => {
+  it("'check all hunks' produces one edit per hunk not already at the target state, and zero edits (no chunk action at all) for a chunk with no hunks", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "- [x] ./src/a.ts#2",
+      "",
+      "## Empty chunk",
+      "",
+      "Just prose, no hunks at all.",
+      "",
+    ].join("\n")
+    const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+    const actions = REVIEW_FORMAT.actions(content, at(3))
+    const checkAll = actions.find((a) => a.title === 'gtd: check all hunks in "Chunk"')!
+    expect(checkAll.edits).toHaveLength(1) // only the unchecked hunk gets an edit
+
+    const emptyChunkActions = REVIEW_FORMAT.actions(content, at(10))
+    expect(emptyChunkActions.some((a) => a.title.includes("Empty chunk"))).toBe(false)
+  })
+
+  it("a '- [x] ./file.ts#1'-shaped line inside a fenced code block in a chunk description is neither a hunk pointer nor touched by ticking the chunk", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "```",
+      "- [x] ./src/fenced.ts#1",
+      "```",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.files).toEqual([
+      { path: "./src/a.ts", line: 1, checked: false, sourceLine: 9, endLine: 9 },
+    ])
+    const at = (line: number) => ({ start: { line, character: 0 }, end: { line, character: 0 } })
+    const checkAll = REVIEW_FORMAT.actions(content, at(3)).find(
+      (a) => a.title === 'gtd: check all hunks in "Chunk"',
+    )!
+    expect(checkAll.edits).toHaveLength(1) // only the real hunk, never the fenced line
+    const cleared = clearFilePointerTicks(content)
+    expect(cleared).toContain("- [x] ./src/fenced.ts#1") // fenced content is never a tick at all
   })
 })
