@@ -216,14 +216,21 @@ const optionContentOffset = (item: ListItem): number | undefined => {
  * An option's own text: everything after the `- [ ]`/`- [x]` marker on the
  * item's FIRST line only, never a wrapped continuation line — matching the
  * OLD per-line regex capture (`endLine` still spans the wrap; `text` never
- * did).
+ * did). When the marker is alone on its own line and the item's content
+ * starts on the NEXT line (an indented or lazy wrap), `optionContentOffset`
+ * still resolves to a real offset — just one on that later line, not the
+ * marker's own — so the line the offset itself falls on is checked against
+ * `sourceLine` before slicing; a mismatch means there is no text on the
+ * marker's own line, and `""` is correct (matching the old regex, which
+ * never captured a continuation line into `text` either).
  */
 const optionText = (content: string, lines: readonly string[], item: ListItem): string => {
   const offset = optionContentOffset(item)
   if (offset === undefined || !item.position) return ""
   const sourceLine = toLspPosition(item.position.start).line
-  const startCharacter = toLspPositionFromOffset(content, offset).character
-  const raw = (lines[sourceLine] ?? "").slice(startCharacter)
+  const contentPosition = toLspPositionFromOffset(content, offset)
+  if (contentPosition.line !== sourceLine) return ""
+  const raw = (lines[sourceLine] ?? "").slice(contentPosition.character)
   return stripFootnoteMarkers(raw).trim()
 }
 

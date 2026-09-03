@@ -429,6 +429,20 @@ describe("parseOpenQuestions", () => {
       const chosen = question.options.find((o) => o.checked)!
       expect(chosen).toMatchObject({ text: "use tRPC", sourceLine: 5, endLine: 6 })
     })
+
+    it("a bare marker with no text on its OWN line, whose text starts on the next (indented) line, has text '' — not the marker itself", () => {
+      const result = parseOpenQuestions(q(["", "- [ ]", "  text here", "- [ ] _your answer_"]))
+      const [option] = result.questions[0]!.options
+      expect(option).toMatchObject({ text: "", sourceLine: 4, endLine: 5 })
+    })
+
+    it("a ticked free-text option answered ONLY on its continuation line still reads text '' and stays UNANSWERED — the answer must be on the marker's own line", () => {
+      const result = parseOpenQuestions(q(["", "- [ ] REST", "- [x]", "  my own answer"]))
+      const question = result.questions[0]!
+      const chosen = question.options.find((o) => o.checked)!
+      expect(chosen).toMatchObject({ text: "", freeText: true })
+      expect(question.answered).toBe(false)
+    })
   })
 })
 
