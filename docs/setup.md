@@ -28,6 +28,8 @@
   of what is left to review), plus check/uncheck actions over those chunks
 - go-to-definition from a `review`-mode hunk line into the file it points at, at
   its `#line`
+- a document link on a `review`-mode hunk's `./path#line` pointer, clickable
+  straight to that file at its `#line` without going through go-to-definition
 - symbols over a `qa`-mode file's open questions, plus "pick this option" /
   "uncheck this option" code actions on each option — offered anywhere on the
   option's list item, including wrapped continuation lines
