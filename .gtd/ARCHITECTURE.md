@@ -11,7 +11,7 @@ plan and are called out where they land.
 
 ### How is "one parse per document" enforced — a memo inside the tree module, or a parsed tree threaded through `SteeringFormat`'s four methods?
 
-- [ ] A one-entry memo keyed by the content string, private to the tree module —
+- [x] A one-entry memo keyed by the content string, private to the tree module —
       `validate`/`outline`/`actions`/`pointerAt` keep their `content: string`
       signatures, so `Lsp.ts`, `SteeringMode.ts`, `program.ts`, and
       `EmittedScriptRecognizer.ts` are untouched. Parse-once is a caching
@@ -27,7 +27,7 @@ plan and are called out where they land.
 - [ ] `character` only — enough for `file:line:col:` and a caret. The LSP
       diagnostic still has to guess where the underline ends, so it keeps
       underlining the whole line.
-- [ ] A full range from the offending node's own boundaries — the LSP underlines
+- [x] A full range from the offending node's own boundaries — the LSP underlines
       exactly the heading, option, or marker, and `file:line:col:` prints the
       range's start. Costs a wider `SteeringFinding` and a rule for what every
       existing positioned finding's end is.
