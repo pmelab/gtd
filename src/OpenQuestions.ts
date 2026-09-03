@@ -399,6 +399,35 @@ const sectionLineRange = (
   return { start, end }
 }
 
+/** The strict-reading message for one dropped `trimmed` line, or `undefined` when it matches neither shape — split out of `strictReadingFindings` to keep that function's own complexity down. */
+const strictReadingMessage = (trimmed: string): string | undefined => {
+  if (HEADING_SHAPE_RE.test(trimmed)) {
+    return `An indented (4+ space) "${trimmed}" is markdown indented code (or a lazy paragraph continuation), not a question heading — it is silently dropped otherwise`
+  }
+  if (OPTION_SHAPE_RE.test(trimmed)) {
+    return `An indented (4+ space) "${trimmed}" is markdown indented code (or a lazy paragraph continuation), not an option — it is silently dropped otherwise`
+  }
+  return undefined
+}
+
+/** Every strict-reading finding in ONE section's own `[start, end]` line range — split out of `strictReadingFindings` to keep that function's own complexity down (one section's scan, not the loop over both sections). */
+const strictReadingFindingsInRange = (
+  lines: readonly string[],
+  excluded: ReadonlySet<number>,
+  start: number,
+  end: number,
+): SteeringFinding[] => {
+  const findings: SteeringFinding[] = []
+  for (let line = start; line <= end; line += 1) {
+    if (excluded.has(line)) continue
+    const raw = lines[line] ?? ""
+    if (raw.length - raw.trimStart().length < 4) continue
+    const message = strictReadingMessage(raw.trim())
+    if (message) findings.push({ message, line })
+  }
+  return findings
+}
+
 /**
  * The strict reading's positioned refusal: a `### `-shaped or `- [ ]`-shaped
  * line indented 4+ spaces is never a real heading or list item — either
@@ -413,38 +442,18 @@ const sectionLineRange = (
  * disappear regardless of which of the two swallowed it.
  */
 const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] => {
-  const findings: SteeringFinding[] = []
   const lines = content.split(/\r?\n/)
-  const skip = recognizedStructureLines(tree)
-  const fenced = fencedCodeLines(tree, content)
+  const excluded = new Set([...recognizedStructureLines(tree), ...fencedCodeLines(tree, content)])
 
-  for (const sectionName of ["Open Questions", "Answered Questions"]) {
+  return ["Open Questions", "Answered Questions"].flatMap((sectionName) => {
     const heading = tree.children.find(
       (n): n is Heading =>
         n.type === "heading" && n.depth === 2 && headingText(content, n) === sectionName,
     )
-    if (!heading?.position) continue
+    if (!heading?.position) return []
     const { start, end } = sectionLineRange(tree, content, heading)
-
-    for (let line = start; line <= end; line += 1) {
-      if (skip.has(line) || fenced.has(line)) continue
-      const raw = lines[line] ?? ""
-      if (raw.length - raw.trimStart().length < 4) continue
-      const trimmed = raw.trim()
-      if (HEADING_SHAPE_RE.test(trimmed)) {
-        findings.push({
-          message: `An indented (4+ space) "${trimmed}" is markdown indented code (or a lazy paragraph continuation), not a question heading — it is silently dropped otherwise`,
-          line,
-        })
-      } else if (OPTION_SHAPE_RE.test(trimmed)) {
-        findings.push({
-          message: `An indented (4+ space) "${trimmed}" is markdown indented code (or a lazy paragraph continuation), not an option — it is silently dropped otherwise`,
-          line,
-        })
-      }
-    }
-  }
-  return findings
+    return strictReadingFindingsInRange(lines, excluded, start, end)
+  })
 }
 
 /**
