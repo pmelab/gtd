@@ -199,41 +199,57 @@ const orphanMarkers = (content: string, tree: Root): FootnoteMarker[] => {
  * structurally — they simply parse as other node types — rather than by a
  * hand-rolled skip list.
  */
+type FootnoteTreeNode = {
+  readonly type: string
+  readonly position?: unknown
+  readonly children?: unknown
+  readonly label?: string
+  readonly identifier?: string
+}
+
+/** Pushes `node` (a real `footnoteReference`) onto `markers` as a `FootnoteMarker`. */
+const collectMarker = (node: FootnoteTreeNode, markers: FootnoteMarker[]): void => {
+  const position = toLspPosition(
+    (node.position as { start: { line: number; column: number } }).start,
+  )
+  markers.push({ name: node.label ?? node.identifier ?? "", ...position })
+}
+
+/** Pushes `node` (a real `footnoteDefinition`) onto `definitions` as a `FootnoteDefinition`, its body joined from `sourceText` over each child. */
+const collectDefinition = (
+  node: FootnoteTreeNode,
+  content: string,
+  definitions: FootnoteDefinition[],
+): void => {
+  const pos = node.position as {
+    start: { line: number; column: number }
+    end: { line: number; column: number }
+  }
+  const children = (node.children as readonly Parameters<typeof sourceText>[1][]) ?? []
+  const body = children
+    .map((child) => sourceText(content, child))
+    .join(" ")
+    .trim()
+  definitions.push({
+    name: node.label ?? node.identifier ?? "",
+    line: toLspPosition(pos.start).line,
+    endLine: toLspPosition(pos.end).line,
+    body,
+  })
+}
+
 export const parseFootnotes = (content: string): Footnotes => {
   const tree = parseMarkdown(content)
   const markers: FootnoteMarker[] = []
   const definitions: FootnoteDefinition[] = []
 
-  const walk = (node: {
-    readonly type: string
-    readonly position?: unknown
-    readonly children?: unknown
-    readonly label?: string
-    readonly identifier?: string
-  }): void => {
+  const walk = (node: FootnoteTreeNode): void => {
     if (node.type === "footnoteReference" && node.position) {
-      const position = toLspPosition(
-        (node.position as { start: { line: number; column: number } }).start,
-      )
-      markers.push({ name: node.label ?? node.identifier ?? "", ...position })
+      collectMarker(node, markers)
     } else if (node.type === "footnoteDefinition" && node.position) {
-      const pos = node.position as {
-        start: { line: number; column: number }
-        end: { line: number; column: number }
-      }
-      const children = (node.children as readonly Parameters<typeof sourceText>[1][]) ?? []
-      const body = children
-        .map((child) => sourceText(content, child))
-        .join(" ")
-        .trim()
-      definitions.push({
-        name: node.label ?? node.identifier ?? "",
-        line: toLspPosition(pos.start).line,
-        endLine: toLspPosition(pos.end).line,
-        body,
-      })
+      collectDefinition(node, content, definitions)
     }
-    const children = node.children as readonly (typeof node)[] | undefined
+    const children = node.children as readonly FootnoteTreeNode[] | undefined
     if (children) children.forEach(walk)
   }
   walk(tree)
