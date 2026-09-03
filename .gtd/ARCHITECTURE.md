@@ -7,32 +7,6 @@ Every design decision below was checked against the real parser
 extensions), not against its documentation. Three of those checks changed the
 plan and are called out where they land.
 
-## Open Questions
-
-### How is "one parse per document" enforced — a memo inside the tree module, or a parsed tree threaded through `SteeringFormat`'s four methods?
-
-- [x] A one-entry memo keyed by the content string, private to the tree module —
-      `validate`/`outline`/`actions`/`pointerAt` keep their `content: string`
-      signatures, so `Lsp.ts`, `SteeringMode.ts`, `program.ts`, and
-      `EmittedScriptRecognizer.ts` are untouched. Parse-once is a caching
-      property, asserted by an exported parse counter.
-- [ ] Thread the tree: `SteeringFormat` grows a `parse` member and its four
-      methods take the tree instead of a string. Parse-once becomes structural
-      and unfakeable, at the cost of changing the interface and all five call
-      sites, plus every format test's setup.
-- [ ] _your answer_
-
-### Does a finding carry a single `character`, or a full start/end range?
-
-- [ ] `character` only — enough for `file:line:col:` and a caret. The LSP
-      diagnostic still has to guess where the underline ends, so it keeps
-      underlining the whole line.
-- [x] A full range from the offending node's own boundaries — the LSP underlines
-      exactly the heading, option, or marker, and `file:line:col:` prints the
-      range's start. Costs a wider `SteeringFinding` and a rule for what every
-      existing positioned finding's end is.
-- [ ] _your answer_
-
 ## Concern 1 — One parse per document, footnotes read off the tree
 
 Primary paths: `src/MarkdownTree.ts` (new), `src/Footnotes.ts`, `package.json`,
@@ -67,6 +41,18 @@ The one place that owns the parse and the coordinate conversion:
 - `parseMarkdown(content)` → the mdast root, with both GFM extensions wired.
   micromark never fails: any input parses to some tree, so every current "total,
   never throws, always returns a result" contract survives unchanged.
+- A **one-entry memo keyed by the content string**, private to this module.
+  `validate`/`outline`/`actions`/`pointerAt` keep their `content: string`
+  signatures, so `Lsp.ts`, `SteeringMode.ts`, `program.ts`, and
+  `EmittedScriptRecognizer.ts` are untouched, and one `validate` call's footnote
+  pass and format pass share a single parse. The module exports a parse counter
+  so the count is assertable.
+- **Risk: parse-once is a caching property here, not a structural one.** A
+  future caller that reparses, or a format that mutates the tree it is handed,
+  breaks it silently — nothing in a type refuses either. The counter test is the
+  only thing that fails.
+- The memo holds the last document's text and tree alive — kilobytes for a
+  2000-line file, bounded at one entry.
 - Position conversion. mdast gives **1-based line, 1-based column, 0-based
   offset**; the LSP wants **0-based line, 0-based character**. Every `- 1` lives
   here and nowhere else.
@@ -141,8 +127,9 @@ document, so a fence opened before the slice starts is invisible to it. Plus the
 four mis-reads: `[^name]` in a four-space indented code block, in a `~~~` fence,
 in a double-backtick span, and a definition inside an inline-code span.
 
-Parsing a 2000-line document performs one parse, not one per line — counted, not
-timed. How that count is enforced is the first open question.
+Parsing a 2000-line document performs one parse, not one per line — asserted by
+reading the module's exported parse counter across one `validate` call, not by
+timing.
 
 ## Concern 2 — The `qa` format on the tree
 
@@ -257,12 +244,25 @@ one-line finding-site edits in `src/OpenQuestions.ts` and `src/ReviewDoc.ts`.
 
 ### The finding shape
 
-`SteeringFinding` grows a position beyond `line` — a single `character` or a
-full range, per the second open question. The field stays **optional and flat**
-rather than a discriminated union, because `SteeringMode.ts`'s `findingsFrom`
-must keep emitting a bare `{ message }` for every line a shell `validate:`
-command prints. The invariant "a position is meaningless without a `line`" is
-pinned by a test, not by the type.
+`SteeringFinding` grows a **full start/end range**, taken from the offending
+node's own boundaries, so the LSP underlines exactly that heading, option, or
+marker instead of guessing where the underline ends. `line` stays for the
+positionless case; the range is a separate optional field, so nothing that
+already reads `finding.line` changes.
+
+The shape stays **optional and flat** rather than a discriminated union, because
+`SteeringMode.ts`'s `findingsFrom` must keep emitting a bare `{ message }` for
+every line a shell `validate:` command prints. Two invariants are pinned by
+tests, not by the type: a range is meaningless without a `line`, and a range's
+start line equals `line`.
+
+Every existing positioned finding needs an end, and the rule is one line: **the
+range is the node the finding is about.** A bare `###` heading spans the heading
+node. A section-order finding spans the offending `##` heading node. A
+chunk-has-no-pointers finding spans its chunk's heading node — not the chunk's
+body, which is what the reader would have to scroll past. A footnote finding
+spans its `footnoteReference` or `footnoteDefinition` node. A missing-header
+finding spans the wrong first block node.
 
 `parseReviewDoc` and `parseReviewFindings` collapse into one function.
 `ReviewDoc.errors: readonly string[]` becomes findings, which removes the only
@@ -277,14 +277,17 @@ column and drop it today. Unanswered-question output in
 
 ### `gtd check` output
 
-`formatFinding` prints `file:line:col: message` — the shape editors and
-grep-style tools already jump on, so a driver's raw output becomes clickable. It
-prints today's `file:line: message` for a finding with a line and no column, and
-a bare message for a finding about the whole document. Both remaining line-only
-cases are `review`'s: the missing-header finding is positioned at the first
-block node (the wrong heading is a real place to point), while missing-base
-stays positionless when the document has no base comment at all — there is no
-offending token when the thing is simply absent.
+`formatFinding` prints `file:line:col: message`, the column taken from the
+range's **start** — the shape editors and grep-style tools already jump on, so a
+driver's raw output becomes clickable. It prints a bare message for a finding
+about the whole document, which is where `review`'s missing-base finding lands:
+a missing `<!-- base: … -->` comment has no offending token, so it stays
+positionless.
+
+The `file:line: message` branch — a line with no column — stays, per the settled
+requirement, but **no built-in format produces it any more**: a range always
+carries a column. It exists for the flat optional shape's sake and for a future
+format, and its test is the only thing exercising it.
 
 `docs/cli.md`'s `## Commands` block and exit-code table are pinned to rendered
 help output; adding a column to a finding changes neither, so no doc regen is
@@ -296,6 +299,10 @@ Outline node ranges stop being computed as _next sibling's heading minus one_ �
 a guess that swallows trailing blank lines and any intervening content — and
 come from a section span walked over nodes: the heading through the last block
 before the next heading of depth ≤ its own.
+
+`Lsp.ts`'s `toDiagnostic` stops computing a range: a finding with one hands its
+range straight to the diagnostic, and only a positionless finding still falls
+back to spanning the whole document.
 
 Hunk pointers become **document links**. That needs a new optional
 `SteeringFormat` member returning each pointer token's precise range plus its
@@ -382,3 +389,17 @@ findings are inherently positionless and `findingsFrom` must keep constructing
 No. A missing `<!-- base: … -->` comment has no offending token to point at, so
 it stays a whole-document finding. Missing-header does get a position: the
 document's wrong first block node is a real place to send a reader.
+
+### How is "one parse per document" enforced — a memo inside the tree module, or a parsed tree threaded through `SteeringFormat`'s four methods?
+
+A one-entry memo keyed by the content string, private to `src/MarkdownTree.ts`.
+The four `SteeringFormat` methods keep their `content: string` signatures, so
+all five call sites and every format test's setup are untouched. Parse-once is
+therefore a caching property, not a structural one — an exported parse counter
+is the only thing that catches a regression.
+
+### Does a finding carry a single `character`, or a full start/end range?
+
+A full range from the offending node's own boundaries, so the LSP underlines
+exactly the heading, option, or marker rather than the whole line.
+`file:line:col:` prints the range's start.
