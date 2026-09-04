@@ -1,57 +1,64 @@
 # Spec feedback — 01-serve-and-client-harness
 
-Fresh pass over `64dd325f` → working tree, verified live (not by reading tests):
-rebuilt from a deleted `src/web/generated.html`, loaded the served page in
-headless chromium (`#root` renders `<div id="gtd-app">gtd</div>`, zero page
-errors, exactly one `</script>`), confirmed `--dev` reflects an edit to
-`src/web/App.tsx` with no `npm run build`, drove a refusal across tRPC
-(`{"stdout":"out1\n","stderr":"e1\ne2\n","exitCode":3}` — three fields
-separately readable, both stderr lines intact), and exercised every exit code
-the spec names (no tailnet → 1, port in use → 1, missing cert → 1, `--bogus` →
-2, `--host` on `gtd next` → 2). Both of last round's items are genuinely fixed:
-`inlineScript` uses a replacement FUNCTION plus a `</script>` escape, and a
-hostname `--host` now lands in the SAN's `DNS:` slot
-(`serve --host localhost --self-signed` starts). `npm test` is green, `test:web`
-fails on a deliberately broken story (exit 1) and is cached on a second run,
-both tsconfigs run, a node-side `document` still fails typecheck, a hooks
-violation still reds `oxlint`, `deadcode` reports 0%.
+Fresh pass over `64dd325f` → working tree, verified live. Last round's two items
+are genuinely fixed: `react`, `react-dom`, `@tanstack/react-query`,
+`@trpc/client` and `@trpc/react-query` now sit in `devDependencies` with only
+`@trpc/server` in `dependencies` (T8's last criterion), pinned by a new
+`tests/tooling/turbo.test.ts` case; `Router.ts`'s `runCommand` comment now says
+the command runs VERBATIM instead of claiming vetting.
 
-One deviation remains, plus one false comment.
+Verified myself this round, not by reading tests: `npm test` fully green;
+deleted `src/web/generated.html` and `npm run build` regenerated it (1,068,851
+bytes, React inlined) and produced one node bundle;
+`gtd serve --host 127.0.0.1 --port 18443 --self-signed` started in a
+**non-repository temp directory**, printed the `https://` URL on its own line
+then a QR code, served HTTP 200 with **exactly one** `</script>`, and refused
+plain http; the presented certificate carries
+`IP Address:127.0.0.1, DNS:127.0.0.1` in its SAN,
+`TLS Web Server Authentication`, `CA:FALSE` critical, and expires 2028-12-07 (<
+825 days); `--bogus` exits 2, `--host` on `gtd next` exits 2;
+`docs/configuration.md` documents `serve:` and all six sub-keys; neither changed
+doc names a `src/` module.
 
-## 1. Five browser-only packages are in `dependencies`, not `devDependencies`
+One problem.
 
-Requirement 8 states: "**tRPC's server half** becomes the **first** runtime
-dependency this package carries purely for the web surface" — singular, and
-specifically the server half. `package.json` instead added six new runtime deps
-for the web surface: `@trpc/server` (correct, T8's last criterion), plus
-`react`, `react-dom`, `@tanstack/react-query`, `@trpc/client` and
-`@trpc/react-query`.
+## 1. Every `serve:` config error prints two or three contradictory clauses
 
-None of those five is resolved at runtime. `tsdown.config.ts`'s `web` config
-carries `deps: { alwaysBundle: [/.*/] }`, so they are inlined into
-`dist/web/main.js` → `src/web/generated.html` → the node bundle at BUILD time.
-Measured on the built artifact: the only bare-specifier import left in
-`dist/gtd.bundle.mjs` is `qrcode-terminal`, the one package deliberately kept
-external.
+`gtd` with `.gtdrc` = `serve:\n  bogus: 1\n  port: 9443` prints:
 
-Cost: every `npm i -g @pmelab/gtd` installs React, React DOM, React Query and
-both tRPC client packages for nothing.
+```
+gtd: Invalid gtd config: serve.bogus: is unexpected, expected: "roots" | "port" | "host" | "cert" | "key" | "loop"; serve: Expected undefined, actual {"port":9443,"bogus":1}
+```
 
-Move those five to `devDependencies` and keep `@trpc/server` in `dependencies`
-(T8 pins it there). `--dev` is unaffected — it already requires a gtd source
-checkout with devDependencies installed to run `npx tsdown --filter web` at all.
+and a wrong-typed sub-key (`serve:\n  port: "nope"`) is worse — three clauses:
 
-## 2. `Router.ts`'s "vetted shell command" comment describes vetting that does not exist
+```
+gtd: Invalid gtd config: serve.port: Expected number, actual "nope"; serve.port: Expected undefined, actual "nope"; serve: Expected undefined, actual {"port":"nope"}
+```
 
-`src/serve/Router.ts`'s `runCommand` JSDoc reads "Runs a **vetted** shell
-command via `CommandRunner`". Nothing vets it: `commandInput` only checks
-`typeof value.command === "string"`, and the resolver passes it straight to
-`runner.bash`. Confirmed live — `POST /trpc/runCommand` with
-`{"command":"printf \"out1\\n\"; ... exit 3"}` ran verbatim, so the endpoint is
-arbitrary shell execution on the bind address.
+The trailing `Expected undefined` clauses are artifacts of the `Schema.optional`
+union branches, not facts about the user's file. They tell a reader that
+`serve:` itself must be absent, which is false — the key is supported and
+documented. Compare a nested `workflow:` error, which stays clean:
 
-The unauthenticated surface itself is the spec's accepted design (tailnet-only
-binding, refuse otherwise). The comment is not: per `AGENTS.md`, a comment
-carries a non-obvious invariant, and this one asserts a guard that isn't there —
-the next reader adds a caller trusting it. Either drop the word "vetted" and say
-plainly that any string runs, or add the vetting.
+```
+gtd: workflow config:
+  - "entry.default" must name a machine
+```
+
+Cause: `src/Config.ts`'s `formatSchemaError` joins **every** issue
+`ArrayFormatter.formatErrorSync` yields, including the `undefined` branch of
+each `Schema.optional`. This never surfaced before this package because
+`workflow`, `vars` and `modes` are all `Schema.optional(Schema.Unknown)` and
+`Unknown` never fails. `serve:` is the first top-level key with a real nested
+schema, so it is the first to expose the flaw — this package introduced the
+user-visible regression and owns it.
+
+Fix in `formatSchemaError`: drop issues whose message is the optional-branch
+`Expected undefined, actual …` artifact when another issue exists at the same or
+a deeper path, so the example above reduces to the one true clause
+(`serve.bogus: is unexpected, expected: …` /
+`serve.port: Expected number, actual "nope"`). Note `src/Config.test.ts:224`'s
+assertion is a loose `/serve\.bogus/i` match, so it passes today with the noise
+present and will still pass after the fix — tighten it to pin the whole message,
+or the next regression is invisible again.
