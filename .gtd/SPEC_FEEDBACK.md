@@ -1,88 +1,93 @@
 # Spec feedback — 01-serve-and-client-harness
 
-Range re-inspected: `64dd325f` → working tree, fresh pass. **Every T1–T9
-criterion I could exercise now holds**: `npm test` is green on a forced
-(cache-bypassed) run of `format:check typecheck lint test:web deadcode`,
-`npx turbo run build` now restores `src/web/generated.html` from cache (the
-previous round's stale-green hazard is gone), the tRPC refusal crosses a real
-HTTPS socket with `stdout`/`stderr`/`exitCode` separately readable, a
-`react-hooks/rules-of-hooks` violation in `src/web/` does fail `lint` (verified
-with a throwaway probe file, since removed), and `test:web` really runs
-`App.stories.tsx` as a browser test.
+Range re-inspected: `64dd325f` → working tree, fresh pass. The previous round's
+four problems are all fixed: `.storybook/**` is in `lint`'s `inputs`,
+`serve.feature` is `@inmem` with `pickBindHostFromSystem` mocked in a shared
+setup file, `tests/vitest.ensureWebClient.ts` builds the generated HTML on first
+resolution (covering `test:mutation` and a bare `test:unit`), and the
+`serve.loop` schema description no longer promises Eta.
 
-Four problems remain.
+Verified green here:
+`npx turbo run format:check typecheck lint lint:sh test:unit test:e2e:inmem test:e2e:live test:web deadcode --force`
+(10/10, no cache), `turbo run test:web` a second time is FULL TURBO, a node-side
+file using `document` fails `tsc --noEmit` while the same file under `src/web/`
+passes `-p src/web/tsconfig.json`, `fallow` reports 0 dead of 169, and a real
+`gtd serve` from a non-repo `/tmp` dir refuses with both remedies at exit 1.
 
-## 1. `turbo.json`'s `lint` inputs omit `.storybook/**`, so a lint error there replays a cached green
+Four problems remain — all narrower than the last round's.
 
-T7 requires `.storybook/` config files to be "covered by `format:check` and
-`lint`". `oxlint .` does lint them — but `turbo.json`'s `lint` task declares
-`inputs: ["src/**", "tests/**", "scripts/**", "dev/**", "evals/**", "*.ts", "*.mjs", ".oxlintrc.json"]`.
-`.storybook/main.ts` matches none of those: `*.ts` is root-level only.
+## 1. T1's "exit 2" criterion is not met: an unknown `serve:` sub-key exits 1
 
-Reproduced on this tree:
+T1's second criterion: "an unknown sub-key under `serve:` is a decode failure at
+**exit 2**". Measured on the built bundle:
 
 ```
-npx turbo run lint                                        # green, cached
-echo 'export const bad = () => eval("1")' > .storybook/__probe.ts
-npx turbo run lint                                        # >>> FULL TURBO, still green
-npx oxlint .                                              # error no-eval, .storybook/__probe.ts:1
+cd /tmp/sv && printf 'serve:\n  bogus: true\n' > .gtdrc.yaml
+node dist/gtd.bundle.mjs serve   # -> exit 1
 ```
 
-This is exactly the under-declared-`inputs` stale green AGENTS.md's "Task graph
-and caching" section names. Add `.storybook/**` to `lint`'s `inputs`.
+The decode failure itself is correct
+(`serve.bogus: is unexpected, expected: "roots" | "port" | ...`), and 1 is what
+every other invalid-config error in this repo already exits with — an unknown
+TOP-level key exits 1 too. So the code is consistent and the criterion is the
+odd one out; T9's own criterion ("a bad flag is exit 2") lists no config-decode
+case at 2 either.
 
-(`format:check` is fine — it declares no `inputs`, so it never caches a subset.
-`typecheck` and `deadcode` genuinely do not reach `.storybook/`: the root
-tsconfig's `include` is `["src", "tests"]` and fallow reports 0 dead files of
-167, so neither needs the entry.)
+Resolve it deliberately, not silently: either route `serve:` decode failures to
+`EXIT_USAGE_ERROR` (and accept that it diverges from every other config error),
+or record the deviation at the code the way `ServeSchema`'s
+`Struct`-instead-of-`Unknown` deviation already is. Right now a reader comparing
+spec to behaviour finds an unexplained mismatch.
 
-## 2. Three `serve.feature` scenarios pass only because this machine has no tailnet
+## 2. The QR code is never asserted to encode the printed URL — the test's name claims it does
 
-`tests/integration/features/serve.feature` asserts
-`stderr contains "no Tailscale interface found to bind to, and no --host given"`
-in three scenarios. Those spawn the real `gtd` bundle, so `resolveBindHost`'s
-default `pickHost` reaches the real `os.networkInterfaces()`. On any machine or
-CI runner joined to a tailnet, `pickBindHostFromSystem()` returns a
-`100.64.0.0/10` address, `gtd serve` proceeds past that refusal, and all three
-scenarios red — with a failure that reads as a serve bug.
+T4's criterion: "start prints the `https://` URL on its own line, then a QR code
+**encoding that exact URL**". `src/serve/Server.test.ts:260` is titled "prints
+the https:// URL on its own line, then a QR code encoding that exact URL", but
+its only QR assertion is:
 
-The fix turn addressed the identical hazard in `src/serve/Server.test.ts` and
-`src/program.test.ts` with `vi.mock("./serve/Bind.js", ...)`. A spawned
-subprocess cannot be mocked that way and no env override exists, so the e2e tier
-still carries it. Give the bind scan a test seam the subprocess honors, or drop
-the assertion to something environment-independent.
+```
+expect(written[1]).toContain("\n")
+```
 
-## 3. `src/**/*.test.ts` now requires a prior build, and neither `test:mutation` nor a bare `npm run test:unit` provides one
+That passes for ANY multi-line string. Swap `renderQrCode(url)` in `Server.ts`
+for `renderQrCode(host)`, or for a hardcoded
+`renderQrCode("https://example.com/")`, and both this test and
+`src/serve/Qr.test.ts` (which only checks non-empty and
+different-input-different-output) stay green. The encoded-payload half of the
+criterion has no coverage at all, and the test name asserting otherwise is worse
+than no test.
 
-`src/serve/Server.ts` imports `../web/generated.html`, which is gitignored and
-only exists after `npm run build`. The turbo tasks were given
-`dependsOn: ["build"]`, which covers `npm test`. Two sanctioned entry points
-were not:
+No QR decoder is needed to close it: pin the block against the renderer's own
+output for the same URL, e.g.
+`expect(written[1]).toBe(renderQrCode( "https://100.90.1.2:4443/") + "\n")` —
+deterministic, and it fails the moment the URL handed to `renderQrCode` stops
+matching the URL printed above it.
 
-- `npm run test:mutation` (`stryker run`) has no build step, and stryker's
-  sandbox copies the file only if it already exists. `src/serve/Server.ts`
-  reaches most of `src/**/*.test.ts` transitively (via `program.ts`, `Cli.ts`,
-  and `src/testing/Layers.ts`), so on an unbuilt checkout the whole 10-minute
-  run reds on an unresolvable import.
-- `npm run test:unit` / `npm run test:changed` invoked directly, same reason.
+## 3. Nothing pins `test:web`'s `inputs` or `lint`'s `.storybook/**` — the stale green can silently return
 
-Not verified by running mutation testing — AGENTS.md forbids that autonomously.
-Verified only that the import exists, that the file is gitignored, and that
-stryker honours no `.gitignore` (only its own `ignorePatterns`).
+T7's third criterion is that `test:web`'s `inputs` "covers both the client
+directory and `.storybook/`". It does today
+(`["src/web/**", ".storybook/**", "vitest.config.ts"]`), and `lint` now carries
+`.storybook/**` as well — but `tests/tooling/turbo.test.ts` is UNCHANGED in this
+range and pins neither. Its generic tests only check that each task has SOME
+explicit `inputs` array, so deleting either entry replays a cached green and no
+test reds.
 
-## 4. `serve.loop`'s published schema description promises Eta templating that nothing compiles
+That file already pins exactly this class of hazard for the analogous cases —
+`docs/**` on `test:unit`/both e2e tasks, `evals/**` on typecheck/lint/deadcode —
+each with a comment naming the stale green it prevents. Add the two matching
+assertions: `.storybook/**` in `lint`'s `inputs`, and both `src/web/**` and
+`.storybook/**` in `test:web`'s. T7 names `tests/tooling/turbo.test.ts` in its
+Paths list precisely because a new check is supposed to land its pins with it.
 
-`src/ConfigSchema.ts`'s `serveJsonSchema` describes `loop` as a "Shell command
-template (Eta, like `modes:`'s format/validate)". `ServeSchema` is a plain
-`Schema.Struct` and `Config.ts`'s `toOperations` passes `decoded.serve` through
-verbatim — no Eta compile, deliberately, per `ServeSchema`'s own doc comment
-("it needs no Eta-template compile step"). Those two comments contradict each
-other, and `schema.json` ships in the npm tarball, so the false one is what a
-user sees in editor autocomplete. `docs/configuration.md` already drops the Eta
-claim; make the schema description match.
+## 4. `tests/vitest.ensureWebClient.ts`'s doc comment states a `dependsOn` that `turbo.json` does not declare
 
-(For the record, T1's prose asked for "an optional unknown value" compiled "as a
-fourth entry" beside workflow/vars/modes. The implementation used a real
-`Struct` with no compiler instead. That deviation is right — `Schema.Unknown`
-cannot reject an excess sub-key, which T1's second criterion demands — and it is
-documented at the code. No change wanted; only the stale Eta sentence.)
+The comment reads: "Turbo's `test:unit`/`test:e2e:*`/`test:web` tasks **all**
+declare `dependsOn: ["build"]`". `turbo.json`'s `test:web` declares no
+`dependsOn` at all — only the three others do. Harmless in effect (the storybook
+project loads `App.stories.tsx` → `App.tsx`, never `src/serve/Server.ts`, so it
+needs no generated HTML), but the comment is the only place the build-dependency
+invariant is written down, and it is wrong about one of the four tasks it
+enumerates. Drop `test:web` from the list, or say why it is the one task that
+needs no build.
