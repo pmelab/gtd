@@ -1,92 +1,57 @@
 # Spec feedback — 01-serve-and-client-harness
 
-Fresh pass over `64dd325f` → working tree. The previous round's three items are
-genuinely fixed: `tsdown.config.ts`'s `web` config now carries
-`deps: { alwaysBundle: [/.*/] }` and the built `generated.html` has no bare
-import specifier; `.fallowrc.json`'s `.storybook/` note checks out against
-`npx fallow list` (the `storybook` plugin does discover `main.ts`, `preview.ts`
-and `App.stories.tsx` as entries) and `deadcode` gained `.storybook/**` inputs;
-a half-configured cert pair now names the missing half.
+Fresh pass over `64dd325f` → working tree, verified live (not by reading tests):
+rebuilt from a deleted `src/web/generated.html`, loaded the served page in
+headless chromium (`#root` renders `<div id="gtd-app">gtd</div>`, zero page
+errors, exactly one `</script>`), confirmed `--dev` reflects an edit to
+`src/web/App.tsx` with no `npm run build`, drove a refusal across tRPC
+(`{"stdout":"out1\n","stderr":"e1\ne2\n","exitCode":3}` — three fields
+separately readable, both stderr lines intact), and exercised every exit code
+the spec names (no tailnet → 1, port in use → 1, missing cert → 1, `--bogus` →
+2, `--host` on `gtd next` → 2). Both of last round's items are genuinely fixed:
+`inlineScript` uses a replacement FUNCTION plus a `</script>` escape, and a
+hostname `--host` now lands in the SAN's `DNS:` slot
+(`serve --host localhost --self-signed` starts). `npm test` is green, `test:web`
+fails on a deliberately broken story (exit 1) and is cached on a second run,
+both tsconfigs run, a node-side `document` still fails typecheck, a hooks
+violation still reds `oxlint`, `deadcode` reports 0%.
 
-Two problems remain — one blocker.
+One deviation remains, plus one false comment.
 
-## 1. BLOCKER — the inlined client still does not run: `String.replace`'s `$&` pattern corrupts the bundle and injects a stray `</script>`
+## 1. Five browser-only packages are in `dependencies`, not `devDependencies`
 
-T5's criterion "`gtd serve` without `--dev` serves the inlined client" is still
-unmet, for a different reason than last round. `scripts/inline-web-client.mjs`
-does:
+Requirement 8 states: "**tRPC's server half** becomes the **first** runtime
+dependency this package carries purely for the web surface" — singular, and
+specifically the server half. `package.json` instead added six new runtime deps
+for the web surface: `@trpc/server` (correct, T8's last criterion), plus
+`react`, `react-dom`, `@tanstack/react-query`, `@trpc/client` and
+`@trpc/react-query`.
 
-```js
-template.replace(
-  scriptTagPattern,
-  `<script type="module">\n${clientScript}\n</script>`,
-)
-```
+None of those five is resolved at runtime. `tsdown.config.ts`'s `web` config
+carries `deps: { alwaysBundle: [/.*/] }`, so they are inlined into
+`dist/web/main.js` → `src/web/generated.html` → the node bundle at BUILD time.
+Measured on the built artifact: the only bare-specifier import left in
+`dist/gtd.bundle.mjs` is `qrcode-terminal`, the one package deliberately kept
+external.
 
-The second argument is a **replacement string**, so every `$&`, `` $` ``, `$'`,
-`$$` inside the bundled client JS is expanded. React's key escaping contains
-literally `escapedKey.replace(userProvidedKeyEscapeRegex, "$&/")` — twice — so
-in `src/web/generated.html` those two sites read:
+Cost: every `npm i -g @pmelab/gtd` installs React, React DOM, React Query and
+both tRPC client packages for nothing.
 
-```
-userProvidedKeyEscapeRegex, "<script type="module" src="./main.js"></script>/")
-```
+Move those five to `devDependencies` and keep `@trpc/server` in `dependencies`
+(T8 pins it there). `--dev` is unaffected — it already requires a gtd source
+checkout with devDependencies installed to run `npx tsdown --filter web` at all.
 
-Two consequences, both fatal: the JS is semantically corrupted, and the injected
-`</script>` **terminates the inline module script early**. Counted on the real
-build: `grep -c '</script>' src/web/generated.html` → **3**, where a correct
-inline is **1**.
+## 2. `Router.ts`'s "vetted shell command" comment describes vetting that does not exist
 
-Measured live against the built bundle with headless chromium (`playwright`,
-`ignoreHTTPSErrors`):
+`src/serve/Router.ts`'s `runCommand` JSDoc reads "Runs a **vetted** shell
+command via `CommandRunner`". Nothing vets it: `commandInput` only checks
+`typeof value.command === "string"`, and the resolver passes it straight to
+`runner.bash`. Confirmed live — `POST /trpc/runCommand` with
+`{"command":"printf \"out1\\n\"; ... exit 3"}` ran verbatim, so the endpoint is
+arbitrary shell execution on the bind address.
 
-```
-node dist/gtd.bundle.mjs serve --host 127.0.0.1 --port 18449 --self-signed
-# page:  root innerHTML: ""
-#        document.body.innerText length: 984758   <- the whole bundle rendered as page text
-#        pageerror: SyntaxError: missing ) after argument list
-```
-
-Nothing renders. `#root` is empty and ~985 KB of JavaScript is displayed as
-visible text.
-
-`src/serve/Server.ts`'s `renderHtml` has the **same** defect on the `--dev` path
-— same `template.replace(DEV_SCRIPT_TAG, "<script …>" + script + …)` shape — so
-T5's `--dev` criterion is broken identically.
-
-Both sites need a replacement **function** (`() => …`), which disables `$`
-expansion. Confirmed on this tree: string replacement → 3 `</script>`, function
-replacement → 1. While there, decide explicitly about a literal `</script>`
-occurring inside a future client dependency (today the raw `dist/web/main.js`
-has zero) — escaping it as `<\/script>` is the standard guard.
-
-Nothing in the suite catches it, and that gap is half the finding. Last round's
-new test (`Server.test.ts:252`, "no bare import specifier") passes on this
-corpse. Land a check that actually pins loadability — e.g. exactly one
-`</script>` in `resolveClientHtml(false, …)`'s output, and no occurrence of the
-`src="./main.js"` tag text **inside** the inlined script — so this reds the
-build instead of shipping.
-
-## 2. `--self-signed` with a hostname `--host` fails, blaming openssl
-
-`runServeCommand` calls `generateSelfSignedCert({ host, ip: host })`
-(`src/serve/Server.ts`), so the resolved bind host is put into the SAN's **`IP:`
-slot** unconditionally. A hostname there is rejected by openssl, not ignored.
-Measured on this machine's LibreSSL 3.3.6:
-
-```
-node dist/gtd.bundle.mjs serve --host localhost --self-signed --port 18450
-gtd serve: openssl exited without issuing a certificate
-  exit status: 1
-  Error Loading command line extensions
-  ...x509_alt.c:565:value=localhost
-```
-
-T3 asks the SAN to carry "the bind IP **and** the hostname" — the code treats
-them as the same string, which only holds when `--host` is a dotted-quad. The
-user-visible failure is a raw openssl dump that names neither the flag nor the
-cause. Split the two: put an IPv4/IPv6 literal in `IP:` and a non-literal in
-`DNS:` only (Tailscale auto-detection always yields a literal, so the default
-path is unaffected), or refuse up front naming `--host` as the reason. No test
-exercises a non-literal `--host` with `--self-signed` — `Tls.test.ts` only ever
-passes `100.90.1.2`-shaped values.
+The unauthenticated surface itself is the spec's accepted design (tailnet-only
+binding, refuse otherwise). The comment is not: per `AGENTS.md`, a comment
+carries a non-obvious invariant, and this one asserts a guard that isn't there —
+the next reader adds a caller trusting it. Either drop the word "vetted" and say
+plainly that any string runs, or add the vetting.
