@@ -1,15 +1,40 @@
 import { execFile } from "node:child_process"
-import { createRequire } from "node:module"
+import { existsSync, readFileSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { NodeContext } from "@effect/platform-node"
 import { Effect } from "effect"
 import { Cwd } from "../Cwd.js"
 import type { Actor } from "../StateFields.js"
 import { worktreeGitDir } from "../WorktreeState.js"
 
-const _require = createRequire(import.meta.url)
-const GTD_VERSION: string = (_require("../../package.json") as { version: string }).version
+/**
+ * Finds this checkout's own `package.json` by walking UP from this module's
+ * own file, rather than a fixed relative offset (`../../package.json`): this
+ * module sits two directories under `src/` in source, but `tsdown`/rolldown
+ * collapse everything into one `dist/gtd.bundle.mjs`, one directory under the
+ * package root, so a hardcoded relative path is right in exactly one of the
+ * two contexts. Mirrors `Server.ts`'s `findPackageRoot` (same reason, same
+ * walk), checking `name` so an npm-installed copy nested under some other
+ * project's `node_modules` can't pick up that project's own `package.json`.
+ */
+const findOwnVersion = (): string => {
+  let dir = dirname(fileURLToPath(import.meta.url))
+  for (let i = 0; i < 8; i++) {
+    const pkgPath = join(dir, "package.json")
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: string; version?: string }
+      if (pkg.name === "@pmelab/gtd" && typeof pkg.version === "string") return pkg.version
+    }
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  throw new Error("no @pmelab/gtd package.json found above src/serve/Beat.ts")
+}
+
+const GTD_VERSION: string = findOwnVersion()
 const CURRENT_MAJOR = Number(GTD_VERSION.split(".")[0])
 
 /**
