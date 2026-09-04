@@ -37,7 +37,7 @@
     "test:watch": "vitest",
     "test:changed": "vitest run --project unit --project e2e-inmem --changed HEAD",
     "test:e2e": "npm run test:e2e:inmem && npm run test:e2e:live",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/web/tsconfig.json",
     "lint": "oxlint .",
     "lint:sh": "jiti scripts/generate-shell-corpus.ts --check && shellcheck -s sh tests/shell/corpus/*.sh",
     "format": "oxfmt --write .",
