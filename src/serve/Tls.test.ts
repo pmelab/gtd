@@ -51,6 +51,16 @@ describe("generateSelfSignedCert", () => {
     expect(x509.subjectAltName).toContain("DNS:example.local")
   })
 
+  it("with ip omitted (a non-literal --host, e.g. a hostname), the SAN carries DNS only — no rejected IP: literal", async () => {
+    // openssl's `-addext subjectAltName=IP:...` rejects a non-literal value
+    // outright ("Error Loading command line extensions"); a caller with a
+    // hostname `--host` must omit `ip` rather than pass the hostname there.
+    const { cert } = await runWithLiveOpenssl(generateSelfSignedCert({ host: "example.local" }))
+    const x509 = new X509Certificate(cert)
+    expect(x509.subjectAltName).toContain("DNS:example.local")
+    expect(x509.subjectAltName).not.toContain("IP Address:")
+  })
+
   it("issues a certificate valid for 825 days or fewer", async () => {
     const { cert } = await runWithLiveOpenssl(
       generateSelfSignedCert({ host: "example.local", ip: "192.168.1.5" }),

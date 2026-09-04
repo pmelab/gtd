@@ -99,6 +99,26 @@ describe("resolveCertPair", () => {
     expect(thrown.message).toContain("CommandRunner unexpectedly invoked")
   })
 
+  it("with a hostname --host (not an IP literal), passes no IP: literal to openssl — only DNS", async () => {
+    // openssl's `-addext subjectAltName=IP:...` rejects a non-literal value
+    // outright; a hostname `--host` (e.g. "localhost") must not be handed
+    // to Tls.ts's `ip` field, only to `host` (DNS).
+    const commands: string[] = []
+    const runner = CommandRunner.layer((command) => {
+      commands.push(command)
+      return Effect.succeed({ status: 0, output: "" })
+    })
+    await Effect.runPromiseExit(
+      resolveCertPair({ selfSigned: true, dev: false }, undefined, "localhost").pipe(
+        Effect.provide(runner),
+        Effect.provide(NodeContext.layer),
+      ),
+    )
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).toContain("DNS:localhost")
+    expect(commands[0]).not.toContain("IP:localhost")
+  })
+
   it("uses a configured serve.cert/serve.key pair as-is when --self-signed is absent", async () => {
     const certPath = join(tmpDir, "cert.pem")
     const keyPath = join(tmpDir, "key.pem")
@@ -269,6 +289,23 @@ describe("resolveClientHtml", () => {
       .map((m) => m[1])
       .filter((specifier) => specifier !== undefined && !specifier.startsWith("."))
     expect(bareImports).toEqual([])
+  })
+
+  it("in production, the inlined script is exactly one <script> tag — a naive string .replace would expand a literal $& inside the bundle into a stray, script-terminating </script>", async () => {
+    // A replacement STRING (not function) treats `$&`/`$'`/`` $` ``/`$$`
+    // inside the bundled client JS as replacement-pattern syntax — React's
+    // key-escaping calls `.replace(re, "$&/")` twice, which a naive inline
+    // step expands into an extra literal `</script>`, truncating the real
+    // module script mid-file. A correct inline always has exactly one.
+    const explodingFs = FileSystem.makeNoop({
+      readFileString: () => Effect.die(new Error("unexpectedly read from disk in production")),
+    })
+    const runner = { bash: () => Effect.fail(new Error("unexpectedly shelled out in production")) }
+
+    const html = await Effect.runPromise(
+      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, GtdError>,
+    )
+    expect(html.match(/<\/script>/g)?.length).toBe(1)
   })
 
   it("under --dev, rebuilds the client via CommandRunner and reads both files fresh off disk", async () => {

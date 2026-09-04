@@ -12,10 +12,19 @@ export interface CertPair {
   readonly key: string
 }
 
-/** What a generated certificate needs to satisfy iOS's secure-context checks: the SAN must carry the bind IP as an actual IP entry (iOS ignores the CN) and the hostname, for whichever one a client dials. */
+/**
+ * What a generated certificate needs to satisfy iOS's secure-context checks:
+ * the SAN must carry the bind IP as an actual IP entry (iOS ignores the CN)
+ * and the hostname, for whichever one a client dials. `ip` is OPTIONAL and
+ * MUST be an actual IPv4/IPv6 literal, never a hostname — openssl's
+ * `-addext subjectAltName=IP:...` rejects a non-literal value outright
+ * (`gtd serve --host localhost --self-signed` puts a hostname where the
+ * default Tailscale-scan path always puts a literal). Callers with a
+ * hostname `--host` pass `ip: undefined`; the SAN then carries DNS only.
+ */
 export interface SelfSignedCertRequest {
   readonly host: string
-  readonly ip: string
+  readonly ip?: string
 }
 
 /**
@@ -34,12 +43,14 @@ export const generateSelfSignedCert = (
     const dir = mkdtempSync(join(tmpdir(), "gtd-tls-"))
     const keyPath = join(dir, "key.pem")
     const certPath = join(dir, "cert.pem")
+    const subjectAltName =
+      request.ip !== undefined ? `IP:${request.ip},DNS:${request.host}` : `DNS:${request.host}`
     const command = [
       "openssl req -x509 -newkey rsa:2048 -nodes -days 825",
       `-keyout ${keyPath}`,
       `-out ${certPath}`,
       `-subj "/CN=${request.host}"`,
-      `-addext "subjectAltName=IP:${request.ip},DNS:${request.host}"`,
+      `-addext "subjectAltName=${subjectAltName}"`,
       `-addext "extendedKeyUsage=serverAuth"`,
       `-addext "basicConstraints=critical,CA:FALSE"`,
     ].join(" ")

@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs"
-import { SCRIPT_TAG_PATTERN } from "../src/serve/scriptTag.mjs"
+import { SCRIPT_TAG_PATTERN, inlineScript } from "../src/serve/scriptTag.mjs"
 
 // Runs between the two tsdown builds in `npm run build` (see package.json):
 // the browser build already produced dist/web/main.js by the time this runs.
@@ -9,17 +9,11 @@ import { SCRIPT_TAG_PATTERN } from "../src/serve/scriptTag.mjs"
 const template = readFileSync("src/web/index.html", "utf8")
 const clientScript = readFileSync("dist/web/main.js", "utf8")
 
-const scriptTagPattern = SCRIPT_TAG_PATTERN
-if (!scriptTagPattern.test(template)) {
+if (!SCRIPT_TAG_PATTERN.test(template)) {
   throw new Error(
     "scripts/inline-web-client.mjs: src/web/index.html no longer has the expected " +
       '<script type="module" src="./main.js"></script> tag to inline into',
   )
 }
 
-const inlined = template.replace(
-  scriptTagPattern,
-  `<script type="module">\n${clientScript}\n</script>`,
-)
-
-writeFileSync("src/web/generated.html", inlined)
+writeFileSync("src/web/generated.html", inlineScript(template, clientScript))

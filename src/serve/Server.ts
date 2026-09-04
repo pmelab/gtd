@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import * as https from "node:https"
+import { isIP } from "node:net"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createHTTPHandler } from "@trpc/server/adapters/standalone"
@@ -14,7 +15,7 @@ import generatedClientHtml from "../web/generated.html"
 import { pickBindHostFromSystem } from "./Bind.js"
 import { renderQrCode } from "./Qr.js"
 import { appRouter, type RouterContext } from "./Router.js"
-import { SCRIPT_TAG_PATTERN } from "./scriptTag.mjs"
+import { inlineScript } from "./scriptTag.mjs"
 import { generateSelfSignedCert, loadCertPair, type CertPair } from "./Tls.js"
 
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
@@ -71,7 +72,14 @@ export const resolveCertPair = (
   config: ServeConfig | undefined,
   host: string,
 ): Effect.Effect<CertPair, GtdError, CommandRunner | FileSystem.FileSystem> => {
-  if (options.selfSigned) return generateSelfSignedCert({ host, ip: host })
+  // openssl's `-addext subjectAltName=IP:...` rejects a non-literal value
+  // outright (confirmed: a hostname `--host` like "localhost" fails with a
+  // raw "Error Loading command line extensions" dump naming neither the
+  // flag nor the cause). The Tailscale-scan default always yields a literal;
+  // only an explicit hostname `--host` can land here as a non-literal.
+  if (options.selfSigned) {
+    return generateSelfSignedCert({ host, ...(isIP(host) !== 0 ? { ip: host } : {}) })
+  }
   if (config?.cert !== undefined && config.key !== undefined) {
     return loadCertPair(config.cert, config.key)
   }
@@ -135,9 +143,6 @@ export class HttpsServer extends Context.Tag("HttpsServer")<
 }
 
 const DEFAULT_PORT = 8443
-
-/** Imported (not re-declared) from `scriptTag.mjs` — `scripts/inline-web-client.mjs` shares this exact module, so the two can never drift apart. */
-const DEV_SCRIPT_TAG = SCRIPT_TAG_PATTERN
 
 /**
  * `--dev` needs the gtd SOURCE checkout (its `src/web/`, its `tsdown.config.ts`,
@@ -229,9 +234,6 @@ const rebuildDevClientScript = (
       )
   })
 
-const renderHtml = (template: string, script: string): string =>
-  template.replace(DEV_SCRIPT_TAG, `<script type="module">\n${script}\n</script>`)
-
 /** The one piece of content this server ever serves: the client HTML, with its JS inlined — a build-time constant in production, freshly read/rebuilt per request under `--dev`. */
 export const resolveClientHtml = (
   dev: boolean,
@@ -243,7 +245,7 @@ export const resolveClientHtml = (
         Effect.flatMap((root) =>
           Effect.all([readDevTemplate(fs, root), rebuildDevClientScript(runner, fs, root)]),
         ),
-        Effect.map(([template, script]) => renderHtml(template, script)),
+        Effect.map(([template, script]) => inlineScript(template, script)),
       )
     : Effect.succeed(generatedClientHtml)
 
