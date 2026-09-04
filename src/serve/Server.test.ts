@@ -21,6 +21,7 @@ import { GtdError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import { Cwd } from "../Cwd.js"
 import type { ServeConfig } from "../ConfigSchema.js"
+import { renderQrCode } from "./Qr.js"
 import { generateSelfSignedCert, type CertPair } from "./Tls.js"
 import {
   HttpsServer,
@@ -285,7 +286,10 @@ describe("runServeCommand", () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
 
     expect(written[0]).toBe("https://100.90.1.2:4443/\n")
-    expect(written[1]).toContain("\n")
+    // Pinned against the renderer's own output for the SAME URL just
+    // printed above — deterministic, and it fails the moment the URL handed
+    // to `renderQrCode` stops matching the one printed on the prior line.
+    expect(written[1]).toBe(`${renderQrCode("https://100.90.1.2:4443/")}\n`)
     expect(written.length).toBe(2)
 
     await Effect.runPromise(Fiber.interrupt(fiber))

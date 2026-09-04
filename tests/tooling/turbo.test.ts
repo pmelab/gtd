@@ -56,6 +56,25 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["test:unit"].inputs).toContain("evals/**")
   })
 
+  it("lists .storybook/** as an input to lint", () => {
+    // `.storybook/main.ts`/`preview.ts` are covered by `oxlint .`'s own glob,
+    // but nothing else pinned that turbo's cache actually invalidates on a
+    // change there — an under-declared `inputs` here would replay a cached
+    // green over a real .storybook/** lint error (T7's own "covered by
+    // format:check and lint" criterion needs a REAL cache dependency, not
+    // just an unpinned coincidence of oxlint's glob matching that directory).
+    expect(turbo.tasks["lint"].inputs).toContain(".storybook/**")
+  })
+
+  it("lists src/web/** and .storybook/** as inputs to test:web", () => {
+    // T7's own criterion: "that inputs array covers both the client
+    // directory and .storybook/". Pinned so deleting either entry reds this
+    // test instead of silently replaying a stale green the next time a
+    // client file or a Storybook config file changes.
+    expect(turbo.tasks["test:web"].inputs).toContain("src/web/**")
+    expect(turbo.tasks["test:web"].inputs).toContain(".storybook/**")
+  })
+
   it("declares an explicit inputs array for every task except format:check", () => {
     for (const key of taskKeys) {
       if (key === "format:check") continue

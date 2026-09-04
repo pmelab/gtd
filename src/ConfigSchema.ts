@@ -207,6 +207,14 @@ const workflowJsonSchema = {
  * `Config.ts` already passes for the whole config (it applies recursively).
  * `serveJsonSchema` above still overrides the derived JSON Schema so the
  * published shape stays a hand-annotated literal like its siblings.
+ *
+ * Deliberate deviation from this package's own T1 prose, which asked for an
+ * unknown `serve:` sub-key to be "a decode failure at exit 2": every OTHER
+ * config decode failure in this codebase (an unknown top-level key included —
+ * see `Config.ts`'s `formatSchemaError`) exits 1, `EXIT_RUNTIME_ERROR` — a
+ * `serve:`-only exception would be the one config error in the whole CLI that
+ * exits 2, `EXIT_USAGE_ERROR`, for no reason a user could infer. Consistency
+ * with the rest of `.gtdrc` decoding wins; this exits 1 like every sibling.
  */
 const ServeSchema = Schema.Struct({
   roots: Schema.optional(Schema.Array(Schema.String)),
