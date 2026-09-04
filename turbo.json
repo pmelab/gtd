@@ -18,6 +18,7 @@
         "scripts/**",
         "dev/**",
         "evals/**",
+        ".storybook/**",
         "*.ts",
         "*.mjs",
         ".oxlintrc.json"

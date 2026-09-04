@@ -64,8 +64,7 @@ const serveJsonSchema = {
     },
     loop: {
       type: "string",
-      description:
-        "Shell command template (Eta, like `modes:`'s format/validate) `gtd serve` runs to drive a session's loop.",
+      description: "Shell command `gtd serve` runs to drive a session's loop.",
     },
   },
 } as const

@@ -65,8 +65,8 @@ rejected the same way any other unknown config key is:
 - **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
   and private key, used as-is. `--self-signed` always overrides these with a
   freshly generated throwaway pair, even when both are configured.
-- **`loop`** (string, optional) — the shell command template the served client
-  runs to advance a workflow.
+- **`loop`** (string, optional) — the shell command `gtd serve` runs to drive a
+  session's loop.
 
 Flags (`--host`, `--port`, `--self-signed`) always override the matching
 `serve:` value; see `docs/cli.md`'s `serve` row for the full flag list.
