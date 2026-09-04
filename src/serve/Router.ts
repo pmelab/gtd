@@ -1,10 +1,12 @@
 import { TRPCError, initTRPC } from "@trpc/server"
 import { Effect, Runtime } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
+import type { FleetPayload } from "./Fleet.js"
 
-/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. */
+/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes T3's memo actually memoize across requests. */
 export interface RouterContext {
   readonly runtime: Runtime.Runtime<CommandRunner>
+  readonly readFleet: () => Promise<FleetPayload>
 }
 
 /**
@@ -79,6 +81,9 @@ export const appRouter = t.router({
     }
     return { stdout: outcome.stdout ?? "", stderr: outcome.stderr ?? "", exitCode: outcome.status }
   }),
+
+  /** The fleet screen's one read: re-scans the configured roots and every worktree's beat, never failing outright on one bad worktree (see `Fleet.ts`'s `readFleet`). */
+  fleet: t.procedure.query(({ ctx }) => ctx.readFleet()),
 })
 
 export type AppRouter = typeof appRouter

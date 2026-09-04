@@ -11,8 +11,17 @@ import type { ArtifactOut } from "../Cli.js"
 import { GtdError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import type { ServeConfig } from "../ConfigSchema.js"
+import { Cwd } from "../Cwd.js"
 import generatedClientHtml from "../web/generated.html"
+import {
+  BeatCache,
+  liveHeadSha,
+  liveRunInWorktree,
+  liveStatMtime,
+  readPackageVersionAt,
+} from "./Beat.js"
 import { pickBindHostFromSystem } from "./Bind.js"
+import { readFleet, type FleetDeps } from "./Fleet.js"
 import { renderQrCode } from "./Qr.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript } from "./scriptTag.mjs"
@@ -249,7 +258,7 @@ export const resolveClientHtml = (
       )
     : Effect.succeed(generatedClientHtml)
 
-export type ServeRequirements = CommandRunner | FileSystem.FileSystem | HttpsServer
+export type ServeRequirements = CommandRunner | FileSystem.FileSystem | HttpsServer | Cwd
 
 /**
  * `gtd serve`: binds an HTTPS server exposing the phone/web client. Blocks
@@ -269,12 +278,27 @@ export const runServeCommand = (
     const runner = yield* CommandRunner
     const fs = yield* FileSystem.FileSystem
     const httpsServer = yield* HttpsServer
+    const cwd = yield* Cwd
     const runtime = yield* Effect.runtime<ServeRequirements>()
+
+    // One `BeatCache` for the whole server process, never one per request —
+    // T3's memo only amortizes the `gtd next --json` cost if it survives
+    // across fleet reads.
+    const beatCache = new BeatCache({
+      run: liveRunInWorktree,
+      readPackageVersion: readPackageVersionAt,
+      headSha: liveHeadSha,
+      statMtime: liveStatMtime,
+    })
+    const fleetDeps: FleetDeps = {
+      roots: config?.roots ?? [cwd.root],
+      readBeat: (worktree) => beatCache.read(worktree),
+    }
 
     const trpcHandler = createHTTPHandler({
       router: appRouter,
       basePath: `${TRPC_PATH_PREFIX}/`,
-      createContext: (): RouterContext => ({ runtime }),
+      createContext: (): RouterContext => ({ runtime, readFleet: () => readFleet(fleetDeps) }),
     })
 
     const handler: RequestHandler = (req, res) => {

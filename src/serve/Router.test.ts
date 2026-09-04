@@ -6,10 +6,16 @@ import { appRouter, CommandRefusal, type RouterContext } from "./Router.js"
 /** A `Runtime<CommandRunner>` over a canned `bash` — the same runtime-capture pattern `Server.ts` uses for its HTML-serving path, scoped here to just the one service a router test needs. */
 const contextFor = (
   bash: (command: string) => Effect.Effect<CommandOutcome, Error>,
+  readFleet: RouterContext["readFleet"] = () =>
+    Promise.resolve({
+      buckets: { "wants-you": [], working: [], broken: [], quiet: [] },
+      wantsYouCount: 0,
+    }),
 ): RouterContext => ({
   runtime: Effect.runSync(
     Effect.runtime<CommandRunner>().pipe(Effect.provide(CommandRunner.layer(bash))),
   ),
+  readFleet,
 })
 
 describe("appRouter.runCommand", () => {
@@ -66,5 +72,21 @@ describe("appRouter.runCommand", () => {
       contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
     )
     await expect(caller.runCommand({ command: 42 } as never)).rejects.toThrow()
+  })
+})
+
+describe("appRouter.fleet", () => {
+  it("delegates straight to the context's readFleet", async () => {
+    const payload = {
+      buckets: { "wants-you": [], working: [], broken: [], quiet: [] },
+      wantsYouCount: 0,
+    }
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        () => Promise.resolve(payload),
+      ),
+    )
+    await expect(caller.fleet()).resolves.toEqual(payload)
   })
 })

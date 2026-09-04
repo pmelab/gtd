@@ -366,6 +366,7 @@ describe("runServeCommand", () => {
         Effect.provide(fakeHttpsServer),
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.Live),
       ),
     )
 
@@ -399,6 +400,7 @@ describe("runServeCommand", () => {
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
         Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({} as never)),
+        Effect.provide(Cwd.Live),
       ),
     )
 
@@ -442,6 +444,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
         Effect.provide(HttpsServer.Live),
         Effect.provide(scriptedRunner),
         Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.Live),
       ),
     )
 
