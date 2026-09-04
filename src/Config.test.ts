@@ -228,7 +228,29 @@ describe("ConfigService", () => {
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toMatch(/serve\.bogus/i)
+      // Pinned to the WHOLE message, not a loose substring match: a
+      // `Schema.optional(Struct)`'s other union branch also fails with an
+      // "Expected undefined, actual …" artifact that is not a fact about the
+      // user's file (see `Config.ts`'s `formatSchemaError` — dropped exactly
+      // because a loose match here would let that noise silently return).
+      expect(String(exit.cause)).toContain(
+        'Invalid gtd config: serve.bogus: is unexpected, expected: "roots" | "port" | "host" | "cert" | "key" | "loop"',
+      )
+      expect(String(exit.cause)).not.toContain("Expected undefined")
+    }
+  })
+
+  it("rejects a wrong-typed `serve:` sub-key with exactly one clause, not the optional-branch's redundant 'Expected undefined' noise", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), [`serve:`, `  port: "nope"`, ``].join("\n"))
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain(
+        'Invalid gtd config: serve.port: Expected number, actual "nope"',
+      )
+      expect(String(exit.cause)).not.toContain("Expected undefined")
     }
   })
 

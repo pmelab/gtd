@@ -314,11 +314,36 @@ const toOperations = (
  * `keyOrigin` maps a key to the innermost level's `filepath` that declared it
  * — a key the schema rejects that no level ever set has no origin to report.
  */
+/**
+ * `Schema.optional(SomeStruct)` decodes as a union with `undefined`, so a
+ * genuinely-present-but-invalid `serve:` (or any future optional nested
+ * struct) also fails that union's OTHER branch — "Expected undefined, actual
+ * …" at `serve:`'s own path or a prefix of it. That's a decode-mechanics
+ * artifact, not a fact about the user's file (the key IS supported), and
+ * printing it alongside the real issue tells the reader the opposite of the
+ * truth. Dropped whenever a more specific issue exists at the same-or-deeper
+ * path; kept only if it would otherwise be the sole issue on the offending
+ * key (which never happens for `serve:` today but keeps this filter honest
+ * for a nested optional struct this repo doesn't have yet).
+ */
+const isOptionalUndefinedArtifact = (issue: { readonly message: string }): boolean =>
+  issue.message.startsWith("Expected undefined, actual")
+
+const samePathOrDeeper = (
+  outer: ReadonlyArray<PropertyKey>,
+  inner: ReadonlyArray<PropertyKey>,
+): boolean => inner.length >= outer.length && outer.every((seg, i) => inner[i] === seg)
+
 const formatSchemaError = (
   e: ParseError,
   keyOrigin: Readonly<Record<string, string>>,
 ): GtdError => {
-  const issues = ArrayFormatter.formatErrorSync(e)
+  const allIssues = ArrayFormatter.formatErrorSync(e)
+  const issues = allIssues.filter(
+    (issue) =>
+      !isOptionalUndefinedArtifact(issue) ||
+      !allIssues.some((other) => other !== issue && samePathOrDeeper(issue.path, other.path)),
+  )
   const summary = issues
     .map((i) => (i.path.length > 0 ? i.path.join(".") + ": " : "") + i.message)
     .join("; ")
