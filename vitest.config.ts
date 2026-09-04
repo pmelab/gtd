@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
+import { storybookTest } from "@storybook/addon-vitest/vitest-plugin"
+import react from "@vitejs/plugin-react"
 import { rawMd } from "./tests/vitest.rawMd.js"
 import { SETUP_FILES } from "./tests/integration/support/setup-files.js"
 
@@ -61,6 +63,22 @@ export default defineConfig({
           include: ["tests/integration/features/**/*.feature"],
           setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
+        },
+      },
+      {
+        // Storybook's vitest addon turns each src/web/**/*.stories.tsx file
+        // into vitest test cases, run for real in a headless Chromium via
+        // @vitest/browser — vitest already brings vite, so no second
+        // bundler enters the repo for this.
+        plugins: [react(), storybookTest({ configDir: ".storybook" })],
+        test: {
+          name: "storybook",
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: "playwright",
+            instances: [{ browser: "chromium" }],
+          },
         },
       },
     ],

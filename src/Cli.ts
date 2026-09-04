@@ -173,7 +173,10 @@ const FLAGS: readonly FlagRow[] = [
     },
     scopeError: "gtd: --port is only valid for `gtd visualize`/`gtd serve`",
     valueHint: "<n>",
-    help: ["(gtd visualize/gtd serve only) port to serve on (default:", "a free port)"],
+    help: [
+      "(gtd visualize/gtd serve only) port to serve on (default:",
+      "a free port for visualize, 8443 for serve)",
+    ],
   },
   {
     name: "--no-open",
@@ -488,12 +491,13 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     kind: "serve",
     arity: "none",
     details: [
-      "Start a local HTTP(S) server exposing gtd's web/phone client",
+      "Start a local HTTPS server (never plain http — the Web Speech",
+      "API is secure-context-only) exposing gtd's web/phone client",
       "for the roots declared under serve: in config (default: this",
       "repo) — the roots it scans are elsewhere, so it never needs a",
       "repository at the invoking directory. --host <addr> and",
       "--port <n> override the bound address (default: an address",
-      "picked automatically, and a free port); --self-signed",
+      "picked automatically, and port 8443); --self-signed",
       "generates a throwaway TLS certificate instead of the",
       "configured serve.cert/serve.key; --dev runs against local",
       "development sources instead of the packaged build",

@@ -6,6 +6,9 @@ import { Cwd } from "./Cwd.js"
 export interface CommandOutcome {
   readonly status: number | null
   readonly output: string
+  /** `stdout`/`stderr` captured separately, alongside the merged `output` — additive, for callers (the tRPC router) that need a refusal's three fields distinct rather than flattened into one string. Optional so existing test doubles built from `{ status, output }` alone still satisfy this interface. */
+  readonly stdout?: string
+  readonly stderr?: string
 }
 
 /**
@@ -56,7 +59,7 @@ export class CommandRunner extends Context.Tag("CommandRunner")<
                 ],
                 { concurrency: "unbounded" },
               )
-              return { status, output: `${stdout}${stderr}` }
+              return { status, output: `${stdout}${stderr}`, stdout, stderr }
             }),
           ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e))))),
       }

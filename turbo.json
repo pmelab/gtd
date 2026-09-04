@@ -6,7 +6,7 @@
   "tasks": {
     "build": {
       "inputs": ["src/**", "scripts/**", "tsdown.config.ts"],
-      "outputs": ["dist/**", "schema.json"]
+      "outputs": ["dist/**", "schema.json", "src/web/generated.html"]
     },
     "format:check": {
       "outputs": []
@@ -77,6 +77,10 @@
         "vitest.config.ts",
         "docs/**"
       ],
+      "outputs": []
+    },
+    "test:web": {
+      "inputs": ["src/web/**", ".storybook/**", "vitest.config.ts"],
       "outputs": []
     }
   }

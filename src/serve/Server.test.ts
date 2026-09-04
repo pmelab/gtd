@@ -6,8 +6,17 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { NodeContext } from "@effect/platform-node"
+import { createTRPCClient, httpBatchLink, TRPCClientError } from "@trpc/client"
 import { Effect, Exit, Fiber, Layer } from "effect"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { AppRouter } from "./Router.js"
+
+// `resolveBindHost`'s default `pickHost` reaches the real
+// `os.networkInterfaces()` — mocked so the "calls through to the real system
+// scan by default" test below is deterministic on any machine, tailnet or
+// not, rather than depending on this runner having no Tailscale interface.
+vi.mock("./Bind.js", () => ({ pickBindHostFromSystem: () => undefined }))
+
 import { GtdError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import { Cwd } from "../Cwd.js"
@@ -55,11 +64,11 @@ describe("resolveBindHost", () => {
     expect(host).toBe("100.90.1.2")
   })
 
-  it("calls through to the real system scan by default — the actual integration point, not a duplicate of Bind.test.ts's own unit tests", async () => {
+  it("calls through to pickBindHostFromSystem by default — the actual integration point, not a duplicate of Bind.test.ts's own unit tests", async () => {
     // No `pickHost` override: exercises the real default parameter
-    // (`pickBindHostFromSystem`) end to end. This machine's test environment
-    // has no Tailscale interface, so the outcome is the refusal — proving
-    // Server.ts actually reached the real scan rather than short-circuiting.
+    // (`pickBindHostFromSystem`, mocked above to always return undefined so
+    // this is deterministic regardless of the runner's actual network) —
+    // proving Server.ts reached that seam rather than short-circuiting.
     const exit = await Effect.runPromiseExit(resolveBindHost(undefined, undefined))
     expect(Exit.isFailure(exit)).toBe(true)
   })
@@ -304,5 +313,80 @@ describe("runServeCommand", () => {
 
     expect(Exit.isFailure(exit)).toBe(true)
     expect(listenCalled).toBe(false)
+  })
+})
+
+describe("the tRPC API surface mounted under /trpc", () => {
+  it("reaches Router.ts's runCommand through the real HTTPS adapter end-to-end, with a refusal's stdout/stderr/exitCode separately readable and stderr's two lines intact", async () => {
+    const certPath = join(tmpDir, "cert.pem")
+    const keyPath = join(tmpDir, "key.pem")
+    const cert = await Effect.runPromise(
+      generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
+        Effect.provide(CommandRunner.Live),
+        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(NodeContext.layer),
+      ),
+    )
+    writeFileSync(certPath, cert.cert)
+    writeFileSync(keyPath, cert.key)
+
+    const written: string[] = []
+    const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
+
+    const scriptedRunner = CommandRunner.layer(() =>
+      Effect.succeed({
+        status: 1,
+        output: "partial\nline1\nline2\n",
+        stdout: "partial\n",
+        stderr: "line1\nline2\n",
+      }),
+    )
+
+    const fiber = Effect.runFork(
+      runServeCommand(
+        { selfSigned: false, dev: false, port: 0 },
+        { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0 },
+        out,
+      ).pipe(
+        Effect.provide(HttpsServer.Live),
+        Effect.provide(scriptedRunner),
+        Effect.provide(NodeContext.layer),
+      ),
+    )
+
+    // Poll for the bound URL — `out.write` fires only once the real
+    // HttpsServer.Live has actually bound the ephemeral port.
+    let boundUrl: string | undefined
+    for (let i = 0; i < 50 && boundUrl === undefined; i++) {
+      if (written[0] !== undefined) boundUrl = written[0].trim()
+      else await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    if (boundUrl === undefined) throw new Error("server never printed its bound URL")
+
+    // Real client dials a real self-signed HTTPS server — accepting that
+    // untrusted cert is the only thing disabled here, matching what a phone
+    // client does against `gtd serve --self-signed` today.
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+
+      const error = await client.runCommand.mutate({ command: "false" }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(TRPCClientError)
+      const data = (error as InstanceType<typeof TRPCClientError>).data as
+        | { refusal?: { stdout: string; stderr: string; exitCode: number | null } }
+        | undefined
+      expect(data?.refusal?.stdout).toBe("partial\n")
+      expect(data?.refusal?.stderr).toBe("line1\nline2\n")
+      expect(data?.refusal?.stderr.split("\n")).toEqual(["line1", "line2", ""])
+      expect(data?.refusal?.exitCode).toBe(1)
+    } finally {
+      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+    }
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
   })
 })

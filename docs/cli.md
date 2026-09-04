@@ -74,12 +74,13 @@ Commands:
                    local web server (--port <n>, --no-open). Prints the
                    chosen port on its own line — with --port 0, this is the
                    only way to learn which port was picked
-  serve            Start a local HTTP(S) server exposing gtd's web/phone client
+  serve            Start a local HTTPS server (never plain http — the Web Speech
+                   API is secure-context-only) exposing gtd's web/phone client
                    for the roots declared under serve: in config (default: this
                    repo) — the roots it scans are elsewhere, so it never needs a
                    repository at the invoking directory. --host <addr> and
                    --port <n> override the bound address (default: an address
-                   picked automatically, and a free port); --self-signed
+                   picked automatically, and port 8443); --self-signed
                    generates a throwaway TLS certificate instead of the
                    configured serve.cert/serve.key; --dev runs against local
                    development sources instead of the packaged build
@@ -143,7 +144,7 @@ Options:
                    which never counts as unknown; an unknown path is a usage
                    error (exit 2).
   --port=<n>       (gtd visualize/gtd serve only) port to serve on (default:
-                   a free port)
+                   a free port for visualize, 8443 for serve)
   --no-open        (gtd visualize only) do not open the browser
   --host=<addr>    (gtd serve only) address to bind the server to (default:
                    an address picked automatically)

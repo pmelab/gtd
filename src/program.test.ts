@@ -13,6 +13,15 @@
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { PassThrough } from "node:stream"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+// `resolveBindHost`'s default `pickHost` parameter reaches the real
+// `os.networkInterfaces()` in production — a machine or CI runner that HAS
+// joined a tailnet would make `gtd serve`'s "no Tailscale interface found"
+// dispatch test below succeed instead of refusing. Mocked so this test
+// exercises the dispatch wiring deterministically, independent of the host's
+// actual network.
+vi.mock("./serve/Bind.js", () => ({ pickBindHostFromSystem: () => undefined }))
+
 import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"
 import {

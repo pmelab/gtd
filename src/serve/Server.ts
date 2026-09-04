@@ -1,6 +1,9 @@
+import { existsSync, readFileSync } from "node:fs"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import * as https from "node:https"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { createHTTPHandler } from "@trpc/server/adapters/standalone"
 import { FileSystem } from "@effect/platform"
 import { Context, Effect, Either, Layer, Runtime } from "effect"
 import type { ArtifactOut } from "../Cli.js"
@@ -10,7 +13,12 @@ import type { ServeConfig } from "../ConfigSchema.js"
 import generatedClientHtml from "../web/generated.html"
 import { pickBindHostFromSystem } from "./Bind.js"
 import { renderQrCode } from "./Qr.js"
+import { appRouter, type RouterContext } from "./Router.js"
+import { SCRIPT_TAG_PATTERN } from "./scriptTag.mjs"
 import { generateSelfSignedCert, loadCertPair, type CertPair } from "./Tls.js"
+
+/** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
+const TRPC_PATH_PREFIX = "/trpc"
 
 /** The fields `Cli.ts`'s parsed `{ kind: "serve" }` command carries — this module never reads `Command` itself to stay independent of its parsing. */
 export interface ServeCommandOptions {
@@ -119,16 +127,52 @@ export class HttpsServer extends Context.Tag("HttpsServer")<
 
 const DEFAULT_PORT = 8443
 
-/** The `<script type="module" src="./main.js"></script>` tag both `src/web/index.html` and `scripts/inline-web-client.mjs` key off — kept as one constant so the two never drift apart. */
-const DEV_SCRIPT_TAG = /<script type="module" src="\.\/main\.js"><\/script>/
+/** Imported (not re-declared) from `scriptTag.mjs` — `scripts/inline-web-client.mjs` shares this exact module, so the two can never drift apart. */
+const DEV_SCRIPT_TAG = SCRIPT_TAG_PATTERN
 
-const clientSourceUrl = (relative: string): string =>
-  fileURLToPath(new URL(relative, import.meta.url))
+/**
+ * `--dev` needs the gtd SOURCE checkout (its `src/web/`, its `tsdown.config.ts`,
+ * its devDependencies) to rebuild against — never the invoking directory,
+ * which `serve` deliberately runs outside of (see `needsOf("serve")`). Walks
+ * up from this module's own file — `src/serve/Server.ts` in a source checkout,
+ * or the single bundled `dist/gtd.bundle.mjs` in an installed package, both of
+ * which sit a fixed few directories under the package root — until it finds
+ * the `package.json` that names this package, so the search works from either
+ * shape without hardcoding a directory depth.
+ */
+const findPackageRoot = (): Effect.Effect<string, GtdError> =>
+  Effect.try({
+    try: () => {
+      let dir = dirname(fileURLToPath(import.meta.url))
+      for (let i = 0; i < 8; i++) {
+        const pkgPath = join(dir, "package.json")
+        if (existsSync(pkgPath)) {
+          const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: string }
+          if (pkg.name === "@pmelab/gtd") return dir
+        }
+        const parent = dirname(dir)
+        if (parent === dir) break
+        dir = parent
+      }
+      throw new Error("no @pmelab/gtd package.json found above this module")
+    },
+    catch: () =>
+      new GtdError(
+        "gtd serve --dev: could not locate the gtd source checkout to rebuild the client",
+        [
+          "--dev is for developing gtd's own web client: run it from a",
+          "checked-out gtd repository with devDependencies installed",
+        ],
+      ),
+  })
 
 /** `--dev`: the raw template, read fresh off disk every call — editing it needs no rebuild. */
-const readDevTemplate = (fs: FileSystem.FileSystem): Effect.Effect<string, GtdError> =>
+const readDevTemplate = (
+  fs: FileSystem.FileSystem,
+  root: string,
+): Effect.Effect<string, GtdError> =>
   fs
-    .readFileString(clientSourceUrl("../web/index.html"))
+    .readFileString(join(root, "src/web/index.html"))
     .pipe(
       Effect.mapError(
         (e) => new GtdError(`gtd serve --dev: could not read src/web/index.html: ${e.message}`),
@@ -139,16 +183,21 @@ const readDevTemplate = (fs: FileSystem.FileSystem): Effect.Effect<string, GtdEr
  * `--dev`: rebuilds the browser bundle via the same tsdown config `npm run
  * build` uses (`--filter web` selects only that config's `name`), then reads
  * its freshly-written output — the simplest way to reflect an edited client
- * source file with no manual `npm run build`. Costs one subprocess build per
- * request; acceptable for local development, never reached in production.
+ * source file with no manual `npm run build`. Runs with `root` (the gtd
+ * package's OWN directory, never the invoking cwd) as its working directory —
+ * a plain `npx tsdown` in the invoking directory would have no tsdown.config.ts
+ * to select against, since `serve` deliberately runs outside any repo. Costs
+ * one subprocess build per request; acceptable for local development, never
+ * reached in production.
  */
 const rebuildDevClientScript = (
   runner: Context.Tag.Service<typeof CommandRunner>,
   fs: FileSystem.FileSystem,
+  root: string,
 ): Effect.Effect<string, GtdError> =>
   Effect.gen(function* () {
     const outcome = yield* runner
-      .bash("npx tsdown --filter web")
+      .bash(`cd ${JSON.stringify(root)} && npx tsdown --filter web`)
       .pipe(
         Effect.mapError(
           (e) => new GtdError(`gtd serve --dev: could not rebuild the client: ${e.message}`),
@@ -163,7 +212,7 @@ const rebuildDevClientScript = (
       )
     }
     return yield* fs
-      .readFileString(clientSourceUrl("../../dist/web/main.js"))
+      .readFileString(join(root, "dist/web/main.js"))
       .pipe(
         Effect.mapError(
           (e) => new GtdError(`gtd serve --dev: could not read the rebuilt client: ${e.message}`),
@@ -181,7 +230,10 @@ export const resolveClientHtml = (
   fs: FileSystem.FileSystem,
 ): Effect.Effect<string, GtdError> =>
   dev
-    ? Effect.all([readDevTemplate(fs), rebuildDevClientScript(runner, fs)]).pipe(
+    ? findPackageRoot().pipe(
+        Effect.flatMap((root) =>
+          Effect.all([readDevTemplate(fs, root), rebuildDevClientScript(runner, fs, root)]),
+        ),
         Effect.map(([template, script]) => renderHtml(template, script)),
       )
     : Effect.succeed(generatedClientHtml)
@@ -208,7 +260,17 @@ export const runServeCommand = (
     const httpsServer = yield* HttpsServer
     const runtime = yield* Effect.runtime<ServeRequirements>()
 
-    const handler: RequestHandler = (_req, res) => {
+    const trpcHandler = createHTTPHandler({
+      router: appRouter,
+      basePath: `${TRPC_PATH_PREFIX}/`,
+      createContext: (): RouterContext => ({ runtime }),
+    })
+
+    const handler: RequestHandler = (req, res) => {
+      if (req.url === TRPC_PATH_PREFIX || req.url?.startsWith(`${TRPC_PATH_PREFIX}/`)) {
+        trpcHandler(req, res)
+        return
+      }
       Runtime.runPromise(runtime)(
         resolveClientHtml(options.dev, runner, fs).pipe(Effect.either),
       ).then((result) => {

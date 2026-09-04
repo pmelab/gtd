@@ -17,7 +17,7 @@ all. Supported filenames (searched in this order):
 
 ### Schema
 
-`.gtdrc` has exactly three blessed top-level keys:
+`.gtdrc` has exactly four blessed top-level keys:
 
 - **`workflow`** (object, optional) — the whole machine definition (its states,
   plus its own `vars:` defaults and `modes:`). Absent = gtd's built-in default
@@ -29,6 +29,9 @@ all. Supported filenames (searched in this order):
   shell commands), layered over the active workflow's own `modes:` and gtd's
   built-in validators, so a project can plug in its formatter or linter without
   re-declaring that mode on the workflow itself.
+- **`serve`** (object, optional) — `gtd serve`'s own settings (bind roots, port,
+  host, certificate paths, loop command). See [The `serve:` key](#the-serve-key)
+  below.
 - **`$schema`** (string, optional) — stripped before validation, so it never
   counts as an unknown key. Point it at the published schema for editor-backed
   autocompletion (this is what `gtd init` writes):
@@ -45,6 +48,28 @@ all. Supported filenames (searched in this order):
 Any other top-level key is **rejected**. The engine blesses no VARIABLE NAMES
 either — `testCommand` is workflow-authored data like any other `it.vars` entry,
 not a special key gtd interprets.
+
+### The `serve:` key
+
+`gtd serve`'s six settings, all optional — a flat, non-templated struct (unlike
+`vars:`/`modes:`, it needs no Eta compile step), so an unknown sub-key is
+rejected the same way any other unknown config key is:
+
+- **`roots`** (array of strings, optional) — repo roots the server exposes
+  through the web/phone client, beyond the invoking directory.
+- **`port`** (integer, optional) — the port to bind. Default: `8443`.
+- **`host`** (string, optional) — the address to bind. Default: a Tailscale
+  interface (a CGNAT `100.64.0.0/10` address), auto-detected; with neither this
+  key nor `--host` given and no such interface present, `gtd serve` refuses
+  rather than silently binding to every interface on the LAN.
+- **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
+  and private key, used as-is. `--self-signed` always overrides these with a
+  freshly generated throwaway pair, even when both are configured.
+- **`loop`** (string, optional) — the shell command template the served client
+  runs to advance a workflow.
+
+Flags (`--host`, `--port`, `--self-signed`) always override the matching
+`serve:` value; see `docs/cli.md`'s `serve` row for the full flag list.
 
 ### The `workflow:` key
 
