@@ -38,7 +38,7 @@ as module exports — `parseReviewDoc`, `parseOpenQuestions`, `toggleFilePointer
 `toggleCheckbox` — but none of them is a `SteeringFormat` member, and footnote
 _insertion_ does not exist at all in either module.
 
-- [ ] Grow the interface — add a `view` and an `annotate` member to
+- [x] Grow the interface — add a `view` and an `annotate` member to
       `SteeringFormat`, so the LSP and the web surface share one seam and a
       user-declared custom mode can light up the phone UI later.
       `SteeringFormat.ts` is a zero-import vocabulary file and stays one; it
@@ -56,7 +56,7 @@ Concern 8 settles that "Storybook stories run as vitest tests under a new
 `test:web` task". Both of these satisfy that sentence and they are not the same
 build.
 
-- [ ] Full Storybook — `@storybook/react-vite` plus the vitest addon and browser
+- [x] Full Storybook — `@storybook/react-vite` plus the vitest addon and browser
       mode, which means a Playwright chromium download in CI; roughly 300 MB of
       devDependencies, and a browsable component catalog on a real phone, which
       is how both prototypes were validated in the first place
@@ -74,7 +74,7 @@ not settle the N beat reads that follow, and those are the 520–660 ms each.
 - [ ] Re-read every time, bounded at concurrency 8 — always truthful, never a
       stale row, and a ~2.5 s fleet load at 30 worktrees on every pull-to-
       refresh
-- [ ] Memoize per worktree on a key of HEAD's sha, the mtime of the state's
+- [x] Memoize per worktree on a key of HEAD's sha, the mtime of the state's
       steering file, and the mtime of the loop log — a warm fleet load is
       milliseconds; the cost is that a change no part of that key covers shows a
       stale row until something in the key moves
