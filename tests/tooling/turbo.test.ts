@@ -56,14 +56,17 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["test:unit"].inputs).toContain("evals/**")
   })
 
-  it("lists .storybook/** as an input to lint", () => {
-    // `.storybook/main.ts`/`preview.ts` are covered by `oxlint .`'s own glob,
-    // but nothing else pinned that turbo's cache actually invalidates on a
-    // change there — an under-declared `inputs` here would replay a cached
-    // green over a real .storybook/** lint error (T7's own "covered by
+  it("lists .storybook/** as an input to lint and deadcode", () => {
+    // `.storybook/main.ts`/`preview.ts` are covered by `oxlint .`'s own glob
+    // and by fallow's own `storybook` plugin discovery, but nothing else
+    // pinned that turbo's cache actually invalidates on a change there — an
+    // under-declared `inputs` here would replay a cached green over a real
+    // .storybook/** lint/dead-code finding (T7's own "covered by
     // format:check and lint" criterion needs a REAL cache dependency, not
-    // just an unpinned coincidence of oxlint's glob matching that directory).
+    // just an unpinned coincidence of a tool's own glob matching that
+    // directory).
     expect(turbo.tasks["lint"].inputs).toContain(".storybook/**")
+    expect(turbo.tasks["deadcode"].inputs).toContain(".storybook/**")
   })
 
   it("lists src/web/** and .storybook/** as inputs to test:web", () => {

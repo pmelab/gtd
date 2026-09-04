@@ -19,6 +19,12 @@ export default defineConfig([
     outDir: "dist/web",
     clean: true,
     dts: false,
+    // Inlined as ONE `<script type="module">` with no `<script src>`/import
+    // map (see scripts/inline-web-client.mjs) — a bare `import … from
+    // "react"` left external has nothing to resolve against in a browser.
+    // Bundle every dependency (react, @trpc/*, @tanstack/react-query, …), no
+    // exceptions, mirroring the `gtd` config's own `deps.alwaysBundle` below.
+    deps: { alwaysBundle: [/.*/] },
     outputOptions: { codeSplitting: false },
   },
   {

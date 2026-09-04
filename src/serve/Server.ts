@@ -75,6 +75,15 @@ export const resolveCertPair = (
   if (config?.cert !== undefined && config.key !== undefined) {
     return loadCertPair(config.cert, config.key)
   }
+  if (config?.cert !== undefined || config?.key !== undefined) {
+    const missing = config.cert === undefined ? "serve.cert" : "serve.key"
+    return Effect.fail(
+      new GtdError(`gtd serve: ${missing} is not configured — both cert and key are required`, [
+        `serve.${config.cert === undefined ? "key" : "cert"} is configured, but ${missing} is not`,
+        "pass --self-signed for a throwaway certificate instead",
+      ]),
+    )
+  }
   return Effect.fail(
     new GtdError("gtd serve: HTTPS is mandatory and no certificate is configured", [
       "pass --self-signed for a throwaway certificate",

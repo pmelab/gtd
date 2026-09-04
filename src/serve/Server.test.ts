@@ -129,6 +129,34 @@ describe("resolveCertPair", () => {
     expect(rendered).toContain("--self-signed")
     expect(rendered).toMatch(/serve\.cert/)
   })
+
+  it("names the missing half when only serve.cert is configured — not the generic 'no certificate is configured'", async () => {
+    const thrown = await Effect.runPromise(
+      resolveCertPair(
+        { selfSigned: false, dev: false },
+        { cert: "/some/cert.pem" },
+        "100.90.1.2",
+      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
+    )
+    expect(thrown).toBeInstanceOf(GtdError)
+    const rendered = thrown.message + thrown.detail.join("\n")
+    expect(rendered).toContain("serve.key")
+    expect(rendered).not.toContain("no certificate is configured")
+  })
+
+  it("names the missing half when only serve.key is configured — not the generic 'no certificate is configured'", async () => {
+    const thrown = await Effect.runPromise(
+      resolveCertPair(
+        { selfSigned: false, dev: false },
+        { key: "/some/key.pem" },
+        "100.90.1.2",
+      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
+    )
+    expect(thrown).toBeInstanceOf(GtdError)
+    const rendered = thrown.message + thrown.detail.join("\n")
+    expect(rendered).toContain("serve.cert")
+    expect(rendered).not.toContain("no certificate is configured")
+  })
 })
 
 describe("HttpsServer.Live", () => {
@@ -219,6 +247,28 @@ describe("resolveClientHtml", () => {
       resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, GtdError>,
     )
     expect(html).toContain("<!doctype html>")
+  })
+
+  it("in production, the inlined script has no bare (non-relative) import specifier — every dependency is actually bundled in", async () => {
+    // tsdown externalizes every `dependencies` entry by default; a bare
+    // `import … from "react"` left in an inlined `<script type="module">`
+    // has no import map and nothing served at that path, so the client
+    // fails to load in every browser with an empty #root and no visible
+    // error on the page itself. This pins `tsdown.config.ts`'s `web` build
+    // config actually bundling react/@trpc/*/@tanstack/react-query, not just
+    // producing SOME output.
+    const explodingFs = FileSystem.makeNoop({
+      readFileString: () => Effect.die(new Error("unexpectedly read from disk in production")),
+    })
+    const runner = { bash: () => Effect.fail(new Error("unexpectedly shelled out in production")) }
+
+    const html = await Effect.runPromise(
+      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, GtdError>,
+    )
+    const bareImports = [...html.matchAll(/^\s*import[^;]*\sfrom\s+["']([^"']+)["']/gm)]
+      .map((m) => m[1])
+      .filter((specifier) => specifier !== undefined && !specifier.startsWith("."))
+    expect(bareImports).toEqual([])
   })
 
   it("under --dev, rebuilds the client via CommandRunner and reads both files fresh off disk", async () => {

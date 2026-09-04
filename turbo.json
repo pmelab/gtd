@@ -39,7 +39,7 @@
       "outputs": []
     },
     "deadcode": {
-      "inputs": ["src/**", "tests/**", "evals/**", "*.ts", ".fallowrc.json"],
+      "inputs": ["src/**", "tests/**", "evals/**", ".storybook/**", "*.ts", ".fallowrc.json"],
       "outputs": []
     },
     "test:unit": {

@@ -5,6 +5,12 @@
     // The browser-platform tsdown entry (src/web/*) is a second bundle root
     // built independently of src/main.ts's node bundle — never imported by it.
     "src/web/main.tsx",
+    // NOT `.storybook/main.ts`/`preview.ts`/`*.stories.tsx`: fallow's own
+    // built-in `storybook` plugin (see `fallow list`'s "Active plugins")
+    // already discovers those as entry points from `.storybook/main.ts`'s
+    // `stories:` glob — a manual entry here would be redundant with, not a
+    // substitute for, that plugin. Verify with `npx fallow list` if this
+    // stops holding (e.g. plugin detection changes upstream).
     // Vitest loads support files via setupFiles in vitest.config.ts — declare them
     // so fallow treats them as entry points rather than dead files.
     "tests/integration/support/**/*.{ts,mjs}",
