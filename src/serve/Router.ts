@@ -55,7 +55,11 @@ const commandInput = (value: unknown): { command: string } => {
 
 export const appRouter = t.router({
   /**
-   * Runs a vetted shell command via `CommandRunner` and returns its outcome.
+   * Runs `input.command` VERBATIM via `CommandRunner` — `commandInput` only
+   * checks it is a string, nothing about its content. The unauthenticated
+   * surface is the accepted design (tailnet-only binding, `gtd serve`
+   * refuses to start otherwise); this is arbitrary shell execution on
+   * whatever bound the server, and any future caller must treat it as such.
    * The single Effect-to-Promise boundary for this resolver is the
    * `Runtime.runPromise` call below — everything upstream of it stays Effect.
    */

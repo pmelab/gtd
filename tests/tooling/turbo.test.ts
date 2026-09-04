@@ -78,6 +78,29 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["test:web"].inputs).toContain(".storybook/**")
   })
 
+  it("keeps browser-only web-client packages out of dependencies — only @trpc/server ships at runtime", () => {
+    // Requirement 8: "tRPC's server half becomes the FIRST runtime
+    // dependency this package carries purely for the web surface" — singular.
+    // react/react-dom/@tanstack/react-query/@trpc/client/@trpc/react-query
+    // are all inlined into src/web/generated.html at BUILD time
+    // (tsdown.config.ts's `web` config bundles everything); a `dependencies`
+    // entry for any of them means every `npm i -g @pmelab/gtd` installs React
+    // for nothing.
+    for (const name of [
+      "react",
+      "react-dom",
+      "@tanstack/react-query",
+      "@trpc/client",
+      "@trpc/react-query",
+    ]) {
+      expect(pkg.dependencies, `"${name}" must not be a runtime dependency`).not.toHaveProperty(
+        name,
+      )
+      expect(pkg.devDependencies, `"${name}" must be a devDependency`).toHaveProperty(name)
+    }
+    expect(pkg.dependencies).toHaveProperty("@trpc/server")
+  })
+
   it("declares an explicit inputs array for every task except format:check", () => {
     for (const key of taskKeys) {
       if (key === "format:check") continue
