@@ -2256,6 +2256,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     lsp: { kind: "lsp" },
     init: { kind: "init" },
     visualize: { kind: "visualize", port: 4000, open: false },
+    serve: { kind: "serve", selfSigned: false, dev: false },
     land: { kind: "land" },
     entry: { kind: "entry", actor: "human", state: "idle", vars: {}, label: "" },
     abandon: { kind: "abandon" },
@@ -2317,6 +2318,29 @@ describe("runCommand — refuses in a repository with no commits", () => {
 
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(written.length).toBeGreaterThan(0)
+  })
+
+  it('gtd serve dispatches without the repository-root/commit guard — needsOf is "config", not "state", since the roots it scans are elsewhere', async () => {
+    // A repo with zero commits: the exact fixture the table-driven case
+    // above uses to prove the "state" kinds refuse with NO_COMMITS_MESSAGE.
+    // `serve` must reach its own dispatch instead of that guard at all.
+    const repo = new InMemRepo()
+    const written: string[] = []
+    const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
+
+    const exit = await Effect.runPromiseExit(
+      runCommand({ kind: "serve", selfSigned: false, dev: false }, { kind: "off" }, out).pipe(
+        Effect.provide(testLayers(repo)),
+      ),
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      // `src/serve/Server.ts`'s own refusal (no Tailscale interface in this
+      // fake environment, no --host) — not the repository guard's.
+      expect(String(exit.cause)).not.toContain(NO_COMMITS_MESSAGE)
+      expect(String(exit.cause)).toContain("gtd serve: no Tailscale interface found")
+    }
   })
 })
 

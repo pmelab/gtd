@@ -1,4 +1,4 @@
-import { JSONSchema } from "effect"
+import { JSONSchema, Schema } from "effect"
 import { describe, expect, it } from "vitest"
 import { ConfigSchema } from "./ConfigSchema.js"
 import { MACHINE_FIELD_ENTRIES, STATE_FIELD_ENTRIES } from "./StateFields.js"
@@ -120,5 +120,58 @@ describe("ConfigSchema — machineJsonSchema derives its machine-authored fields
       "system",
       "states",
     ])
+  })
+})
+
+describe("ConfigSchema — top-level `serve:`", () => {
+  const decode = (input: unknown) =>
+    Schema.decodeUnknownSync(ConfigSchema)(input, { onExcessProperty: "error" })
+
+  it("decodes with `serve:` absent", () => {
+    expect(decode({}).serve).toBeUndefined()
+  })
+
+  it("decodes with every sub-key present", () => {
+    const input = {
+      serve: {
+        roots: ["/repo/a", "/repo/b"],
+        port: 4173,
+        host: "0.0.0.0",
+        cert: "./certs/server.crt",
+        key: "./certs/server.key",
+        loop: "gtd next --json",
+      },
+    }
+    expect(decode(input).serve).toEqual(input.serve)
+  })
+
+  it.each(["roots", "port", "host", "cert", "key", "loop"] as const)(
+    "decodes with only `%s` present",
+    (key) => {
+      const value = key === "roots" ? ["/repo"] : key === "port" ? 4173 : "x"
+      const cfg = decode({ serve: { [key]: value } })
+      expect(cfg.serve).toEqual({ [key]: value })
+    },
+  )
+
+  it("rejects an unknown sub-key under `serve:` as an excess property", () => {
+    expect(() => decode({ serve: { bogus: true } })).toThrow()
+  })
+
+  it("rejects a non-integer `port`", () => {
+    expect(() => decode({ serve: { port: "not-a-number" } })).toThrow()
+  })
+
+  it("publishes the hand-written `serveJsonSchema` literal, with a non-empty description and one per property", () => {
+    const schema = JSONSchema.make(ConfigSchema) as unknown as JsonObject
+    const serve = (schema["properties"] as JsonObject)["serve"] as JsonObject
+    expect(typeof serve["description"]).toBe("string")
+    expect((serve["description"] as string).length).toBeGreaterThan(0)
+    const properties = serve["properties"] as Record<string, JsonObject>
+    expect(Object.keys(properties)).toEqual(["roots", "port", "host", "cert", "key", "loop"])
+    for (const [key, prop] of Object.entries(properties)) {
+      expect(typeof prop["description"], `property "${key}"`).toBe("string")
+      expect((prop["description"] as string).length, `property "${key}"`).toBeGreaterThan(0)
+    }
   })
 })

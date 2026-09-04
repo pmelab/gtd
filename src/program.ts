@@ -40,6 +40,7 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
+import { HttpsServer, runServeCommand } from "./serve/Server.js"
 import { enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
 import { clearFilePointerTicks } from "./ReviewDoc.js"
@@ -135,6 +136,7 @@ export type CommandRequirements =
   | CommandRunner
   | EnvVars
   | Narrator
+  | HttpsServer
 
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
@@ -1047,6 +1049,31 @@ const runVisualizeCommand = (
   })
 
 /**
+ * `gtd serve`: loads `serve:` config and hands it, alongside the parsed
+ * flags, to `src/serve/Server.ts`'s `runServeCommand` — the module owning
+ * the bind/TLS/HTTP(S) logic. `needs: "config"` (see `needsOf` above) skips
+ * the repo-root guard, matching `gtd visualize`: the roots `serve:` scans
+ * are elsewhere, so this never needs the invoking directory to be a repo.
+ */
+const runServeCliCommand = (
+  command: Extract<Command, { kind: "serve" }>,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    yield* runServeCommand(
+      {
+        ...(command.host !== undefined ? { host: command.host } : {}),
+        ...(command.port !== undefined ? { port: command.port } : {}),
+        selfSigned: command.selfSigned,
+        dev: command.dev,
+      },
+      config.serve,
+      out,
+    )
+  })
+
+/**
  * Everything gtd derives is resolved against the process cwd, so running
  * from anywhere but the repository root would silently mis-derive state.
  * Refuses with a clear error instead. Real paths are compared so symlinked
@@ -1130,17 +1157,19 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "uncheck":
       return "fs"
     case "visualize":
+    case "serve":
       return "config"
     default:
       return "state"
   }
 }
 
-/** The six kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
+/** The seven kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "init",
   "visualize",
+  "serve",
   "check",
   "uncheck",
   "install",
@@ -1166,6 +1195,8 @@ const dispatchVoidCommand = (
       return runInitCommand(out)
     case "visualize":
       return runVisualizeCommand(command.port, command.open, out)
+    case "serve":
+      return runServeCliCommand(command, out)
     case "land":
       return runLandCommand(
         {

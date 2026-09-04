@@ -182,6 +182,56 @@ describe("ConfigService", () => {
     expect(cfg.rcVars).toEqual({ greeting: "hi", attempts: "3", strict: "true" })
   })
 
+  it("reads a top-level `serve:` key through as-is", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `serve:`,
+        `  roots:`,
+        `    - /repo/a`,
+        `  port: 4173`,
+        `  host: 0.0.0.0`,
+        `  loop: "gtd next --json"`,
+        ``,
+      ].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.serve).toEqual({
+      roots: ["/repo/a"],
+      port: 4173,
+      host: "0.0.0.0",
+      loop: "gtd next --json",
+    })
+  })
+
+  it("merges `serve:` levels low->high: cwd's `port` overlays the ancestor's, cwd wins on overlap", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`serve:`, `  port: 4173`, `  host: ancestor-host`, ``].join("\n"),
+    )
+    writeFileSync(join(child, ".gtdrc.yaml"), [`serve:`, `  port: 5000`, ``].join("\n"))
+
+    const cfg = await getConfig(child)
+
+    expect(cfg.serve).toEqual({ port: 5000, host: "ancestor-host" })
+  })
+
+  it("rejects an unknown sub-key under a top-level `serve:`, aggregated into one error", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), [`serve:`, `  bogus: true`, ``].join("\n"))
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toMatch(/serve\.bogus/i)
+    }
+  })
+
   it("merges `vars:` levels low->high: cwd's overlays the ancestor's, cwd wins on overlap", async () => {
     const child = join(projectDir, "a", "b")
     mkdirSync(child, { recursive: true })

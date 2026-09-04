@@ -34,6 +34,42 @@ const modesJsonSchema = {
   },
 } as const
 
+/** The top-level `serve:` shape: `gtd serve`'s own settings (repo roots, listen address/TLS, and the loop command it spawns per session). */
+const serveJsonSchema = {
+  type: "object",
+  description:
+    "Settings for `gtd serve`: which repo roots it scans, where it listens, optional TLS, and the loop command it runs per session.",
+  additionalProperties: false,
+  properties: {
+    roots: {
+      type: "array",
+      items: { type: "string" },
+      description: "Repo root paths `gtd serve` scans for projects. Defaults to the cwd alone.",
+    },
+    port: {
+      type: "integer",
+      description: "TCP port `gtd serve` listens on.",
+    },
+    host: {
+      type: "string",
+      description: "Host/interface `gtd serve` binds to.",
+    },
+    cert: {
+      type: "string",
+      description: "Path to a TLS certificate file, enabling HTTPS. Requires `key` too.",
+    },
+    key: {
+      type: "string",
+      description: "Path to a TLS private key file, enabling HTTPS. Requires `cert` too.",
+    },
+    loop: {
+      type: "string",
+      description:
+        "Shell command template (Eta, like `modes:`'s format/validate) `gtd serve` runs to drive a session's loop.",
+    },
+  },
+} as const
+
 /**
  * Every `FieldKind` -> its plain JSON Schema type shape. The escape hatch
  * (`FieldSpec.jsonSchema`) covers the two structurally-nested kinds (`edges`,
@@ -164,10 +200,32 @@ const workflowJsonSchema = {
   },
 } as const
 
+/**
+ * `serve:`'s own shape is a plain, flat settings struct — unlike `vars`/`modes`
+ * it needs no Eta-template compile step, so it is a real (not `Unknown`)
+ * schema: excess sub-keys under `serve:` are rejected the same way as any
+ * other excess key, by the `onExcessProperty: "error"` decode option
+ * `Config.ts` already passes for the whole config (it applies recursively).
+ * `serveJsonSchema` above still overrides the derived JSON Schema so the
+ * published shape stays a hand-annotated literal like its siblings.
+ */
+const ServeSchema = Schema.Struct({
+  roots: Schema.optional(Schema.Array(Schema.String)),
+  port: Schema.optional(Schema.Int),
+  host: Schema.optional(Schema.String),
+  cert: Schema.optional(Schema.String),
+  key: Schema.optional(Schema.String),
+  loop: Schema.optional(Schema.String),
+}).annotations({ jsonSchema: serveJsonSchema })
+
 export const ConfigSchema = Schema.Struct({
   workflow: Schema.optional(Schema.Unknown.annotations({ jsonSchema: workflowJsonSchema })),
   vars: Schema.optional(Schema.Unknown.annotations({ jsonSchema: varsJsonSchema })),
   modes: Schema.optional(Schema.Unknown.annotations({ jsonSchema: modesJsonSchema })),
+  serve: Schema.optional(ServeSchema),
 })
 
 export type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
+
+/** The decoded `serve:` shape — `gtd serve` and its CLI flags read `roots`/`port`/`host`/`cert`/`key`/`loop` off this. */
+export type ServeConfig = Schema.Schema.Type<typeof ServeSchema>

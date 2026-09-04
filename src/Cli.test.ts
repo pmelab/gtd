@@ -30,6 +30,9 @@ const FLAG_NAMES = [
   "--json",
   "--port",
   "--no-open",
+  "--host",
+  "--self-signed",
+  "--dev",
   "--cost",
   "--model",
   "--entry",
@@ -148,6 +151,24 @@ describe("parseArgv — scope", () => {
     const plan = parseArgv(["node", "gtd.js", "land", "--port=1234"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd visualize`")
+  })
+
+  it("--port is accepted by both gtd visualize and gtd serve", () => {
+    for (const args of [
+      ["visualize", "--port", "3000"],
+      ["serve", "--port", "3000"],
+    ]) {
+      const plan = parseArgv(["node", "gtd.js", ...args])
+      expect(plan.kind).toBe("command")
+    }
+  })
+
+  it("--host on any other command (e.g. visualize) is a scope violation", () => {
+    const plan = parseArgv(["node", "gtd.js", "visualize", "--host", "x"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toBe("gtd: --host is only valid for `gtd serve`")
+    }
   })
 
   it("--var without --entry is rejected", () => {
@@ -728,9 +749,63 @@ describe("parseArgv — gtd install", () => {
   })
 })
 
+describe("parseArgv — gtd serve", () => {
+  it("parses --host/--port/--self-signed/--dev into one serve command", () => {
+    const plan = parseArgv([
+      "node",
+      "gtd.js",
+      "serve",
+      "--host",
+      "h",
+      "--port",
+      "8443",
+      "--self-signed",
+      "--dev",
+    ])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({
+        kind: "serve",
+        host: "h",
+        port: 8443,
+        selfSigned: true,
+        dev: true,
+      })
+    }
+  })
+
+  it("bare `gtd serve` omits host/port and defaults selfSigned/dev to false", () => {
+    const plan = parseArgv(["node", "gtd.js", "serve"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "serve", selfSigned: false, dev: false })
+    }
+  })
+
+  it("gtd serve --bogus is an unknown-option usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "serve", "--bogus"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("unknown option '--bogus'")
+  })
+
+  it("gtd serve extra is a usage error — serve takes no positional argument", () => {
+    const plan = parseArgv(["node", "gtd.js", "serve", "extra"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+})
+
 describe("standaloneKinds / needsOf", () => {
-  it("pins the six standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check", "uncheck", "install"])
+  it("pins the seven standalone kinds", () => {
+    expect(standaloneKinds()).toEqual([
+      "lsp",
+      "init",
+      "visualize",
+      "serve",
+      "check",
+      "uncheck",
+      "install",
+    ])
   })
 
   it("needsOf matches none/fs/config for the standalone kinds and state for everything else", () => {
@@ -739,6 +814,7 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("init")).toBe("fs")
     expect(needsOf("visualize")).toBe("config")
+    expect(needsOf("serve")).toBe("config")
     expect(needsOf("install")).toBe("none")
     for (const kind of ["land", "entry", "abandon", "restore", "next", "validate"] as const) {
       expect(needsOf(kind)).toBe("state")
@@ -760,6 +836,7 @@ describe("renderHelp", () => {
     expect(help).toContain("validate")
     expect(help).toContain("lsp")
     expect(help).toContain("visualize")
+    expect(help).toContain("serve")
     expect(help).toContain("check <mode> <file>")
     expect(help).toContain("install")
     expect(help).toContain("base ")
@@ -768,6 +845,9 @@ describe("renderHelp", () => {
     expect(help).toContain("--json")
     expect(help).toContain("--port")
     expect(help).toContain("--no-open")
+    expect(help).toContain("--host")
+    expect(help).toContain("--self-signed")
+    expect(help).toContain("--dev")
     expect(help).toContain("--cost")
     expect(help).toContain("--model")
     expect(help).toContain("--open-questions")
@@ -886,6 +966,20 @@ describe("runCli — exit codes", () => {
     const { io, captured } = capturingIo(throwingLayers)
     await Effect.runPromise(runCli(["node", "gtd.js", "bogus"], io))
     expect(captured().exitCode).toBe(EXIT_USAGE_ERROR)
+  })
+
+  it("gtd serve --bogus exits EXIT_USAGE_ERROR (unknown flag)", async () => {
+    const { io, captured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "serve", "--bogus"], io))
+    expect(captured().exitCode).toBe(EXIT_USAGE_ERROR)
+  })
+
+  it("--host on a non-serve command exits EXIT_USAGE_ERROR with a clear scopeError message", async () => {
+    const { io, captured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "visualize", "--host", "x"], io))
+    const result = captured()
+    expect(result.exitCode).toBe(EXIT_USAGE_ERROR)
+    expect(result.stderr).toContain("only valid for `gtd serve`")
   })
 
   it("a command failure that is NOT a usage error still exits EXIT_RUNTIME_ERROR", async () => {

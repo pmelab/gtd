@@ -28,12 +28,14 @@ import {
 } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
-import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
+import { ConfigSchema, type DecodedConfig, type ServeConfig } from "./ConfigSchema.js"
 
 interface ConfigOperations {
   readonly workflow: WorkflowDefinition
   readonly workflowVars: Record<string, string>
   readonly rcVars: Record<string, string>
+  /** The top-level `serve:` key, decoded as-is (absent when unconfigured) — `gtd serve` and its CLI flags read it. */
+  readonly serve?: ServeConfig
   /**
    * The active workflow's machine-instance tree (`flattenMachines`'s output,
    * `src/Machines.ts`), or the built-in default's tree when unconfigured.
@@ -278,6 +280,7 @@ const toOperations = (
         modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
       workflowVars: defaultWorkflowVars,
       rcVars,
+      ...(decoded.serve !== undefined ? { serve: decoded.serve } : {}),
       machineTree: defaultMachineTree,
       stateScopes: defaultStateScopes,
       // Derived from the same validator a custom `workflow:` goes through
@@ -299,6 +302,7 @@ const toOperations = (
     workflow: definition,
     workflowVars,
     rcVars,
+    ...(decoded.serve !== undefined ? { serve: decoded.serve } : {}),
     machineTree: tree,
     stateScopes: scopes,
     warnings,
