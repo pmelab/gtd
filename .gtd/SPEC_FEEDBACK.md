@@ -1,117 +1,88 @@
 # Spec feedback — 01-serve-and-client-harness
 
-Range inspected: `64dd325f` → working tree. T1–T5 land and their gates are
-green. **T7 and T8 are entirely absent, and T6/T9 are each missing one required
-criterion.** Below, in severity order.
+Range re-inspected: `64dd325f` → working tree, fresh pass. **Every T1–T9
+criterion I could exercise now holds**: `npm test` is green on a forced
+(cache-bypassed) run of `format:check typecheck lint test:web deadcode`,
+`npx turbo run build` now restores `src/web/generated.html` from cache (the
+previous round's stale-green hazard is gone), the tRPC refusal crosses a real
+HTTPS socket with `stdout`/`stderr`/`exitCode` separately readable, a
+`react-hooks/rules-of-hooks` violation in `src/web/` does fail `lint` (verified
+with a throwaway probe file, since removed), and `test:web` really runs
+`App.stories.tsx` as a browser test.
 
-## 1. T8 (tRPC transport) is not implemented at all — zero of five criteria
+Four problems remain.
 
-No `src/serve/Router.ts`, no `src/web/api.ts`, no `@trpc/*` in either dependency
-block, no React Query. `grep -rn trpc package.json src/ docs/` returns nothing.
-`src/serve/Server.ts`'s request handler serves exactly one response — the client
-HTML — with no API surface.
+## 1. `turbo.json`'s `lint` inputs omit `.storybook/**`, so a lint error there replays a cached green
 
-Every criterion fails, including the two the spec calls load-bearing: the
-refusal crossing as a typed error whose `{stdout, stderr, exitCode}` stay
-separately readable, and "the new runtime dependency is declared under
-`dependencies`, not `devDependencies`".
-
-## 2. T7 (Storybook, browser mode, `test:web`) is not implemented at all — zero of seven criteria
-
-No `.storybook/` directory. No `test:web` script in `package.json`, no
-`test:web` task in `turbo.json`, and no `test:web` in the `test` script's task
-list — the exact all-three requirement `tests/tooling/turbo.test.ts` pins.
-`vitest.config.ts` still has three projects, not four. No `@storybook/*` or
-vitest browser-mode devDependency. `.github/workflows/` is untouched, so no
-explicit chromium install step exists.
-
-## 3. `build`'s turbo `outputs` omit `src/web/generated.html`, so a cache-hit build leaves the node bundle's import unresolvable
-
-`turbo.json`'s `build` declares `outputs: ["dist/**", "schema.json"]`.
-`scripts/inline-web-client.mjs` writes `src/web/generated.html`, which
-`src/serve/Server.ts` imports. `test:unit`, `test:e2e:inmem` and `test:e2e:live`
-all gained `dependsOn: ["build"]` to produce it.
+T7 requires `.storybook/` config files to be "covered by `format:check` and
+`lint`". `oxlint .` does lint them — but `turbo.json`'s `lint` task declares
+`inputs: ["src/**", "tests/**", "scripts/**", "dev/**", "evals/**", "*.ts", "*.mjs", ".oxlintrc.json"]`.
+`.storybook/main.ts` matches none of those: `*.ts` is root-level only.
 
 Reproduced on this tree:
 
 ```
-rm -f src/web/generated.html && npx turbo run build   # >>> FULL TURBO, file NOT restored
-npx vitest run --project unit src/serve/Server.test.ts # exit 1
-#   Cannot find module '../web/generated.html' imported from src/serve/Server.ts
+npx turbo run lint                                        # green, cached
+echo 'export const bad = () => eval("1")' > .storybook/__probe.ts
+npx turbo run lint                                        # >>> FULL TURBO, still green
+npx oxlint .                                              # error no-eval, .storybook/__probe.ts:1
 ```
 
-Worse, `npx turbo run test:unit` in that state reports FULL TURBO green — a
-stale green over a broken tree, the exact hazard AGENTS.md's "Task graph and
-caching" section names. Trigger in normal use: any `git clean -xdf` or
-`rm -rf dist` with a warm turbo cache.
+This is exactly the under-declared-`inputs` stale green AGENTS.md's "Task graph
+and caching" section names. Add `.storybook/**` to `lint`'s `inputs`.
 
-Note `dist/web/main.js` is also not restorable in practice: the `gtd` tsdown
-config's `clean: true` wipes `dist/` — including `dist/web/` — after the browser
-build, so the cached `dist/**` never contains it.
+(`format:check` is fine — it declares no `inputs`, so it never caches a subset.
+`typecheck` and `deadcode` genuinely do not reach `.storybook/`: the root
+tsconfig's `include` is `["src", "tests"]` and fallow reports 0 dead files of
+167, so neither needs the entry.)
 
-## 4. Two unit tests assert a refusal that only holds on a machine with no tailnet
+## 2. Three `serve.feature` scenarios pass only because this machine has no tailnet
 
-- `src/serve/Server.test.ts:58` — "calls through to the real system scan by
-  default" calls `resolveBindHost(undefined, undefined)` with no `pickHost`
-  override and asserts `Exit.isFailure`.
-- `src/program.test.ts` — the `gtd serve` dispatch test asserts the cause
-  contains `"gtd serve: no Tailscale interface found"`.
+`tests/integration/features/serve.feature` asserts
+`stderr contains "no Tailscale interface found to bind to, and no --host given"`
+in three scenarios. Those spawn the real `gtd` bundle, so `resolveBindHost`'s
+default `pickHost` reaches the real `os.networkInterfaces()`. On any machine or
+CI runner joined to a tailnet, `pickBindHostFromSystem()` returns a
+`100.64.0.0/10` address, `gtd serve` proceeds past that refusal, and all three
+scenarios red — with a failure that reads as a serve bug.
 
-Both reach the real `os.networkInterfaces()`. On any machine or CI runner that
-has joined a tailnet, `pickBindHostFromSystem()` returns an address, both
-Effects succeed, and both tests red — with a failure that reads as a serve bug.
-Assert the integration point without depending on the host's network (e.g.
-inject the interfaces map, or assert the seam is called).
+The fix turn addressed the identical hazard in `src/serve/Server.test.ts` and
+`src/program.test.ts` with `vi.mock("./serve/Bind.js", ...)`. A spawned
+subprocess cannot be mocked that way and no env override exists, so the e2e tier
+still carries it. Give the bind scan a test seam the subprocess honors, or drop
+the assertion to something environment-independent.
 
-## 5. T6: the lint config never gained the `react` plugin
+## 3. `src/**/*.test.ts` now requires a prior build, and neither `test:mutation` nor a bare `npm run test:unit` provides one
 
-`.oxlintrc.json` is untouched — `"plugins": ["typescript", "unicorn", "oxc"]`.
-Criterion "a React hooks-rule violation in a client file fails `lint`" cannot
-hold: no react rules are loaded, so `npm run lint` is silent on `src/web/`.
+`src/serve/Server.ts` imports `../web/generated.html`, which is gitignored and
+only exists after `npm run build`. The turbo tasks were given
+`dependsOn: ["build"]`, which covers `npm test`. Two sanctioned entry points
+were not:
 
-## 6. T9: `docs/configuration.md` does not document `serve:`
+- `npm run test:mutation` (`stryker run`) has no build step, and stryker's
+  sandbox copies the file only if it already exists. `src/serve/Server.ts`
+  reaches most of `src/**/*.test.ts` transitively (via `program.ts`, `Cli.ts`,
+  and `src/testing/Layers.ts`), so on an unbuilt checkout the whole 10-minute
+  run reds on an unresolvable import.
+- `npm run test:unit` / `npm run test:changed` invoked directly, same reason.
 
-Criterion "the configuration reference documents `serve:` and each of its six
-sub-keys" fails — `docs/configuration.md` has no `serve` section
-(`grep -n serve docs/configuration.md` hits only an unrelated `schema.json`
-sentence). `docs/cli.md` did land.
+Not verified by running mutation testing — AGENTS.md forbids that autonomously.
+Verified only that the import exists, that the file is gitignored, and that
+stryker honours no `.gitignore` (only its own `ignorePatterns`).
 
-## 7. No cucumber scenario for `gtd serve`
+## 4. `serve.loop`'s published schema description promises Eta templating that nothing compiles
 
-`git diff --stat 64dd325f..HEAD -- tests/` is empty. AGENTS.md: "create
-cucumber.js scenarios for each new feature". A whole new command and its refusal
-paths landed with unit tests only.
+`src/ConfigSchema.ts`'s `serveJsonSchema` describes `loop` as a "Shell command
+template (Eta, like `modes:`'s format/validate)". `ServeSchema` is a plain
+`Schema.Struct` and `Config.ts`'s `toOperations` passes `decoded.serve` through
+verbatim — no Eta compile, deliberately, per `ServeSchema`'s own doc comment
+("it needs no Eta-template compile step"). Those two comments contradict each
+other, and `schema.json` ships in the npm tarball, so the false one is what a
+user sees in editor autocomplete. `docs/configuration.md` already drops the Eta
+claim; make the schema description match.
 
-## 8. `--dev` shells out to `npx tsdown` per request, which contradicts the spec and cannot work where `serve` is documented to run
-
-T5 says `--dev` "reads the client off disk instead". `rebuildDevClientScript`
-(`src/serve/Server.ts`) instead runs `npx tsdown --filter web` on **every HTTP
-request**, then reads `dist/web/main.js`. Three problems:
-
-- `CommandRunner.Live` runs with `workingDirectory(Cwd.root)`, i.e. the invoking
-  cwd. `serve` is deliberately `needs: "config"` so it runs outside any repo —
-  where `npx tsdown --filter web` has no config to select and fails. The
-  command's own help text advertises exactly this ("the roots it scans are
-  elsewhere, so it never needs a repository").
-- `tsdown` is a devDependency; in an installed `@pmelab/gtd`, `npx` resolves
-  nothing and `--dev` refuses.
-- A full rolldown build per page load (~1s measured for the browser config).
-
-## 9. Documented `serve` default port contradicts the code
-
-`src/serve/Server.ts` sets `DEFAULT_PORT = 8443`. `docs/cli.md` and
-`src/Cli.ts`'s flag help both say `--port` defaults to "a free port" and the
-`serve` command row says "(default: an address picked automatically, and a free
-port)". Since the help block is pinned byte-for-byte to `docs/cli.md`, fixing
-one requires fixing both.
-
-Same block: "Start a local HTTP(S) server" understates a hard requirement —
-HTTPS is mandatory and no flag yields plain http (requirement 1, T4's last
-criterion).
-
-## 10. A comment claims a shared constant that does not exist
-
-`src/serve/Server.ts`'s `DEV_SCRIPT_TAG` carries: "kept as one constant so the
-two never drift apart". `scripts/inline-web-client.mjs` declares its own
-identical `scriptTagPattern`. They are two copies; the comment asserts the
-opposite of the code.
+(For the record, T1's prose asked for "an optional unknown value" compiled "as a
+fourth entry" beside workflow/vars/modes. The implementation used a real
+`Struct` with no compiler instead. That deviation is right — `Schema.Unknown`
+cannot reject an excess sub-key, which T1's second criterion demands — and it is
+documented at the code. No change wanted; only the stale Eta sentence.)
