@@ -1,10 +1,15 @@
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
 import { rawMd } from "./tests/vitest.rawMd.js"
+import { ensureWebClient } from "./tests/vitest.ensureWebClient.js"
 import { SETUP_FILES } from "./tests/integration/support/setup-files.js"
 
 export default defineConfig({
-  plugins: [rawMd(), quickpickle({ stepTimeout: 30_000, skipTags: ["@skip", "@live"] })],
+  plugins: [
+    rawMd(),
+    ensureWebClient(),
+    quickpickle({ stepTimeout: 30_000, skipTags: ["@skip", "@live"] }),
+  ],
   test: {
     include: ["src/**/*.test.ts", "tests/integration/features/**/*.feature"],
     exclude: ["**/*.integration.test.ts"],
