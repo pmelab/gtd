@@ -4,12 +4,9 @@ import {
   footnoteAdditionEdits,
   footnoteMarkerColumn,
   footnotePointerAt,
-  isFootnoteDefinitionLine,
   isOnExistingFootnote,
   nextFootnoteName,
   parseFootnotes,
-  proseBlockEnd,
-  stripFootnoteMarkers,
 } from "./Footnotes.js"
 
 describe("parseFootnotes", () => {
@@ -33,7 +30,7 @@ describe("parseFootnotes", () => {
   it("yields the exact 0-based column of a marker mid-sentence", () => {
     const content = "Some prose, a claim[^fn1], continues.\n\n[^fn1]: the reason\n"
     const { markers } = parseFootnotes(content)
-    expect(markers).toEqual([{ name: "fn1", line: 0, character: 19 }])
+    expect(markers).toEqual([{ name: "fn1", line: 0, character: 19, endCharacter: 25 }])
   })
 
   it("parses a single-line definition with endLine === line and its body", () => {
@@ -52,10 +49,10 @@ describe("parseFootnotes", () => {
     ])
   })
 
-  it("accepts a two-space-indented continuation the same way", () => {
+  it("does not treat a two-space indent as a continuation — GFM requires four spaces, unlike the old hand-rolled walker", () => {
     const content = ["text[^fn1]", "", "[^fn1]:", "  first", "  second"].join("\n")
     const { definitions } = parseFootnotes(content)
-    expect(definitions).toEqual([{ name: "fn1", line: 2, endLine: 4, body: "first second" }])
+    expect(definitions).toEqual([{ name: "fn1", line: 2, endLine: 2, body: "" }])
   })
 
   it("ends a definition at a blank line", () => {
@@ -65,13 +62,13 @@ describe("parseFootnotes", () => {
     expect(definitions[0]!.body).toBe("first")
   })
 
-  it("ends a definition at an unindented line", () => {
+  it("keeps an unindented line as a LAZY continuation of the body paragraph, per real GFM paragraph continuation rules", () => {
     const content = ["text[^fn1]", "", "[^fn1]:", "    first", "not indented, not part of it"].join(
       "\n",
     )
     const { definitions } = parseFootnotes(content)
-    expect(definitions[0]!.endLine).toBe(3)
-    expect(definitions[0]!.body).toBe("first")
+    expect(definitions[0]!.endLine).toBe(4)
+    expect(definitions[0]!.body).toBe("first not indented, not part of it")
   })
 
   it("produces no marker for [^x] inside a fenced code block", () => {
@@ -86,10 +83,10 @@ describe("parseFootnotes", () => {
     expect(markers.map((m) => m.name)).toEqual(["y"])
   })
 
-  it("produces no marker for [^y] written inside another definition's body", () => {
+  it("still finds an orphan [^y] written inside another definition's body — GFM applies the same reference-vs-text rule everywhere, no special-cased skip for a body's own prose", () => {
     const content = ["text[^fn1]", "", "[^fn1]:", "    see also [^y] here"].join("\n")
     const { markers } = parseFootnotes(content)
-    expect(markers.map((m) => m.name)).toEqual(["fn1"])
+    expect(markers.map((m) => m.name)).toEqual(["fn1", "y"])
   })
 
   it("produces no finding for two markers of the same name with one definition", () => {
@@ -102,7 +99,11 @@ describe("parseFootnotes", () => {
     const content = "orphan marker[^fn1] here"
     const { findings } = parseFootnotes(content)
     expect(findings).toEqual([
-      { message: 'Footnote marker "[^fn1]" has no matching definition', line: 0 },
+      {
+        message: 'Footnote marker "[^fn1]" has no matching definition',
+        line: 0,
+        range: { start: { line: 0, character: 13 }, end: { line: 0, character: 19 } },
+      },
     ])
   })
 
@@ -110,14 +111,22 @@ describe("parseFootnotes", () => {
     const content = "no markers here\n\n[^fn1]: orphan definition"
     const { findings } = parseFootnotes(content)
     expect(findings).toEqual([
-      { message: 'Footnote definition "[^fn1]" has no marker referencing it', line: 2 },
+      {
+        message: 'Footnote definition "[^fn1]" has no marker referencing it',
+        line: 2,
+        range: { start: { line: 2, character: 0 }, end: { line: 2, character: 25 } },
+      },
     ])
   })
 
   it("reports a duplicate definition name at the second definition's line", () => {
     const content = ["a[^fn1]", "", "[^fn1]: first", "[^fn1]: second"].join("\n")
     const { findings } = parseFootnotes(content)
-    expect(findings).toContainEqual({ message: 'Duplicate footnote definition "[^fn1]"', line: 3 })
+    expect(findings).toContainEqual({
+      message: 'Duplicate footnote definition "[^fn1]"',
+      line: 3,
+      range: { start: { line: 3, character: 0 }, end: { line: 3, character: 14 } },
+    })
   })
 
   it("reports a definition whose body is still the seeded placeholder", () => {
@@ -126,6 +135,7 @@ describe("parseFootnotes", () => {
     expect(findings).toContainEqual({
       message: 'Footnote definition "[^fn1]" still has its seeded placeholder body',
       line: 2,
+      range: { start: { line: 2, character: 0 }, end: { line: 2, character: 20 } },
     })
   })
 
@@ -142,53 +152,82 @@ describe("parseFootnotes", () => {
     const { findings } = parseFootnotes(content)
     expect(findings).toEqual([])
   })
-})
 
-describe("stripFootnoteMarkers", () => {
-  it("removes a marker from text", () => {
-    expect(stripFootnoteMarkers("Option A[^fn1]")).toBe("Option A")
+  it("does not recognize a definition below a fence opened above the slice it's handed — the tree sees the whole document, so a fence opened earlier still hides it", () => {
+    const content = ["```", "[^fn1]: not a real definition, still fenced", "```"].join("\n")
+    const { definitions, markers } = parseFootnotes(content)
+    expect(definitions).toEqual([])
+    expect(markers).toEqual([])
   })
 
-  it("leaves text with no marker untouched", () => {
-    expect(stripFootnoteMarkers("plain text")).toBe("plain text")
-  })
-})
-
-describe("isFootnoteDefinitionLine", () => {
-  it("is true for a definition's start line", () => {
-    const lines = ["[^fn1]: reason"]
-    expect(isFootnoteDefinitionLine(lines, 0)).toBe(true)
+  it("produces no marker for [^x] inside a four-space indented code block", () => {
+    const content = ["    [^x] indented code", "", "real [^y]", "", "[^y]: d"].join("\n")
+    const { markers } = parseFootnotes(content)
+    expect(markers.map((m) => m.name)).toEqual(["y"])
   })
 
-  it("is true for an indented continuation line", () => {
-    const lines = ["[^fn1]:", "    continued here"]
-    expect(isFootnoteDefinitionLine(lines, 1)).toBe(true)
+  it("produces no marker for [^x] inside a ~~~ fence", () => {
+    const content = ["~~~", "[^x]", "~~~", "", "real [^y]", "", "[^y]: d"].join("\n")
+    const { markers } = parseFootnotes(content)
+    expect(markers.map((m) => m.name)).toEqual(["y"])
   })
 
-  it("is false for a blank line", () => {
-    const lines = ["[^fn1]:", "    continued", "", "not part of it"]
-    expect(isFootnoteDefinitionLine(lines, 2)).toBe(false)
-    expect(isFootnoteDefinitionLine(lines, 3)).toBe(false)
+  it("produces no marker for [^x] inside a double-backtick span", () => {
+    const content = "prose ``[^x]`` and [^y] real\n\n[^y]: d"
+    const { markers } = parseFootnotes(content)
+    expect(markers.map((m) => m.name)).toEqual(["y"])
   })
 
-  it("is false for an ordinary line", () => {
-    expect(isFootnoteDefinitionLine(["just prose"], 0)).toBe(false)
+  it("does not recognize a [^name]: definition written inside an inline-code span", () => {
+    const content = "no ref here\n\n`[^fn1]: not a def`"
+    const { definitions } = parseFootnotes(content)
+    expect(definitions).toEqual([])
   })
 
-  it("is false past the end of the array", () => {
-    expect(isFootnoteDefinitionLine(["one line"], 5)).toBe(false)
+  it("carries all of a multi-paragraph definition's paragraphs in body", () => {
+    const content = ["text[^fn1]", "", "[^fn1]: first paragraph", "", "    second paragraph"].join(
+      "\n",
+    )
+    const { definitions } = parseFootnotes(content)
+    expect(definitions).toEqual([
+      { name: "fn1", line: 2, endLine: 4, body: "first paragraph second paragraph" },
+    ])
   })
 
-  it("is false for a '[^x]:'-shaped line inside a fenced code block, agreeing with parseFootnotes's own fence skip", () => {
-    const lines = ["```", "[^x]: not a real definition, it's code", "```"]
-    expect(isFootnoteDefinitionLine(lines, 1)).toBe(false)
-    // parseFootnotes must agree: no definition parsed for the fenced line.
-    expect(parseFootnotes(lines.join("\n")).definitions).toEqual([])
-  })
+  describe("orphan markers", () => {
+    it("reports 'has no matching definition' for a marker with no definition anywhere", () => {
+      const content = "Some text[^fn1] here."
+      const { findings, markers } = parseFootnotes(content)
+      expect(markers).toEqual([{ name: "fn1", line: 0, character: 9, endCharacter: 15 }])
+      expect(findings).toEqual([
+        {
+          message: 'Footnote marker "[^fn1]" has no matching definition',
+          line: 0,
+          range: { start: { line: 0, character: 9 }, end: { line: 0, character: 15 } },
+        },
+      ])
+    })
 
-  it("is false for an indented continuation line that is itself inside a fence", () => {
-    const lines = ["[^fn1]:", "```", "    still fenced, not a continuation", "```"]
-    expect(isFootnoteDefinitionLine(lines, 2)).toBe(false)
+    it("reports the TRUE column of an orphan marker preceded on the same line by an entity reference, not node.value's shorter length", () => {
+      const content = "&amp;[^fn1] after"
+      const { markers } = parseFootnotes(content)
+      // Source column is after the literal "&amp;" (5 chars), not the decoded "&" (1 char).
+      expect(markers).toEqual([{ name: "fn1", line: 0, character: 5, endCharacter: 11 }])
+    })
+
+    it("reports line two, not the text node's start line, for an orphan on the second line of a lazy list-item wrap", () => {
+      const content = ["- some text", "  continues[^fn1] here"].join("\n")
+      const { markers } = parseFootnotes(content)
+      expect(markers).toEqual([{ name: "fn1", line: 1, character: 11, endCharacter: 17 }])
+    })
+
+    it("reports nothing for an orphan inside a fence, an indented code block, or an inline-code span", () => {
+      const content = ["```", "[^a]", "```", "", "    [^b] indented", "", "prose `[^c]` span"].join(
+        "\n",
+      )
+      const { markers } = parseFootnotes(content)
+      expect(markers).toEqual([])
+    })
   })
 })
 
@@ -207,6 +246,11 @@ describe("nextFootnoteName", () => {
     const withFirst = `prose[^${first}]\n\n[^${first}]: your comment\n`
     expect(nextFootnoteName(withFirst)).toBe("fn2")
   })
+
+  it("counts an orphan marker (written but never given a definition) so it's never reused", () => {
+    // fn1 has no definition anywhere — it's an orphan, not a footnoteReference node.
+    expect(nextFootnoteName("prose[^fn1] more")).toBe("fn2")
+  })
 })
 
 describe("footnoteMarkerColumn", () => {
@@ -222,18 +266,6 @@ describe("footnoteMarkerColumn", () => {
   it("stays at the cursor when it sits on whitespace or punctuation", () => {
     expect(footnoteMarkerColumn("hello, world", 5)).toBe(5) // on the comma
     expect(footnoteMarkerColumn("hello world", 5)).toBe(5) // on the space
-  })
-})
-
-describe("proseBlockEnd", () => {
-  it("stops at the next blank line", () => {
-    const lines = ["a", "b", "", "c"]
-    expect(proseBlockEnd(lines, 0)).toBe(1)
-  })
-
-  it("runs to end of file when there is no blank line", () => {
-    const lines = ["a", "b", "c"]
-    expect(proseBlockEnd(lines, 0)).toBe(2)
   })
 })
 
@@ -310,6 +342,15 @@ describe("footnotePointerAt", () => {
   it("returns undefined (not applicable) for a position that is neither a marker nor a definition", () => {
     expect(footnotePointerAt(doc, { line: 0, character: 8 })).toBeUndefined() // "b", not the marker
   })
+
+  it("returns undefined — not 'resolved, no pointer' — for a two-space-indented line that LOOKS like a continuation but isn't one per real GFM (regression: a since-deleted line-based helper used to dead-end here on its own looser 'any indent continues' rule)", () => {
+    const content = ["text[^fn1]", "", "[^fn1]:", "  the reason"].join("\n")
+    // The tree's real GFM continuation span ends at line 2 (four spaces are
+    // required; this is indented only two) — line 3 is NOT part of the
+    // definition, so the caller must be free to fall through instead of
+    // getting stuck on "handled, but no pointer".
+    expect(footnotePointerAt(content, { line: 3, character: 2 })).toBeUndefined()
+  })
 })
 
 describe("isOnExistingFootnote", () => {
@@ -335,5 +376,41 @@ describe("isOnExistingFootnote", () => {
 
   it("is false for a document with no footnotes at all", () => {
     expect(isOnExistingFootnote("just prose", { line: 0, character: 0 })).toBe(false)
+  })
+
+  it("refuses inside an orphan marker's span too — planting a name there would still corrupt existing `[^` syntax", () => {
+    const content = "orphan[^missing] text"
+    const character = content.indexOf("[^missing]") + 2
+    expect(isOnExistingFootnote(content, { line: 0, character })).toBe(true)
+  })
+})
+
+describe("case-insensitive definition matching", () => {
+  it("resolves [^FN1] against a [^fn1]: definition with zero findings", () => {
+    const content = "claim[^FN1]\n\n[^fn1]: the reason\n"
+    const { findings } = parseFootnotes(content)
+    expect(findings).toEqual([])
+  })
+
+  it("jumps between a differently-cased marker and its definition in both directions", () => {
+    const content = "claim[^FN1]\n\n[^fn1]: the reason\n"
+    const markerChar = content.indexOf("[^FN1]") + 2
+    expect(footnotePointerAt(content, { line: 0, character: markerChar })?.pointer).toEqual({
+      line: 2,
+    })
+    expect(footnotePointerAt(content, { line: 2, character: 0 })?.pointer).toEqual({
+      line: 0,
+      character: content.indexOf("[^FN1]"),
+    })
+  })
+
+  it("renders a finding's message with the author's own casing (label), not the normalized identifier", () => {
+    const content = "no marker for this one\n\n[^FN1]: orphan definition"
+    const { findings } = parseFootnotes(content)
+    expect(findings).toContainEqual({
+      message: 'Footnote definition "[^FN1]" has no marker referencing it',
+      line: 2,
+      range: { start: { line: 2, character: 0 }, end: { line: 2, character: 25 } },
+    })
   })
 })

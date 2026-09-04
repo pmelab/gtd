@@ -1,16 +1,42 @@
+import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
 import type { FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
   footnotePointerAt,
-  isFootnoteDefinitionLine,
   isOnExistingFootnote,
   parseFootnotes,
-  proseBlockEnd,
-  stripFootnoteMarkers,
 } from "./Footnotes.js"
-import type { SteeringEdit, SteeringFormat, SteeringOutlineNode } from "./SteeringFormat.js"
+import {
+  blockNodeAt,
+  parseMarkdown,
+  sourceText,
+  taskItems,
+  toLspPosition,
+  toLspPositionFromOffset,
+} from "./MarkdownTree.js"
+import type {
+  SteeringEdit,
+  SteeringFinding,
+  SteeringFormat,
+  SteeringOutlineNode,
+} from "./SteeringFormat.js"
 
 export type OpenQuestionStatus = "open" | "answered"
+
+/**
+ * A marker's shape once it's plain text: `[^name]`, no whitespace, no `]` —
+ * mirrors `Footnotes.ts`'s own orphan-marker pattern. Local to this module:
+ * `headingText`, `firstBodyLineText`, and `optionText` (below) each extract
+ * text that is NOT a full node's own tree span (a heading's synthetic
+ * children span, or a raw line slice) — `sourceText`'s own real-reference
+ * exclusion only covers the former, so a marker (real, matched-by-definition
+ * as much as orphan) still needs stripping out of the resulting string by
+ * its own literal shape either way.
+ */
+const MARKER_TEXT_RE = /\[\^([^\s\]]+)\]/g
+
+/** Strips every `[^name]`-shaped marker out of already-extracted `text` — see `MARKER_TEXT_RE`. */
+const stripMarkerText = (text: string): string => text.replace(MARKER_TEXT_RE, "")
 
 /**
  * The sentinel an UNFILLED free-text option carries — the human answers by
@@ -72,113 +98,174 @@ export interface OpenQuestion {
 
 export interface OpenQuestionsDoc {
   readonly questions: readonly OpenQuestion[]
-  readonly errors: readonly string[]
-}
-
-const OPEN_QUESTIONS_HEADING = "## Open Questions"
-const ANSWERED_QUESTIONS_HEADING = "## Answered Questions"
-
-interface Heading {
-  readonly level: number
-  /** Heading text with the `#` run and surrounding whitespace stripped — `""` for a bare `###`. */
-  readonly text: string
+  readonly findings: readonly SteeringFinding[]
 }
 
 /**
- * Parses an ATX heading, or `undefined` when the line isn't one. A bare
- * `### ` is a level-3 heading with empty `text` on purpose — a heading with no
- * question text is the one structural error this format reports, so it must
- * be recognised rather than skipped as prose.
+ * A depth-2 heading's own text (footnote references excised, orphan `[^name]`
+ * markers stripped, internal whitespace collapsed) — `""` for a bare heading
+ * with no inline content, which is the one structural error this format
+ * reports rather than skips. Built from the heading's own CHILDREN span, not
+ * the heading node's own position: that starts at the `#` run, which would
+ * pull the marker and its separating space into `sourceText`'s slice.
  */
-const parseHeading = (line: string): Heading | undefined => {
-  const match = /^(#{1,6})(?:\s+(.*))?$/.exec(line.trim())
-  return match ? { level: match[1]!.length, text: (match[2] ?? "").trim() } : undefined
+const headingText = (content: string, heading: Heading): string => {
+  const children = heading.children
+  if (children.length === 0) return ""
+  const first = children[0]!
+  const last = children[children.length - 1]!
+  if (!first.position || !last.position) return ""
+  const synthetic = {
+    type: "heading",
+    children,
+    position: { start: first.position.start, end: last.position.end },
+  }
+  return stripMarkerText(sourceText(content, synthetic)).replace(/\s+/g, " ").trim()
 }
 
-/** One `###` heading under a questions section, with its raw body lines (up to the next heading of any level). */
+/** One `###` heading node under a questions section, with its raw body block nodes (up to the next heading of any level). */
 interface QuestionBlock {
-  readonly question: string
-  readonly headingLine: number
-  readonly body: readonly string[]
+  readonly heading: Heading
+  readonly body: readonly RootContent[]
 }
 
-/** Splits the lines after a `## ... Questions` heading into consecutive `###` blocks. Stops at the next level-1/2 heading or EOF. */
-const splitQuestionBlocks = (lines: readonly string[], start: number): readonly QuestionBlock[] => {
+/**
+ * Splits the tree's top-level nodes after a `## ... Questions` heading (given
+ * its own index into `tree.children`) into consecutive `###` blocks. Stops at
+ * the next heading of depth 1 or 2, or the end of the document. A depth-3
+ * heading with no children (a bare `###`) is still collected as a block, not
+ * skipped as prose — `parseQuestionBlock` is the one place that turns it into
+ * a finding.
+ */
+const splitQuestionBlocks = (tree: Root, sectionHeadingIndex: number): readonly QuestionBlock[] => {
   const blocks: QuestionBlock[] = []
-  let i = start
+  let i = sectionHeadingIndex + 1
 
-  while (i < lines.length) {
-    const heading = parseHeading(lines[i]!)
-    if (heading !== undefined && heading.level <= 2) break
+  while (i < tree.children.length) {
+    const node = tree.children[i]!
+    if (node.type === "heading" && node.depth <= 2) break
 
-    if (heading?.level !== 3) {
+    if (node.type !== "heading" || node.depth !== 3) {
       i += 1
       continue
     }
 
-    const question = stripFootnoteMarkers(heading.text)
-    const headingLine = i
+    const heading = node
     i += 1
-    const body: string[] = []
-    while (i < lines.length && parseHeading(lines[i]!) === undefined) {
-      body.push(lines[i]!)
+    const body: RootContent[] = []
+    while (i < tree.children.length && tree.children[i]!.type !== "heading") {
+      body.push(tree.children[i]!)
       i += 1
     }
-    blocks.push({ question, headingLine, body })
+    blocks.push({ heading, body })
   }
 
   return blocks
 }
 
-/** A markdown task-list checkbox line: `- [ ]` / `- [x]` / `* [X]`, optional leading indent, optional trailing text. */
-const CHECKBOX_RE = /^\s*[-*]\s*\[([ xX])\]\s?(.*)$/
-
 /**
- * The body index of the last line belonging to the list item that starts at
- * `index`: the run of following lines that are neither blank nor a checkbox of
- * their own. Indentation is NOT required — an unindented lazy wrap is as much
- * part of the item as an indented one.
+ * The first non-blank line of a question's body, verbatim (footnote markers
+ * stripped, trimmed) — a short summary for editor tooling. Taken from the
+ * first body block's OWN start line only, never the whole (possibly wrapped)
+ * node's joined text: a multi-line paragraph's continuation lines are not
+ * part of the summary. A `footnoteDefinition` block is skipped — it is never
+ * the question's own text.
  */
-const itemEndIndex = (body: readonly string[], index: number): number => {
-  let end = index
-  for (let i = index + 1; i < body.length; i += 1) {
-    const line = body[i]!
-    if (line.trim().length === 0 || CHECKBOX_RE.test(line) || isFootnoteDefinitionLine(body, i)) {
-      break
-    }
-    end = i
-  }
-  return end
+const firstBodyLineText = (lines: readonly string[], body: readonly RootContent[]): string => {
+  const node = body.find((n) => n.type !== "footnoteDefinition")
+  if (!node?.position) return ""
+  const lineIndex = toLspPosition(node.position.start).line
+  return stripMarkerText((lines[lineIndex] ?? "").trim())
 }
 
 /**
- * Extracts the checkbox options from a question block's body, in document
- * order. `bodyStart` is the absolute line index of `body[0]`, so each option
- * carries its true source line and span.
+ * Every task-list `listItem` in the TOP-LEVEL list(s) that appear directly in
+ * a question's body, in document order — never nested sub-lists (a
+ * continuation indented far enough to form a nested list under an option is
+ * not itself an option). `listItem.checked` — set by the GFM task-list
+ * extension — replaces the old checkbox regex entirely.
+ *
+ * Scope decision: a genuinely NESTED task-list item (indented under an
+ * existing option, so CommonMark parses it as that option's own sub-list,
+ * not indented code) is deliberately excluded from `options` — this format
+ * has no notion of a sub-option. Below a shallow (under 4 spaces) indent this
+ * is unremarkable — a real sub-list CommonMark itself distinguishes from a
+ * top-level option, no different from any other nested content. At 4+
+ * spaces, though, it's exactly the shape the old indent-tolerant
+ * `CHECKBOX_RE` DID count as an option — so it's genuinely lost from this
+ * format's output at that indent, and `recognizedStructureLines` (below)
+ * does NOT protect it from `strictReadingFindings`: only a node at or above
+ * the TOP level is excluded from that refusal, precisely so a 4+-space
+ * nested option (or a heading folded into a lazy continuation the same way)
+ * still gets a positioned finding instead of silently vanishing.
  */
-const parseOptions = (body: readonly string[], bodyStart: number): QuestionOption[] => {
-  const raw: { checked: boolean; text: string; sourceLine: number; bodyIndex: number }[] = []
-  body.forEach((line, i) => {
-    const match = CHECKBOX_RE.exec(line)
-    if (!match) return
-    raw.push({
-      checked: match[1] !== " ",
-      text: stripFootnoteMarkers(match[2]!).trim(),
-      sourceLine: bodyStart + i,
-      bodyIndex: i,
-    })
-  })
-  const lastIndex = raw.length - 1
-  return raw.map((option, i) => {
+const optionListItems = (body: readonly RootContent[]): readonly ListItem[] => {
+  const items: ListItem[] = []
+  for (const node of body) {
+    if (node.type !== "list") continue
+    for (const child of (node as List).children) {
+      if (child.checked !== null) items.push(child)
+    }
+  }
+  return items
+}
+
+/**
+ * The source OFFSET right after an option's `- [ ]`/`- [x]` marker — the
+ * first inline child of the item's paragraph, NOT the paragraph node's own
+ * position. `mdast-util-gfm-task-list-item` splices the consumed `[x] `
+ * text node out of a CHECKED item's paragraph without re-deriving the
+ * paragraph's own (now-stale) `position.start` when what's left starts with a
+ * non-text inline node (an unfilled placeholder's emphasis, say) — the
+ * paragraph's first CHILD is always positioned correctly, so this reads that
+ * instead. `undefined` when the item has no paragraph, or an empty one (a
+ * bare `- [ ]`/`- [x]` with no text).
+ */
+const optionContentOffset = (item: ListItem): number | undefined => {
+  const paragraph = item.children.find((c) => c.type === "paragraph")
+  return paragraph?.children[0]?.position?.start.offset
+}
+
+/**
+ * An option's own text: everything after the `- [ ]`/`- [x]` marker on the
+ * item's FIRST line only, never a wrapped continuation line — matching the
+ * OLD per-line regex capture (`endLine` still spans the wrap; `text` never
+ * did). When the marker is alone on its own line and the item's content
+ * starts on the NEXT line (an indented or lazy wrap), `optionContentOffset`
+ * still resolves to a real offset — just one on that later line, not the
+ * marker's own — so the line the offset itself falls on is checked against
+ * `sourceLine` before slicing; a mismatch means there is no text on the
+ * marker's own line, and `""` is correct (matching the old regex, which
+ * never captured a continuation line into `text` either).
+ */
+const optionText = (content: string, lines: readonly string[], item: ListItem): string => {
+  const offset = optionContentOffset(item)
+  if (offset === undefined || !item.position) return ""
+  const sourceLine = toLspPosition(item.position.start).line
+  const contentPosition = toLspPositionFromOffset(content, offset)
+  if (contentPosition.line !== sourceLine) return ""
+  const raw = (lines[sourceLine] ?? "").slice(contentPosition.character)
+  return stripMarkerText(raw).trim()
+}
+
+/** Extracts the checkbox options from a question block's body, in document order. */
+const parseOptions = (
+  content: string,
+  lines: readonly string[],
+  body: readonly RootContent[],
+): QuestionOption[] => {
+  const items = optionListItems(body)
+  const lastIndex = items.length - 1
+  return items.map((item, i) => {
     const freeText = i === lastIndex
-    const normalized =
-      freeText && option.text.trim().toLowerCase() === FREE_TEXT_PLACEHOLDER ? "" : option.text
+    const rawText = optionText(content, lines, item)
+    const text = freeText && rawText.toLowerCase() === FREE_TEXT_PLACEHOLDER ? "" : rawText
     return {
-      checked: option.checked,
-      text: normalized,
+      checked: item.checked === true,
+      text,
       freeText,
-      sourceLine: option.sourceLine,
-      endLine: bodyStart + itemEndIndex(body, option.bodyIndex),
+      sourceLine: toLspPosition(item.position!.start).line,
+      endLine: toLspPosition(item.position!.end).line,
     }
   })
 }
@@ -196,28 +283,39 @@ const isAnswered = (options: readonly QuestionOption[]): boolean => {
   return !(chosen.freeText && chosen.text.length === 0)
 }
 
+/** A heading node's own span (the `#` run through its own line's end) as a `SteeringFinding.range` — the NODE a heading-shaped finding is about. */
+const headingRange = (heading: Heading) => ({
+  start: toLspPosition(heading.position!.start),
+  end: toLspPosition(heading.position!.end),
+})
+
 const parseQuestionBlock = (
+  content: string,
+  lines: readonly string[],
   block: QuestionBlock,
   status: OpenQuestionStatus,
-): OpenQuestion | { readonly error: string } => {
-  if (block.question.length === 0) {
+): OpenQuestion | { readonly error: SteeringFinding } => {
+  const question = headingText(content, block.heading)
+  if (question.length === 0) {
     return {
-      error:
-        "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+      error: {
+        message:
+          "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
+        line: toLspPosition(block.heading.position!.start).line,
+        range: headingRange(block.heading),
+      },
     }
   }
 
-  const firstNonBlankLine = block.body.find(
-    (line, i) => line.trim().length > 0 && !isFootnoteDefinitionLine(block.body, i),
-  )
-  const firstNonBlank = firstNonBlankLine ? stripFootnoteMarkers(firstNonBlankLine.trim()) : ""
-  const options = status === "open" ? parseOptions(block.body, block.headingLine + 1) : []
+  const headingLine = toLspPosition(block.heading.position!.start).line
+  const text = firstBodyLineText(lines, block.body)
+  const options = status === "open" ? parseOptions(content, lines, block.body) : []
 
   return {
-    question: block.question,
+    question,
     status,
-    text: firstNonBlank,
-    headingLine: block.headingLine,
+    text,
+    headingLine,
     options,
     answered: status === "open" && options.length > 0 && isAnswered(options),
   }
@@ -228,50 +326,297 @@ const parseQuestionBlock = (
  * `## Answered Questions` must follow every other level-2 section — so a
  * reader (and a driver walking the file) always finds open questions first
  * and resolved ones last. At most one finding per rule, regardless of how
- * many competing sections offend it. Level-1 headings and prose don't count.
+ * many competing sections offend it. Level-1 headings and prose don't count,
+ * and — because this walks `heading` NODES, never a string search — a
+ * `## Open Questions` line quoted inside a fenced code block (a `code` node,
+ * not a heading) never counts as the section either. Each finding's range
+ * points at ONE offending heading — the first section (`h2[0]`) for the
+ * "before" violation, the last (`h2[h2.length - 1]`) for the "after" one —
+ * since either is, by construction, always one of the offenders when its
+ * violation fires.
+ *
+ * Known gap, out of this package's scope: a `## Open Questions` heading
+ * itself indented 4+ spaces parses as indented code too, so the whole
+ * section (and every question in it) goes unrecognized with no finding —
+ * `strictReadingFindings` only covers the `### ` heading and `- [ ]` option
+ * shapes this package's acceptance criteria name, not the section heading.
  */
-const checkSectionOrder = (lines: readonly string[]): readonly string[] => {
-  const h2Lines = lines
-    .map((line, index) => ({ index, heading: parseHeading(line) }))
-    .filter((entry) => entry.heading?.level === 2)
-    .map((entry) => entry.index)
+const checkSectionOrder = (tree: Root, content: string): readonly SteeringFinding[] => {
+  const h2 = tree.children.filter((n): n is Heading => n.type === "heading" && n.depth === 2)
+  const openIndex = h2.findIndex((h) => headingText(content, h) === "Open Questions")
+  const answeredIndex = h2.findIndex((h) => headingText(content, h) === "Answered Questions")
 
-  const openIndex = lines.findIndex((line) => line.trim() === OPEN_QUESTIONS_HEADING)
-  const answeredIndex = lines.findIndex((line) => line.trim() === ANSWERED_QUESTIONS_HEADING)
-
-  const findings: string[] = []
-  if (openIndex !== -1 && h2Lines.some((i) => i !== openIndex && i < openIndex)) {
-    findings.push("A '##' section appears before '## Open Questions', which must come first")
+  const findings: SteeringFinding[] = []
+  if (openIndex !== -1 && h2.some((_h, i) => i !== openIndex && i < openIndex)) {
+    const offender = h2[0]!
+    findings.push({
+      message: "A '##' section appears before '## Open Questions', which must come first",
+      line: toLspPosition(offender.position!.start).line,
+      range: headingRange(offender),
+    })
   }
-  if (answeredIndex !== -1 && h2Lines.some((i) => i !== answeredIndex && i > answeredIndex)) {
-    findings.push("A '##' section appears after '## Answered Questions', which must come last")
+  if (answeredIndex !== -1 && h2.some((_h, i) => i !== answeredIndex && i > answeredIndex)) {
+    const offender = h2[h2.length - 1]!
+    findings.push({
+      message: "A '##' section appears after '## Answered Questions', which must come last",
+      line: toLspPosition(offender.position!.start).line,
+      range: headingRange(offender),
+    })
+  }
+  return findings
+}
+
+/** A line shaped like a '### ' question heading, indented past what CommonMark still parses as a real heading — used only by `strictReadingFindings` to recognize what fell through. */
+const HEADING_SHAPE_RE = /^#{3}(?:\s|$)/
+
+/** A line shaped like a '- [ ]'/'- [x]'/'* [X]' task-list option, indented past what CommonMark still parses as a real list item — used only by `strictReadingFindings` to recognize what fell through. */
+const OPTION_SHAPE_RE = /^[-*]\s*\[[ xX]\]/
+
+/**
+ * True when the `code` node at `node` is FENCED (```` ``` ````/`~~~`), never
+ * indented — both parse to the same `code` node type, so telling them apart
+ * means checking the delimiter that actually opens the block, back in the
+ * source. A fenced block quoting `### ` or `- [ ]` text is a legitimate
+ * example, not a dropped heading/option — `strictReadingFindings` must not
+ * fire on it.
+ */
+const isFencedCode = (content: string, node: Code): boolean => {
+  if (!node.position) return false
+  const lines = content.split(/\r?\n/)
+  const raw = (lines[toLspPosition(node.position.start).line] ?? "").trim()
+  return raw.startsWith("```") || raw.startsWith("~~~")
+}
+
+/**
+ * Every 0-based line inside a NODE matching `predicate`, at any nesting
+ * depth — used by `fencedCodeLines` (a fenced block is a legitimate quoted
+ * example regardless of how deep it's nested).
+ */
+const linesWhere = (tree: Root, predicate: (node: RootContent) => boolean): Set<number> => {
+  const lines = new Set<number>()
+  const walk = (node: RootContent | Root): void => {
+    if (node.type !== "root" && predicate(node) && node.position) {
+      const start = toLspPosition(node.position.start).line
+      const end = toLspPosition(node.position.end).line
+      for (let l = start; l <= end; l += 1) lines.add(l)
+    }
+    const children = (node as { children?: readonly RootContent[] }).children
+    if (children) children.forEach(walk)
+  }
+  walk(tree)
+  return lines
+}
+
+const markRange = (lines: Set<number>, node: RootContent): void => {
+  if (!node.position) return
+  const start = toLspPosition(node.position.start).line
+  const end = toLspPosition(node.position.end).line
+  for (let l = start; l <= end; l += 1) lines.add(l)
+}
+
+/**
+ * Every 0-based line inside a NESTED `heading` or `list` descendant of a
+ * top-level task-list `item` — the part of that item's own span this
+ * format's `optionListItems` (above) never looks past. A lazy continuation
+ * heading or a nested sub-list is real, correctly-parsed tree structure, but
+ * it's still lost from this format's OUTPUT (no option, no question — the
+ * old indent-tolerant `CHECKBOX_RE` would have counted it as one), so
+ * `recognizedStructureLines` must not blanket-exclude it just because it
+ * sits inside a real item's overall span.
+ */
+const nestedBlockLines = (item: ListItem): Set<number> => {
+  const lines = new Set<number>()
+  const walk = (node: RootContent): void => {
+    if (node.type === "heading" || node.type === "list") {
+      markRange(lines, node)
+      return
+    }
+    const children = (node as { children?: readonly RootContent[] }).children
+    if (children) children.forEach(walk)
+  }
+  item.children.forEach(walk)
+  return lines
+}
+
+/** Marks a top-level `list` node's own TOP-LEVEL task-list items into `lines`, each minus its own `nestedBlockLines` — split out of `recognizedStructureLines` to keep that function's own complexity down. */
+const markTopLevelListItems = (lines: Set<number>, list: List): void => {
+  for (const item of list.children) {
+    if (item.checked === null) continue
+    markRange(lines, item)
+    for (const nested of nestedBlockLines(item)) lines.delete(nested)
+  }
+}
+
+/**
+ * Every 0-based line already inside a TOP-LEVEL `heading` (depth 2 or 3 —
+ * the only depths this format recognizes), a TOP-LEVEL task-list `listItem`'s
+ * own span (a direct child of a `list` that is itself a direct child of the
+ * tree) — MINUS any `heading`/`list` nested inside that item
+ * (`nestedBlockLines`) — or a `footnoteDefinition`'s ENTIRE span, whole.
+ * `strictReadingFindings` never flags a line in what's left.
+ *
+ * The heading/list-item exclusion covers what's legitimately part of the
+ * tree already, in a shape this format actually consumes; anything at a
+ * DEEPER nesting depth there is NOT excluded, however validly CommonMark
+ * parses it — `optionListItems` never looks past the top level, so that
+ * content is just as lost from this format's output as an unindented line
+ * would be, and the refusal must still be able to flag it. A genuinely
+ * shallow (under 4 spaces) nested sub-item is unaffected either way, via the
+ * `raw` indent guard in `strictReadingFindingsInRange`.
+ *
+ * A footnote definition is different in kind, not degree: it is the human's
+ * own free-text comment channel, never itself a candidate heading or option
+ * under ANY reading (loose or strict) — the refusal exists to catch content
+ * lost from this format's OUTPUT, and a footnote body was never part of that
+ * output to begin with. So its whole span is excluded unconditionally, at
+ * whatever nesting a human happens to write inside it — this repo's own
+ * footnote style (`QA_SAMPLE`) indents a definition's continuation lines
+ * four spaces, exactly the threshold that would otherwise misfire here.
+ */
+const recognizedStructureLines = (tree: Root): Set<number> => {
+  const lines = new Set<number>()
+  for (const node of tree.children) {
+    if (node.type === "heading" && (node.depth === 2 || node.depth === 3)) markRange(lines, node)
+    if (node.type === "list") markTopLevelListItems(lines, node)
+    if (node.type === "footnoteDefinition") markRange(lines, node)
+  }
+  return lines
+}
+
+/** Every 0-based line inside a FENCED code block — a legitimate quoted example, never a strict-reading violation (unlike an indented code block, or an indented lazy paragraph continuation, which the refusal exists to catch). */
+const fencedCodeLines = (tree: Root, content: string): Set<number> =>
+  linesWhere(tree, (n) => n.type === "code" && isFencedCode(content, n))
+
+/**
+ * A depth-2 section heading's own body line range: from just after the
+ * heading's own line to (but excluding) the next depth-1/2 heading's line,
+ * or the document's last line. Line-based (not node-index-based) because the
+ * whole point of `strictReadingFindings` is to catch source that DIDN'T
+ * become a distinct top-level node — a lazy paragraph continuation folds
+ * into the PRECEDING paragraph's own node, so there is no node boundary to
+ * walk between here.
+ */
+const sectionLineRange = (
+  tree: Root,
+  content: string,
+  heading: Heading,
+): { readonly start: number; readonly end: number } => {
+  const lines = content.split(/\r?\n/)
+  const index = tree.children.indexOf(heading)
+  const start = toLspPosition(heading.position!.end).line + 1
+  let end = lines.length - 1
+  for (let i = index + 1; i < tree.children.length; i += 1) {
+    const node = tree.children[i]!
+    if (node.type === "heading" && node.depth <= 2 && node.position) {
+      end = toLspPosition(node.position.start).line - 1
+      break
+    }
+  }
+  return { start, end }
+}
+
+/** The strict-reading message for one dropped `trimmed` line, or `undefined` when it matches neither shape — split out of `strictReadingFindings` to keep that function's own complexity down. */
+const strictReadingMessage = (trimmed: string): string | undefined => {
+  if (HEADING_SHAPE_RE.test(trimmed)) {
+    return `An indented (4+ space) "${trimmed}" is markdown indented code (or a lazy paragraph continuation), not a question heading — it is silently dropped otherwise`
+  }
+  if (OPTION_SHAPE_RE.test(trimmed)) {
+    return `An indented (4+ space) "${trimmed}" is markdown indented code (or a lazy paragraph continuation), not an option — it is silently dropped otherwise`
+  }
+  return undefined
+}
+
+/** Every strict-reading finding in ONE section's own `[start, end]` line range — split out of `strictReadingFindings` to keep that function's own complexity down (one section's scan, not the loop over both sections). */
+const strictReadingFindingsInRange = (
+  lines: readonly string[],
+  excluded: ReadonlySet<number>,
+  start: number,
+  end: number,
+): SteeringFinding[] => {
+  const findings: SteeringFinding[] = []
+  for (let line = start; line <= end; line += 1) {
+    if (excluded.has(line)) continue
+    const raw = lines[line] ?? ""
+    if (raw.length - raw.trimStart().length < 4) continue
+    const message = strictReadingMessage(raw.trim())
+    // No real node exists for this line (that's the whole violation — the
+    // content never became one) so its range is the raw line itself, start
+    // to end, rather than a node span.
+    if (message) {
+      findings.push({
+        message,
+        line,
+        range: { start: { line, character: 0 }, end: { line, character: raw.length } },
+      })
+    }
   }
   return findings
 }
 
 /**
- * Parses the open-questions structure out of `content`. Total and
- * side-effect-free: always returns a result, never throws. Questions are
- * returned in document order (by heading line).
+ * The strict reading's positioned refusal: a `### `-shaped or `- [ ]`-shaped
+ * line indented 4+ spaces is never a real heading or list item — either
+ * INDENTED CODE (when it opens its own block) or, just as easily, a LAZY
+ * PARAGRAPH CONTINUATION of whatever non-blank line precedes it (when it
+ * doesn't) — so without this check it vanishes with no signal at all: a
+ * whole question silently dropped, or left with zero options and read as
+ * merely unanswered. Scans every RAW line of a `## Open Questions`/
+ * `## Answered Questions` section's own body for such a line (excluding
+ * lines already inside a real heading/list-item node, or inside a fenced
+ * code block) and reports it at that EXACT source line, rather than let it
+ * disappear regardless of which of the two swallowed it.
+ */
+const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] => {
+  const lines = content.split(/\r?\n/)
+  const excluded = new Set([...recognizedStructureLines(tree), ...fencedCodeLines(tree, content)])
+
+  return ["Open Questions", "Answered Questions"].flatMap((sectionName) => {
+    const heading = tree.children.find(
+      (n): n is Heading =>
+        n.type === "heading" && n.depth === 2 && headingText(content, n) === sectionName,
+    )
+    if (!heading?.position) return []
+    const { start, end } = sectionLineRange(tree, content, heading)
+    return strictReadingFindingsInRange(lines, excluded, start, end)
+  })
+}
+
+/**
+ * Parses the open-questions structure out of `content`, plus every finding
+ * `QA_FORMAT.validate` reports — every finding here carries a `line` AND a
+ * `range` spanning the node it's about (the section-order and empty-heading
+ * findings included; only `strictReadingFindings`' own line-shaped findings
+ * never had a real node to begin with, so their range spans the raw offending
+ * line instead). This IS `parseOpenQuestions` — there is no second parse
+ * function to route around its own return type, mirroring `ReviewDoc.ts`'s
+ * single `parseReviewDoc`.
  */
 export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
+  const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
 
   const questions: OpenQuestion[] = []
-  const errors: string[] = [...checkSectionOrder(lines)]
-
-  const sections: readonly (readonly [string, OpenQuestionStatus])[] = [
-    [OPEN_QUESTIONS_HEADING, "open"],
-    [ANSWERED_QUESTIONS_HEADING, "answered"],
+  const findings: SteeringFinding[] = [
+    ...checkSectionOrder(tree, content),
+    ...strictReadingFindings(tree, content),
   ]
 
-  for (const [heading, status] of sections) {
-    const headingIndex = lines.findIndex((line) => line.trim() === heading)
-    if (headingIndex === -1) continue
-    for (const block of splitQuestionBlocks(lines, headingIndex + 1)) {
-      const result = parseQuestionBlock(block, status)
+  const sections: readonly (readonly [string, OpenQuestionStatus])[] = [
+    ["Open Questions", "open"],
+    ["Answered Questions", "answered"],
+  ]
+
+  for (const [sectionName, status] of sections) {
+    const headingNode = tree.children.find(
+      (n): n is Heading =>
+        n.type === "heading" && n.depth === 2 && headingText(content, n) === sectionName,
+    )
+    if (!headingNode) continue
+    const index = tree.children.indexOf(headingNode)
+    for (const block of splitQuestionBlocks(tree, index)) {
+      const result = parseQuestionBlock(content, lines, block, status)
       if ("error" in result) {
-        errors.push(result.error)
+        findings.push(result.error)
       } else {
         questions.push(result)
       }
@@ -279,23 +624,46 @@ export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   }
 
   questions.sort((a, b) => a.headingLine - b.headingLine)
-  return { questions, errors }
+  return { questions, findings }
 }
 
 /** Every OPEN question that is not answered — the answer-completeness guard (`src/StepGuards.ts`) refuses a step while this is non-empty. */
 export const unansweredQuestions = (content: string): readonly OpenQuestion[] =>
   parseOpenQuestions(content).questions.filter((q) => q.status === "open" && !q.answered)
 
-/** Flips the checkbox on `line`, preserving the rest of the line exactly. `undefined` when the line has no LIST-MARKER checkbox — a bare `[x]` in ordinary prose doesn't count. */
+/**
+ * Flips the checkbox on the task-list item starting at `line`, preserving the
+ * rest of the line exactly. `undefined` when `line` isn't a real task-list
+ * item's own start line — a bare `[x]` in ordinary prose doesn't count,
+ * because it never parses into a `listItem` with `checked !== null` at all.
+ *
+ * The box's offset is resolved as the first `[` at or after the item's own
+ * start offset, bounded by (before) its content's start offset
+ * (`optionContentOffset`) — the task-list extension consumes the `[x]`
+ * marker, so the item's actual text starts right after `] `, and that window
+ * contains only the list marker and the box. This replaces a guess
+ * (`raw.indexOf("[")` over the whole line, which text containing its own `[`
+ * could otherwise mislead) with an exact offset that cannot land on anything
+ * but the box.
+ */
 export const toggleCheckbox = (content: string, line: number): SteeringEdit | undefined => {
-  const raw = content.split(/\r?\n/)[line]
-  if (raw === undefined) return undefined
-  const match = CHECKBOX_RE.exec(raw)
-  if (!match) return undefined
-  const character = raw.indexOf("[") + 1
+  const tree = parseMarkdown(content)
+  const item = taskItems(tree).find((it) => toLspPosition(it.position!.start).line === line)
+  if (!item?.position) return undefined
+
+  const startOffset = item.position.start.offset!
+  const boundOffset = optionContentOffset(item) ?? item.position.end.offset!
+  const bracketOffset = content.indexOf("[", startOffset)
+  if (bracketOffset === -1 || bracketOffset >= boundOffset) return undefined
+
+  const position = toLspPositionFromOffset(content, bracketOffset)
+  const character = position.character + 1
   return {
-    range: { start: { line, character }, end: { line, character: character + 1 } },
-    newText: match[1] === " " ? "x" : " ",
+    range: {
+      start: { line: position.line, character },
+      end: { line: position.line, character: character + 1 },
+    },
+    newText: item.checked === true ? " " : "x",
   }
 }
 
@@ -328,6 +696,35 @@ const footnoteLeaf = (
 })
 
 /**
+ * One question block's own outline range end: its last body block's own end
+ * line, or the heading's own end line for a bare/empty block — never "the
+ * next heading's line minus one", which would swallow trailing blank lines
+ * (or, worse, unrelated content) between this question and the next.
+ */
+const blockEndLine = (block: QuestionBlock): number => {
+  const last = [...block.body].reverse().find((n) => n.position !== undefined)
+  return toLspPosition((last?.position ?? block.heading.position!).end).line
+}
+
+/** Every question/answered heading's own line → its outline range's real end line (`blockEndLine`), across both sections — the node-boundary replacement for the old "next sibling's heading minus one" guess. */
+const questionEndLines = (content: string): ReadonlyMap<number, number> => {
+  const tree = parseMarkdown(content)
+  const map = new Map<number, number>()
+  for (const sectionName of ["Open Questions", "Answered Questions"]) {
+    const headingNode = tree.children.find(
+      (n): n is Heading =>
+        n.type === "heading" && n.depth === 2 && headingText(content, n) === sectionName,
+    )
+    if (!headingNode) continue
+    const index = tree.children.indexOf(headingNode)
+    for (const block of splitQuestionBlocks(tree, index)) {
+      map.set(toLspPosition(block.heading.position!.start).line, blockEndLine(block))
+    }
+  }
+  return map
+}
+
+/**
  * The outline tree for a `qa`-mode file's open/answered questions, each
  * option a `leaf: true` child of its open question — unless it carries a
  * footnote of its own, in which case it's a container instead (`leaf` and
@@ -341,9 +738,10 @@ const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { markers, definitions } = parseFootnotes(content)
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   const lines = content.split(/\r?\n/)
-  return questions.map((question, i) => {
+  const endLines = questionEndLines(content)
+  return questions.map((question) => {
     const start = question.headingLine
-    const end = Math.max(start, (questions[i + 1]?.headingLine ?? lines.length) - 1)
+    const end = Math.max(start, endLines.get(start) ?? start)
     const questionMarkers = markers.filter((m) => m.line >= start && m.line <= end)
     const assigned = new Set<FootnoteMarker>()
 
@@ -409,26 +807,21 @@ const optionAction = (
 
 /**
  * The block a footnote lands after when "add a footnote" fires with the
- * cursor at `cursorLine`: the whole contiguous option list's own span (its
- * first option's `sourceLine` through its last option's `endLine`, never
- * split between two items) when the cursor sits inside one, otherwise the
- * surrounding prose block (the next blank line or EOF) — covers question-body
- * prose ABOVE a list, a question with no options at all, and any cursor
- * position outside every question.
+ * cursor at `cursorLine`: the containing top-level block NODE's own end line
+ * (`blockNodeAt`) — a `list` node's own span IS the whole contiguous list
+ * (never split between two items), so this covers "inside a question's
+ * option list" the same way it covers question-body prose ABOVE a list, a
+ * question with no options at all, and any cursor position outside every
+ * question — one rule, not a special case per shape. Resolving from the
+ * cursor's OWN containing node (rather than aggregating every option across
+ * a whole question) also means a question with TWO separate option lists
+ * resolves prose written between them to that prose's own span, never to the
+ * second list's end. Falls back to `cursorLine` itself only past the end of
+ * the document, where no block node exists.
  */
-const footnoteBlockEnd = (
-  content: string,
-  lines: readonly string[],
-  cursorLine: number,
-): number => {
-  const { questions } = parseOpenQuestions(content)
-  for (const question of questions) {
-    if (question.options.length === 0) continue
-    const first = question.options[0]!.sourceLine
-    const last = question.options[question.options.length - 1]!.endLine
-    if (cursorLine >= first && cursorLine <= last) return last
-  }
-  return proseBlockEnd(lines, cursorLine)
+const footnoteBlockEnd = (tree: Root, cursorLine: number): number => {
+  const block = blockNodeAt(tree, cursorLine)
+  return block?.position ? toLspPosition(block.position.end).line : cursorLine
 }
 
 /**
@@ -442,17 +835,13 @@ const footnoteBlockEnd = (
  */
 const questionActions: SteeringFormat["actions"] = (content, range) => {
   const { questions } = parseOpenQuestions(content)
-  const lines = content.split(/\r?\n/)
+  const tree = parseMarkdown(content)
   const cursorLine = range.start.line
   const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
   if (!isOnExistingFootnote(content, range.start)) {
     actions.push({
       title: "gtd: add a footnote",
-      edits: footnoteAdditionEdits(
-        content,
-        range.start,
-        footnoteBlockEnd(content, lines, cursorLine),
-      ),
+      edits: footnoteAdditionEdits(content, range.start, footnoteBlockEnd(tree, cursorLine)),
     })
   }
   for (const question of questions) {
@@ -475,11 +864,11 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
 const questionsPointerAt: SteeringFormat["pointerAt"] = (content, position) =>
   footnotePointerAt(content, position)?.pointer
 
-/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Its structural findings are positionless, but a footnote finding carries the offending marker's or definition's `line`. */
+/** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Every structural finding carries a line and a range spanning the node it's about. */
 export const QA_FORMAT: SteeringFormat = {
   sample: QA_SAMPLE,
   validate: (content) => [
-    ...parseOpenQuestions(content).errors.map((message) => ({ message })),
+    ...parseOpenQuestions(content).findings,
     ...parseFootnotes(content).findings,
   ],
   outline: questionsOutline,

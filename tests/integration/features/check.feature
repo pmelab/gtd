@@ -55,7 +55,10 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stderr contains "has no question text"
 
   @inmem
-  Scenario: a qa file with Answered Questions before Open Questions fails ordering validation
+  Scenario: a qa file with Answered Questions before Open Questions fails ordering validation, each finding printed as file:line:col:
+    # `## Answered Questions` is followed by another `##` section ('## Open
+    # Questions' itself) — the package-04 acceptance case: each ordering
+    # finding now carries both a line AND a column, not a bare message.
     Given a file "NOTES.md" with:
       """
       Build a thing.
@@ -76,8 +79,8 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     When I run gtd with args "check qa NOTES.md"
     Then it fails
     And stdout is empty
-    And stderr contains "A '##' section appears before '## Open Questions', which must come first"
-    And stderr contains "A '##' section appears after '## Answered Questions', which must come last"
+    And stderr contains "NOTES.md:3:1: A '##' section appears before '## Open Questions', which must come first"
+    And stderr contains "NOTES.md:9:1: A '##' section appears after '## Answered Questions', which must come last"
 
   @inmem
   Scenario: a qa file with Open Questions before Answered Questions validates cleanly and exits 0 silently
@@ -134,6 +137,96 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     When I run gtd with args "check review REVIEW.md"
     Then it succeeds
     And stdout is empty
+
+  @inmem
+  Scenario: a qa file that quotes a footnote-shaped line inside a fenced code block still validates clean
+    Given a file "NOTES.md" with:
+      """
+      Build a thing.
+
+      ## Open Questions
+
+      ### How should the driver doc show a footnote example?
+
+      Like this, inside a fence so it's never treated as a real definition:
+
+      ```
+      claim[^fn1]
+
+      [^fn1]: not a real footnote, just documentation
+      ```
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
+  Scenario: a qa file that quotes '## Open Questions' inside a fenced code block still validates clean
+    Given a file "NOTES.md" with:
+      """
+      Build a thing. Plan: add src/thing.ts exporting `thing`.
+
+      This file documents its own format, quoting the section heading itself:
+
+      ```
+      ## Open Questions
+      ```
+
+      ## Open Questions
+
+      ### Should thing export a default too?
+
+      No, named export only.
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
+  Scenario: a '- [ ]' option indented four spaces no longer counts as one, and the structural check names its exact line
+    # Four (or more) leading spaces before a "- [ ]" line is CommonMark
+    # indented code, not a list item — without a dedicated check this option
+    # would vanish from the tree with no signal at all. `gtd check qa` (the
+    # structural path, no --open-questions) must instead fail and point at
+    # the exact line the option was written on.
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+          - [ ] SQLite — zero-config, file-based
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stdout is empty
+    And stderr contains "NOTES.md:7:"
+    And stderr contains "- [ ] SQLite"
+
+  @inmem
+  Scenario: the same four-space-indented option is still caught with PROSE directly above it, not a blank line — a lazy paragraph continuation, never its own `code` node
+    # With a non-blank line directly above it, the indented "- [ ]" line is a
+    # LAZY PARAGRAPH CONTINUATION of that prose (CommonMark), not an indented
+    # code block — a structurally different way for the same option to
+    # vanish from the tree, which the refusal must catch just the same.
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      Pick one:
+          - [ ] SQLite — zero-config, file-based
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stdout is empty
+    And stderr contains "NOTES.md:8:"
+    And stderr contains "- [ ] SQLite"
 
   @inmem
   Scenario: a malformed review file prints the parser's findings on stderr and fails
@@ -220,6 +313,27 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     When I run gtd with args "check qa NOTES.md --open-questions"
     Then it succeeds
     And stdout is empty
+
+  @inmem
+  Scenario: --open-questions fails when the only option is indented four spaces and no longer counts as one
+    # Four (or more) leading spaces before a "- [ ]" line is CommonMark
+    # indented code, not a list item — the option is silently lost from the
+    # tree, so the question is left with zero options and reads as
+    # unanswered rather than answered by an option nobody can see.
+    Given a file "NOTES.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+          - [ ] SQLite — zero-config, file-based
+      """
+    When I run gtd with args "check qa NOTES.md --open-questions"
+    Then it fails
+    And stdout is empty
+    And stderr contains "Which storage backend?"
 
   @inmem
   Scenario: --open-questions on a missing file fails and names the path — unlike the no-flag path's silent exit 0

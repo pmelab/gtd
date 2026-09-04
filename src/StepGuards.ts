@@ -108,7 +108,9 @@ const answerCompletenessGuard: StepGuard = {
       const current = (yield* ctx.worktree) ?? ""
       const unanswered = unansweredQuestions(current)
       if (unanswered.length === 0) return undefined
-      const list = unanswered.map((q) => `  - ${q.question}`).join("\n")
+      const list = unanswered
+        .map((q) => `  - ${ctx.file}:${q.headingLine + 1}: ${q.question}`)
+        .join("\n")
       return `${unanswered.length} open question(s) in ${ctx.file} not answered at "${ctx.rest.state}" — tick exactly one option per question (or delete a question you don't want to answer, or delete the whole "## Open Questions" section to accept the plan as-is):\n${list}`
     }),
 }

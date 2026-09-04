@@ -15,7 +15,13 @@ import { PassThrough } from "node:stream"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"
-import { computeNextMatch, needsOf, runCommand, SelectorUsageError } from "./program.js"
+import {
+  computeNextMatch,
+  formatFinding,
+  needsOf,
+  runCommand,
+  SelectorUsageError,
+} from "./program.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { renderInitConfig } from "./workflows/templates.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
@@ -1420,7 +1426,7 @@ describe("gtd check <mode> <file>", () => {
     expect(stderr).toContain("REVIEW.md has no '##' chunks")
   })
 
-  it("a positioned finding prints '<file>:<line>: <message>' with a 1-based line number, on stderr", async () => {
+  it("a positioned finding prints '<file>:<line>:<col>: <message>', 1-based, on stderr", async () => {
     const repo = bareRepo()
     const secondPointerDoc = [
       "# Review: abc1234",
@@ -1435,9 +1441,17 @@ describe("gtd check <mode> <file>", () => {
     const { stdout, stderr, exitCode } = await run(repo, "check", "review", "REVIEW.md")
     expect(exitCode).toBe(1)
     expect(stdout).toBe("")
-    // The offending pointer is the 0-based 6th line (index 5) — printed 1-based as 6.
+    // The offending pointer is the 0-based 6th line (index 5) — printed
+    // 1-based as 6 — and the second pointer token itself starts at the
+    // 0-based column 24, printed 1-based as 25.
     expect(stderr).toContain(
-      'REVIEW.md:6: Chunk "Add calculator" hunk ./src/calc.ts#1\'s note starts with a second pointer (./src/other.ts#2) — give it its own "- [ ]" line',
+      'REVIEW.md:6:25: Chunk "Add calculator" hunk ./src/calc.ts#1\'s note starts with a second pointer (./src/other.ts#2) — give it its own "- [ ]" line',
+    )
+  })
+
+  it("a line-carrying finding with no range prints '<file>:<line>: <message>' — the flat-shape fallback no built-in format reaches", async () => {
+    expect(formatFinding("FAKE.md", { message: "positioned but rangeless", line: 4 })).toBe(
+      "FAKE.md:5: positioned but rangeless",
     )
   })
 
@@ -1589,7 +1603,7 @@ describe("gtd check <mode> <file> --open-questions", () => {
     )
     expect(exitCode).not.toBe(0)
     expect(stdout).toBe("")
-    expect(stderr).toContain("Which operations?")
+    expect(stderr).toContain(".gtd/TODO.md:5: Which operations?")
   })
 
   it("exits 0 with no output when every open question has a ticked box", async () => {
