@@ -17,8 +17,9 @@ field, and concern 6 already assigns it to the loop command.
 10.36 MB bundle parse plus its git subprocesses. A 30-worktree fleet read is ~18
 s serial, ~2.5 s at concurrency 8, and ~1–2 s unbounded at the price of 30
 concurrent node processes. The fleet screen is the first thing the phone loads,
-so this number is the product, not an implementation detail. It is open
-question 3.
+so beat reads are **memoized** (P2) and only a cold read pays that cost. The
+memo's accepted cost is a stale row: a change no part of its key covers is
+invisible until something in the key moves.
 
 **Second risk**: `CommandRunner` cannot run the loop. It is bound to `Cwd.root`,
 it **merges stdout into stderr** into one `output` string, and it has no signal
@@ -26,59 +27,6 @@ handling. Concern 6 requires `{stdout, stderr, exitCode}` intact and concern 7
 requires SIGINT-then-SIGKILL. So `serve` adds a second process port, and
 `CommandRunner`'s doc comment claiming to be "the only place gtd itself spawns a
 subprocess" becomes false and must be amended in the same commit.
-
-## Open Questions
-
-### Does `SteeringFormat` grow view-and-annotate members, or does `src/serve/` adapt each built-in format by hand?
-
-The server needs two things per format that the interface does not currently
-expose: a domain view model (chunks with hunks; questions with options) and an
-edit-producing annotate call (attach a footnote at an anchor). The parts exist
-as module exports — `parseReviewDoc`, `parseOpenQuestions`, `toggleFilePointer`,
-`toggleCheckbox` — but none of them is a `SteeringFormat` member, and footnote
-_insertion_ does not exist at all in either module.
-
-- [x] Grow the interface — add a `view` and an `annotate` member to
-      `SteeringFormat`, so the LSP and the web surface share one seam and a
-      user-declared custom mode can light up the phone UI later.
-      `SteeringFormat.ts` is a zero-import vocabulary file and stays one; it
-      gains two union types. `SteeringFormats.test.ts` gets a universal
-      assertion per registry entry, the same way `sample` is already forced
-- [ ] Adapt by hand — `src/serve/` imports `ReviewDoc`/`OpenQuestions` directly
-      and switches on `mode`, leaving the core interface untouched. Two bespoke
-      adapters, no churn in a file the LSP depends on, and a third format needs
-      a third adapter before the phone shows it anything
-- [ ] _your answer_
-
-### Does this repository gain a real Storybook, or only the story file format run through `composeStories` in a jsdom vitest project?
-
-Concern 8 settles that "Storybook stories run as vitest tests under a new
-`test:web` task". Both of these satisfy that sentence and they are not the same
-build.
-
-- [x] Full Storybook — `@storybook/react-vite` plus the vitest addon and browser
-      mode, which means a Playwright chromium download in CI; roughly 300 MB of
-      devDependencies, and a browsable component catalog on a real phone, which
-      is how both prototypes were validated in the first place
-- [ ] Portable stories only — keep `*.stories.tsx` as the file format and run
-      them via `@storybook/react`'s `composeStories` in a new jsdom vitest
-      project; roughly 30 MB, no browser download, no `storybook dev`, and no
-      way to open the catalog on the phone
-- [ ] _your answer_
-
-### Is each worktree's beat re-read on every fleet request, or memoized against HEAD sha plus steering-file mtime?
-
-Concern 2 settles that the _directory scan_ is redone on every request. It does
-not settle the N beat reads that follow, and those are the 520–660 ms each.
-
-- [ ] Re-read every time, bounded at concurrency 8 — always truthful, never a
-      stale row, and a ~2.5 s fleet load at 30 worktrees on every pull-to-
-      refresh
-- [x] Memoize per worktree on a key of HEAD's sha, the mtime of the state's
-      steering file, and the mtime of the loop log — a warm fleet load is
-      milliseconds; the cost is that a change no part of that key covers shows a
-      stale row until something in the key moves
-- [ ] _your answer_
 
 ## Packages
 
@@ -154,8 +102,8 @@ ordered browser-first: the browser config bundles `src/web/main.tsx` with
 `platform: "browser"`, then a tiny step inlines that output into
 `src/web/app.html` as one `<script type="module">`, and the existing node config
 imports that file through the `.html` text loader already configured — the same
-mechanism `src/ visualize.html` (79 KB, hand-written, no build step) already
-uses. `src/web/ app.html` is generated and gitignored beside `schema.json`, so
+mechanism `src/visualize.html` (79 KB, hand-written, no build step) already
+uses. `src/web/app.html` is generated and gitignored beside `schema.json`, so
 `format:check` never sees it. `gtd serve --dev` reads `src/web/` off disk
 instead.
 
@@ -170,9 +118,23 @@ entire client reads as dead code. `stryker.config.json`'s `mutate` array doubles
 as vitest's coverage `include`, so `src/web/**` stays out of it —
 mutation-testing React components buys nothing.
 
+**Storybook is real, not just a file format.** `@storybook/react-vite` plus
+`@storybook/addon-vitest` and vitest's browser mode, with `.storybook/` holding
+the config. It is roughly **300 MB of devDependencies and a Playwright chromium
+download in CI** — bought deliberately, because a catalog browsable on a real
+phone is how both prototypes were validated in the first place, and every screen
+in P4 is a phone screen before it is a component. Vitest already brings vite, so
+no second bundler enters the repository. Browser mode becomes a fourth vitest
+project beside `unit`/`e2e-inmem`/`e2e-live`, and CI grows an explicit
+`playwright install chromium` step — a browser that downloads implicitly on
+first run is a CI failure waiting for a cache miss.
+
 **`test:web` needs all three, or `tests/tooling/turbo.test.ts` fails**: a
 `package.json` script, a `turbo.json` task with an explicit `inputs` array
-covering `src/web/**`, and the task name in the `test` script's list.
+covering `src/web/**` and `.storybook/**`, and the task name in the `test`
+script's list. `.storybook/` is under `src`-equivalent scrutiny: `oxfmt`,
+`oxlint` and `fallow` all see it, so its config files need `.fallowrc.json`
+entries the same way `vitest.stryker.config.ts` already has one.
 
 Primary paths: `src/Cli.ts`, `src/Cli.test.ts`, `src/ConfigSchema.ts`,
 `src/ConfigSchema.test.ts`, `src/PatternConfig.ts`, `src/program.ts`,
@@ -180,7 +142,9 @@ Primary paths: `src/Cli.ts`, `src/Cli.test.ts`, `src/ConfigSchema.ts`,
 `src/serve/Qr.ts`, `src/serve/Server.ts`, `src/web/main.tsx`,
 `src/web/index.html`, `src/web/tsconfig.json`, `tsdown.config.ts`, `turbo.json`,
 `package.json`, `.oxlintrc.json`, `.fallowrc.json`, `.gitignore`,
-`stryker.config.json`, `docs/cli.md`, `docs/configuration.md`.
+`stryker.config.json`, `vitest.config.ts`, `.storybook/main.ts`,
+`.storybook/preview.ts`, `.github/workflows/`, `docs/cli.md`,
+`docs/configuration.md`.
 
 ### P2 — worktree discovery and the fleet screen
 
@@ -201,6 +165,17 @@ and never shipped whole** — this repository's own beat is 7.9 KB because
 `content` and `system` carry the entire prompt, and 30 of those is a quarter
 megabyte for five fields. The row is
 `{id, repo, branch, label, kind, actor, idle, restedAt, bucket}`.
+
+**The read is memoized; the directory scan is not.** Concern 2 settles that the
+scan is redone on every request, and it stays that way — it is filesystem walks,
+not subprocesses. Each worktree's beat is cached against a key of **HEAD's sha,
+the mtime of the resting state's `file:`, and the mtime of the `log` path the
+beat itself reports**, so a warm fleet load is milliseconds instead of the
+520–660 ms per worktree a cold one pays. Cold reads run at bounded concurrency,
+never unbounded, so a 30-worktree first load cannot fork 30 node processes at
+once. **Risk, blunt**: a change none of those three cover shows a stale row
+until something in the key moves — the accepted cost, and the reason the memo
+key includes the loop log rather than HEAD alone.
 
 **The buckets.** `idle` is load-bearing and `actor` alone is not: an idle
 worktree reports `actor: human` too. So _Wants you_ is
@@ -237,10 +212,28 @@ reused.
 **The gap this package fills.** Footnote _insertion_ exists nowhere. Attaching a
 note means two edits at once — a `[^id]` marker at the anchor's end and a
 `[^id]:` definition — and it is shared by chunk notes, hunk notes and paragraph
-notes alike. It belongs in `src/Footnotes.ts` beside the marker and definition
-readers, which already own the naming rules including the case-insensitive fold.
-Ids are derived from the anchor, never counted, so two concurrent attaches
-cannot collide on `fn3`.
+notes alike. The mechanics belong in `src/Footnotes.ts` beside the marker and
+definition readers, which already own the naming rules including the
+case-insensitive fold. Ids are derived from the anchor, never counted, so two
+concurrent attaches cannot collide on `fn3`.
+
+**`SteeringFormat` grows two members: `view` and `annotate`.** The server never
+imports `ReviewDoc` or `OpenQuestions` and never switches on `mode` — it reads a
+view and produces edits through the registry, exactly as `gtd lsp` already reads
+`outline`/`actions`/`pointerAt`. `annotate` takes a content string plus an
+anchor and returns `SteeringEdit[]`; `view` returns that format's domain
+projection (P4). The payoff is that a **user-declared custom mode lights up the
+phone UI for free** once it registers a format, instead of showing nothing until
+someone writes a third adapter.
+
+**What that costs, stated plainly.** `SteeringFormat.ts` is a zero-import
+vocabulary file and **stays one** — it gains two union types and no imports.
+Both members are mandatory, not optional like `pointerAt`/`documentLinks`, so
+`SteeringFormats.test.ts` gains a universal per-registry-entry assertion in the
+shape `sample` is already forced through: every format's `view(sample)` parses
+and every anchor `view` reports is one `annotate` accepts. A widened core
+interface is churn in a file the LSP depends on; that is the price of one seam
+instead of two.
 
 **Compare-and-swap.** Every write carries `{head, hash}` — HEAD's sha and a
 SHA-256 of the steering file's exact bytes. The server re-reads both at write
@@ -284,8 +277,9 @@ it, and the mic of concern 9 is a leaf both the sheet and the free-text option
 render. Splitting them makes one package own the shell and the other rewrite it.
 
 **The view models.** `src/serve/View.ts` turns a steering file plus its mode
-into what the screen draws, projecting the format's own parse. `review` gives
-`ReviewDoc` — `{shortHash, fullHash, changesets, findings}` with
+into what the screen draws by calling **`SteeringFormat.view`** (P3), never the
+format modules directly — so a custom mode's screens come for free. `review`
+gives `ReviewDoc` — `{shortHash, fullHash, changesets, findings}` with
 `Changeset {title, description, files, headingLine}` and
 `ReviewFile {path, line, checked, note, sourceLine, endLine}`. `qa` gives
 `OpenQuestionsDoc` — `{questions, findings}` with
@@ -348,7 +342,7 @@ Primary paths: `src/serve/View.ts`, `src/serve/Diff.ts`,
 `src/serve/Diff.test.ts`, `src/web/screens/Review.tsx`,
 `src/web/screens/Hunk.tsx`, `src/web/screens/Plan.tsx`,
 `src/web/screens/Question.tsx`, `src/web/NoteSheet.tsx`, `src/web/Highlight.ts`,
-`src/web/Mic.tsx`, and each of those files' stories.
+`src/web/Mic.tsx`, and a `*.stories.tsx` beside each `.tsx` above.
 
 ### P5 — handing the turn back, and loop lifecycle
 
@@ -541,6 +535,28 @@ surfaced. See [#225](https://github.com/pmelab/gtd/issues/225).
 ```
 
 ## Answered Questions
+
+### Does `SteeringFormat` grow view-and-annotate members, or does `src/serve/` adapt each built-in format by hand?
+
+Grow the interface. `view` and `annotate` become mandatory members, so the LSP
+and the web surface share one seam and a user-declared custom mode can light up
+the phone UI later; `SteeringFormat.ts` stays zero-import and
+`SteeringFormats.test.ts` gains a universal assertion per registry entry, the
+way `sample` is already forced.
+
+### Does this repository gain a real Storybook, or only the story file format run through `composeStories` in a jsdom vitest project?
+
+A real Storybook — `@storybook/react-vite` plus the vitest addon and browser
+mode, roughly 300 MB of devDependencies and a Playwright chromium download in
+CI, bought for a component catalog browsable on a real phone, which is how both
+prototypes were validated in the first place.
+
+### Is each worktree's beat re-read on every fleet request, or memoized against HEAD sha plus steering-file mtime?
+
+Memoized, on a key of HEAD's sha, the mtime of the resting state's steering
+file, and the mtime of the loop log — a warm fleet load is milliseconds instead
+of 520–660 ms per worktree, and the accepted cost is a stale row until something
+in the key moves.
 
 ### Does the server read a worktree's state in-process or by spawning that worktree's own `gtd`?
 
