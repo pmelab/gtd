@@ -1,83 +1,92 @@
 # Spec feedback — 01-serve-and-client-harness
 
-Range re-inspected: `64dd325f` → working tree, fresh pass. The previous round's
-four problems are all fixed: the exit-2 deviation is now recorded at
-`ServeSchema`, `Server.test.ts:289` pins the QR block against
-`renderQrCode("https://100.90.1.2:4443/")`, `tests/tooling/turbo.test.ts` pins
-`.storybook/**` on `lint` and both entries on `test:web`, and
-`vitest.ensureWebClient.ts`'s comment no longer claims `test:web` declares
-`dependsOn: ["build"]`.
+Fresh pass over `64dd325f` → working tree. The previous round's three items are
+genuinely fixed: `tsdown.config.ts`'s `web` config now carries
+`deps: { alwaysBundle: [/.*/] }` and the built `generated.html` has no bare
+import specifier; `.fallowrc.json`'s `.storybook/` note checks out against
+`npx fallow list` (the `storybook` plugin does discover `main.ts`, `preview.ts`
+and `App.stories.tsx` as entries) and `deadcode` gained `.storybook/**` inputs;
+a half-configured cert pair now names the missing half.
 
-One blocker, plus two smaller items.
+Two problems remain — one blocker.
 
-## 1. BLOCKER — the inlined client is dead on arrival: the browser bundle keeps `react`, `@trpc/*` and `@tanstack/react-query` external
+## 1. BLOCKER — the inlined client still does not run: `String.replace`'s `$&` pattern corrupts the bundle and injects a stray `</script>`
 
-T5's criteria: "`npm run build` produces one node bundle with the client
-inlined" and "`gtd serve` without `--dev` serves the inlined client". The bundle
-is produced and served, but the client **cannot execute in a browser**. The
-`web` config in `tsdown.config.ts` sets no `noExternal`/`deps.alwaysBundle`, so
-tsdown externalizes every `package.json` dependency. `src/web/generated.html` as
-built today:
+T5's criterion "`gtd serve` without `--dev` serves the inlined client" is still
+unmet, for a different reason than last round. `scripts/inline-web-client.mjs`
+does:
 
-```
-<script type="module">
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink } from "@trpc/client";
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import { createTRPCReact } from "@trpc/react-query";
-import { jsx } from "react/jsx-runtime";
+```js
+template.replace(
+  scriptTagPattern,
+  `<script type="module">\n${clientScript}\n</script>`,
+)
 ```
 
-Bare specifiers in an inline module script, with no import map and nothing
-served under those paths. Every browser fails the module at resolution: nothing
-renders, `#root` stays empty. Measured live against the built bundle, not
-inferred:
+The second argument is a **replacement string**, so every `$&`, `` $` ``, `$'`,
+`$$` inside the bundled client JS is expanded. React's key escaping contains
+literally `escapedKey.replace(userProvidedKeyEscapeRegex, "$&/")` — twice — so
+in `src/web/generated.html` those two sites read:
 
 ```
-node dist/gtd.bundle.mjs serve --host 127.0.0.1 --port 18443 --self-signed
-curl -sk https://127.0.0.1:18443/ | grep 'from "react"'
-#  -> import { StrictMode } from "react";
+userProvidedKeyEscapeRegex, "<script type="module" src="./main.js"></script>/")
 ```
 
-The whole point of the `.html` text-loader path — one self-contained node bundle
-— is defeated: `generated.html` is 1873 bytes, i.e. the client's dependencies
-are nowhere in it. `--dev` shares the same config and the same defect.
+Two consequences, both fatal: the JS is semantically corrupted, and the injected
+`</script>` **terminates the inline module script early**. Counted on the real
+build: `grep -c '</script>' src/web/generated.html` → **3**, where a correct
+inline is **1**.
 
-The `gtd` config already solves exactly this with
-`deps: { alwaysBundle: (id) => !id.includes("qrcode-terminal") }`; the `web`
-config needs the equivalent (bundle everything, no exceptions).
+Measured live against the built bundle with headless chromium (`playwright`,
+`ignoreHTTPSErrors`):
 
-Nothing in the suite catches it, and that gap is half the finding: the only
-assertion on the generated HTML is `expect(html).toContain("<!doctype html>")`
-(`Server.test.ts:220`) and `expect(html).not.toContain('src="./main.js"')`
-(`:249`) — both pass on a client that cannot load. Land a check that the inlined
-script has **no non-relative `import … from` specifier** (a regex over
-`generated.html`, or over `resolveClientHtml(false, …)`'s output), so an
-externalized dependency reds the build instead of shipping.
+```
+node dist/gtd.bundle.mjs serve --host 127.0.0.1 --port 18449 --self-signed
+# page:  root innerHTML: ""
+#        document.body.innerText length: 984758   <- the whole bundle rendered as page text
+#        pageerror: SyntaxError: missing ) after argument list
+```
 
-## 2. T7's "`.storybook/` … carry dead-code entries" is unmet — the criterion holds only by accident
+Nothing renders. `#root` is empty and ~985 KB of JavaScript is displayed as
+visible text.
 
-`.fallowrc.json` gained `src/web/main.tsx` but no `.storybook/` entry. Today
-nothing is reported dead (`fallow`: 0 dead of 169) — because fallow never
-**scans** `.storybook/` at all: the root `tsconfig.json` includes only
-`src`/`tests`, and no `.storybook` path appears anywhere in fallow's output. So
-the criterion's purpose is met by a coincidence of file discovery, not by the
-entries it asks for, and `deadcode`'s turbo `inputs` list carries no
-`.storybook/**` either.
+`src/serve/Server.ts`'s `renderHtml` has the **same** defect on the `--dev` path
+— same `template.replace(DEV_SCRIPT_TAG, "<script …>" + script + …)` shape — so
+T5's `--dev` criterion is broken identically.
 
-Resolve it the way item 1 of the last round was resolved: either add the
-`.storybook/*.ts` entries (plus `.storybook/**` in `deadcode`'s `inputs`), or
-record at `.fallowrc.json` why those files need none — a reader comparing the
-criterion to the config currently finds neither.
+Both sites need a replacement **function** (`() => …`), which disables `$`
+expansion. Confirmed on this tree: string replacement → 3 `</script>`, function
+replacement → 1. While there, decide explicitly about a literal `</script>`
+occurring inside a future client dependency (today the raw `dist/web/main.js`
+has zero) — escaping it as `<\/script>` is the standard guard.
 
-## 3. A `serve.cert` with no `serve.key` refuses with a message that says nothing is configured
+Nothing in the suite catches it, and that gap is half the finding. Last round's
+new test (`Server.test.ts:252`, "no bare import specifier") passes on this
+corpse. Land a check that actually pins loadability — e.g. exactly one
+`</script>` in `resolveClientHtml(false, …)`'s output, and no occurrence of the
+`src="./main.js"` tag text **inside** the inlined script — so this reds the
+build instead of shipping.
 
-`resolveCertPair` (`src/serve/Server.ts`) requires
-`cert !== undefined && key !== undefined`; a half-configured pair silently falls
-through to `"gtd serve: HTTPS is mandatory and no certificate is configured"`
-with the remedy "or configure serve.cert and serve.key" — while `serve.cert`
-**is** configured. `serveJsonSchema`'s own descriptions state the pairing rule
-("Requires `key` too"), so the intended behaviour is a named refusal, not a
-misleading one. Name the missing half in the message, and cover it — no test
-exercises cert-without-key or key-without-cert today.
+## 2. `--self-signed` with a hostname `--host` fails, blaming openssl
+
+`runServeCommand` calls `generateSelfSignedCert({ host, ip: host })`
+(`src/serve/Server.ts`), so the resolved bind host is put into the SAN's **`IP:`
+slot** unconditionally. A hostname there is rejected by openssl, not ignored.
+Measured on this machine's LibreSSL 3.3.6:
+
+```
+node dist/gtd.bundle.mjs serve --host localhost --self-signed --port 18450
+gtd serve: openssl exited without issuing a certificate
+  exit status: 1
+  Error Loading command line extensions
+  ...x509_alt.c:565:value=localhost
+```
+
+T3 asks the SAN to carry "the bind IP **and** the hostname" — the code treats
+them as the same string, which only holds when `--host` is a dotted-quad. The
+user-visible failure is a raw openssl dump that names neither the flag nor the
+cause. Split the two: put an IPv4/IPv6 literal in `IP:` and a non-literal in
+`DNS:` only (Tailscale auto-detection always yields a literal, so the default
+path is unaffected), or refuse up front naming `--host` as the reason. No test
+exercises a non-literal `--host` with `--self-signed` — `Tls.test.ts` only ever
+passes `100.90.1.2`-shaped values.
