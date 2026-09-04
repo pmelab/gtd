@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fireEvent, fn, within } from "storybook/test"
+import { page } from "@vitest/browser/context"
+import { expect, fireEvent, fn, waitFor, within } from "storybook/test"
 import type { FleetEntry, FleetPayload } from "../../serve/Fleet.js"
-import { FleetView } from "./Fleet.js"
+import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
+import { Fleet, FleetView } from "./Fleet.js"
 
 const meta: Meta<typeof FleetView> = {
   component: FleetView,
@@ -123,17 +125,31 @@ export const EmptyFleet: Story = {
   },
 }
 
-export const NoLabelFallsBackToStateName: Story = {
+// The no-label → state-name fallback is computed server-side
+// (`src/serve/Beat.ts`'s `okResult`, covered by `Beat.test.ts`): a
+// `FleetEntry`'s `label` is always a populated string by the time it
+// reaches this component, so there is no "label genuinely absent" case a
+// client-side story could exercise — nothing here would ever render blank.
+
+export const RendersCorrectlyAtPhoneWidth: Story = {
   args: {
     data: payload({
-      "wants-you": [okRow({ id: "nolabel", label: "idle" })],
+      "wants-you": [okRow({ id: "wy", label: "reviewing a very long PR title that could wrap" })],
+      broken: [brokenRow({ id: "bk", detail: "a somewhat long refusal message on stderr" })],
     }),
     isLoading: false,
     onRefresh: fn(),
   },
   play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
     const canvas = within(canvasElement)
-    await expect(canvas.getByText("idle")).toBeInTheDocument()
+    await expect(canvas.getByText("Wants you")).toBeInTheDocument()
+    await expect(canvas.getByText("Broken")).toBeInTheDocument()
+    // No horizontal overflow at 390px — content wraps rather than forcing
+    // the page wider than the phone viewport it's meant to fit.
+    const screen = canvas.getByTestId("fleet-screen")
+    expect(screen.scrollWidth).toBeLessThanOrEqual(390)
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
   },
 }
 
@@ -152,5 +168,44 @@ export const PullToRefreshTriggersOnRefresh: Story = {
     fireEvent.touchMove(screen, { touches: [touch(120)] })
     fireEvent.touchEnd(screen)
     await expect(args.onRefresh).toHaveBeenCalled()
+  },
+}
+
+/**
+ * Exercises `Fleet` (the real container, not just `FleetView`) over an
+ * actual `trpc.fleet.useQuery()` round-trip: `TrpcTestProvider`'s mock link
+ * is the transport, so a swipe-down genuinely re-issues the query rather
+ * than only firing a spy — and the returned payload changes between the two
+ * calls, so the re-render (and the document-title update) can only happen
+ * if `onRefresh` really triggered a second `fleet` call, not a first-call
+ * cache replay.
+ */
+export const FleetContainerPullToRefreshReissuesTheQuery: StoryObj<typeof Fleet> = {
+  render: () => {
+    let calls = 0
+    const beforeRefresh = payload({})
+    const afterRefresh = payload({ "wants-you": [okRow({ id: "wy" })] })
+    return (
+      <TrpcTestProvider resolveFleet={() => (calls++ === 0 ? beforeRefresh : afterRefresh)}>
+        <Fleet />
+      </TrpcTestProvider>
+    )
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("No worktrees found — nothing to triage.")).toBeInTheDocument(),
+    )
+    expect(document.title).toBe("gtd")
+
+    const screen = canvas.getByTestId("fleet-screen")
+    const touch = (clientY: number) =>
+      new Touch({ identifier: 0, target: screen, clientX: 0, clientY })
+    fireEvent.touchStart(screen, { touches: [touch(0)] })
+    fireEvent.touchMove(screen, { touches: [touch(120)] })
+    fireEvent.touchEnd(screen)
+
+    await waitFor(() => expect(canvas.getByText("Wants you")).toBeInTheDocument())
+    await waitFor(() => expect(document.title).toBe("(1) gtd"))
   },
 }

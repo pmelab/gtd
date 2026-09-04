@@ -35,6 +35,16 @@
       }
     },
     {
+      // `.stories.tsx` files are exactly as test-only as `.test.ts` — never
+      // part of `src/main.ts`'s production import graph (Storybook-only,
+      // excluded from `npm run build`) — so `src/web/testing/**` helpers
+      // built for them need the same carve-out `src/testing/**` gets.
+      "files": ["**/*.stories.tsx"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    {
       "files": ["tests/**"],
       "rules": {
         "no-restricted-imports": "off"

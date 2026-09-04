@@ -121,7 +121,7 @@ export const liveRunInWorktree: RunInWorktree = (cwd, command) =>
  */
 export interface BeatDeps {
   readonly run: RunInWorktree
-  readonly readPackageVersion: (path: string) => Promise<string | undefined>
+  readonly readLocalGtdVersion: (path: string) => Promise<string | undefined>
   readonly headSha: (path: string) => Promise<string | undefined>
   readonly statMtime: (path: string) => Promise<number | undefined>
 }
@@ -249,18 +249,19 @@ const okResult = async (
 /**
  * The one place `gtd next --json` is actually run for a worktree — always
  * exactly once per cold read, never re-run within it. Everything else
- * (`readGitMeta`, `readPackageVersion`, `headSha`/`statMtime` for the cache
+ * (`readGitMeta`, `readLocalGtdVersion`, `headSha`/`statMtime` for the cache
  * key) is either a cheap read-only git call or a plain filesystem read; none
  * of it writes, commits, or moves a ref.
  */
 const coldRead = async (worktree: WorktreeRef, deps: BeatDeps): Promise<ColdReadResult> => {
   const meta = await readGitMeta(worktree.path, deps.run)
 
-  // The version check reads the worktree's OWN package.json directly — never
-  // a second `gtd --version` spawn, which would pay the same ~500ms bundle
-  // parse `gtd next --json` already pays, doubling the cold-read cost this
-  // package's whole caching strategy exists to amortize.
-  const version = await deps.readPackageVersion(worktree.path)
+  // The version check reads the worktree's LOCALLY INSTALLED gtd's own
+  // package.json directly — never a second `gtd --version` spawn, which
+  // would pay the same ~500ms bundle parse `gtd next --json` already pays,
+  // doubling the cold-read cost this package's whole caching strategy exists
+  // to amortize. No local install (the common case) means nothing to check.
+  const version = await deps.readLocalGtdVersion(worktree.path)
   if (version !== undefined && !isSupportedVersion(version)) {
     return brokenResult(worktree, meta, deps, `unsupported gtd version: ${version}`)
   }
@@ -308,17 +309,36 @@ export class BeatCache {
     private readonly concurrency: number = 8,
   ) {}
 
+  /** How many cold reads currently hold a slot — test-only instrumentation for pinning `withSlot`'s handoff invariant directly, rather than inferring it from `deps.run` call timing several `await`s downstream. */
+  get activeSlots(): number {
+    return this.active
+  }
+
+  /**
+   * A slot is handed DIRECTLY from a finishing holder to the next waiter —
+   * `active` is never decremented and re-incremented across that handoff.
+   * The earlier shape did decrement-then-resume: the resumed waiter's own
+   * `active++` ran only after its `await` settled (a microtask later), so a
+   * THIRD call arriving in that window saw `active < concurrency`, took a
+   * slot of its own, and the resumed waiter then pushed `active` one past
+   * `concurrency` — an extra live `gtd next --json` per pending waiter,
+   * reachable whenever two fleet requests overlap (a phone refresh during a
+   * cold load). Handing the slot off inside the same synchronous `finally`
+   * closes that window: `active` only ever grows when a slot is granted
+   * fresh (below cap) and only ever shrinks when nobody is waiting for it.
+   */
   private async withSlot<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.active >= this.concurrency) {
+    if (this.active < this.concurrency) {
+      this.active++
+    } else {
       await new Promise<void>((resolve) => this.queue.push(resolve))
     }
-    this.active++
     try {
       return await fn()
     } finally {
-      this.active--
       const next = this.queue.shift()
       if (next !== undefined) next()
+      else this.active--
     }
   }
 
@@ -354,10 +374,21 @@ export class BeatCache {
   }
 }
 
-/** Reads `<path>/package.json`'s `version` field — `undefined` (never a throw) when the file is missing, unreadable, or has no string `version`, since not every scanned worktree is a gtd checkout at all. */
-export const readPackageVersionAt = async (path: string): Promise<string | undefined> => {
+/**
+ * Reads `<path>/node_modules/@pmelab/gtd/package.json`'s `version` — the
+ * version of `gtd` a plain `gtd next --json` spawn would actually run in
+ * THAT worktree if it resolved locally, never the scanned project's OWN
+ * `version` (that field belongs to whatever the worktree happens to be, not
+ * to gtd — most scanned projects aren't gtd checkouts at all). `undefined`
+ * (never a throw) when there is no local install: the overwhelming common
+ * case, where the spawn falls through to whatever `gtd` the fleet server's
+ * own `$PATH` resolves — by construction the SAME build running this
+ * check — so there is nothing to range-check and the worktree is never
+ * held Broken on that account.
+ */
+export const readLocalGtdVersionAt = async (path: string): Promise<string | undefined> => {
   try {
-    const raw = await readFile(join(path, "package.json"), "utf8")
+    const raw = await readFile(join(path, "node_modules/@pmelab/gtd/package.json"), "utf8")
     const pkg = JSON.parse(raw) as { readonly version?: unknown }
     return typeof pkg.version === "string" ? pkg.version : undefined
   } catch {

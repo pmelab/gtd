@@ -18,7 +18,7 @@ import {
   liveHeadSha,
   liveRunInWorktree,
   liveStatMtime,
-  readPackageVersionAt,
+  readLocalGtdVersionAt,
 } from "./Beat.js"
 import { pickBindHostFromSystem } from "./Bind.js"
 import { readFleet, type FleetDeps } from "./Fleet.js"
@@ -286,7 +286,7 @@ export const runServeCommand = (
     // across fleet reads.
     const beatCache = new BeatCache({
       run: liveRunInWorktree,
-      readPackageVersion: readPackageVersionAt,
+      readLocalGtdVersion: readLocalGtdVersionAt,
       headSha: liveHeadSha,
       statMtime: liveStatMtime,
     })

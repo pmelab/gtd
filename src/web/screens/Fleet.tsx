@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { BeatRead } from "../../serve/Beat.js"
 import type { FleetBucket, FleetEntry, FleetPayload } from "../../serve/Fleet.js"
+import { trpc } from "../api.js"
 
 const BUCKET_ORDER: readonly FleetBucket[] = ["wants-you", "working", "broken", "quiet"]
 
@@ -184,5 +185,21 @@ export const FleetView = ({ data, isLoading, onRefresh }: FleetViewProps) => {
       )}
       <FleetBuckets data={data} />
     </div>
+  )
+}
+
+/**
+ * The real fleet screen: wires `FleetView` to the actual `fleet` tRPC query.
+ * This is the phone's entry screen (`App.tsx` renders it directly) — the
+ * requirement's "the fleet screen is the first thing the phone loads".
+ */
+export const Fleet = () => {
+  const query = trpc.fleet.useQuery()
+  return (
+    <FleetView
+      data={query.data}
+      isLoading={query.isLoading}
+      onRefresh={() => void query.refetch()}
+    />
   )
 }

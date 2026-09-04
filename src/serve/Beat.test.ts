@@ -1,6 +1,6 @@
 /**
  * Coverage for `BeatCache`/`isSupportedVersion`: every dependency
- * (`run`/`readPackageVersion`/`headSha`/`statMtime`) is a scripted fake — no
+ * (`run`/`readLocalGtdVersion`/`headSha`/`statMtime`) is a scripted fake — no
  * real subprocess, no real filesystem — so call counts can be asserted
  * exactly (T3's "spawns zero subprocesses" claims).
  */
@@ -39,7 +39,7 @@ interface FakeDeps {
   readonly run: ReturnType<typeof vi.fn<BeatDeps["run"]>>
   readonly headSha: ReturnType<typeof vi.fn<BeatDeps["headSha"]>>
   readonly statMtime: ReturnType<typeof vi.fn<BeatDeps["statMtime"]>>
-  readonly readPackageVersion: ReturnType<typeof vi.fn<BeatDeps["readPackageVersion"]>>
+  readonly readLocalGtdVersion: ReturnType<typeof vi.fn<BeatDeps["readLocalGtdVersion"]>>
   readonly runCalls: string[]
   readonly headShaCalls: number
   readonly statCalls: string[]
@@ -77,13 +77,13 @@ const makeDeps = (
     return undefined
   })
 
-  const readPackageVersion = vi.fn(async () => overrides.version)
+  const readLocalGtdVersion = vi.fn(async () => overrides.version)
 
   return {
     run,
     headSha,
     statMtime,
-    readPackageVersion,
+    readLocalGtdVersion,
     get runCalls() {
       return runCalls
     },
@@ -294,5 +294,116 @@ describe("BeatCache.read — the memo (T3)", () => {
     const worktrees = Array.from({ length: 30 }, (_, i) => ({ id: `w${i}`, path: `/repos/w${i}` }))
     await Promise.all(worktrees.map((w) => cache.read(w)))
     expect(maxActive).toBeLessThanOrEqual(4)
+  })
+
+  it("never exceeds the cap even when a second overlapping request arrives mid-load (a phone refresh during a cold load)", async () => {
+    // A coarse, realistic version of the race below: two batches of reads
+    // staggered across real macrotasks so they genuinely interleave, rather
+    // than one synchronous `Promise.all` burst (the test above), where every
+    // call is already queued before any of them finish and the race below
+    // can never trigger.
+    let active = 0
+    let maxActive = 0
+    const deps = makeDeps()
+    deps.run.mockImplementation(async (_cwd: string, command: string) => {
+      if (command !== "gtd next --json") {
+        const canned = GIT_META[command]
+        return canned !== undefined ? ok(canned) : failed("unscripted")
+      }
+      active++
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 4))
+      active--
+      return ok(beatJson())
+    })
+    const cache = new BeatCache(deps, 4)
+
+    const batchOf = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `${prefix}${i}`,
+        path: `/repos/${prefix}${i}`,
+      }))
+
+    const firstBatch = Promise.all(batchOf("first-", 20).map((w) => cache.read(w)))
+    await new Promise((resolve) => setTimeout(resolve, 3))
+    const secondBatch = Promise.all(batchOf("second-", 20).map((w) => cache.read(w)))
+
+    await Promise.all([firstBatch, secondBatch])
+    expect(maxActive).toBeLessThanOrEqual(4)
+  })
+
+  it("never exceeds the cap at the exact instant a slot is handed off to a queued waiter", async () => {
+    // Deterministic reproduction of the handoff race itself: the old
+    // `withSlot` did `this.active--` and resumed the next queued waiter in
+    // two SEPARATE steps — the waiter's own `this.active++` only ran after
+    // its `await` settled, a microtask later. So for one microtask tick,
+    // `activeSlots` genuinely reads 0 while B is on its way back up — a
+    // fresh `cache.read()` landing in exactly that tick sees a free slot,
+    // takes it, and B's own `active++` then pushes the count one past the
+    // cap. Rather than guess how many microtask hops away that tick is
+    // (it depends on `coldRead`'s exact shape), this WATCHES `activeSlots`
+    // tick by tick and fires the new read the instant it sees the dip —
+    // reactive, so it lands on the real gap regardless of hop count.
+    const makeDeferred = (): { promise: Promise<void>; resolve: () => void } => {
+      let resolve!: () => void
+      const promise = new Promise<void>((r) => {
+        resolve = r
+      })
+      return { promise, resolve }
+    }
+
+    const held = makeDeferred()
+    const A = { id: "a", path: "/repos/a" }
+    const B = { id: "b", path: "/repos/b" }
+    const D = { id: "d", path: "/repos/d" }
+
+    const deps = makeDeps()
+    deps.run.mockImplementation(async (cwd: string, command: string) => {
+      if (command !== "gtd next --json") {
+        const canned = GIT_META[command]
+        return canned !== undefined ? ok(canned) : failed("unscripted")
+      }
+      if (cwd === A.path) await held.promise
+      return ok(beatJson())
+    })
+    const cache = new BeatCache(deps, 1)
+    let maxActiveSlots = cache.activeSlots
+
+    const pA = cache.read(A) // takes the one slot
+    const pB = cache.read(B) // queues behind A
+    maxActiveSlots = Math.max(maxActiveSlots, cache.activeSlots)
+
+    // Let A's coldRead actually reach `deps.run` and block on `held`.
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve()
+      maxActiveSlots = Math.max(maxActiveSlots, cache.activeSlots)
+    }
+    expect(cache.activeSlots).toBe(1) // sanity: A is genuinely the one holding the slot
+
+    held.resolve() // start A's handoff to B
+
+    let pD: Promise<unknown> | undefined
+    let sawTheGap = false
+    // Keep sampling for a good while AFTER firing `pD` too: taking the freed
+    // slot (`this.active++`) happens synchronously the instant we call
+    // `cache.read(D)`, but B's OWN resumption — already scheduled by A's
+    // `finally` before we ever got here — runs as a LATER microtask. The
+    // overshoot (both D's grab AND B's resumption incrementing the count)
+    // only becomes observable a few ticks after D fires, not at the moment
+    // it fires — so this must not stop sampling right when the gap is seen.
+    for (let i = 0; i < 50; i++) {
+      await Promise.resolve()
+      if (pD === undefined && cache.activeSlots === 0) {
+        sawTheGap = true
+        pD = cache.read(D) // fire the instant a slot looks free
+      }
+      maxActiveSlots = Math.max(maxActiveSlots, cache.activeSlots)
+    }
+    expect(sawTheGap).toBe(true) // sanity: the handoff gap was actually observed, not skipped past
+    expect(pD).toBeDefined()
+
+    await Promise.all([pA, pB, pD])
+    maxActiveSlots = Math.max(maxActiveSlots, cache.activeSlots)
+    expect(maxActiveSlots).toBeLessThanOrEqual(1)
   })
 })
