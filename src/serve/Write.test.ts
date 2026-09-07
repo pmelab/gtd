@@ -1,0 +1,186 @@
+import { describe, expect, it, vi } from "vitest"
+import { applySteeringEdits, contentHashOf, writeNote, type WriteDeps } from "./Write.js"
+
+const WORKTREE = "/repo"
+const FILE = ".gtd/REVIEW.md"
+const CONTENT = [
+  "# Review: abc1234",
+  "<!-- base: abc1234def5678901234567890123456789abcd -->",
+  "",
+  "## Chunk",
+  "",
+  "- [ ] ./a.ts#1 hunk",
+  "",
+].join("\n")
+
+const fakeDeps = (overrides: Partial<WriteDeps> = {}): WriteDeps => ({
+  headSha: vi.fn(async () => "sha1"),
+  actorAt: vi.fn(async () => "human"),
+  readFile: vi.fn(async () => CONTENT),
+  writeFile: vi.fn(async () => undefined),
+  ...overrides,
+})
+
+const baseRequest = () => ({
+  worktreePath: WORKTREE,
+  filePath: FILE,
+  expectedHeadSha: "sha1",
+  expectedContentHash: contentHashOf(CONTENT),
+  mode: "review",
+  anchor: { kind: "chunk" as const, index: 0 },
+})
+
+describe("applySteeringEdits", () => {
+  it("splices edits back-to-front so earlier offsets stay valid", () => {
+    const content = "abc\ndef\n"
+    const edits = [
+      {
+        range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
+        newText: "X",
+      },
+      {
+        range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+        newText: "Y",
+      },
+    ]
+    expect(applySteeringEdits(content, edits)).toBe("aXbc\nYdef\n")
+  })
+})
+
+describe("writeNote", () => {
+  it("succeeds when the sha and content hash both match, and the worktree rests with a human", async () => {
+    const deps = fakeDeps()
+    const result = await writeNote(baseRequest(), deps)
+    expect(result).toEqual({ ok: true })
+    expect(deps.writeFile).toHaveBeenCalledTimes(1)
+    const [absPath, written] = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls[0]!
+    expect(absPath).toBe("/repo/.gtd/REVIEW.md")
+    expect(written).toContain("[^na")
+  })
+
+  it("rejects a write whose sha moved, and the file is untouched", async () => {
+    const deps = fakeDeps({ headSha: vi.fn(async () => "sha2") })
+    const result = await writeNote(baseRequest(), deps)
+    expect(result).toEqual({ ok: false, reason: "stale-token", moved: "sha" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("rejects a write whose content hash moved, and the file is untouched", async () => {
+    const deps = fakeDeps({ readFile: vi.fn(async () => CONTENT + "\n") })
+    const result = await writeNote(baseRequest(), deps)
+    expect(result).toEqual({ ok: false, reason: "stale-token", moved: "content-hash" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("names which of the two moved — sha and content-hash are distinguishable", async () => {
+    const shaResult = await writeNote(baseRequest(), fakeDeps({ headSha: vi.fn(async () => "x") }))
+    const hashResult = await writeNote(
+      baseRequest(),
+      fakeDeps({ readFile: vi.fn(async () => "different") }),
+    )
+    expect(shaResult).toMatchObject({ moved: "sha" })
+    expect(hashResult).toMatchObject({ moved: "content-hash" })
+  })
+
+  it("a write to a worktree resting at a human state succeeds", async () => {
+    const deps = fakeDeps({ actorAt: vi.fn(async () => "human") })
+    expect((await writeNote(baseRequest(), deps)).ok).toBe(true)
+  })
+
+  it("a write to a worktree resting at an agent or check state is rejected", async () => {
+    for (const actor of ["agent", "check", undefined]) {
+      const deps = fakeDeps({ actorAt: vi.fn(async () => actor) })
+      const result = await writeNote(baseRequest(), deps)
+      expect(result).toEqual({ ok: false, reason: "not-resting" })
+      expect(deps.writeFile).not.toHaveBeenCalled()
+    }
+  })
+
+  it("the rest check runs on every write, not once per session", async () => {
+    const actorAt = vi.fn(async () => "human")
+    const deps = fakeDeps({ actorAt })
+    await writeNote(baseRequest(), deps)
+    await writeNote(baseRequest(), deps)
+    expect(actorAt).toHaveBeenCalledTimes(2)
+  })
+
+  it("the not-resting rejection is distinguishable from a compare-and-swap rejection", async () => {
+    const notResting = await writeNote(
+      baseRequest(),
+      fakeDeps({ actorAt: vi.fn(async () => "agent") }),
+    )
+    const stale = await writeNote(baseRequest(), fakeDeps({ headSha: vi.fn(async () => "other") }))
+    expect(notResting.ok).toBe(false)
+    expect(stale.ok).toBe(false)
+    if (notResting.ok || stale.ok) throw new Error("unreachable")
+    expect(notResting.reason).not.toBe(stale.reason)
+  })
+
+  it("a file deleted between render and write yields the vanished-file refusal, not a crash", async () => {
+    const deps = fakeDeps({ readFile: vi.fn(async () => undefined) })
+    await expect(writeNote(baseRequest(), deps)).resolves.toEqual({
+      ok: false,
+      reason: "file-vanished",
+    })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("an anchor that no longer resolves is rejected, not silently dropped", async () => {
+    const deps = fakeDeps()
+    const request = { ...baseRequest(), anchor: { kind: "chunk" as const, index: 99 } }
+    expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "anchor-unresolved" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("no refusal path leaves a partially written file — writeFile is only ever called on a full success", async () => {
+    const scenarios: Partial<WriteDeps>[] = [
+      { actorAt: vi.fn(async () => "agent") },
+      { headSha: vi.fn(async () => "wrong") },
+      { readFile: vi.fn(async () => undefined) },
+    ]
+    for (const overrides of scenarios) {
+      const deps = fakeDeps(overrides)
+      await writeNote(baseRequest(), deps)
+      expect(deps.writeFile).not.toHaveBeenCalled()
+    }
+  })
+
+  it("two writes racing on one file leave the file valid, with exactly one applied", async () => {
+    let stored = CONTENT
+    let storedHash = contentHashOf(CONTENT)
+    const writes: string[] = []
+    // Both requests read the SAME initial snapshot (simulating two clients
+    // that rendered before either wrote) and race their writes; `readFile`
+    // always returns the CURRENT store so the loser sees the winner's write.
+    const deps: WriteDeps = {
+      headSha: async () => "sha1",
+      actorAt: async () => "human",
+      readFile: async () => stored,
+      writeFile: async (_path, content) => {
+        writes.push(content)
+        stored = content
+        storedHash = contentHashOf(content)
+      },
+    }
+    const requestA = {
+      ...baseRequest(),
+      expectedContentHash: storedHash,
+      anchor: { kind: "chunk" as const, index: 0 },
+    }
+    const requestB = {
+      ...baseRequest(),
+      expectedContentHash: storedHash,
+      anchor: { kind: "hunk" as const, chunkIndex: 0, index: 0 },
+    }
+    const [resultA, resultB] = await Promise.all([
+      writeNote(requestA, deps),
+      writeNote(requestB, deps),
+    ])
+    const oks = [resultA, resultB].filter((r) => r.ok)
+    const rejected = [resultA, resultB].filter((r) => !r.ok)
+    expect(oks).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]).toMatchObject({ reason: "stale-token", moved: "content-hash" })
+    expect(writes).toHaveLength(1)
+  })
+})

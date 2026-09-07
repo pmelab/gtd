@@ -6,6 +6,7 @@ import {
   toggleCheckbox,
   QA_FORMAT,
 } from "./OpenQuestions.js"
+import { getParseCount } from "./MarkdownTree.js"
 
 describe("parseOpenQuestions", () => {
   it("returns zero questions and zero errors when there is no questions section", () => {
@@ -1484,5 +1485,80 @@ describe("toggleCheckbox's exact box offset", () => {
       edit.newText +
       line.slice(edit.range.end.character)
     expect(applied).toBe("- [x] REST option")
+  })
+})
+
+describe("QA_FORMAT.view", () => {
+  const CONTENT = [
+    "Plan.",
+    "",
+    "## Open Questions",
+    "",
+    "### First?",
+    "",
+    "- [ ] Option A",
+    "- [ ] Option B",
+    "",
+    "## Answered Questions",
+    "",
+    "### Second?",
+    "",
+    "Already decided.",
+    "",
+  ].join("\n")
+
+  it("exposes both open and answered questions, in document order", () => {
+    const view = QA_FORMAT.view(CONTENT)
+    if (view.kind !== "qa") throw new Error("expected a qa view")
+    expect(view.questions.map((q) => [q.status, q.text])).toEqual([
+      ["open", "- [ ] Option A"],
+      ["answered", "Already decided."],
+    ])
+    expect(view.questions[0]!.options.map((o) => o.text)).toEqual(["Option A", "Option B"])
+  })
+
+  it("is built from one parse of the document, not one per element", () => {
+    const uniqueContent = [
+      "Plan two.",
+      "",
+      "## Open Questions",
+      "",
+      "### Solo?",
+      "",
+      "- [ ] Only option",
+      "",
+    ].join("\n")
+    const before = getParseCount()
+    QA_FORMAT.view(uniqueContent)
+    expect(getParseCount()).toBe(before + 1)
+  })
+})
+
+describe("QA_FORMAT.annotate", () => {
+  const CONTENT = ["## Open Questions", "", "### First?", "", "- [ ] Option A", ""].join("\n")
+
+  it("accepts a question anchor", () => {
+    expect(QA_FORMAT.annotate(CONTENT, { kind: "question", index: 0 }).ok).toBe(true)
+  })
+
+  it("accepts an option anchor", () => {
+    expect(QA_FORMAT.annotate(CONTENT, { kind: "option", questionIndex: 0, index: 0 }).ok).toBe(
+      true,
+    )
+  })
+
+  it("accepts a paragraph anchor in a prose-only document", () => {
+    expect(QA_FORMAT.annotate("Just some prose.\n", { kind: "paragraph", line: 0 }).ok).toBe(true)
+  })
+
+  it("rejects an anchor that no longer resolves, rather than silently dropping it", () => {
+    expect(QA_FORMAT.annotate(CONTENT, { kind: "question", index: 5 })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+    expect(QA_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
   })
 })

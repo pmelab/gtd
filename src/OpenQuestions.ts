@@ -1,7 +1,8 @@
 import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
-import type { FootnoteMarker } from "./Footnotes.js"
+import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
+  footnoteAttachEdits,
   footnotePointerAt,
   isOnExistingFootnote,
   parseFootnotes,
@@ -15,10 +16,13 @@ import {
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
 import type {
+  SteeringAnchor,
+  SteeringAnnotateResult,
   SteeringEdit,
   SteeringFinding,
   SteeringFormat,
   SteeringOutlineNode,
+  SteeringView,
 } from "./SteeringFormat.js"
 
 export type OpenQuestionStatus = "open" | "answered"
@@ -48,8 +52,14 @@ export const FREE_TEXT_PLACEHOLDER = "_your answer_"
 
 /**
  * `QA_FORMAT`'s canonical sample: one open question with two options plus the
- * unfilled free-text slot, and one anchored footnote on an option with a body
- * over 80 characters — pinned already in oxfmt's own wrapped four-space form
+ * unfilled free-text slot, one hand-authored footnote on Option A with a body
+ * over 80 characters, and a SECOND footnote on Option B, attached exactly the
+ * way the server attaches one (`questionsAnnotate` →
+ * `Footnotes.ts#footnoteAttachEdits`, hence its `na`-prefixed id, distinct
+ * from the hand-authored `fn` one) — its body also over 80 characters and
+ * carrying a multi-word inline code span, so `ModeContradiction.ts`'s
+ * formatter round-trip covers a server-written note reflowing, not just a
+ * hand-authored one. Pinned already in oxfmt's own wrapped four-space form
  * (see `src/SteeringFormats.test.ts`'s formatter round-trip). Not authored to
  * survive any particular formatter.
  */
@@ -60,7 +70,13 @@ const QA_SAMPLE = `Sample plan. Add a thing.
 ### Which option?
 
 - [ ] Option A[^fn1]
-- [ ] Option B
+- [ ] Option B[^na17v2bjb]
+
+[^na17v2bjb]:
+    Attached via the phone UI on Option B, this note carries a
+    \`multi word code span\` and exceeds eighty characters in length so it gets
+    wrapped.
+
 - [ ] ${FREE_TEXT_PLACEHOLDER}
 
 [^fn1]:
@@ -864,6 +880,121 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
 const questionsPointerAt: SteeringFormat["pointerAt"] = (content, position) =>
   footnotePointerAt(content, position)?.pointer
 
+/**
+ * `qa`-mode's `view`: every question (status, text, answered flag, own
+ * `question` anchor) and every one of its options (checked, text, own
+ * `option` anchor) — built from ONE `parseOpenQuestions` call, never one
+ * parse per question/option.
+ */
+const questionsView = (content: string): SteeringView => {
+  const { questions } = parseOpenQuestions(content)
+  return {
+    kind: "qa",
+    questions: questions.map((question, questionIndex) => ({
+      status: question.status,
+      text: question.text,
+      answered: question.answered,
+      anchor: { kind: "question", index: questionIndex },
+      options: question.options.map((option, index) => ({
+        checked: option.checked,
+        text: option.text,
+        anchor: { kind: "option", questionIndex, index },
+      })),
+    })),
+  }
+}
+
+/** Resolves a `question` anchor: attaches at the end of the question's own heading line, the definition landing after the question's whole block (`questionEndLines`). `undefined` for a stale `index`. */
+const resolveQuestionAnchor = (
+  content: string,
+  lines: readonly string[],
+  questions: readonly OpenQuestion[],
+  index: number,
+): FootnoteAnchor | undefined => {
+  const question = questions[index]
+  if (!question) return undefined
+  const end = Math.max(
+    question.headingLine,
+    questionEndLines(content).get(question.headingLine) ?? question.headingLine,
+  )
+  return {
+    line: question.headingLine,
+    endCharacter: (lines[question.headingLine] ?? "").length,
+    blockEndLine: end,
+    key: `question:${question.headingLine}`,
+  }
+}
+
+/** Resolves an `option` anchor: attaches at the end of the option's own source line, the definition landing after the option's whole span (`option.endLine`). `undefined` for a stale `questionIndex`/`index`. */
+const resolveOptionAnchor = (
+  lines: readonly string[],
+  questions: readonly OpenQuestion[],
+  questionIndex: number,
+  index: number,
+): FootnoteAnchor | undefined => {
+  const option = questions[questionIndex]?.options[index]
+  if (!option) return undefined
+  return {
+    line: option.sourceLine,
+    endCharacter: (lines[option.sourceLine] ?? "").length,
+    blockEndLine: option.endLine,
+    key: `option:${option.sourceLine}`,
+  }
+}
+
+/** Resolves a `paragraph` anchor: attaches at the end of `line`'s own text, the definition landing after that line's containing top-level block node. `undefined` when `line` isn't inside a real block. */
+const resolveQuestionsParagraphAnchor = (
+  tree: Root,
+  lines: readonly string[],
+  line: number,
+): FootnoteAnchor | undefined => {
+  const block = blockNodeAt(tree, line)
+  if (!block?.position) return undefined
+  return {
+    line,
+    endCharacter: (lines[line] ?? "").length,
+    blockEndLine: toLspPosition(block.position.end).line,
+    key: `paragraph:${line}`,
+  }
+}
+
+/**
+ * Resolves a `question`/`option`/`paragraph` `SteeringAnchor` against
+ * `content` into the low-level `FootnoteAnchor` `Footnotes.ts#footnoteAttachEdits`
+ * wants — `undefined` for a `chunk`/`hunk` anchor (not this format's own
+ * kind) or an index/line that no longer resolves.
+ */
+const resolveQuestionsAnchor = (
+  content: string,
+  tree: Root,
+  lines: readonly string[],
+  questions: readonly OpenQuestion[],
+  anchor: SteeringAnchor,
+): FootnoteAnchor | undefined => {
+  switch (anchor.kind) {
+    case "question":
+      return resolveQuestionAnchor(content, lines, questions, anchor.index)
+    case "option":
+      return resolveOptionAnchor(lines, questions, anchor.questionIndex, anchor.index)
+    case "paragraph":
+      return resolveQuestionsParagraphAnchor(tree, lines, anchor.line)
+    default:
+      return undefined
+  }
+}
+
+/** `qa`-mode's `annotate`: resolves `anchor` then delegates the two-edit mechanics to `Footnotes.ts#footnoteAttachEdits`. */
+const questionsAnnotate = (content: string, anchor: SteeringAnchor): SteeringAnnotateResult => {
+  const { questions } = parseOpenQuestions(content)
+  const tree = parseMarkdown(content)
+  const lines = content.split(/\r?\n/)
+  const resolved = resolveQuestionsAnchor(content, tree, lines, questions, anchor)
+  if (!resolved) return { ok: false, reason: "anchor-not-found" }
+  const result = footnoteAttachEdits(content, resolved)
+  if (!result.ok) return result
+  return { ok: true, edits: result.edits }
+}
+
 /** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Every structural finding carries a line and a range spanning the node it's about. */
 export const QA_FORMAT: SteeringFormat = {
   sample: QA_SAMPLE,
@@ -874,4 +1005,6 @@ export const QA_FORMAT: SteeringFormat = {
   outline: questionsOutline,
   actions: questionActions,
   pointerAt: questionsPointerAt,
+  view: questionsView,
+  annotate: questionsAnnotate,
 }

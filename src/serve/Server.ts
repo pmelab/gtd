@@ -26,6 +26,7 @@ import { renderQrCode } from "./Qr.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript } from "./scriptTag.mjs"
 import { generateSelfSignedCert, loadCertPair, type CertPair } from "./Tls.js"
+import { liveActorAt, liveReadFile, liveWriteFile, writeNote, type WriteDeps } from "./Write.js"
 
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
@@ -295,10 +296,21 @@ export const runServeCommand = (
       readBeat: (worktree) => beatCache.read(worktree),
     }
 
+    const writeDeps: WriteDeps = {
+      headSha: liveHeadSha,
+      actorAt: liveActorAt,
+      readFile: liveReadFile,
+      writeFile: liveWriteFile,
+    }
+
     const trpcHandler = createHTTPHandler({
       router: appRouter,
       basePath: `${TRPC_PATH_PREFIX}/`,
-      createContext: (): RouterContext => ({ runtime, readFleet: () => readFleet(fleetDeps) }),
+      createContext: (): RouterContext => ({
+        runtime,
+        readFleet: () => readFleet(fleetDeps),
+        writeNote: (request) => writeNote(request, writeDeps),
+      }),
     })
 
     const handler: RequestHandler = (req, res) => {

@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
-import { appRouter, CommandRefusal, type RouterContext } from "./Router.js"
+import { appRouter, CommandRefusal, WriteNoteRefusal, type RouterContext } from "./Router.js"
 
 /** A `Runtime<CommandRunner>` over a canned `bash` — the same runtime-capture pattern `Server.ts` uses for its HTML-serving path, scoped here to just the one service a router test needs. */
 const contextFor = (
@@ -11,11 +11,13 @@ const contextFor = (
       buckets: { "wants-you": [], working: [], broken: [], quiet: [] },
       wantsYouCount: 0,
     }),
+  writeNote: RouterContext["writeNote"] = () => Promise.resolve({ ok: true }),
 ): RouterContext => ({
   runtime: Effect.runSync(
     Effect.runtime<CommandRunner>().pipe(Effect.provide(CommandRunner.layer(bash))),
   ),
   readFleet,
+  writeNote,
 })
 
 describe("appRouter.runCommand", () => {
@@ -88,5 +90,55 @@ describe("appRouter.fleet", () => {
       ),
     )
     await expect(caller.fleet()).resolves.toEqual(payload)
+  })
+})
+
+describe("appRouter.writeNote", () => {
+  const request = {
+    worktreePath: "/repo",
+    filePath: ".gtd/REVIEW.md",
+    expectedHeadSha: "sha1",
+    expectedContentHash: "hash1",
+    mode: "review",
+    anchor: { kind: "chunk" as const, index: 0 },
+  }
+
+  it("delegates to the context's writeNote and returns ok on success", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        () => Promise.resolve({ ok: true }),
+      ),
+    )
+    await expect(caller.writeNote(request)).resolves.toEqual({ ok: true })
+  })
+
+  it("surfaces a refusal as a typed WriteNoteRefusal cause, naming the reason", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        () => Promise.resolve({ ok: false, reason: "stale-token", moved: "sha" }),
+      ),
+    )
+    const error = await caller.writeNote(request).catch((e: unknown) => e)
+    const cause = (error as { cause?: unknown }).cause
+    expect(cause).toBeInstanceOf(WriteNoteRefusal)
+    expect((cause as WriteNoteRefusal).reason).toBe("stale-token")
+    expect((cause as WriteNoteRefusal).moved).toBe("sha")
+  })
+
+  it("rejects malformed input rather than reaching writeNote", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        () => Promise.reject(new Error("writeNote unexpectedly invoked")),
+      ),
+    )
+    await expect(
+      caller.writeNote({ ...request, anchor: { kind: "unknown" } } as never),
+    ).rejects.toThrow()
   })
 })

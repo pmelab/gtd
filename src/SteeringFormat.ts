@@ -86,6 +86,89 @@ export interface SteeringLink {
 }
 
 /**
+ * Where an `annotate` call attaches a note, reported back by `view` on every
+ * node a note can be attached to so a client never has to invent its own
+ * indices — it reads an `anchor` off the view and hands it straight back.
+ * Deliberately a closed, format-agnostic union (never a format's own node
+ * type): `review`'s chunk/hunk and `qa`'s question/option are different
+ * shapes at the format layer but the same two kinds of thing here (a
+ * "container" and "one of its numbered children"), plus `paragraph` for
+ * prose neither format's `view` enumerates (a client resolves that one from
+ * its own cursor position, not from the view).
+ */
+export type SteeringAnchor =
+  | { readonly kind: "chunk"; readonly index: number }
+  | { readonly kind: "hunk"; readonly chunkIndex: number; readonly index: number }
+  | { readonly kind: "question"; readonly index: number }
+  | { readonly kind: "option"; readonly questionIndex: number; readonly index: number }
+  | { readonly kind: "paragraph"; readonly line: number }
+
+/**
+ * `annotate`'s result: either the edits to splice in, or a typed refusal —
+ * `anchor-not-found` when `anchor` no longer resolves against `content`
+ * (stale index, or a line that isn't a paragraph), `id-collision` when the
+ * derived note id already names an existing footnote definition (see
+ * `Footnotes.ts#footnoteAttachEdits`, which both built-ins delegate to).
+ */
+export type SteeringAnnotateResult =
+  | { readonly ok: true; readonly edits: readonly SteeringEdit[] }
+  | { readonly ok: false; readonly reason: "anchor-not-found" | "id-collision" }
+
+/** One `review`-mode file pointer, as `view` reports it. */
+export interface SteeringFilePointerView {
+  readonly path: string
+  readonly line?: number
+  readonly checked: boolean
+  readonly note?: string
+  readonly anchor: SteeringAnchor
+}
+
+/** One `review`-mode chunk, as `view` reports it. */
+export interface SteeringChunkView {
+  readonly title: string
+  readonly description: string
+  readonly files: readonly SteeringFilePointerView[]
+  readonly anchor: SteeringAnchor
+}
+
+/** `review`-mode's own `view` projection — see `ReviewDoc.ts`'s `reviewView`. */
+export interface SteeringReviewView {
+  readonly kind: "review"
+  readonly headerHash?: string
+  readonly chunks: readonly SteeringChunkView[]
+}
+
+/** One `qa`-mode option, as `view` reports it. */
+export interface SteeringQaOptionView {
+  readonly checked: boolean
+  readonly text: string
+  readonly anchor: SteeringAnchor
+}
+
+/** One `qa`-mode question, as `view` reports it. */
+export interface SteeringQaQuestionView {
+  readonly status: "open" | "answered"
+  readonly text: string
+  readonly options: readonly SteeringQaOptionView[]
+  readonly answered: boolean
+  readonly anchor: SteeringAnchor
+}
+
+/** `qa`-mode's own `view` projection — see `OpenQuestions.ts`'s `questionsView`. */
+export interface SteeringQaView {
+  readonly kind: "qa"
+  readonly questions: readonly SteeringQaQuestionView[]
+}
+
+/**
+ * A format's domain projection of its own content — what the phone UI
+ * actually renders. A discriminated union (`kind`) rather than one shared
+ * shape: the server never switches on it either, it just serializes whatever
+ * `view` returns and lets the client's own per-`kind` renderer read it.
+ */
+export type SteeringView = SteeringReviewView | SteeringQaView
+
+/**
  * One steering-file FORMAT's whole behavior: how to validate it in process,
  * build its outline, offer code actions at a range, and (optionally) resolve
  * a cursor position to a pointer elsewhere. `validate` returns the same
@@ -127,4 +210,21 @@ export interface SteeringFormat {
    * the token's own range, which is the whole point of a document link.
    */
   readonly documentLinks?: (content: string) => readonly SteeringLink[]
+  /**
+   * This format's domain projection of `content` — MANDATORY (unlike
+   * `pointerAt`/`documentLinks`), so the server never has to import a format
+   * module or switch on the mode name to render the phone UI: it reads a
+   * `view` and produces edits through the registry, exactly as it already
+   * reads `outline`/`actions`/`pointerAt`. A user-declared custom mode lights
+   * up the phone UI for free the moment it registers one.
+   */
+  readonly view: (content: string) => SteeringView
+  /**
+   * The other mandatory member: turns an `anchor` (as reported by this same
+   * format's `view`, or a `paragraph` anchor a client resolves itself) into
+   * the byte-range edits that attach a note there — or a typed refusal when
+   * the anchor doesn't resolve. Every built-in implementation delegates to
+   * `Footnotes.ts#footnoteAttachEdits` for the actual two-edit mechanics.
+   */
+  readonly annotate: (content: string, anchor: SteeringAnchor) => SteeringAnnotateResult
 }

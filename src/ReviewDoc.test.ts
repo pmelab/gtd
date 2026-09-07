@@ -6,6 +6,7 @@ import {
   REVIEW_FORMAT,
 } from "./ReviewDoc.js"
 import { parseFootnotes } from "./Footnotes.js"
+import { getParseCount } from "./MarkdownTree.js"
 
 describe("parseReviewDoc", () => {
   it("parses a well-formed review with one chunk, no explanations", () => {
@@ -1777,5 +1778,95 @@ describe("ReviewDoc — chunk ticking as an edit per list item", () => {
     expect(checkAll.edits).toHaveLength(1) // only the real hunk, never the fenced line
     const cleared = clearFilePointerTicks(content)
     expect(cleared).toContain("- [x] ./src/fenced.ts#1") // fenced content is never a tick at all
+  })
+})
+
+describe("REVIEW_FORMAT.view", () => {
+  const NESTED_CONTENT = [
+    "# Review: abc1234",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Chunk one",
+    "",
+    "Some description.",
+    "",
+    "- [ ] ./a.ts#1 outer hunk",
+    "  - [x] ./b.ts#2 nested hunk",
+    "",
+    "## Chunk two",
+    "",
+    "- [ ] ./c.ts#3",
+    "",
+  ].join("\n")
+
+  it("exposes every chunk and every file pointer, including pointers nested at any depth", () => {
+    const view = REVIEW_FORMAT.view(NESTED_CONTENT)
+    if (view.kind !== "review") throw new Error("expected a review view")
+    expect(view.chunks.map((c) => c.title)).toEqual(["Chunk one", "Chunk two"])
+    expect(view.chunks[0]!.files.map((f) => f.path)).toEqual(["./a.ts", "./b.ts"])
+    expect(view.chunks[1]!.files.map((f) => f.path)).toEqual(["./c.ts"])
+  })
+
+  it("is built from one parse of the document, not one per element", () => {
+    const uniqueContent = [
+      "# Review: def4567",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Solo chunk",
+      "",
+      "- [ ] ./z.ts#9 solo hunk",
+      "",
+    ].join("\n")
+    const before = getParseCount()
+    REVIEW_FORMAT.view(uniqueContent)
+    expect(getParseCount()).toBe(before + 1)
+  })
+
+  it("carries the header hash", () => {
+    const view = REVIEW_FORMAT.view(NESTED_CONTENT)
+    if (view.kind !== "review") throw new Error("expected a review view")
+    expect(view.headerHash).toBe("abc1234")
+  })
+})
+
+describe("REVIEW_FORMAT.annotate", () => {
+  const CONTENT = [
+    "# Review: abc1234",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Chunk one",
+    "",
+    "- [ ] ./a.ts#1 outer hunk",
+    "",
+  ].join("\n")
+
+  it("accepts a chunk-level anchor", () => {
+    const result = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 })
+    expect(result.ok).toBe(true)
+  })
+
+  it("accepts a hunk-level anchor", () => {
+    const result = REVIEW_FORMAT.annotate(CONTENT, { kind: "hunk", chunkIndex: 0, index: 0 })
+    expect(result.ok).toBe(true)
+  })
+
+  it("accepts a paragraph anchor in a prose-only document", () => {
+    const result = REVIEW_FORMAT.annotate("Just some prose.\n", { kind: "paragraph", line: 0 })
+    expect(result.ok).toBe(true)
+  })
+
+  it("rejects an anchor that no longer resolves, rather than silently dropping it", () => {
+    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 5 })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "hunk", chunkIndex: 0, index: 5 })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "question", index: 0 })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
   })
 })

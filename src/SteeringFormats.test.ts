@@ -91,6 +91,64 @@ describe("every registry entry's sample", () => {
   })
 })
 
+/** Every `SteeringAnchor` embedded anywhere in `view` — walks whatever shape `view` returns without switching on `kind`, mirroring the server's own "never switch on the mode name" discipline. */
+const anchorsIn = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) return value.flatMap(anchorsIn)
+  if (value === null || typeof value !== "object") return []
+  const record = value as Record<string, unknown>
+  const found: unknown[] = []
+  for (const [key, val] of Object.entries(record)) {
+    if (key === "anchor") found.push(val)
+    else found.push(...anchorsIn(val))
+  }
+  return found
+}
+
+describe("every registry entry's view", () => {
+  it("parses `format.sample` without throwing", () => {
+    for (const mode of builtInModeNames()) {
+      const format = steeringFormatFor(mode)!
+      expect(() => format.view(format.sample)).not.toThrow()
+    }
+  })
+
+  // `format.sample` itself already carries a note attached at one of its own
+  // anchors (see `REVIEW_SAMPLE`/`QA_SAMPLE`'s doc comments — T7 requires a
+  // server-written note in the sample) — annotating that SAME anchor again is
+  // correctly refused as an id collision (`Footnotes.ts#footnoteAttachEdits`).
+  // So this asserts the "every reported anchor is acceptable" property
+  // against a PRISTINE document per mode, one with no note attached yet.
+  const PRISTINE_CONTENT: Readonly<Record<string, string>> = {
+    qa: ["Plan.", "", "## Open Questions", "", "### Q?", "", "- [ ] A", "- [ ] B", ""].join("\n"),
+    review: [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./a.ts#1 hunk",
+      "",
+    ].join("\n"),
+  }
+
+  it("every anchor `view` reports is one `annotate` accepts", () => {
+    for (const mode of builtInModeNames()) {
+      const format = steeringFormatFor(mode)!
+      const content = PRISTINE_CONTENT[mode]!
+      const view = format.view(content)
+      const anchors = anchorsIn(view)
+      expect(anchors.length).toBeGreaterThan(0)
+      for (const anchor of anchors) {
+        const result = format.annotate(content, anchor as never)
+        expect(
+          result.ok,
+          `${mode}: ${JSON.stringify(anchor)} was refused: ${JSON.stringify(result)}`,
+        ).toBe(true)
+      }
+    }
+  })
+})
+
 describe("footnote formatter round-trip (real oxfmt, measured not assumed)", () => {
   it("both samples carry a footnote whose body exceeds 80 characters", () => {
     for (const mode of builtInModeNames()) {
@@ -231,7 +289,10 @@ describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", 
   })
 
   it("qa: a cursor inside the LAST word of the block's last line does not corrupt the marker (regression: the two edits used to share a start position)", () => {
-    const cursor = { line: 8, character: 18 } // inside "_your answer_", the last option — blockEndLine itself
+    const lastOptionLine = QA_FORMAT.sample
+      .split("\n")
+      .findIndex((l) => l.includes("_your answer_"))
+    const cursor = { line: lastOptionLine, character: "- [ ] _your answer_".length } // end of "_your answer_", the last option — blockEndLine itself
     const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
       (a) => a.title === "gtd: add a footnote",
     )!

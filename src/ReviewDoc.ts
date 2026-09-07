@@ -1,7 +1,8 @@
 import type { Heading, ListItem, Root, RootContent } from "mdast"
-import type { FootnoteMarker } from "./Footnotes.js"
+import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
+  footnoteAttachEdits,
   footnotePointerAt,
   isOnExistingFootnote,
   parseFootnotes,
@@ -15,11 +16,14 @@ import {
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
 import type {
+  SteeringAnchor,
+  SteeringAnnotateResult,
   SteeringEdit,
   SteeringFinding,
   SteeringFormat,
   SteeringLink,
   SteeringOutlineNode,
+  SteeringView,
 } from "./SteeringFormat.js"
 
 export interface ReviewFile {
@@ -52,22 +56,33 @@ export interface ReviewDoc {
 /**
  * `REVIEW_FORMAT`'s canonical sample — a minimal, valid `review`-mode
  * document: the header, the base comment, one chunk with one file pointer,
- * and one anchored footnote on that hunk's note with a body over 80
- * characters — pinned already in oxfmt's own wrapped four-space form (see
- * `src/SteeringFormats.test.ts`'s formatter round-trip). Deliberately not
- * authored to survive any particular formatter beyond that.
+ * an author-written footnote on the hunk with a body over 80 characters, and
+ * a SECOND footnote on the chunk itself, attached exactly the way the server
+ * attaches one (`reviewAnnotate` → `Footnotes.ts#footnoteAttachEdits`, hence
+ * its `na`-prefixed id, distinct from a hand-authored `fn` one) — its body
+ * also over 80 characters and carrying a multi-word inline code span, so
+ * `ModeContradiction.ts`'s formatter round-trip covers a server-written note
+ * reflowing, not just a hand-authored one. Pinned already in oxfmt's own
+ * wrapped four-space form (see `src/SteeringFormats.test.ts`'s formatter
+ * round-trip). Deliberately not authored to survive any particular formatter
+ * beyond that.
  */
 const REVIEW_SAMPLE = `# Review: sample123
 
 <!-- base: 0000000000000000000000000000000000000000 -->
 
-## Sample chunk
+## Sample chunk[^naduiqc4]
 
 - [ ] ./sample.ts#1 what this hunk does[^fn1]
 
 [^fn1]:
     This note explains why the hunk exists in more detail than fits on one line
     for a reviewer.
+
+[^naduiqc4]:
+    Attached via the phone UI, this note demonstrates a chunk-level comment with
+    a \`multi word code span\` that exceeds eighty characters in total length
+    here.
 `
 
 /** The `# Review: <hash>` header, once a depth-1 heading's own inline text has been extracted. */
@@ -752,6 +767,126 @@ const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
   return links
 }
 
+/**
+ * `review`-mode's `view`: every chunk (title, description, own `chunk`
+ * anchor) and every one of its file pointers (path, line, ticked state,
+ * note, own `hunk` anchor) — built from ONE `parseReviewDoc` call, never one
+ * parse per chunk/file. Pointers nested at any depth are already flattened
+ * into `chunk.files` by `parseChunkBody`'s own `taskItems` walk, so they need
+ * no special handling here.
+ */
+const reviewView = (content: string): SteeringView => {
+  const { shortHash, changesets } = parseReviewDoc(content)
+  return {
+    kind: "review",
+    ...(shortHash ? { headerHash: shortHash } : {}),
+    chunks: changesets.map((chunk, chunkIndex) => ({
+      title: chunk.title,
+      description: chunk.description,
+      anchor: { kind: "chunk", index: chunkIndex },
+      files: chunk.files.map((file, index) => ({
+        path: file.path,
+        ...(file.line !== undefined ? { line: file.line } : {}),
+        checked: file.checked,
+        ...(file.note !== undefined ? { note: file.note } : {}),
+        anchor: { kind: "hunk", chunkIndex, index },
+      })),
+    })),
+  }
+}
+
+/** Resolves a `chunk` anchor: attaches at the end of the chunk's own heading line, the definition landing after the chunk's whole block (`chunkEndLines`). `undefined` for a stale `index`. */
+const resolveChunkAnchor = (
+  content: string,
+  lines: readonly string[],
+  changesets: readonly Changeset[],
+  index: number,
+): FootnoteAnchor | undefined => {
+  const chunk = changesets[index]
+  if (!chunk) return undefined
+  const end = Math.max(
+    chunk.headingLine,
+    chunkEndLines(content).get(chunk.headingLine) ?? chunk.headingLine,
+  )
+  return {
+    line: chunk.headingLine,
+    endCharacter: (lines[chunk.headingLine] ?? "").length,
+    blockEndLine: end,
+    key: `chunk:${chunk.headingLine}`,
+  }
+}
+
+/** Resolves a `hunk` anchor: attaches at the end of the hunk's own source line, the definition landing after the hunk's whole span (`file.endLine`). `undefined` for a stale `chunkIndex`/`index`. */
+const resolveHunkAnchor = (
+  lines: readonly string[],
+  changesets: readonly Changeset[],
+  chunkIndex: number,
+  index: number,
+): FootnoteAnchor | undefined => {
+  const file = changesets[chunkIndex]?.files[index]
+  if (!file) return undefined
+  return {
+    line: file.sourceLine,
+    endCharacter: (lines[file.sourceLine] ?? "").length,
+    blockEndLine: file.endLine,
+    key: `hunk:${file.sourceLine}`,
+  }
+}
+
+/** Resolves a `paragraph` anchor: attaches at the end of `line`'s own text, the definition landing after that line's containing top-level block node. `undefined` when `line` isn't inside a real block. */
+const resolveParagraphAnchor = (
+  tree: Root,
+  lines: readonly string[],
+  line: number,
+): FootnoteAnchor | undefined => {
+  const block = blockNodeAt(tree, line)
+  if (!block?.position) return undefined
+  return {
+    line,
+    endCharacter: (lines[line] ?? "").length,
+    blockEndLine: toLspPosition(block.position.end).line,
+    key: `paragraph:${line}`,
+  }
+}
+
+/**
+ * Resolves a `chunk`/`hunk`/`paragraph` `SteeringAnchor` against `content`
+ * into the low-level `FootnoteAnchor` `Footnotes.ts#footnoteAttachEdits`
+ * wants — `undefined` for a `question`/`option` anchor (not this format's own
+ * kind) or an index/line that no longer resolves, so a stale anchor is
+ * REJECTED rather than silently attaching to the wrong node.
+ */
+const resolveReviewAnchor = (
+  content: string,
+  tree: Root,
+  lines: readonly string[],
+  changesets: readonly Changeset[],
+  anchor: SteeringAnchor,
+): FootnoteAnchor | undefined => {
+  switch (anchor.kind) {
+    case "chunk":
+      return resolveChunkAnchor(content, lines, changesets, anchor.index)
+    case "hunk":
+      return resolveHunkAnchor(lines, changesets, anchor.chunkIndex, anchor.index)
+    case "paragraph":
+      return resolveParagraphAnchor(tree, lines, anchor.line)
+    default:
+      return undefined
+  }
+}
+
+/** `review`-mode's `annotate`: resolves `anchor` then delegates the two-edit mechanics to `Footnotes.ts#footnoteAttachEdits`. */
+const reviewAnnotate = (content: string, anchor: SteeringAnchor): SteeringAnnotateResult => {
+  const { changesets } = parseReviewDoc(content)
+  const tree = parseMarkdown(content)
+  const lines = content.split(/\r?\n/)
+  const resolved = resolveReviewAnchor(content, tree, lines, changesets, anchor)
+  if (!resolved) return { ok: false, reason: "anchor-not-found" }
+  const result = footnoteAttachEdits(content, resolved)
+  if (!result.ok) return result
+  return { ok: true, edits: result.edits }
+}
+
 export const REVIEW_FORMAT: SteeringFormat = {
   sample: REVIEW_SAMPLE,
   validate: (content) => [...parseReviewDoc(content).findings, ...parseFootnotes(content).findings],
@@ -759,4 +894,6 @@ export const REVIEW_FORMAT: SteeringFormat = {
   actions: reviewActions,
   pointerAt: reviewPointerAt,
   documentLinks: reviewDocumentLinks,
+  view: reviewView,
+  annotate: reviewAnnotate,
 }
