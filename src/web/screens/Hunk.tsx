@@ -6,13 +6,10 @@ export interface HunkProps {
   /** The `review`-view hunk node this screen renders — `title`/`path`/`line` for the header, `checked` seeds nothing here (the caller passes the live `checked` prop below instead, since a chunk-level check-all can move it out from under this node). */
   readonly node: SteeringViewNode
   /**
-   * The resolved diff for this hunk's own pointer, or `undefined` while it
-   * hasn't been fetched — `src/serve/Diff.ts#resolveDiff` already computes
-   * this exact shape, but `src/serve/Router.ts` has no `diff` procedure
-   * wired to it yet (only `runCommand`/`fleet`/`writeNote`/`view` exist), so
-   * there is nothing for a real container to call yet. A future package adds
-   * that procedure and a container fetches into this prop — a one-line
-   * change here, not a rewrite.
+   * `src/serve/Diff.ts#resolveDiff`'s closed result for this hunk's own
+   * pointer — `undefined` only while `Review.tsx#HunkWithDiff`'s
+   * `trpc.diff` query is still in flight, never because the fetch doesn't
+   * exist: `Router.ts`'s `diff` procedure and that container are both real.
    */
   readonly diff: DiffResult | undefined
   /** This hunk's 0-based position in its chunk's deck, and the deck's total size — rendered as "hunk N of M" so progress is visible without leaving this screen. */
