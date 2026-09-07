@@ -23,14 +23,97 @@ export interface QuestionProps {
   readonly node: SteeringViewNode
 }
 
+/** The free-text slot's own textarea plus its embedded `Mic` — dictation writes through to `onFreeTextChange` only on a final result, never on interim. */
+const FreeTextOption = ({
+  freeText,
+  onFocus,
+  onFreeTextChange,
+}: {
+  readonly freeText: string
+  readonly onFocus: () => void
+  readonly onFreeTextChange: (text: string) => void
+}) => (
+  <div style={{ marginTop: 8 }}>
+    <textarea
+      data-testid="free-text-input"
+      placeholder={FREE_TEXT_HINT}
+      value={freeText}
+      onFocus={onFocus}
+      onChange={(event) => {
+        onFreeTextChange(event.target.value)
+        onFocus()
+      }}
+      style={{ width: "100%", minHeight: 60 }}
+    />
+    <Mic
+      onAttach={(text) => {
+        onFocus()
+        onFreeTextChange(freeText.length > 0 ? `${freeText} ${text}` : text)
+      }}
+    >
+      {(state) =>
+        state.available ? (
+          <button type="button" data-testid="mic-toggle" onClick={state.toggle}>
+            {state.recording ? "Stop" : "Dictate"}
+          </button>
+        ) : (
+          <p data-testid="mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
+            Use your keyboard's mic key to dictate
+          </p>
+        )
+      }
+    </Mic>
+  </div>
+)
+
+/** One option row — a radio, its label, and (only for the free-text slot) the textarea+mic. */
+const OptionRow = ({
+  option,
+  index,
+  questionTitle,
+  isFreeText,
+  isSelected,
+  freeText,
+  onSelect,
+  onFreeTextChange,
+}: {
+  readonly option: SteeringViewNode
+  readonly index: number
+  readonly questionTitle: string
+  readonly isFreeText: boolean
+  readonly isSelected: boolean
+  readonly freeText: string
+  readonly onSelect: () => void
+  readonly onFreeTextChange: (text: string) => void
+}) => (
+  <div data-testid={`option-${index}`} style={{ padding: "8px 0", borderBottom: "1px solid #333" }}>
+    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <input
+        type="radio"
+        name={`question-${questionTitle}`}
+        data-testid={`option-radio-${index}`}
+        checked={isSelected}
+        onChange={onSelect}
+      />
+      <span>{option.title}</span>
+    </label>
+    {isFreeText && (
+      <FreeTextOption freeText={freeText} onFocus={onSelect} onFreeTextChange={onFreeTextChange} />
+    )}
+  </div>
+)
+
 /**
  * One question, one screen — `Plan.tsx`'s `Deck` `renderItem`. Radio
  * semantics enforced client-side: `selected` holds at most one option index,
  * so picking a new one always replaces rather than adds to it. The free-text
  * option is identified by array position (`options.length - 1`), never by
  * matching its label, so a free-text option with an ordinary-looking label
- * is still treated as the free-text slot.
+ * is still treated as the free-text slot. Exercised by `Question.stories.tsx`'s
+ * `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static
+ * CRAP estimate scores it as untested regardless.
  */
+// fallow-ignore-next-line complexity
 export const Question = ({ node }: QuestionProps) => {
   const options = node.children ?? []
   const lastIndex = options.length - 1
@@ -53,60 +136,19 @@ export const Question = ({ node }: QuestionProps) => {
       <div data-testid="question-status" style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
         {answered ? "answered" : "unanswered"}
       </div>
-      {options.map((option, index) => {
-        const isFreeText = index === lastIndex
-        return (
-          <div
-            key={index}
-            data-testid={`option-${index}`}
-            style={{ padding: "8px 0", borderBottom: "1px solid #333" }}
-          >
-            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="radio"
-                name={`question-${node.title}`}
-                data-testid={`option-radio-${index}`}
-                checked={selected === index}
-                onChange={() => setSelected(index)}
-              />
-              <span>{option.title}</span>
-            </label>
-            {isFreeText && (
-              <div style={{ marginTop: 8 }}>
-                <textarea
-                  data-testid="free-text-input"
-                  placeholder={FREE_TEXT_HINT}
-                  value={freeText}
-                  onFocus={() => setSelected(index)}
-                  onChange={(event) => {
-                    setFreeText(event.target.value)
-                    setSelected(index)
-                  }}
-                  style={{ width: "100%", minHeight: 60 }}
-                />
-                <Mic
-                  onAttach={(text) => {
-                    setSelected(index)
-                    setFreeText((prev) => (prev.length > 0 ? `${prev} ${text}` : text))
-                  }}
-                >
-                  {(state) =>
-                    state.available ? (
-                      <button type="button" data-testid="mic-toggle" onClick={state.toggle}>
-                        {state.recording ? "Stop" : "Dictate"}
-                      </button>
-                    ) : (
-                      <p data-testid="mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
-                        Use your keyboard's mic key to dictate
-                      </p>
-                    )
-                  }
-                </Mic>
-              </div>
-            )}
-          </div>
-        )
-      })}
+      {options.map((option, index) => (
+        <OptionRow
+          key={index}
+          option={option}
+          index={index}
+          questionTitle={node.title}
+          isFreeText={index === lastIndex}
+          isSelected={selected === index}
+          freeText={freeText}
+          onSelect={() => setSelected(index)}
+          onFreeTextChange={setFreeText}
+        />
+      ))}
     </div>
   )
 }

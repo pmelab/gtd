@@ -23,6 +23,16 @@ export type LineKind = "add" | "del" | "context" | "header"
 const TOKEN_RE =
   /(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|("(?:[^"\\]|\\.)*")|\b(const|let|export|import|from|return|if|else|for|interface|type|readonly|number|string|undefined|new|of|function)\b|\b(\d+)\b|\b([A-Z][A-Za-z0-9]+)\b/g
 
+/** Which of `TOKEN_RE`'s five capture groups matched — the regex guarantees exactly one is set per match, so the last (`typ`, the capitalized-identifier group) is the fallback. */
+const classNameOf = (match: RegExpExecArray): string => {
+  const [, com, str, kw, num] = match
+  if (com !== undefined) return "com"
+  if (str !== undefined) return "str"
+  if (kw !== undefined) return "kw"
+  if (num !== undefined) return "num"
+  return "typ"
+}
+
 /**
  * Single-pass tokenizer: `exec` on a global regex advances its own
  * `lastIndex` forward through `code` on every call, so each character is
@@ -38,10 +48,8 @@ export const tokenize = (code: string): Token[] => {
   let m: RegExpExecArray | null
   while ((m = TOKEN_RE.exec(code))) {
     if (m.index > lastIndex) tokens.push({ text: code.slice(lastIndex, m.index) })
-    const [full, com, str, kw, num] = m
-    const className = com ? "com" : str ? "str" : kw ? "kw" : num ? "num" : "typ"
-    tokens.push({ text: full, className })
-    lastIndex = m.index + full.length
+    tokens.push({ text: m[0], className: classNameOf(m) })
+    lastIndex = m.index + m[0].length
   }
   if (lastIndex < code.length) tokens.push({ text: code.slice(lastIndex) })
   return tokens

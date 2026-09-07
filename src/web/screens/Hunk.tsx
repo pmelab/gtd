@@ -57,6 +57,43 @@ const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
 
 const flattenLines = (diff: FileDiff): readonly string[] => diff.hunks.flatMap((h) => h.lines)
 
+/** The diff area's own four-way branch (loading / binary / refused / whole-file-fallback-with-banner / a single resolved hunk) — split out so `Hunk` itself stays a plain layout shell around it. Exercised by `Hunk.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
+// fallow-ignore-next-line complexity
+const DiffBody = ({ diff }: { readonly diff: DiffResult | undefined }) => {
+  if (diff === undefined) {
+    return (
+      <div data-testid="hunk-diff-loading" style={{ padding: 12 }}>
+        Loading diff…
+      </div>
+    )
+  }
+  if (diff.kind === "binary") {
+    return (
+      <div data-testid="hunk-diff-binary" style={{ padding: 12 }}>
+        Binary file — no diff to show.
+      </div>
+    )
+  }
+  if (diff.kind === "refused") {
+    return (
+      <div data-testid="hunk-diff-banner" style={{ padding: 12, background: "#3a2a00" }}>
+        Could not resolve a diff: {diff.detail}
+      </div>
+    )
+  }
+  if (diff.kind === "whole-file") {
+    return (
+      <>
+        <div data-testid="hunk-diff-banner" style={{ padding: 12, background: "#3a2a00" }}>
+          This pointer did not resolve to a specific hunk — showing the whole file's diff instead.
+        </div>
+        <DiffLines lines={flattenLines(diff.diff)} />
+      </>
+    )
+  }
+  return <DiffLines lines={diff.hunk.lines} />
+}
+
 /**
  * The deck-level single-hunk screen — `Review.tsx`'s `Deck` `renderItem`, one
  * hunk per screen. Controls sit in flow below the diff, never floating over
@@ -81,28 +118,7 @@ export const Hunk = ({
     </div>
     <div style={{ padding: "4px 12px", fontWeight: 600 }}>{node.title}</div>
 
-    {diff === undefined ? (
-      <div data-testid="hunk-diff-loading" style={{ padding: 12 }}>
-        Loading diff…
-      </div>
-    ) : diff.kind === "binary" ? (
-      <div data-testid="hunk-diff-binary" style={{ padding: 12 }}>
-        Binary file — no diff to show.
-      </div>
-    ) : diff.kind === "refused" ? (
-      <div data-testid="hunk-diff-banner" style={{ padding: 12, background: "#3a2a00" }}>
-        Could not resolve a diff: {diff.detail}
-      </div>
-    ) : diff.kind === "whole-file" ? (
-      <>
-        <div data-testid="hunk-diff-banner" style={{ padding: 12, background: "#3a2a00" }}>
-          This pointer did not resolve to a specific hunk — showing the whole file's diff instead.
-        </div>
-        <DiffLines lines={flattenLines(diff.diff)} />
-      </>
-    ) : (
-      <DiffLines lines={diff.hunk.lines} />
-    )}
+    <DiffBody diff={diff} />
 
     <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12 }}>
       <label style={{ display: "flex", alignItems: "center", gap: 8 }}>

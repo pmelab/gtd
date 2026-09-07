@@ -43,6 +43,21 @@ declare global {
 const getSpeechRecognitionCtor = (): SpeechRecognitionCtor | undefined =>
   window.SpeechRecognition ?? window.webkitSpeechRecognition
 
+/** Splits one recognition event's newly-available results into this call's interim text (for display) and the text to append to the accumulated final transcript — pulled out of the `onresult` handler so that callback stays a plain two-line dispatch. Exercised by `Mic.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
+// fallow-ignore-next-line complexity
+const splitResults = (event: SpeechRecognitionEventLike): { interim: string; final: string } => {
+  let interim = ""
+  let final = ""
+  for (let i = event.resultIndex; i < event.results.length; i++) {
+    const result = event.results[i]
+    if (result === undefined) continue
+    const transcript = result[0]?.transcript ?? ""
+    if (result.isFinal) final += transcript
+    else interim += transcript
+  }
+  return { interim, final }
+}
+
 export interface MicRenderState {
   /** `false` when the API is missing, or a `"not-allowed"` error has been seen — both take this one fallback path. */
   readonly available: boolean
@@ -93,19 +108,10 @@ export const Mic = ({ onAttach, onInterim, children }: MicProps) => {
       recognition.interimResults = true
       finalRef.current = ""
       recognition.onresult = (event) => {
-        let interimText = ""
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i]
-          if (result === undefined) continue
-          const transcript = result[0]?.transcript ?? ""
-          if (result.isFinal) {
-            finalRef.current += transcript
-          } else {
-            interimText += transcript
-          }
-        }
-        setInterim(interimText)
-        onInterim?.(interimText)
+        const { interim, final } = splitResults(event)
+        finalRef.current += final
+        setInterim(interim)
+        onInterim?.(interim)
       }
       recognition.onerror = (event) => {
         if (event.error === "not-allowed") {

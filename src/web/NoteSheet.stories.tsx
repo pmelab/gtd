@@ -17,31 +17,28 @@ const chunkAnchor: SteeringAnchor = { kind: "chunk", index: 0 }
 const hunkAnchor: SteeringAnchor = { kind: "hunk", chunkIndex: 0, index: 1 }
 const paragraphAnchor: SteeringAnchor = { kind: "paragraph", line: 12 }
 
-export const OpensFromAChunkAnchor: Story = {
-  args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn() },
-  play: async ({ canvasElement }) => {
+/** Opening the sheet is identical across all three anchor kinds bar the anchor itself and the resulting title — one assertion helper, three thin stories, rather than three near-identical `play` bodies. */
+const expectOpensWithTitle =
+  (title: string) =>
+  async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
-    await expect(canvas.getByText("Note on this chunk")).toBeInTheDocument()
-  },
+    await expect(canvas.getByText(title)).toBeInTheDocument()
+  }
+
+export const OpensFromAChunkAnchor: Story = {
+  args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn() },
+  play: expectOpensWithTitle("Note on this chunk"),
 }
 
 export const OpensFromAHunkAnchor: Story = {
   args: { anchor: hunkAnchor, onSave: fn(), onDismiss: fn() },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
-    await expect(canvas.getByText("Note on this hunk")).toBeInTheDocument()
-  },
+  play: expectOpensWithTitle("Note on this hunk"),
 }
 
 export const OpensFromAParagraphAnchor: Story = {
   args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn() },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
-    await expect(canvas.getByText("Note on this paragraph")).toBeInTheDocument()
-  },
+  play: expectOpensWithTitle("Note on this paragraph"),
 }
 
 export const ExistingNotePrefillsForEditingNotADuplicate: Story = {

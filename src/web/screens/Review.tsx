@@ -50,9 +50,11 @@ interface NoteSheetState {
 }
 
 /**
- * Presentational review screen — chunk list drilling into a per-chunk deck
- * of hunks, mirroring `Plan.tsx`'s `PlanView`/`Plan` split so
- * `Review.stories.tsx` can drive every shape with plain `view` data.
+ * All of `ReviewView`'s local/optimistic UI state plus the derived helpers
+ * every branch below needs — pulled into one hook so `ReviewView` itself
+ * stays a thin dispatch over three render branches (note sheet / hunk deck /
+ * chunk list) instead of a single large function carrying both state and
+ * markup.
  *
  * Ticks are local/optimistic UI state only: `src/ReviewDoc.ts#toggleFilePointer`
  * exists but is never exposed via `src/serve/Router.ts` (only
@@ -63,19 +65,12 @@ interface NoteSheetState {
  * screen isn't given, so wiring it through is a future task's job, not a
  * silent fake-persistence hazard introduced here.
  */
-export const ReviewView = ({ view, isLoading, diffs }: ReviewViewProps) => {
+const useReviewState = () => {
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [openChunkIndex, setOpenChunkIndex] = useState<number | undefined>(undefined)
   const [deckIndex, setDeckIndex] = useState(0)
   const [noteSheet, setNoteSheet] = useState<NoteSheetState | undefined>(undefined)
-
-  if (isLoading && view === undefined) {
-    return <div style={{ padding: 16 }}>Loading the review…</div>
-  }
-  if (view === undefined) {
-    return <div style={{ padding: 16 }}>Could not load the review.</div>
-  }
 
   const isChecked = (hunk: SteeringViewNode): boolean =>
     ticked[hunkKey(hunk.anchor)] ?? hunk.checked === true
@@ -126,104 +121,185 @@ export const ReviewView = ({ view, isLoading, diffs }: ReviewViewProps) => {
     }
   }
 
-  if (noteSheet !== undefined) {
-    return (
-      <NoteSheet
-        anchor={noteSheet.anchor}
-        {...(noteSheet.initialNote !== undefined ? { note: noteSheet.initialNote } : {})}
-        onSave={saveNote}
-        onDismiss={() => setNoteSheet(undefined)}
-      />
-    )
+  return {
+    openChunkIndex,
+    deckIndex,
+    setDeckIndex,
+    noteSheet,
+    setNoteSheet,
+    setOpenChunkIndex,
+    isChecked,
+    hasNoteText,
+    openNoteSheet,
+    saveNote,
+    toggleChunk,
+    setHunkChecked,
+    openChunk,
+    approveAndAdvance,
   }
+}
 
-  if (openChunkIndex !== undefined) {
-    const chunk = view.nodes[openChunkIndex]
-    const hunks = chunk !== undefined ? hunksOf(chunk) : []
-    return (
-      <Deck
-        items={hunks}
-        index={deckIndex}
-        onIndexChange={setDeckIndex}
-        onExit={() => setOpenChunkIndex(undefined)}
-        renderItem={(hunk, i) => (
-          <Hunk
-            key={hunkKey(hunk.anchor)}
-            node={hunk}
-            diff={diffs?.[hunkKey(hunk.anchor)]}
-            index={i}
-            total={hunks.length}
-            checked={isChecked(hunk)}
-            hasNote={hasNoteText(hunk)}
-            onToggle={(checked) => setHunkChecked(hunk, checked)}
-            onApprove={() => approveAndAdvance(hunks)}
-            onOpenNote={() => openNoteSheet(hunk)}
-          />
-        )}
-      />
-    )
-  }
+type ReviewState = ReturnType<typeof useReviewState>
 
+/** The per-chunk deck of hunks — one hunk per screen, approving the last one exits back to the chunk list via `state.approveAndAdvance`. */
+const HunkDeck = ({
+  chunk,
+  diffs,
+  state,
+}: {
+  readonly chunk: SteeringViewNode
+  readonly diffs: Readonly<Record<string, DiffResult>> | undefined
+  readonly state: ReviewState
+}) => {
+  const hunks = hunksOf(chunk)
   return (
-    <div data-testid="review-screen" style={{ maxWidth: 390, margin: "0 auto" }}>
-      <CardList>
-        {view.nodes.map((chunk, chunkIndex) => {
-          const hunks = hunksOf(chunk)
-          const allChecked = hunks.length > 0 && hunks.every(isChecked)
-          const footnoteKeepsRoundOpen = hasNoteText(chunk)
-          return (
-            <div
-              key={chunkIndex}
-              data-testid={`chunk-card-${chunkIndex}`}
-              style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px" }}
-            >
-              <input
-                type="checkbox"
-                data-testid={`chunk-check-all-${chunkIndex}`}
-                checked={allChecked}
-                disabled={hunks.length === 0}
-                onChange={() => toggleChunk(chunk)}
-              />
-              <button
-                type="button"
-                data-testid={`chunk-open-${chunkIndex}`}
-                onClick={() => openChunk(chunkIndex)}
-                style={{
-                  flex: 1,
-                  textAlign: "left",
-                  background: "none",
-                  border: "none",
-                  color: "inherit",
-                  font: "inherit",
-                  padding: 0,
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>{chunk.title}</div>
-                {chunk.detail !== undefined && chunk.detail.length > 0 && (
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>{chunk.detail}</div>
-                )}
-                {footnoteKeepsRoundOpen && (
-                  <div
-                    data-testid={`chunk-footnote-badge-${chunkIndex}`}
-                    style={{ fontSize: 11, color: "#e0a030", marginTop: 4 }}
-                  >
-                    Note keeps this round open
-                  </div>
-                )}
-              </button>
-              <button
-                type="button"
-                data-testid={`chunk-note-${chunkIndex}`}
-                onClick={() => openNoteSheet(chunk)}
-              >
-                {hasNoteText(chunk) ? "Edit note" : "Note"}
-              </button>
-            </div>
-          )
-        })}
-      </CardList>
+    <Deck
+      items={hunks}
+      index={state.deckIndex}
+      onIndexChange={state.setDeckIndex}
+      onExit={() => state.setOpenChunkIndex(undefined)}
+      renderItem={(hunk, i) => (
+        <Hunk
+          key={hunkKey(hunk.anchor)}
+          node={hunk}
+          diff={diffs?.[hunkKey(hunk.anchor)]}
+          index={i}
+          total={hunks.length}
+          checked={state.isChecked(hunk)}
+          hasNote={state.hasNoteText(hunk)}
+          onToggle={(checked) => state.setHunkChecked(hunk, checked)}
+          onApprove={() => state.approveAndAdvance(hunks)}
+          onOpenNote={() => state.openNoteSheet(hunk)}
+        />
+      )}
+    />
+  )
+}
+
+/** One chunk's own row: prose, a check-all tick over every one of its hunks (nested at any depth), and its note affordance — including the badge that keeps the round open when a footnote is attached, even fully ticked. Exercised by `Review.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
+// fallow-ignore-next-line complexity
+const ChunkRow = ({
+  chunk,
+  chunkIndex,
+  state,
+}: {
+  readonly chunk: SteeringViewNode
+  readonly chunkIndex: number
+  readonly state: ReviewState
+}) => {
+  const hunks = hunksOf(chunk)
+  const allChecked = hunks.length > 0 && hunks.every(state.isChecked)
+  const footnoteKeepsRoundOpen = state.hasNoteText(chunk)
+  return (
+    <div
+      data-testid={`chunk-card-${chunkIndex}`}
+      style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px" }}
+    >
+      <input
+        type="checkbox"
+        data-testid={`chunk-check-all-${chunkIndex}`}
+        checked={allChecked}
+        disabled={hunks.length === 0}
+        onChange={() => state.toggleChunk(chunk)}
+      />
+      <button
+        type="button"
+        data-testid={`chunk-open-${chunkIndex}`}
+        onClick={() => state.openChunk(chunkIndex)}
+        style={{
+          flex: 1,
+          textAlign: "left",
+          background: "none",
+          border: "none",
+          color: "inherit",
+          font: "inherit",
+          padding: 0,
+        }}
+      >
+        <div style={{ fontWeight: 600 }}>{chunk.title}</div>
+        {chunk.detail !== undefined && chunk.detail.length > 0 && (
+          <div style={{ fontSize: 12, opacity: 0.7 }}>{chunk.detail}</div>
+        )}
+        {footnoteKeepsRoundOpen && (
+          <div
+            data-testid={`chunk-footnote-badge-${chunkIndex}`}
+            style={{ fontSize: 11, color: "#e0a030", marginTop: 4 }}
+          >
+            Note keeps this round open
+          </div>
+        )}
+      </button>
+      <button
+        type="button"
+        data-testid={`chunk-note-${chunkIndex}`}
+        onClick={() => state.openNoteSheet(chunk)}
+      >
+        {state.hasNoteText(chunk) ? "Edit note" : "Note"}
+      </button>
     </div>
   )
+}
+
+/** The chunk list itself — one `ChunkRow` per top-level node. */
+const ChunkList = ({
+  nodes,
+  state,
+}: {
+  readonly nodes: SteeringView["nodes"]
+  readonly state: ReviewState
+}) => (
+  <div data-testid="review-screen" style={{ maxWidth: 390, margin: "0 auto" }}>
+    <CardList>
+      {nodes.map((chunk, chunkIndex) => (
+        <ChunkRow key={chunkIndex} chunk={chunk} chunkIndex={chunkIndex} state={state} />
+      ))}
+    </CardList>
+  </div>
+)
+
+/**
+ * Presentational review screen — chunk list drilling into a per-chunk deck
+ * of hunks, mirroring `Plan.tsx`'s `PlanView`/`Plan` split so
+ * `Review.stories.tsx` can drive every shape with plain `view` data. Itself
+ * just a thin dispatch over the note sheet / hunk deck / chunk list branches
+ * — the state and per-branch markup live in `useReviewState`/`HunkDeck`/
+ * `ChunkList` above. Exercised by `Review.stories.tsx`'s `play()` interaction
+ * tests — fallow's static CRAP estimate only sees real coverage reports, not
+ * Storybook/vitest-browser runs, so it scores this as untested (see
+ * `Fleet.tsx#FleetView`'s own identical note).
+ */
+// fallow-ignore-next-line complexity
+export const ReviewView = ({ view, isLoading, diffs }: ReviewViewProps) => {
+  const state = useReviewState()
+
+  if (view === undefined) {
+    return (
+      <div style={{ padding: 16 }}>
+        {isLoading ? "Loading the review…" : "Could not load the review."}
+      </div>
+    )
+  }
+
+  if (state.noteSheet !== undefined) {
+    return (
+      <NoteSheet
+        anchor={state.noteSheet.anchor}
+        {...(state.noteSheet.initialNote !== undefined
+          ? { note: state.noteSheet.initialNote }
+          : {})}
+        onSave={state.saveNote}
+        onDismiss={() => state.setNoteSheet(undefined)}
+      />
+    )
+  }
+
+  const openChunk =
+    state.openChunkIndex !== undefined ? view.nodes[state.openChunkIndex] : undefined
+  if (openChunk !== undefined) {
+    return <HunkDeck chunk={openChunk} diffs={diffs} state={state} />
+  }
+
+  return <ChunkList nodes={view.nodes} state={state} />
 }
 
 export interface ReviewProps {

@@ -103,33 +103,91 @@ export interface PlanViewProps {
   readonly isLoading: boolean
 }
 
+/** One of the two question groups (open / already-answered) — empty groups render nothing, never an empty heading. */
+const QuestionSection = ({
+  title,
+  nodes,
+  allNodes,
+  onOpen,
+}: {
+  readonly title: string
+  readonly nodes: readonly SteeringViewNode[]
+  readonly allNodes: readonly SteeringViewNode[]
+  readonly onOpen: (index: number) => void
+}) => {
+  if (nodes.length === 0) return null
+  return (
+    <section>
+      <h2 style={{ fontSize: 13, opacity: 0.7, margin: "12px" }}>{title}</h2>
+      {nodes.map((node) => (
+        <QuestionCard
+          key={allNodes.indexOf(node)}
+          node={node}
+          onOpen={() => onOpen(allNodes.indexOf(node))}
+        />
+      ))}
+    </section>
+  )
+}
+
+/** The question-list body: prose paragraphs for a format with no question-shaped nodes, else the open/answered sections. */
+const PlanBody = ({
+  view,
+  content,
+  onOpenQuestion,
+}: {
+  readonly view: SteeringView
+  readonly content: string
+  readonly onOpenQuestion: (index: number) => void
+}) => {
+  const questionNodes = view.nodes.filter(isQuestionNode)
+  if (questionNodes.length === 0) return <ProseParagraphs content={content} />
+  const openNodes = questionNodes.filter((node) => node.status === "open")
+  const answeredNodes = questionNodes.filter((node) => node.status === "answered")
+  return (
+    <>
+      <QuestionSection
+        title="Open Questions"
+        nodes={openNodes}
+        allNodes={questionNodes}
+        onOpen={onOpenQuestion}
+      />
+      <QuestionSection
+        title="Already answered"
+        nodes={answeredNodes}
+        allNodes={questionNodes}
+        onOpen={onOpenQuestion}
+      />
+    </>
+  )
+}
+
 /**
  * Presentational plan-and-answer screen — takes its `view`/`content` as
  * props (mirroring `FleetView`'s split) so `Plan.stories.tsx` can drive every
  * shape with plain data, no mocked tRPC transport required. Never switches on
  * a mode name: whether this renders questions or plain prose is read
- * entirely off `view.nodes`' own shape.
+ * entirely off `view.nodes`' own shape. Exercised by `Plan.stories.tsx`'s
+ * `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static
+ * CRAP estimate scores it as untested regardless.
  */
+// fallow-ignore-next-line complexity
 export const PlanView = ({ view, content, isLoading }: PlanViewProps) => {
   const { confirmed, confirm } = usePlanReadConfirmation(content)
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
 
-  if (isLoading && view === undefined) {
-    return <div style={{ padding: 16 }}>Loading the plan…</div>
-  }
   if (view === undefined) {
-    return <div style={{ padding: 16 }}>Could not load the plan.</div>
+    return (
+      <div style={{ padding: 16 }}>
+        {isLoading ? "Loading the plan…" : "Could not load the plan."}
+      </div>
+    )
   }
-
-  const questionNodes = view.nodes.filter(isQuestionNode)
-  const isProse = questionNodes.length === 0
-  const openNodes = questionNodes.filter((node) => node.status === "open")
-  const answeredNodes = questionNodes.filter((node) => node.status === "answered")
 
   if (deckIndex !== undefined) {
     return (
       <Deck
-        items={questionNodes}
+        items={view.nodes.filter(isQuestionNode)}
         index={deckIndex}
         onIndexChange={setDeckIndex}
         onExit={() => setDeckIndex(undefined)}
@@ -144,36 +202,7 @@ export const PlanView = ({ view, content, isLoading }: PlanViewProps) => {
         <Card testId="read-plan-row" onOpen={confirm}>
           Read the plan{confirmed ? " ✓" : ""}
         </Card>
-        {isProse ? (
-          <ProseParagraphs content={content} />
-        ) : (
-          <>
-            {openNodes.length > 0 && (
-              <section>
-                <h2 style={{ fontSize: 13, opacity: 0.7, margin: "12px" }}>Open Questions</h2>
-                {openNodes.map((node) => (
-                  <QuestionCard
-                    key={questionNodes.indexOf(node)}
-                    node={node}
-                    onOpen={() => setDeckIndex(questionNodes.indexOf(node))}
-                  />
-                ))}
-              </section>
-            )}
-            {answeredNodes.length > 0 && (
-              <section>
-                <h2 style={{ fontSize: 13, opacity: 0.7, margin: "12px" }}>Already answered</h2>
-                {answeredNodes.map((node) => (
-                  <QuestionCard
-                    key={questionNodes.indexOf(node)}
-                    node={node}
-                    onOpen={() => setDeckIndex(questionNodes.indexOf(node))}
-                  />
-                ))}
-              </section>
-            )}
-          </>
-        )}
+        <PlanBody view={view} content={content} onOpenQuestion={setDeckIndex} />
       </CardList>
     </div>
   )

@@ -11,6 +11,12 @@ export default meta
 
 type Story = StoryObj<typeof ReviewView>
 
+/** Clicks a checkbox testid then asserts it lands checked — collapses the click+assert pair repeated across the tick/untick stories below into one call. */
+const clickAndExpectChecked = async (canvas: ReturnType<typeof within>, testId: string) => {
+  await fireEvent.click(canvas.getByTestId(testId))
+  await expect(canvas.getByTestId(testId)).toBeChecked()
+}
+
 /**
  * Chunk one: three hunks, the last NESTED two levels deep under the second —
  * `ReviewDoc.ts#reviewView` itself only ever nests one level, but the type
@@ -102,8 +108,7 @@ export const TickingAChunkTicksEveryHunkIncludingNestedAtAnyDepth: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
-    await expect(canvas.getByTestId("chunk-check-all-0")).toBeChecked()
+    await clickAndExpectChecked(canvas, "chunk-check-all-0")
 
     await fireEvent.click(canvas.getByTestId("chunk-open-0"))
     await expect(canvas.getByTestId("hunk-tick")).toBeChecked() // hunk 0
@@ -121,8 +126,7 @@ export const UntickingAChunkUnticksEveryHunk: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
-    await expect(canvas.getByTestId("chunk-check-all-0")).toBeChecked()
+    await clickAndExpectChecked(canvas, "chunk-check-all-0")
     await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
     await expect(canvas.getByTestId("chunk-check-all-0")).not.toBeChecked()
 
@@ -163,8 +167,7 @@ export const ChunkWithNoFootnoteShowsNoBadgeEvenWhenFullyTicked: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
-    await expect(canvas.getByTestId("chunk-check-all-0")).toBeChecked()
+    await clickAndExpectChecked(canvas, "chunk-check-all-0")
     await expect(canvas.queryByTestId("chunk-footnote-badge-0")).not.toBeInTheDocument()
   },
 }
