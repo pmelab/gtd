@@ -52,6 +52,10 @@ export const bannerFor = (refusal: WriteRefusalInfo): string => {
       return "This file no longer exists."
     case "anchor-unresolved":
       return "What you were editing no longer exists in this document."
+    case "note-collision":
+      return "This already has a note attached — refresh to see it."
+    case "unsupported-mode":
+      return "This file's mode isn't configured on the server."
   }
 }
 

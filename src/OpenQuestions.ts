@@ -881,23 +881,27 @@ const questionsPointerAt: SteeringFormat["pointerAt"] = (content, position) =>
   footnotePointerAt(content, position)?.pointer
 
 /**
- * `qa`-mode's `view`: every question (status, text, answered flag, own
- * `question` anchor) and every one of its options (checked, text, own
- * `option` anchor) — built from ONE `parseOpenQuestions` call, never one
- * parse per question/option.
+ * `qa`-mode's `view`: every question as a container node — `title` the
+ * question's own heading TEXT (`OpenQuestion.question`, never
+ * `OpenQuestion.text`, which is only the first body line, a summary carried
+ * separately as `detail`), plus status/answered flag and own `question`
+ * anchor — with every one of its options as a child item node (checked, text
+ * as `title`, own `option` anchor). Built from ONE `parseOpenQuestions` call,
+ * never one parse per question/option. Uses `SteeringViewNode`'s generic
+ * shape, never a `qa`-only type — see that type's own doc comment.
  */
 const questionsView = (content: string): SteeringView => {
   const { questions } = parseOpenQuestions(content)
   return {
-    kind: "qa",
-    questions: questions.map((question, questionIndex) => ({
+    nodes: questions.map((question, questionIndex) => ({
+      title: question.question,
+      detail: question.text,
       status: question.status,
-      text: question.text,
       answered: question.answered,
       anchor: { kind: "question", index: questionIndex },
-      options: question.options.map((option, index) => ({
+      children: question.options.map((option, index) => ({
+        title: option.text,
         checked: option.checked,
-        text: option.text,
         anchor: { kind: "option", questionIndex, index },
       })),
     })),

@@ -120,6 +120,16 @@ describe("bannerFor", () => {
   it("names an unresolved anchor distinctly", () => {
     expect(bannerFor({ reason: "anchor-unresolved" })).toMatch(/no longer exists in this document/i)
   })
+
+  it("names a note-collision distinctly from an unresolved anchor", () => {
+    const collision = bannerFor({ reason: "note-collision" })
+    const unresolved = bannerFor({ reason: "anchor-unresolved" })
+    expect(collision).not.toBe(unresolved)
+  })
+
+  it("names an unsupported mode distinctly", () => {
+    expect(bannerFor({ reason: "unsupported-mode" })).toMatch(/mode/i)
+  })
 })
 
 describe("discardDraft / hasDraft / shouldApplyBackgroundRefresh", () => {

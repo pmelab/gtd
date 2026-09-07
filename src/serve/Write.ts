@@ -14,12 +14,26 @@ import { liveRunInWorktree } from "./Beat.js"
 export const contentHashOf = (content: string): string =>
   createHash("sha256").update(content, "utf8").digest("hex")
 
-/** The four distinct typed refusals T8 asks for — never a shared message string, so the phone can render a different sentence for each. */
+/**
+ * T8's four named refusals — `stale-token`, `not-resting`, `file-vanished`,
+ * `anchor-unresolved` (a stale index, or a paragraph line that no longer
+ * parses) — never a shared message string, so the phone can render a
+ * different sentence for each. Two more, reachable but not among T8's four,
+ * get their OWN distinct value rather than being folded into
+ * `anchor-unresolved` (the bug a previous round of this package shipped):
+ * `note-collision` (the anchor resolved fine, but `annotate` refused because
+ * the derived note id already names an existing definition — `SteeringFormat`
+ * `id-collision`, T2's own "two attaches at the same anchor are rejected")
+ * and `unsupported-mode` (`request.mode` doesn't resolve to a registered
+ * format at all — a config problem, not a stale anchor or a stale token).
+ */
 export type WriteRefusalReason =
   | "stale-token"
   | "not-resting"
   | "file-vanished"
   | "anchor-unresolved"
+  | "note-collision"
+  | "unsupported-mode"
 
 export interface WriteRefusal {
   readonly ok: false
@@ -122,9 +136,14 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
     }
 
     const format = steeringFormatFor(request.mode)
-    if (format === undefined) return { ok: false, reason: "anchor-unresolved" }
+    if (format === undefined) return { ok: false, reason: "unsupported-mode" }
     const annotated = format.annotate(content, request.anchor, request.text)
-    if (!annotated.ok) return { ok: false, reason: "anchor-unresolved" }
+    if (!annotated.ok) {
+      return {
+        ok: false,
+        reason: annotated.reason === "id-collision" ? "note-collision" : "anchor-unresolved",
+      }
+    }
 
     const nextContent = applySteeringEdits(content, annotated.edits)
     await deps.writeFile(absPath, nextContent)

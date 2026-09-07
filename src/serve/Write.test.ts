@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { REVIEW_FORMAT } from "../ReviewDoc.js"
 import { applySteeringEdits, contentHashOf, writeNote, type WriteDeps } from "./Write.js"
 
 const WORKTREE = "/repo"
@@ -149,6 +150,32 @@ describe("writeNote", () => {
     const deps = fakeDeps()
     const request = { ...baseRequest(), anchor: { kind: "chunk" as const, index: 99 } }
     expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "anchor-unresolved" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("an unsupported mode is its own distinct refusal, never anchor-unresolved", async () => {
+    const deps = fakeDeps()
+    const request = { ...baseRequest(), mode: "not-a-real-mode" }
+    expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "unsupported-mode" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("an anchor that already has a note attached is its own distinct refusal (note-collision), never anchor-unresolved", async () => {
+    // Attach a note to the chunk anchor for REAL first (via the same
+    // `REVIEW_FORMAT.annotate` `writeNote` itself delegates to), so the
+    // derived id that collides is the format's own, never a guessed literal.
+    const firstAttach = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 }, "first note")
+    expect(firstAttach.ok).toBe(true)
+    if (!firstAttach.ok) return
+    const alreadyNotedContent = applySteeringEdits(CONTENT, firstAttach.edits)
+
+    const deps = fakeDeps({ readFile: vi.fn(async () => alreadyNotedContent) })
+    const request = {
+      ...baseRequest(),
+      expectedContentHash: contentHashOf(alreadyNotedContent),
+      anchor: { kind: "chunk" as const, index: 0 },
+    }
+    expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "note-collision" })
     expect(deps.writeFile).not.toHaveBeenCalled()
   })
 

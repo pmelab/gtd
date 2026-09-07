@@ -9,6 +9,7 @@ import {
   modeContradictionSkipNotice,
 } from "./ModeContradiction.js"
 import { shellQuote } from "./GitScript.js"
+import { applySteeringEdits } from "./serve/Write.js"
 import { builtInModeNames, steeringFormatFor } from "./SteeringFormats.js"
 import { parseFootnotes } from "./Footnotes.js"
 
@@ -165,26 +166,88 @@ describe("each built-in format's canonical sample (T7: writing into a live workt
       expect(format.validate(formatted)).toEqual([])
     }
   })
+})
 
-  it("the server-written note is long enough to be reflowed at 80 columns, and still validates after reflow", () => {
+/** Every `SteeringAnchor` embedded anywhere in a `view` — same generic walk as `SteeringFormats.test.ts`'s own `anchorsIn`, duplicated locally since this file has no other reason to depend on that one. */
+const anchorsIn = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) return value.flatMap(anchorsIn)
+  if (value === null || typeof value !== "object") return []
+  const record = value as Record<string, unknown>
+  const found: unknown[] = []
+  for (const [key, val] of Object.entries(record)) {
+    if (key === "anchor") found.push(val)
+    else found.push(...anchorsIn(val))
+  }
+  return found
+}
+
+/**
+ * Attaches `text` at the first anchor `view(content)` reports that `annotate`
+ * actually accepts (every OTHER anchor in a built-in's `sample` already
+ * carries the server-written note T7 requires, so annotating it again is a
+ * correctly-refused `id-collision` — this just skips those and uses the
+ * first one that's still free), and returns the resulting document. Throws
+ * if no anchor is free, which would mean the fixture no longer has room for
+ * this test to attach anything at all.
+ */
+const attachAtFirstFreeAnchor = (
+  format: NonNullable<ReturnType<typeof steeringFormatFor>>,
+  content: string,
+  text: string,
+): string => {
+  for (const anchor of anchorsIn(format.view(content))) {
+    const result = format.annotate(content, anchor as never, text)
+    if (result.ok) return applySteeringEdits(content, result.edits)
+  }
+  throw new Error("no free anchor found to attach a test note at")
+}
+
+describe("a server-written note actually reflows and still validates (T7's real risk, not just the already-wrapped sample)", () => {
+  // ONE long, deliberately UNWRAPPED line with a multi-word inline code span
+  // — exactly the shape `annotate` actually produces (a single `[^id]: ...`
+  // line, never pre-wrapped), and exactly the input oxfmt's 80-column prose
+  // wrap actually reflows. The risk T7 names is a note the SERVER writes
+  // getting reflowed before commit; asserting against the sample's own
+  // already-wrapped state (as an earlier version of this test did) can never
+  // exercise that reflow at all.
+  const LONG_UNWRAPPED_NOTE =
+    "Attached by a human through the phone UI, this note is intentionally " +
+    "written as one long unwrapped line so the formatter actually has " +
+    "something to reflow, and it carries a `multi word code span` too."
+
+  it("reflows a freshly-attached note across multiple lines, and still validates clean afterward", () => {
     for (const mode of builtInModeNames()) {
       const format = steeringFormatFor(mode)!
-      const { definitions } = parseFootnotes(format.sample)
-      const serverNote = definitions.find((d) => /^na[0-9a-z]+$/.test(d.name))!
-      expect(serverNote.body.length).toBeGreaterThan(80)
-      // Already reflowed (the sample is an oxfmt fixed point, asserted above)
-      // — its body still spans more than one physical source line.
-      expect(serverNote.endLine).toBeGreaterThan(serverNote.line)
+      const applied = attachAtFirstFreeAnchor(format, format.sample, LONG_UNWRAPPED_NOTE)
+
+      // Before formatting: the definition is genuinely ONE physical line —
+      // proof this test feeds the formatter an actually-unwrapped note.
+      const beforeDefs = parseFootnotes(applied).definitions
+      const freshNote = beforeDefs.find((d) => d.body === LONG_UNWRAPPED_NOTE)!
+      expect(freshNote.endLine).toBe(freshNote.line)
+
+      const formatted = formatWithOxfmt(applied)
+
+      // After formatting: oxfmt actually reflowed it across multiple lines —
+      // proof the formatter's reflow is the thing this test exercised, not a
+      // no-op on already-wrapped content.
+      const afterDefs = parseFootnotes(formatted).definitions
+      const reflowedNote = afterDefs.find((d) => d.name === freshNote.name)!
+      expect(reflowedNote.endLine).toBeGreaterThan(reflowedNote.line)
+      expect(reflowedNote.body).toBe(LONG_UNWRAPPED_NOTE)
+
+      expect(format.validate(formatted)).toEqual([])
     }
   })
 
-  it("the server-written note contains a multi-word inline code span, and still validates after reflow", () => {
+  it("a note containing a multi-word inline code span still validates after reflow", () => {
     for (const mode of builtInModeNames()) {
       const format = steeringFormatFor(mode)!
-      const { definitions } = parseFootnotes(format.sample)
-      const serverNote = definitions.find((d) => /^na[0-9a-z]+$/.test(d.name))!
-      expect(serverNote.body).toMatch(/`[^`]*\s[^`]*`/)
-      expect(format.validate(format.sample)).toEqual([])
+      expect(LONG_UNWRAPPED_NOTE).toMatch(/`[^`]*\s[^`]*`/)
+      const applied = attachAtFirstFreeAnchor(format, format.sample, LONG_UNWRAPPED_NOTE)
+      const formatted = formatWithOxfmt(applied)
+      expect(formatted).toContain("`multi word code span`")
+      expect(format.validate(formatted)).toEqual([])
     }
   })
 })

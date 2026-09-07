@@ -1507,14 +1507,13 @@ describe("QA_FORMAT.view", () => {
     "",
   ].join("\n")
 
-  it("exposes both open and answered questions, in document order", () => {
+  it("exposes both open and answered questions, in document order — title carries the actual question, detail the body summary", () => {
     const view = QA_FORMAT.view(CONTENT)
-    if (view.kind !== "qa") throw new Error("expected a qa view")
-    expect(view.questions.map((q) => [q.status, q.text])).toEqual([
-      ["open", "- [ ] Option A"],
-      ["answered", "Already decided."],
+    expect(view.nodes.map((q) => [q.status, q.title, q.detail])).toEqual([
+      ["open", "First?", "- [ ] Option A"],
+      ["answered", "Second?", "Already decided."],
     ])
-    expect(view.questions[0]!.options.map((o) => o.text)).toEqual(["Option A", "Option B"])
+    expect(view.nodes[0]!.children!.map((o) => o.title)).toEqual(["Option A", "Option B"])
   })
 
   it("is built from one parse of the document, not one per element", () => {

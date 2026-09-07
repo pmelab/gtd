@@ -768,23 +768,25 @@ const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
 }
 
 /**
- * `review`-mode's `view`: every chunk (title, description, own `chunk`
- * anchor) and every one of its file pointers (path, line, ticked state,
- * note, own `hunk` anchor) — built from ONE `parseReviewDoc` call, never one
- * parse per chunk/file. Pointers nested at any depth are already flattened
- * into `chunk.files` by `parseChunkBody`'s own `taskItems` walk, so they need
- * no special handling here.
+ * `review`-mode's `view`: every chunk as a container node (title, description
+ * as `detail`, own `chunk` anchor) with every one of its file pointers as a
+ * child item node (path, line, ticked state, note, own `hunk` anchor) — built
+ * from ONE `parseReviewDoc` call, never one parse per chunk/file. Pointers
+ * nested at any depth are already flattened into `chunk.files` by
+ * `parseChunkBody`'s own `taskItems` walk, so they need no special handling
+ * here. Uses `SteeringViewNode`'s generic shape, never a `review`-only type —
+ * see that type's own doc comment.
  */
 const reviewView = (content: string): SteeringView => {
   const { shortHash, changesets } = parseReviewDoc(content)
   return {
-    kind: "review",
-    ...(shortHash ? { headerHash: shortHash } : {}),
-    chunks: changesets.map((chunk, chunkIndex) => ({
+    ...(shortHash ? { header: shortHash } : {}),
+    nodes: changesets.map((chunk, chunkIndex) => ({
       title: chunk.title,
-      description: chunk.description,
+      detail: chunk.description,
       anchor: { kind: "chunk", index: chunkIndex },
-      files: chunk.files.map((file, index) => ({
+      children: chunk.files.map((file, index) => ({
+        title: file.line !== undefined ? `${file.path}#${file.line}` : file.path,
         path: file.path,
         ...(file.line !== undefined ? { line: file.line } : {}),
         checked: file.checked,

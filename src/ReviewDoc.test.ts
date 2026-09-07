@@ -1801,10 +1801,9 @@ describe("REVIEW_FORMAT.view", () => {
 
   it("exposes every chunk and every file pointer, including pointers nested at any depth", () => {
     const view = REVIEW_FORMAT.view(NESTED_CONTENT)
-    if (view.kind !== "review") throw new Error("expected a review view")
-    expect(view.chunks.map((c) => c.title)).toEqual(["Chunk one", "Chunk two"])
-    expect(view.chunks[0]!.files.map((f) => f.path)).toEqual(["./a.ts", "./b.ts"])
-    expect(view.chunks[1]!.files.map((f) => f.path)).toEqual(["./c.ts"])
+    expect(view.nodes.map((c) => c.title)).toEqual(["Chunk one", "Chunk two"])
+    expect(view.nodes[0]!.children!.map((f) => f.path)).toEqual(["./a.ts", "./b.ts"])
+    expect(view.nodes[1]!.children!.map((f) => f.path)).toEqual(["./c.ts"])
   })
 
   it("is built from one parse of the document, not one per element", () => {
@@ -1824,8 +1823,7 @@ describe("REVIEW_FORMAT.view", () => {
 
   it("carries the header hash", () => {
     const view = REVIEW_FORMAT.view(NESTED_CONTENT)
-    if (view.kind !== "review") throw new Error("expected a review view")
-    expect(view.headerHash).toBe("abc1234")
+    expect(view.header).toBe("abc1234")
   })
 })
 

@@ -114,59 +114,57 @@ export type SteeringAnnotateResult =
   | { readonly ok: true; readonly edits: readonly SteeringEdit[] }
   | { readonly ok: false; readonly reason: "anchor-not-found" | "id-collision" }
 
-/** One `review`-mode file pointer, as `view` reports it. */
-export interface SteeringFilePointerView {
-  readonly path: string
-  readonly line?: number
-  readonly checked: boolean
-  readonly note?: string
-  readonly anchor: SteeringAnchor
-}
-
-/** One `review`-mode chunk, as `view` reports it. */
-export interface SteeringChunkView {
+/**
+ * One node of a format's `view` — a generic container/item tree, the SAME
+ * shape for every format, built-in or user-declared. Deliberately never a
+ * closed per-format union (an earlier draft of this type was exactly that —
+ * `SteeringReviewView | SteeringQaView` — which meant a third format's `view`
+ * had to pretend to be one of the two, or this file had to grow a third
+ * member; neither honors T1's own stated payoff, "a user-declared custom mode
+ * lights up the phone UI for free"). A "container" node (a `review` chunk, a
+ * `qa` question) sets `children`; an "item" node (a `review` hunk, a `qa`
+ * option) has none. Every field beyond `title`/`anchor` is OPTIONAL because
+ * different formats populate a different subset: `review`'s hunks set
+ * `path`/`line`/`checked`/`note`; `qa`'s questions set `status`/`answered`;
+ * `qa`'s options set `checked`. A THIRD format shapes its own view out of
+ * this SAME node type, needing no change here — mirrors `SteeringAnchor`'s
+ * own container/child genericity above.
+ */
+export interface SteeringViewNode {
+  /** This node's own display name — a chunk's/question's title, an option's/hunk's own label. */
   readonly title: string
-  readonly description: string
-  readonly files: readonly SteeringFilePointerView[]
+  /** A longer description or summary, when the format has one (a chunk's description, a question's first body line). */
+  readonly detail?: string
+  /** A free-form status label, when the format has one (`qa`'s `"open"`/`"answered"`). */
+  readonly status?: string
+  /** `true` when this node's own condition is fully satisfied (`qa`'s answered-question flag) — distinct from `checked`, which is a per-item tick. */
+  readonly answered?: boolean
+  /** This node's own checkbox state, when it has one (a hunk's tick, an option's tick). */
+  readonly checked?: boolean
+  /** An attached note's text, when this node carries one. */
+  readonly note?: string
+  /** A file path this node points at, when it has one (a `review` hunk). */
+  readonly path?: string
+  /** A 1-based line in `path` this node points at, when it has one. */
+  readonly line?: number
+  /** Where `annotate` attaches a NEW note to this node. */
   readonly anchor: SteeringAnchor
-}
-
-/** `review`-mode's own `view` projection — see `ReviewDoc.ts`'s `reviewView`. */
-export interface SteeringReviewView {
-  readonly kind: "review"
-  readonly headerHash?: string
-  readonly chunks: readonly SteeringChunkView[]
-}
-
-/** One `qa`-mode option, as `view` reports it. */
-export interface SteeringQaOptionView {
-  readonly checked: boolean
-  readonly text: string
-  readonly anchor: SteeringAnchor
-}
-
-/** One `qa`-mode question, as `view` reports it. */
-export interface SteeringQaQuestionView {
-  readonly status: "open" | "answered"
-  readonly text: string
-  readonly options: readonly SteeringQaOptionView[]
-  readonly answered: boolean
-  readonly anchor: SteeringAnchor
-}
-
-/** `qa`-mode's own `view` projection — see `OpenQuestions.ts`'s `questionsView`. */
-export interface SteeringQaView {
-  readonly kind: "qa"
-  readonly questions: readonly SteeringQaQuestionView[]
+  readonly children?: readonly SteeringViewNode[]
 }
 
 /**
- * A format's domain projection of its own content — what the phone UI
- * actually renders. A discriminated union (`kind`) rather than one shared
- * shape: the server never switches on it either, it just serializes whatever
- * `view` returns and lets the client's own per-`kind` renderer read it.
+ * A format's whole domain projection of `content` — what the phone UI
+ * actually renders. `header` is a document-level label when the format has
+ * one (`review`'s short hash); `nodes` are the top-level `SteeringViewNode`s.
+ * Never a discriminated union of per-format shapes — see `SteeringViewNode`'s
+ * own doc comment for why. The server never imports a format module or
+ * switches on the mode name either way: it just serializes whatever `view`
+ * returns and lets the client's own renderer walk the generic tree.
  */
-export type SteeringView = SteeringReviewView | SteeringQaView
+export interface SteeringView {
+  readonly header?: string
+  readonly nodes: readonly SteeringViewNode[]
+}
 
 /**
  * One steering-file FORMAT's whole behavior: how to validate it in process,

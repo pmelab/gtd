@@ -11,9 +11,15 @@ export const trpc = createTRPCReact<AppRouter>()
 /** Relative to the served origin, so it works regardless of host/port. */
 export const TRPC_URL = "/trpc"
 
-/** `serve/Write.ts#WriteResult`'s refusal half, read back off a `writeNote` mutation's error — mirrors `serve/Router.ts#WriteNoteRefusal`'s two fields exactly, kept as a plain type here (never importing `serve/Router.ts`) so this stays a thin client-side shape. */
+/** `serve/Write.ts#WriteResult`'s refusal half, read back off a `writeNote` mutation's error — mirrors `serve/Router.ts#WriteNoteRefusal`'s two fields exactly, kept as a plain type here (never importing `serve/Router.ts`) so this stays a thin client-side shape. `reason` mirrors `serve/Write.ts#WriteRefusalReason` verbatim, including the two reachable-but-not-among-T8's-four values (`note-collision`, `unsupported-mode`) — see that type's own doc comment for why they're distinct from `anchor-unresolved`. */
 export interface WriteRefusalInfo {
-  readonly reason: "stale-token" | "not-resting" | "file-vanished" | "anchor-unresolved"
+  readonly reason:
+    | "stale-token"
+    | "not-resting"
+    | "file-vanished"
+    | "anchor-unresolved"
+    | "note-collision"
+    | "unsupported-mode"
   readonly moved?: "sha" | "content-hash"
 }
 
