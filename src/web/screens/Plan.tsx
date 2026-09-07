@@ -40,6 +40,19 @@ const usePlanReadConfirmation = (contentHash: string) => {
 const isQuestionNode = (node: SteeringViewNode): boolean => node.status !== undefined
 
 /**
+ * The ONLY question nodes ever fed to `Deck` (and the ONLY ones the "Open
+ * Questions" card section indexes into) — an answered question's own `view`
+ * node carries no options at all (`OpenQuestions.ts`'s answered section never
+ * has checkboxes), so it must never be a deck ITEM either, not just a
+ * non-drillable card: `deck-next`/`deck-prev` navigate the deck's own item
+ * array directly, bypassing any per-card `onOpen` guard entirely. Both the
+ * card's start index and the deck's item list come from this SAME list, so
+ * advancing within the deck can never land past its last real question.
+ */
+const openQuestionNodesOf = (view: SteeringView): readonly SteeringViewNode[] =>
+  view.nodes.filter((node) => node.status === "open")
+
+/**
  * `onOpen` is OPTIONAL: an ANSWERED question's own `view` node carries no
  * options at all (`OpenQuestions.ts#OpenQuestion.options` is `[]` for the
  * answered section — there is nothing left to review or edit), so drilling
@@ -232,13 +245,19 @@ const PlanBody = ({
   const answeredNodes = questionNodes.filter((node) => node.status === "answered")
   return (
     <>
+      {/*
+       * `allNodes={openNodes}`, NOT `questionNodes` — a card's start index
+       * must be its position in the SAME list `PlanView` feeds `Deck`
+       * (`openQuestionNodesOf`), or tapping a card would open the deck at
+       * the wrong item the moment any answered question sorts before it.
+       */}
       <QuestionSection
         title="Open Questions"
         nodes={openNodes}
-        allNodes={questionNodes}
+        allNodes={openNodes}
         onOpen={onOpenQuestion}
       />
-      <QuestionSection title="Already answered" nodes={answeredNodes} allNodes={questionNodes} />
+      <QuestionSection title="Already answered" nodes={answeredNodes} allNodes={answeredNodes} />
     </>
   )
 }
@@ -303,7 +322,7 @@ export const PlanView = ({ view, contentHash, isLoading, onSaveNote }: PlanViewP
   if (deckIndex !== undefined) {
     return (
       <Deck
-        items={view.nodes.filter(isQuestionNode)}
+        items={openQuestionNodesOf(view)}
         index={deckIndex}
         onIndexChange={setDeckIndex}
         onExit={() => {

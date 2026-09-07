@@ -81,6 +81,37 @@ export const DocumentWithNoOpenQuestionsRendersNoEmptyHeading: Story = {
  * ("unanswered" on a card that's already resolved). The card renders as an
  * inert summary row instead — no button semantics, no drill-in.
  */
+/**
+ * `deck-next` past the LAST open question must exit the deck (returning to
+ * the list) rather than advancing into an answered question — `Deck.tsx`
+ * navigates its own item array directly, bypassing `QuestionCard`'s
+ * per-card `onOpen` guard entirely, so the deck's own item list must never
+ * include an answered node in the first place (`openQuestionNodesOf`).
+ * Reproduces the reviewer's own repro: one open, one answered, tap the open
+ * card, then tap `deck-next`.
+ */
+export const DeckNavigationPastTheLastOpenQuestionNeverReachesAnAnsweredOne: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [openQuestion(0, "Open one"), answeredQuestion(1, "Answered one")],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("question-screen")).toBeInTheDocument()
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("Open one")
+
+    await fireEvent.click(canvas.getByTestId("deck-next"))
+
+    // Back to the list — never an answered question rendering "unanswered".
+    await expect(canvas.queryByTestId("question-screen")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("plan-screen")).toBeInTheDocument()
+  },
+}
+
 export const AnAnsweredCardIsNotDrillable: Story = {
   args: {
     contentHash: "qa-sample-hash",
