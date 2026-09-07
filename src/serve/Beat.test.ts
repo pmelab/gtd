@@ -275,6 +275,33 @@ describe("BeatCache.read — the memo (T3)", () => {
     expect(deps.run).toHaveBeenCalled()
   })
 
+  it("resolves a RELATIVE log path (an ordinary clone's .git/gtd-loop.log) against the worktree, not the server's own cwd", async () => {
+    // `beatJson()`'s default `log` is already absolute, which masks this:
+    // an ordinary clone (no `gitdir:` pointer) reports the relative
+    // `.git/gtd-loop.log`, and joining it against the wrong base means
+    // touching that worktree's real log never invalidates its entry.
+    const worktree = { id: "abc123", path: "/repos/plain-clone" }
+    const deps = makeDeps({
+      beatOutcome: ok(beatJson({ log: ".git/gtd-loop.log" })),
+    })
+    let mtime = 1
+    deps.statMtime.mockImplementation(async (path: string) => {
+      if (path.endsWith("TODO.md")) return 1
+      if (path.endsWith("gtd-loop.log")) return mtime
+      return undefined
+    })
+
+    const cache = new BeatCache(deps, 8)
+    await cache.read(worktree)
+    const statPaths = deps.statMtime.mock.calls.map(([path]) => path)
+    expect(statPaths).toContain(join(worktree.path, ".git/gtd-loop.log"))
+    deps.run.mockClear()
+
+    mtime = 2
+    await cache.read(worktree)
+    expect(deps.run).toHaveBeenCalled()
+  })
+
   it("a warm fleet load of 30 worktrees completes in under 100ms", async () => {
     const deps = makeDeps()
     const cache = new BeatCache(deps, 8)

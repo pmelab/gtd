@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
-import { basename, dirname, join } from "node:path"
+import { basename, dirname, isAbsolute, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { NodeContext } from "@effect/platform-node"
 import { Effect } from "effect"
@@ -90,13 +90,27 @@ export interface SpawnOutcome {
 
 export type RunInWorktree = (cwd: string, command: string) => Promise<SpawnOutcome>
 
-/** The real subprocess spawn: `bash -c <command>` with `cwd` set to the worktree — never the invoking process's own directory. */
+/**
+ * The real subprocess spawn: `bash -c <command>` with `cwd` set to the
+ * worktree — never the invoking process's own directory. `<cwd>/node_modules/.bin`
+ * is prepended to `$PATH` so a worktree with its own `@pmelab/gtd`
+ * devDependency actually RUNS that install rather than the fleet server's
+ * own — otherwise `readLocalGtdVersionAt`'s version check would inspect a
+ * `package.json` that has no bearing on what `gtd next --json` here executes.
+ * Falls through to the inherited `$PATH` (the server's own `gtd`) when no
+ * local install exists, exactly as `readLocalGtdVersionAt`'s own doc comment
+ * already assumes.
+ */
 export const liveRunInWorktree: RunInWorktree = (cwd, command) =>
   new Promise((resolve) => {
+    const env = {
+      ...process.env,
+      PATH: `${join(cwd, "node_modules/.bin")}:${process.env["PATH"] ?? ""}`,
+    }
     execFile(
       "bash",
       ["-c", command],
-      { cwd, maxBuffer: 16 * 1024 * 1024 },
+      { cwd, env, maxBuffer: 16 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error === null) {
           resolve({ status: 0, stdout, stderr })
@@ -139,6 +153,22 @@ export const isSupportedVersion = (
   const major = Number(version.split(".")[0])
   return Number.isFinite(major) && major === currentMajor
 }
+
+/**
+ * Resolves a beat-reported path (`file`/`log`) against the worktree: absolute
+ * as-is (a linked worktree's `log`, whose `gitdir:` pointer can point
+ * anywhere), otherwise joined onto `worktreePath` — an ordinary clone's `log`
+ * (`.git/gtd-loop.log`, from `WorktreeState.ts`'s literal `".git"` fallback)
+ * is relative to the WORKTREE, not to the fleet server's own cwd. Joining it
+ * unconditionally (the earlier shape, for `log` only) resolved that relative
+ * path against the server's process instead: touching a plain repo's real
+ * loop log never invalidated its cache entry, and since `gtd serve` itself
+ * runs inside a gtd repo, that same relative path usually landed on the
+ * SERVER's own log — one shared file invalidating every plain-repo row at
+ * once.
+ */
+const resolveInWorktree = (worktreePath: string, reportedPath: string): string =>
+  isAbsolute(reportedPath) ? reportedPath : join(worktreePath, reportedPath)
 
 /**
  * Sequential, not `Promise.all` — `coldRead` runs entirely inside `withSlot`,
@@ -234,9 +264,11 @@ const okResult = async (
   const [headSha, fileMtime, logMtime] = await Promise.all([
     deps.headSha(worktree.path),
     filePath !== undefined
-      ? deps.statMtime(join(worktree.path, filePath))
+      ? deps.statMtime(resolveInWorktree(worktree.path, filePath))
       : Promise.resolve(undefined),
-    logPath !== undefined ? deps.statMtime(logPath) : Promise.resolve(undefined),
+    logPath !== undefined
+      ? deps.statMtime(resolveInWorktree(worktree.path, logPath))
+      : Promise.resolve(undefined),
   ])
 
   const result: FleetRow = {
@@ -356,10 +388,10 @@ export class BeatCache {
       const [headSha, fileMtime, logMtime] = await Promise.all([
         this.deps.headSha(worktree.path),
         cached.key.filePath !== undefined
-          ? this.deps.statMtime(join(worktree.path, cached.key.filePath))
+          ? this.deps.statMtime(resolveInWorktree(worktree.path, cached.key.filePath))
           : Promise.resolve(undefined),
         cached.key.logPath !== undefined
-          ? this.deps.statMtime(cached.key.logPath)
+          ? this.deps.statMtime(resolveInWorktree(worktree.path, cached.key.logPath))
           : Promise.resolve(undefined),
       ])
       if (
