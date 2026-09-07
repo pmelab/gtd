@@ -292,15 +292,21 @@ describe("BeatCache.read — the memo (T3)", () => {
     let active = 0
     let maxActive = 0
     const deps = makeDeps()
+    // Every `run` call counts here, not only `gtd next --json` — T3's own
+    // wording is "never more than that many CHILD PROCESSES alive at once",
+    // and `coldRead` spawns three `git` reads per cold read in addition to
+    // the beat itself. A version of this test that only tracked the beat
+    // command would pass even if those three ran concurrently per slot
+    // (up to 3x the configured cap in real child processes).
     deps.run.mockImplementation(async (_cwd: string, command: string) => {
-      if (command !== "gtd next --json") {
-        const canned = GIT_META[command]
-        return canned !== undefined ? ok(canned) : failed("unscripted")
-      }
       active++
       maxActive = Math.max(maxActive, active)
       await new Promise((resolve) => setTimeout(resolve, 5))
       active--
+      if (command !== "gtd next --json") {
+        const canned = GIT_META[command]
+        return canned !== undefined ? ok(canned) : failed("unscripted")
+      }
       return ok(beatJson())
     })
     const cache = new BeatCache(deps, 4)

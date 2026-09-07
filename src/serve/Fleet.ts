@@ -34,13 +34,22 @@ const bucketOrder: readonly FleetBucket[] = ["wants-you", "working", "broken", "
  */
 const restOf = (row: BeatRead): string | undefined => (row.status === "ok" ? row.rest : undefined)
 
+/**
+ * Compares the parsed INSTANT, never the ISO string itself: `rest` is `git
+ * log`'s `%cI`, which carries the committer's own UTC offset rather than a
+ * normalized `Z` — a fleet mixes offsets routinely (any worktree last
+ * committed by CI or a colleague elsewhere), and two differently-offset
+ * timestamps can compare backwards lexically even though `Date.parse`
+ * orders them correctly.
+ */
 const compareRest = (a: BeatRead, b: BeatRead, oldestFirst: boolean): number => {
   const ra = restOf(a)
   const rb = restOf(b)
   if (ra === undefined && rb === undefined) return 0
   if (ra === undefined) return 1
   if (rb === undefined) return -1
-  return oldestFirst ? ra.localeCompare(rb) : rb.localeCompare(ra)
+  const diff = Date.parse(ra) - Date.parse(rb)
+  return oldestFirst ? diff : -diff
 }
 
 /** Groups and sorts `BeatRead`s into the four buckets, in fixed display order. */

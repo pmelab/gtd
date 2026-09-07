@@ -140,15 +140,23 @@ export const isSupportedVersion = (
   return Number.isFinite(major) && major === currentMajor
 }
 
+/**
+ * Sequential, not `Promise.all` — `coldRead` runs entirely inside `withSlot`,
+ * so T3's cap ("never more than that many child processes alive at once")
+ * covers every subprocess a cold read spawns, not just `gtd next --json`.
+ * Three concurrent `git` calls per slot would let a `concurrency: 8` cache
+ * run up to 24 live processes at once; one at a time per slot keeps the
+ * total exactly at the configured cap. These reads are a few milliseconds
+ * each next to `gtd next --json`'s 520–660 ms bundle parse, so serializing
+ * them costs nothing worth trading the cap's own guarantee away for.
+ */
 const readGitMeta = async (
   path: string,
   run: RunInWorktree,
 ): Promise<{ readonly repo: string; readonly branch: string; readonly rest: string }> => {
-  const [commonDir, branch, rest] = await Promise.all([
-    run(path, "git rev-parse --path-format=absolute --git-common-dir"),
-    run(path, "git rev-parse --abbrev-ref HEAD"),
-    run(path, "git log -1 --format=%cI HEAD"),
-  ])
+  const commonDir = await run(path, "git rev-parse --path-format=absolute --git-common-dir")
+  const branch = await run(path, "git rev-parse --abbrev-ref HEAD")
+  const rest = await run(path, "git log -1 --format=%cI HEAD")
   return {
     repo: commonDir.status === 0 ? basename(dirname(commonDir.stdout.trim())) : basename(path),
     branch: branch.status === 0 ? branch.stdout.trim() : "",

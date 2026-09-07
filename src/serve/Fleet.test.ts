@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
 import type { BeatRead, WorktreeRef } from "./Beat.js"
 import { bucketOf, groupIntoBuckets, readFleet, wantsYouCount } from "./Fleet.js"
 
@@ -68,6 +71,28 @@ describe("groupIntoBuckets", () => {
     const all = Object.values(buckets).flat()
     expect(all.map((r) => r.id).sort()).toEqual(["a", "b"])
   })
+
+  it("sorts by the parsed instant, not the ISO string, across differing UTC offsets", () => {
+    // `2026-09-07T01:00:00+02:00` is 2026-09-06T23:00Z — the OLDER instant.
+    // `2026-09-06T23:30:00-05:00` is 2026-09-07T04:30Z — the newer one.
+    // Lexically the first string sorts greater than the second, the exact
+    // reverse of their real order — a naive string compare would put the
+    // longest-waiting worktree last in Wants you instead of first.
+    const trulyOlder = row({
+      id: "truly-older",
+      rest: "2026-09-07T01:00:00+02:00",
+      actor: "human",
+      idle: false,
+    })
+    const trulyNewer = row({
+      id: "truly-newer",
+      rest: "2026-09-06T23:30:00-05:00",
+      actor: "human",
+      idle: false,
+    })
+    const wantsYou = groupIntoBuckets([trulyNewer, trulyOlder])["wants-you"]
+    expect(wantsYou.map((r) => r.id)).toEqual(["truly-older", "truly-newer"])
+  })
 })
 
 describe("wantsYouCount", () => {
@@ -81,15 +106,39 @@ describe("wantsYouCount", () => {
 })
 
 describe("readFleet", () => {
+  const dirs: string[] = []
+
+  afterEach(() => {
+    while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true })
+  })
+
   it("keeps one broken worktree from failing the whole fleet request", async () => {
+    // A real root with two genuinely discoverable worktrees — `roots: []`
+    // (the prior version of this test) makes `discoverWorktrees` find
+    // nothing, so `readBeat` never runs at all and the throwing branch below
+    // is dead code the test never exercises.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-fleet-")))
+    dirs.push(root)
+    const goodPath = join(root, "good")
+    const throwingPath = join(root, "throws")
+    mkdirSync(join(goodPath, ".git"), { recursive: true })
+    mkdirSync(join(throwingPath, ".git"), { recursive: true })
+
     const result = await readFleet({
-      roots: [],
+      roots: [root],
       readBeat: async (w: WorktreeRef): Promise<BeatRead> => {
-        if (w.id === "throws") throw new Error("boom")
-        return row({ id: w.id })
+        if (w.path === throwingPath) throw new Error("boom")
+        return row({ id: w.id, path: w.path, idle: true })
       },
     })
-    expect(result.wantsYouCount).toBe(0)
+
+    const all = Object.values(result.buckets).flat()
+    expect(all).toHaveLength(2)
+    const good = all.find((r) => r.path === goodPath)
+    const broken = all.find((r) => r.path === throwingPath)
+    expect(good?.status).toBe("ok")
+    expect(broken?.status).toBe("broken")
+    if (broken?.status === "broken") expect(broken.detail).toBe("boom")
   })
 
   it("a fleet payload for 30 worktrees stays under 32 KB", async () => {
