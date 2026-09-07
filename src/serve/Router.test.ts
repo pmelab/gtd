@@ -1,7 +1,14 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
-import { appRouter, CommandRefusal, WriteNoteRefusal, type RouterContext } from "./Router.js"
+import { QA_FORMAT } from "../OpenQuestions.js"
+import {
+  appRouter,
+  CommandRefusal,
+  UnsupportedModeRefusal,
+  WriteNoteRefusal,
+  type RouterContext,
+} from "./Router.js"
 
 /** A `Runtime<CommandRunner>` over a canned `bash` — the same runtime-capture pattern `Server.ts` uses for its HTML-serving path, scoped here to just the one service a router test needs. */
 const contextFor = (
@@ -141,5 +148,34 @@ describe("appRouter.writeNote", () => {
     await expect(
       caller.writeNote({ ...request, anchor: { kind: "unknown" } } as never),
     ).rejects.toThrow()
+  })
+})
+
+describe("appRouter.view", () => {
+  it("returns a qa-mode document's view", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
+    )
+    const result = await caller.view({ mode: "qa", content: QA_FORMAT.sample })
+    expect(result).toEqual({ view: QA_FORMAT.view(QA_FORMAT.sample) })
+  })
+
+  it("surfaces an unregistered mode as a typed UnsupportedModeRefusal cause", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
+    )
+    const error = await caller
+      .view({ mode: "not-a-real-mode", content: "x" })
+      .catch((e: unknown) => e)
+    const cause = (error as { cause?: unknown }).cause
+    expect(cause).toBeInstanceOf(UnsupportedModeRefusal)
+    expect((cause as UnsupportedModeRefusal).reason).toBe("unsupported-mode")
+  })
+
+  it("rejects malformed input rather than reaching steeringViewFor", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
+    )
+    await expect(caller.view({ mode: "qa" } as never)).rejects.toThrow()
   })
 })

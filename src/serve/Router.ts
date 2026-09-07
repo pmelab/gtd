@@ -3,6 +3,7 @@ import { Effect, Runtime } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
 import type { SteeringAnchor } from "../SteeringFormat.js"
 import type { FleetPayload } from "./Fleet.js"
+import { steeringViewFor } from "./View.js"
 import type { WriteNoteRequest, WriteResult } from "./Write.js"
 
 /** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes T3's memo actually memoize across requests. `writeNote` closes over the live `WriteDeps` (see `Write.ts`); the router never imports a format module or a filesystem API directly. */
@@ -41,10 +42,19 @@ export class WriteNoteRefusal extends Error {
   }
 }
 
+/** `View.ts#steeringViewFor`'s one typed refusal, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.viewRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. */
+export class UnsupportedModeRefusal extends Error {
+  constructor(readonly reason: import("./View.js").SteeringViewRefusalReason) {
+    super(`gtd serve: view refused (${reason})`)
+    this.name = "UnsupportedModeRefusal"
+  }
+}
+
 const t = initTRPC.context<RouterContext>().create({
   errorFormatter({ shape, error }) {
     const refusal = error.cause instanceof CommandRefusal ? error.cause : undefined
     const writeRefusal = error.cause instanceof WriteNoteRefusal ? error.cause : undefined
+    const viewRefusal = error.cause instanceof UnsupportedModeRefusal ? error.cause : undefined
     return {
       ...shape,
       data: {
@@ -57,6 +67,7 @@ const t = initTRPC.context<RouterContext>().create({
           writeRefusal === undefined
             ? undefined
             : { reason: writeRefusal.reason, moved: writeRefusal.moved },
+        viewRefusal: viewRefusal === undefined ? undefined : { reason: viewRefusal.reason },
       },
     }
   },
@@ -148,6 +159,14 @@ const writeNoteInput = (
   }
 }
 
+/** `steeringView`'s own input validator — a `{ content: string, mode: string }`, no `zod` dependency, mirroring `commandInput`. */
+const viewInput = (value: unknown): { readonly content: string; readonly mode: string } => {
+  if (!isRecord(value) || typeof value.content !== "string" || typeof value.mode !== "string") {
+    throw new Error("expected { content: string, mode: string }")
+  }
+  return { content: value.content, mode: value.mode }
+}
+
 export const appRouter = t.router({
   /**
    * Runs `input.command` VERBATIM via `CommandRunner` — `commandInput` only
@@ -196,6 +215,25 @@ export const appRouter = t.router({
       })
     }
     return { ok: true as const }
+  }),
+
+  /**
+   * The steering screen's one read: `View.ts#steeringViewFor`'s pure
+   * dispatch, never a format module import or a switch on `input.mode` here
+   * either. A refusal becomes a `TRPCError` whose `cause` is an
+   * `UnsupportedModeRefusal` — read back on the client via
+   * `error.data.viewRefusal.reason`.
+   */
+  view: t.procedure.input(viewInput).query(({ input }) => {
+    const result = steeringViewFor(input.mode, input.content)
+    if (!result.ok) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `gtd serve: view refused (${result.reason})`,
+        cause: new UnsupportedModeRefusal(result.reason),
+      })
+    }
+    return { view: result.view }
   }),
 })
 
