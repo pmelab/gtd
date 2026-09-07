@@ -18,6 +18,21 @@ export interface DraftStorage {
   readonly removeItem: (key: string) => void
 }
 
+/**
+ * The real, DOM-backed `DraftStorage` — `window.localStorage` itself, wrapped
+ * so every function in this module (which only ever depends on the
+ * `DraftStorage` shape) can be pointed at real persistence in production.
+ * References `window.localStorage` lazily, inside each method, rather than
+ * once at module load — so importing this module never requires a `window`
+ * to exist (this repo's unit test tier runs under Node, no DOM); only
+ * actually CALLING one of these methods does, exactly like the real API.
+ */
+export const localStorageDraftStorage: DraftStorage = {
+  getItem: (key) => window.localStorage.getItem(key),
+  setItem: (key, value) => window.localStorage.setItem(key, value),
+  removeItem: (key) => window.localStorage.removeItem(key),
+}
+
 const KEY_PREFIX = "gtd:draft:"
 
 /** Keyed on worktree id PLUS file path — two files in one worktree (or the same file path in two worktrees) never share a draft. */

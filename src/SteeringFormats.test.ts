@@ -112,36 +112,28 @@ describe("every registry entry's view", () => {
     }
   })
 
-  // `format.sample` itself already carries a note attached at one of its own
-  // anchors (see `REVIEW_SAMPLE`/`QA_SAMPLE`'s doc comments — T7 requires a
-  // server-written note in the sample) — annotating that SAME anchor again is
-  // correctly refused as an id collision (`Footnotes.ts#footnoteAttachEdits`).
-  // So this asserts the "every reported anchor is acceptable" property
-  // against a PRISTINE document per mode, one with no note attached yet.
-  const PRISTINE_CONTENT: Readonly<Record<string, string>> = {
-    qa: ["Plan.", "", "## Open Questions", "", "### Q?", "", "- [ ] A", "- [ ] B", ""].join("\n"),
-    review: [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./a.ts#1 hunk",
-      "",
-    ].join("\n"),
-  }
-
-  it("every anchor `view` reports is one `annotate` accepts", () => {
+  // `format.sample` itself, derived from the registry entry alone — never a
+  // per-mode fixture table (a third registry entry with no matching key
+  // there would fail on a confusing `undefined`, not on the property under
+  // test). `format.sample` already carries a note attached at ONE of its own
+  // anchors (T7 requires a server-written note in the sample) — annotating
+  // that SAME anchor again with the SAME derived id is correctly refused as
+  // an `id-collision` (`Footnotes.ts#footnoteAttachEdits`'s own by-design
+  // dedup), which this treats as a PASS; only `anchor-not-found` — the anchor
+  // itself failing to resolve — is the failure this property actually
+  // guards against.
+  it("every anchor `view` reports is one `annotate` accepts (or correctly refuses only as an id-collision, never as anchor-not-found)", () => {
     for (const mode of builtInModeNames()) {
       const format = steeringFormatFor(mode)!
-      const content = PRISTINE_CONTENT[mode]!
+      const content = format.sample
       const view = format.view(content)
       const anchors = anchorsIn(view)
       expect(anchors.length).toBeGreaterThan(0)
       for (const anchor of anchors) {
-        const result = format.annotate(content, anchor as never)
+        const result = format.annotate(content, anchor as never, "a note a human typed")
+        const acceptable = result.ok || (!result.ok && result.reason === "id-collision")
         expect(
-          result.ok,
+          acceptable,
           `${mode}: ${JSON.stringify(anchor)} was refused: ${JSON.stringify(result)}`,
         ).toBe(true)
       }

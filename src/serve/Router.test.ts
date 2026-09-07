@@ -101,6 +101,7 @@ describe("appRouter.writeNote", () => {
     expectedContentHash: "hash1",
     mode: "review",
     anchor: { kind: "chunk" as const, index: 0 },
+    text: "a note a human typed",
   }
 
   it("delegates to the context's writeNote and returns ok on success", async () => {

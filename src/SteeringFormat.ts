@@ -221,10 +221,21 @@ export interface SteeringFormat {
   readonly view: (content: string) => SteeringView
   /**
    * The other mandatory member: turns an `anchor` (as reported by this same
-   * format's `view`, or a `paragraph` anchor a client resolves itself) into
-   * the byte-range edits that attach a note there — or a typed refusal when
-   * the anchor doesn't resolve. Every built-in implementation delegates to
-   * `Footnotes.ts#footnoteAttachEdits` for the actual two-edit mechanics.
+   * format's `view`, or a `paragraph` anchor a client resolves itself) plus
+   * `text` — the human's own typed note body, carried verbatim into the new
+   * definition — into the byte-range edits that attach it there, or a typed
+   * refusal when the anchor doesn't resolve. `text` is never a placeholder:
+   * unlike the LSP's own "gtd: add a footnote" action (which seeds a
+   * definition for a human to fill in afterward, `Footnotes.ts`'s
+   * `footnoteAdditionEdits`), a server-attached note already has its real
+   * body at attach time, so the document it produces validates clean
+   * immediately — requirement 5's "writes through immediately". Every
+   * built-in implementation delegates to `Footnotes.ts#footnoteAttachEdits`
+   * for the actual two-edit mechanics.
    */
-  readonly annotate: (content: string, anchor: SteeringAnchor) => SteeringAnnotateResult
+  readonly annotate: (
+    content: string,
+    anchor: SteeringAnchor,
+    text: string,
+  ) => SteeringAnnotateResult
 }

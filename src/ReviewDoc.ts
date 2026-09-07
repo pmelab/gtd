@@ -875,14 +875,18 @@ const resolveReviewAnchor = (
   }
 }
 
-/** `review`-mode's `annotate`: resolves `anchor` then delegates the two-edit mechanics to `Footnotes.ts#footnoteAttachEdits`. */
-const reviewAnnotate = (content: string, anchor: SteeringAnchor): SteeringAnnotateResult => {
+/** `review`-mode's `annotate`: resolves `anchor` then delegates the two-edit mechanics (`text` carried through verbatim as the new definition's body) to `Footnotes.ts#footnoteAttachEdits`. */
+const reviewAnnotate = (
+  content: string,
+  anchor: SteeringAnchor,
+  text: string,
+): SteeringAnnotateResult => {
   const { changesets } = parseReviewDoc(content)
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
   const resolved = resolveReviewAnchor(content, tree, lines, changesets, anchor)
   if (!resolved) return { ok: false, reason: "anchor-not-found" }
-  const result = footnoteAttachEdits(content, resolved)
+  const result = footnoteAttachEdits(content, resolved, text)
   if (!result.ok) return result
   return { ok: true, edits: result.edits }
 }

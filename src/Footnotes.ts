@@ -332,8 +332,12 @@ export type FootnoteAttachResult =
 
 /**
  * Attaches a note at `anchor`'s own end: a marker `[^<id>]` planted right
- * there, and a definition seeded with `PLACEHOLDER_BODY` planted after
- * `anchor.blockEndLine` — the two-edits-at-once mechanics `T2` asks for,
+ * there, and a definition seeded with `text` — the human's own typed body,
+ * VERBATIM, never `PLACEHOLDER_BODY` (that seed is `footnoteAdditionEdits`'s
+ * own — a human fills it in afterward via the editor; a server-attached note
+ * already has its real text at attach time, so the document validates clean
+ * immediately rather than tripping the placeholder finding) — planted after
+ * `anchor.blockEndLine`. The two-edits-at-once mechanics `T2` asks for,
  * shared by chunk/hunk/paragraph notes alike (the caller resolves its own
  * `key` per kind). `id` is derived from `anchor.key` alone (`anchorId`),
  * never counted, so this is safe to call from two concurrent requests
@@ -345,6 +349,7 @@ export type FootnoteAttachResult =
 export const footnoteAttachEdits = (
   content: string,
   anchor: FootnoteAnchor,
+  text: string,
 ): FootnoteAttachResult => {
   const { definitions } = parseFootnotes(content)
   const id = anchorId(anchor.key)
@@ -372,9 +377,7 @@ export const footnoteAttachEdits = (
   const atEof = nextContentLine >= lines.length
   const definitionEdit: SteeringEdit = {
     range: { start, end: atEof ? start : { line: nextContentLine, character: 0 } },
-    newText: atEof
-      ? `${eol}[^${id}]: ${PLACEHOLDER_BODY}${eol}`
-      : `${eol}[^${id}]: ${PLACEHOLDER_BODY}${eol}${eol}`,
+    newText: atEof ? `${eol}[^${id}]: ${text}${eol}` : `${eol}[^${id}]: ${text}${eol}${eol}`,
   }
 
   return { ok: true, id, edits: [markerEdit, definitionEdit] }

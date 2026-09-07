@@ -983,14 +983,18 @@ const resolveQuestionsAnchor = (
   }
 }
 
-/** `qa`-mode's `annotate`: resolves `anchor` then delegates the two-edit mechanics to `Footnotes.ts#footnoteAttachEdits`. */
-const questionsAnnotate = (content: string, anchor: SteeringAnchor): SteeringAnnotateResult => {
+/** `qa`-mode's `annotate`: resolves `anchor` then delegates the two-edit mechanics (`text` carried through verbatim as the new definition's body) to `Footnotes.ts#footnoteAttachEdits`. */
+const questionsAnnotate = (
+  content: string,
+  anchor: SteeringAnchor,
+  text: string,
+): SteeringAnnotateResult => {
   const { questions } = parseOpenQuestions(content)
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
   const resolved = resolveQuestionsAnchor(content, tree, lines, questions, anchor)
   if (!resolved) return { ok: false, reason: "anchor-not-found" }
-  const result = footnoteAttachEdits(content, resolved)
+  const result = footnoteAttachEdits(content, resolved, text)
   if (!result.ok) return result
   return { ok: true, edits: result.edits }
 }

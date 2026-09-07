@@ -28,6 +28,7 @@ const baseRequest = () => ({
   expectedContentHash: contentHashOf(CONTENT),
   mode: "review",
   anchor: { kind: "chunk" as const, index: 0 },
+  text: "a note a human typed",
 })
 
 describe("applySteeringEdits", () => {
@@ -70,6 +71,25 @@ describe("writeNote", () => {
     const result = await writeNote(baseRequest(), deps)
     expect(result).toEqual({ ok: false, reason: "stale-token", moved: "content-hash" })
     expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("the content hash is over the file's exact bytes, so a whitespace-only change invalidates it", async () => {
+    const withTrailingSpace = CONTENT.replace("## Chunk", "## Chunk ")
+    const deps = fakeDeps({ readFile: vi.fn(async () => withTrailingSpace) })
+    // `baseRequest()`'s `expectedContentHash` is over the ORIGINAL `CONTENT`
+    // bytes — the file on disk now differs by one trailing space only.
+    const result = await writeNote(baseRequest(), deps)
+    expect(result).toEqual({ ok: false, reason: "stale-token", moved: "content-hash" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+    // The inverse: hashing the exact (whitespace-changed) bytes and expecting
+    // THAT hash succeeds — proving the hash is sensitive to whitespace at all,
+    // not merely that a wrong hash was supplied.
+    const matchingRequest = {
+      ...baseRequest(),
+      expectedContentHash: contentHashOf(withTrailingSpace),
+    }
+    const matchingResult = await writeNote(matchingRequest, deps)
+    expect(matchingResult.ok).toBe(true)
   })
 
   it("names which of the two moved — sha and content-hash are distinguishable", async () => {

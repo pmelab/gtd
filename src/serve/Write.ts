@@ -44,6 +44,8 @@ export interface WriteNoteRequest {
   readonly expectedContentHash: string
   readonly mode: string
   readonly anchor: SteeringAnchor
+  /** The human's own typed note body — carried verbatim into the new footnote definition by `SteeringFormat.annotate`, never a placeholder. */
+  readonly text: string
 }
 
 /**
@@ -121,7 +123,7 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
 
     const format = steeringFormatFor(request.mode)
     if (format === undefined) return { ok: false, reason: "anchor-unresolved" }
-    const annotated = format.annotate(content, request.anchor)
+    const annotated = format.annotate(content, request.anchor, request.text)
     if (!annotated.ok) return { ok: false, reason: "anchor-unresolved" }
 
     const nextContent = applySteeringEdits(content, annotated.edits)

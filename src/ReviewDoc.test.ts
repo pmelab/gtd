@@ -1841,32 +1841,71 @@ describe("REVIEW_FORMAT.annotate", () => {
   ].join("\n")
 
   it("accepts a chunk-level anchor", () => {
-    const result = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 })
+    const result = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 }, "a real note")
     expect(result.ok).toBe(true)
   })
 
   it("accepts a hunk-level anchor", () => {
-    const result = REVIEW_FORMAT.annotate(CONTENT, { kind: "hunk", chunkIndex: 0, index: 0 })
+    const result = REVIEW_FORMAT.annotate(
+      CONTENT,
+      { kind: "hunk", chunkIndex: 0, index: 0 },
+      "a real note",
+    )
     expect(result.ok).toBe(true)
   })
 
   it("accepts a paragraph anchor in a prose-only document", () => {
-    const result = REVIEW_FORMAT.annotate("Just some prose.\n", { kind: "paragraph", line: 0 })
+    const result = REVIEW_FORMAT.annotate(
+      "Just some prose.\n",
+      { kind: "paragraph", line: 0 },
+      "a real note",
+    )
     expect(result.ok).toBe(true)
   })
 
   it("rejects an anchor that no longer resolves, rather than silently dropping it", () => {
-    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 5 })).toEqual({
+    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 5 }, "note")).toEqual({
       ok: false,
       reason: "anchor-not-found",
     })
-    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "hunk", chunkIndex: 0, index: 5 })).toEqual({
+    expect(
+      REVIEW_FORMAT.annotate(CONTENT, { kind: "hunk", chunkIndex: 0, index: 5 }, "note"),
+    ).toEqual({
       ok: false,
       reason: "anchor-not-found",
     })
-    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "question", index: 0 })).toEqual({
+    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "question", index: 0 }, "note")).toEqual({
       ok: false,
       reason: "anchor-not-found",
     })
+  })
+
+  it("attaches the given text verbatim, and the resulting document passes its own format's validator (T2's last criterion)", () => {
+    const result = REVIEW_FORMAT.annotate(
+      CONTENT,
+      { kind: "hunk", chunkIndex: 0, index: 0 },
+      "a real reason a human actually typed",
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const lines = CONTENT.split("\n")
+    const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
+      let offset = 0
+      for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+      return offset + pos.character
+    }
+    const sorted = [...result.edits].sort(
+      (a, b) => toOffset(b.range.start) - toOffset(a.range.start),
+    )
+    let applied = CONTENT
+    for (const edit of sorted) {
+      applied =
+        applied.slice(0, toOffset(edit.range.start)) +
+        edit.newText +
+        applied.slice(toOffset(edit.range.end))
+    }
+    expect(applied).toContain("a real reason a human actually typed")
+    expect(applied).not.toContain("your comment")
+    expect(REVIEW_FORMAT.validate(applied)).toEqual([])
   })
 })

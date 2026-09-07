@@ -120,7 +120,7 @@ const steeringAnchorInput = (value: unknown): SteeringAnchor => {
   return parsed
 }
 
-/** `writeNote`'s own input validator — every field is required, no `zod` dependency, mirroring `commandInput`. */
+/** `writeNote`'s own input validator — every field is required, no `zod` dependency, mirroring `commandInput`. `text` is the human's own typed note body, carried verbatim into the new footnote definition (never a placeholder). */
 const writeNoteInput = (
   value: unknown,
 ): {
@@ -130,10 +130,11 @@ const writeNoteInput = (
   readonly expectedContentHash: string
   readonly mode: string
   readonly anchor: SteeringAnchor
+  readonly text: string
 } => {
   if (!isRecord(value)) throw new Error("expected a write request")
-  const { worktreePath, filePath, expectedHeadSha, expectedContentHash, mode, anchor } = value
-  for (const field of [worktreePath, filePath, expectedHeadSha, expectedContentHash, mode]) {
+  const { worktreePath, filePath, expectedHeadSha, expectedContentHash, mode, anchor, text } = value
+  for (const field of [worktreePath, filePath, expectedHeadSha, expectedContentHash, mode, text]) {
     if (typeof field !== "string") throw new Error("expected string fields on a write request")
   }
   return {
@@ -143,6 +144,7 @@ const writeNoteInput = (
     expectedContentHash: expectedContentHash as string,
     mode: mode as string,
     anchor: steeringAnchorInput(anchor),
+    text: text as string,
   }
 }
 
