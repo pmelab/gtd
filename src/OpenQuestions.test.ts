@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   FREE_TEXT_PLACEHOLDER,
+  isAnswered,
   parseOpenQuestions,
   unansweredQuestions,
   toggleCheckbox,
@@ -1485,6 +1486,43 @@ describe("toggleCheckbox's exact box offset", () => {
       edit.newText +
       line.slice(edit.range.end.character)
     expect(applied).toBe("- [x] REST option")
+  })
+})
+
+describe("isAnswered — the ONE predicate exported for a client to reuse, never re-derive (T5)", () => {
+  it("is answered when exactly one option is ticked and it isn't the free-text slot", () => {
+    expect(
+      isAnswered([
+        { checked: true, text: "Option A", freeText: false },
+        { checked: false, text: "Option B", freeText: false },
+      ]),
+    ).toBe(true)
+  })
+
+  it("is unanswered when zero options are ticked", () => {
+    expect(
+      isAnswered([
+        { checked: false, text: "Option A", freeText: false },
+        { checked: false, text: "Option B", freeText: false },
+      ]),
+    ).toBe(false)
+  })
+
+  it("is unanswered when two or more options are ticked at once — the exact divergence a client re-deriving 'take the first checked option' would miss", () => {
+    expect(
+      isAnswered([
+        { checked: true, text: "Option A", freeText: false },
+        { checked: true, text: "Option B", freeText: false },
+      ]),
+    ).toBe(false)
+  })
+
+  it("is unanswered when the ticked option is the free-text slot with empty text", () => {
+    expect(isAnswered([{ checked: true, text: "", freeText: true }])).toBe(false)
+  })
+
+  it("is answered when the ticked option is the free-text slot WITH text", () => {
+    expect(isAnswered([{ checked: true, text: "a real answer", freeText: true }])).toBe(true)
   })
 })
 

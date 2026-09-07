@@ -54,12 +54,16 @@ export interface ReviewViewProps {
   /**
    * Called with a saved note's `anchor`/`text` — the real `Review` container
    * wires this to an actual `writeNote` mutation (compare-and-swap against
-   * the `headSha`/`contentHash` its own `readSteeringFile` fetch returned).
-   * Local optimistic state (below) still updates immediately either way, so
-   * the sheet's own save feels instant; this is the write-through that makes
-   * it survive a reload. Absent in `Review.stories.tsx`'s pure-data stories.
+   * the `headSha`/`contentHash` its own `readSteeringFile` fetch returned),
+   * returning `writeNote.mutateAsync`'s OWN promise so `useReviewState` can
+   * revert its optimistic override on a rejection (a `CONFLICT` refusal, a
+   * network failure, …) — otherwise a refused write leaves the local
+   * override in place forever, and the "keeps this round open" badge keeps
+   * claiming a footnote that was never actually written. Local optimistic
+   * state (below) still updates immediately either way, so the sheet's own
+   * save feels instant. Absent in `Review.stories.tsx`'s pure-data stories.
    */
-  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => void
+  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
 }
 
 /** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`, so a save/dismiss never has to re-look-up the node it came from. */
@@ -84,7 +88,9 @@ interface NoteSheetState {
  * `annotate` is that exact generic primitive, so `onSaveNote` (when the
  * container supplies one) write-throughs via `writeNote` for real.
  */
-const useReviewState = (onSaveNote?: (anchor: SteeringAnchor, text: string) => void) => {
+const useReviewState = (
+  onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
+) => {
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [openChunkIndex, setOpenChunkIndex] = useState<number | undefined>(undefined)
@@ -109,7 +115,17 @@ const useReviewState = (onSaveNote?: (anchor: SteeringAnchor, text: string) => v
   const saveNote = (anchor: SteeringAnchor, text: string) => {
     setNotes((prev) => ({ ...prev, [noteKey(anchor)]: text }))
     setNoteSheet(undefined)
-    onSaveNote?.(anchor, text)
+    // A refused/failed write reverts the optimistic override — otherwise a
+    // CONFLICT (stale token, anchor moved, …) would leave this note showing
+    // (and the "keeps this round open" badge claiming it) forever, even
+    // though the file was never actually touched.
+    onSaveNote?.(anchor, text)?.catch(() => {
+      setNotes((prev) => {
+        const next = { ...prev }
+        delete next[noteKey(anchor)]
+        return next
+      })
+    })
   }
 
   const toggleChunk = (chunk: SteeringViewNode) => {
@@ -266,6 +282,7 @@ const ChunkRow = ({
         type="button"
         data-testid={`chunk-open-${chunkIndex}`}
         onClick={() => state.openChunk(chunkIndex)}
+        disabled={hunks.length === 0}
         style={{
           flex: 1,
           textAlign: "left",
@@ -274,11 +291,16 @@ const ChunkRow = ({
           color: "inherit",
           font: "inherit",
           padding: 0,
+          cursor: hunks.length === 0 ? "default" : "pointer",
+          opacity: hunks.length === 0 ? 0.6 : 1,
         }}
       >
         <div style={{ fontWeight: 600 }}>{chunk.title}</div>
         {chunk.detail !== undefined && chunk.detail.length > 0 && (
           <div style={{ fontSize: 12, opacity: 0.7 }}>{chunk.detail}</div>
+        )}
+        {hunks.length === 0 && (
+          <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>No file pointers</div>
         )}
         {footnoteKeepsRoundOpen && (
           <div
@@ -361,7 +383,12 @@ export const ReviewView = ({
 
   const openChunk =
     state.openChunkIndex !== undefined ? view.nodes[state.openChunkIndex] : undefined
-  if (openChunk !== undefined) {
+  // A chunk with zero hunks never opens a deck at all — `Deck.tsx` renders
+  // `null` for an empty item list, which would otherwise be an unrecoverable
+  // blank dead-end (no content, no Back control). The chunk-open button is
+  // already disabled for this shape; this is the defensive backstop for any
+  // other path that could still set `openChunkIndex` on one.
+  if (openChunk !== undefined && hunksOf(openChunk).length > 0) {
     return <HunkDeck chunk={openChunk} diffs={diffs} worktreePath={worktreePath} state={state} />
   }
 
@@ -394,10 +421,10 @@ export const Review = ({ worktreePath, filePath }: ReviewProps) => {
     onSettled: () => utils.readSteeringFile.invalidate({ worktreePath, filePath, mode: "review" }),
   })
 
-  const onSaveNote = (anchor: SteeringAnchor, text: string) => {
+  const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
-    if (data === undefined) return
-    writeNote.mutate({
+    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return writeNote.mutateAsync({
       worktreePath,
       filePath,
       expectedHeadSha: data.headSha,

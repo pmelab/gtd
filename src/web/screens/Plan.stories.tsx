@@ -40,19 +40,9 @@ const answeredQuestion = (index: number, title: string): SteeringViewNode => ({
   children: [],
 })
 
-const QA_SAMPLE_CONTENT = `Sample plan.
-
-## Open Questions
-
-### Which option?
-
-- [ ] Option A
-- [ ] Option B
-`
-
 export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
   args: {
-    content: QA_SAMPLE_CONTENT,
+    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [openQuestion(0, "Open one"), answeredQuestion(1, "Answered one")],
@@ -70,7 +60,7 @@ export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
 
 export const DocumentWithNoOpenQuestionsRendersNoEmptyHeading: Story = {
   args: {
-    content: QA_SAMPLE_CONTENT,
+    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [answeredQuestion(0, "Answered one")],
@@ -83,6 +73,32 @@ export const DocumentWithNoOpenQuestionsRendersNoEmptyHeading: Story = {
   },
 }
 
+/**
+ * An answered question's own `view` node carries no options at all
+ * (`OpenQuestions.ts`'s answered section never has checkboxes to answer),
+ * so drilling into one would render `Question.tsx` with nothing to show and
+ * a status line that CONTRADICTS the section the card came from
+ * ("unanswered" on a card that's already resolved). The card renders as an
+ * inert summary row instead — no button semantics, no drill-in.
+ */
+export const AnAnsweredCardIsNotDrillable: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [answeredQuestion(0, "Answered one")],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const card = canvas.getByTestId("question-card-0")
+    expect(card.tagName).not.toBe("BUTTON")
+    await fireEvent.click(card)
+    await expect(canvas.queryByTestId("question-screen")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("plan-screen")).toBeInTheDocument()
+  },
+}
+
 /** A prose-only `view` — every node `paragraph`-anchored at its real, server-computed start line (`OpenQuestions.ts#paragraphNodesOf`), no `status` at all — the exact shape `PlanBody` uses to decide "no question-shaped nodes, render prose". */
 const paragraphNode = (line: number, title: string, note?: string): SteeringViewNode => ({
   title,
@@ -92,7 +108,7 @@ const paragraphNode = (line: number, title: string, note?: string): SteeringView
 
 export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
   args: {
-    content: "First paragraph of the plan.\n\nSecond paragraph with more detail.",
+    contentHash: "prose-hash-1",
     isLoading: false,
     view: {
       nodes: [
@@ -105,8 +121,14 @@ export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.getByText("First paragraph of the plan.")).toBeInTheDocument()
     await expect(canvas.getByText("Second paragraph with more detail.")).toBeInTheDocument()
-    await expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument()
-    await expect(canvas.getByTestId("note-seam-1")).toBeInTheDocument()
+    // A REAL, visible affordance — legible label text and a non-zero touch
+    // target — not a 0-visible-pixels strip a test could only ever find by
+    // testid.
+    await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Add note")
+    expect(canvas.getByTestId("note-seam-0").getBoundingClientRect().height).toBeGreaterThanOrEqual(
+      44,
+    )
+    await expect(canvas.getByTestId("note-seam-1")).toHaveTextContent("Add note")
     await expect(canvas.queryByText("Open Questions")).not.toBeInTheDocument()
     await expect(canvas.queryByTestId("question-card-0")).not.toBeInTheDocument()
   },
@@ -114,7 +136,7 @@ export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
 
 export const ParagraphNoteSeamOpensTheNoteSheetOnTheRealAnchor: Story = {
   args: {
-    content: "A paragraph worth commenting on.",
+    contentHash: "prose-hash-2",
     isLoading: false,
     view: { nodes: [paragraphNode(0, "A paragraph worth commenting on.")] } satisfies SteeringView,
   },
@@ -134,7 +156,7 @@ export const ParagraphNoteSeamOpensTheNoteSheetOnTheRealAnchor: Story = {
 
 export const ParagraphAlreadyCarryingANoteOffersEditingNotASecondNote: Story = {
   args: {
-    content: "A paragraph with a note attached.",
+    contentHash: "prose-hash-3",
     isLoading: false,
     view: {
       nodes: [paragraphNode(0, "A paragraph with a note attached.", "the existing comment")],
@@ -143,23 +165,26 @@ export const ParagraphAlreadyCarryingANoteOffersEditingNotASecondNote: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("the existing comment")
+    await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Edit note")
     await fireEvent.click(canvas.getByTestId("note-seam-0"))
     await expect(canvas.getByTestId("note-sheet-textarea")).toHaveValue("the existing comment")
   },
 }
 
-/** Toggles `PlanView`'s `content` between two versions of "the same file" on a button click — so a story can prove the read-the-plan confirmation (keyed on `content`'s own hash) clears the moment the file is REWRITTEN, without needing Storybook's own arg-update machinery. */
+/** Toggles `PlanView`'s `contentHash` between two versions of "the same file" on a button click — so a story can prove the read-the-plan confirmation (keyed on `contentHash`) clears the moment the file is REWRITTEN, without needing Storybook's own arg-update machinery. */
 const RewritablePlan = () => {
   const [rewritten, setRewritten] = useState(false)
-  const content = rewritten
-    ? "Version two of the plan, completely rewritten."
-    : "Version one of the plan."
+  const contentHash = rewritten ? "version-two-hash" : "version-one-hash"
   return (
     <div>
       <button type="button" data-testid="rewrite-file" onClick={() => setRewritten(true)}>
         Rewrite file
       </button>
-      <PlanView content={content} isLoading={false} view={{ nodes: [] } satisfies SteeringView} />
+      <PlanView
+        contentHash={contentHash}
+        isLoading={false}
+        view={{ nodes: [] } satisfies SteeringView}
+      />
     </div>
   )
 }
@@ -250,5 +275,43 @@ export const RealContainerWriteThroughsAParagraphNoteViaWriteNote: StoryObj<type
         text: "worth flagging",
       }).slice(1, -1),
     )
+  },
+}
+
+/** A refused write must revert the optimistic `noteOverrides` entry — see `Review.stories.tsx#RealContainerRevertsTheOptimisticNoteOnARefusedWrite`'s identical doc comment. */
+export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<typeof Plan> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: "A paragraph worth commenting on.",
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: {
+            nodes: [
+              { title: "A paragraph worth commenting on.", anchor: { kind: "paragraph", line: 0 } },
+            ],
+          },
+        }),
+        writeNote: () => {
+          throw new Error("stale token")
+        },
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: { worktreePath: "/repo", filePath: ".gtd/PLAN.md", mode: "qa" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("note-seam-0"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "This never actually lands." },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.queryByTestId("paragraph-note-0")).not.toBeInTheDocument())
+    await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Add note")
   },
 }

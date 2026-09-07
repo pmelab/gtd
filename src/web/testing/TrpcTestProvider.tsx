@@ -12,7 +12,11 @@ import { trpc } from "../api.js"
  * off `input` to answer differently per hunk/anchor), no HTTP and no real
  * router involved — the real router (`Router.ts` → `Beat.ts` → `Discover.ts`)
  * imports Node built-ins (`node:child_process`, `node:fs`) that don't exist
- * in the browser this story actually runs in.
+ * in the browser this story actually runs in. A resolver that THROWS is
+ * translated into a real `observer.error` — a mutation-failure story
+ * (`Review.stories.tsx`'s "reverts on a refused write") throws to simulate a
+ * `CONFLICT` refusal, so `mutateAsync`'s own promise rejects exactly like it
+ * would against the real router.
  */
 const mockLink = (
   resolvers: Readonly<Record<string, (input: unknown) => unknown>>,
@@ -25,8 +29,14 @@ const mockLink = (
           observer.error(TRPCClientError.from(new Error(`no mock configured for "${op.path}"`)))
           return
         }
-        observer.next({ result: { type: "data", data: resolve(op.input) } })
-        observer.complete()
+        try {
+          observer.next({ result: { type: "data", data: resolve(op.input) } })
+          observer.complete()
+        } catch (error) {
+          observer.error(
+            TRPCClientError.from(error instanceof Error ? error : new Error(String(error))),
+          )
+        }
       })
 }
 

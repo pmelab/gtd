@@ -118,16 +118,29 @@ export const UsableOneHandedAt390pxWithKeyboardUp: Story = {
     await page.viewport(390, 500) // short viewport stands in for the space left after a keyboard opens
     const canvas = within(canvasElement)
     const footer = canvas.getByTestId("note-sheet-footer")
+    const sheet = canvas.getByTestId("note-sheet")
     // Realistically assertable in jsdom/browser-mode storybook without a real
-    // virtual keyboard: the footer holding Save (and the mic) is pinned via
-    // `position: fixed`, not merely last in DOM flow — so it stays on screen
-    // regardless of textarea scroll height or keyboard overlap. We can't
-    // simulate an actual on-screen keyboard shrinking the viewport, so this
-    // stops at asserting the fixed placement itself.
-    expect(getComputedStyle(footer).position).toBe("fixed")
+    // virtual keyboard: the footer is a NORMAL FLOW last child (never
+    // `position: fixed`, which resolves against the layout viewport and — on
+    // iOS Safari / default Android Chrome — ends up BEHIND an open keyboard
+    // rather than above it), so it always lands inside whatever height the
+    // sheet's own `100dvh` box actually gets. At this reduced 500px viewport
+    // (standing in for keyboard-open space), the footer must still be fully
+    // within the visible area, not pushed off past it.
+    expect(getComputedStyle(footer).position).not.toBe("fixed")
+    const footerRect = footer.getBoundingClientRect()
+    expect(footerRect.bottom).toBeLessThanOrEqual(500)
+    // The footer is the LAST child in DOM flow, after the textarea — the
+    // exact ordering flow placement (rather than an absolute/fixed overlay)
+    // depends on.
+    const textarea = canvas.getByTestId("note-sheet-textarea")
+    expect(textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await expect(canvas.getByTestId("note-sheet-save")).toBeInTheDocument()
     await expect(canvas.getByTestId("note-sheet-mic")).toBeInTheDocument()
-    const sheet = canvas.getByTestId("note-sheet")
+    // The footer stays within the sheet's own `maxWidth: 390` box — never a
+    // `left/right: 0` span across the full (wider, in a real deployment)
+    // device viewport.
+    expect(footerRect.width).toBeLessThanOrEqual(sheet.getBoundingClientRect().width)
     expect(sheet.getBoundingClientRect().width).toBeLessThanOrEqual(390)
   },
 }

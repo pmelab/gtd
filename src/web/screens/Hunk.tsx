@@ -30,6 +30,22 @@ const LINE_BACKGROUND: Readonly<Record<string, string>> = {
   header: "#1a1a1a",
 }
 
+/**
+ * Token color per `Highlight.ts#classNameOf`'s five class names — there is no
+ * `.css` file anywhere in `src/web` (this repo renders everything via inline
+ * `style`, never a stylesheet or a `<style>` tag), so a `className` alone
+ * paints every token identically. This is the actual paint step: each
+ * token's `className` (when present) looks up its color here and renders as
+ * an inline `style`, never a bare `className` with nothing to match it.
+ */
+const TOKEN_COLOR: Readonly<Record<string, string>> = {
+  com: "#6a9955",
+  str: "#ce9178",
+  kw: "#569cd6",
+  num: "#b5cea8",
+  typ: "#4ec9b0",
+}
+
 const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
   <div style={{ fontFamily: "monospace", fontSize: 12, overflowX: "auto" }}>
     {lines.map((line, i) => {
@@ -42,7 +58,13 @@ const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
           style={{ background: LINE_BACKGROUND[kind], whiteSpace: "pre", padding: "0 8px" }}
         >
           {tokens.map((token, j) => (
-            <span key={j} className={token.className}>
+            <span
+              key={j}
+              data-token-kind={token.className}
+              style={
+                token.className !== undefined ? { color: TOKEN_COLOR[token.className] } : undefined
+              }
+            >
               {token.text}
             </span>
           ))}
@@ -52,7 +74,9 @@ const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
   </div>
 )
 
-const flattenLines = (diff: FileDiff): readonly string[] => diff.hunks.flatMap((h) => h.lines)
+/** The whole-file fallback's own lines: each hunk's `@@ ... @@` header FIRST, then its body — never bare bodies concatenated with nothing between them. Without the header, non-contiguous regions of the file render as one continuous block with no visible gap marker; `highlightDiffLine` already renders a `@@` line unhighlighted (T8), but only when one actually reaches it. */
+const flattenLines = (diff: FileDiff): readonly string[] =>
+  diff.hunks.flatMap((h) => [h.header, ...h.lines])
 
 /** The diff area's own four-way branch (loading / binary / refused / whole-file-fallback-with-banner / a single resolved hunk) — split out so `Hunk` itself stays a plain layout shell around it. Exercised by `Hunk.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
 // fallow-ignore-next-line complexity
@@ -110,8 +134,9 @@ export const Hunk = ({
   onOpenNote,
 }: HunkProps) => (
   <div data-testid="hunk-screen">
+    {/* Same "N / M" slash notation `Deck.tsx`'s own progress control uses below the content — one notation across the screen, not two ("of" here, "/" there) for what is otherwise the identical count. */}
     <div data-testid="hunk-progress" style={{ fontSize: 12, opacity: 0.7, padding: "8px 12px 0" }}>
-      Hunk {index + 1} of {total}
+      Hunk {index + 1} / {total}
     </div>
     <div style={{ padding: "4px 12px", fontWeight: 600 }}>{node.title}</div>
 

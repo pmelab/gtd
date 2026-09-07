@@ -1806,6 +1806,12 @@ describe("REVIEW_FORMAT.view", () => {
     expect(view.nodes[1]!.children!.map((f) => f.path)).toEqual(["./c.ts"])
   })
 
+  it("carries each chunk's own prose as `detail`, empty for a chunk with none", () => {
+    const view = REVIEW_FORMAT.view(NESTED_CONTENT)
+    expect(view.nodes[0]!.detail).toBe("Some description.")
+    expect(view.nodes[1]!.detail).toBe("")
+  })
+
   it("is built from one parse of the document, not one per element", () => {
     const uniqueContent = [
       "# Review: def4567",

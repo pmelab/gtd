@@ -7,41 +7,29 @@ import { trpc } from "../api.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { Question } from "./Question.js"
 
-/**
- * A browser-safe, non-cryptographic hash of steering-file content — purely a
- * UI-state cache key (the "read the plan" confirmation below), never a
- * security boundary, so FNV-1a over `charCodeAt` is plenty: no `SubtleCrypto`
- * round-trip (which is async, and `contentHashOf`'s `node:crypto` isn't
- * importable into browser code at all).
- */
-const hashContent = (content: string): string => {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < content.length; i++) {
-    hash ^= content.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return (hash >>> 0).toString(16)
-}
-
-const readPlanStorageKey = (hash: string): string => `gtd:plan-read:${hash}`
+const readPlanStorageKey = (contentHash: string): string => `gtd:plan-read:${contentHash}`
 
 /**
- * "Read the plan" confirmation state, keyed on `content`'s own hash so a
- * rewrite (a different hash) always starts unconfirmed again — persisted in
- * `localStorage` so it survives a reload of the same, unchanged file.
+ * "Read the plan" confirmation state, keyed on the file's own `contentHash`
+ * — the SAME token `readSteeringFile`/`writeNote` already compute
+ * server-side (`Write.ts#contentHashOf`) and the real `Plan` container
+ * already threads through for its `writeNote` compare-and-swap. Hand-rolling
+ * a second, client-only hash of the same bytes here would be two hashes of
+ * one file for no reason; a rewrite (a different `contentHash`) always
+ * starts this confirmation unconfirmed again — persisted in `localStorage`
+ * so it survives a reload of the same, unchanged file.
  */
-const usePlanReadConfirmation = (content: string) => {
-  const hash = hashContent(content)
+const usePlanReadConfirmation = (contentHash: string) => {
   const [confirmed, setConfirmed] = useState(
-    () => localStorage.getItem(readPlanStorageKey(hash)) === "true",
+    () => localStorage.getItem(readPlanStorageKey(contentHash)) === "true",
   )
 
   useEffect(() => {
-    setConfirmed(localStorage.getItem(readPlanStorageKey(hash)) === "true")
-  }, [hash])
+    setConfirmed(localStorage.getItem(readPlanStorageKey(contentHash)) === "true")
+  }, [contentHash])
 
   const confirm = () => {
-    localStorage.setItem(readPlanStorageKey(hash), "true")
+    localStorage.setItem(readPlanStorageKey(contentHash), "true")
     setConfirmed(true)
   }
 
@@ -51,23 +39,50 @@ const usePlanReadConfirmation = (content: string) => {
 /** A `qa`-view question node sets `status` (`"open"`/`"answered"`); a prose-only document's `view` has no such nodes at all — every one of its `view.nodes` is instead a `paragraph`-anchored node (`OpenQuestions.ts#paragraphNodesOf`). */
 const isQuestionNode = (node: SteeringViewNode): boolean => node.status !== undefined
 
+/**
+ * `onOpen` is OPTIONAL: an ANSWERED question's own `view` node carries no
+ * options at all (`OpenQuestions.ts#OpenQuestion.options` is `[]` for the
+ * answered section — there is nothing left to review or edit), so drilling
+ * into `Question.tsx` for one renders zero options, an empty `lastIndex`,
+ * and — worse — recomputes "unanswered" from that empty state, contradicting
+ * the very section the card came from. An answered card renders as an
+ * inert, non-button summary row instead of a fake-clickable `Card`.
+ * Exercised by `Plan.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s
+ * note on why fallow's static CRAP estimate scores it as untested regardless.
+ */
+// fallow-ignore-next-line complexity
 const QuestionCard = ({
   node,
   onOpen,
 }: {
   readonly node: SteeringViewNode
-  readonly onOpen: () => void
-}) => (
-  <Card
-    testId={`question-card-${node.anchor.kind === "question" ? node.anchor.index : 0}`}
-    onOpen={onOpen}
-  >
-    <div style={{ fontWeight: 600 }}>{node.title}</div>
-    {node.detail !== undefined && node.detail.length > 0 && (
-      <div style={{ fontSize: 12, opacity: 0.7 }}>{node.detail}</div>
-    )}
-  </Card>
-)
+  readonly onOpen?: () => void
+}) => {
+  const content = (
+    <>
+      <div style={{ fontWeight: 600 }}>{node.title}</div>
+      {node.detail !== undefined && node.detail.length > 0 && (
+        <div style={{ fontSize: 12, opacity: 0.7 }}>{node.detail}</div>
+      )}
+    </>
+  )
+  const testId = `question-card-${node.anchor.kind === "question" ? node.anchor.index : 0}`
+  if (onOpen === undefined) {
+    return (
+      <div
+        data-testid={testId}
+        style={{ padding: "10px 12px", borderBottom: "1px solid #333", opacity: 0.85 }}
+      >
+        {content}
+      </div>
+    )
+  }
+  return (
+    <Card testId={testId} onOpen={onOpen}>
+      {content}
+    </Card>
+  )
+}
 
 /** One paragraph plus its inline note (if any) and its note seam — `line` is the paragraph's real, server-computed anchor line when it has one (every prose-only node does), falling back to array `index` only for a malformed/non-paragraph node so the row still renders and keys uniquely. Exercised by `Plan.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
 // fallow-ignore-next-line complexity
@@ -84,10 +99,11 @@ const ProseParagraph = ({
 }) => {
   const line = node.anchor.kind === "paragraph" ? node.anchor.line : index
   const noteText = noteOverrides[line] ?? node.note
+  const hasNote = noteText !== undefined && noteText.length > 0
   return (
     <div>
       <p style={{ padding: "8px 12px", margin: 0 }}>{node.title}</p>
-      {noteText !== undefined && noteText.length > 0 && (
+      {hasNote && (
         <div
           data-testid={`paragraph-note-${index}`}
           style={{ fontSize: 12, opacity: 0.7, padding: "0 12px 8px" }}
@@ -95,19 +111,35 @@ const ProseParagraph = ({
           {noteText}
         </div>
       )}
+      {/*
+       * A real, visible affordance below the paragraph — full-width and thin
+       * relative to the paragraph's own text (a single small line, not a
+       * card), but never a 0-visible-pixels strip: a 1px top border draws
+       * the seam itself, the label makes its purpose legible, and a 44px
+       * minimum height (Apple's/Android's own minimum recommended touch
+       * target) makes it reliably tappable on a phone.
+       */}
       <button
         type="button"
         data-testid={`note-seam-${index}`}
         onClick={() => onOpenNote(node)}
         style={{
-          display: "block",
+          display: "flex",
+          alignItems: "center",
           width: "100%",
-          height: 6,
+          minHeight: 44,
           border: "none",
+          borderTop: "1px solid #333",
           background: "none",
-          padding: 0,
+          padding: "0 12px",
+          color: "#8a93a8",
+          fontSize: 12,
+          textAlign: "left",
+          cursor: "pointer",
         }}
-      />
+      >
+        {hasNote ? "Edit note" : "+ Add note"}
+      </button>
     </div>
   )
 }
@@ -137,13 +169,21 @@ const ProseParagraphs = ({
 
 export interface PlanViewProps {
   readonly view: SteeringView | undefined
-  readonly content: string
+  /** The file's `contentHash` (`Write.ts#contentHashOf`, already computed server-side by `readSteeringFile`) — used ONLY to key the "read the plan" confirmation below. Never the raw file bytes: there is nothing else in this component that needs them since paragraph text comes from `view.nodes` (`OpenQuestions.ts#paragraphNodesOf`), not a client-side split of raw content. */
+  readonly contentHash: string
   readonly isLoading: boolean
-  /** Called with a saved paragraph note's `anchor`/`text` — the real `Plan` container wires this to an actual `writeNote` mutation. Local optimistic state (`noteOverrides`) still updates immediately either way. Absent in `Plan.stories.tsx`'s pure-data stories. */
-  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => void
+  /**
+   * Called with a saved paragraph note's `anchor`/`text` — the real `Plan`
+   * container wires this to an actual `writeNote` mutation, returning
+   * `writeNote.mutateAsync`'s OWN promise so a rejection (a `CONFLICT`
+   * refusal, a network failure, …) reverts the optimistic `noteOverrides`
+   * entry — see `Review.tsx#ReviewViewProps.onSaveNote`'s identical doc
+   * comment for why. Absent in `Plan.stories.tsx`'s pure-data stories.
+   */
+  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
 }
 
-/** One of the two question groups (open / already-answered) — empty groups render nothing, never an empty heading. */
+/** `onOpen` absent renders every card in this section as an inert summary row — used for "Already answered", whose questions carry no options to drill into (see `QuestionCard`'s own doc comment). */
 const QuestionSection = ({
   title,
   nodes,
@@ -153,7 +193,7 @@ const QuestionSection = ({
   readonly title: string
   readonly nodes: readonly SteeringViewNode[]
   readonly allNodes: readonly SteeringViewNode[]
-  readonly onOpen: (index: number) => void
+  readonly onOpen?: (index: number) => void
 }) => {
   if (nodes.length === 0) return null
   return (
@@ -163,7 +203,7 @@ const QuestionSection = ({
         <QuestionCard
           key={allNodes.indexOf(node)}
           node={node}
-          onOpen={() => onOpen(allNodes.indexOf(node))}
+          {...(onOpen !== undefined ? { onOpen: () => onOpen(allNodes.indexOf(node)) } : {})}
         />
       ))}
     </section>
@@ -198,18 +238,13 @@ const PlanBody = ({
         allNodes={questionNodes}
         onOpen={onOpenQuestion}
       />
-      <QuestionSection
-        title="Already answered"
-        nodes={answeredNodes}
-        allNodes={questionNodes}
-        onOpen={onOpenQuestion}
-      />
+      <QuestionSection title="Already answered" nodes={answeredNodes} allNodes={questionNodes} />
     </>
   )
 }
 
 /**
- * Presentational plan-and-answer screen — takes its `view`/`content` as
+ * Presentational plan-and-answer screen — takes its `view`/`contentHash` as
  * props (mirroring `FleetView`'s split) so `Plan.stories.tsx` can drive every
  * shape with plain data, no mocked tRPC transport required. Never switches on
  * a mode name: whether this renders questions or plain prose is read
@@ -218,8 +253,8 @@ const PlanBody = ({
  * CRAP estimate scores it as untested regardless.
  */
 // fallow-ignore-next-line complexity
-export const PlanView = ({ view, content, isLoading, onSaveNote }: PlanViewProps) => {
-  const { confirmed, confirm } = usePlanReadConfirmation(content)
+export const PlanView = ({ view, contentHash, isLoading, onSaveNote }: PlanViewProps) => {
+  const { confirmed, confirm } = usePlanReadConfirmation(contentHash)
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
   const [noteOverrides, setNoteOverrides] = useState<Record<number, string>>({})
   const [noteSheetAnchor, setNoteSheetAnchor] = useState<SteeringAnchor | undefined>(undefined)
@@ -248,7 +283,17 @@ export const PlanView = ({ view, content, isLoading, onSaveNote }: PlanViewProps
             setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
           }
           setNoteSheetAnchor(undefined)
-          onSaveNote?.(anchor, text)
+          // A refused/failed write reverts the optimistic override — see
+          // `Review.tsx#useReviewState`'s `saveNote`'s identical comment.
+          onSaveNote?.(anchor, text)?.catch(() => {
+            if (anchor.kind === "paragraph") {
+              setNoteOverrides((prev) => {
+                const next = { ...prev }
+                delete next[anchor.line]
+                return next
+              })
+            }
+          })
         }}
         onDismiss={() => setNoteSheetAnchor(undefined)}
       />
@@ -312,10 +357,10 @@ export const Plan = ({ worktreePath, filePath, mode }: PlanProps) => {
     onSettled: () => utils.readSteeringFile.invalidate({ worktreePath, filePath, mode }),
   })
 
-  const onSaveNote = (anchor: SteeringAnchor, text: string) => {
+  const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
-    if (data === undefined) return
-    writeNote.mutate({
+    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return writeNote.mutateAsync({
       worktreePath,
       filePath,
       expectedHeadSha: data.headSha,
@@ -329,7 +374,7 @@ export const Plan = ({ worktreePath, filePath, mode }: PlanProps) => {
   return (
     <PlanView
       view={query.data?.view}
-      content={query.data?.content ?? ""}
+      contentHash={query.data?.contentHash ?? ""}
       isLoading={query.isLoading}
       onSaveNote={onSaveNote}
     />

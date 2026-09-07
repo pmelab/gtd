@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
+import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../OpenQuestions.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
 import { Mic } from "../Mic.js"
 
@@ -14,15 +14,28 @@ export interface QuestionProps {
   readonly node: SteeringViewNode
 }
 
-/** The free-text slot's own textarea plus its embedded `Mic` — dictation writes through to `onFreeTextChange` only on a final result, never on interim. */
+/**
+ * The free-text slot's own textarea plus its embedded `Mic` — dictation
+ * writes through to `onDictate` only on a final result, never on interim.
+ * `onDictate` (not a `freeText`-closing concatenation here) is what makes
+ * this safe against typing DURING an active dictation session: `Mic` binds
+ * `onAttach` once, inside `start()`, capturing whatever this component's
+ * props were AT THAT RENDER — reading the `freeText` prop directly in the
+ * handler below would still see the value from when Dictate was tapped, not
+ * whatever was typed since. `onDictate` instead defers the read of "current
+ * text" to the PARENT's own functional `setState` updater (`Question.tsx`'s
+ * `onDictate`), which always sees the latest state no matter when it fires.
+ */
 const FreeTextOption = ({
   freeText,
   onFocus,
   onFreeTextChange,
+  onDictate,
 }: {
   readonly freeText: string
   readonly onFocus: () => void
   readonly onFreeTextChange: (text: string) => void
+  readonly onDictate: (text: string) => void
 }) => (
   <div style={{ marginTop: 8 }}>
     <textarea
@@ -39,7 +52,7 @@ const FreeTextOption = ({
     <Mic
       onAttach={(text) => {
         onFocus()
-        onFreeTextChange(freeText.length > 0 ? `${freeText} ${text}` : text)
+        onDictate(text)
       }}
     >
       {(state) => (
@@ -77,6 +90,7 @@ const OptionRow = ({
   freeText,
   onSelect,
   onFreeTextChange,
+  onDictate,
 }: {
   readonly option: SteeringViewNode
   readonly index: number
@@ -86,6 +100,7 @@ const OptionRow = ({
   readonly freeText: string
   readonly onSelect: () => void
   readonly onFreeTextChange: (text: string) => void
+  readonly onDictate: (text: string) => void
 }) => (
   <div data-testid={`option-${index}`} style={{ padding: "8px 0", borderBottom: "1px solid #333" }}>
     <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -99,7 +114,12 @@ const OptionRow = ({
       <span>{option.title}</span>
     </label>
     {isFreeText && (
-      <FreeTextOption freeText={freeText} onFocus={onSelect} onFreeTextChange={onFreeTextChange} />
+      <FreeTextOption
+        freeText={freeText}
+        onFocus={onSelect}
+        onFreeTextChange={onFreeTextChange}
+        onDictate={onDictate}
+      />
     )}
   </div>
 )
@@ -128,8 +148,28 @@ export const Question = ({ node }: QuestionProps) => {
     return option?.checked === true ? option.title : ""
   })
 
-  const answered =
-    selected !== undefined && (selected !== lastIndex || normalizeAnswerText(freeText).length > 0)
+  /** Appends dictated `text` to whatever the CURRENT `freeText` is at attach time — the functional updater form, so text typed WHILE dictation was recording is never clobbered by a handler bound back when Dictate was first tapped (`FreeTextOption`'s own doc comment explains why a closed-over `freeText` read would be stale here). */
+  const onDictate = (text: string) => {
+    setFreeText((prev) => (prev.length > 0 ? `${prev} ${text}` : text))
+  }
+
+  /**
+   * The SAME `isAnswered` predicate the server enforces (`OpenQuestions.ts`),
+   * fed the client's own current radio state rather than re-deriving the
+   * rule locally — T5's own "already exists and is the single one enforced"
+   * bullet: taking the FIRST checked option and asking only "is it the
+   * free-text slot" (this component's earlier logic) diverges from the
+   * server's "exactly one ticked" rule the moment two options are ticked at
+   * once, which local radio state alone can't produce, but a stale/replayed
+   * `node.children` snapshot could.
+   */
+  const answered = isAnswered(
+    options.map((option, index) => ({
+      checked: selected === index,
+      text: index === lastIndex ? normalizeAnswerText(freeText) : option.title,
+      freeText: index === lastIndex,
+    })),
+  )
 
   return (
     <div data-testid="question-screen">
@@ -148,6 +188,7 @@ export const Question = ({ node }: QuestionProps) => {
           freeText={freeText}
           onSelect={() => setSelected(index)}
           onFreeTextChange={setFreeText}
+          onDictate={onDictate}
         />
       ))}
     </div>

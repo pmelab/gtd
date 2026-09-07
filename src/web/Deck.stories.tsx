@@ -94,7 +94,18 @@ export const ControlsRenderBelowContentNeverOverlaying: Story = {
     ).toBeTruthy()
     const contentStyle = getComputedStyle(content)
     const controlsStyle = getComputedStyle(controls.parentElement ?? controls)
-    expect(contentStyle.position).not.toBe("absolute")
-    expect(controlsStyle.position).not.toBe("absolute")
+    // `position: static` specifically — NOT merely "not absolute": `fixed`
+    // and `sticky` both pass an `!== "absolute"` check yet can still overlay
+    // or detach from flow exactly like `absolute` does (the precise
+    // regression `NoteSheet.tsx`'s own footer once had).
+    expect(contentStyle.position).toBe("static")
+    expect(controlsStyle.position).toBe("static")
+    // The geometric guarantee an "overlay" check should actually make: the
+    // controls' own box starts at or below where the content's box ends —
+    // never overlapping it, regardless of what `position` value produced
+    // the layout.
+    const contentRect = content.getBoundingClientRect()
+    const controlsRect = (controls.parentElement ?? controls).getBoundingClientRect()
+    expect(controlsRect.top).toBeGreaterThanOrEqual(contentRect.bottom)
   },
 }

@@ -61,21 +61,27 @@ export const NoteSheet = ({ anchor, note, onSave, onDismiss }: NoteSheetProps) =
         }}
       />
       {/*
-       * Footer is a fixed-position element at the bottom of the sheet's own
-       * viewport-height box, not just flow-order-last — so the save control
-       * stays reachable even when a software keyboard covers the lower part
-       * of the screen. jsdom/vitest-browser can't simulate an actual
-       * on-screen keyboard, so the story only asserts the footer's
-       * `position: fixed` placement and the textarea/footer DOM order, not a
-       * real keyboard-avoidance measurement.
+       * Footer is a NORMAL FLOW last child of the sheet's own `100dvh` flex
+       * column — deliberately NOT `position: fixed`. `fixed` resolves
+       * against the LAYOUT viewport, which on iOS Safari and default Android
+       * Chrome does not shrink when a software keyboard opens — the exact
+       * platforms this note sheet targets — so a fixed footer ends up
+       * BEHIND the keyboard, not above it, and `left/right: 0` spans the
+       * full viewport rather than this sheet's own `maxWidth: 390` box. Flow
+       * placement plus `100dvh` PLUS `index.html`'s
+       * `interactive-widget=resizes-content` viewport declaration is what
+       * actually keeps this reachable: that meta value makes the dynamic
+       * viewport (and so this container's own height) shrink to the
+       * on-screen keyboard's own available space, and a normal flow child
+       * naturally ends up inside whatever's left — never needing to know
+       * the keyboard's height itself. jsdom/vitest-browser still can't
+       * simulate a real on-screen keyboard, so the story only asserts flow
+       * placement (DOM order, `position !== "fixed"`) and viewport width,
+       * not an actual keyboard-avoidance measurement.
        */}
       <div
         data-testid="note-sheet-footer"
         style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",

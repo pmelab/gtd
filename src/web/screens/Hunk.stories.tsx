@@ -47,6 +47,29 @@ const WHOLE_FILE_DIFF: DiffResult = {
   },
 }
 
+/** Two NON-CONTIGUOUS hunks — the whole-file fallback's own worst case: without a header line between them, the two bodies read as one continuous, misleading block. */
+const TWO_HUNK_WHOLE_FILE_DIFF: DiffResult = {
+  kind: "whole-file",
+  reason: "no-hunk-match",
+  diff: {
+    path: "src/moved.ts",
+    hunks: [
+      {
+        header: "@@ -1,2 +1,2 @@",
+        newStart: 1,
+        newLines: 2,
+        lines: ["  const a = 1", "+const b = 2"],
+      },
+      {
+        header: "@@ -10,1 +10,2 @@",
+        newStart: 10,
+        newLines: 2,
+        lines: ["  const c = 3", "+const d = 4"],
+      },
+    ],
+  },
+}
+
 const REFUSED_DIFF: DiffResult = { kind: "refused", detail: "gtd base refused (exit 1)" }
 
 const BINARY_DIFF: DiffResult = { kind: "binary" }
@@ -89,7 +112,7 @@ export const ProgressThroughTheDeckIsVisibleWithoutLeavingTheScreen: StoryObj<ty
     render: () => <TickableHunk diff={RESOLVED_DIFF} index={1} total={5} />,
     play: async ({ canvasElement }) => {
       const canvas = within(canvasElement)
-      await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 2 of 5")
+      await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 2 / 5")
       await expect(canvas.getByTestId("hunk-screen")).toBeInTheDocument()
     },
   }
@@ -149,6 +172,34 @@ export const UnresolvedPointerShowsWholeFileBehindABanner: Story = {
   },
 }
 
+/** Two non-contiguous hunks in the whole-file fallback must show a `@@` header between them — never the two bodies concatenated with no gap marker, which would read as one continuous (and misleading) block. */
+export const WholeFileFallbackShowsAHeaderBetweenNonContiguousHunks: Story = {
+  args: {
+    node: hunkNode({ title: "src/moved.ts (stale pointer)" }),
+    diff: TWO_HUNK_WHOLE_FILE_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // Line 0: first hunk's own header, rendered unhighlighted (T8).
+    await expect(canvas.getByTestId("diff-line-0")).toHaveAttribute("data-kind", "header")
+    await expect(canvas.getByTestId("diff-line-0")).toHaveTextContent("@@ -1,2 +1,2 @@")
+    // Lines 1-2: first hunk's own body.
+    await expect(canvas.getByTestId("diff-line-2")).toHaveTextContent("const b = 2")
+    // Line 3: SECOND hunk's own header — the gap marker between the two
+    // non-contiguous regions, not a silent jump straight into its body.
+    await expect(canvas.getByTestId("diff-line-3")).toHaveAttribute("data-kind", "header")
+    await expect(canvas.getByTestId("diff-line-3")).toHaveTextContent("@@ -10,1 +10,2 @@")
+    await expect(canvas.getByTestId("diff-line-5")).toHaveTextContent("const d = 4")
+  },
+}
+
 export const RefusedDiffShowsItsDetail: Story = {
   args: {
     node: hunkNode(),
@@ -182,5 +233,31 @@ export const BinaryFileRendersAPlaceholder: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("hunk-diff-binary")).toBeInTheDocument()
+  },
+}
+
+/** Proves tokens are ACTUALLY painted, not just classified: a keyword (`const`) and plain text in the same line must render with visibly different colors — a `className` with no matching CSS anywhere would leave every token the same inherited color and fail this. */
+export const KeywordTokensAreVisiblyColoredDifferentlyFromPlainText: Story = {
+  args: {
+    node: hunkNode(),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const line = canvas.getByTestId("diff-line-0")
+    const keywordSpan = within(line).getByText("const")
+    const plainSpan = within(line).getByText("value", { exact: false })
+    expect(keywordSpan.getAttribute("data-token-kind")).toBe("kw")
+    const keywordColor = getComputedStyle(keywordSpan).color
+    const plainColor = getComputedStyle(plainSpan).color
+    expect(keywordColor).not.toBe("")
+    expect(keywordColor).not.toBe(plainColor)
   },
 }

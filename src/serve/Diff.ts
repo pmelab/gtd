@@ -78,7 +78,8 @@ export const selectHunk = (diff: FileDiff, line: number | undefined): DiffHunk |
   return diff.hunks.find((hunk) => hunkContainsLine(hunk, line))
 }
 
-const BINARY_MARKER = "Binary files "
+/** `git diff`'s own binary-file line, anchored to a LINE START (`^`/`$` with the multiline flag) — never a bare substring search, which would also match a TEXT diff whose own added/removed content happens to contain this exact sentence (every real diff line is `+`/`-`/` `/`\`-prefixed, so the anchored form can never match one). */
+const BINARY_LINE_RE = /^Binary files .+ differ$/m
 
 /** Dependencies `resolveDiff` needs, injected so tests never spawn real git/gtd — mirrors `Beat.ts`'s `BeatDeps`/`Write.ts`'s `WriteDeps` split of a pure function over injected deps plus a `live*` implementation. */
 export interface DiffDeps {
@@ -116,11 +117,14 @@ export const resolveDiff = async (
     }
   }
 
-  if (diffOutcome.stdout.includes(BINARY_MARKER)) {
+  const diff = parseUnifiedDiff(path, diffOutcome.stdout)
+
+  // Corroborated with "no hunk headers parsed": a real binary-file diff has
+  // no `@@` hunks at all, so this can never misfire on a text file whose
+  // diff both contains the sentence AND has real hunks of its own.
+  if (diff.hunks.length === 0 && BINARY_LINE_RE.test(diffOutcome.stdout)) {
     return { kind: "binary" }
   }
-
-  const diff = parseUnifiedDiff(path, diffOutcome.stdout)
 
   if (line === undefined) {
     return { kind: "whole-file", diff, reason: "no-line" }

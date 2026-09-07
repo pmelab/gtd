@@ -317,3 +317,20 @@ describe("appRouter.readSteeringFile", () => {
     await expect(caller.readSteeringFile({ worktreePath: "/repo" } as never)).rejects.toThrow()
   })
 })
+
+describe("Router.ts imports no format module and switches on no mode-name string", () => {
+  // `View.test.ts` already pins this for `View.ts` itself; that guard covers
+  // only that one file. `Router.ts` is a second place a format import or a
+  // mode-name switch could sneak in (its own `writeNote`/`view`/`diff`/
+  // `readSteeringFile` procedures all take a `mode` as plain input), so it
+  // gets the identical guard here rather than relying on `View.ts`'s alone.
+  it("imports no ReviewDoc.js/OpenQuestions.js and switches on no mode-name string", async () => {
+    const { readFileSync } = await import("node:fs")
+    const { fileURLToPath } = await import("node:url")
+    const source = readFileSync(fileURLToPath(new URL("./Router.ts", import.meta.url)), "utf8")
+    expect(source).not.toMatch(/from ["']\.\.\/ReviewDoc\.js["']/)
+    expect(source).not.toMatch(/from ["']\.\.\/OpenQuestions\.js["']/)
+    expect(source).not.toMatch(/\bswitch\s*\(/)
+    expect(source).not.toMatch(/mode\s*===\s*["'](qa|review)["']/)
+  })
+})

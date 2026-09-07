@@ -287,12 +287,28 @@ const parseOptions = (
 }
 
 /**
+ * The exact three fields `isAnswered` reads — deliberately narrower than the
+ * full `QuestionOption` (which also carries `sourceLine`/`endLine`, meaningless
+ * off the server), so a CLIENT can build this shape from its own local radio
+ * state (`Question.tsx`) and call the identical predicate, rather than
+ * re-deriving a second, divergent rule. `QuestionOption` itself already
+ * satisfies this structurally.
+ */
+export interface AnsweredOption {
+  readonly checked: boolean
+  readonly text: string
+  readonly freeText: boolean
+}
+
+/**
  * An OPEN question is answered iff EXACTLY ONE option is ticked and — when that
  * option is the free-text slot — its (placeholder-normalized) text is non-empty.
  * Zero ticks (unanswered), two+ ticks (ambiguous), or a ticked-but-empty
- * free-text slot all read as not answered.
+ * free-text slot all read as not answered. T5's own "already exists and is
+ * the single one enforced" acceptance bullet: `Question.tsx` calls this SAME
+ * function (via `AnsweredOption`) rather than recomputing the rule.
  */
-const isAnswered = (options: readonly QuestionOption[]): boolean => {
+export const isAnswered = (options: readonly AnsweredOption[]): boolean => {
   const ticked = options.filter((o) => o.checked)
   if (ticked.length !== 1) return false
   const chosen = ticked[0]!

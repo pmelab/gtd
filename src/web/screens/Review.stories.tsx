@@ -120,7 +120,7 @@ export const TickingAChunkTicksEveryHunkIncludingNestedAtAnyDepth: Story = {
 
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(canvas.getByTestId("hunk-tick")).toBeChecked() // nested hunk 2
-    await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 3 of 3")
+    await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 3 / 3")
   },
 }
 
@@ -221,6 +221,32 @@ export const LoadingStateRendersBeforeTheViewArrives: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByText("Loading the review…")).toBeInTheDocument()
+  },
+}
+
+/** A `##` chunk with prose and no file pointers at all (`files: []` — a real, pinned `ReviewDoc.ts` shape) must not be a blank, unrecoverable dead-end: its open button is disabled rather than opening an empty `Deck`. */
+export const ChunkWithZeroHunksIsNotABlankDeadEnd: Story = {
+  args: {
+    view: {
+      nodes: [
+        {
+          title: "Just prose, no pointers",
+          detail: "Nothing to review here.",
+          anchor: { kind: "chunk", index: 0 },
+        },
+      ],
+    } satisfies SteeringView,
+    isLoading: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const openButton = canvas.getByTestId("chunk-open-0")
+    expect(openButton).toBeDisabled()
+    await expect(canvas.getByText("No file pointers")).toBeInTheDocument()
+    await fireEvent.click(openButton)
+    // A disabled button's click is a no-op, but assert the review screen is
+    // still the one showing regardless — never an empty/broken deck.
+    await expect(canvas.getByTestId("review-screen")).toBeInTheDocument()
   },
 }
 
@@ -360,5 +386,49 @@ export const RealContainerWriteThroughsASavedNoteViaWriteNote: StoryObj<typeof R
         text: "Looks good overall.",
       }).slice(1, -1),
     )
+  },
+}
+
+/**
+ * A refused write (a stale-token `CONFLICT`, here standing in for any
+ * `writeNote` failure) must revert the optimistic local note override —
+ * otherwise the badge keeps claiming a footnote that was never actually
+ * written, forever, with no way for the human to tell.
+ */
+export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: SAMPLE_REVIEW_VIEW,
+        }),
+        diff: () => ({ kind: "binary" }),
+        writeNote: () => {
+          throw new Error("stale token")
+        },
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: { worktreePath: "/repo", filePath: ".gtd/REVIEW.md" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-note-0"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "This never actually lands." },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    // Immediately after save, the optimistic badge shows (before the refusal
+    // resolves) — then the refusal reverts it.
+    await waitFor(() =>
+      expect(canvas.queryByTestId("chunk-footnote-badge-0")).not.toBeInTheDocument(),
+    )
+    await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Note")
   },
 }

@@ -1,8 +1,43 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fireEvent, within } from "storybook/test"
+import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
 import { Question } from "./Question.js"
+
+/**
+ * Stands in for the browser's `SpeechRecognition` — mirrors
+ * `Mic.stories.tsx#FakeSpeechRecognition` exactly (that one isn't exported;
+ * this is the smallest local copy needed to reproduce the "typed during an
+ * active dictation session" scenario at this component's own layer, since
+ * `Mic.stories.tsx` alone can't prove `Question.tsx`'s consuming side wires
+ * the functional-updater fix correctly).
+ */
+class FakeSpeechRecognition extends EventTarget {
+  static instances: FakeSpeechRecognition[] = []
+  continuous = false
+  interimResults = false
+  onresult:
+    | ((event: {
+        resultIndex: number
+        results: { isFinal: boolean; 0: { transcript: string } }[]
+      }) => void)
+    | null = null
+  onerror: ((event: { error: string }) => void) | null = null
+  onend: (() => void) | null = null
+
+  constructor() {
+    super()
+    FakeSpeechRecognition.instances.push(this)
+  }
+
+  start() {}
+  stop() {
+    this.onend?.()
+  }
+  emitFinal(transcript: string) {
+    this.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript } }] })
+  }
+}
 
 const meta: Meta<typeof Question> = {
   component: Question,
@@ -113,5 +148,39 @@ export const NoSpeechApiShowsAHintInsteadOfAMicButton: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.queryByTestId("mic-toggle")).not.toBeInTheDocument()
     await expect(canvas.getByTestId("mic-hint")).toBeInTheDocument()
+  },
+}
+
+/**
+ * Reproduces the exact bug: dictation is tapped on an EMPTY free-text field,
+ * the human types "hello" WHILE the session is still recording, then stops —
+ * the final dictated text must be APPENDED to what was typed meanwhile, never
+ * silently replace it. This closes over `freeText` via the `onDictate`
+ * functional-updater path (`Question.tsx`), not a stale value read from the
+ * render where Dictate was tapped.
+ */
+export const TypingDuringAnActiveDictationSessionIsNeverClobbered: Story = {
+  args: { node: questionNode() },
+  beforeEach: () => {
+    FakeSpeechRecognition.instances = []
+    window.SpeechRecognition = FakeSpeechRecognition as unknown as NonNullable<
+      typeof window.SpeechRecognition
+    >
+    return () => {
+      delete window.SpeechRecognition
+    }
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("mic-toggle"))
+    // Type WHILE the (fake) session is still "recording" — before any final
+    // result arrives.
+    await fireEvent.change(canvas.getByTestId("free-text-input"), {
+      target: { value: "hello" },
+    })
+    const recognition = FakeSpeechRecognition.instances.at(-1)
+    recognition?.emitFinal("world")
+    recognition?.stop()
+    await waitFor(() => expect(canvas.getByTestId("free-text-input")).toHaveValue("hello world"))
   },
 }
