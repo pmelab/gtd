@@ -77,6 +77,34 @@ export const AllFourBuckets: Story = {
   },
 }
 
+export const ARowShowsRepoBranchLabelAndRestAge: Story = {
+  args: {
+    data: payload({
+      "wants-you": [
+        okRow({
+          id: "wy",
+          repo: "gtd",
+          branch: "main",
+          label: "reviewing a PR",
+          rest: new Date(Date.now() - 5 * 60_000).toISOString(),
+        }),
+      ],
+    }),
+    isLoading: false,
+    onRefresh: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const row = canvas.getByTestId("fleet-row-wy")
+    expect(row.textContent).toContain("gtd")
+    expect(row.textContent).toContain("main")
+    expect(row.textContent).toContain("reviewing a PR")
+    // The rendered AGE string ("5m"), never the raw ISO timestamp `rest` carries.
+    expect(row.textContent).toContain("5m")
+    expect(row.textContent).not.toContain("T")
+  },
+}
+
 export const BrokenRowShowsStderrVerbatim: Story = {
   args: {
     data: payload({

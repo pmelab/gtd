@@ -43,7 +43,10 @@ const FleetRow = ({ row }: { readonly row: BeatRead }) => {
     )
   }
   return (
-    <div style={{ padding: "10px 12px", borderBottom: "1px solid #333" }}>
+    <div
+      data-testid={`fleet-row-${row.id}`}
+      style={{ padding: "10px 12px", borderBottom: "1px solid #333" }}
+    >
       <div style={{ fontWeight: 600 }}>
         {row.repo} / {row.branch}
       </div>

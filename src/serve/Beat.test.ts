@@ -5,8 +5,21 @@
  * exactly (T3's "spawns zero subprocesses" claims).
  */
 
-import { describe, expect, it, vi } from "vitest"
-import { BeatCache, isSupportedVersion, type BeatDeps, type SpawnOutcome } from "./Beat.js"
+import { execSync } from "node:child_process"
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import {
+  BeatCache,
+  isSupportedVersion,
+  liveHeadSha,
+  liveRunInWorktree,
+  liveStatMtime,
+  readLocalGtdVersionAt,
+  type BeatDeps,
+  type SpawnOutcome,
+} from "./Beat.js"
 
 const ok = (stdout: string, stderr = ""): SpawnOutcome => ({ status: 0, stdout, stderr })
 const failed = (stderr: string, status = 1): SpawnOutcome => ({ status, stdout: "", stderr })
@@ -405,5 +418,60 @@ describe("BeatCache.read — the memo (T3)", () => {
     await Promise.all([pA, pB, pD])
     maxActiveSlots = Math.max(maxActiveSlots, cache.activeSlots)
     expect(maxActiveSlots).toBeLessThanOrEqual(1)
+  })
+})
+
+describe("BeatCache.read [real git] — the spawned read never mutates the worktree (T2)", () => {
+  const dirs: string[] = []
+
+  const gitExecIn = (dir: string, ...args: string[]): string =>
+    execSync(`git ${args.join(" ")}`, { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim()
+
+  afterEach(() => {
+    while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true })
+  })
+
+  it("leaves HEAD, the ref set, and the working tree byte-identical across one live read", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-beat-mutation-")))
+    dirs.push(root)
+    gitExecIn(root, "init", "-q")
+    gitExecIn(root, "config", "user.email", "test@test.com")
+    gitExecIn(root, "config", "user.name", "Test")
+    writeFileSync(join(root, "README.md"), "hello\n")
+    gitExecIn(root, "add", "README.md")
+    gitExecIn(root, "commit", "-q", "-m", "init")
+    // An untracked file too — `git status --porcelain` must stay identical
+    // even though nothing about it is committed, proving the read never
+    // even touches the index, let alone the tree.
+    writeFileSync(join(root, "untracked.txt"), "scratch\n")
+
+    const before = {
+      head: gitExecIn(root, "rev-parse", "HEAD"),
+      refs: gitExecIn(root, "show-ref"),
+      status: gitExecIn(root, "status", "--porcelain"),
+    }
+
+    // The REAL deps every field of — `gtd next --json` included — spawns a
+    // genuine subprocess with `root` as cwd; whether that particular command
+    // resolves (`gtd` need not even be on `$PATH` for this repo's checkout)
+    // is irrelevant to what's being proven: NONE of the commands `coldRead`
+    // issues — the `gtd` attempt, both `git rev-parse` reads, and `git log`
+    // — may commit, write, or move a ref, success or failure alike.
+    const deps: BeatDeps = {
+      run: liveRunInWorktree,
+      readLocalGtdVersion: readLocalGtdVersionAt,
+      headSha: liveHeadSha,
+      statMtime: liveStatMtime,
+    }
+    const cache = new BeatCache(deps, 1)
+    await cache.read({ id: "real", path: root })
+
+    const after = {
+      head: gitExecIn(root, "rev-parse", "HEAD"),
+      refs: gitExecIn(root, "show-ref"),
+      status: gitExecIn(root, "status", "--porcelain"),
+    }
+
+    expect(after).toEqual(before)
   })
 })
