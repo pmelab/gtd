@@ -1907,3 +1907,51 @@ describe("REVIEW_FORMAT.annotate", () => {
     expect(REVIEW_FORMAT.validate(applied)).toEqual([])
   })
 })
+
+describe("REVIEW_FORMAT.view — chunk-level footnote projection", () => {
+  it("projects a footnote marker on the chunk's own heading line as that chunk node's own `note`, distinct from a hunk's own note", () => {
+    // REVIEW_FORMAT.sample carries exactly this shape: `## Sample chunk[^naduiqc4]`
+    // (a chunk-level footnote) plus `- [ ] ./sample.ts#1 what this hunk does[^fn1]`
+    // (an ordinary hunk-level note) — see the sample's own doc comment.
+    const view = REVIEW_FORMAT.view(REVIEW_FORMAT.sample)
+    const chunk = view.nodes[0]
+    expect(chunk?.note).toBe(
+      "Attached via the phone UI, this note demonstrates a chunk-level comment with a `multi word code span` that exceeds eighty characters in total length here.",
+    )
+    expect(chunk?.children?.[0]?.note).toBe("what this hunk does")
+  })
+
+  it("a chunk with no heading-line footnote has no `note` on its view node, even when its hunks carry their own", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 a hunk-level note[^fn1]",
+      "",
+      "[^fn1]: explains the hunk",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    expect(view.nodes[0]?.note).toBeUndefined()
+    expect(view.nodes[0]?.children?.[0]?.note).toBe("a hunk-level note")
+  })
+
+  it("a chunk carrying only its own footnote (every hunk ticked) still projects `note` — the badge-worthy shape T4 asks for", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Fully reviewed[^chunknote]",
+      "",
+      "- [x] ./src/done.ts#1",
+      "",
+      "[^chunknote]: please double-check the retry logic before landing",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    expect(view.nodes[0]?.note).toBe("please double-check the retry logic before landing")
+    expect(view.nodes[0]?.children?.every((h) => h.checked)).toBe(true)
+  })
+})

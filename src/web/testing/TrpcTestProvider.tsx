@@ -6,22 +6,26 @@ import type { AppRouter } from "../../serve/Router.js"
 import { trpc } from "../api.js"
 
 /**
- * A terminating tRPC link for stories/tests: resolves a `fleet` query from
- * `resolveFleet()` (called once per request, so a story can bump a counter
- * or vary its return value across repeated calls), no HTTP and no real
+ * A terminating tRPC link for stories/tests: resolves any of `resolvers`' own
+ * procedure paths (each called once per request, with the input, so a story
+ * can bump a counter, vary its return value across repeated calls, or read
+ * off `input` to answer differently per hunk/anchor), no HTTP and no real
  * router involved — the real router (`Router.ts` → `Beat.ts` → `Discover.ts`)
  * imports Node built-ins (`node:child_process`, `node:fs`) that don't exist
  * in the browser this story actually runs in.
  */
-const mockFleetLink = (resolveFleet: () => unknown): TRPCLink<AppRouter> => {
+const mockLink = (
+  resolvers: Readonly<Record<string, (input: unknown) => unknown>>,
+): TRPCLink<AppRouter> => {
   return () =>
     ({ op }) =>
       observable((observer) => {
-        if (op.path !== "fleet") {
+        const resolve = resolvers[op.path]
+        if (resolve === undefined) {
           observer.error(TRPCClientError.from(new Error(`no mock configured for "${op.path}"`)))
           return
         }
-        observer.next({ result: { type: "data", data: resolveFleet() } })
+        observer.next({ result: { type: "data", data: resolve(op.input) } })
         observer.complete()
       })
 }
@@ -29,18 +33,31 @@ const mockFleetLink = (resolveFleet: () => unknown): TRPCLink<AppRouter> => {
 /**
  * Wraps `children` in the same `trpc.Provider`/`QueryClientProvider` nesting
  * `main.tsx` sets up for the real app, over the mock link above — so a story
- * can render `Fleet` (the container, not just `FleetView`) and prove a real
- * `useQuery`/`refetch` round-trip actually happens.
+ * can render a real tRPC-backed container (`Fleet`, `Review`, …) and prove a
+ * real `useQuery`/`refetch` round-trip actually happens. `resolveFleet` stays
+ * as a dedicated prop (its own zero-input shape predates `resolvers`, and
+ * every existing consumer already uses it); `resolvers` is the general escape
+ * hatch for any other procedure path (`view`, `diff`, …) a story needs to
+ * mock, keyed by the SAME path string `AppRouter`'s own procedure is
+ * registered under.
  */
 export const TrpcTestProvider = ({
   resolveFleet,
+  resolvers = {},
   children,
 }: {
-  readonly resolveFleet: () => unknown
+  readonly resolveFleet?: () => unknown
+  readonly resolvers?: Readonly<Record<string, (input: unknown) => unknown>>
   readonly children: ReactNode
 }) => {
   const [queryClient] = useState(() => new QueryClient())
-  const [client] = useState(() => trpc.createClient({ links: [mockFleetLink(resolveFleet)] }))
+  const [client] = useState(() =>
+    trpc.createClient({
+      links: [
+        mockLink(resolveFleet !== undefined ? { fleet: resolveFleet, ...resolvers } : resolvers),
+      ],
+    }),
+  )
   return (
     <trpc.Provider client={client} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

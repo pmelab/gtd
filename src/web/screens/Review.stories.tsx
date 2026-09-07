@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fireEvent, within } from "storybook/test"
+import { useState } from "react"
+import { expect, fireEvent, waitFor, within } from "storybook/test"
 import type { SteeringView } from "../../SteeringFormat.js"
-import { ReviewView } from "./Review.js"
+import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
+import { Review, ReviewView } from "./Review.js"
 
 const meta: Meta<typeof ReviewView> = {
   component: ReviewView,
@@ -152,6 +154,29 @@ export const ApprovingTheLastHunkInAChunkReturnsToTheChunkList: Story = {
   },
 }
 
+/** T1's own acceptance bullet, proven on the REAL screen (not just `Card.stories.tsx`'s generic shell demo): opening a chunk's deck and backing out of it restores the chunk list's scroll position, via the SAME `useScrollRestoration` hook `Card.stories.tsx`'s demo dogfoods. The spacer decorator (not part of `ReviewView` itself) exists purely so the page is tall enough to scroll in the first place. */
+export const BackFromAChunksDeckRestoresScrollPosition: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  decorators: [
+    (Story) => (
+      <div>
+        <Story />
+        <div style={{ height: 2000 }} />
+      </div>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    window.scrollTo(0, 500)
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await expect(canvas.getByTestId("hunk-screen")).toBeInTheDocument()
+    await fireEvent.click(canvas.getByTestId("deck-prev"))
+    await expect(canvas.getByTestId("review-screen")).toBeInTheDocument()
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    expect(window.scrollY).toBe(500)
+  },
+}
+
 export const ChunkCarryingAFootnoteKeepsTheRoundOpenEvenWhenFullyTicked: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {
@@ -196,5 +221,144 @@ export const LoadingStateRendersBeforeTheViewArrives: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByText("Loading the review…")).toBeInTheDocument()
+  },
+}
+
+/**
+ * The REAL `Review` container (not `ReviewView` in isolation): proves a hunk
+ * screen actually fetches its own diff through a live `trpc.diff.useQuery`
+ * round-trip, closing the exact gap the spec review flagged — `diffs` was
+ * always `undefined` from `Review`, so `Hunk.tsx` rendered `hunk-diff-loading`
+ * forever. `TrpcTestProvider`'s mock link stands in for `Server.ts`'s real
+ * `diff` procedure, keyed by the same `worktreePath`/`path`/`line` shape
+ * `Router.ts#diffInput` validates.
+ */
+const REVIEW_CONTENT = `# Review: abc1234
+
+<!-- base: abc1234def5678901234567890123456789abcd -->
+
+## Add calculator
+
+- [ ] ./src/calc.ts#1
+`
+
+const SAMPLE_REVIEW_VIEW = {
+  nodes: [
+    {
+      title: "Add calculator",
+      anchor: { kind: "chunk", index: 0 },
+      children: [
+        {
+          title: "./src/calc.ts#1",
+          path: "./src/calc.ts",
+          line: 1,
+          checked: false,
+          anchor: { kind: "hunk", chunkIndex: 0, index: 0 },
+        },
+      ],
+    },
+  ],
+}
+
+export const RealContainerFetchesTheCurrentHunksDiffLive: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: SAMPLE_REVIEW_VIEW,
+        }),
+        diff: (input) => {
+          expect(input).toEqual({ worktreePath: "/repo", path: "./src/calc.ts", line: 1 })
+          return {
+            kind: "hunk",
+            diff: { path: "./src/calc.ts", hunks: [] },
+            hunk: { header: "@@ -0,0 +1 @@", newStart: 1, newLines: 1, lines: ["+const x = 1"] },
+          }
+        },
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: { worktreePath: "/repo", filePath: ".gtd/REVIEW.md" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await waitFor(() => expect(canvas.getByTestId("diff-line-0")).toHaveTextContent("const x = 1"))
+    await expect(canvas.queryByTestId("hunk-diff-loading")).not.toBeInTheDocument()
+  },
+}
+
+/** A `useState`-backed recorder, not a plain mutated array — the `writeNote` resolver runs OUTSIDE React, so mutating a closed-over array would never trigger the re-render `write-calls` needs to actually reflect a new call. */
+const WriteCallRecorder = ({
+  args,
+  onRegisterWriteNote,
+}: {
+  readonly args: { readonly worktreePath: string; readonly filePath: string }
+  readonly onRegisterWriteNote: (record: (input: unknown) => void) => void
+}) => {
+  const [calls, setCalls] = useState<readonly unknown[]>([])
+  onRegisterWriteNote((input) => setCalls((prev) => [...prev, input]))
+  return (
+    <>
+      <div data-testid="write-calls">{JSON.stringify(calls)}</div>
+      <Review {...args} />
+    </>
+  )
+}
+
+/** Proves the OTHER half of the real container: saving a chunk note actually calls `writeNote` with the exact tokens `readSteeringFile` returned, not just a local-state update. */
+export const RealContainerWriteThroughsASavedNoteViaWriteNote: StoryObj<typeof Review> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: SAMPLE_REVIEW_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          writeNote: (input) => {
+            record(input)
+            return { ok: true }
+          },
+        }}
+      >
+        <WriteCallRecorder args={args} onRegisterWriteNote={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: { worktreePath: "/repo", filePath: ".gtd/REVIEW.md" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-note-0"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "Looks good overall." },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("write-calls")).toHaveTextContent("Looks good overall."),
+    )
+    await expect(canvas.getByTestId("write-calls")).toHaveTextContent(
+      JSON.stringify({
+        worktreePath: "/repo",
+        filePath: ".gtd/REVIEW.md",
+        expectedHeadSha: "abc123",
+        expectedContentHash: "deadbeef",
+        mode: "review",
+        anchor: { kind: "chunk", index: 0 },
+        text: "Looks good overall.",
+      }).slice(1, -1),
+    )
   },
 }

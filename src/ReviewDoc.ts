@@ -777,23 +777,50 @@ const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
  * here. Uses `SteeringViewNode`'s generic shape, never a `review`-only type —
  * see that type's own doc comment.
  */
+/**
+ * A chunk-level footnote's own text, when one is attached — `NoteSheet`'s
+ * `chunk` anchor attaches at the END OF THE HEADING LINE ITSELF
+ * (`resolveChunkAnchor`'s `chunk:${headingLine}` key), so a chunk-owned
+ * footnote is a marker whose OWN line equals `headingLine` exactly — never a
+ * hunk's own line, which already surfaces as that hunk's own `note` above.
+ * Multiple chunk-level footnotes (unusual, but not rejected by the format)
+ * join with a space, matching `footnoteLeaf`'s own join convention.
+ */
+const chunkNoteOf = (
+  definitionByName: ReadonlyMap<string, string>,
+  markers: readonly FootnoteMarker[],
+  headingLine: number,
+): string | undefined => {
+  const bodies = markers
+    .filter((marker) => marker.line === headingLine)
+    .map((marker) => definitionByName.get(marker.name))
+    .filter((body): body is string => body !== undefined)
+  return bodies.length > 0 ? bodies.join(" ") : undefined
+}
+
 const reviewView = (content: string): SteeringView => {
   const { shortHash, changesets } = parseReviewDoc(content)
+  const { markers, definitions } = parseFootnotes(content)
+  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   return {
     ...(shortHash ? { header: shortHash } : {}),
-    nodes: changesets.map((chunk, chunkIndex) => ({
-      title: chunk.title,
-      detail: chunk.description,
-      anchor: { kind: "chunk", index: chunkIndex },
-      children: chunk.files.map((file, index) => ({
-        title: file.line !== undefined ? `${file.path}#${file.line}` : file.path,
-        path: file.path,
-        ...(file.line !== undefined ? { line: file.line } : {}),
-        checked: file.checked,
-        ...(file.note !== undefined ? { note: file.note } : {}),
-        anchor: { kind: "hunk", chunkIndex, index },
-      })),
-    })),
+    nodes: changesets.map((chunk, chunkIndex) => {
+      const chunkNote = chunkNoteOf(definitionByName, markers, chunk.headingLine)
+      return {
+        title: chunk.title,
+        detail: chunk.description,
+        anchor: { kind: "chunk", index: chunkIndex },
+        ...(chunkNote !== undefined ? { note: chunkNote } : {}),
+        children: chunk.files.map((file, index) => ({
+          title: file.line !== undefined ? `${file.path}#${file.line}` : file.path,
+          path: file.path,
+          ...(file.line !== undefined ? { line: file.line } : {}),
+          checked: file.checked,
+          ...(file.note !== undefined ? { note: file.note } : {}),
+          anchor: { kind: "hunk", chunkIndex, index },
+        })),
+      }
+    }),
   }
 }
 

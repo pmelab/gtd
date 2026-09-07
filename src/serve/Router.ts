@@ -2,15 +2,23 @@ import { TRPCError, initTRPC } from "@trpc/server"
 import { Effect, Runtime } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
 import type { SteeringAnchor } from "../SteeringFormat.js"
+import type { DiffResult } from "./Diff.js"
 import type { FleetPayload } from "./Fleet.js"
+import type { ReadSteeringFileRequest, ReadSteeringFileResult } from "./ReadSteeringFile.js"
 import { steeringViewFor } from "./View.js"
 import type { WriteNoteRequest, WriteResult } from "./Write.js"
 
-/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes T3's memo actually memoize across requests. `writeNote` closes over the live `WriteDeps` (see `Write.ts`); the router never imports a format module or a filesystem API directly. */
+/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes T3's memo actually memoize across requests. `writeNote`/`readSteeringFile` close over the live `WriteDeps`/`ReadSteeringFileDeps` (see `Write.ts`/`ReadSteeringFile.ts`); `resolveDiff` closes over the live `DiffDeps` (see `Diff.ts`) the same way. The router never imports a format module or a filesystem API directly. */
 export interface RouterContext {
   readonly runtime: Runtime.Runtime<CommandRunner>
   readonly readFleet: () => Promise<FleetPayload>
   readonly writeNote: (request: WriteNoteRequest) => Promise<WriteResult>
+  readonly resolveDiff: (
+    worktreePath: string,
+    path: string,
+    line: number | undefined,
+  ) => Promise<DiffResult>
+  readonly readSteeringFile: (request: ReadSteeringFileRequest) => Promise<ReadSteeringFileResult>
 }
 
 /**
@@ -50,11 +58,20 @@ export class UnsupportedModeRefusal extends Error {
   }
 }
 
+/** One of `ReadSteeringFile.ts#ReadSteeringFileResult`'s two typed refusals, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.readRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. */
+export class ReadSteeringFileRefusal extends Error {
+  constructor(readonly reason: "file-vanished" | "unsupported-mode") {
+    super(`gtd serve: read refused (${reason})`)
+    this.name = "ReadSteeringFileRefusal"
+  }
+}
+
 const t = initTRPC.context<RouterContext>().create({
   errorFormatter({ shape, error }) {
     const refusal = error.cause instanceof CommandRefusal ? error.cause : undefined
     const writeRefusal = error.cause instanceof WriteNoteRefusal ? error.cause : undefined
     const viewRefusal = error.cause instanceof UnsupportedModeRefusal ? error.cause : undefined
+    const readRefusal = error.cause instanceof ReadSteeringFileRefusal ? error.cause : undefined
     return {
       ...shape,
       data: {
@@ -68,6 +85,7 @@ const t = initTRPC.context<RouterContext>().create({
             ? undefined
             : { reason: writeRefusal.reason, moved: writeRefusal.moved },
         viewRefusal: viewRefusal === undefined ? undefined : { reason: viewRefusal.reason },
+        readRefusal: readRefusal === undefined ? undefined : { reason: readRefusal.reason },
       },
     }
   },
@@ -167,6 +185,42 @@ const viewInput = (value: unknown): { readonly content: string; readonly mode: s
   return { content: value.content, mode: value.mode }
 }
 
+/** `resolveDiff`'s own input validator — `{ worktreePath: string, path: string, line?: number }`, no `zod` dependency, mirroring `commandInput`. `line` is optional: a bare pointer with no line number is T3's own "no line number" case, not a validation failure. */
+const diffInput = (
+  value: unknown,
+): { readonly worktreePath: string; readonly path: string; readonly line?: number } => {
+  if (
+    !isRecord(value) ||
+    typeof value.worktreePath !== "string" ||
+    typeof value.path !== "string"
+  ) {
+    throw new Error("expected { worktreePath: string, path: string, line?: number }")
+  }
+  if (value.line !== undefined && typeof value.line !== "number") {
+    throw new Error("expected line to be a number when present")
+  }
+  return {
+    worktreePath: value.worktreePath,
+    path: value.path,
+    ...(value.line !== undefined ? { line: value.line } : {}),
+  }
+}
+
+/** `readSteeringFile`'s own input validator — `{ worktreePath: string, filePath: string, mode: string }`, no `zod` dependency, mirroring `commandInput`. */
+const readSteeringFileInput = (
+  value: unknown,
+): { readonly worktreePath: string; readonly filePath: string; readonly mode: string } => {
+  if (
+    !isRecord(value) ||
+    typeof value.worktreePath !== "string" ||
+    typeof value.filePath !== "string" ||
+    typeof value.mode !== "string"
+  ) {
+    throw new Error("expected { worktreePath: string, filePath: string, mode: string }")
+  }
+  return { worktreePath: value.worktreePath, filePath: value.filePath, mode: value.mode }
+}
+
 export const appRouter = t.router({
   /**
    * Runs `input.command` VERBATIM via `CommandRunner` — `commandInput` only
@@ -234,6 +288,40 @@ export const appRouter = t.router({
       })
     }
     return { view: result.view }
+  }),
+
+  /**
+   * A hunk screen's one read: `Diff.ts#resolveDiff`'s pure dispatch (`gtd
+   * base` plus a `git diff` of that base against the working tree, sliced to
+   * the pointed-at hunk when one resolves) — never re-implemented here.
+   * `DiffResult` is already a closed, JSON-serializable union (`hunk` /
+   * `whole-file` / `binary` / `refused`), so unlike `writeNote`/`view` there
+   * is nothing to lift into a `TRPCError`'s `cause`: a `refused` result IS
+   * the typed refusal, returned as plain data for the client to switch on.
+   */
+  diff: t.procedure
+    .input(diffInput)
+    .query(({ input, ctx }) => ctx.resolveDiff(input.worktreePath, input.path, input.line)),
+
+  /**
+   * A screen's one entry point before it can render OR write back:
+   * `ReadSteeringFile.ts#readSteeringFile`'s live read of the file's exact
+   * bytes plus its `view` and the two `writeNote`-compatible tokens
+   * (`headSha`/`contentHash`), all in one round trip — so a container never
+   * has to invent a second fetch to get the tokens a later `writeNote` call
+   * needs. A refusal becomes a `TRPCError` whose `cause` is a
+   * `ReadSteeringFileRefusal` — read back via `error.data.readRefusal.reason`.
+   */
+  readSteeringFile: t.procedure.input(readSteeringFileInput).query(async ({ input, ctx }) => {
+    const result = await ctx.readSteeringFile(input)
+    if (!result.ok) {
+      throw new TRPCError({
+        code: result.reason === "file-vanished" ? "NOT_FOUND" : "BAD_REQUEST",
+        message: `gtd serve: read refused (${result.reason})`,
+        cause: new ReadSteeringFileRefusal(result.reason),
+      })
+    }
+    return result
   }),
 })
 

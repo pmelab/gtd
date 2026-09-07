@@ -880,17 +880,70 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
 const questionsPointerAt: SteeringFormat["pointerAt"] = (content, position) =>
   footnotePointerAt(content, position)?.pointer
 
+/** `true` when `content` carries neither an `## Open Questions` nor an `## Answered Questions` section — the "prose-only steering file" case T2 owns projecting into paragraph nodes, rather than the client re-deriving it by splitting raw markdown itself. */
+const isProseOnly = (tree: Root, content: string): boolean =>
+  !tree.children.some(
+    (n): n is Heading =>
+      n.type === "heading" &&
+      n.depth === 2 &&
+      (headingText(content, n) === "Open Questions" ||
+        headingText(content, n) === "Answered Questions"),
+  )
+
 /**
- * `qa`-mode's `view`: every question as a container node — `title` the
- * question's own heading TEXT (`OpenQuestion.question`, never
- * `OpenQuestion.text`, which is only the first body line, a summary carried
- * separately as `detail`), plus status/answered flag and own `question`
- * anchor — with every one of its options as a child item node (checked, text
- * as `title`, own `option` anchor). Built from ONE `parseOpenQuestions` call,
- * never one parse per question/option. Uses `SteeringViewNode`'s generic
- * shape, never a `qa`-only type — see that type's own doc comment.
+ * A prose-only document's own paragraph nodes: one per top-level `paragraph`
+ * mdast node (never a footnote DEFINITION block, which parses as a distinct
+ * `footnoteDefinition` node type), each carrying a REAL, SERVER-COMPUTED
+ * `{kind:"paragraph", line}` anchor at the paragraph's own start line —
+ * exactly the line `resolveQuestionsParagraphAnchor`/`blockNodeAt` resolve
+ * against, so a client that hands this anchor straight back to `annotate`
+ * always lands on the same block it read it from. An existing footnote
+ * marker anchored at that same start line surfaces as the node's own `note`
+ * (mirrors `ReviewDoc.ts#chunkNoteOf`'s exact-line-match convention), so a
+ * paragraph already carrying a note offers editing it, not a second one.
+ */
+const paragraphNodesOf = (
+  content: string,
+  tree: Root,
+): readonly SteeringView["nodes"][number][] => {
+  const { markers, definitions } = parseFootnotes(content)
+  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
+  return tree.children
+    .filter((node): node is RootContent & { type: "paragraph" } => node.type === "paragraph")
+    .filter((node) => node.position !== undefined)
+    .map((node) => {
+      const startLine = toLspPosition(node.position!.start).line
+      const title = stripMarkerText(sourceText(content, node)).replace(/\s+/g, " ").trim()
+      const noteBodies = markers
+        .filter((marker) => marker.line === startLine)
+        .map((marker) => definitionByName.get(marker.name))
+        .filter((body): body is string => body !== undefined)
+      return {
+        title,
+        anchor: { kind: "paragraph" as const, line: startLine },
+        ...(noteBodies.length > 0 ? { note: noteBodies.join(" ") } : {}),
+      }
+    })
+}
+
+/**
+ * `qa`-mode's `view`: a prose-only document (no `## Open Questions`/`##
+ * Answered Questions` section at all) yields paragraph nodes and no
+ * questions (`paragraphNodesOf`, T2's own criterion); otherwise every
+ * question is a container node — `title` the question's own heading TEXT
+ * (`OpenQuestion.question`, never `OpenQuestion.text`, which is only the
+ * first body line, a summary carried separately as `detail`), plus
+ * status/answered flag and own `question` anchor — with every one of its
+ * options as a child item node (checked, text as `title`, own `option`
+ * anchor). Built from ONE `parseOpenQuestions` call, never one parse per
+ * question/option. Uses `SteeringViewNode`'s generic shape, never a
+ * `qa`-only type — see that type's own doc comment.
  */
 const questionsView = (content: string): SteeringView => {
+  const tree = parseMarkdown(content)
+  if (isProseOnly(tree, content)) {
+    return { nodes: paragraphNodesOf(content, tree) }
+  }
   const { questions } = parseOpenQuestions(content)
   return {
     nodes: questions.map((question, questionIndex) => ({

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fireEvent, within } from "storybook/test"
+import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
 import { Question } from "./Question.js"
 
@@ -83,7 +84,10 @@ export const PlaceholderDifferingOnlyInCaseNormalizesToEmpty: Story = {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("option-radio-2"))
     await fireEvent.change(canvas.getByTestId("free-text-input"), {
-      target: { value: "TYPE YOUR ANSWER…" },
+      // The SAME sentinel `OpenQuestions.ts#FREE_TEXT_PLACEHOLDER` uses
+      // server-side, just differing in letter case — proving this component
+      // normalizes against the one real placeholder, not an invented hint.
+      target: { value: FREE_TEXT_PLACEHOLDER.toUpperCase() },
     })
     await expect(canvas.getByTestId("question-status")).toHaveTextContent("unanswered")
   },

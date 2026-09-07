@@ -1,21 +1,12 @@
 import { useState } from "react"
+import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
 import { Mic } from "../Mic.js"
 
-/**
- * The unfilled free-text slot's on-screen placeholder — mirrors
- * `OpenQuestions.ts#FREE_TEXT_PLACEHOLDER` in spirit only: this is the
- * CLIENT's own rendered hint text, compared case-insensitively against
- * whatever the human types, never the server-side sentinel string itself
- * (the server already normalizes that one to `""` before this component
- * ever sees `node`).
- */
-const FREE_TEXT_HINT = "Type your answer…"
-
-/** `""` for an untouched/placeholder-only answer (case-insensitive) — the same normalization the completeness gate applies server-side, redone here so the client never has to round-trip through a write to know if it's answered. */
+/** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */
 const normalizeAnswerText = (text: string): string => {
   const trimmed = text.trim()
-  return trimmed.toLowerCase() === FREE_TEXT_HINT.toLowerCase() ? "" : trimmed
+  return trimmed.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : trimmed
 }
 
 export interface QuestionProps {
@@ -36,7 +27,7 @@ const FreeTextOption = ({
   <div style={{ marginTop: 8 }}>
     <textarea
       data-testid="free-text-input"
-      placeholder={FREE_TEXT_HINT}
+      placeholder={FREE_TEXT_PLACEHOLDER}
       value={freeText}
       onFocus={onFocus}
       onChange={(event) => {
@@ -51,17 +42,27 @@ const FreeTextOption = ({
         onFreeTextChange(freeText.length > 0 ? `${freeText} ${text}` : text)
       }}
     >
-      {(state) =>
-        state.available ? (
-          <button type="button" data-testid="mic-toggle" onClick={state.toggle}>
-            {state.recording ? "Stop" : "Dictate"}
-          </button>
-        ) : (
-          <p data-testid="mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
-            Use your keyboard's mic key to dictate
-          </p>
-        )
-      }
+      {(state) => (
+        <>
+          {state.available ? (
+            <button type="button" data-testid="mic-toggle" onClick={state.toggle}>
+              {state.recording ? "Stop" : "Dictate"}
+            </button>
+          ) : (
+            <p data-testid="mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
+              Use your keyboard's mic key to dictate
+            </p>
+          )}
+          {state.interim.length > 0 && (
+            <p
+              data-testid="mic-interim"
+              style={{ fontSize: 12, opacity: 0.6, fontStyle: "italic" }}
+            >
+              {state.interim}
+            </p>
+          )}
+        </>
+      )}
     </Mic>
   </div>
 )

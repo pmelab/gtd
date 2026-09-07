@@ -1533,6 +1533,61 @@ describe("QA_FORMAT.view", () => {
   })
 })
 
+describe("QA_FORMAT.view — prose-only projection (T2, no Open/Answered Questions section at all)", () => {
+  it("yields one paragraph node per paragraph, and no questions", () => {
+    const content = ["First paragraph of the plan.", "", "Second paragraph, more detail.", ""].join(
+      "\n",
+    )
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.every((n) => n.status === undefined)).toBe(true)
+    expect(view.nodes.map((n) => n.title)).toEqual([
+      "First paragraph of the plan.",
+      "Second paragraph, more detail.",
+    ])
+  })
+
+  it("each paragraph node's anchor is a real, server-computed {kind:'paragraph', line} at the paragraph's own start line", () => {
+    const content = ["Line zero paragraph.", "", "Line two paragraph.", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.map((n) => n.anchor)).toEqual([
+      { kind: "paragraph", line: 0 },
+      { kind: "paragraph", line: 2 },
+    ])
+  })
+
+  it("a paragraph anchor round-trips through annotate/resolve — attaching a note at the projected line actually lands", () => {
+    const content = ["A paragraph worth commenting on.", ""].join("\n")
+    const result = QA_FORMAT.annotate(content, { kind: "paragraph", line: 0 }, "a real comment")
+    expect(result.ok).toBe(true)
+  })
+
+  it("a paragraph already carrying a footnote at its own start line surfaces it as that node's own note, for editing rather than a second note", () => {
+    const content = [
+      "A paragraph with a note attached.[^fn1]",
+      "",
+      "[^fn1]: the reviewer's own comment",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.note).toBe("the reviewer's own comment")
+  })
+
+  it("a document with an Open Questions section is NOT treated as prose-only, even with prose before it", () => {
+    const content = [
+      "Some intro prose.",
+      "",
+      "## Open Questions",
+      "",
+      "### First?",
+      "",
+      "- [ ] Option A",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.map((n) => n.status)).toEqual(["open"])
+  })
+})
+
 describe("QA_FORMAT.annotate", () => {
   const CONTENT = ["## Open Questions", "", "### First?", "", "- [ ] Option A", ""].join("\n")
 

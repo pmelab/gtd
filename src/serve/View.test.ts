@@ -29,6 +29,27 @@ describe("steeringViewFor", () => {
     expect(kinds).not.toContain("option")
   })
 
+  it("yields the question view's open and answered questions separately, in their own status field", () => {
+    const result = steeringViewFor("qa", QA_FORMAT.sample)
+    if (!result.ok) throw new Error("expected ok")
+    const statuses = result.view.nodes.map((n) => n.status)
+    expect(statuses).toContain("open")
+    // QA_FORMAT.sample carries only an open question — the format's own
+    // ability to separate the two is covered directly in
+    // `OpenQuestions.test.ts#QA_FORMAT.view`; this just proves the dispatch
+    // preserves `status` verbatim rather than collapsing it.
+    expect(statuses.every((s) => s === "open" || s === "answered")).toBe(true)
+  })
+
+  it("a prose-only steering file (a qa-mode document with no Open/Answered Questions section) yields paragraphs and no questions", () => {
+    const content = "Just a plan, no questions.\n\nA second paragraph.\n"
+    const result = steeringViewFor("qa", content)
+    if (!result.ok) throw new Error("expected ok")
+    expect(result.view.nodes.length).toBeGreaterThan(0)
+    expect(result.view.nodes.every((n) => n.status === undefined)).toBe(true)
+    expect(result.view.nodes.every((n) => n.anchor.kind === "paragraph")).toBe(true)
+  })
+
   it("returns the typed unsupported-mode refusal for an unregistered mode name, not a throw or an empty view", () => {
     const result = steeringViewFor("not-a-real-mode", "some content")
     expect(result).toEqual({ ok: false, reason: "unsupported-mode" })

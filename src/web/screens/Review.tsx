@@ -5,7 +5,8 @@ import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { trpc } from "../api.js"
-import { Hunk } from "./Hunk.js"
+import { useScrollRestoration } from "../useScrollRestoration.js"
+import { Hunk, type HunkProps } from "./Hunk.js"
 
 /**
  * Every hunk-anchored descendant of a chunk node, at any depth —
@@ -36,11 +37,29 @@ export interface ReviewViewProps {
   readonly isLoading: boolean
   /**
    * One `DiffResult` per hunk, keyed by `hunkKey`'s own `hunk:<chunkIndex>:<index>`
-   * scheme — a missing entry renders `Hunk.tsx`'s own loading state. There is
-   * no `diff` tRPC procedure yet (see `Hunk.tsx`'s own doc comment); the real
-   * `Review` container below always passes `undefined`.
+   * scheme — a TEST SEAM ONLY: `Review.stories.tsx` drives every diff shape
+   * (whole-file banner, binary, refused) with plain pre-resolved data, no
+   * mocked tRPC transport required. When absent, `HunkDeck` fetches each
+   * hunk's diff live via `trpc.diff` instead (see `worktreePath` below) — the
+   * real `Review` container never passes this prop.
    */
   readonly diffs?: Readonly<Record<string, DiffResult>>
+  /**
+   * The worktree `trpc.diff` resolves `path`/`line` pointers against — real
+   * hunk screens fetch through `Server.ts`'s `diff` procedure
+   * (`Diff.ts#resolveDiff`) using this. Stories that pass `diffs` directly
+   * never set this; `Review` (the real container) always does.
+   */
+  readonly worktreePath?: string
+  /**
+   * Called with a saved note's `anchor`/`text` — the real `Review` container
+   * wires this to an actual `writeNote` mutation (compare-and-swap against
+   * the `headSha`/`contentHash` its own `readSteeringFile` fetch returned).
+   * Local optimistic state (below) still updates immediately either way, so
+   * the sheet's own save feels instant; this is the write-through that makes
+   * it survive a reload. Absent in `Review.stories.tsx`'s pure-data stories.
+   */
+  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => void
 }
 
 /** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`, so a save/dismiss never has to re-look-up the node it came from. */
@@ -56,21 +75,22 @@ interface NoteSheetState {
  * chunk list) instead of a single large function carrying both state and
  * markup.
  *
- * Ticks are local/optimistic UI state only: `src/ReviewDoc.ts#toggleFilePointer`
- * exists but is never exposed via `src/serve/Router.ts` (only
- * `runCommand`/`fleet`/`writeNote`/`view` are registered there), so there is
- * no client-facing tick-toggle mechanism to call yet. Likewise a saved note
- * only updates local state — `writeNote` exists but needs a
- * `worktreePath`/`filePath`/`expectedHeadSha`/`expectedContentHash` this
- * screen isn't given, so wiring it through is a future task's job, not a
- * silent fake-persistence hazard introduced here.
+ * Ticks are STILL local/optimistic UI state only:
+ * `src/ReviewDoc.ts#toggleFilePointer`/`toggleChunkEdits` exist, but there is
+ * no format-agnostic "toggle" member on `SteeringFormat` the way `annotate`
+ * is one — adding that (and the router surface it'd need) is a real design
+ * decision for a format-agnostic tick primitive, not this screen's call to
+ * make alone. A saved NOTE, by contrast, already had everywhere it needed:
+ * `annotate` is that exact generic primitive, so `onSaveNote` (when the
+ * container supplies one) write-throughs via `writeNote` for real.
  */
-const useReviewState = () => {
+const useReviewState = (onSaveNote?: (anchor: SteeringAnchor, text: string) => void) => {
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [openChunkIndex, setOpenChunkIndex] = useState<number | undefined>(undefined)
   const [deckIndex, setDeckIndex] = useState(0)
   const [noteSheet, setNoteSheet] = useState<NoteSheetState | undefined>(undefined)
+  const scroll = useScrollRestoration()
 
   const isChecked = (hunk: SteeringViewNode): boolean =>
     ticked[hunkKey(hunk.anchor)] ?? hunk.checked === true
@@ -89,6 +109,7 @@ const useReviewState = () => {
   const saveNote = (anchor: SteeringAnchor, text: string) => {
     setNotes((prev) => ({ ...prev, [noteKey(anchor)]: text }))
     setNoteSheet(undefined)
+    onSaveNote?.(anchor, text)
   }
 
   const toggleChunk = (chunk: SteeringViewNode) => {
@@ -108,14 +129,21 @@ const useReviewState = () => {
   }
 
   const openChunk = (index: number) => {
+    scroll.capture()
     setOpenChunkIndex(index)
     setDeckIndex(0)
+  }
+
+  /** Both the chunk-deck's own `onExit` (back from the first hunk) and the last-hunk-approved path below route through this, so scroll position is restored on either exit, not just an explicit back tap. */
+  const exitToChunkList = () => {
+    setOpenChunkIndex(undefined)
+    scroll.restore()
   }
 
   const approveAndAdvance = (hunks: readonly SteeringViewNode[]) => {
     const next = deckIndex + 1
     if (next >= hunks.length) {
-      setOpenChunkIndex(undefined)
+      exitToChunkList()
     } else {
       setDeckIndex(next)
     }
@@ -127,7 +155,7 @@ const useReviewState = () => {
     setDeckIndex,
     noteSheet,
     setNoteSheet,
-    setOpenChunkIndex,
+    exitToChunkList,
     isChecked,
     hasNoteText,
     openNoteSheet,
@@ -141,14 +169,50 @@ const useReviewState = () => {
 
 type ReviewState = ReturnType<typeof useReviewState>
 
+/** Fetches ONE hunk's own diff live via `trpc.diff` (`Server.ts`'s `diff` procedure → `Diff.ts#resolveDiff`) — only ever mounted for the deck's CURRENT item (`Deck.tsx` renders one item at a time), so this is one query per screen, not one per hunk in the chunk. Disabled when the hunk carries no `path` at all (never expected in practice — every review hunk has one — but guards against an ever-loading query on malformed data instead of a crash). */
+const HunkWithDiff = ({
+  worktreePath,
+  node,
+  ...rest
+}: Omit<HunkProps, "diff"> & { readonly worktreePath: string }) => {
+  const query = trpc.diff.useQuery(
+    {
+      worktreePath,
+      path: node.path ?? "",
+      ...(node.line !== undefined ? { line: node.line } : {}),
+    },
+    { enabled: node.path !== undefined },
+  )
+  return <Hunk node={node} diff={query.data} {...rest} />
+}
+
+/** One hunk's own props, shared by both the test-seam (`diffs` prop) and live-fetch (`worktreePath`) render paths below — `hunks` is the WHOLE chunk's own hunk list (needed by `approveAndAdvance` to know when this is the last one), not just this one item. */
+const hunkPropsFor = (
+  hunk: SteeringViewNode,
+  index: number,
+  hunks: readonly SteeringViewNode[],
+  state: ReviewState,
+): Omit<HunkProps, "diff"> => ({
+  node: hunk,
+  index,
+  total: hunks.length,
+  checked: state.isChecked(hunk),
+  hasNote: state.hasNoteText(hunk),
+  onToggle: (checked) => state.setHunkChecked(hunk, checked),
+  onApprove: () => state.approveAndAdvance(hunks),
+  onOpenNote: () => state.openNoteSheet(hunk),
+})
+
 /** The per-chunk deck of hunks — one hunk per screen, approving the last one exits back to the chunk list via `state.approveAndAdvance`. */
 const HunkDeck = ({
   chunk,
   diffs,
+  worktreePath,
   state,
 }: {
   readonly chunk: SteeringViewNode
   readonly diffs: Readonly<Record<string, DiffResult>> | undefined
+  readonly worktreePath: string | undefined
   readonly state: ReviewState
 }) => {
   const hunks = hunksOf(chunk)
@@ -157,21 +221,17 @@ const HunkDeck = ({
       items={hunks}
       index={state.deckIndex}
       onIndexChange={state.setDeckIndex}
-      onExit={() => state.setOpenChunkIndex(undefined)}
-      renderItem={(hunk, i) => (
-        <Hunk
-          key={hunkKey(hunk.anchor)}
-          node={hunk}
-          diff={diffs?.[hunkKey(hunk.anchor)]}
-          index={i}
-          total={hunks.length}
-          checked={state.isChecked(hunk)}
-          hasNote={state.hasNoteText(hunk)}
-          onToggle={(checked) => state.setHunkChecked(hunk, checked)}
-          onApprove={() => state.approveAndAdvance(hunks)}
-          onOpenNote={() => state.openNoteSheet(hunk)}
-        />
-      )}
+      onExit={state.exitToChunkList}
+      renderItem={(hunk, i) => {
+        const props = hunkPropsFor(hunk, i, hunks, state)
+        if (diffs !== undefined) {
+          return <Hunk key={hunkKey(hunk.anchor)} {...props} diff={diffs[hunkKey(hunk.anchor)]} />
+        }
+        if (worktreePath !== undefined) {
+          return <HunkWithDiff key={hunkKey(hunk.anchor)} worktreePath={worktreePath} {...props} />
+        }
+        return <Hunk key={hunkKey(hunk.anchor)} {...props} diff={undefined} />
+      }}
     />
   )
 }
@@ -269,8 +329,14 @@ const ChunkList = ({
  * `Fleet.tsx#FleetView`'s own identical note).
  */
 // fallow-ignore-next-line complexity
-export const ReviewView = ({ view, isLoading, diffs }: ReviewViewProps) => {
-  const state = useReviewState()
+export const ReviewView = ({
+  view,
+  isLoading,
+  diffs,
+  worktreePath,
+  onSaveNote,
+}: ReviewViewProps) => {
+  const state = useReviewState(onSaveNote)
 
   if (view === undefined) {
     return (
@@ -296,19 +362,58 @@ export const ReviewView = ({ view, isLoading, diffs }: ReviewViewProps) => {
   const openChunk =
     state.openChunkIndex !== undefined ? view.nodes[state.openChunkIndex] : undefined
   if (openChunk !== undefined) {
-    return <HunkDeck chunk={openChunk} diffs={diffs} state={state} />
+    return <HunkDeck chunk={openChunk} diffs={diffs} worktreePath={worktreePath} state={state} />
   }
 
   return <ChunkList nodes={view.nodes} state={state} />
 }
 
 export interface ReviewProps {
-  readonly content: string
+  readonly worktreePath: string
+  /** Path to the review steering file, relative to `worktreePath` (`.gtd/REVIEW.md`, typically). */
+  readonly filePath: string
 }
 
-/** The real review screen: wires `ReviewView` to the `view` tRPC query for `content` in `review` mode. `diffs` is always `undefined` here — see `ReviewViewProps.diffs`'s own doc comment for why. Not yet imported by `App.tsx` — routing between screens is a later package's task, not this one's. */
-// fallow-ignore-next-line unused-export
-export const Review = ({ content }: ReviewProps) => {
-  const query = trpc.view.useQuery({ content, mode: "review" })
-  return <ReviewView view={query.data?.view} isLoading={query.isLoading} />
+/**
+ * The real review screen: fetches the file's content/`view`/tokens through
+ * `readSteeringFile` (never a bare `content` prop with no way to have
+ * actually been fetched), and write-throughs a saved note via `writeNote`'s
+ * compare-and-swap using the SAME `headSha`/`contentHash` that fetch
+ * returned — refetching afterward so a stale local override never
+ * outlives the server's own authoritative content. `worktreePath` also
+ * threads through to `HunkDeck`'s live `trpc.diff` fetch (never the `diffs`
+ * test-seam prop, which only `Review.stories.tsx` uses). Not yet imported by
+ * `App.tsx` — routing between screens is a later package's task, not this
+ * one's; `Review.stories.tsx`'s own `RealContainerFetchesTheCurrentHunksDiffLive`
+ * story is its one real consumer today.
+ */
+export const Review = ({ worktreePath, filePath }: ReviewProps) => {
+  const utils = trpc.useUtils()
+  const query = trpc.readSteeringFile.useQuery({ worktreePath, filePath, mode: "review" })
+  const writeNote = trpc.writeNote.useMutation({
+    onSettled: () => utils.readSteeringFile.invalidate({ worktreePath, filePath, mode: "review" }),
+  })
+
+  const onSaveNote = (anchor: SteeringAnchor, text: string) => {
+    const data = query.data
+    if (data === undefined) return
+    writeNote.mutate({
+      worktreePath,
+      filePath,
+      expectedHeadSha: data.headSha,
+      expectedContentHash: data.contentHash,
+      mode: "review",
+      anchor,
+      text,
+    })
+  }
+
+  return (
+    <ReviewView
+      view={query.data?.view}
+      isLoading={query.isLoading}
+      worktreePath={worktreePath}
+      onSaveNote={onSaveNote}
+    />
+  )
 }

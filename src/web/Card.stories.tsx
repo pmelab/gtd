@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { page } from "@vitest/browser/context"
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { expect, fireEvent, within } from "storybook/test"
 import { Card, CardList } from "./Card.js"
 import { Deck } from "./Deck.js"
+import { useScrollRestoration } from "./useScrollRestoration.js"
 
 const meta: Meta<typeof CardList> = {
   component: CardList,
@@ -19,11 +20,14 @@ const ITEMS = ["alpha", "beta", "gamma"]
  * The two-level shell as a screen would actually wire it: a list of
  * `Card`s, each opening a `Deck` of the same item repeated so a deck of
  * one item is exercised too. Lives here (not in Card.tsx) because Card and
- * Deck stay domain-agnostic — composing them is a screen's job.
+ * Deck stay domain-agnostic — composing them is a screen's job. Scroll
+ * preservation goes through the SAME `useScrollRestoration` hook the real
+ * screens (`Review.tsx`, `Plan.tsx`) use, not a one-off `useRef` — this demo
+ * is what proves the hook itself works, not a parallel reimplementation.
  */
 const TwoLevelShellDemo = () => {
   const [open, setOpen] = useState<string | null>(null)
-  const scrollBefore = useRef(0)
+  const { capture, restore } = useScrollRestoration()
 
   if (open !== null) {
     return (
@@ -32,7 +36,7 @@ const TwoLevelShellDemo = () => {
         renderItem={(item) => <p>{item} detail</p>}
         onExit={() => {
           setOpen(null)
-          requestAnimationFrame(() => window.scrollTo(0, scrollBefore.current))
+          restore()
         }}
       />
     )
@@ -45,7 +49,7 @@ const TwoLevelShellDemo = () => {
           key={item}
           testId={`card-${item}`}
           onOpen={() => {
-            scrollBefore.current = window.scrollY
+            capture()
             setOpen(item)
           }}
         >

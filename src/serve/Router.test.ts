@@ -5,6 +5,7 @@ import { QA_FORMAT } from "../OpenQuestions.js"
 import {
   appRouter,
   CommandRefusal,
+  ReadSteeringFileRefusal,
   UnsupportedModeRefusal,
   WriteNoteRefusal,
   type RouterContext,
@@ -19,12 +20,18 @@ const contextFor = (
       wantsYouCount: 0,
     }),
   writeNote: RouterContext["writeNote"] = () => Promise.resolve({ ok: true }),
+  resolveDiff: RouterContext["resolveDiff"] = () =>
+    Promise.resolve({ kind: "refused", detail: "resolveDiff unexpectedly invoked" }),
+  readSteeringFile: RouterContext["readSteeringFile"] = () =>
+    Promise.resolve({ ok: false, reason: "file-vanished" }),
 ): RouterContext => ({
   runtime: Effect.runSync(
     Effect.runtime<CommandRunner>().pipe(Effect.provide(CommandRunner.layer(bash))),
   ),
   readFleet,
   writeNote,
+  resolveDiff,
+  readSteeringFile,
 })
 
 describe("appRouter.runCommand", () => {
@@ -177,5 +184,136 @@ describe("appRouter.view", () => {
       contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
     )
     await expect(caller.view({ mode: "qa" } as never)).rejects.toThrow()
+  })
+})
+
+describe("appRouter.diff", () => {
+  it("delegates straight to the context's resolveDiff, forwarding worktreePath/path/line", async () => {
+    let received: readonly [string, string, number | undefined] | undefined
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        undefined,
+        (worktreePath, path, line) => {
+          received = [worktreePath, path, line]
+          return Promise.resolve({ kind: "binary" })
+        },
+      ),
+    )
+    const result = await caller.diff({ worktreePath: "/repo", path: "./src/a.ts", line: 3 })
+    expect(result).toEqual({ kind: "binary" })
+    expect(received).toEqual(["/repo", "./src/a.ts", 3])
+  })
+
+  it("forwards an absent line as undefined, not zero or a validation error", async () => {
+    let received: number | undefined = -1
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        undefined,
+        (_worktreePath, _path, line) => {
+          received = line
+          return Promise.resolve({
+            kind: "whole-file",
+            diff: { path: "x", hunks: [] },
+            reason: "no-line",
+          })
+        },
+      ),
+    )
+    await caller.diff({ worktreePath: "/repo", path: "./src/a.ts" })
+    expect(received).toBeUndefined()
+  })
+
+  it("returns a `refused` result as plain data, never a thrown TRPCError — DiffResult is already the typed refusal", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        undefined,
+        () => Promise.resolve({ kind: "refused", detail: "gtd base: refused" }),
+      ),
+    )
+    const result = await caller.diff({ worktreePath: "/repo", path: "./src/a.ts" })
+    expect(result).toEqual({ kind: "refused", detail: "gtd base: refused" })
+  })
+
+  it("rejects malformed input rather than reaching resolveDiff", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
+    )
+    await expect(caller.diff({ worktreePath: "/repo" } as never)).rejects.toThrow()
+  })
+})
+
+describe("appRouter.readSteeringFile", () => {
+  it("delegates straight to the context's readSteeringFile, returning the full result on success", async () => {
+    const okResult = {
+      ok: true as const,
+      content: QA_FORMAT.sample,
+      headSha: "abc123",
+      contentHash: "deadbeef",
+      view: QA_FORMAT.view(QA_FORMAT.sample),
+    }
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        undefined,
+        undefined,
+        () => Promise.resolve(okResult),
+      ),
+    )
+    const result = await caller.readSteeringFile({
+      worktreePath: "/repo",
+      filePath: ".gtd/PLAN.md",
+      mode: "qa",
+    })
+    expect(result).toEqual(okResult)
+  })
+
+  it("surfaces a file-vanished refusal as a typed ReadSteeringFileRefusal cause with a NOT_FOUND code", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        undefined,
+        undefined,
+        () => Promise.resolve({ ok: false, reason: "file-vanished" }),
+      ),
+    )
+    const error = await caller
+      .readSteeringFile({ worktreePath: "/repo", filePath: "x.md", mode: "qa" })
+      .catch((e: unknown) => e)
+    const cause = (error as { cause?: unknown }).cause
+    expect(cause).toBeInstanceOf(ReadSteeringFileRefusal)
+    expect((cause as ReadSteeringFileRefusal).reason).toBe("file-vanished")
+  })
+
+  it("surfaces an unsupported-mode refusal as a typed ReadSteeringFileRefusal cause", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
+        undefined,
+        undefined,
+        undefined,
+        () => Promise.resolve({ ok: false, reason: "unsupported-mode" }),
+      ),
+    )
+    const error = await caller
+      .readSteeringFile({ worktreePath: "/repo", filePath: "x.md", mode: "not-a-real-mode" })
+      .catch((e: unknown) => e)
+    const cause = (error as { cause?: unknown }).cause
+    expect(cause).toBeInstanceOf(ReadSteeringFileRefusal)
+    expect((cause as ReadSteeringFileRefusal).reason).toBe("unsupported-mode")
+  })
+
+  it("rejects malformed input rather than reaching readSteeringFile", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
+    )
+    await expect(caller.readSteeringFile({ worktreePath: "/repo" } as never)).rejects.toThrow()
   })
 })

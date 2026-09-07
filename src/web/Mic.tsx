@@ -87,6 +87,8 @@ export const Mic = ({ onAttach, onInterim, children }: MicProps) => {
   const [interim, setInterim] = useState("")
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const finalRef = useRef("")
+  /** Set in `onerror`, checked in `onend` — an errored session (e.g. `not-allowed`) must never attach whatever partial transcript it collected. */
+  const erroredRef = useRef(false)
 
   useEffect(() => {
     setAvailable(getSpeechRecognitionCtor() !== undefined)
@@ -107,6 +109,7 @@ export const Mic = ({ onAttach, onInterim, children }: MicProps) => {
       recognition.continuous = true
       recognition.interimResults = true
       finalRef.current = ""
+      erroredRef.current = false
       recognition.onresult = (event) => {
         const { interim, final } = splitResults(event)
         finalRef.current += final
@@ -114,6 +117,7 @@ export const Mic = ({ onAttach, onInterim, children }: MicProps) => {
         onInterim?.(interim)
       }
       recognition.onerror = (event) => {
+        erroredRef.current = true
         if (event.error === "not-allowed") {
           setAvailable(false)
         }
@@ -121,7 +125,12 @@ export const Mic = ({ onAttach, onInterim, children }: MicProps) => {
       recognition.onend = () => {
         setRecording(false)
         setInterim("")
-        onAttach(finalRef.current)
+        // Skip the write-through on an errored session (e.g. `not-allowed`) or
+        // when the session produced no final text at all — a stop with no
+        // speech must never tick/select the free-text option it's embedded in.
+        if (!erroredRef.current && finalRef.current.length > 0) {
+          onAttach(finalRef.current)
+        }
       }
       recognitionRef.current = recognition
       recognition.start()

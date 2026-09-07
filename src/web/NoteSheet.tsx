@@ -90,17 +90,27 @@ export const NoteSheet = ({ anchor, note, onSave, onDismiss }: NoteSheetProps) =
             setText((prev) => (prev.length > 0 ? `${prev} ${dictated}` : dictated))
           }
         >
-          {(state) =>
-            state.available ? (
-              <button type="button" data-testid="note-sheet-mic" onClick={state.toggle}>
-                {state.recording ? "Stop" : "Dictate"}
-              </button>
-            ) : (
-              <span data-testid="note-sheet-mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
-                Use your keyboard's mic key to dictate
-              </span>
-            )
-          }
+          {(state) => (
+            <>
+              {state.available ? (
+                <button type="button" data-testid="note-sheet-mic" onClick={state.toggle}>
+                  {state.recording ? "Stop" : "Dictate"}
+                </button>
+              ) : (
+                <span data-testid="note-sheet-mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
+                  Use your keyboard's mic key to dictate
+                </span>
+              )}
+              {state.interim.length > 0 && (
+                <span
+                  data-testid="note-sheet-mic-interim"
+                  style={{ fontSize: 12, opacity: 0.6, fontStyle: "italic" }}
+                >
+                  {state.interim}
+                </span>
+              )}
+            </>
+          )}
         </Mic>
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" data-testid="note-sheet-dismiss" onClick={onDismiss}>

@@ -21,7 +21,9 @@ import {
   readLocalGtdVersionAt,
 } from "./Beat.js"
 import { pickBindHostFromSystem } from "./Bind.js"
+import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readFleet, type FleetDeps } from "./Fleet.js"
+import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { renderQrCode } from "./Qr.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript } from "./scriptTag.mjs"
@@ -303,6 +305,10 @@ export const runServeCommand = (
       writeFile: liveWriteFile,
     }
 
+    const diffDeps: DiffDeps = { run: liveRunInWorktree }
+
+    const readDeps: ReadSteeringFileDeps = { headSha: liveHeadSha, readFile: liveReadFile }
+
     const trpcHandler = createHTTPHandler({
       router: appRouter,
       basePath: `${TRPC_PATH_PREFIX}/`,
@@ -310,6 +316,8 @@ export const runServeCommand = (
         runtime,
         readFleet: () => readFleet(fleetDeps),
         writeNote: (request) => writeNote(request, writeDeps),
+        resolveDiff: (worktreePath, path, line) => resolveDiff(worktreePath, path, line, diffDeps),
+        readSteeringFile: (request) => readSteeringFile(request, readDeps),
       }),
     })
 

@@ -143,17 +143,31 @@ export const DeniedPermissionFallsBackToTheHint: Story = {
   },
 }
 
-export const InterimResultsDisplayButNeverWriteThrough: Story = {
+/** Clicks the mic button and returns the `FakeSpeechRecognition` instance it just started — the click+lookup pair every story below repeats before diverging into its own `emitResult`/`emitError` sequence. */
+const clickMicAndGetRecognition = async (
+  canvas: ReturnType<typeof within>,
+): Promise<FakeSpeechRecognition | undefined> => {
+  await fireEvent.click(canvas.getByTestId("mic-button"))
+  return FakeSpeechRecognition.instances.at(-1)
+}
+
+/** The `args`/`render`/`beforeEach` triple every story below this point shares verbatim — only `play` differs per story. */
+const micStoryWithApi = {
   args: { onAttach: fn() },
-  render: (args) => <MicDemo onAttach={args.onAttach} />,
+  render: (args: { readonly onAttach: (text: string) => void }) => (
+    <MicDemo onAttach={args.onAttach} />
+  ),
   beforeEach: () => {
     withApi()
     return withoutApi
   },
+}
+
+export const InterimResultsDisplayButNeverWriteThrough: Story = {
+  ...micStoryWithApi,
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("mic-button"))
-    const recognition = FakeSpeechRecognition.instances.at(-1)
+    const recognition = await clickMicAndGetRecognition(canvas)
     recognition?.emitResult([fakeResult("hello wor", false)])
     await waitFor(() => expect(canvas.getByTestId("mic-interim")).toHaveTextContent("hello wor"))
     expect(canvas.getByTestId("mic-attached")).toHaveTextContent("")
@@ -162,19 +176,41 @@ export const InterimResultsDisplayButNeverWriteThrough: Story = {
 }
 
 export const FinalResultWritesThroughOnAttachStop: Story = {
-  args: { onAttach: fn() },
-  render: (args) => <MicDemo onAttach={args.onAttach} />,
-  beforeEach: () => {
-    withApi()
-    return withoutApi
-  },
+  ...micStoryWithApi,
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("mic-button"))
-    const recognition = FakeSpeechRecognition.instances.at(-1)
+    const recognition = await clickMicAndGetRecognition(canvas)
     recognition?.emitResult([fakeResult("hello world", true)])
     await fireEvent.click(canvas.getByTestId("mic-button"))
     await waitFor(() => expect(args.onAttach).toHaveBeenCalledWith("hello world"))
     await expect(canvas.getByTestId("mic-attached")).toHaveTextContent("hello world")
+  },
+}
+
+/** A stop with no speech at all — `onend` fires with an empty accumulated transcript — must never call `onAttach`, so tapping Dictate then Stop with nothing said can't silently tick/select whatever it's embedded in. */
+export const StoppingWithNoSpeechNeverAttaches: Story = {
+  ...micStoryWithApi,
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("mic-button"))
+    await fireEvent.click(canvas.getByTestId("mic-button"))
+    await waitFor(() => expect(canvas.getByTestId("mic-button")).toHaveTextContent("Dictate"))
+    expect(args.onAttach).not.toHaveBeenCalled()
+    expect(canvas.getByTestId("mic-attached")).toHaveTextContent("")
+  },
+}
+
+/** A `not-allowed` error mid-session must never attach whatever partial transcript had accumulated before the denial — the errored session takes the same silent-skip path as an empty stop. */
+export const DeniedPermissionMidSessionNeverAttachesPartialText: Story = {
+  ...micStoryWithApi,
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const recognition = await clickMicAndGetRecognition(canvas)
+    recognition?.emitResult([fakeResult("partial", true)])
+    recognition?.emitError("not-allowed")
+    recognition?.onend?.()
+    await waitFor(() => expect(canvas.getByTestId("mic-hint")).toBeInTheDocument())
+    expect(args.onAttach).not.toHaveBeenCalled()
+    expect(canvas.getByTestId("mic-attached")).toHaveTextContent("")
   },
 }
