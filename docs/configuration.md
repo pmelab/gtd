@@ -55,8 +55,10 @@ not a special key gtd interprets.
 `vars:`/`modes:`, it needs no Eta compile step), so an unknown sub-key is
 rejected the same way any other unknown config key is:
 
-- **`roots`** (array of strings, optional) — repo roots the server exposes
-  through the web/phone client, beyond the invoking directory.
+- **`roots`** (array of strings, optional) — repo roots the server scans for
+  projects, replacing the default of the invoking directory alone. Include the
+  invoking directory explicitly in the list if it should still be exposed
+  alongside the configured roots.
 - **`port`** (integer, optional) — the port to bind. Default: `8443`.
 - **`host`** (string, optional) — the address to bind. Default: a Tailscale
   interface (a CGNAT `100.64.0.0/10` address), auto-detected; with neither this

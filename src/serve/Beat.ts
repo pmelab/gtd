@@ -203,7 +203,18 @@ interface BeatCacheKey {
   readonly logMtime: number | undefined
 }
 
+/**
+ * `a.headSha !== undefined` is load-bearing, not redundant with the equality
+ * check that follows: a worktree whose HEAD can't be read (a `.git` this
+ * process can't parse) reports `undefined` on every warm check forever, and
+ * `undefined === undefined` would otherwise read as "unchanged" — the exact
+ * opposite of `liveHeadSha`'s own documented contract ("the cache then
+ * treats that axis as always 'changed'"). Requiring `a.headSha` (the CACHED
+ * key) to be a real sha means an entry can only ever be served warm once its
+ * identity is actually known.
+ */
 const sameKey = (a: BeatCacheKey, b: BeatCacheKey): boolean =>
+  a.headSha !== undefined &&
   a.headSha === b.headSha &&
   a.filePath === b.filePath &&
   a.fileMtime === b.fileMtime &&
@@ -252,11 +263,30 @@ type ParsedBeatFields = {
   readonly log?: unknown
 }
 
+const FLEET_KINDS: readonly FleetKind[] = ["capture", "message", "script", "prompt", "stalled"]
+
+/**
+ * Validates the two fields the row can't render without: `kind` must be one
+ * of the closed `FleetKind` vocabulary, `actor` a non-empty string. Valid
+ * JSON that isn't a beat (e.g. a `$PATH` `gtd` the version check couldn't
+ * see, parsing to some unrelated envelope) parses cleanly but fails this
+ * check — T4's Broken bucket is "spawn failed, unsupported version,
+ * **unparseable beat**", and an unchecked cast here would otherwise render a
+ * blank-labeled row with an `undefined` kind/actor instead.
+ */
+const isValidBeat = (
+  fields: ParsedBeatFields,
+): fields is ParsedBeatFields & { readonly kind: FleetKind; readonly actor: string } =>
+  typeof fields.kind === "string" &&
+  (FLEET_KINDS as readonly string[]).includes(fields.kind) &&
+  typeof fields.actor === "string" &&
+  fields.actor !== ""
+
 /** The successful-parse path: projects `fields` into a `FleetRow` and computes the cache key T3 pins from the SAME `file`/`log` the beat itself reported. */
 const okResult = async (
   worktree: WorktreeRef,
   meta: { readonly repo: string; readonly branch: string; readonly rest: string },
-  fields: ParsedBeatFields,
+  fields: ParsedBeatFields & { readonly kind: FleetKind; readonly actor: string },
   deps: BeatDeps,
 ): Promise<ColdReadResult> => {
   const filePath = typeof fields.file === "string" ? fields.file : undefined
@@ -278,8 +308,8 @@ const okResult = async (
     repo: meta.repo,
     branch: meta.branch,
     label: typeof fields.label === "string" ? fields.label : String(fields.state ?? ""),
-    kind: fields.kind as FleetKind,
-    actor: fields.actor as Actor,
+    kind: fields.kind,
+    actor: fields.actor,
     idle: Boolean(fields.idle),
     rest: meta.rest,
   }
@@ -326,7 +356,17 @@ const coldRead = async (worktree: WorktreeRef, deps: BeatDeps): Promise<ColdRead
     )
   }
 
-  return okResult(worktree, meta, parsed as ParsedBeatFields, deps)
+  const fields = parsed as ParsedBeatFields
+  if (!isValidBeat(fields)) {
+    return brokenResult(
+      worktree,
+      meta,
+      deps,
+      `unparseable beat: kind=${JSON.stringify(fields.kind)} actor=${JSON.stringify(fields.actor)}`,
+    )
+  }
+
+  return okResult(worktree, meta, fields, deps)
 }
 
 /**
@@ -408,7 +448,14 @@ export class BeatCache {
     }
     return this.withSlot(async () => {
       const { result, key } = await coldRead(worktree, this.deps)
-      this.entries.set(worktree.id, { key, result })
+      // A Broken outcome is never memoized: its key only ever pins `headSha`
+      // (nothing parsed, so no `file`/`log` to key on), and most refusals —
+      // a dirty tree, an unsupported version — never move HEAD. Caching it
+      // would serve that Broken row for the rest of the process's life, long
+      // after whatever caused it was fixed; a Broken worktree costs one more
+      // cold read on the next request instead, same as any worktree that has
+      // never been read yet.
+      if (result.status === "ok") this.entries.set(worktree.id, { key, result })
       return result
     })
   }

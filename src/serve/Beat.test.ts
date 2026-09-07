@@ -109,6 +109,34 @@ const makeDeps = (
   }
 }
 
+/**
+ * A single `BeatDeps` bag whose `run`/`headSha`/`statMtime` branch on the
+ * `cwd`/`path` argument — for proving cross-entry isolation INSIDE one
+ * `BeatCache` (two separate caches over two separate fake dep sets, as the
+ * earlier version of these tests did, can't invalidate each other by
+ * construction, so they never exercise the shared `entries` map at all).
+ */
+const makeSharedDeps = (perPath: {
+  readonly [path: string]: {
+    readonly beatOutcome?: SpawnOutcome
+    readonly headSha?: string | undefined
+  }
+}): BeatDeps => {
+  const run = vi.fn(async (cwd: string, command: string): Promise<SpawnOutcome> => {
+    if (command === "gtd next --json") return perPath[cwd]?.beatOutcome ?? ok(beatJson())
+    const canned = GIT_META[command]
+    return canned !== undefined ? ok(canned) : failed(`unscripted command: ${command}`)
+  })
+  const headSha = vi.fn(async (path: string) => perPath[path]?.headSha ?? "a".repeat(40))
+  const statMtime = vi.fn(async (path: string) => {
+    if (path.endsWith("TODO.md")) return 1
+    if (path.endsWith("gtd-loop.log")) return 1
+    return undefined
+  })
+  const readLocalGtdVersion = vi.fn(async () => undefined)
+  return { run, headSha, statMtime, readLocalGtdVersion }
+}
+
 describe("isSupportedVersion", () => {
   it("accepts a version whose major matches", () => {
     expect(isSupportedVersion("10.5.0", 10)).toBe(true)
@@ -185,6 +213,31 @@ describe("BeatCache.read — the error taxonomy (T5)", () => {
     expect(result.status).toBe("broken")
   })
 
+  it("valid JSON with no recognizable kind puts the row in Broken, not a blank ok row", async () => {
+    // A $PATH `gtd` the version check couldn't see (a linked/workspace
+    // install) can still parse cleanly to some unrelated envelope — an
+    // unchecked cast would render a blank-labeled row with an `undefined`
+    // kind/actor instead of landing in Broken.
+    const deps = makeDeps({ beatOutcome: ok(JSON.stringify({ hello: "world" })) })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("broken")
+  })
+
+  it("valid JSON with an unrecognized kind puts the row in Broken", async () => {
+    const deps = makeDeps({ beatOutcome: ok(beatJson({ kind: "not-a-real-kind" })) })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("broken")
+  })
+
+  it("valid JSON with a missing or empty actor puts the row in Broken", async () => {
+    const deps = makeDeps({ beatOutcome: ok(beatJson({ actor: "" })) })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("broken")
+  })
+
   it("a version outside the supported range puts the row in Broken and names the version found", async () => {
     const deps = makeDeps({ version: "999.0.0" })
     const cache = new BeatCache(deps, 8)
@@ -195,11 +248,15 @@ describe("BeatCache.read — the error taxonomy (T5)", () => {
   })
 
   it("one Broken worktree does not affect another read from the same cache", async () => {
-    const cache = new BeatCache(makeDeps(), 8)
-    const brokenDeps = makeDeps({ beatOutcome: failed("boom") })
-    const brokenCache = new BeatCache(brokenDeps, 8)
-    const good = await cache.read({ id: "good", path: "/repos/gtd" })
-    const bad = await brokenCache.read({ id: "bad", path: "/repos/other" })
+    // ONE cache, one shared deps bag keyed by path — two separate caches (the
+    // earlier shape of this test) can't demonstrate cross-entry isolation:
+    // they don't share anything to isolate in the first place.
+    const goodPath = "/repos/good"
+    const badPath = "/repos/bad"
+    const deps = makeSharedDeps({ [badPath]: { beatOutcome: failed("boom") } })
+    const cache = new BeatCache(deps, 8)
+    const good = await cache.read({ id: "good", path: goodPath })
+    const bad = await cache.read({ id: "bad", path: badPath })
     expect(good.status).toBe("ok")
     expect(bad.status).toBe("broken")
   })
@@ -216,27 +273,71 @@ describe("BeatCache.read — the memo (T3)", () => {
     expect(deps.run).not.toHaveBeenCalled()
   })
 
+  it("a Broken outcome is never memoized — the next request re-attempts even with headSha unchanged", async () => {
+    // The failure this guards: a worktree refuses with a dirty tree, the
+    // user fixes it (`git checkout .`), but HEAD never moved — a memoized
+    // Broken result (its key only ever pins `headSha`, since nothing parsed
+    // to key `file`/`log` on) would then read as unchanged FOREVER, serving
+    // the stale refusal for the rest of the process's life.
+    const deps = makeDeps({ beatOutcome: failed("gtd: refused, dirty tree\n") })
+    const cache = new BeatCache(deps, 8)
+    const worktree = { id: "abc123", path: "/repos/gtd" }
+
+    const first = await cache.read(worktree)
+    deps.run.mockClear()
+    const second = await cache.read(worktree)
+
+    expect(first.status).toBe("broken")
+    expect(second.status).toBe("broken")
+    expect(deps.run).toHaveBeenCalled()
+  })
+
+  it("an unreadable HEAD (headSha undefined) never counts as a stable cache hit", async () => {
+    // `liveHeadSha` returns `undefined` on any read failure specifically so
+    // this axis reads as "always changed" — `undefined === undefined` must
+    // never be treated as "unchanged", or a worktree whose `.git` this
+    // process can't parse could never invalidate by any means.
+    const deps = makeDeps()
+    deps.headSha.mockResolvedValue(undefined)
+    const cache = new BeatCache(deps, 8)
+    const worktree = { id: "abc123", path: "/repos/gtd" }
+
+    await cache.read(worktree)
+    deps.run.mockClear()
+    await cache.read(worktree)
+
+    expect(deps.run).toHaveBeenCalled()
+  })
+
   it("a new commit invalidates that worktree's entry and no other's", async () => {
-    let sha = "a".repeat(40)
-    const depsA = makeDeps()
-    depsA.headSha.mockImplementation(async () => sha)
-    const depsB = makeDeps()
-    const cacheA = new BeatCache(depsA, 8)
-    const cacheB = new BeatCache(depsB, 8)
+    // ONE cache over both worktrees — two separate caches (the earlier shape
+    // of this test) cannot invalidate each other by construction, so the
+    // claim in the test's own name was never actually exercised.
+    let shaA = "a".repeat(40)
     const wtA = { id: "a", path: "/repos/a" }
     const wtB = { id: "b", path: "/repos/b" }
+    const perPath = {
+      [wtA.path]: {
+        get headSha() {
+          return shaA
+        },
+      },
+      [wtB.path]: { headSha: "b".repeat(40) },
+    }
+    const deps = makeSharedDeps(perPath)
+    const cache = new BeatCache(deps, 8)
 
-    await cacheA.read(wtA)
-    await cacheB.read(wtB)
-    depsA.run.mockClear()
-    depsB.run.mockClear()
+    await cache.read(wtA)
+    await cache.read(wtB)
+    vi.mocked(deps.run).mockClear()
 
-    sha = "b".repeat(40)
-    await cacheA.read(wtA)
-    await cacheB.read(wtB)
+    shaA = "c".repeat(40)
+    await cache.read(wtA)
+    await cache.read(wtB)
 
-    expect(depsA.run).toHaveBeenCalled()
-    expect(depsB.run).not.toHaveBeenCalled()
+    const runPaths = vi.mocked(deps.run).mock.calls.map(([cwd]) => cwd)
+    expect(runPaths).toContain(wtA.path)
+    expect(runPaths).not.toContain(wtB.path)
   })
 
   it("touching the resting state's steering file invalidates the entry", async () => {
