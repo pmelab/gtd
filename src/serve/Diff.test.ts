@@ -63,6 +63,22 @@ describe("parseUnifiedDiff", () => {
     expect(diff.hunks[1]).toMatchObject({ newStart: 10, newLines: 2 })
   })
 
+  it("defaults newLines to 1 when the header OMITS the count entirely (the `@@ -1 +5 @@` one-line-range form) — never NaN", () => {
+    const ONE_LINE_RANGE_DIFF = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1 +5 @@",
+      "-old",
+      "+new",
+      "",
+    ].join("\n")
+    const diff = parseUnifiedDiff("src/a.ts", ONE_LINE_RANGE_DIFF)
+    expect(diff.hunks[0]).toMatchObject({ newStart: 5, newLines: 1 })
+    expect(selectHunk(diff, 5)).toBe(diff.hunks[0])
+  })
+
   it("never appends a SECOND file's own preamble (---/+++) into the FIRST file's last hunk, when a pointer matches more than one file", () => {
     // `--- a/b.ts`/`+++ b/b.ts` are indistinguishable from a real `-`/`+`
     // diff LINE by leading character alone — only the `diff --git` boundary
@@ -140,10 +156,13 @@ describe("resolveDiff", () => {
   })
 
   it("treats a `#0` pointer (a bare path parses to line 0) the SAME as no line number at all — never a hunk selection", async () => {
-    // Without this, a pure-deletion hunk's own `newStart: 0` would make
-    // `selectHunk` match line 0 as a real hunk (see the `hunkContainsLine`
-    // unit test above), even though a bare path/line-0 pointer must ALWAYS
-    // fall back to the whole-file diff, per T3.
+    // `hunkContainsLine` now never matches a `newLines: 0` (pure-deletion)
+    // hunk's own `newStart: 0` at all (its post-image range is empty), so
+    // `selectHunk` alone already can't select a hunk for line 0 — this
+    // dedicated `resolveDiff` short-circuit exists for the REASON string, not
+    // the outcome: a bare path/line-0 pointer must report `"no-line"`
+    // (T3's own wording), never `"no-hunk-match"`, which is what falling
+    // through to `selectHunk` returning `undefined` would otherwise label it.
     const DELETED_DIFF = [
       "diff --git a/src/gone.ts b/src/gone.ts",
       "deleted file mode 100644",
@@ -235,7 +254,7 @@ describe("resolveDiff", () => {
     expect(result.diff.hunks[0]!.newLines).toBe(0)
   })
 
-  it("a line pointer against a pure-deletion hunk matches only its insertion point", async () => {
+  it("a line pointer against a pure-deletion hunk (newLines: 0) matches NOTHING — the post-image range is empty, never its own insertion point", async () => {
     const DELETED_DIFF = [
       "diff --git a/src/gone.ts b/src/gone.ts",
       "deleted file mode 100644",
@@ -247,7 +266,23 @@ describe("resolveDiff", () => {
       "",
     ].join("\n")
     const diff = parseUnifiedDiff("src/gone.ts", DELETED_DIFF)
-    expect(selectHunk(diff, 0)).toBe(diff.hunks[0])
+    expect(selectHunk(diff, 0)).toBeUndefined()
+  })
+
+  it("a MID-FILE deletion's own insertion point is an UNTOUCHED line before the deletion, not part of it — a pointer there matches nothing (verified against real git's own @@ -5,2 +4,0 @@ shape)", async () => {
+    const MID_FILE_DELETION_DIFF = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -5,2 +4,0 @@",
+      "-deleted line one",
+      "-deleted line two",
+      "",
+    ].join("\n")
+    const diff = parseUnifiedDiff("src/a.ts", MID_FILE_DELETION_DIFF)
+    expect(diff.hunks[0]).toMatchObject({ newStart: 4, newLines: 0 })
+    expect(selectHunk(diff, 4)).toBeUndefined()
   })
 
   it("renders a binary file as a stated placeholder, not an attempt to parse it as text", async () => {
@@ -255,6 +290,18 @@ describe("resolveDiff", () => {
       "diff --git a/image.png b/image.png\nindex 1111111..2222222 100644\nBinary files a/image.png and b/image.png differ\n"
     const result = await resolveDiff(WORKTREE, "image.png", undefined, deps(ok(BINARY_OUTPUT)))
     expect(result).toEqual({ kind: "binary" })
+  })
+
+  it("returns its own stated 'no-changes' result for a path with NOTHING in the range — a stale/renamed/moved pointer, or (under base..HEAD) a path whose only edit is uncommitted — never `whole-file` with an empty body", async () => {
+    // `git diff <base> HEAD -- <path>` exits 0 with EMPTY stdout when the
+    // path carries no change in the range at all.
+    const result = await resolveDiff(WORKTREE, "old/path.ts", 1, deps(ok("")))
+    expect(result).toEqual({ kind: "no-changes" })
+  })
+
+  it("returns 'no-changes' regardless of whether a line number was given at all", async () => {
+    const result = await resolveDiff(WORKTREE, "old/path.ts", undefined, deps(ok("")))
+    expect(result).toEqual({ kind: "no-changes" })
   })
 
   it("never misclassifies a TEXT diff as binary just because an added/removed line's own content contains the binary sentence", async () => {

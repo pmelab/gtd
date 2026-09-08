@@ -15,10 +15,14 @@ export interface FileDiff {
 }
 
 /**
- * T3's four-way result: a `hunk` match, a `whole-file` fallback (with the
- * reason a pointer failed to resolve, so the client can render its banner), a
- * `binary` placeholder, or a `refused` when `gtd base` itself couldn't name a
- * review base. Never an empty/undefined result for any of these — the
+ * T3's five-way result: a `hunk` match, a `whole-file` fallback (with the
+ * reason a pointer failed to resolve, so the client can render its banner),
+ * a `binary` placeholder, `no-changes` when the pointed-at path has NOTHING
+ * in the range at all (a stale/renamed/moved pointer, or an uncommitted-only
+ * edit under `base..HEAD`) — never `whole-file` with an empty `diff.hunks`,
+ * which would paint T3's own banner over a blank body, exactly the "empty
+ * screen" the spec forbids — or a `refused` when `gtd base` itself couldn't
+ * name a review base. Never an empty/undefined result for any of these — the
  * package spec's explicit "never an empty screen" acceptance bullet.
  */
 export type DiffResult =
@@ -29,6 +33,7 @@ export type DiffResult =
       readonly reason: "no-line" | "no-hunk-match"
     }
   | { readonly kind: "binary" }
+  | { readonly kind: "no-changes" }
   | { readonly kind: "refused"; readonly detail: string }
 
 /** The `@@ -oldStart[,oldLines] +newStart[,newLines] @@` hunk header — `oldLines`/`newLines` default to 1 when omitted, matching unified-diff's own convention for a one-line range. */
@@ -91,9 +96,20 @@ export const parseUnifiedDiff = (path: string, text: string): FileDiff => {
   return { path, hunks }
 }
 
-/** A hunk with `newLines === 0` (a pure deletion) still occupies exactly the line right before `newStart` in the post-image, mirroring `git`'s own convention of naming the insertion POINT as `newStart` when nothing survives. Selection treats that single point as the hunk's whole range. */
+/**
+ * A hunk with `newLines === 0` (a pure deletion — nothing survives into the
+ * post-image) has an EMPTY post-image range and matches no line at all,
+ * ever — never `line === hunk.newStart` as an earlier version of this
+ * function claimed. `newStart` for such a hunk names the insertion POINT
+ * (git's own convention for "nothing survives here"), not a real post-image
+ * line a pointer could legitimately point AT: verified against real git, a
+ * mid-file deletion emits `@@ -5,2 +4,0 @@`, and post-image line 4 is an
+ * UNTOUCHED line that sits BEFORE the deletion, not part of it — treating it
+ * as a match would silently select a hunk whose range doesn't actually
+ * contain the pointed-at line, where T3 mandates the whole-file fallback.
+ */
 const hunkContainsLine = (hunk: DiffHunk, line: number): boolean => {
-  if (hunk.newLines === 0) return line === hunk.newStart
+  if (hunk.newLines === 0) return false
   return line >= hunk.newStart && line <= hunk.newStart + hunk.newLines - 1
 }
 
@@ -160,13 +176,25 @@ export const resolveDiff = async (
     return { kind: "binary" }
   }
 
+  // A path with NOTHING in the range at all (a stale/renamed/moved pointer,
+  // or — under `base..HEAD` — a path whose only edit is uncommitted) is its
+  // own stated result, never `whole-file`: `whole-file` promises "the
+  // screen shows that path's whole diff behind a banner" (T3), and there is
+  // no whole diff to show here — painting that banner over an empty body
+  // would be exactly the "empty screen" the spec forbids, just with an
+  // extra banner glued on top.
+  if (diff.hunks.length === 0) {
+    return { kind: "no-changes" }
+  }
+
   // `line === 0` means the SAME thing as `line === undefined` here: a bare
   // `./path` pointer with no `#N` suffix parses to line 0 (T3's own "a bare
   // path with no number means line 0"), and 0 is never a valid 1-based
-  // post-image line — `selectHunk`/`hunkContainsLine` would otherwise treat
-  // it as landing on a pure-deletion hunk's own `newStart` when that hunk's
-  // `newStart` (by construction) is 0, selecting a hunk where the spec
-  // mandates the whole-file fallback.
+  // post-image line — `hunkContainsLine` never matches it against a real
+  // hunk regardless (a hunk whose OWN `newStart` is 0 is always a pure
+  // deletion with an empty post-image range), but this dedicated check
+  // still exists to report the more precise `"no-line"` reason rather than
+  // `"no-hunk-match"`.
   if (line === undefined || line === 0) {
     return { kind: "whole-file", diff, reason: "no-line" }
   }

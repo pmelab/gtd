@@ -236,6 +236,28 @@ export const BinaryFileRendersAPlaceholder: Story = {
   },
 }
 
+/** A stale/renamed/moved pointer at a path with NOTHING in the review range at all gets its own stated placeholder — never `whole-file`'s "did not resolve to a specific hunk" banner painted over a blank body, which is what this shape used to fall into before `DiffResult` gained its own `no-changes` kind. */
+export const PathWithNoChangesInTheRangeRendersItsOwnPlaceholder: Story = {
+  args: {
+    node: hunkNode(),
+    diff: { kind: "no-changes" } satisfies DiffResult,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("hunk-diff-no-changes")).toHaveTextContent(
+      "no changes in the review range",
+    )
+    await expect(canvas.queryByTestId("hunk-diff-banner")).not.toBeInTheDocument()
+  },
+}
+
 /** Proves tokens are ACTUALLY painted, not just classified: a keyword (`const`) and plain text in the same line must render with visibly different colors — a `className` with no matching CSS anywhere would leave every token the same inherited color and fail this. */
 export const KeywordTokensAreVisiblyColoredDifferentlyFromPlainText: Story = {
   args: {
@@ -259,6 +281,45 @@ export const KeywordTokensAreVisiblyColoredDifferentlyFromPlainText: Story = {
     const plainColor = getComputedStyle(plainSpan).color
     expect(keywordColor).not.toBe("")
     expect(keywordColor).not.toBe(plainColor)
+  },
+}
+
+/**
+ * T8's "added, removed and context lines are visually distinguishable" is
+ * about actual PAINT, not the three distinct `LineKind` STRINGS
+ * `Highlight.test.ts#lineKind` already covers — this asserts the three real
+ * `background-color`s computed for each line kind's own row are genuinely
+ * different, mirroring `KeywordTokensAreVisiblyColoredDifferentlyFromPlainText`'s
+ * identical proof one layer down at the token level. Setting `LINE_BACKGROUND.add`
+ * to the same value as `context` would still pass every OTHER test in the
+ * repo; only this one paints and measures the actual pixels' own color.
+ */
+export const AddedRemovedAndContextLinesHaveVisiblyDifferentBackgrounds: Story = {
+  args: {
+    node: hunkNode(),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // RESOLVED_DIFF's own lines: 0 is context ("  const value = 1"), 1 is
+    // del ("-const old = 2"), 2 is add ("+const value2 = 2").
+    const contextLine = canvas.getByTestId("diff-line-0")
+    const delLine = canvas.getByTestId("diff-line-1")
+    const addLine = canvas.getByTestId("diff-line-2")
+    expect(contextLine).toHaveAttribute("data-kind", "context")
+    expect(delLine).toHaveAttribute("data-kind", "del")
+    expect(addLine).toHaveAttribute("data-kind", "add")
+    const contextColor = getComputedStyle(contextLine).backgroundColor
+    const delColor = getComputedStyle(delLine).backgroundColor
+    const addColor = getComputedStyle(addLine).backgroundColor
+    expect(new Set([contextColor, delColor, addColor]).size).toBe(3)
   },
 }
 
@@ -290,5 +351,48 @@ export const NoNewlineMarkerRendersVerbatimNotAsContext: Story = {
     expect(markerLine).toHaveAttribute("data-kind", "marker")
     expect(markerLine).not.toHaveAttribute("data-kind", "context")
     expect(markerLine).toHaveTextContent("\\ No newline at end of file")
+  },
+}
+
+/**
+ * `Highlight.test.ts`'s own escaping test only proves `highlightDiffLine`'s
+ * TOKEN TEXT survives markup characters untouched — the actual safety
+ * property (React renders `{token.text}` as a text node, never
+ * `dangerouslySetInnerHTML`) lives in `Hunk.tsx`'s own JSX and is pinned
+ * NOWHERE: swapping in `dangerouslySetInnerHTML={{__html: token.text}}`
+ * there would pass every other test in the repo and is a live XSS. This
+ * renders a diff line containing a real `<script>` tag and asserts the DOM
+ * never actually creates one — only inert text.
+ */
+export const MarkupInADiffLineRendersAsInertTextNeverParsedHtml: Story = {
+  args: {
+    node: hunkNode(),
+    diff: {
+      kind: "hunk",
+      diff: { path: "src/x.ts", hunks: [] },
+      hunk: {
+        header: "@@ -1,1 +1,1 @@",
+        newStart: 1,
+        newLines: 1,
+        lines: [`+const s = "<script>window.__xss = true</script>"`],
+      },
+    } satisfies DiffResult,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const line = canvas.getByTestId("diff-line-0")
+    // The raw markup survives in the rendered TEXT content...
+    expect(line).toHaveTextContent(`const s = "<script>window.__xss = true</script>"`)
+    // ...but was never actually parsed into a real <script> element, and
+    // never executed either.
+    expect(line.querySelector("script")).toBeNull()
+    expect((window as unknown as { __xss?: boolean }).__xss).toBeUndefined()
   },
 }

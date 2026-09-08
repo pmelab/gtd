@@ -82,7 +82,7 @@ const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
 const flattenLines = (diff: FileDiff): readonly string[] =>
   diff.hunks.flatMap((h) => [h.header, ...h.lines])
 
-/** The diff area's own four-way branch (loading / binary / refused / whole-file-fallback-with-banner / a single resolved hunk) — split out so `Hunk` itself stays a plain layout shell around it. Exercised by `Hunk.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
+/** The diff area's own six-way branch (loading / binary / no-changes / refused / whole-file-fallback-with-banner / a single resolved hunk) — split out so `Hunk` itself stays a plain layout shell around it. Exercised by `Hunk.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
 // fallow-ignore-next-line complexity
 const DiffBody = ({ diff }: { readonly diff: DiffResult | undefined }) => {
   if (diff === undefined) {
@@ -96,6 +96,13 @@ const DiffBody = ({ diff }: { readonly diff: DiffResult | undefined }) => {
     return (
       <div data-testid="hunk-diff-binary" style={{ padding: 12 }}>
         Binary file — no diff to show.
+      </div>
+    )
+  }
+  if (diff.kind === "no-changes") {
+    return (
+      <div data-testid="hunk-diff-no-changes" style={{ padding: 12 }}>
+        This path has no changes in the review range.
       </div>
     )
   }

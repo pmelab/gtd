@@ -292,7 +292,8 @@ export const appRouter = t.router({
 
   /**
    * A hunk screen's one read: `Diff.ts#resolveDiff`'s pure dispatch (`gtd
-   * base` plus a `git diff` of that base against the working tree, sliced to
+   * base` plus a `git diff` of that base against `HEAD` — never the working
+   * tree, see `Diff.ts#resolveDiff`'s own doc comment for why — sliced to
    * the pointed-at hunk when one resolves) — never re-implemented here.
    * `DiffResult` is already a closed, JSON-serializable union (`hunk` /
    * `whole-file` / `binary` / `refused`), so unlike `writeNote`/`view` there

@@ -106,6 +106,22 @@ export const ChunkCardShowsProseCheckAllAndNoteAffordance: Story = {
   },
 }
 
+/**
+ * The seam actually in use for a pure-data `ReviewView` story: with no
+ * `worktreePath` given (and no live `trpc.diff` transport to fetch through),
+ * a hunk screen renders `Hunk.tsx`'s own permanent "Loading diff…" state —
+ * this IS what every other story below exercises implicitly; this one says
+ * so with a real assertion instead of leaving it merely implied.
+ */
+export const WithNoWorktreePathAHunkScreenShowsLoadingDiffForever: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await expect(canvas.getByTestId("hunk-diff-loading")).toBeInTheDocument()
+  },
+}
+
 export const TickingAChunkTicksEveryHunkIncludingNestedAtAnyDepth: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {
@@ -133,9 +149,18 @@ export const UntickingAChunkUnticksEveryHunk: Story = {
     await expect(canvas.getByTestId("chunk-check-all-0")).not.toBeChecked()
 
     await fireEvent.click(canvas.getByTestId("chunk-open-0"))
-    await expect(canvas.getByTestId("hunk-tick")).not.toBeChecked()
+    await expect(canvas.getByTestId("hunk-tick")).not.toBeChecked() // hunk 0
+
     await fireEvent.click(canvas.getByTestId("deck-next"))
-    await expect(canvas.getByTestId("hunk-tick")).not.toBeChecked()
+    await expect(canvas.getByTestId("hunk-tick")).not.toBeChecked() // hunk 1
+
+    // "un-ticking a chunk un-ticks every hunk in it" is otherwise only
+    // implied by sharing code with the tick path — assert the NESTED hunk
+    // (deck position 3, same depth `TickingAChunkTicksEveryHunkIncludingNestedAtAnyDepth`
+    // checks) too, not just the two depth-1 ones.
+    await fireEvent.click(canvas.getByTestId("deck-next"))
+    await expect(canvas.getByTestId("hunk-tick")).not.toBeChecked() // nested hunk 2
+    await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 3 / 3")
   },
 }
 

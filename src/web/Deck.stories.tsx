@@ -39,11 +39,23 @@ export const AdvancingThroughItems: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // "exactly one item per screen" — asserted both ways: the CURRENT item
+    // is present, and every OTHER item is absent. `getByText` alone (present
+    // only) would still pass a mutant that stacks every item via
+    // `items.map(renderItem)`; the negative half is what actually pins it.
     await expect(canvas.getByText("one")).toBeInTheDocument()
+    expect(canvas.queryByText("two")).not.toBeInTheDocument()
+    expect(canvas.queryByText("three")).not.toBeInTheDocument()
+
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(canvas.getByText("two")).toBeInTheDocument()
+    expect(canvas.queryByText("one")).not.toBeInTheDocument()
+    expect(canvas.queryByText("three")).not.toBeInTheDocument()
+
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(canvas.getByText("three")).toBeInTheDocument()
+    expect(canvas.queryByText("one")).not.toBeInTheDocument()
+    expect(canvas.queryByText("two")).not.toBeInTheDocument()
     await expect(canvas.getByTestId("deck-progress")).toHaveTextContent("3 / 3")
   },
 }

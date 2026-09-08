@@ -1,5 +1,4 @@
 import { useState } from "react"
-import type { DiffResult } from "../../serve/Diff.js"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../SteeringFormat.js"
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
@@ -36,19 +35,14 @@ export interface ReviewViewProps {
   readonly view: SteeringView | undefined
   readonly isLoading: boolean
   /**
-   * One `DiffResult` per hunk, keyed by `hunkKey`'s own `hunk:<chunkIndex>:<index>`
-   * scheme — a TEST SEAM ONLY: `Review.stories.tsx` drives every diff shape
-   * (whole-file banner, binary, refused) with plain pre-resolved data, no
-   * mocked tRPC transport required. When absent, `HunkDeck` fetches each
-   * hunk's diff live via `trpc.diff` instead (see `worktreePath` below) — the
-   * real `Review` container never passes this prop.
-   */
-  readonly diffs?: Readonly<Record<string, DiffResult>>
-  /**
-   * The worktree `trpc.diff` resolves `path`/`line` pointers against — real
-   * hunk screens fetch through `Server.ts`'s `diff` procedure
-   * (`Diff.ts#resolveDiff`) using this. Stories that pass `diffs` directly
-   * never set this; `Review` (the real container) always does.
+   * The worktree `trpc.diff` resolves `path`/`line` pointers against — every
+   * hunk screen fetches its own diff live via `HunkDeck`'s `trpc.diff` call
+   * using this (`Server.ts`'s `diff` procedure, `Diff.ts#resolveDiff`).
+   * `Review.stories.tsx`'s own pure-data stories leave this `undefined` and
+   * see `Hunk.tsx`'s permanent "Loading diff…" state instead — every OTHER
+   * diff shape (whole-file banner, binary, no-changes, refused) is driven
+   * directly at `Hunk.stories.tsx`'s own layer, which takes a `diff` prop
+   * straight from the caller with no fetch involved at all.
    */
   readonly worktreePath?: string
   /**
@@ -204,7 +198,7 @@ const HunkWithDiff = ({
   return <Hunk node={node} diff={query.data} {...rest} />
 }
 
-/** One hunk's own props, shared by both the test-seam (`diffs` prop) and live-fetch (`worktreePath`) render paths below — `hunks` is the WHOLE chunk's own hunk list (needed by `approveAndAdvance` to know when this is the last one), not just this one item. */
+/** One hunk's own props — `hunks` is the WHOLE chunk's own hunk list (needed by `approveAndAdvance` to know when this is the last one), not just this one item. */
 const hunkPropsFor = (
   hunk: SteeringViewNode,
   index: number,
@@ -221,15 +215,13 @@ const hunkPropsFor = (
   onOpenNote: () => state.openNoteSheet(hunk),
 })
 
-/** The per-chunk deck of hunks — one hunk per screen, approving the last one exits back to the chunk list via `state.approveAndAdvance`. */
+/** The per-chunk deck of hunks — one hunk per screen, approving the last one exits back to the chunk list via `state.approveAndAdvance`. Renders `HunkWithDiff` (a live `trpc.diff` fetch) when a `worktreePath` is given — the real `Review` container always has one — else a plain `Hunk` stuck permanently on `diff={undefined}`'s "Loading diff…" state, which is exactly what `Review.stories.tsx`'s own pure-data stories exercise. */
 const HunkDeck = ({
   chunk,
-  diffs,
   worktreePath,
   state,
 }: {
   readonly chunk: SteeringViewNode
-  readonly diffs: Readonly<Record<string, DiffResult>> | undefined
   readonly worktreePath: string | undefined
   readonly state: ReviewState
 }) => {
@@ -242,9 +234,6 @@ const HunkDeck = ({
       onExit={state.exitToChunkList}
       renderItem={(hunk, i) => {
         const props = hunkPropsFor(hunk, i, hunks, state)
-        if (diffs !== undefined) {
-          return <Hunk key={hunkKey(hunk.anchor)} {...props} diff={diffs[hunkKey(hunk.anchor)]} />
-        }
         if (worktreePath !== undefined) {
           return <HunkWithDiff key={hunkKey(hunk.anchor)} worktreePath={worktreePath} {...props} />
         }
@@ -353,13 +342,7 @@ const ChunkList = ({
  * `Fleet.tsx#FleetView`'s own identical note).
  */
 // fallow-ignore-next-line complexity
-export const ReviewView = ({
-  view,
-  isLoading,
-  diffs,
-  worktreePath,
-  onSaveNote,
-}: ReviewViewProps) => {
+export const ReviewView = ({ view, isLoading, worktreePath, onSaveNote }: ReviewViewProps) => {
   const state = useReviewState(onSaveNote)
 
   if (view === undefined) {
@@ -391,7 +374,7 @@ export const ReviewView = ({
   // already disabled for this shape; this is the defensive backstop for any
   // other path that could still set `openChunkIndex` on one.
   if (openChunk !== undefined && hunksOf(openChunk).length > 0) {
-    return <HunkDeck chunk={openChunk} diffs={diffs} worktreePath={worktreePath} state={state} />
+    return <HunkDeck chunk={openChunk} worktreePath={worktreePath} state={state} />
   }
 
   return <ChunkList nodes={view.nodes} state={state} />
@@ -410,8 +393,7 @@ export interface ReviewProps {
  * compare-and-swap using the SAME `headSha`/`contentHash` that fetch
  * returned — refetching afterward so a stale local override never
  * outlives the server's own authoritative content. `worktreePath` also
- * threads through to `HunkDeck`'s live `trpc.diff` fetch (never the `diffs`
- * test-seam prop, which only `Review.stories.tsx` uses). Not yet imported by
+ * threads through to `HunkDeck`'s live `trpc.diff` fetch. Not yet imported by
  * `App.tsx` — routing between screens is a later package's task, not this
  * one's; `Review.stories.tsx`'s own `RealContainerFetchesTheCurrentHunksDiffLive`
  * story is its one real consumer today.

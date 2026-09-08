@@ -81,7 +81,7 @@
       "outputs": []
     },
     "test:web": {
-      "inputs": ["src/web/**", ".storybook/**", "vitest.config.ts"],
+      "inputs": ["src/**", ".storybook/**", "vitest.config.ts", "!src/web/generated.html"],
       "outputs": []
     }
   }

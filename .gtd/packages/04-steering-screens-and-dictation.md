@@ -104,10 +104,15 @@ A hunk row points with a `./`-relative path plus an optional single line number
 — **there is no line range, no hunk header and no hunk index** — and the number
 is 1-based against the post-image. A bare path with no number means line 0. gtd
 contains **no unified-diff parser at all**; its only diff call reads name and
-status. So this is new: run a diff of the review base against the working tree
-for that one path, parse the hunk headers, and select the hunk whose post-image
-range contains the pointed-at line. The base comes from `gtd base`, which prints
-the review anchor and refuses at exit 1 when no process is underway.
+status. So this is new: run a diff of the review base against **`HEAD`** (never
+the working tree — requirement 3's own `base..HEAD` wording is the authority
+here; a hunk pointer's 1-based post-image line numbers are only ever meaningful
+against the committed state a human is actually reviewing, and an uncommitted
+edit sitting on top of `HEAD` would otherwise shift them and select the wrong
+hunk silently) for that one path, parse the hunk headers, and select the hunk
+whose post-image range contains the pointed-at line. The base comes from
+`gtd base`, which prints the review anchor and refuses at exit 1 when no process
+is underway.
 
 When **no hunk contains the line** — a stale pointer, a moved line, or a bare
 path — the screen shows that path's whole diff behind a banner saying the
