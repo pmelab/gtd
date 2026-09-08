@@ -182,8 +182,9 @@ const OptionRow = ({
  * option is identified by array position (`options.length - 1`), never by
  * matching its label, so a free-text option with an ordinary-looking label
  * is still treated as the free-text slot. Exercised by `Question.stories.tsx`'s
- * `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static
- * CRAP estimate scores it as untested regardless.
+ * `play()` interaction tests — fallow's static CRAP estimate only sees real
+ * coverage reports, not Storybook/vitest-browser runs, so it scores this as
+ * untested regardless.
  */
 // fallow-ignore-next-line complexity
 export const Question = ({ node, answer, onAnswerChange }: QuestionProps) => {

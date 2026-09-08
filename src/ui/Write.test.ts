@@ -60,6 +60,22 @@ describe("writeNote", () => {
     expect(written).toContain("[^na")
   })
 
+  it("refuses a filePath that escapes the worktree root — as file-vanished, never reaching readFile/writeFile with a path outside it", async () => {
+    const deps = fakeDeps()
+    const result = await writeNote({ ...baseRequest(), filePath: "../../../etc/passwd" }, deps)
+    expect(result).toEqual({ ok: false, reason: "file-vanished" })
+    expect(deps.readFile).not.toHaveBeenCalled()
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("refuses an absolute filePath the same way — path.resolve never falls back to the worktree root for one", async () => {
+    const deps = fakeDeps()
+    const result = await writeNote({ ...baseRequest(), filePath: "/etc/passwd" }, deps)
+    expect(result).toEqual({ ok: false, reason: "file-vanished" })
+    expect(deps.readFile).not.toHaveBeenCalled()
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
   it("rejects a write whose sha moved, and the file is untouched", async () => {
     const deps = fakeDeps({ headSha: vi.fn(async () => "sha2") })
     const result = await writeNote(baseRequest(), deps)

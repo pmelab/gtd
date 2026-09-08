@@ -3,7 +3,7 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../Steer
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { driveRefusalFrom, trpc } from "../api.js"
+import { trpc } from "../api.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { Hunk, type HunkProps } from "./Hunk.js"
 
@@ -60,8 +60,6 @@ export interface ReviewViewProps {
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
   /** The done action (T2): saves the SAME note `onSaveNote` would, then hands the turn back — mirrors `Plan.tsx#PlanViewProps.onDoneNote`'s identical doc comment. Absent in `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`. */
   readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
-  /** T3's one named refusal off the LAST `onDoneNote` call — mirrors `Plan.tsx#PlanViewProps.doneRefused`'s identical doc comment. */
-  readonly doneRefused?: boolean
 }
 
 /** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`, so a save/dismiss never has to re-look-up the node it came from. */
@@ -251,7 +249,7 @@ const HunkDeck = ({
   )
 }
 
-/** One chunk's own row: prose, a check-all tick over every one of its hunks (nested at any depth), and its note affordance — including the badge that keeps the round open when a footnote is attached, even fully ticked. Exercised by `Review.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
+/** One chunk's own row: prose, a check-all tick over every one of its hunks (nested at any depth), and its note affordance — including the badge that keeps the round open when a footnote is attached, even fully ticked. Exercised by `Review.stories.tsx`'s `play()` interaction tests — fallow's static CRAP estimate only sees real coverage reports, not Storybook/vitest-browser runs, so it scores this as untested regardless. */
 // fallow-ignore-next-line complexity
 const ChunkRow = ({
   chunk,
@@ -321,25 +319,15 @@ const ChunkRow = ({
   )
 }
 
-/** The chunk list itself — one `ChunkRow` per top-level node, plus the done-refused banner (mirrors `Plan.tsx#PlanView`'s identical one) when `doneRefused` is set. */
+/** The chunk list itself — one `ChunkRow` per top-level node. */
 const ChunkList = ({
   nodes,
   state,
-  doneRefused,
 }: {
   readonly nodes: SteeringView["nodes"]
   readonly state: ReviewState
-  readonly doneRefused?: boolean | undefined
 }) => (
   <div data-testid="review-screen" style={{ maxWidth: 390, margin: "0 auto" }}>
-    {doneRefused === true && (
-      <div
-        data-testid="done-refused-banner"
-        style={{ padding: "8px 12px", color: "#f66", fontSize: 12 }}
-      >
-        Already being driven — try again in a moment.
-      </div>
-    )}
     <CardList>
       {nodes.map((chunk, chunkIndex) => (
         <ChunkRow key={chunkIndex} chunk={chunk} chunkIndex={chunkIndex} state={state} />
@@ -356,8 +344,7 @@ const ChunkList = ({
  * — the state and per-branch markup live in `useReviewState`/`HunkDeck`/
  * `ChunkList` above. Exercised by `Review.stories.tsx`'s `play()` interaction
  * tests — fallow's static CRAP estimate only sees real coverage reports, not
- * Storybook/vitest-browser runs, so it scores this as untested (see
- * `Fleet.tsx#FleetView`'s own identical note).
+ * Storybook/vitest-browser runs, so it scores this as untested.
  */
 // fallow-ignore-next-line complexity
 export const ReviewView = ({
@@ -366,7 +353,6 @@ export const ReviewView = ({
   worktreePath,
   onSaveNote,
   onDoneNote,
-  doneRefused,
 }: ReviewViewProps) => {
   const state = useReviewState(onSaveNote, onDoneNote)
 
@@ -403,7 +389,7 @@ export const ReviewView = ({
     return <HunkDeck chunk={openChunk} worktreePath={worktreePath} state={state} />
   }
 
-  return <ChunkList nodes={view.nodes} state={state} doneRefused={doneRefused} />
+  return <ChunkList nodes={view.nodes} state={state} />
 }
 
 export interface ReviewProps {
@@ -433,7 +419,6 @@ export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode: "review" }),
   })
   const done = trpc.done.useMutation()
-  const [doneRefused, setDoneRefused] = useState(false)
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
@@ -451,7 +436,6 @@ export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
   const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
     if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    setDoneRefused(false)
     return done
       .mutateAsync({
         filePath,
@@ -465,10 +449,9 @@ export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
         onDone?.()
         return result
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         // Mirrors `Plan.tsx#Plan`'s identical `onDoneNote` catch — see its
         // own doc comment for why this is caught, not rethrown.
-        if (driveRefusalFrom(error) !== undefined) setDoneRefused(true)
       })
   }
 
@@ -478,7 +461,6 @@ export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
       isLoading={query.isLoading}
       worktreePath={worktreePath}
       onSaveNote={onSaveNote}
-      doneRefused={doneRefused}
       onDoneNote={onDoneNote}
     />
   )

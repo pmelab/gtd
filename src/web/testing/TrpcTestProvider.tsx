@@ -10,9 +10,9 @@ import { trpc } from "../api.js"
  * procedure paths (each called once per request, with the input, so a story
  * can bump a counter, vary its return value across repeated calls, or read
  * off `input` to answer differently per hunk/anchor), no HTTP and no real
- * router involved — the real router (`Router.ts` → `Beat.ts` → `Discover.ts`)
- * imports Node built-ins (`node:child_process`, `node:fs`) that don't exist
- * in the browser this story actually runs in. A resolver that THROWS is
+ * router involved — the real router (`Router.ts` → `Beat.ts`) imports Node
+ * built-ins (`node:child_process`, `node:fs`) that don't exist in the
+ * browser this story actually runs in. A resolver that THROWS is
  * translated into a real `observer.error` — a mutation-failure story
  * (`Review.stories.tsx`'s "reverts on a refused write") throws to simulate a
  * `CONFLICT` refusal, so `mutateAsync`'s own promise rejects exactly like it

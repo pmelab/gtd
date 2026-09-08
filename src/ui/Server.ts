@@ -33,6 +33,9 @@ import { liveActorAt, liveReadFile, liveWriteFile, writeNote, type WriteDeps } f
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
 
+/** The one non-tRPC endpoint this server exposes — `main.tsx`'s `pagehide` beacon posts here (never a tRPC mutation: `navigator.sendBeacon` sends a plain body, not a tRPC batch envelope, and firing mid-unload rules out anything that needs to await a JSON round trip). */
+const CLOSE_PATH = "/close"
+
 /** The fields `Cli.ts`'s parsed `{ kind: "ui" }` command carries — this module never reads `Command` itself to stay independent of its parsing. */
 export interface UiCommandOptions {
   readonly host?: string
@@ -342,10 +345,19 @@ export const runUiCommand = (
     const readDeps: ReadSteeringFileDeps = { headSha: liveHeadSha, readFile: liveReadFile }
 
     // Resolved by `handOff` (scheduled on the HTTP response's `finish` event,
-    // with a 2s fallback so a vanished client can't wedge the process) in
-    // place of the never-resolving wait a fleet server could get away with —
-    // this server outlives exactly one step, not the whole process lifetime.
+    // with a 2s fallback so a vanished client can't wedge the process) or by
+    // `CLOSE_PATH` below (a human closing the tab with no handoff) — in
+    // place of the never-resolving wait a fleet server could get away with,
+    // since this server outlives exactly one step, not the whole process
+    // lifetime.
     const handoffDeferred = yield* Deferred.make<void>()
+    // `Deferred.succeed` on an already-resolved deferred is a documented
+    // no-op (returns `false`, changes nothing) — safe to call from both
+    // `handOff` and `CLOSE_PATH` with no extra guard, since whichever fires
+    // first wins and the process still exits exactly once, exit 0.
+    const endServer = (): void => {
+      Runtime.runFork(runtime)(Deferred.succeed(handoffDeferred, undefined))
+    }
 
     const trpcHandler = createHTTPHandler({
       router: appRouter,
@@ -361,10 +373,16 @@ export const runUiCommand = (
           const settle = (): void => {
             if (settled) return
             settled = true
-            Runtime.runFork(runtime)(Deferred.succeed(handoffDeferred, undefined))
+            clearTimeout(fallback)
+            endServer()
           }
           res.once("finish", settle)
-          setTimeout(settle, 2_000)
+          // Cleared the instant `finish` settles first (the normal path) —
+          // `Cli.ts`'s success path sets `process.exitCode` rather than
+          // calling `process.exit`, so an uncleared timer keeps the event
+          // loop alive for its own full duration regardless of `settled`,
+          // delaying every ordinary handoff by up to 2s for nothing.
+          const fallback = setTimeout(settle, 2_000)
         },
       }),
     })
@@ -372,6 +390,20 @@ export const runUiCommand = (
     const handler: RequestHandler = (req, res) => {
       if (req.url === TRPC_PATH_PREFIX || req.url?.startsWith(`${TRPC_PATH_PREFIX}/`)) {
         trpcHandler(req, res)
+        return
+      }
+      // The human closed the tab (or navigated away) with no handoff —
+      // `main.tsx` fires this off a `pagehide` listener via `sendBeacon`,
+      // the one API browsers guarantee still delivers mid-unload. No note
+      // was ever written (only `done` writes one), so the process exits 0
+      // with the worktree exactly as `writeNote`/`done` last left it —
+      // `endServer` is the SAME idempotent resolve `handOff` calls, so this
+      // and a real handoff can never race into a double exit.
+      if (req.method === "POST" && req.url === CLOSE_PATH) {
+        req.resume()
+        res.writeHead(204)
+        res.end()
+        endServer()
         return
       }
       Runtime.runPromise(runtime)(

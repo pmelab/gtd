@@ -727,7 +727,14 @@ describe("handoff exits the process", () => {
     // The write landed on disk before the process ever considers exiting —
     // a fresh `Fiber.await` (not `Fiber.interrupt`) proves the main Effect
     // completed ON ITS OWN, driven by `handOff`, never by an external signal.
+    // Timed: the response's own `finish` event settles the handoff deferred
+    // well under a second — an uncleared 2s fallback timer would keep the
+    // event loop (and so this `Fiber.await`) alive for the timer's own full
+    // duration regardless, since `settled` merely no-ops the callback rather
+    // than removing the pending timer.
+    const start = Date.now()
     const exit = await Effect.runPromise(Fiber.await(fiber))
+    expect(Date.now() - start).toBeLessThan(1_500)
     expect(exit._tag).toBe("Success")
     expect(readFileSync(absPath, "utf8")).toContain("handed back")
   })
@@ -833,4 +840,58 @@ describe("handoff exits the process", () => {
     expect(elapsedMs).toBeGreaterThanOrEqual(1_900)
     expect(readFileSync(join(tmpDir, filePath), "utf8")).toContain("vanishing client")
   }, 10_000)
+})
+
+describe("closing without handing off — POST /close", () => {
+  it("ends the process (exit 0, main Effect completes on its own) with no note written — the human closed the tab, main.tsx's pagehide beacon fired, never a done mutation", async () => {
+    const { boundUrl, fiber } = await startRealServer(tmpDir)
+    const before = "Paragraph zero here.\n"
+    writeFileSync(join(tmpDir, "NOTES.md"), before)
+    execFileSync("git", ["add", "-A"], { cwd: tmpDir })
+    execFileSync("git", ["commit", "-q", "-m", "add notes"], { cwd: tmpDir })
+
+    // Mirrors `navigator.sendBeacon`: a fire-and-forget POST with an empty
+    // body — the caller below never reads this request's own response, only
+    // whether the SERVER's fiber completes, matching a tab that's already
+    // gone by the time any reply could arrive.
+    await withInsecureTls(async () => {
+      await new Promise<void>((resolve, reject) => {
+        const target = new URL(`${boundUrl}close`)
+        const req = https.request(
+          {
+            host: target.hostname,
+            port: target.port,
+            path: target.pathname,
+            method: "POST",
+            rejectUnauthorized: false,
+          },
+          () => resolve(),
+        )
+        req.on("error", reject)
+        req.end()
+      })
+    })
+
+    const exit = await Effect.runPromise(Fiber.await(fiber))
+    expect(exit._tag).toBe("Success")
+    expect(readFileSync(join(tmpDir, "NOTES.md"), "utf8")).toBe(before)
+  })
+
+  it("a GET to /close does not end the process — only a POST does", async () => {
+    const { boundUrl, fiber } = await startRealServer(tmpDir)
+
+    await withInsecureTls(async () => {
+      const response = await fetch(`${boundUrl}close`)
+      // Falls through to the plain HTML handler — /close is only special-cased for POST.
+      expect(response.status).toBe(200)
+
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      const step = await client.step.query()
+      expect(step.status).toBe("ok")
+    })
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
 })

@@ -13,6 +13,12 @@ When(
   },
 )
 
+// ── gtd ui's close-without-handoff — a real POST /close beacon against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndClose) ──
+
+When("I close a spawned gtd ui without handing off", async (world: GtdWorld) => {
+  await world.spawnGtdUiAndClose()
+})
+
 Then("the file {string} contains {string}", (world: GtdWorld, path: string, text: string) => {
   const content = readFileSync(join(world.repoDir, path), "utf8")
   assert.ok(

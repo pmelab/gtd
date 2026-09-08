@@ -3,7 +3,7 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../Steer
 import { Card, CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { driveRefusalFrom, trpc } from "../api.js"
+import { trpc } from "../api.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
@@ -60,8 +60,9 @@ const openQuestionNodesOf = (view: SteeringView): readonly SteeringViewNode[] =>
  * and — worse — recomputes "unanswered" from that empty state, contradicting
  * the very section the card came from. An answered card renders as an
  * inert, non-button summary row instead of a fake-clickable `Card`.
- * Exercised by `Plan.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s
- * note on why fallow's static CRAP estimate scores it as untested regardless.
+ * Exercised by `Plan.stories.tsx`'s `play()` interaction tests — fallow's
+ * static CRAP estimate only sees real coverage reports, not
+ * Storybook/vitest-browser runs, so it scores this as untested regardless.
  */
 // fallow-ignore-next-line complexity
 const QuestionCard = ({
@@ -97,7 +98,7 @@ const QuestionCard = ({
   )
 }
 
-/** One paragraph plus its inline note (if any) and its note seam — `line` is the paragraph's real, server-computed anchor line when it has one (every prose-only node does), falling back to array `index` only for a malformed/non-paragraph node so the row still renders and keys uniquely. Exercised by `Plan.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
+/** One paragraph plus its inline note (if any) and its note seam — `line` is the paragraph's real, server-computed anchor line when it has one (every prose-only node does), falling back to array `index` only for a malformed/non-paragraph node so the row still renders and keys uniquely. Exercised by `Plan.stories.tsx`'s `play()` interaction tests — fallow's static CRAP estimate only sees real coverage reports, not Storybook/vitest-browser runs, so it scores this as untested regardless. */
 // fallow-ignore-next-line complexity
 const ProseParagraph = ({
   node,
@@ -203,8 +204,6 @@ export interface PlanViewProps {
    * like `onSaveNote`.
    */
   readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
-  /** T3's one named refusal off the LAST `onDoneNote` call — read via `api.ts#driveRefusalFrom`, the real `Plan` container's own catch. Absent whenever nothing has failed yet. */
-  readonly doneRefused?: boolean
 }
 
 /** `onOpen` absent renders every card in this section as an inert summary row — used for "Already answered", whose questions carry no options to drill into (see `QuestionCard`'s own doc comment). */
@@ -283,12 +282,12 @@ const PlanBody = ({
 
 /**
  * Presentational plan-and-answer screen — takes its `view`/`contentHash` as
- * props (mirroring `FleetView`'s split) so `Plan.stories.tsx` can drive every
- * shape with plain data, no mocked tRPC transport required. Never switches on
- * a mode name: whether this renders questions or plain prose is read
- * entirely off `view.nodes`' own shape. Exercised by `Plan.stories.tsx`'s
- * `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static
- * CRAP estimate scores it as untested regardless.
+ * props so `Plan.stories.tsx` can drive every shape with plain data, no
+ * mocked tRPC transport required. Never switches on a mode name: whether
+ * this renders questions or plain prose is read entirely off `view.nodes`'
+ * own shape. Exercised by `Plan.stories.tsx`'s `play()` interaction tests —
+ * fallow's static CRAP estimate only sees real coverage reports, not
+ * Storybook/vitest-browser runs, so it scores this as untested regardless.
  */
 // fallow-ignore-next-line complexity
 export const PlanView = ({
@@ -297,7 +296,6 @@ export const PlanView = ({
   isLoading,
   onSaveNote,
   onDoneNote,
-  doneRefused,
 }: PlanViewProps) => {
   const { confirmed, confirm } = usePlanReadConfirmation(contentHash)
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
@@ -391,14 +389,6 @@ export const PlanView = ({
 
   return (
     <div data-testid="plan-screen" style={{ maxWidth: 390, margin: "0 auto" }}>
-      {doneRefused === true && (
-        <div
-          data-testid="done-refused-banner"
-          style={{ padding: "8px 12px", color: "#f66", fontSize: 12 }}
-        >
-          Already being driven — try again in a moment.
-        </div>
-      )}
       <CardList>
         <Card testId="read-plan-row" onOpen={confirm}>
           Read the plan{confirmed ? " ✓" : ""}
@@ -445,7 +435,6 @@ export const Plan = ({ filePath, mode, onDone }: PlanProps) => {
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode }),
   })
   const done = trpc.done.useMutation()
-  const [doneRefused, setDoneRefused] = useState(false)
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
@@ -463,7 +452,6 @@ export const Plan = ({ filePath, mode, onDone }: PlanProps) => {
   const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
     if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    setDoneRefused(false)
     return done
       .mutateAsync({
         filePath,
@@ -477,14 +465,11 @@ export const Plan = ({ filePath, mode, onDone }: PlanProps) => {
         onDone?.()
         return result
       })
-      .catch((error: unknown) => {
-        // The one refusal `driveRefusalFrom` names — an already-driving
-        // worktree — surfaces on-screen; anything else has no display for
-        // it yet, but is caught here regardless and never rethrown:
-        // `NoteSheet`'s own `onDone` is fire-and-forget (never awaited), so
-        // an uncaught rejection this far down would be a real unhandled
-        // promise rejection, not just a silently-discarded one.
-        if (driveRefusalFrom(error) !== undefined) setDoneRefused(true)
+      .catch(() => {
+        // No refusal has a display yet — caught regardless and never
+        // rethrown: `NoteSheet`'s own `onDone` is fire-and-forget (never
+        // awaited), so an uncaught rejection this far down would be a real
+        // unhandled promise rejection, not just a silently-discarded one.
       })
   }
 
@@ -495,7 +480,6 @@ export const Plan = ({ filePath, mode, onDone }: PlanProps) => {
       isLoading={query.isLoading}
       onSaveNote={onSaveNote}
       onDoneNote={onDoneNote}
-      doneRefused={doneRefused}
     />
   )
 }

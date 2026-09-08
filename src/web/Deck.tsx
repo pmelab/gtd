@@ -37,9 +37,10 @@ const DeckControls = ({
  * A format-agnostic "one item per screen" deck: no review/question domain
  * knowledge, just an array and a render-prop. Controls are plain flow
  * content below `renderItem`'s output, never absolutely positioned, so they
- * can never overlay it. Exercised by `Deck.stories.tsx`'s `play()` tests; see
- * `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it
- * as untested regardless.
+ * can never overlay it. Exercised by `Deck.stories.tsx`'s `play()`
+ * interaction tests — fallow's static CRAP estimate only sees real coverage
+ * reports, not Storybook/vitest-browser runs, so it scores this as untested
+ * regardless.
  */
 // fallow-ignore-next-line complexity
 export const Deck = <T,>({ items, renderItem, onExit, index, onIndexChange }: DeckProps<T>) => {

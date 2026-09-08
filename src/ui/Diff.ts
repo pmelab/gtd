@@ -1,4 +1,5 @@
 import type { RunInWorktree } from "./Beat.js"
+import { resolveWithinRoot } from "./SafePath.js"
 
 /** One `@@ -a,b +c,d @@` hunk: `newStart`/`newLines` are the post-image range this hunk's `lines` cover — line numbers are 1-based, matching the pointer format T3 parses this for. `header` is the raw `@@ ... @@` text, kept verbatim for rendering. */
 export interface DiffHunk {
@@ -149,6 +150,15 @@ export const resolveDiff = async (
   line: number | undefined,
   deps: DiffDeps,
 ): Promise<DiffResult> => {
+  // `path` is a client string like `filePath` on `writeNote`/`readSteeringFile`
+  // — git itself would likely refuse a pathspec that walks outside the
+  // worktree too, but this refuses at the SAME boundary those two do,
+  // before a single subprocess runs, rather than leaning on git's own
+  // pathspec resolution as the only defense.
+  if (resolveWithinRoot(worktreePath, path) === undefined) {
+    return { kind: "refused", detail: "path escapes the served worktree" }
+  }
+
   const baseOutcome = await deps.run(worktreePath, "gtd base")
   if (baseOutcome.status !== 0) {
     return {

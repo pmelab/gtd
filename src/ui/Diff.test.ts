@@ -136,6 +136,13 @@ describe("selectHunk", () => {
 })
 
 describe("resolveDiff", () => {
+  it("refuses a path that escapes the worktree root — before either gtd base or git diff ever runs", async () => {
+    const { run, calls } = fakeRun(ok(TWO_HUNK_DIFF))
+    const result = await resolveDiff(WORKTREE, "../../../etc/passwd", 3, { run })
+    expect(result).toEqual({ kind: "refused", detail: "path escapes the served worktree" })
+    expect(calls).toEqual([])
+  })
+
   it("selects exactly the hunk containing the pointed-at line", async () => {
     const result = await resolveDiff(WORKTREE, "src/a.ts", 3, deps(ok(TWO_HUNK_DIFF)))
     expect(result.kind).toBe("hunk")

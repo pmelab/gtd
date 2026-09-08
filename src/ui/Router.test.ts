@@ -271,14 +271,12 @@ describe("no procedure input carries a filesystem path from the client", () => {
   // none may accept a `worktreePath` (or any other path-shaped) field. The
   // server always writes/reads through the one worktree it serves, resolved
   // server-side from `Cwd`, never named by the client.
-  it("rejects a worktreePath field passed to writeNote/done/readSteeringFile even when every other field is well-formed", async () => {
+  it("done ignores a worktreePath field passed alongside otherwise well-formed input", async () => {
     const caller = appRouter.createCaller(contextFor())
     // Passed as an extra field: proves the validator doesn't merely ignore
     // it silently but that no code path here ever reads `input.worktreePath`
-    // — the fixtures above assert this for `writeNote`; this pins the whole
-    // set doesn't declare the field as part of its accepted shape by
-    // checking each procedure still behaves identically whether or not it's
-    // present.
+    // by checking `done` behaves identically whether or not it's present.
+    // The structural test below covers writeNote/readSteeringFile/diff too.
     const withPath = { ...doneRequest, worktreePath: "/etc/passwd" }
     const without = { ...doneRequest }
     const a = await caller.done(withPath as never)
@@ -286,13 +284,52 @@ describe("no procedure input carries a filesystem path from the client", () => {
     expect(a).toEqual(b)
   })
 
-  it("readSteeringFile's, diff's and writeNote's input validators build their return value with no worktreePath key", async () => {
-    const { readFileSync } = await import("node:fs")
-    const { fileURLToPath } = await import("node:url")
-    const source = readFileSync(fileURLToPath(new URL("./Router.ts", import.meta.url)), "utf8")
-    const validators = source.match(/^const \w+Input = \(.*$[\s\S]*?^\}$/gm) ?? []
-    expect(validators.length).toBeGreaterThan(0)
-    for (const validator of validators) expect(validator).not.toMatch(/worktreePath/)
+  // Structural, not textual: earlier this grepped Router.ts's own source for
+  // the literal string "worktreePath" — which only pinned that ONE field
+  // name is gone, not the property its own title claimed (a `filePath`/
+  // `path` field, still a client string, could still carry an escaping
+  // value straight through). This instead spies on what each procedure
+  // actually hands its context function at runtime and asserts none of it
+  // carries a `worktreePath` key, however the validator is written. Real
+  // path CONTAINMENT — refusing a `filePath`/`path` that escapes the served
+  // worktree — is the write/read/diff layer's own job, not the router's;
+  // see `Write.test.ts`/`ReadSteeringFile.test.ts`/`Diff.test.ts`'s own
+  // "escapes the worktree root" cases for that.
+  it("writeNote/readSteeringFile/diff hand their context function the parsed request with no worktreePath key, whatever the client sent", async () => {
+    const seenWriteNote: Record<string, unknown>[] = []
+    const seenReadSteeringFile: Record<string, unknown>[] = []
+    const seenDiff: Record<string, unknown>[] = []
+    const caller = appRouter.createCaller(
+      contextFor(
+        undefined,
+        (request) => {
+          seenWriteNote.push(request as Record<string, unknown>)
+          return Promise.resolve({ ok: true })
+        },
+        (path, line) => {
+          seenDiff.push({ path, line })
+          return Promise.resolve({ kind: "no-changes" })
+        },
+        (request) => {
+          seenReadSteeringFile.push(request as Record<string, unknown>)
+          return Promise.resolve({ ok: false, reason: "file-vanished" })
+        },
+      ),
+    )
+
+    await caller.writeNote({ ...doneRequest, worktreePath: "/etc/passwd" } as never)
+    // The fake context's readSteeringFile answers `file-vanished`, which the
+    // router turns into a thrown TRPCError — irrelevant here, the point is
+    // only what request shape reached `ctx.readSteeringFile` before it did.
+    await caller
+      .readSteeringFile({ filePath: "x.md", mode: "qa", worktreePath: "/etc/passwd" } as never)
+      .catch(() => {})
+    await caller.diff({ path: "x.ts", worktreePath: "/etc/passwd" } as never)
+
+    for (const seen of [seenWriteNote, seenReadSteeringFile, seenDiff]) {
+      expect(seen.length).toBeGreaterThan(0)
+      for (const request of seen) expect(Object.keys(request)).not.toContain("worktreePath")
+    }
   })
 })
 

@@ -74,13 +74,13 @@ describe("turbo.json / package.json invariants", () => {
     // directory and .storybook/". `src/web/**` alone under-declares this:
     // `src/web/screens/Question.tsx` value-imports `isAnswered`/
     // `FREE_TEXT_PLACEHOLDER` from `src/OpenQuestions.ts`, `Hunk.tsx`/
-    // `Review.tsx` import `src/ui/Diff.ts`, `Fleet.tsx` imports
-    // `src/ui/Fleet.ts`/`src/ui/Beat.ts`, and several files import
-    // `src/SteeringFormat.ts` — none of those live under `src/web/**`, so a
-    // change to the answeredness predicate (say) would replay a cached
-    // green here instead of re-running the storybook suite that actually
-    // exercises it. `src/**` is the same safe baseline every other task in
-    // this file already uses.
+    // `Review.tsx` import `src/ui/Diff.ts`, `App.tsx` imports
+    // `src/ui/Beat.ts`, and several files import `src/SteeringFormat.ts` —
+    // none of those live under `src/web/**`, so a change to the
+    // answeredness predicate (say) would replay a cached green here instead
+    // of re-running the storybook suite that actually exercises it.
+    // `src/**` is the same safe baseline every other task in this file
+    // already uses.
     expect(turbo.tasks["test:web"].inputs).toContain("src/**")
     expect(turbo.tasks["test:web"].inputs).toContain(".storybook/**")
   })

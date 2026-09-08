@@ -140,20 +140,11 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And the file "PLAN.md" contains "handed back"
 
   @live
-  Scenario: closing the UI without handing off never writes a note — and, absent handoff, only a signal ever ends the process
-    # T1's own prose warns that "a human who closes the tab without handing
-    # off produces the same exit 0 as a handoff" — but package 02's actual
-    # task list (Router.ts's procedure set: step/writeNote/done/view/diff/
-    # readSteeringFile) names no distinct "close" procedure separate from
-    # `done`, and Server.ts's only two ways to stop are `ctx.handOff()`
-    # (exit 0, exercised above) and a process signal (130/143, per
-    # docs/cli.md's own pinned exit-code table). This scenario proves the
-    # "closes without handing off" HALF of that claim — no note is ever
-    # written — through the one mechanism this package actually built for a
-    # human to walk away: SIGTERM, same as the scenario above, deliberately
-    # NOT re-asserting exit 0 (which no code path in this package produces
-    # for a bare close) in favour of the exit code `docs/cli.md` actually
-    # pins for a signalled death.
+  Scenario: closing the UI without handing off exits 0 and writes no note
+    # `main.tsx`'s own `pagehide` listener fires a `sendBeacon` POST to
+    # `/close` — `Server.ts`'s plain (non-tRPC) handler for it resolves the
+    # SAME deferred `handOff` does, with no write ever attempted, so the
+    # process exits 0 exactly like a real handoff, just with nothing landed.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -189,8 +180,8 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
 
       Paragraph two here.
       """
-    When I send SIGTERM to a spawned gtd ui
-    Then the reported exit status is 143
+    When I close a spawned gtd ui without handing off
+    Then the reported exit status is 0
     And the file "PLAN.md" does not contain "handed back"
 
   @inmem

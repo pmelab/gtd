@@ -43,7 +43,7 @@ declare global {
 const getSpeechRecognitionCtor = (): SpeechRecognitionCtor | undefined =>
   window.SpeechRecognition ?? window.webkitSpeechRecognition
 
-/** Splits one recognition event's newly-available results into this call's interim text (for display) and the text to append to the accumulated final transcript — pulled out of the `onresult` handler so that callback stays a plain two-line dispatch. Exercised by `Mic.stories.tsx`'s `play()` tests; see `Fleet.tsx#FleetView`'s note on why fallow's static CRAP estimate scores it as untested regardless. */
+/** Splits one recognition event's newly-available results into this call's interim text (for display) and the text to append to the accumulated final transcript — pulled out of the `onresult` handler so that callback stays a plain two-line dispatch. Exercised by `Mic.stories.tsx`'s `play()` interaction tests — fallow's static CRAP estimate only sees real coverage reports, not Storybook/vitest-browser runs, so it scores this as untested regardless. */
 // fallow-ignore-next-line complexity
 const splitResults = (event: SpeechRecognitionEventLike): { interim: string; final: string } => {
   let interim = ""

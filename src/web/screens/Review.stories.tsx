@@ -119,17 +119,6 @@ export const ChunkCardShowsProseCheckAllAndNoteAffordance: Story = {
   },
 }
 
-/** T3's one named refusal, surfaced on-screen (`api.ts#driveRefusalFrom`'s own consumer) — mirrors `Plan.stories.tsx#DoneRefusedShowsAnAlreadyDrivingBanner`'s identical story. */
-export const DoneRefusedShowsAnAlreadyDrivingBanner: Story = {
-  args: { view: SAMPLE_VIEW, isLoading: false, doneRefused: true },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(canvas.getByTestId("done-refused-banner")).toHaveTextContent(
-      "Already being driven",
-    )
-  },
-}
-
 /**
  * The seam actually in use for a pure-data `ReviewView` story: with no
  * `worktreePath` given (and no live `trpc.diff` transport to fetch through),

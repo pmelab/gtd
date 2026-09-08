@@ -47,27 +47,3 @@ export const writeRefusalFrom = (error: unknown): WriteRefusalInfo | undefined =
   }
   return { reason: reason as WriteRefusalInfo["reason"] }
 }
-
-/** `ui/Registry.ts#DriveRefusalReason`'s one value, read back off a `done` mutation's error — mirrors `ui/Router.ts#DriveRefusal` exactly, kept as a plain type here (never importing `ui/Router.ts`) so this stays a thin client-side shape, same as `WriteRefusalInfo`. */
-export interface DriveRefusalInfo {
-  readonly reason: "already-driving"
-}
-
-/**
- * Reads the named drive refusal off a `done` mutation's thrown error —
- * `error.data.driveRefusal`, as `Router.ts`'s `errorFormatter` attaches it —
- * or `undefined` for anything else (a network failure, a malformed-input
- * rejection, or a `WriteNoteRefusal` from the SAME `done` call's write half —
- * see `writeRefusalFrom` for that one). Mirrors `writeRefusalFrom`'s own
- * shape exactly.
- */
-export const driveRefusalFrom = (error: unknown): DriveRefusalInfo | undefined => {
-  if (typeof error !== "object" || error === null) return undefined
-  const data = (error as { data?: unknown }).data
-  if (typeof data !== "object" || data === null) return undefined
-  const refusal = (data as { driveRefusal?: unknown }).driveRefusal
-  if (typeof refusal !== "object" || refusal === null) return undefined
-  const reason = (refusal as { reason?: unknown }).reason
-  if (reason !== "already-driving") return undefined
-  return { reason }
-}

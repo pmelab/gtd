@@ -31,6 +31,22 @@ describe("readSteeringFile", () => {
     expect(result).toEqual({ ok: false, reason: "file-vanished" })
   })
 
+  it("refuses a filePath that escapes the worktree root, as file-vanished, never reaching readFile with a path outside it", async () => {
+    let readCalled = false
+    const result = await readSteeringFile(
+      { worktreePath: "/repo", filePath: "../../../etc/passwd", mode: "qa" },
+      {
+        headSha: () => Promise.resolve("abc123"),
+        readFile: () => {
+          readCalled = true
+          return Promise.resolve(undefined)
+        },
+      },
+    )
+    expect(result).toEqual({ ok: false, reason: "file-vanished" })
+    expect(readCalled).toBe(false)
+  })
+
   it("returns unsupported-mode for an unregistered mode, never a throw or a stale/empty view", async () => {
     const result = await readSteeringFile(
       { worktreePath: "/repo", filePath: "x.md", mode: "not-a-real-mode" },

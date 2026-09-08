@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto"
 import { readFile as readFileFs, writeFile as writeFileFs } from "node:fs/promises"
-import { join } from "node:path"
 import type { SteeringAnchor, SteeringEdit } from "../SteeringFormat.js"
 import { steeringFormatFor } from "../SteeringFormats.js"
 import { liveRunInWorktree } from "./Beat.js"
+import { resolveWithinRoot } from "./SafePath.js"
 
 /**
  * The content hash half of the compare-and-swap: over the file's EXACT bytes
@@ -66,8 +66,9 @@ export interface WriteNoteRequest {
  * Every side effect `writeNote` needs, injected so tests never touch a real
  * git checkout or filesystem — mirrors `ui/Beat.ts`'s own `BeatDeps`
  * pattern. `actorAt` and `headSha` are both called FRESH on every write
- * (T5: the rest gate is re-checked at write time, never cached), never
- * memoized the way `BeatCache`'s read-side is.
+ * (T5: the rest gate is re-checked at write time, never cached) — there is
+ * no caching layer anywhere in this package to lean on instead; `Beat.ts#readStep`
+ * itself re-reads the worktree on every call too.
  */
 export interface WriteDeps {
   readonly headSha: (worktreePath: string) => Promise<string | undefined>
@@ -121,7 +122,13 @@ const enqueue = <T>(key: string, task: () => Promise<T>): Promise<T> => {
  * the loser re-reads the winner's own write and refuses as stale, correctly.
  */
 export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<WriteResult> => {
-  const absPath = join(request.worktreePath, request.filePath)
+  // `filePath` is still a client string even with `worktreePath` off every
+  // procedure input — `../../../etc/passwd` must refuse here, before ever
+  // reaching `readFile`/`writeFile`, exactly as an already-vanished file
+  // would (there is nothing at that path INSIDE the served worktree either
+  // way, from this compare-and-swap's point of view).
+  const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
+  if (absPath === undefined) return Promise.resolve({ ok: false, reason: "file-vanished" })
   return enqueue(absPath, async (): Promise<WriteResult> => {
     const actor = await deps.actorAt(request.worktreePath)
     if (actor !== "human") return { ok: false, reason: "not-resting" }
@@ -151,7 +158,7 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
   })
 }
 
-/** Live `actorAt`: spawns a fresh `gtd next --json` (never `BeatCache`'s memoized read — T5 requires this axis re-checked at write time) and reads its `actor` field. `undefined` on any spawn failure or unparseable output, which `writeNote` treats as "not resting with a human". */
+/** Live `actorAt`: spawns a fresh `gtd next --json` (T5 requires this axis re-checked at write time, never a cached read) and reads its `actor` field. `undefined` on any spawn failure or unparseable output, which `writeNote` treats as "not resting with a human". */
 export const liveActorAt = async (worktreePath: string): Promise<string | undefined> => {
   const outcome = await liveRunInWorktree(worktreePath, "gtd next --json")
   if (outcome.status !== 0) return undefined

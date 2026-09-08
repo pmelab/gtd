@@ -1,5 +1,5 @@
-import { join } from "node:path"
 import type { SteeringView } from "../SteeringFormat.js"
+import { resolveWithinRoot } from "./SafePath.js"
 import { steeringViewFor } from "./View.js"
 import { contentHashOf } from "./Write.js"
 
@@ -47,7 +47,11 @@ export const readSteeringFile = async (
   request: ReadSteeringFileRequest,
   deps: ReadSteeringFileDeps,
 ): Promise<ReadSteeringFileResult> => {
-  const absPath = join(request.worktreePath, request.filePath)
+  // Same client-string boundary `Write.ts#writeNote` refuses at — a
+  // `filePath` that escapes the served worktree reads as vanished, never
+  // reaching `readFile` with a path outside `worktreePath` at all.
+  const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
+  if (absPath === undefined) return { ok: false, reason: "file-vanished" }
   const content = await deps.readFile(absPath)
   if (content === undefined) return { ok: false, reason: "file-vanished" }
 

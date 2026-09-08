@@ -608,6 +608,31 @@ export class GtdWorld extends QuickPickleWorld {
     this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
   }
 
+  /**
+   * The OTHER half of Requirement A: a REAL `gtd ui` subprocess, a REAL
+   * fire-and-forget `POST /close` — `main.tsx`'s own `pagehide` beacon,
+   * mirrored here with a plain `fetch` whose response this never reads, same
+   * as `navigator.sendBeacon` — then the process observed exiting ON ITS
+   * OWN (never signalled), with no `done` mutation ever sent. Proves a human
+   * closing the tab without handing off still ends the server's one-step
+   * lifetime, exit 0, no note written.
+   */
+  async spawnGtdUiAndClose(): Promise<void> {
+    const { boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      await fetch(`${boundUrl}close`, { method: "POST" })
+    } finally {
+      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+    }
+
+    const { code, signal } = await exited
+    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+  }
+
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
   async runGtdInMem(...args: string[]): Promise<void> {
     const repo = this.repo!

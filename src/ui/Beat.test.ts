@@ -251,10 +251,42 @@ describe("readStep [real git] — the spawned read never mutates the worktree", 
 })
 
 describe("importing this module with no @pmelab/gtd package.json above it", () => {
-  it("loads instead of throwing", async () => {
-    // `findOwnVersion` is only ever called lazily, inside `isSupportedVersion`
-    // — importing the module itself must never walk the filesystem or throw,
-    // regardless of where this test file happens to live on disk.
+  afterEach(() => {
+    vi.doUnmock("node:fs")
+    vi.resetModules()
+  })
+
+  it("loads instead of throwing, even when the package.json walk would find nothing anywhere", async () => {
+    // A real "no package.json above it" directory can't be simulated by
+    // where THIS test file lives (it's always inside this checkout) — so the
+    // walk itself is made to fail instead: `existsSync` reports false at
+    // every level, exactly what a truly detached directory tree would see.
+    // `vi.resetModules()` forces Beat.js's module-scope code to run fresh
+    // under that mock, rather than reusing an already-imported (and already
+    // fs-untouched) instance from an earlier test in this file.
+    vi.resetModules()
+    vi.doMock("node:fs", () => ({
+      existsSync: () => false,
+      readFileSync: () => {
+        throw new Error("readFileSync should never run — existsSync already reported false")
+      },
+    }))
+
     await expect(import("./Beat.js")).resolves.toBeDefined()
+  })
+
+  it("the mocked walk actually fails when the lazy version check IS exercised — proving the import above passed because the walk never ran, not because the mock is a no-op", async () => {
+    vi.resetModules()
+    vi.doMock("node:fs", () => ({
+      existsSync: () => false,
+      readFileSync: () => {
+        throw new Error("readFileSync should never run — existsSync already reported false")
+      },
+    }))
+
+    const fresh = await import("./Beat.js")
+    expect(() => fresh.isSupportedVersion("10.5.0")).toThrow(
+      "no @pmelab/gtd package.json found above src/ui/Beat.ts",
+    )
   })
 })

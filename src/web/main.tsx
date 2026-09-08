@@ -9,6 +9,16 @@ import { App } from "./App.js"
 const queryClient = new QueryClient()
 const trpcClient = trpc.createClient({ links: [httpBatchLink({ url: TRPC_URL })] })
 
+// The human closing the tab (or navigating away) with no handoff still ends
+// the server's one-step lifetime — `pagehide` is the one unload-family event
+// browsers guarantee still fires and still lets a `sendBeacon` call go out
+// (unlike `beforeunload`, which some mobile browsers skip entirely).
+// `sendBeacon` fires-and-forgets: no response is ever read, matching a tab
+// that's already gone by the time any reply could arrive.
+window.addEventListener("pagehide", () => {
+  navigator.sendBeacon("/close")
+})
+
 const container = document.getElementById("root")
 if (container) {
   createRoot(container).render(

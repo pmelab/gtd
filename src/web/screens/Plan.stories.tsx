@@ -81,35 +81,6 @@ export const PlanProseRendersAlongsideQuestions: Story = {
   },
 }
 
-/** T3's one named refusal, surfaced on-screen (`api.ts#driveRefusalFrom`'s own consumer) — never a silent no-op. */
-export const DoneRefusedShowsAnAlreadyDrivingBanner: Story = {
-  args: {
-    contentHash: "qa-sample-hash",
-    isLoading: false,
-    view: { nodes: [planNode(0, "This plan adds a thing.")] } satisfies SteeringView,
-    doneRefused: true,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(canvas.getByTestId("done-refused-banner")).toHaveTextContent(
-      "Already being driven",
-    )
-  },
-}
-
-/** No banner at all when nothing has been refused — the default, unremarkable state. */
-export const NoDoneRefusalShowsNoBanner: Story = {
-  args: {
-    contentHash: "qa-sample-hash",
-    isLoading: false,
-    view: { nodes: [planNode(0, "This plan adds a thing.")] } satisfies SteeringView,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    expect(canvas.queryByTestId("done-refused-banner")).not.toBeInTheDocument()
-  },
-}
-
 export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
   args: {
     contentHash: "qa-sample-hash",
