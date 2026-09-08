@@ -418,8 +418,7 @@ export const PlanView = ({
 }
 
 export interface PlanProps {
-  readonly worktreePath: string
-  /** Path to the plan/prose steering file, relative to `worktreePath`. */
+  /** Path to the plan/prose steering file, relative to the served worktree. */
   readonly filePath: string
   readonly mode: string
   /**
@@ -439,11 +438,11 @@ export interface PlanProps {
  * using the SAME tokens that fetch returned. `App.tsx` renders this when a
  * tapped fleet row's `mode` isn't `"review"`.
  */
-export const Plan = ({ worktreePath, filePath, mode, onDone }: PlanProps) => {
+export const Plan = ({ filePath, mode, onDone }: PlanProps) => {
   const utils = trpc.useUtils()
-  const query = trpc.readSteeringFile.useQuery({ worktreePath, filePath, mode })
+  const query = trpc.readSteeringFile.useQuery({ filePath, mode })
   const writeNote = trpc.writeNote.useMutation({
-    onSettled: () => utils.readSteeringFile.invalidate({ worktreePath, filePath, mode }),
+    onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode }),
   })
   const done = trpc.done.useMutation()
   const [doneRefused, setDoneRefused] = useState(false)
@@ -452,7 +451,6 @@ export const Plan = ({ worktreePath, filePath, mode, onDone }: PlanProps) => {
     const data = query.data
     if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return writeNote.mutateAsync({
-      worktreePath,
       filePath,
       expectedHeadSha: data.headSha,
       expectedContentHash: data.contentHash,
@@ -468,7 +466,6 @@ export const Plan = ({ worktreePath, filePath, mode, onDone }: PlanProps) => {
     setDoneRefused(false)
     return done
       .mutateAsync({
-        worktreePath,
         filePath,
         expectedHeadSha: data.headSha,
         expectedContentHash: data.contentHash,

@@ -375,7 +375,7 @@ export const RealContainerFetchesTheCurrentHunksDiffLive: StoryObj<typeof Review
           view: SAMPLE_REVIEW_VIEW,
         }),
         diff: (input) => {
-          expect(input).toEqual({ worktreePath: "/repo", path: "./src/calc.ts", line: 1 })
+          expect(input).toEqual({ path: "./src/calc.ts", line: 1 })
           return {
             kind: "hunk",
             diff: { path: "./src/calc.ts", hunks: [] },
@@ -450,7 +450,6 @@ export const RealContainerWriteThroughsASavedNoteViaWriteNote: StoryObj<typeof R
     )
     await expect(canvas.getByTestId("write-calls")).toHaveTextContent(
       JSON.stringify({
-        worktreePath: "/repo",
         filePath: ".gtd/REVIEW.md",
         expectedHeadSha: "abc123",
         expectedContentHash: "deadbeef",
@@ -560,7 +559,6 @@ export const RealContainerSaveAndDoneCallsTrpcDoneThenOnDone: StoryObj<typeof Re
     )
     await expect(canvas.getByTestId("done-calls")).toHaveTextContent(
       JSON.stringify({
-        worktreePath: "/repo",
         filePath: ".gtd/REVIEW.md",
         expectedHeadSha: "abc123",
         expectedContentHash: "deadbeef",

@@ -195,14 +195,9 @@ const useReviewState = (
 type ReviewState = ReturnType<typeof useReviewState>
 
 /** Fetches ONE hunk's own diff live via `trpc.diff` (`Server.ts`'s `diff` procedure → `Diff.ts#resolveDiff`) — only ever mounted for the deck's CURRENT item (`Deck.tsx` renders one item at a time), so this is one query per screen, not one per hunk in the chunk. Disabled when the hunk carries no `path` at all (never expected in practice — every review hunk has one — but guards against an ever-loading query on malformed data instead of a crash). */
-const HunkWithDiff = ({
-  worktreePath,
-  node,
-  ...rest
-}: Omit<HunkProps, "diff"> & { readonly worktreePath: string }) => {
+const HunkWithDiff = ({ node, ...rest }: Omit<HunkProps, "diff">) => {
   const query = trpc.diff.useQuery(
     {
-      worktreePath,
       path: node.path ?? "",
       ...(node.line !== undefined ? { line: node.line } : {}),
     },
@@ -248,7 +243,7 @@ const HunkDeck = ({
       renderItem={(hunk, i) => {
         const props = hunkPropsFor(hunk, i, hunks, state)
         if (worktreePath !== undefined) {
-          return <HunkWithDiff key={hunkKey(hunk.anchor)} worktreePath={worktreePath} {...props} />
+          return <HunkWithDiff key={hunkKey(hunk.anchor)} {...props} />
         }
         return <Hunk key={hunkKey(hunk.anchor)} {...props} diff={undefined} />
       }}
@@ -433,9 +428,9 @@ export interface ReviewProps {
  */
 export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
   const utils = trpc.useUtils()
-  const query = trpc.readSteeringFile.useQuery({ worktreePath, filePath, mode: "review" })
+  const query = trpc.readSteeringFile.useQuery({ filePath, mode: "review" })
   const writeNote = trpc.writeNote.useMutation({
-    onSettled: () => utils.readSteeringFile.invalidate({ worktreePath, filePath, mode: "review" }),
+    onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode: "review" }),
   })
   const done = trpc.done.useMutation()
   const [doneRefused, setDoneRefused] = useState(false)
@@ -444,7 +439,6 @@ export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
     const data = query.data
     if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return writeNote.mutateAsync({
-      worktreePath,
       filePath,
       expectedHeadSha: data.headSha,
       expectedContentHash: data.contentHash,
@@ -460,7 +454,6 @@ export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
     setDoneRefused(false)
     return done
       .mutateAsync({
-        worktreePath,
         filePath,
         expectedHeadSha: data.headSha,
         expectedContentHash: data.contentHash,

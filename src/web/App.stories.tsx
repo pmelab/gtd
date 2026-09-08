@@ -1,16 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fireEvent, waitFor, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 import { App } from "./App.js"
 import { TrpcTestProvider } from "./testing/TrpcTestProvider.js"
 
-const EMPTY_FLEET = {
-  buckets: { "wants-you": [], working: [], broken: [], quiet: [] },
-  wantsYouCount: 0,
-}
-
-const okFleetRow = (over: Record<string, unknown>) => ({
+const okStep = (over: Record<string, unknown>) => ({
   status: "ok",
-  id: "id",
   path: "/repos/gtd",
   repo: "gtd",
   branch: "main",
@@ -19,58 +13,24 @@ const okFleetRow = (over: Record<string, unknown>) => ({
   actor: "human",
   idle: false,
   rest: new Date().toISOString(),
-  bucket: "wants-you",
-  foreignDriverPossible: false,
   ...over,
 })
 
 const meta: Meta<typeof App> = {
   component: App,
-  decorators: [
-    (Story) => (
-      <TrpcTestProvider resolveFleet={() => EMPTY_FLEET}>
-        <Story />
-      </TrpcTestProvider>
-    ),
-  ],
 }
 
 export default meta
 
 type Story = StoryObj<typeof App>
 
-/** `App` is the fleet screen itself (package 02's requirement: it's the first thing the phone loads) — this proves the real query round-trips through `App`, not just `FleetView` in isolation. */
+/** `gtd ui` never binds on a step this client can't render (package 02's own refuse-to-start gate), so `App` always opens directly on the served worktree's one step — `mode: "qa"` picks `Plan`. */
 export const Default: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() =>
-      expect(canvas.getByText("No worktrees found — nothing to triage.")).toBeInTheDocument(),
-    )
-  },
-}
-
-/**
- * The end-to-end navigation `Router.ts#RouterContext`'s `done`/`stop`
- * plumbing exists FOR: tapping an openable fleet row (one whose beat
- * carries `file`+`mode`) actually navigates to `Plan` — the concrete
- * `qa`-mode case — and "← Fleet" returns. Package 05's own T2/T3 acceptance
- * ("the phone returns to the fleet list immediately") is otherwise
- * unreachable from any real screen.
- */
-export const TappingAnOpenableRowNavigatesToPlanAndBackReturnsToFleet: Story = {
   decorators: [
     (Story) => (
       <TrpcTestProvider
         resolvers={{
-          fleet: () => ({
-            buckets: {
-              "wants-you": [okFleetRow({ id: "wy", file: ".gtd/PLAN.md", mode: "qa" })],
-              working: [],
-              broken: [],
-              quiet: [],
-            },
-            wantsYouCount: 1,
-          }),
+          step: () => okStep({ file: ".gtd/PLAN.md", mode: "qa" }),
           readSteeringFile: () => ({
             ok: true,
             content: "A paragraph worth reading.",
@@ -90,11 +50,7 @@ export const TappingAnOpenableRowNavigatesToPlanAndBackReturnsToFleet: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("fleet-row-open-wy")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("fleet-row-open-wy"))
     await waitFor(() => expect(canvas.getByTestId("plan-screen")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("back-to-fleet"))
-    await waitFor(() => expect(canvas.getByTestId("fleet-screen")).toBeInTheDocument())
   },
 }
 
@@ -104,15 +60,7 @@ export const TappingAReviewModeRowNavigatesToReview: Story = {
     (Story) => (
       <TrpcTestProvider
         resolvers={{
-          fleet: () => ({
-            buckets: {
-              "wants-you": [okFleetRow({ id: "wy", file: ".gtd/REVIEW.md", mode: "review" })],
-              working: [],
-              broken: [],
-              quiet: [],
-            },
-            wantsYouCount: 1,
-          }),
+          step: () => okStep({ file: ".gtd/REVIEW.md", mode: "review" }),
           readSteeringFile: () => ({
             ok: true,
             content: "",
@@ -128,37 +76,22 @@ export const TappingAReviewModeRowNavigatesToReview: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("fleet-row-open-wy")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("fleet-row-open-wy"))
     await waitFor(() => expect(canvas.getByTestId("review-screen")).toBeInTheDocument())
   },
 }
 
-/** A row whose beat carries no `file`/`mode` renders un-tappable — nothing to open, so `App` never navigates. */
-export const RowWithNoSteeringFileStaysOnFleet: Story = {
+/** A step with no steering `file` (a `script`/`stalled` rest) renders nothing — the server itself never binds on one (package 02's refuse-to-start gate), so this is defensive, not a reachable production shape. */
+export const StepWithNoSteeringFileRendersNothing: Story = {
   decorators: [
     (Story) => (
-      <TrpcTestProvider
-        resolvers={{
-          fleet: () => ({
-            buckets: {
-              "wants-you": [okFleetRow({ id: "wy" })],
-              working: [],
-              broken: [],
-              quiet: [],
-            },
-            wantsYouCount: 1,
-          }),
-        }}
-      >
+      <TrpcTestProvider resolvers={{ step: () => okStep({ kind: "script" }) }}>
         <Story />
       </TrpcTestProvider>
     ),
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("fleet-row-wy")).toBeInTheDocument())
-    expect(canvas.queryByTestId("fleet-row-open-wy")).not.toBeInTheDocument()
-    expect(canvas.getByTestId("fleet-screen")).toBeInTheDocument()
+    expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
+    expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
   },
 }

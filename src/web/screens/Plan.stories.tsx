@@ -370,7 +370,7 @@ const PlanWriteCallRecorder = ({
   args,
   onRegisterWriteNote,
 }: {
-  readonly args: { readonly worktreePath: string; readonly filePath: string; readonly mode: string }
+  readonly args: { readonly filePath: string; readonly mode: string }
   readonly onRegisterWriteNote: (record: (input: unknown) => void) => void
 }) => {
   const [calls, setCalls] = useState<readonly unknown[]>([])
@@ -424,7 +424,6 @@ export const RealContainerWriteThroughsAParagraphNoteViaWriteNote: StoryObj<type
     )
     await expect(canvas.getByTestId("write-calls")).toHaveTextContent(
       JSON.stringify({
-        worktreePath: "/repo",
         filePath: ".gtd/PLAN.md",
         expectedHeadSha: "abc123",
         expectedContentHash: "deadbeef",
@@ -475,7 +474,7 @@ const PlanDoneCallRecorder = ({
   args,
   onRegisterDone,
 }: {
-  readonly args: { readonly worktreePath: string; readonly filePath: string; readonly mode: string }
+  readonly args: { readonly filePath: string; readonly mode: string }
   readonly onRegisterDone: (record: (input: unknown) => void) => void
 }) => {
   const [calls, setCalls] = useState<readonly unknown[]>([])
@@ -534,7 +533,6 @@ export const RealContainerSaveAndDoneCallsTrpcDoneThenOnDone: StoryObj<typeof Pl
     )
     await expect(canvas.getByTestId("done-calls")).toHaveTextContent(
       JSON.stringify({
-        worktreePath: "/repo",
         filePath: ".gtd/PLAN.md",
         expectedHeadSha: "abc123",
         expectedContentHash: "deadbeef",
