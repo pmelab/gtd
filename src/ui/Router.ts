@@ -146,6 +146,20 @@ const writeNoteInput = (
   }
 }
 
+/** `setValue`'s own optional `checked` field — `undefined` when absent, thrown when present but not a boolean. Split out of `setValueInput` so its two optional-field checks don't inflate that function's own branching. */
+const parseOptionalChecked = (value: unknown): boolean | undefined => {
+  if (value === undefined) return undefined
+  if (typeof value !== "boolean") throw new Error("expected checked to be a boolean when present")
+  return value
+}
+
+/** `setValue`'s own optional `text` field — mirrors `parseOptionalChecked` for the string case. */
+const parseOptionalText = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined
+  if (typeof value !== "string") throw new Error("expected text to be a string when present")
+  return value
+}
+
 /**
  * `setValue`'s own input validator — mirrors `writeNoteInput` field for
  * field, except `checked`/`text` are both OPTIONAL (a hunk tick sends only
@@ -168,20 +182,16 @@ const setValueInput = (
   for (const field of [filePath, expectedHeadSha, expectedContentHash, mode]) {
     if (typeof field !== "string") throw new Error("expected string fields on a write request")
   }
-  if (checked !== undefined && typeof checked !== "boolean") {
-    throw new Error("expected checked to be a boolean when present")
-  }
-  if (text !== undefined && typeof text !== "string") {
-    throw new Error("expected text to be a string when present")
-  }
+  const parsedChecked = parseOptionalChecked(checked)
+  const parsedText = parseOptionalText(text)
   return {
     filePath: filePath as string,
     expectedHeadSha: expectedHeadSha as string,
     expectedContentHash: expectedContentHash as string,
     mode: mode as string,
     anchor: steeringAnchorInput(anchor),
-    ...(checked !== undefined ? { checked } : {}),
-    ...(text !== undefined ? { text } : {}),
+    ...(parsedChecked !== undefined ? { checked: parsedChecked } : {}),
+    ...(parsedText !== undefined ? { text: parsedText } : {}),
   }
 }
 

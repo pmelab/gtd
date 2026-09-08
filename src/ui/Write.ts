@@ -130,14 +130,53 @@ const enqueue = <T>(key: string, task: () => Promise<T>): Promise<T> => {
   return next
 }
 
+/** The one shape both `writeNote` and `writeValue` need off a request before they can dispatch to their own format member (`annotate`/`apply`). */
+interface CasRequest {
+  readonly worktreePath: string
+  readonly expectedHeadSha: string
+  readonly expectedContentHash: string
+}
+
 /**
- * The compare-and-swap write T4/T5/T8 ask for: re-reads HEAD's sha, the
- * steering file's exact bytes, and the resting actor — ALL at write time,
- * never trusting what the client rendered from — and writes only when every
- * check passes. A mismatch on any axis rejects OUTRIGHT: no semantic
- * re-apply, no merge, no partial write. Two concurrent calls on the same
- * file are serialized by `enqueue`, so exactly one can ever win the race;
- * the loser re-reads the winner's own write and refuses as stale, correctly.
+ * The actor/sha/content-hash compare-and-swap gate T4/T5/T8 ask for —
+ * re-reads HEAD's sha, the steering file's exact bytes, and the resting
+ * actor ALL at write time, never trusting what the client rendered from —
+ * shared by `writeNote` and `writeValue` so the two checks (and their four
+ * distinct refusal shapes) can never drift apart. `ok: true` carries the
+ * freshly-read `content` on to the caller's own format dispatch.
+ */
+const verifyForWrite = async (
+  request: CasRequest,
+  absPath: string,
+  deps: WriteDeps,
+): Promise<WriteRefusal | { readonly ok: true; readonly content: string }> => {
+  const actor = await deps.actorAt(request.worktreePath)
+  if (actor !== "human") return { ok: false, reason: "not-resting" }
+
+  const content = await deps.readFile(absPath)
+  if (content === undefined) return { ok: false, reason: "file-vanished" }
+
+  const [sha, hash] = [await deps.headSha(request.worktreePath), contentHashOf(content)]
+  if (sha !== request.expectedHeadSha) return { ok: false, reason: "stale-token", moved: "sha" }
+  if (hash !== request.expectedContentHash) {
+    return { ok: false, reason: "stale-token", moved: "content-hash" }
+  }
+  return { ok: true, content }
+}
+
+/** `annotate`/`apply`'s shared refusal mapping: `id-collision` → `note-collision`, anything else → `anchor-unresolved` — the one place `writeNote`/`writeValue` translate a `SteeringAnnotateResult` refusal into a `WriteRefusalReason`. */
+const annotateRefusal = (reason: "anchor-not-found" | "id-collision"): WriteRefusal => ({
+  ok: false,
+  reason: reason === "id-collision" ? "note-collision" : "anchor-unresolved",
+})
+
+/**
+ * The compare-and-swap write T4/T5/T8 ask for (`verifyForWrite`), splicing
+ * through `SteeringFormat.annotate`. A mismatch on any axis rejects OUTRIGHT:
+ * no semantic re-apply, no merge, no partial write. Two concurrent calls on
+ * the same file are serialized by `enqueue`, so exactly one can ever win the
+ * race; the loser re-reads the winner's own write and refuses as stale,
+ * correctly.
  */
 export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<WriteResult> => {
   // `filePath` is still a client string even with `worktreePath` off every
@@ -148,29 +187,15 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
   const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
   if (absPath === undefined) return Promise.resolve({ ok: false, reason: "file-vanished" })
   return enqueue(absPath, async (): Promise<WriteResult> => {
-    const actor = await deps.actorAt(request.worktreePath)
-    if (actor !== "human") return { ok: false, reason: "not-resting" }
-
-    const content = await deps.readFile(absPath)
-    if (content === undefined) return { ok: false, reason: "file-vanished" }
-
-    const [sha, hash] = [await deps.headSha(request.worktreePath), contentHashOf(content)]
-    if (sha !== request.expectedHeadSha) return { ok: false, reason: "stale-token", moved: "sha" }
-    if (hash !== request.expectedContentHash) {
-      return { ok: false, reason: "stale-token", moved: "content-hash" }
-    }
+    const verified = await verifyForWrite(request, absPath, deps)
+    if (!verified.ok) return verified
 
     const format = steeringFormatFor(request.mode)
     if (format === undefined) return { ok: false, reason: "unsupported-mode" }
-    const annotated = format.annotate(content, request.anchor, request.text)
-    if (!annotated.ok) {
-      return {
-        ok: false,
-        reason: annotated.reason === "id-collision" ? "note-collision" : "anchor-unresolved",
-      }
-    }
+    const annotated = format.annotate(verified.content, request.anchor, request.text)
+    if (!annotated.ok) return annotateRefusal(annotated.reason)
 
-    const nextContent = applySteeringEdits(content, annotated.edits)
+    const nextContent = applySteeringEdits(verified.content, annotated.edits)
     await deps.writeFile(absPath, nextContent)
     return { ok: true }
   })
@@ -178,7 +203,7 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
 
 /**
  * The compare-and-swap write for a CHECKBOX value (package 03): the same
- * actor/sha/content-hash gate `writeNote` runs, splicing through
+ * `verifyForWrite` gate `writeNote` runs, splicing through
  * `SteeringFormat.apply` instead of `annotate` — a question answer's radio
  * pick, or a review hunk/chunk tick. `WriteRefusalReason` gains no new
  * values: `apply`'s own `anchor-not-found`/`id-collision` map onto
@@ -189,32 +214,18 @@ export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise
   const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
   if (absPath === undefined) return Promise.resolve({ ok: false, reason: "file-vanished" })
   return enqueue(absPath, async (): Promise<WriteResult> => {
-    const actor = await deps.actorAt(request.worktreePath)
-    if (actor !== "human") return { ok: false, reason: "not-resting" }
-
-    const content = await deps.readFile(absPath)
-    if (content === undefined) return { ok: false, reason: "file-vanished" }
-
-    const [sha, hash] = [await deps.headSha(request.worktreePath), contentHashOf(content)]
-    if (sha !== request.expectedHeadSha) return { ok: false, reason: "stale-token", moved: "sha" }
-    if (hash !== request.expectedContentHash) {
-      return { ok: false, reason: "stale-token", moved: "content-hash" }
-    }
+    const verified = await verifyForWrite(request, absPath, deps)
+    if (!verified.ok) return verified
 
     const format = steeringFormatFor(request.mode)
     if (format === undefined) return { ok: false, reason: "unsupported-mode" }
-    const applied = format.apply(content, request.anchor, {
+    const applied = format.apply(verified.content, request.anchor, {
       ...(request.checked !== undefined ? { checked: request.checked } : {}),
       ...(request.text !== undefined ? { text: request.text } : {}),
     })
-    if (!applied.ok) {
-      return {
-        ok: false,
-        reason: applied.reason === "id-collision" ? "note-collision" : "anchor-unresolved",
-      }
-    }
+    if (!applied.ok) return annotateRefusal(applied.reason)
 
-    const nextContent = applySteeringEdits(content, applied.edits)
+    const nextContent = applySteeringEdits(verified.content, applied.edits)
     await deps.writeFile(absPath, nextContent)
     return { ok: true }
   })
