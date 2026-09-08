@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process"
 import { rm } from "node:fs/promises"
-import { Context, Effect, Layer } from "effect"
+import { Effect } from "effect"
 import { worktreeId } from "./Discover.js"
-import type { Registry } from "./Registry.js"
-import type { StartLoopResult } from "./Router.js"
+import type { DriveRefusalReason, Registry } from "./Registry.js"
 
 /** One loop child's outcome — `stdout`/`stderr` arrive as two separate strings, NEVER combined (unlike `CommandRunner`'s `CommandOutcome.output`), because the done action never parses either for state and only cares that the child exited. `signal` is set (and `status` `null`) on a signal death, matching `spawnSync`'s own contract. `spawnError` mirrors `Beat.ts`'s `SpawnOutcome.spawnError`: set (never `status`/`signal`) when the process could never start at all (no `bash` on `$PATH`, a vanished `cwd`) — Node reports that as an `error` event, not an `exit`, so without this `wait` would otherwise hang forever and an unhandled `error` on the `ChildProcess` emitter would crash the whole `gtd serve` process. */
 export interface LoopOutcome {
@@ -30,6 +29,11 @@ export interface LoopSpawnRequest {
   readonly shimDir: string
 }
 
+/** `startLoop`'s own result: `{ ok: true }` once the child is spawned and registered, or the registry's one named refusal (a worktree already being driven is never double-driven) — never a queue. Owned here (the producer), not by `Router.ts` (the consumer) — mirrors `Write.ts#WriteResult`/`ReadSteeringFile.ts#ReadSteeringFileResult`/`Diff.ts#DiffResult`, each of which the router imports FROM, never the reverse. */
+export type StartLoopResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: DriveRefusalReason }
+
 /**
  * Signals `pid`'s own process GROUP (`-pid`), never just `pid` itself: the
  * canonical loop shape (`docs/driver.md`'s own `while :; do ... claude ...;
@@ -52,14 +56,19 @@ const signalGroup = (pid: number, signal: NodeJS.Signals): void => {
 }
 
 /**
- * The real spawn: `bash -c <command>` with `cwd` set to the worktree and
- * `shimDir` PREPENDED to `$PATH` — a plain function (mirroring `Beat.ts`'s
- * `liveRunInWorktree`), not wrapped in an Effect service, so `Server.ts` can
- * call it directly without threading a runtime through for one function.
- * `detached: true` makes this `bash` the leader of its own new process
- * group (rather than sharing `gtd serve`'s own) — see `signalGroup`'s own
- * doc comment for why `interrupt`/`kill` signal that whole group, not just
- * this one pid.
+ * The loop process port's real spawn: `bash -c <command>` with `cwd` set to
+ * the worktree and `shimDir` PREPENDED to `$PATH` — separate from
+ * `CommandRunner` because a loop command needs a per-worktree cwd, a
+ * shim-prepended `PATH`, real OS signal control while it's still running,
+ * and never-combined stdout/stderr, none of which `CommandRunner`'s
+ * single-shot "run to completion" shape supports (see `CommandRunner.ts`'s
+ * own doc comment, amended in the same commit this port was added). A plain
+ * function (mirroring `Beat.ts`'s `liveRunInWorktree`), not an Effect
+ * service — `Server.ts` calls it directly, and `StartLoopDeps.spawn` (below)
+ * is the injection seam tests use instead of a service layer. `detached:
+ * true` makes this `bash` the leader of its own new process group (rather
+ * than sharing `gtd serve`'s own) — see `signalGroup`'s own doc comment for
+ * why `interrupt`/`kill` signal that whole group, not just this one pid.
  */
 export const liveLoopSpawn = (request: LoopSpawnRequest): LoopChild => {
   const env = {
@@ -115,28 +124,6 @@ export const liveLoopSpawn = (request: LoopSpawnRequest): LoopChild => {
       if (child.pid !== undefined) signalGroup(child.pid, "SIGKILL")
     },
   }
-}
-
-/**
- * The loop process port: separate from `CommandRunner` because a loop
- * command needs a per-worktree cwd, a shim-prepended `PATH`, real OS signal
- * control while it's still running, and never-combined stdout/stderr — none
- * of which `CommandRunner`'s single-shot "run to completion" shape supports.
- * See `CommandRunner.ts`'s own doc comment, amended in the same commit. Kept
- * as an `Effect` service (mirroring `CommandRunner`) for symmetry and for
- * tests that want the full Effect-provided-layer shape; `Server.ts` itself
- * calls `liveLoopSpawn` directly.
- */
-export class LoopRunner extends Context.Tag("LoopRunner")<
-  LoopRunner,
-  { readonly spawn: (request: LoopSpawnRequest) => LoopChild }
->() {
-  /** A test layer over a canned `spawn` — no real subprocess. */
-  static readonly layer = (
-    spawnFn: (request: LoopSpawnRequest) => LoopChild,
-  ): Layer.Layer<LoopRunner> => Layer.succeed(LoopRunner, { spawn: spawnFn })
-
-  static readonly Live = Layer.succeed(LoopRunner, { spawn: liveLoopSpawn })
 }
 
 /**

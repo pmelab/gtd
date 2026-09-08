@@ -68,7 +68,30 @@ rejected the same way any other unknown config key is:
   and private key, used as-is. `--self-signed` always overrides these with a
   freshly generated throwaway pair, even when both are configured.
 - **`loop`** (string, optional) — the shell command `gtd serve` runs to drive a
-  session's loop.
+  session's loop, once per hand-back (the phone's "Done" action). The command
+  itself decides what a turn is; `gtd serve` only starts it, watches it, and
+  stops it — nothing about agent dispatch, sessions, `--cost`/`--model`, the
+  self-validation fix loop and its retry cap, the first-beat rule, or reading
+  `settled`/`idle` belongs to `gtd serve` itself; see
+  [Driving the loop](./driver.md#driving-the-loop) for that whole contract,
+  which any loop command written in any language must satisfy on its own. What
+  `gtd serve` itself guarantees around the command:
+  - it runs with the WORKTREE as its working directory, never `gtd serve`'s own.
+  - a shim directory is prepended to `$PATH`, so a bare `gtd` inside the command
+    resolves to that worktree's own install (`node_modules/.bin/gtd`) when it
+    has one, else the running `gtd serve` build.
+  - its exit code is ignored and its stdout/stderr are never parsed — the beat
+    document `gtd next --json` reports is the only truth the phone reads back,
+    so a loop command in any language works unchanged.
+  - on a non-zero exit or a failed spawn, the captured stdout, stderr, and exit
+    code are shown inline on the worktree's fleet row (nothing else
+    distinguishes one failure from another, since every refusal exits `1`).
+  - stopping a session (the phone's "Stop" action) sends `SIGINT` first,
+    escalating to `SIGKILL` after 5 seconds if the command hasn't exited by then
+    — one beat's worth of grace to finish cleanly, the same signal `Ctrl-C`
+    sends.
+  - concurrency across worktrees is unlimited: no cap, no queue — every worktree
+    with a configured `loop` can be driven at once.
 
 Flags (`--host`, `--port`, `--self-signed`) always override the matching
 `serve:` value; see `docs/cli.md`'s `serve` row for the full flag list.

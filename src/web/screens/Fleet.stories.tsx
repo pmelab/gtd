@@ -28,6 +28,7 @@ const okRow = (over: Partial<OkEntry>): FleetEntry => ({
   idle: false,
   rest: new Date(Date.now() - 5 * 60_000).toISOString(),
   bucket: "wants-you",
+  driving: false,
   foreignDriverPossible: false,
   ...over,
 })
@@ -40,6 +41,7 @@ const brokenRow = (over: Partial<BrokenEntry>): FleetEntry => ({
   branch: "main",
   detail: "gtd: refused — dirty tree at exit 1",
   bucket: "broken",
+  driving: false,
   foreignDriverPossible: false,
   ...over,
 })
@@ -147,7 +149,13 @@ export const PossiblyForeignDriven: Story = {
   },
 }
 
-/** T6: a `prompt` rest left dirty by a killed loop (nothing persists across a restart) reads as Interrupted, in Wants you — never Working, which would otherwise claim a driver is still there. */
+/**
+ * T6: a `prompt` rest left dirty (nothing persists across a restart) reads
+ * as Wants you — never Working, which would otherwise claim a driver is
+ * still there. The badge itself states only what gtd can OBSERVE (dirty, no
+ * driver), never an inferred CAUSE like "a restart did this" — a crash or a
+ * manual kill leave the identical shape, and gtd cannot tell them apart.
+ */
 export const InterruptedPromptReadsAsWantsYou: Story = {
   args: {
     data: payload({
@@ -168,7 +176,43 @@ export const InterruptedPromptReadsAsWantsYou: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByText("Wants you")).toBeInTheDocument()
-    expect(canvas.getByTestId("interrupted-badge")).toHaveTextContent("Interrupted")
+    expect(canvas.getByTestId("interrupted-badge")).toHaveTextContent(
+      "Dirty, with nothing currently driving it",
+    )
+  },
+}
+
+/**
+ * The two "why is this dirty" signals never print on the same row at once —
+ * they can both be true together (a dirty prompt rest whose log was ALSO
+ * touched recently is exactly the normal mid-turn shape of a foreign
+ * driver), and printing both would have one line claim "nothing driving it"
+ * right above "possibly driven elsewhere". The more specific, actionable
+ * signal wins.
+ */
+export const InterruptedAndForeignDriverNeverBothShowOnOneRow: Story = {
+  args: {
+    data: payload({
+      "wants-you": [
+        okRow({
+          id: "wy",
+          bucket: "wants-you",
+          kind: "prompt",
+          actor: "agent",
+          idle: false,
+          interrupted: true,
+          foreignDriverPossible: true,
+        }),
+      ],
+    }),
+    isLoading: false,
+    onRefresh: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const row = canvas.getByTestId("fleet-row-wy")
+    expect(row.textContent).toContain("possibly driven elsewhere")
+    expect(canvas.queryByTestId("interrupted-badge")).not.toBeInTheDocument()
   },
 }
 
@@ -214,10 +258,11 @@ export const RowWithNoSteeringFileIsNotTappable: Story = {
 }
 
 /** T5: a Working row gets a Stop button; nothing else does. */
+/** Only a `driving: true` Working row (a server-owned child — see `Fleet.ts#FleetEntry.driving`'s own doc comment) gets a real Stop button; a `wants-you` row gets none regardless. */
 export const WorkingRowHasAStopButton: Story = {
   args: {
     data: payload({
-      working: [okRow({ id: "wk", bucket: "working" })],
+      working: [okRow({ id: "wk", bucket: "working", driving: true })],
       "wants-you": [okRow({ id: "wy", bucket: "wants-you" })],
     }),
     isLoading: false,
@@ -229,6 +274,25 @@ export const WorkingRowHasAStopButton: Story = {
     expect(canvas.queryByTestId("fleet-row-stop-wy")).not.toBeInTheDocument()
     await fireEvent.click(canvas.getByTestId("fleet-row-stop-wk"))
     await expect(args.onStop).toHaveBeenCalledWith("/repos/gtd")
+  },
+}
+
+/** T5: a Working row the registry does NOT own (a foreign driver) gets no Stop button at all — a control that would silently do nothing is worse than none, so the row states plainly that gtd cannot stop it instead. */
+export const ForeignWorkingRowOffersNoStopControl: Story = {
+  args: {
+    data: payload({
+      working: [okRow({ id: "wk", bucket: "working", driving: false })],
+    }),
+    isLoading: false,
+    onRefresh: fn(),
+    onStop: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(canvas.queryByTestId("fleet-row-stop-wk")).not.toBeInTheDocument()
+    expect(canvas.getByTestId("fleet-row-unstoppable-wk")).toHaveTextContent(
+      "gtd did not spawn this",
+    )
   },
 }
 

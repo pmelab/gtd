@@ -88,6 +88,32 @@ describe("groupIntoBuckets with a Registry", () => {
     expect(buckets["wants-you"]).toHaveLength(0)
   })
 
+  it("marks a registry-driven row as driving: true — the one thing Stop can actually signal", () => {
+    const registry = new Registry()
+    registry.register("driven", fakeChild)
+    const buckets = groupIntoBuckets([row({ id: "driven", idle: true, actor: "human" })], {
+      registry,
+    })
+    expect(buckets.working[0]?.driving).toBe(true)
+  })
+
+  it("marks a Working row the registry knows nothing about as driving: false — a foreign driver, not a server-spawned child", () => {
+    const registry = new Registry()
+    const buckets = groupIntoBuckets(
+      [row({ id: "foreign-working", idle: false, actor: "agent" })],
+      { registry },
+    )
+    expect(buckets.working[0]?.driving).toBe(false)
+  })
+
+  it("without a registry at all, every row's driving is false", () => {
+    const buckets = groupIntoBuckets([row({ id: "a" })])
+    const entry = Object.values(buckets)
+      .flat()
+      .find((r) => r.id === "a")
+    expect(entry?.driving).toBe(false)
+  })
+
   it("flags a recently-touched log with no registry entry as possibly foreign-driven", () => {
     const registry = new Registry()
     const now = 1_000_000

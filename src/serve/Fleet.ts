@@ -4,9 +4,10 @@ import type { LoopFailure, Registry } from "./Registry.js"
 
 export type FleetBucket = "wants-you" | "working" | "broken" | "quiet"
 
-/** One row on the fleet screen — a `BeatRead` plus the bucket it landed in, plus the imprecise foreign-driver signal (always `false` for a `broken` row, since there's no `logMtime` to read it off) and the last loop failure (if any) `Registry` recorded for it — requirement 6's "failures show the captured output and the exit code inline". */
+/** One row on the fleet screen — a `BeatRead` plus the bucket it landed in, `driving` (`true` only when the server's own `Registry` has a live child for this row — the ONE thing `stop` can actually signal; see `Fleet.tsx`'s own Stop-button gating), the imprecise foreign-driver signal (always `false` for a `broken` row, since there's no `logMtime` to read it off), and the last loop failure (if any) `Registry` recorded for it — requirement 6's "failures show the captured output and the exit code inline". */
 export type FleetEntry = BeatRead & {
   readonly bucket: FleetBucket
+  readonly driving: boolean
   readonly foreignDriverPossible: boolean
   readonly lastLoopFailure?: LoopFailure
 }
@@ -95,6 +96,7 @@ export const groupIntoBuckets = (
     grouped[bucket].push({
       ...row,
       bucket,
+      driving,
       foreignDriverPossible,
       ...(lastLoopFailure !== undefined ? { lastLoopFailure } : {}),
     })

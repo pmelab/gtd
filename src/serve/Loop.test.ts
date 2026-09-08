@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { worktreeId } from "./Discover.js"
 import {
   LOOP_STOP_ESCALATION_MS,
-  LoopRunner,
+  liveLoopSpawn,
   startLoop,
   stopLoop,
   type LoopChild,
@@ -30,18 +30,13 @@ afterEach(() => {
   rmSync(shimDir, { recursive: true, force: true })
 })
 
-describe("LoopRunner.Live", () => {
+describe("liveLoopSpawn", () => {
   it("runs the child with the worktree as cwd, the shim prepended to PATH, and separate stdout/stderr", async () => {
-    const child = await Effect.runPromise(
-      Effect.gen(function* () {
-        const runner = yield* LoopRunner
-        return runner.spawn({
-          command: 'echo "cwd:$(pwd)"; gtd check qa file.md; echo err >&2',
-          cwd: tmpDir,
-          shimDir,
-        })
-      }).pipe(Effect.provide(LoopRunner.Live)),
-    )
+    const child = liveLoopSpawn({
+      command: 'echo "cwd:$(pwd)"; gtd check qa file.md; echo err >&2',
+      cwd: tmpDir,
+      shimDir,
+    })
     const outcome = await child.wait
     expect(outcome.status).toBe(0)
     expect(outcome.stdout).toContain(`cwd:${tmpDir}`)
@@ -50,12 +45,7 @@ describe("LoopRunner.Live", () => {
   })
 
   it("a bare gtd resolves to the shim, not whatever gtd is on the inherited PATH", async () => {
-    const child = await Effect.runPromise(
-      Effect.gen(function* () {
-        const runner = yield* LoopRunner
-        return runner.spawn({ command: "gtd --version", cwd: tmpDir, shimDir })
-      }).pipe(Effect.provide(LoopRunner.Live)),
-    )
+    const child = liveLoopSpawn({ command: "gtd --version", cwd: tmpDir, shimDir })
     const outcome = await child.wait
     expect(outcome.stdout).toContain("gtd-shim:--version")
   })
@@ -64,17 +54,9 @@ describe("LoopRunner.Live", () => {
     const otherShimDir = mkdtempSync(join(tmpdir(), "gtd-loop-shim2-"))
     writeFileSync(join(otherShimDir, "gtd"), '#!/bin/sh\necho "other-shim:$*"\n', { mode: 0o755 })
     try {
-      const { a, b } = await Effect.runPromise(
-        Effect.gen(function* () {
-          const runner = yield* LoopRunner
-          const first = runner.spawn({ command: "gtd x", cwd: tmpDir, shimDir })
-          const second = runner.spawn({ command: "gtd y", cwd: tmpDir, shimDir: otherShimDir })
-          return {
-            a: yield* Effect.promise(() => first.wait),
-            b: yield* Effect.promise(() => second.wait),
-          }
-        }).pipe(Effect.provide(LoopRunner.Live)),
-      )
+      const first = liveLoopSpawn({ command: "gtd x", cwd: tmpDir, shimDir })
+      const second = liveLoopSpawn({ command: "gtd y", cwd: tmpDir, shimDir: otherShimDir })
+      const [a, b] = await Promise.all([first.wait, second.wait])
       expect(a.stdout).toContain("gtd-shim:x")
       expect(b.stdout).toContain("other-shim:y")
     } finally {
@@ -151,12 +133,7 @@ describe("process-group signaling — a loop's forked grandchild dies too, not j
 
   it("stopChild kills the long-running process the loop's own bash forked", async () => {
     const pidFile = join(tmpDir, "grandchild-stop.pid")
-    const child = await Effect.runPromise(
-      Effect.gen(function* () {
-        const runner = yield* LoopRunner
-        return runner.spawn({ command: grandchildLoopCommand(pidFile), cwd: tmpDir, shimDir })
-      }).pipe(Effect.provide(LoopRunner.Live)),
-    )
+    const child = liveLoopSpawn({ command: grandchildLoopCommand(pidFile), cwd: tmpDir, shimDir })
     const grandchildPid = await readPidFileWhenReady(pidFile)
     expect(isAlive(grandchildPid)).toBe(true)
 
@@ -167,12 +144,7 @@ describe("process-group signaling — a loop's forked grandchild dies too, not j
 
   it("Registry.killAll kills the same forked grandchild, not just the registered wrapper", async () => {
     const pidFile = join(tmpDir, "grandchild-killall.pid")
-    const child = await Effect.runPromise(
-      Effect.gen(function* () {
-        const runner = yield* LoopRunner
-        return runner.spawn({ command: grandchildLoopCommand(pidFile), cwd: tmpDir, shimDir })
-      }).pipe(Effect.provide(LoopRunner.Live)),
-    )
+    const child = liveLoopSpawn({ command: grandchildLoopCommand(pidFile), cwd: tmpDir, shimDir })
     const grandchildPid = await readPidFileWhenReady(pidFile)
     expect(isAlive(grandchildPid)).toBe(true)
 
@@ -196,16 +168,11 @@ describe("process-group signaling — a loop's forked grandchild dies too, not j
  */
 describe("liveLoopSpawn — output larger than one pipe buffer, written immediately before exit", () => {
   it("captures the full output, not a pipe-buffer-sized prefix of it", async () => {
-    const child = await Effect.runPromise(
-      Effect.gen(function* () {
-        const runner = yield* LoopRunner
-        return runner.spawn({
-          command: "head -c 300000 /dev/zero | tr '\\0' 'a'",
-          cwd: tmpDir,
-          shimDir,
-        })
-      }).pipe(Effect.provide(LoopRunner.Live)),
-    )
+    const child = liveLoopSpawn({
+      command: "head -c 300000 /dev/zero | tr '\\0' 'a'",
+      cwd: tmpDir,
+      shimDir,
+    })
     const outcome = await child.wait
     expect(outcome.status).toBe(0)
     expect(outcome.stdout).toHaveLength(300_000)
@@ -215,42 +182,19 @@ describe("liveLoopSpawn — output larger than one pipe buffer, written immediat
 
 describe("liveLoopSpawn — spawn failure", () => {
   it("resolves wait with spawnError set, rather than throwing or hanging, when the process can never start (a vanished cwd)", async () => {
-    const child = await Effect.runPromise(
-      Effect.gen(function* () {
-        const runner = yield* LoopRunner
-        // A cwd that doesn't exist reliably fails the spawn itself (Node
-        // emits `error`, never `exit`, for this) — mirrors "a worktree
-        // removed between the fleet read and the done action".
-        return runner.spawn({
-          command: "echo unreachable",
-          cwd: join(tmpDir, "does-not-exist"),
-          shimDir,
-        })
-      }).pipe(Effect.provide(LoopRunner.Live)),
-    )
+    // A cwd that doesn't exist reliably fails the spawn itself (Node emits
+    // `error`, never `exit`, for this) — mirrors "a worktree removed between
+    // the fleet read and the done action".
+    const child = liveLoopSpawn({
+      command: "echo unreachable",
+      cwd: join(tmpDir, "does-not-exist"),
+      shimDir,
+    })
     const outcome = await child.wait
     expect(outcome.status).toBeNull()
     expect(outcome.signal).toBeNull()
     expect(outcome.spawnError).toBeDefined()
     expect(outcome.stdout).toBe("")
-  })
-})
-
-describe("LoopRunner.layer", () => {
-  it("provides a canned spawn — no real subprocess", async () => {
-    const canned: LoopChild = {
-      wait: Promise.resolve({ stdout: "fake", stderr: "", status: 0, signal: null }),
-      interrupt: vi.fn(),
-      kill: vi.fn(),
-    }
-    const child = await Effect.runPromise(
-      Effect.gen(function* () {
-        const runner = yield* LoopRunner
-        return runner.spawn({ command: "irrelevant", cwd: tmpDir, shimDir: tmpDir })
-      }).pipe(Effect.provide(LoopRunner.layer(() => canned))),
-    )
-    expect(child).toBe(canned)
-    expect((await child.wait).stdout).toBe("fake")
   })
 })
 

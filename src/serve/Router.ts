@@ -4,17 +4,13 @@ import { CommandRunner } from "../CommandRunner.js"
 import type { SteeringAnchor } from "../SteeringFormat.js"
 import type { DiffResult } from "./Diff.js"
 import type { FleetPayload } from "./Fleet.js"
+import type { StartLoopResult } from "./Loop.js"
 import type { DriveRefusalReason } from "./Registry.js"
 import type { ReadSteeringFileRequest, ReadSteeringFileResult } from "./ReadSteeringFile.js"
 import { steeringViewFor } from "./View.js"
 import type { WriteNoteRequest, WriteResult } from "./Write.js"
 
-/** `startLoop`'s own result: `{ ok: true }` once the child is spawned and registered, or the registry's one named refusal (a worktree already being driven is never double-driven) — never a queue. */
-export type StartLoopResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly reason: DriveRefusalReason }
-
-/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes the fleet read's own memo actually memoize across requests. `writeNote`/`readSteeringFile` close over the live `WriteDeps`/`ReadSteeringFileDeps` (see `Write.ts`/`ReadSteeringFile.ts`); `resolveDiff` closes over the live `DiffDeps` (see `Diff.ts`) the same way. `startLoop`/`stopLoop` close over the server's one process-lifetime `Registry` — this router never imports `LoopRunner`, `Shim`, or `Registry` itself, staying as ignorant of subprocess spawning as it already is of the filesystem. The router never imports a format module or a filesystem API directly. */
+/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes the fleet read's own memo actually memoize across requests. `writeNote`/`readSteeringFile` close over the live `WriteDeps`/`ReadSteeringFileDeps` (see `Write.ts`/`ReadSteeringFile.ts`); `resolveDiff` closes over the live `DiffDeps` (see `Diff.ts`) the same way. `startLoop`/`stopLoop` close over the server's one process-lifetime `Registry` — this router never imports `Shim` or `Registry` itself, staying as ignorant of subprocess spawning as it already is of the filesystem; `StartLoopResult` is `Loop.ts#startLoop`'s own result type, imported here as the consumer, mirroring `Write.ts#WriteResult`/`ReadSteeringFile.ts#ReadSteeringFileResult`/`Diff.ts#DiffResult`. The router never imports a format module or a filesystem API directly. */
 export interface RouterContext {
   readonly runtime: Runtime.Runtime<CommandRunner>
   readonly readFleet: () => Promise<FleetPayload>

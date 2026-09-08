@@ -55,6 +55,37 @@ const FleetRowBroken = ({ row }: { readonly row: Extract<FleetEntry, { status: "
   </div>
 )
 
+/**
+ * The "why might this be dirty" slot — mutually exclusive, deliberately: a
+ * dirty prompt rest with a recently-touched log is ALSO the normal mid-turn
+ * shape of a foreign driver actively working in it, so printing both here
+ * would have one row claim "nothing driving it" right above "possibly
+ * driven elsewhere". `foreignDriverPossible` is the more specific,
+ * actionable of the two observations, so it wins; `interrupted` states only
+ * what gtd can actually observe (dirty, no driver), never an inferred CAUSE
+ * (a restart is one possible explanation, never the only one — a crash or a
+ * manual kill read identically). Split out of `FleetRowBody` so ITS own
+ * branch on which one to show doesn't also carry the rest of the row's
+ * markup.
+ */
+const FleetRowDirtyReason = ({ row }: { readonly row: Extract<FleetEntry, { status: "ok" }> }) => {
+  if (row.foreignDriverPossible) {
+    return (
+      <div style={{ fontSize: 11, opacity: 0.7, color: "#fa4" }}>
+        possibly driven elsewhere — imprecise, based on a recently-touched log
+      </div>
+    )
+  }
+  if (row.interrupted === true) {
+    return (
+      <div data-testid="interrupted-badge" style={{ fontSize: 11, color: "#e0a030" }}>
+        Dirty, with nothing currently driving it
+      </div>
+    )
+  }
+  return null
+}
+
 /** The info stack every ok row shows regardless of whether it's wrapped in an open button — split out so `FleetRow` itself stays a flat dispatch, not one function carrying every branch's markup. */
 const FleetRowBody = ({ row }: { readonly row: Extract<FleetEntry, { status: "ok" }> }) => (
   <>
@@ -63,16 +94,7 @@ const FleetRowBody = ({ row }: { readonly row: Extract<FleetEntry, { status: "ok
     </div>
     <div style={{ fontSize: 13 }}>{row.label}</div>
     <div style={{ fontSize: 12, opacity: 0.7 }}>{restAge(row.rest)}</div>
-    {row.interrupted === true && (
-      <div data-testid="interrupted-badge" style={{ fontSize: 11, color: "#e0a030" }}>
-        Interrupted — a restart left this rest dirty with nothing driving it
-      </div>
-    )}
-    {row.foreignDriverPossible && (
-      <div style={{ fontSize: 11, opacity: 0.7, color: "#fa4" }}>
-        possibly driven elsewhere — imprecise, based on a recently-touched log
-      </div>
-    )}
+    <FleetRowDirtyReason row={row} />
     {row.lastLoopFailure !== undefined && <LoopFailureDetail failure={row.lastLoopFailure} />}
   </>
 )
@@ -123,6 +145,40 @@ const FleetRowStopButton = ({
   </button>
 )
 
+/**
+ * A Working row's own trailing slot: a real Stop button ONLY when `driving`
+ * (the server's own `Registry` has a live child for it — the ONE thing
+ * `stop` can actually signal), never for a foreign driver — T5's "a no-op,
+ * not an error" describes what the SERVER does when nothing is live for a
+ * worktree, not a license to offer a control that quietly does nothing and
+ * leaves the human guessing why the row never changed. A foreign-driven
+ * Working row states that plainly instead of a dead button.
+ */
+const FleetRowTrailing = ({
+  row,
+  onStop,
+}: {
+  readonly row: Extract<FleetEntry, { status: "ok" }>
+  readonly onStop: ((worktreePath: string) => void) | undefined
+}) => {
+  // `onStop` absent entirely means the caller never wired Stop up at all
+  // (e.g. a pure-data story not exercising it) — render nothing, same as
+  // before this split existed, rather than a message about a driving state
+  // no one asked about.
+  if (row.bucket !== "working" || onStop === undefined) return null
+  if (row.driving) {
+    return <FleetRowStopButton worktreePath={row.path} rowId={row.id} onStop={onStop} />
+  }
+  return (
+    <div
+      data-testid={`fleet-row-unstoppable-${row.id}`}
+      style={{ fontSize: 11, opacity: 0.6, maxWidth: 120, textAlign: "right" }}
+    >
+      gtd did not spawn this — it cannot be stopped from here
+    </div>
+  )
+}
+
 /** Either the tappable open button (`file`+`mode` present, `onOpen` given) or a plain, non-interactive info stack — split out of `FleetRow` so ITS branch on `canOpen` doesn't also carry the row's outer wrapper/Stop-button markup. */
 const FleetRowMain = ({
   row,
@@ -160,9 +216,7 @@ const FleetRow = ({
       }}
     >
       <FleetRowMain row={row} onOpen={onOpen} />
-      {row.bucket === "working" && onStop !== undefined && (
-        <FleetRowStopButton worktreePath={row.path} rowId={row.id} onStop={onStop} />
-      )}
+      <FleetRowTrailing row={row} onStop={onStop} />
     </div>
   )
 }
