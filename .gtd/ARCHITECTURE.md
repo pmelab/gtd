@@ -7,63 +7,6 @@ to them.
 Three packages, in order. Each is green on its own, and each depends only on the
 one before it.
 
-## Open Questions
-
-### What exit code does `gtd ui` give outside a repository?
-
-The concern says two contradictory things in one paragraph: "it takes whatever
-repo guard the state commands already use", and "gets exit 2". Those are
-different builds. The shared guard is `needsOf(kind) === "state"` in
-`src/program.ts`, whose `assertRunningFromRepoRoot` fails with a plain `Error` —
-`src/Cli.ts` maps that to **exit 1**, the runtime-error code, for every state
-command that exists. Exit 2 is the usage-error code and needs a bespoke
-pre-dispatch check that no other command has.
-
-- [x] Exit 1 — drop `ui` into `needs: "state"` and change nothing else; it
-      refuses identically to `gtd land` or `gtd next` run outside a repo, and
-      the pinned exit-code table needs no new meaning
-- [ ] Exit 2 — a bespoke guard raising a usage error, matching the acceptance
-      line as written, at the cost of `ui` being the only command whose repo
-      refusal is a usage error
-- [ ] _your answer_
-
-### Does `gtd ui` keep `--dev`?
-
-`--dev` rebuilds the browser bundle from the gtd source checkout on every
-request (`findPackageRoot`, `readDevTemplate`, `rebuildDevClientScript` — about
-80 lines plus a `CommandRunner` subprocess per page load). It exists because
-`gtd serve` deliberately ran OUTSIDE any repository, so it had to walk to the
-gtd package root to find something to rebuild. Under the rescope `gtd ui` runs
-INSIDE the invoking worktree — which, when you are developing gtd's own client,
-IS the gtd checkout. The flag still works, but its whole reason for the walk is
-gone, and the requirements never mention it.
-
-- [x] Keep it — the walk is harmless and it is the only way to see a client edit
-      without a full `npm run build`; the rescope has no opinion on developer
-      tooling
-- [ ] Delete it — the flag, its scope entry, its help row, the package-root walk
-      and the per-request subprocess build; `npm run build` plus a restart is
-      the loop, and `npm run storybook` already covers component work
-- [ ] _your answer_
-
-### What does `gtd ui` show when the step is not a steering file?
-
-The fleet screen made this a non-question: a `message`, `script` or `capture`
-step was a row you could look at and not tap. With the fleet gone, whatever the
-one worktree rests at IS the whole screen, and only a `prompt` resting on a
-steering file has one. A `script` step in particular is a shell command the
-human is meant to run, and `runCommand` — the router's arbitrary-shell mutation,
-unauthenticated, with **zero client callers today** — is the only thing that
-could run it from a phone.
-
-- [ ] A read-only fallback screen for every non-steering kind: render the step's
-      `label` and body text, offer only Hand back, and **delete `runCommand`**
-      as the dead remote-shell surface it currently is
-- [ ] A fallback screen that also runs a `script` step's command through
-      `runCommand` and shows its output, keeping the mutation and accepting
-      arbitrary shell execution on the tailnet as the shipped design
-- [x] it should just fail with a usage error
-
 ## Package 1 — `gtd ui`, its config key, and its docs pins
 
 The rename, landed atomically with everything that reds on it. No behaviour
@@ -76,9 +19,18 @@ its help text names both defaults — both get the new name, which is the fix th
 concern asks for.
 
 `src/program.ts`: `needsOf("ui")` moves out of `"config"` and `ui` leaves
-`standaloneKinds()`, so the shared repo-root-and-commit guard runs. The
-`standaloneKinds` doc comment says "seven kinds" and the list drops to six — its
-own pin test catches that if it is missed.
+`standaloneKinds()`, so the shared repo-root-and-commit guard runs and nothing
+else changes. **Outside a repository `gtd ui` exits 1**, the runtime-error code,
+identically to `gtd land` or `gtd next` — `assertRunningFromRepoRoot` fails with
+a plain `Error` and `Cli.ts#report` maps that to `EXIT_RUNTIME_ERROR`. The
+pinned exit-code table gains no new meaning. The `standaloneKinds` doc comment
+says "seven kinds" and the list drops to six — its own pin test catches that if
+it is missed.
+
+`--dev` stays, flag, scope entry, help row and all. `Server.ts` keeps
+`findPackageRoot`, `readDevTemplate` and `rebuildDevClientScript` unchanged: the
+walk starts at the module's own file, never the invoking directory, so moving
+`gtd ui` inside a repository does not change what it finds or how it fails.
 
 `src/ConfigSchema.ts`: `serveJsonSchema` → `uiJsonSchema`, `ServeSchema` →
 `UiSchema`, `ServeConfig` → `UiConfig`, top-level key `serve:` → `ui:`.
@@ -99,8 +51,8 @@ its `roots` and `loop` bullets stay for now and package 2 deletes them.
 
 Tests: `tests/integration/features/serve.feature` → `ui.feature`, all four
 refusal scenarios re-pointed at the new name, plus a non-repo scenario asserting
-whichever code the first open question settles. `Cli.test.ts`,
-`ConfigSchema.test.ts` and `Server.test.ts` follow the renames.
+exit 1. `Cli.test.ts`, `ConfigSchema.test.ts` and `Server.test.ts` follow the
+renames.
 
 **Risk**: the `serve.feature` scenario named "serve needs no repository" asserts
 the OPPOSITE of the new guard. It is inverted, not deleted — the same setup, the
@@ -138,8 +90,10 @@ server knows its one worktree:
   opens on.
 - `writeNote`, `done` — the same compare-and-swap request minus `worktreePath`.
 - `view`, `diff`, `readSteeringFile` — unchanged minus `worktreePath`.
-- `fleet` and `stop` are gone. `stop` signalled a registry child; there is no
-  registry. `runCommand`'s fate rides on the third open question.
+- `fleet`, `stop` and `runCommand` are gone. `stop` signalled a registry child;
+  there is no registry. **`runCommand` is deleted** — unauthenticated arbitrary
+  shell execution with zero client callers, and the startup guard below means no
+  screen will ever grow one.
 
 That is also how the confirmed path-injection defect dies: the client can no
 longer name a write target or a spawn cwd. A router test asserts every
@@ -150,6 +104,29 @@ client-supplied path.
 `readStep: () => Promise<StepRead>` and `handOff: () => void`. `Server.ts` binds
 every path argument to `cwd.root` when it builds the context, constructs no
 `Registry` and no `BeatCache`.
+
+**`gtd ui` refuses to start on a step it cannot render.** It reads its own beat
+BEFORE resolving the host or the certificate — cheaper, likelier refusal first,
+and no `openssl` invocation for a run that was never going to serve. It starts
+only when the step is `kind: "prompt"` carrying a `file` and a `mode` that
+resolves to a registered steering format. Everything else — `message`, `script`,
+`capture`, `stalled`, an `idle` worktree, and a `prompt` whose mode resolves to
+no format — **fails with a usage error, exit 2**, naming the step's `label` and
+what it rests at. There is no fallback screen and no read-only mode.
+
+Exit 2 needs plumbing that does not exist: `Cli.ts#report` maps
+`SelectorUsageError` to `EXIT_USAGE_ERROR` and everything else to
+`EXIT_RUNTIME_ERROR`. `Commentary.ts` gains `GtdUsageError extends GtdError` —
+so the refusal keeps its remedy lines — and `report` maps that class too. Every
+existing mapping is unchanged and `ExitCodes.ts`'s closure set stays at five.
+
+**Risk, blunt**: `gtd ui` now exits 1 outside a repo and 2 on a step it cannot
+render, two different codes for two refusals of the same command. That is the
+settled answer to both questions, and the outer loop must handle both.
+
+**Risk, blunter**: an outer loop that reruns `gtd ui` on exit 0 gets exit 2 the
+moment the process rests at an agent step. Exit 2 is the loop's signal to drive
+a turn itself, not to retry the UI.
 
 **The exit, in order.** `done` awaits `writeNote` first; a refused write throws
 the same `WriteNoteRefusal` it already does and nothing shuts down. On success
@@ -173,12 +150,13 @@ whole; it restates a contract that no longer has an owner.
 `docs/configuration.md` loses its `roots` and `loop` bullets. `docs/**` is in
 `test:unit`'s and both e2e tasks' `inputs`, so a stale doc cannot cache green.
 
-Tests: `serve-loop-lifecycle.feature` is rewritten as `ui-lifecycle.feature`.
-Every spawn scenario goes. The **SIGINT 130 and SIGTERM 143 scenarios stay** —
-they bind for real and they are what keeps `docs/cli.md`'s exit-code table
-honest. New scenarios: handoff exits 0 with the note on disk and no child
-process spawned; the UI closed without handing off exits 0 with no note written;
-a config file with `ui.loop` fails to decode.
+Tests: `serve-loop-lifecycle.feature` is rewritten as `ui-lifecycle.feature`. A
+scenario per non-renderable kind asserting exit 2 and no bound port. Every spawn
+scenario goes. The **SIGINT 130 and SIGTERM 143 scenarios stay** — they bind for
+real and they are what keeps `docs/cli.md`'s exit-code table honest. New
+scenarios: handoff exits 0 with the note on disk and no child process spawned;
+the UI closed without handing off exits 0 with no note written; a config file
+with `ui.loop` fails to decode.
 
 **Risk, restated because it is the design's one sharp edge**: a closed tab and a
 handoff are the same exit 0. Only state on disk tells them apart, and the outer
@@ -189,9 +167,11 @@ should try.
 
 `App.tsx` holds no navigation state. It calls `trpc.step.useQuery()` and renders
 the screen the step's `mode` picks: `review` → `Review`, any other steering mode
-→ `Plan`, anything with no steering file → the fallback the third open question
-settles. `screens/Fleet.tsx`, its stories, and the "← Fleet" escape hatch are
-deleted; there is nowhere to go back to.
+→ `Plan`. **There is no third branch** — package 2's startup guard means the
+server never binds on a step that has no screen, so the client can assume a
+steering file and an unrenderable step is unreachable, not handled.
+`screens/Fleet.tsx`, its stories, and the "← Fleet" escape hatch are deleted;
+there is nowhere to go back to.
 
 **The two wiring gaps need a write path that does not exist yet.** `writeNote`
 is the only mutation the format contract exposes, and it attaches a footnote.
@@ -365,3 +345,22 @@ mutation invalidates `readSteeringFile`. That is what makes a reload survive.
 Yes. The version check, the `gtd next --json` spawn and the parse all stay; only
 `BeatCache`'s slot, concurrency and mtime-memo machinery goes, since one
 worktree reads itself once per request.
+
+### What exit code does `gtd ui` give outside a repository?
+
+Exit 1. It drops into `needs: "state"` and refuses through the shared
+repo-root-and-commit guard, identically to every other state command; the pinned
+exit-code table gains no new meaning.
+
+### Does `gtd ui` keep `--dev`?
+
+Yes — the flag, its scope entry, its help row, the package-root walk and the
+per-request subprocess build all stay. It is the only way to see a client edit
+without a full `npm run build`, and the rescope has no opinion on developer
+tooling.
+
+### What does `gtd ui` show when the step is not a steering file?
+
+Nothing — it refuses to start, with a usage error at exit 2, naming the step's
+label and what it rests at. No fallback screen, no read-only mode, and
+`runCommand` is deleted as the dead remote-shell surface it was.
