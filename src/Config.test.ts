@@ -254,6 +254,27 @@ describe("ConfigService", () => {
     }
   })
 
+  it("rejects the old `serve:` key as an unknown top-level key where the same body under `ui:` decodes", async () => {
+    const body = [`  port: 4173`, `  host: 0.0.0.0`, ``].join("\n")
+    const configFile = join(projectDir, ".gtdrc.yaml")
+
+    writeFileSync(configFile, `serve:\n${body}`)
+    const rejected = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+    expect(Exit.isFailure(rejected)).toBe(true)
+    if (Exit.isFailure(rejected)) {
+      expect(String(rejected.cause)).toMatch(/serve/i)
+      const error = Cause.squash(rejected.cause)
+      expect(error).toBeInstanceOf(GtdError)
+      if (error instanceof GtdError) {
+        expect(error.detail).toEqual([`serve: ${configFile}`])
+      }
+    }
+
+    writeFileSync(configFile, `ui:\n${body}`)
+    const cfg = await getConfig()
+    expect(cfg.ui).toEqual({ port: 4173, host: "0.0.0.0" })
+  })
+
   it("merges `vars:` levels low->high: cwd's overlays the ancestor's, cwd wins on overlap", async () => {
     const child = join(projectDir, "a", "b")
     mkdirSync(child, { recursive: true })
