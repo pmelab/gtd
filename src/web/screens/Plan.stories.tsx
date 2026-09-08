@@ -13,8 +13,8 @@ export default meta
 
 type Story = StoryObj<typeof PlanView>
 
-/** The real `Plan` container's args shared by every "real container" story below — one worktree/file/mode triple, reused rather than repeated at each call site. */
-const REAL_PLAN_ARGS = { worktreePath: "/repo", filePath: ".gtd/PLAN.md", mode: "qa" }
+/** The real `Plan` container's args shared by every "real container" story below — one file/mode pair, reused rather than repeated at each call site. */
+const REAL_PLAN_ARGS = { filePath: ".gtd/PLAN.md", mode: "qa" }
 
 /** Opens paragraph 0's note seam and types `text` into the sheet — the setup every "real container" story below shares before diverging into Save vs Save & Done. */
 const openNoteSeamAndType = async (
@@ -440,7 +440,7 @@ export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<type
   },
 }
 
-/** A `useState`-backed recorder for BOTH the `done` mutation's input and how many times `onDone` fired — mirrors `PlanWriteCallRecorder`'s identical reasoning. */
+/** A `useState`-backed recorder for the `done` mutation's input — mirrors `PlanWriteCallRecorder`'s identical reasoning. */
 const PlanDoneCallRecorder = ({
   args,
   onRegisterDone,
@@ -449,19 +449,17 @@ const PlanDoneCallRecorder = ({
   readonly onRegisterDone: (record: (input: unknown) => void) => void
 }) => {
   const [calls, setCalls] = useState<readonly unknown[]>([])
-  const [onDoneCount, setOnDoneCount] = useState(0)
   onRegisterDone((input) => setCalls((prev) => [...prev, input]))
   return (
     <>
       <div data-testid="done-calls">{JSON.stringify(calls)}</div>
-      <div data-testid="on-done-count">{onDoneCount}</div>
-      <Plan {...args} onDone={() => setOnDoneCount((prev) => prev + 1)} />
+      <Plan {...args} />
     </>
   )
 }
 
-/** Proves the REAL `Plan` container wires "Save & Done" to `trpc.done` (never a second, disjoint `writeNote` call) using the exact same tokens, and calls `onDone` once it resolves — T2's own "the phone returns to the fleet list immediately". */
-export const RealContainerSaveAndDoneCallsTrpcDoneThenOnDone: StoryObj<typeof Plan> = {
+/** Proves the REAL `Plan` container wires "Save & Done" to `trpc.done` (never a second, disjoint `writeNote` call) using the exact same tokens — `done` writes and hands off server-side; this client renders no further round trip after it resolves. */
+export const RealContainerSaveAndDoneCallsTrpcDone: StoryObj<typeof Plan> = {
   render: (args) => {
     let record: (input: unknown) => void = () => {}
     return (
@@ -512,6 +510,5 @@ export const RealContainerSaveAndDoneCallsTrpcDoneThenOnDone: StoryObj<typeof Pl
         text: "handing back now",
       }).slice(1, -1),
     )
-    await waitFor(() => expect(canvas.getByTestId("on-done-count")).toHaveTextContent("1"))
   },
 }

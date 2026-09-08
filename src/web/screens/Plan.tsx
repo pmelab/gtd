@@ -198,10 +198,9 @@ export interface PlanViewProps {
   /**
    * The done action (T2): saves the SAME note `onSaveNote` would, then hands
    * the turn back — the real `Plan` container wires this to `trpc.done`,
-   * whose own resolution (spawn registered, never waiting for the child to
-   * exit) is what lets the caller navigate back to the fleet list
-   * immediately. Absent in `Plan.stories.tsx`'s pure-data stories, exactly
-   * like `onSaveNote`.
+   * which writes the note and calls `ctx.handOff()` server-side, ending
+   * this `gtd ui` process. Absent in `Plan.stories.tsx`'s pure-data stories,
+   * exactly like `onSaveNote`.
    */
   readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
 }
@@ -411,13 +410,6 @@ export interface PlanProps {
   /** Path to the plan/prose steering file, relative to the served worktree. */
   readonly filePath: string
   readonly mode: string
-  /**
-   * Called once `trpc.done` resolves (spawn registered, not the child's own
-   * exit) — `App.tsx` wires this to navigate back to the fleet list, T2's
-   * own "the phone returns to the fleet list immediately, without waiting
-   * for the child". Absent in `Plan.stories.tsx`'s pure-data stories.
-   */
-  readonly onDone?: () => void
 }
 
 /**
@@ -425,10 +417,10 @@ export interface PlanProps {
  * `readSteeringFile` (never a bare `content` prop with no way to have
  * actually been fetched — see `Review.tsx#Review`'s identical split), and
  * write-throughs a saved paragraph note via `writeNote`'s compare-and-swap
- * using the SAME tokens that fetch returned. `App.tsx` renders this when a
- * tapped fleet row's `mode` isn't `"review"`.
+ * using the SAME tokens that fetch returned. `App.tsx` renders this when
+ * `trpc.step`'s own `mode` isn't `"review"`.
  */
-export const Plan = ({ filePath, mode, onDone }: PlanProps) => {
+export const Plan = ({ filePath, mode }: PlanProps) => {
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath, mode })
   const writeNote = trpc.writeNote.useMutation({
@@ -460,10 +452,6 @@ export const Plan = ({ filePath, mode, onDone }: PlanProps) => {
         mode,
         anchor,
         text,
-      })
-      .then((result) => {
-        onDone?.()
-        return result
       })
       .catch(() => {
         // No refusal has a display yet — caught regardless and never

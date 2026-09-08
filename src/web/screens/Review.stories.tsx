@@ -13,8 +13,8 @@ export default meta
 
 type Story = StoryObj<typeof ReviewView>
 
-/** The real `Review` container's args shared by every "real container" story below — one worktree/file pair, reused rather than repeated at each call site. */
-const REAL_REVIEW_ARGS = { worktreePath: "/repo", filePath: ".gtd/REVIEW.md" }
+/** The real `Review` container's args shared by every "real container" story below — one file path, reused rather than repeated at each call site. */
+const REAL_REVIEW_ARGS = { filePath: ".gtd/REVIEW.md" }
 
 /** Opens chunk 0's note affordance and types `text` into the sheet — the setup every "real container" note story below shares before diverging into Save vs Save & Done. */
 const openChunkNoteAndType = async (
@@ -120,13 +120,13 @@ export const ChunkCardShowsProseCheckAllAndNoteAffordance: Story = {
 }
 
 /**
- * The seam actually in use for a pure-data `ReviewView` story: with no
- * `worktreePath` given (and no live `trpc.diff` transport to fetch through),
- * a hunk screen renders `Hunk.tsx`'s own permanent "Loading diff…" state —
- * this IS what every other story below exercises implicitly; this one says
- * so with a real assertion instead of leaving it merely implied.
+ * The seam actually in use for a pure-data `ReviewView` story: with `live`
+ * unset (and no live `trpc.diff` transport to fetch through), a hunk screen
+ * renders `Hunk.tsx`'s own permanent "Loading diff…" state — this IS what
+ * every other story below exercises implicitly; this one says so with a
+ * real assertion instead of leaving it merely implied.
  */
-export const WithNoWorktreePathAHunkScreenShowsLoadingDiffForever: Story = {
+export const WithLiveUnsetAHunkScreenShowsLoadingDiffForever: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -322,8 +322,8 @@ export const ChunkWithZeroHunksIsNotABlankDeadEnd: Story = {
  * round-trip, closing the exact gap the spec review flagged — `diffs` was
  * always `undefined` from `Review`, so `Hunk.tsx` rendered `hunk-diff-loading`
  * forever. `TrpcTestProvider`'s mock link stands in for `Server.ts`'s real
- * `diff` procedure, keyed by the same `worktreePath`/`path`/`line` shape
- * `Router.ts#diffInput` validates.
+ * `diff` procedure, keyed by the same `path`/`line` shape `Router.ts#diffInput`
+ * validates.
  */
 const REVIEW_CONTENT = `# Review: abc1234
 
@@ -391,7 +391,7 @@ const WriteCallRecorder = ({
   args,
   onRegisterWriteNote,
 }: {
-  readonly args: { readonly worktreePath: string; readonly filePath: string }
+  readonly args: { readonly filePath: string }
   readonly onRegisterWriteNote: (record: (input: unknown) => void) => void
 }) => {
   const [calls, setCalls] = useState<readonly unknown[]>([])
@@ -490,28 +490,26 @@ export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<type
   },
 }
 
-/** A `useState`-backed recorder for BOTH the `done` mutation's input and how many times `onDone` fired — mirrors `WriteCallRecorder`'s identical reasoning. */
+/** A `useState`-backed recorder for the `done` mutation's input — mirrors `WriteCallRecorder`'s identical reasoning. */
 const DoneCallRecorder = ({
   args,
   onRegisterDone,
 }: {
-  readonly args: { readonly worktreePath: string; readonly filePath: string }
+  readonly args: { readonly filePath: string }
   readonly onRegisterDone: (record: (input: unknown) => void) => void
 }) => {
   const [calls, setCalls] = useState<readonly unknown[]>([])
-  const [onDoneCount, setOnDoneCount] = useState(0)
   onRegisterDone((input) => setCalls((prev) => [...prev, input]))
   return (
     <>
       <div data-testid="done-calls">{JSON.stringify(calls)}</div>
-      <div data-testid="on-done-count">{onDoneCount}</div>
-      <Review {...args} onDone={() => setOnDoneCount((prev) => prev + 1)} />
+      <Review {...args} />
     </>
   )
 }
 
-/** Proves the REAL `Review` container wires "Save & Done" to `trpc.done` (never a second, disjoint `writeNote` call) using the exact same tokens, and calls `onDone` once it resolves — mirrors `Plan.stories.tsx`'s identical story. */
-export const RealContainerSaveAndDoneCallsTrpcDoneThenOnDone: StoryObj<typeof Review> = {
+/** Proves the REAL `Review` container wires "Save & Done" to `trpc.done` (never a second, disjoint `writeNote` call) using the exact same tokens — mirrors `Plan.stories.tsx`'s identical story. */
+export const RealContainerSaveAndDoneCallsTrpcDone: StoryObj<typeof Review> = {
   render: (args) => {
     let record: (input: unknown) => void = () => {}
     return (
@@ -556,6 +554,5 @@ export const RealContainerSaveAndDoneCallsTrpcDoneThenOnDone: StoryObj<typeof Re
         text: "handing back now",
       }).slice(1, -1),
     )
-    await waitFor(() => expect(canvas.getByTestId("on-done-count")).toHaveTextContent("1"))
   },
 }

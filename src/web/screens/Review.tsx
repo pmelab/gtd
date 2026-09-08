@@ -35,16 +35,17 @@ export interface ReviewViewProps {
   readonly view: SteeringView | undefined
   readonly isLoading: boolean
   /**
-   * The worktree `trpc.diff` resolves `path`/`line` pointers against — every
-   * hunk screen fetches its own diff live via `HunkDeck`'s `trpc.diff` call
-   * using this (`Server.ts`'s `diff` procedure, `Diff.ts#resolveDiff`).
-   * `Review.stories.tsx`'s own pure-data stories leave this `undefined` and
-   * see `Hunk.tsx`'s permanent "Loading diff…" state instead — every OTHER
-   * diff shape (whole-file banner, binary, no-changes, refused) is driven
-   * directly at `Hunk.stories.tsx`'s own layer, which takes a `diff` prop
-   * straight from the caller with no fetch involved at all.
+   * `true` only for the real `Review` container — every hunk screen then
+   * fetches its own diff live via `HunkDeck`'s `trpc.diff` call
+   * (`Server.ts`'s `diff` procedure, `Diff.ts#resolveDiff` resolve against
+   * the one worktree the server serves; no path of any kind travels from
+   * this client). `Review.stories.tsx`'s own pure-data stories leave this
+   * unset and see `Hunk.tsx`'s permanent "Loading diff…" state instead —
+   * every OTHER diff shape (whole-file banner, binary, no-changes, refused)
+   * is driven directly at `Hunk.stories.tsx`'s own layer, which takes a
+   * `diff` prop straight from the caller with no fetch involved at all.
    */
-  readonly worktreePath?: string
+  readonly live?: boolean
   /**
    * Called with a saved note's `anchor`/`text` — the real `Review` container
    * wires this to an actual `writeNote` mutation (compare-and-swap against
@@ -221,14 +222,14 @@ const hunkPropsFor = (
   onOpenNote: () => state.openNoteSheet(hunk),
 })
 
-/** The per-chunk deck of hunks — one hunk per screen, approving the last one exits back to the chunk list via `state.approveAndAdvance`. Renders `HunkWithDiff` (a live `trpc.diff` fetch) when a `worktreePath` is given — the real `Review` container always has one — else a plain `Hunk` stuck permanently on `diff={undefined}`'s "Loading diff…" state, which is exactly what `Review.stories.tsx`'s own pure-data stories exercise. */
+/** The per-chunk deck of hunks — one hunk per screen, approving the last one exits back to the chunk list via `state.approveAndAdvance`. Renders `HunkWithDiff` (a live `trpc.diff` fetch) when `live` is set — the real `Review` container always sets it — else a plain `Hunk` stuck permanently on `diff={undefined}`'s "Loading diff…" state, which is exactly what `Review.stories.tsx`'s own pure-data stories exercise. */
 const HunkDeck = ({
   chunk,
-  worktreePath,
+  live,
   state,
 }: {
   readonly chunk: SteeringViewNode
-  readonly worktreePath: string | undefined
+  readonly live: boolean
   readonly state: ReviewState
 }) => {
   const hunks = hunksOf(chunk)
@@ -240,7 +241,7 @@ const HunkDeck = ({
       onExit={state.exitToChunkList}
       renderItem={(hunk, i) => {
         const props = hunkPropsFor(hunk, i, hunks, state)
-        if (worktreePath !== undefined) {
+        if (live) {
           return <HunkWithDiff key={hunkKey(hunk.anchor)} {...props} />
         }
         return <Hunk key={hunkKey(hunk.anchor)} {...props} diff={undefined} />
@@ -347,13 +348,7 @@ const ChunkList = ({
  * Storybook/vitest-browser runs, so it scores this as untested.
  */
 // fallow-ignore-next-line complexity
-export const ReviewView = ({
-  view,
-  isLoading,
-  worktreePath,
-  onSaveNote,
-  onDoneNote,
-}: ReviewViewProps) => {
+export const ReviewView = ({ view, isLoading, live, onSaveNote, onDoneNote }: ReviewViewProps) => {
   const state = useReviewState(onSaveNote, onDoneNote)
 
   if (view === undefined) {
@@ -386,18 +381,15 @@ export const ReviewView = ({
   // already disabled for this shape; this is the defensive backstop for any
   // other path that could still set `openChunkIndex` on one.
   if (openChunk !== undefined && hunksOf(openChunk).length > 0) {
-    return <HunkDeck chunk={openChunk} worktreePath={worktreePath} state={state} />
+    return <HunkDeck chunk={openChunk} live={live === true} state={state} />
   }
 
   return <ChunkList nodes={view.nodes} state={state} />
 }
 
 export interface ReviewProps {
-  readonly worktreePath: string
-  /** Path to the review steering file, relative to `worktreePath` (`.gtd/REVIEW.md`, typically). */
+  /** Path to the review steering file, relative to the served worktree (`.gtd/REVIEW.md`, typically). */
   readonly filePath: string
-  /** Called once `trpc.done` resolves — mirrors `Plan.tsx#PlanProps.onDone`'s identical doc comment. Absent in `Review.stories.tsx`'s pure-data stories. */
-  readonly onDone?: () => void
 }
 
 /**
@@ -406,13 +398,13 @@ export interface ReviewProps {
  * actually been fetched), and write-throughs a saved note via `writeNote`'s
  * compare-and-swap using the SAME `headSha`/`contentHash` that fetch
  * returned — refetching afterward so a stale local override never
- * outlives the server's own authoritative content. `worktreePath` also
- * threads through to `HunkDeck`'s live `trpc.diff` fetch. `App.tsx` renders
- * this when a tapped fleet row's `mode` is `"review"`;
+ * outlives the server's own authoritative content. Always passes
+ * `live={true}` down (`HunkDeck`'s live `trpc.diff` fetch): `App.tsx`
+ * renders this when `trpc.step`'s own `mode` is `"review"`;
  * `Review.stories.tsx`'s own `RealContainerFetchesTheCurrentHunksDiffLive`
  * story is its other real consumer.
  */
-export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
+export const Review = ({ filePath }: ReviewProps) => {
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath, mode: "review" })
   const writeNote = trpc.writeNote.useMutation({
@@ -445,10 +437,6 @@ export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
         anchor,
         text,
       })
-      .then((result) => {
-        onDone?.()
-        return result
-      })
       .catch(() => {
         // Mirrors `Plan.tsx#Plan`'s identical `onDoneNote` catch — see its
         // own doc comment for why this is caught, not rethrown.
@@ -459,7 +447,7 @@ export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
     <ReviewView
       view={query.data?.view}
       isLoading={query.isLoading}
-      worktreePath={worktreePath}
+      live={true}
       onSaveNote={onSaveNote}
       onDoneNote={onDoneNote}
     />

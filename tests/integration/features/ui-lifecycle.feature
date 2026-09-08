@@ -186,6 +186,11 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
 
   @inmem
   Scenario: a config file with ui.loop fails to decode
+    # Exit 1, not 2: `ConfigSchema.ts`'s own doc comment on `UiSchema` records
+    # the deliberate deviation — every OTHER `.gtdrc` decode failure in this
+    # codebase exits 1 (`EXIT_RUNTIME_ERROR`, via `Config.ts#formatSchemaError`),
+    # and a `ui:`-only exception to `EXIT_USAGE_ERROR` would be the one config
+    # error in the whole CLI a user couldn't infer the reason for.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -194,4 +199,5 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd with args "ui"
     Then it fails
+    And the exit code is 1
     And stderr contains "loop"

@@ -31,7 +31,7 @@ export const App = () => {
   return (
     <div style={{ maxWidth: 390, margin: "0 auto" }}>
       {step.mode === "review" ? (
-        <Review worktreePath={step.path} filePath={step.file} />
+        <Review filePath={step.file} />
       ) : (
         <Plan filePath={step.file} mode={step.mode ?? ""} />
       )}
