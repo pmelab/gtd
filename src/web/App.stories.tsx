@@ -55,7 +55,7 @@ export const Default: Story = {
 }
 
 /** `mode: "review"` picks `Review`, never `Plan` — the one place this file switches on the mode string, to choose a SCREEN rather than a format. */
-export const TappingAReviewModeRowNavigatesToReview: Story = {
+export const ReviewModeOpensDirectlyOnTheReviewScreen: Story = {
   decorators: [
     (Story) => (
       <TrpcTestProvider
