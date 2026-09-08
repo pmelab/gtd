@@ -10,7 +10,7 @@ export interface ShimTarget {
 
 /**
  * Node's own `execPath` plus the script it was invoked with — the exact
- * binary driving THIS `gtd serve` process. Captured once so a worktree with
+ * binary driving THIS `gtd ui` process. Captured once so a worktree with
  * NO local `@pmelab/gtd` install of its own still gets a working shim
  * (`createShim`'s own default fallback), regardless of what a bare `gtd` on
  * `$PATH` would otherwise resolve to (a different global install, or

@@ -16,11 +16,11 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 // `resolveBindHost`'s default `pickHost` parameter reaches the real
 // `os.networkInterfaces()` in production — a machine or CI runner that HAS
-// joined a tailnet would make `gtd serve`'s "no Tailscale interface found"
+// joined a tailnet would make `gtd ui`'s "no Tailscale interface found"
 // dispatch test below succeed instead of refusing. Mocked so this test
 // exercises the dispatch wiring deterministically, independent of the host's
 // actual network.
-vi.mock("./serve/Bind.js", () => ({ pickBindHostFromSystem: () => undefined }))
+vi.mock("./ui/Bind.js", () => ({ pickBindHostFromSystem: () => undefined }))
 
 import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"
@@ -2265,7 +2265,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     lsp: { kind: "lsp" },
     init: { kind: "init" },
     visualize: { kind: "visualize", port: 4000, open: false },
-    serve: { kind: "serve", selfSigned: false, dev: false },
+    ui: { kind: "ui", selfSigned: false, dev: false },
     land: { kind: "land" },
     entry: { kind: "entry", actor: "human", state: "idle", vars: {}, label: "" },
     abandon: { kind: "abandon" },
@@ -2286,9 +2286,9 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the eight non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the nine non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
-      ["abandon", "base", "entry", "land", "next", "restore", "summary", "validate"].sort(),
+      ["abandon", "base", "entry", "land", "next", "restore", "summary", "validate", "ui"].sort(),
     )
   })
 
@@ -2329,26 +2329,25 @@ describe("runCommand — refuses in a repository with no commits", () => {
     expect(written.length).toBeGreaterThan(0)
   })
 
-  it('gtd serve dispatches without the repository-root/commit guard — needsOf is "config", not "state", since the roots it scans are elsewhere', async () => {
-    // A repo with zero commits: the exact fixture the table-driven case
-    // above uses to prove the "state" kinds refuse with NO_COMMITS_MESSAGE.
-    // `serve` must reach its own dispatch instead of that guard at all.
+  it("gtd ui in a repository WITH commits reaches its own dispatch, past the guard — proving the it.each above tests the guard, not gtd ui's own refusal", async () => {
     const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.commitAllWithPrefix("chore: init gtd workflow")
     const written: string[] = []
     const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
     const exit = await Effect.runPromiseExit(
-      runCommand({ kind: "serve", selfSigned: false, dev: false }, { kind: "off" }, out).pipe(
+      runCommand({ kind: "ui", selfSigned: false, dev: false }, { kind: "off" }, out).pipe(
         Effect.provide(testLayers(repo)),
       ),
     )
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      // `src/serve/Server.ts`'s own refusal (no Tailscale interface in this
-      // fake environment, no --host) — not the repository guard's.
+      // `src/ui/Server.ts`'s own refusal (no Tailscale interface in this
+      // fake environment, no --host) — not the repository/commit guard's.
       expect(String(exit.cause)).not.toContain(NO_COMMITS_MESSAGE)
-      expect(String(exit.cause)).toContain("gtd serve: no Tailscale interface found")
+      expect(String(exit.cause)).toContain("gtd ui: no Tailscale interface found")
     }
   })
 })

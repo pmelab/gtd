@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { FleetBucket, FleetEntry, FleetPayload } from "../../serve/Fleet.js"
+import type { FleetBucket, FleetEntry, FleetPayload } from "../../ui/Fleet.js"
 import { trpc } from "../api.js"
 
 const BUCKET_ORDER: readonly FleetBucket[] = ["wants-you", "working", "broken", "quiet"]

@@ -1,5 +1,5 @@
 import { createTRPCReact } from "@trpc/react-query"
-import type { AppRouter } from "../serve/Router.js"
+import type { AppRouter } from "../ui/Router.js"
 
 /**
  * Typed against `AppRouter` only — no hand-written duplicate of a procedure's
@@ -11,7 +11,7 @@ export const trpc = createTRPCReact<AppRouter>()
 /** Relative to the served origin, so it works regardless of host/port. */
 export const TRPC_URL = "/trpc"
 
-/** `serve/Write.ts#WriteResult`'s refusal half, read back off a `writeNote` mutation's error — mirrors `serve/Router.ts#WriteNoteRefusal`'s two fields exactly, kept as a plain type here (never importing `serve/Router.ts`) so this stays a thin client-side shape. `reason` mirrors `serve/Write.ts#WriteRefusalReason` verbatim, including the two reachable-but-not-among-T8's-four values (`note-collision`, `unsupported-mode`) — see that type's own doc comment for why they're distinct from `anchor-unresolved`. */
+/** `ui/Write.ts#WriteResult`'s refusal half, read back off a `writeNote` mutation's error — mirrors `ui/Router.ts#WriteNoteRefusal`'s two fields exactly, kept as a plain type here (never importing `ui/Router.ts`) so this stays a thin client-side shape. `reason` mirrors `ui/Write.ts#WriteRefusalReason` verbatim, including the two reachable-but-not-among-T8's-four values (`note-collision`, `unsupported-mode`) — see that type's own doc comment for why they're distinct from `anchor-unresolved`. */
 export interface WriteRefusalInfo {
   readonly reason:
     | "stale-token"
@@ -48,7 +48,7 @@ export const writeRefusalFrom = (error: unknown): WriteRefusalInfo | undefined =
   return { reason: reason as WriteRefusalInfo["reason"] }
 }
 
-/** `serve/Registry.ts#DriveRefusalReason`'s one value, read back off a `done` mutation's error — mirrors `serve/Router.ts#DriveRefusal` exactly, kept as a plain type here (never importing `serve/Router.ts`) so this stays a thin client-side shape, same as `WriteRefusalInfo`. */
+/** `ui/Registry.ts#DriveRefusalReason`'s one value, read back off a `done` mutation's error — mirrors `ui/Router.ts#DriveRefusal` exactly, kept as a plain type here (never importing `ui/Router.ts`) so this stays a thin client-side shape, same as `WriteRefusalInfo`. */
 export interface DriveRefusalInfo {
   readonly reason: "already-driving"
 }

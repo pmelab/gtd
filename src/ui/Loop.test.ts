@@ -344,7 +344,7 @@ describe("startLoop", () => {
     expect(registry.isDriving(worktreeId("/repos/x"))).toBe(false)
   })
 
-  it("removes the shim directory once the child exits — a long-lived gtd serve must not leak one per done action", async () => {
+  it("removes the shim directory once the child exits — a long-lived gtd ui must not leak one per done action", async () => {
     const registry = new Registry()
     const realShimDir = mkdtempSync(join(tmpDir, "gtd-real-shim-"))
     const { child, resolve } = fakeChild()

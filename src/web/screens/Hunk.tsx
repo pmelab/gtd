@@ -1,4 +1,4 @@
-import type { DiffResult, FileDiff } from "../../serve/Diff.js"
+import type { DiffResult, FileDiff } from "../../ui/Diff.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
 import { highlightDiffLine } from "../Highlight.js"
 
@@ -6,7 +6,7 @@ export interface HunkProps {
   /** The `review`-view hunk node this screen renders — `title`/`path`/`line` for the header, `checked` seeds nothing here (the caller passes the live `checked` prop below instead, since a chunk-level check-all can move it out from under this node). */
   readonly node: SteeringViewNode
   /**
-   * `src/serve/Diff.ts#resolveDiff`'s closed result for this hunk's own
+   * `src/ui/Diff.ts#resolveDiff`'s closed result for this hunk's own
    * pointer — `undefined` only while `Review.tsx#HunkWithDiff`'s
    * `trpc.diff` query is still in flight, never because the fetch doesn't
    * exist: `Router.ts`'s `diff` procedure and that container are both real.

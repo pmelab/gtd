@@ -23,7 +23,7 @@ vi.mock("./Bind.js", () => ({ pickBindHostFromSystem: () => undefined }))
 import { GtdError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import { Cwd } from "../Cwd.js"
-import type { ServeConfig } from "../ConfigSchema.js"
+import type { UiConfig } from "../ConfigSchema.js"
 import { renderQrCode } from "./Qr.js"
 import { Registry } from "./Registry.js"
 import { generateSelfSignedCert, type CertPair } from "./Tls.js"
@@ -32,13 +32,13 @@ import {
   resolveBindHost,
   resolveCertPair,
   resolveClientHtml,
-  runServeCommand,
+  runUiCommand,
 } from "./Server.js"
 
 let tmpDir: string
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "gtd-serve-test-"))
+  tmpDir = mkdtempSync(join(tmpdir(), "gtd-ui-test-"))
 })
 
 afterEach(() => {
@@ -57,7 +57,7 @@ describe("resolveBindHost", () => {
     expect(host).toBe("1.2.3.4")
   })
 
-  it("falls back to a configured serve.host when --host is absent", async () => {
+  it("falls back to a configured ui.host when --host is absent", async () => {
     const host = await Effect.runPromise(
       resolveBindHost(undefined, { host: "9.9.9.9" }, () => "100.90.1.2"),
     )
@@ -89,8 +89,8 @@ describe("resolveBindHost", () => {
 })
 
 describe("resolveCertPair", () => {
-  it("--self-signed generates a certificate even when serve.cert/serve.key are configured — the explicit flag wins", async () => {
-    const config: ServeConfig = { cert: "/some/cert.pem", key: "/some/key.pem" }
+  it("--self-signed generates a certificate even when ui.cert/ui.key are configured — the explicit flag wins", async () => {
+    const config: UiConfig = { cert: "/some/cert.pem", key: "/some/key.pem" }
     const thrown = await Effect.runPromise(
       resolveCertPair({ selfSigned: true, dev: false }, config, "100.90.1.2").pipe(
         Effect.provide(noCommandRunner),
@@ -123,7 +123,7 @@ describe("resolveCertPair", () => {
     expect(commands[0]).not.toContain("IP:localhost")
   })
 
-  it("uses a configured serve.cert/serve.key pair as-is when --self-signed is absent", async () => {
+  it("uses a configured ui.cert/ui.key pair as-is when --self-signed is absent", async () => {
     const certPath = join(tmpDir, "cert.pem")
     const keyPath = join(tmpDir, "key.pem")
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
@@ -151,10 +151,10 @@ describe("resolveCertPair", () => {
     expect(thrown).toBeInstanceOf(GtdError)
     const rendered = thrown.message + thrown.detail.join("\n")
     expect(rendered).toContain("--self-signed")
-    expect(rendered).toMatch(/serve\.cert/)
+    expect(rendered).toMatch(/ui\.cert/)
   })
 
-  it("names the missing half when only serve.cert is configured — not the generic 'no certificate is configured'", async () => {
+  it("names the missing half when only ui.cert is configured — not the generic 'no certificate is configured'", async () => {
     const thrown = await Effect.runPromise(
       resolveCertPair(
         { selfSigned: false, dev: false },
@@ -164,11 +164,11 @@ describe("resolveCertPair", () => {
     )
     expect(thrown).toBeInstanceOf(GtdError)
     const rendered = thrown.message + thrown.detail.join("\n")
-    expect(rendered).toContain("serve.key")
+    expect(rendered).toContain("ui.key")
     expect(rendered).not.toContain("no certificate is configured")
   })
 
-  it("names the missing half when only serve.key is configured — not the generic 'no certificate is configured'", async () => {
+  it("names the missing half when only ui.key is configured — not the generic 'no certificate is configured'", async () => {
     const thrown = await Effect.runPromise(
       resolveCertPair(
         { selfSigned: false, dev: false },
@@ -178,7 +178,7 @@ describe("resolveCertPair", () => {
     )
     expect(thrown).toBeInstanceOf(GtdError)
     const rendered = thrown.message + thrown.detail.join("\n")
-    expect(rendered).toContain("serve.cert")
+    expect(rendered).toContain("ui.cert")
     expect(rendered).not.toContain("no certificate is configured")
   })
 })
@@ -343,7 +343,7 @@ describe("resolveClientHtml", () => {
   })
 })
 
-describe("runServeCommand", () => {
+describe("runUiCommand", () => {
   const fakeOut = () => {
     const written: string[] = []
     return { out: { write: (chunk: string) => written.push(chunk), flush: () => {} }, written }
@@ -371,7 +371,7 @@ describe("runServeCommand", () => {
     })
 
     const fiber = Effect.runFork(
-      runServeCommand(
+      runUiCommand(
         { selfSigned: false, dev: false },
         { host: "100.90.1.2", cert: certPath, key: keyPath },
         out,
@@ -408,7 +408,7 @@ describe("runServeCommand", () => {
     })
 
     const exit = await Effect.runPromiseExit(
-      runServeCommand({ selfSigned: false, dev: false }, undefined, out).pipe(
+      runUiCommand({ selfSigned: false, dev: false }, undefined, out).pipe(
         Effect.provide(fakeHttpsServer),
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
@@ -434,7 +434,7 @@ describe("runServeCommand", () => {
     })
 
     const fiber = Effect.runFork(
-      runServeCommand(
+      runUiCommand(
         { selfSigned: false, dev: false },
         { host: "100.90.1.2", cert: certPath, key: keyPath },
         out,
@@ -464,7 +464,7 @@ const refusalDataFrom = async <T>(promise: Promise<unknown>): Promise<T | undefi
   return (error as InstanceType<typeof TRPCClientError>).data as T | undefined
 }
 
-/** Generates a self-signed cert into `dir`, starts a real `runServeCommand` over a scripted `CommandRunner` (`false` always exits 1 with the given stdout/stderr), and polls for the bound URL `out.write` prints once `HttpsServer.Live` actually binds the ephemeral port. Pulled out of the test itself so ITS OWN complexity is the tRPC assertions, not also this setup. */
+/** Generates a self-signed cert into `dir`, starts a real `runUiCommand` over a scripted `CommandRunner` (`false` always exits 1 with the given stdout/stderr), and polls for the bound URL `out.write` prints once `HttpsServer.Live` actually binds the ephemeral port. Pulled out of the test itself so ITS OWN complexity is the tRPC assertions, not also this setup. */
 const startScriptedServer = async (
   dir: string,
 ): Promise<{ readonly boundUrl: string; readonly fiber: Fiber.RuntimeFiber<void, unknown> }> => {
@@ -493,7 +493,7 @@ const startScriptedServer = async (
   )
 
   const fiber = Effect.runFork(
-    runServeCommand(
+    runUiCommand(
       { selfSigned: false, dev: false, port: 0 },
       { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0 },
       out,
@@ -518,7 +518,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
 
     // Real client dials a real self-signed HTTPS server — accepting that
     // untrusted cert is the only thing disabled here, matching what a phone
-    // client does against `gtd serve --self-signed` today.
+    // client does against `gtd ui --self-signed` today.
     const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
     process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
     try {
@@ -566,9 +566,9 @@ describe("the tRPC API surface mounted under /trpc", () => {
 })
 
 /**
- * Starts a real `runServeCommand` (real `HttpsServer`, real self-signed
+ * Starts a real `runUiCommand` (real `HttpsServer`, real self-signed
  * cert) with `config.loop` set to `loopCommand` — the ONE piece of coverage
- * `tests/integration/features/serve-loop-lifecycle.feature`'s own prose used
+ * `tests/integration/features/ui-loop-lifecycle.feature`'s own prose used
  * to claim lived here but didn't: `Server.ts#createContext`'s live
  * `startLoop(worktreePath, { registry, spawn: liveLoopSpawn, createShim,
  * command: config?.loop })` wiring, reached only through a REAL `client.done`
@@ -599,7 +599,7 @@ const startServerWithLoop = async (
   const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
   const fiber = Effect.runFork(
-    runServeCommand(
+    runUiCommand(
       { selfSigned: false, dev: false, port: 0 },
       { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0, loop: loopCommand },
       out,
@@ -640,7 +640,7 @@ describe("the live done/stop wiring — Server.ts#createContext's real startLoop
     // nothing from `tmpDir` at all — a real gitdir pointer sidesteps that
     // entirely, and it's the shape gtd's own docs assume for "a worktree"
     // throughout anyway.
-    const realGitDir = mkdtempSync(join(tmpdir(), "gtd-serve-test-gitdir-"))
+    const realGitDir = mkdtempSync(join(tmpdir(), "gtd-ui-test-gitdir-"))
     execFileSync("git", ["init", "-q", `--separate-git-dir=${realGitDir}`], { cwd: tmpDir })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: tmpDir })
     execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: tmpDir })

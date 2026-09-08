@@ -10,7 +10,7 @@ export const SETUP_FILES: readonly string[] = [
   "./tests/integration/support/steps/review-window.steps.ts",
   "./tests/integration/support/steps/steering.steps.ts",
   "./tests/integration/support/steps/repo-snapshot.steps.ts",
-  "./tests/integration/support/steps/serve.steps.ts",
+  "./tests/integration/support/steps/ui.steps.ts",
   "./tests/integration/support/steps/signal-exit.steps.ts",
   "./tests/integration/support/steps/tmpdir-gitdir.steps.ts",
 ]

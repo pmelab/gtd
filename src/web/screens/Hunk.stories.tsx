@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fireEvent, within } from "storybook/test"
-import type { DiffResult } from "../../serve/Diff.js"
+import type { DiffResult } from "../../ui/Diff.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
 import { Hunk } from "./Hunk.js"
 

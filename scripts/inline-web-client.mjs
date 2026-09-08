@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs"
-import { SCRIPT_TAG_PATTERN, inlineScript } from "../src/serve/scriptTag.mjs"
+import { SCRIPT_TAG_PATTERN, inlineScript } from "../src/ui/scriptTag.mjs"
 
 // Runs between the two tsdown builds in `npm run build` (see package.json):
 // the browser build already produced dist/web/main.js by the time this runs.

@@ -199,23 +199,23 @@ Optionally,
 sets a value renderable as `$summary` in an Agent sidebar row, if you want more
 than the state itself.
 
-### Being spawned by `gtd serve`
+### Being spawned by `gtd ui`
 
-`gtd serve`'s phone/web client can drive the SAME loop this whole chapter
-describes, without a human at a terminal: configure `serve.loop` (see
+`gtd ui`'s phone/web client can drive the SAME loop this whole chapter
+describes, without a human at a terminal: configure `ui.loop` (see
 `docs/configuration.md`'s own `loop` bullet for the full contract) to the exact
 command you'd otherwise run by hand, and the phone's "Done" action starts it —
 once per hand-back, never continuously. Everything above this section is
-unchanged: `gtd serve` never dispatches an agent turn, tracks a session, or
-reads `settled`/`idle` itself; it only starts your command, watches it, and
-stops it. What differs from running it yourself at a terminal:
+unchanged: `gtd ui` never dispatches an agent turn, tracks a session, or reads
+`settled`/`idle` itself; it only starts your command, watches it, and stops it.
+What differs from running it yourself at a terminal:
 
 - **Working directory.** The command runs with the WORKTREE it was started for
-  as its cwd — never `gtd serve`'s own directory, regardless of where
-  `gtd serve` itself was launched from.
+  as its cwd — never `gtd ui`'s own directory, regardless of where `gtd ui`
+  itself was launched from.
 - **`$PATH`.** A shim directory is prepended, so a bare `gtd` inside the command
   resolves to that worktree's own local install (`node_modules/.bin/gtd`) when
-  it has one, else the exact `gtd serve` build that spawned it — never some
+  it has one, else the exact `gtd ui` build that spawned it — never some
   unrelated global install that happened to be on `$PATH` already.
 - **Exit code and output.** Both are ignored for CONTROL FLOW — the beat
   document `gtd next --json` reports is the only truth the phone reads back, so
@@ -227,8 +227,8 @@ stops it. What differs from running it yourself at a terminal:
 - **Stopping.** The phone's "Stop" action sends `SIGINT` to the command first —
   the same signal `Ctrl-C` sends, giving it one beat's worth of grace to finish
   cleanly — escalating to `SIGKILL` after 5 seconds if it hasn't exited by then.
-- **Concurrency.** Every worktree with a configured `serve.loop` can be driven
-  at once; there is no cap and no queue across worktrees.
+- **Concurrency.** Every worktree with a configured `ui.loop` can be driven at
+  once; there is no cap and no queue across worktrees.
 
 ## Writing your own driver
 

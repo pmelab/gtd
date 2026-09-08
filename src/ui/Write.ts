@@ -64,7 +64,7 @@ export interface WriteNoteRequest {
 
 /**
  * Every side effect `writeNote` needs, injected so tests never touch a real
- * git checkout or filesystem — mirrors `serve/Beat.ts`'s own `BeatDeps`
+ * git checkout or filesystem — mirrors `ui/Beat.ts`'s own `BeatDeps`
  * pattern. `actorAt` and `headSha` are both called FRESH on every write
  * (T5: the rest gate is re-checked at write time, never cached), never
  * memoized the way `BeatCache`'s read-side is.

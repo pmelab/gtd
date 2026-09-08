@@ -6,12 +6,12 @@ import { type Plugin } from "vitest/config"
 const GENERATED_HTML = resolve(import.meta.dirname, "..", "src/web/generated.html")
 
 /**
- * `src/serve/Server.ts` imports `../web/generated.html` — gitignored,
+ * `src/ui/Server.ts` imports `../web/generated.html` — gitignored,
  * produced only by `npm run build`'s browser step + inline script. Turbo's
  * `test:unit`/`test:e2e:inmem`/`test:e2e:live` tasks all declare
  * `dependsOn: ["build"]` so that import always resolves under `npm test`
  * (`test:web`'s storybook project needs no such dependency: it only ever
- * loads `App.stories.tsx` -> `App.tsx`, never `src/serve/Server.ts`). Two
+ * loads `App.stories.tsx` -> `App.tsx`, never `src/ui/Server.ts`). Two
  * SANCTIONED entry points bypass turbo entirely: `npm run test:mutation`
  * (stryker has no build step of its own) and a bare
  * `npm run test:unit`/`test:changed` invoked directly. A `pre<task>` npm

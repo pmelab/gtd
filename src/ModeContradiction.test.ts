@@ -9,7 +9,7 @@ import {
   modeContradictionSkipNotice,
 } from "./ModeContradiction.js"
 import { shellQuote } from "./GitScript.js"
-import { applySteeringEdits } from "./serve/Write.js"
+import { applySteeringEdits } from "./ui/Write.js"
 import { builtInModeNames, steeringFormatFor } from "./SteeringFormats.js"
 import { parseFootnotes } from "./Footnotes.js"
 

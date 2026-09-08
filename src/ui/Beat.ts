@@ -31,7 +31,7 @@ const findOwnVersion = (): string => {
     if (parent === dir) break
     dir = parent
   }
-  throw new Error("no @pmelab/gtd package.json found above src/serve/Beat.ts")
+  throw new Error("no @pmelab/gtd package.json found above src/ui/Beat.ts")
 }
 
 const GTD_VERSION: string = findOwnVersion()
@@ -179,7 +179,7 @@ export const isSupportedVersion = (
  * is relative to the WORKTREE, not to the fleet server's own cwd. Joining it
  * unconditionally (the earlier shape, for `log` only) resolved that relative
  * path against the server's process instead: touching a plain repo's real
- * loop log never invalidated its cache entry, and since `gtd serve` itself
+ * loop log never invalidated its cache entry, and since `gtd ui` itself
  * runs inside a gtd repo, that same relative path usually landed on the
  * SERVER's own log — one shared file invalidating every plain-repo row at
  * once.

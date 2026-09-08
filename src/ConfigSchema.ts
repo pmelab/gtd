@@ -34,25 +34,25 @@ const modesJsonSchema = {
   },
 } as const
 
-/** The top-level `serve:` shape: `gtd serve`'s own settings (repo roots, listen address/TLS, and the loop command it spawns per session). */
-const serveJsonSchema = {
+/** The top-level `ui:` shape: `gtd ui`'s own settings (repo roots, listen address/TLS, and the loop command it spawns per session). */
+const uiJsonSchema = {
   type: "object",
   description:
-    "Settings for `gtd serve`: which repo roots it scans, where it listens, optional TLS, and the loop command it runs per session.",
+    "Settings for `gtd ui`: which repo roots it scans, where it listens, optional TLS, and the loop command it runs per session.",
   additionalProperties: false,
   properties: {
     roots: {
       type: "array",
       items: { type: "string" },
-      description: "Repo root paths `gtd serve` scans for projects. Defaults to the cwd alone.",
+      description: "Repo root paths `gtd ui` scans for projects. Defaults to the cwd alone.",
     },
     port: {
       type: "integer",
-      description: "TCP port `gtd serve` listens on.",
+      description: "TCP port `gtd ui` listens on.",
     },
     host: {
       type: "string",
-      description: "Host/interface `gtd serve` binds to.",
+      description: "Host/interface `gtd ui` binds to.",
     },
     cert: {
       type: "string",
@@ -64,7 +64,7 @@ const serveJsonSchema = {
     },
     loop: {
       type: "string",
-      description: "Shell command `gtd serve` runs to drive a session's loop.",
+      description: "Shell command `gtd ui` runs to drive a session's loop.",
     },
   },
 } as const
@@ -200,39 +200,39 @@ const workflowJsonSchema = {
 } as const
 
 /**
- * `serve:`'s own shape is a plain, flat settings struct — unlike `vars`/`modes`
+ * `ui:`'s own shape is a plain, flat settings struct — unlike `vars`/`modes`
  * it needs no Eta-template compile step, so it is a real (not `Unknown`)
- * schema: excess sub-keys under `serve:` are rejected the same way as any
+ * schema: excess sub-keys under `ui:` are rejected the same way as any
  * other excess key, by the `onExcessProperty: "error"` decode option
  * `Config.ts` already passes for the whole config (it applies recursively).
- * `serveJsonSchema` above still overrides the derived JSON Schema so the
+ * `uiJsonSchema` above still overrides the derived JSON Schema so the
  * published shape stays a hand-annotated literal like its siblings.
  *
  * Deliberate deviation from this package's own T1 prose, which asked for an
- * unknown `serve:` sub-key to be "a decode failure at exit 2": every OTHER
+ * unknown `ui:` sub-key to be "a decode failure at exit 2": every OTHER
  * config decode failure in this codebase (an unknown top-level key included —
  * see `Config.ts`'s `formatSchemaError`) exits 1, `EXIT_RUNTIME_ERROR` — a
- * `serve:`-only exception would be the one config error in the whole CLI that
+ * `ui:`-only exception would be the one config error in the whole CLI that
  * exits 2, `EXIT_USAGE_ERROR`, for no reason a user could infer. Consistency
  * with the rest of `.gtdrc` decoding wins; this exits 1 like every sibling.
  */
-const ServeSchema = Schema.Struct({
+const UiSchema = Schema.Struct({
   roots: Schema.optional(Schema.Array(Schema.String)),
   port: Schema.optional(Schema.Int),
   host: Schema.optional(Schema.String),
   cert: Schema.optional(Schema.String),
   key: Schema.optional(Schema.String),
   loop: Schema.optional(Schema.String),
-}).annotations({ jsonSchema: serveJsonSchema })
+}).annotations({ jsonSchema: uiJsonSchema })
 
 export const ConfigSchema = Schema.Struct({
   workflow: Schema.optional(Schema.Unknown.annotations({ jsonSchema: workflowJsonSchema })),
   vars: Schema.optional(Schema.Unknown.annotations({ jsonSchema: varsJsonSchema })),
   modes: Schema.optional(Schema.Unknown.annotations({ jsonSchema: modesJsonSchema })),
-  serve: Schema.optional(ServeSchema),
+  ui: Schema.optional(UiSchema),
 })
 
 export type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
 
-/** The decoded `serve:` shape — `gtd serve` and its CLI flags read `roots`/`port`/`host`/`cert`/`key`/`loop` off this. */
-export type ServeConfig = Schema.Schema.Type<typeof ServeSchema>
+/** The decoded `ui:` shape — `gtd ui` and its CLI flags read `roots`/`port`/`host`/`cert`/`key`/`loop` off this. */
+export type UiConfig = Schema.Schema.Type<typeof UiSchema>

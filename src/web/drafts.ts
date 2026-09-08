@@ -8,8 +8,8 @@ export interface Draft {
 
 /**
  * The storage `drafts.ts` writes through — `window.localStorage`'s own shape,
- * injected so tests never touch a real browser API (mirrors `serve/Write.ts`'s
- * `WriteDeps` / `serve/Beat.ts`'s `BeatDeps` dependency-injection pattern used
+ * injected so tests never touch a real browser API (mirrors `ui/Write.ts`'s
+ * `WriteDeps` / `ui/Beat.ts`'s `BeatDeps` dependency-injection pattern used
  * throughout this codebase).
  */
 export interface DraftStorage {

@@ -74,8 +74,8 @@ describe("turbo.json / package.json invariants", () => {
     // directory and .storybook/". `src/web/**` alone under-declares this:
     // `src/web/screens/Question.tsx` value-imports `isAnswered`/
     // `FREE_TEXT_PLACEHOLDER` from `src/OpenQuestions.ts`, `Hunk.tsx`/
-    // `Review.tsx` import `src/serve/Diff.ts`, `Fleet.tsx` imports
-    // `src/serve/Fleet.ts`/`src/serve/Beat.ts`, and several files import
+    // `Review.tsx` import `src/ui/Diff.ts`, `Fleet.tsx` imports
+    // `src/ui/Fleet.ts`/`src/ui/Beat.ts`, and several files import
     // `src/SteeringFormat.ts` — none of those live under `src/web/**`, so a
     // change to the answeredness predicate (say) would replay a cached
     // green here instead of re-running the storybook suite that actually

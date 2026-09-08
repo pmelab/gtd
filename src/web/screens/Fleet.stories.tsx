@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { page } from "@vitest/browser/context"
 import { expect, fireEvent, fn, waitFor, within } from "storybook/test"
-import type { FleetEntry, FleetPayload } from "../../serve/Fleet.js"
+import type { FleetEntry, FleetPayload } from "../../ui/Fleet.js"
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { Fleet, FleetView } from "./Fleet.js"
 
@@ -353,7 +353,7 @@ export const EmptyFleet: Story = {
 }
 
 // The no-label → state-name fallback is computed server-side
-// (`src/serve/Beat.ts`'s `okResult`, covered by `Beat.test.ts`): a
+// (`src/ui/Beat.ts`'s `okResult`, covered by `Beat.test.ts`): a
 // `FleetEntry`'s `label` is always a populated string by the time it
 // reaches this component, so there is no "label genuinely absent" case a
 // client-side story could exercise — nothing here would ever render blank.

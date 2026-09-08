@@ -10,7 +10,7 @@ import { Context, Effect, Either, Layer, Runtime } from "effect"
 import type { ArtifactOut } from "../Cli.js"
 import { GtdError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
-import type { ServeConfig } from "../ConfigSchema.js"
+import type { UiConfig } from "../ConfigSchema.js"
 import { Cwd } from "../Cwd.js"
 import generatedClientHtml from "../web/generated.html"
 import {
@@ -36,8 +36,8 @@ import { liveActorAt, liveReadFile, liveWriteFile, writeNote, type WriteDeps } f
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
 
-/** The fields `Cli.ts`'s parsed `{ kind: "serve" }` command carries — this module never reads `Command` itself to stay independent of its parsing. */
-export interface ServeCommandOptions {
+/** The fields `Cli.ts`'s parsed `{ kind: "ui" }` command carries — this module never reads `Command` itself to stay independent of its parsing. */
+export interface UiCommandOptions {
   readonly host?: string
   readonly port?: number
   readonly selfSigned: boolean
@@ -53,7 +53,7 @@ interface BoundServer {
 
 /**
  * Determines the bind host: an explicit `--host`, then a configured
- * `serve.host`, then a scan for a Tailscale interface — refusing only when
+ * `ui.host`, then a scan for a Tailscale interface — refusing only when
  * all three are absent, because a server that reads and writes working
  * trees without authentication must never silently appear on the LAN.
  * `pickHost` defaults to the real system scan but is a parameter so tests
@@ -61,13 +61,13 @@ interface BoundServer {
  */
 export const resolveBindHost = (
   host: string | undefined,
-  config: ServeConfig | undefined,
+  config: UiConfig | undefined,
   pickHost: () => string | undefined = pickBindHostFromSystem,
 ): Effect.Effect<string, GtdError> => {
   const resolved = host ?? config?.host ?? pickHost()
   return resolved === undefined
     ? Effect.fail(
-        new GtdError("gtd serve: no Tailscale interface found to bind to, and no --host given", [
+        new GtdError("gtd ui: no Tailscale interface found to bind to, and no --host given", [
           "join a tailnet, so a CGNAT (100.64.0.0/10) address is available",
           "or pass --host <address> to bind explicitly",
         ]),
@@ -77,14 +77,14 @@ export const resolveBindHost = (
 
 /**
  * Determines the certificate/key pair: `--self-signed` always wins (an
- * explicit ask, honored even if `serve.cert`/`serve.key` are also
+ * explicit ask, honored even if `ui.cert`/`ui.key` are also
  * configured), then a configured pair. Neither present is a refusal, not a
  * silent default to self-signed — that would mean an unexpected `openssl`
- * invocation on every plain `gtd serve`.
+ * invocation on every plain `gtd ui`.
  */
 export const resolveCertPair = (
-  options: ServeCommandOptions,
-  config: ServeConfig | undefined,
+  options: UiCommandOptions,
+  config: UiConfig | undefined,
   host: string,
 ): Effect.Effect<CertPair, GtdError, CommandRunner | FileSystem.FileSystem> => {
   // openssl's `-addext subjectAltName=IP:...` rejects a non-literal value
@@ -99,18 +99,18 @@ export const resolveCertPair = (
     return loadCertPair(config.cert, config.key)
   }
   if (config?.cert !== undefined || config?.key !== undefined) {
-    const missing = config.cert === undefined ? "serve.cert" : "serve.key"
+    const missing = config.cert === undefined ? "ui.cert" : "ui.key"
     return Effect.fail(
-      new GtdError(`gtd serve: ${missing} is not configured — both cert and key are required`, [
-        `serve.${config.cert === undefined ? "key" : "cert"} is configured, but ${missing} is not`,
+      new GtdError(`gtd ui: ${missing} is not configured — both cert and key are required`, [
+        `ui.${config.cert === undefined ? "key" : "cert"} is configured, but ${missing} is not`,
         "pass --self-signed for a throwaway certificate instead",
       ]),
     )
   }
   return Effect.fail(
-    new GtdError("gtd serve: HTTPS is mandatory and no certificate is configured", [
+    new GtdError("gtd ui: HTTPS is mandatory and no certificate is configured", [
       "pass --self-signed for a throwaway certificate",
-      "or configure serve.cert and serve.key",
+      "or configure ui.cert and ui.key",
     ]),
   )
 }
@@ -143,8 +143,8 @@ export class HttpsServer extends Context.Tag("HttpsServer")<
           resume(
             Effect.fail(
               err.code === "EADDRINUSE"
-                ? new GtdError(`gtd serve: port ${port} is already in use`)
-                : new GtdError(`gtd serve: could not start the server: ${err.message}`),
+                ? new GtdError(`gtd ui: port ${port} is already in use`)
+                : new GtdError(`gtd ui: could not start the server: ${err.message}`),
             ),
           )
         })
@@ -162,8 +162,8 @@ const DEFAULT_PORT = 8443
 /**
  * `--dev` needs the gtd SOURCE checkout (its `src/web/`, its `tsdown.config.ts`,
  * its devDependencies) to rebuild against — never the invoking directory,
- * which `serve` deliberately runs outside of (see `needsOf("serve")`). Walks
- * up from this module's own file — `src/serve/Server.ts` in a source checkout,
+ * which `ui` deliberately runs outside of (see `needsOf("ui")`). Walks
+ * up from this module's own file — `src/ui/Server.ts` in a source checkout,
  * or the single bundled `dist/gtd.bundle.mjs` in an installed package, both of
  * which sit a fixed few directories under the package root — until it finds
  * the `package.json` that names this package, so the search works from either
@@ -186,13 +186,10 @@ const findPackageRoot = (): Effect.Effect<string, GtdError> =>
       throw new Error("no @pmelab/gtd package.json found above this module")
     },
     catch: () =>
-      new GtdError(
-        "gtd serve --dev: could not locate the gtd source checkout to rebuild the client",
-        [
-          "--dev is for developing gtd's own web client: run it from a",
-          "checked-out gtd repository with devDependencies installed",
-        ],
-      ),
+      new GtdError("gtd ui --dev: could not locate the gtd source checkout to rebuild the client", [
+        "--dev is for developing gtd's own web client: run it from a",
+        "checked-out gtd repository with devDependencies installed",
+      ]),
   })
 
 /** `--dev`: the raw template, read fresh off disk every call — editing it needs no rebuild. */
@@ -204,7 +201,7 @@ const readDevTemplate = (
     .readFileString(join(root, "src/web/index.html"))
     .pipe(
       Effect.mapError(
-        (e) => new GtdError(`gtd serve --dev: could not read src/web/index.html: ${e.message}`),
+        (e) => new GtdError(`gtd ui --dev: could not read src/web/index.html: ${e.message}`),
       ),
     )
 
@@ -215,7 +212,7 @@ const readDevTemplate = (
  * source file with no manual `npm run build`. Runs with `root` (the gtd
  * package's OWN directory, never the invoking cwd) as its working directory —
  * a plain `npx tsdown` in the invoking directory would have no tsdown.config.ts
- * to select against, since `serve` deliberately runs outside any repo. Costs
+ * to select against, since `ui` deliberately runs outside any repo. Costs
  * one subprocess build per request; acceptable for local development, never
  * reached in production.
  */
@@ -229,13 +226,13 @@ const rebuildDevClientScript = (
       .bash(`cd ${JSON.stringify(root)} && npx tsdown --filter web`)
       .pipe(
         Effect.mapError(
-          (e) => new GtdError(`gtd serve --dev: could not rebuild the client: ${e.message}`),
+          (e) => new GtdError(`gtd ui --dev: could not rebuild the client: ${e.message}`),
         ),
       )
     if (outcome.status !== 0) {
       return yield* Effect.fail(
         new GtdError(
-          "gtd serve --dev: rebuilding the client failed",
+          "gtd ui --dev: rebuilding the client failed",
           outcome.output.trim().split("\n").filter(Boolean),
         ),
       )
@@ -244,7 +241,7 @@ const rebuildDevClientScript = (
       .readFileString(join(root, "dist/web/main.js"))
       .pipe(
         Effect.mapError(
-          (e) => new GtdError(`gtd serve --dev: could not read the rebuilt client: ${e.message}`),
+          (e) => new GtdError(`gtd ui --dev: could not read the rebuilt client: ${e.message}`),
         ),
       )
   })
@@ -264,18 +261,18 @@ export const resolveClientHtml = (
       )
     : Effect.succeed(generatedClientHtml)
 
-export type ServeRequirements = CommandRunner | FileSystem.FileSystem | HttpsServer | Cwd
+export type UiRequirements = CommandRunner | FileSystem.FileSystem | HttpsServer | Cwd
 
 /**
- * `gtd serve`: binds an HTTPS server exposing the phone/web client. Blocks
+ * `gtd ui`: binds an HTTPS server exposing the phone/web client. Blocks
  * forever on success (mirrors `gtd visualize`'s `Effect.never` pattern) —
  * the process only exits on Ctrl-C or a bind refusal.
  */
-export const runServeCommand = (
-  options: ServeCommandOptions,
-  config: ServeConfig | undefined,
+export const runUiCommand = (
+  options: UiCommandOptions,
+  config: UiConfig | undefined,
   out: ArtifactOut,
-): Effect.Effect<void, GtdError, ServeRequirements> =>
+): Effect.Effect<void, GtdError, UiRequirements> =>
   Effect.gen(function* () {
     const host = yield* resolveBindHost(options.host, config)
     const certPair = yield* resolveCertPair(options, config, host)
@@ -285,7 +282,7 @@ export const runServeCommand = (
     const fs = yield* FileSystem.FileSystem
     const httpsServer = yield* HttpsServer
     const cwd = yield* Cwd
-    const runtime = yield* Effect.runtime<ServeRequirements>()
+    const runtime = yield* Effect.runtime<UiRequirements>()
 
     // One `BeatCache` for the whole server process, never one per request —
     // its memo only amortizes the `gtd next --json` cost if it survives
@@ -297,7 +294,7 @@ export const runServeCommand = (
       statMtime: liveStatMtime,
     })
     // The server's own process-lifetime child-process registry — one
-    // instance for the whole `gtd serve` run, never persisted: a restart
+    // instance for the whole `gtd ui` run, never persisted: a restart
     // loses it entirely, which is the point.
     const registry = new Registry()
 

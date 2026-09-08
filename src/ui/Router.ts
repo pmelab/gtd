@@ -10,7 +10,7 @@ import type { ReadSteeringFileRequest, ReadSteeringFileResult } from "./ReadStee
 import { steeringViewFor } from "./View.js"
 import type { WriteNoteRequest, WriteResult } from "./Write.js"
 
-/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes the fleet read's own memo actually memoize across requests. `writeNote`/`readSteeringFile` close over the live `WriteDeps`/`ReadSteeringFileDeps` (see `Write.ts`/`ReadSteeringFile.ts`); `resolveDiff` closes over the live `DiffDeps` (see `Diff.ts`) the same way. `startLoop`/`stopLoop` close over the server's one process-lifetime `Registry` — this router never imports `Shim` or `Registry` itself, staying as ignorant of subprocess spawning as it already is of the filesystem; `StartLoopResult` is `Loop.ts#startLoop`'s own result type, imported here as the consumer, mirroring `Write.ts#WriteResult`/`ReadSteeringFile.ts#ReadSteeringFileResult`/`Diff.ts#DiffResult`. The router never imports a format module or a filesystem API directly. */
+/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<UiRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes the fleet read's own memo actually memoize across requests. `writeNote`/`readSteeringFile` close over the live `WriteDeps`/`ReadSteeringFileDeps` (see `Write.ts`/`ReadSteeringFile.ts`); `resolveDiff` closes over the live `DiffDeps` (see `Diff.ts`) the same way. `startLoop`/`stopLoop` close over the server's one process-lifetime `Registry` — this router never imports `Shim` or `Registry` itself, staying as ignorant of subprocess spawning as it already is of the filesystem; `StartLoopResult` is `Loop.ts#startLoop`'s own result type, imported here as the consumer, mirroring `Write.ts#WriteResult`/`ReadSteeringFile.ts#ReadSteeringFileResult`/`Diff.ts#DiffResult`. The router never imports a format module or a filesystem API directly. */
 export interface RouterContext {
   readonly runtime: Runtime.Runtime<CommandRunner>
   readonly readFleet: () => Promise<FleetPayload>
@@ -40,7 +40,7 @@ export class CommandRefusal extends Error {
     readonly stderr: string,
     readonly exitCode: number | null,
   ) {
-    super("gtd serve: command exited non-zero")
+    super("gtd ui: command exited non-zero")
     this.name = "CommandRefusal"
   }
 }
@@ -51,7 +51,7 @@ export class WriteNoteRefusal extends Error {
     readonly reason: import("./Write.js").WriteRefusalReason,
     readonly moved?: "sha" | "content-hash",
   ) {
-    super(`gtd serve: write refused (${reason})`)
+    super(`gtd ui: write refused (${reason})`)
     this.name = "WriteNoteRefusal"
   }
 }
@@ -59,7 +59,7 @@ export class WriteNoteRefusal extends Error {
 /** `View.ts#steeringViewFor`'s one typed refusal, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.viewRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. */
 export class UnsupportedModeRefusal extends Error {
   constructor(readonly reason: import("./View.js").SteeringViewRefusalReason) {
-    super(`gtd serve: view refused (${reason})`)
+    super(`gtd ui: view refused (${reason})`)
     this.name = "UnsupportedModeRefusal"
   }
 }
@@ -67,7 +67,7 @@ export class UnsupportedModeRefusal extends Error {
 /** One of `ReadSteeringFile.ts#ReadSteeringFileResult`'s two typed refusals, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.readRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. */
 export class ReadSteeringFileRefusal extends Error {
   constructor(readonly reason: "file-vanished" | "unsupported-mode") {
-    super(`gtd serve: read refused (${reason})`)
+    super(`gtd ui: read refused (${reason})`)
     this.name = "ReadSteeringFileRefusal"
   }
 }
@@ -75,7 +75,7 @@ export class ReadSteeringFileRefusal extends Error {
 /** The registry's one named refusal (already-driving), carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.driveRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. Never a silent no-op: the refusal is a named value the phone can render. */
 export class DriveRefusal extends Error {
   constructor(readonly reason: DriveRefusalReason) {
-    super(`gtd serve: drive refused (${reason})`)
+    super(`gtd ui: drive refused (${reason})`)
     this.name = "DriveRefusal"
   }
 }
@@ -253,7 +253,7 @@ export const appRouter = t.router({
   /**
    * Runs `input.command` VERBATIM via `CommandRunner` — `commandInput` only
    * checks it is a string, nothing about its content. The unauthenticated
-   * surface is the accepted design (tailnet-only binding, `gtd serve`
+   * surface is the accepted design (tailnet-only binding, `gtd ui`
    * refuses to start otherwise); this is arbitrary shell execution on
    * whatever bound the server, and any future caller must treat it as such.
    * The single Effect-to-Promise boundary for this resolver is the
@@ -269,7 +269,7 @@ export const appRouter = t.router({
     if (outcome.status !== 0) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "gtd serve: command exited non-zero",
+        message: "gtd ui: command exited non-zero",
         cause: new CommandRefusal(outcome.stdout ?? "", outcome.stderr ?? "", outcome.status),
       })
     }
@@ -292,7 +292,7 @@ export const appRouter = t.router({
     if (!result.ok) {
       throw new TRPCError({
         code: "CONFLICT",
-        message: `gtd serve: write refused (${result.reason})`,
+        message: `gtd ui: write refused (${result.reason})`,
         cause: new WriteNoteRefusal(result.reason, result.moved),
       })
     }
@@ -318,7 +318,7 @@ export const appRouter = t.router({
     if (!write.ok) {
       throw new TRPCError({
         code: "CONFLICT",
-        message: `gtd serve: write refused (${write.reason})`,
+        message: `gtd ui: write refused (${write.reason})`,
         cause: new WriteNoteRefusal(write.reason, write.moved),
       })
     }
@@ -326,7 +326,7 @@ export const appRouter = t.router({
     if (!started.ok) {
       throw new TRPCError({
         code: "CONFLICT",
-        message: `gtd serve: drive refused (${started.reason})`,
+        message: `gtd ui: drive refused (${started.reason})`,
         cause: new DriveRefusal(started.reason),
       })
     }
@@ -356,7 +356,7 @@ export const appRouter = t.router({
     if (!result.ok) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: `gtd serve: view refused (${result.reason})`,
+        message: `gtd ui: view refused (${result.reason})`,
         cause: new UnsupportedModeRefusal(result.reason),
       })
     }
@@ -391,7 +391,7 @@ export const appRouter = t.router({
     if (!result.ok) {
       throw new TRPCError({
         code: result.reason === "file-vanished" ? "NOT_FOUND" : "BAD_REQUEST",
-        message: `gtd serve: read refused (${result.reason})`,
+        message: `gtd ui: read refused (${result.reason})`,
         cause: new ReadSteeringFileRefusal(result.reason),
       })
     }

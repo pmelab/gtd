@@ -13,7 +13,7 @@ import { GitService } from "./Git.js"
 import { runCommand, SelectorUsageError, type CommandRequirements } from "./program.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
-import { HttpsServer } from "./serve/Server.js"
+import { HttpsServer } from "./ui/Server.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
 
 export type { CommandRequirements }
@@ -26,11 +26,11 @@ export type Command =
   | { readonly kind: "init" }
   | { readonly kind: "visualize"; readonly port: number; readonly open: boolean }
   | {
-      readonly kind: "serve"
+      readonly kind: "ui"
       // `host`/`port` stay optional/undefined-when-absent (unlike
       // `visualize`'s non-optional `port`): a resolved bind address/port is
-      // `serve: { host?, port? }` config-file values merged in downstream
-      // (`src/serve/Server.ts`, a separate task), which this parser never
+      // `ui: { host?, port? }` config-file values merged in downstream
+      // (`src/ui/Server.ts`, a separate task), which this parser never
       // reads — an absent flag here must not shadow a configured value with
       // a parser-invented default.
       readonly host?: string
@@ -164,18 +164,18 @@ const FLAGS: readonly FlagRow[] = [
     name: "--port",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "visualize" || kind === "serve",
+    scope: (kind) => kind === "visualize" || kind === "ui",
     decode: ([raw]) => {
       const n = Number(raw)
       return raw !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535
         ? Either.right(n)
         : Either.left(`gtd: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
     },
-    scopeError: "gtd: --port is only valid for `gtd visualize`/`gtd serve`",
+    scopeError: "gtd: --port is only valid for `gtd visualize`/`gtd ui`",
     valueHint: "<n>",
     help: [
-      "(gtd visualize/gtd serve only) port to serve on (default:",
-      "a free port for visualize, 8443 for serve)",
+      "(gtd visualize/gtd ui only) port to serve on (default:",
+      "a free port for visualize, 8443 for ui)",
     ],
   },
   {
@@ -192,15 +192,15 @@ const FLAGS: readonly FlagRow[] = [
     name: "--host",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "serve",
+    scope: (kind) => kind === "ui",
     decode: ([raw]) =>
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
         ? Either.left("gtd: --host must be a non-empty, single-line value")
         : Either.right(raw),
-    scopeError: "gtd: --host is only valid for `gtd serve`",
+    scopeError: "gtd: --host is only valid for `gtd ui`",
     valueHint: "<addr>",
     help: [
-      "(gtd serve only) address to bind the server to (default:",
+      "(gtd ui only) address to bind the server to (default:",
       "an address picked automatically)",
     ],
   },
@@ -208,27 +208,24 @@ const FLAGS: readonly FlagRow[] = [
     name: "--self-signed",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "serve",
+    scope: (kind) => kind === "ui",
     decode: () => Either.right(true),
-    scopeError: "gtd: --self-signed is only valid for `gtd serve`",
+    scopeError: "gtd: --self-signed is only valid for `gtd ui`",
     valueHint: "",
     help: [
-      "(gtd serve only) generate a throwaway self-signed TLS",
-      "certificate instead of the configured serve.cert/serve.key",
+      "(gtd ui only) generate a throwaway self-signed TLS",
+      "certificate instead of the configured ui.cert/ui.key",
     ],
   },
   {
     name: "--dev",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "serve",
+    scope: (kind) => kind === "ui",
     decode: () => Either.right(true),
-    scopeError: "gtd: --dev is only valid for `gtd serve`",
+    scopeError: "gtd: --dev is only valid for `gtd ui`",
     valueHint: "",
-    help: [
-      "(gtd serve only) run against local development sources",
-      "instead of the packaged build",
-    ],
+    help: ["(gtd ui only) run against local development sources", "instead of the packaged build"],
   },
   {
     name: "--cost",
@@ -487,19 +484,19 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
-    token: "serve",
-    kind: "serve",
+    token: "ui",
+    kind: "ui",
     arity: "none",
     details: [
       "Start a local HTTPS server (never plain http — the Web Speech",
       "API is secure-context-only) exposing gtd's web/phone client",
-      "for the roots declared under serve: in config (default: this",
-      "repo) — the roots it scans are elsewhere, so it never needs a",
-      "repository at the invoking directory. --host <addr> and",
+      "for THIS worktree — the invoking directory, never a",
+      "configured list of roots — and refuses outside a repository",
+      "like every other state command. --host <addr> and",
       "--port <n> override the bound address (default: an address",
       "picked automatically, and port 8443); --self-signed",
       "generates a throwaway TLS certificate instead of the",
-      "configured serve.cert/serve.key; --dev runs against local",
+      "configured ui.cert/ui.key; --dev runs against local",
       "development sources instead of the packaged build",
     ],
   },
@@ -1008,11 +1005,11 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
-  if (kind === "serve") {
+  if (kind === "ui") {
     return {
       kind: "command",
       command: {
-        kind: "serve",
+        kind: "ui",
         ...(bag["--host"] !== undefined ? { host: bag["--host"] } : {}),
         ...(bag["--port"] !== undefined ? { port: bag["--port"] } : {}),
         selfSigned: bag["--self-signed"] ?? false,

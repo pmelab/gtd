@@ -40,7 +40,7 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
-import { HttpsServer, runServeCommand } from "./serve/Server.js"
+import { HttpsServer, runUiCommand } from "./ui/Server.js"
 import { enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
 import { clearFilePointerTicks } from "./ReviewDoc.js"
@@ -1049,26 +1049,27 @@ const runVisualizeCommand = (
   })
 
 /**
- * `gtd serve`: loads `serve:` config and hands it, alongside the parsed
- * flags, to `src/serve/Server.ts`'s `runServeCommand` — the module owning
- * the bind/TLS/HTTP(S) logic. `needs: "config"` (see `needsOf` above) skips
- * the repo-root guard, matching `gtd visualize`: the roots `serve:` scans
- * are elsewhere, so this never needs the invoking directory to be a repo.
+ * `gtd ui`: loads `ui:` config and hands it, alongside the parsed flags, to
+ * `src/ui/Server.ts`'s `runUiCommand` — the module owning the bind/TLS/HTTP(S)
+ * logic. `needs: "state"` (see `needsOf` above) means this shares the
+ * repo-root/at-least-one-commit guard with every other workflow-state
+ * command — unlike `gtd visualize`, `gtd ui` operates on the invoking
+ * directory's own worktree, never a configured list of roots.
  */
-const runServeCliCommand = (
-  command: Extract<Command, { kind: "serve" }>,
+const runUiCliCommand = (
+  command: Extract<Command, { kind: "ui" }>,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
-    yield* runServeCommand(
+    yield* runUiCommand(
       {
         ...(command.host !== undefined ? { host: command.host } : {}),
         ...(command.port !== undefined ? { port: command.port } : {}),
         selfSigned: command.selfSigned,
         dev: command.dev,
       },
-      config.serve,
+      config.ui,
       out,
     )
   })
@@ -1157,19 +1158,17 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "uncheck":
       return "fs"
     case "visualize":
-    case "serve":
       return "config"
     default:
       return "state"
   }
 }
 
-/** The seven kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
+/** The six kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "init",
   "visualize",
-  "serve",
   "check",
   "uncheck",
   "install",
@@ -1195,8 +1194,8 @@ const dispatchVoidCommand = (
       return runInitCommand(out)
     case "visualize":
       return runVisualizeCommand(command.port, command.open, out)
-    case "serve":
-      return runServeCliCommand(command, out)
+    case "ui":
+      return runUiCliCommand(command, out)
     case "land":
       return runLandCommand(
         {

@@ -18,7 +18,7 @@ export interface CertPair {
  * and the hostname, for whichever one a client dials. `ip` is OPTIONAL and
  * MUST be an actual IPv4/IPv6 literal, never a hostname — openssl's
  * `-addext subjectAltName=IP:...` rejects a non-literal value outright
- * (`gtd serve --host localhost --self-signed` puts a hostname where the
+ * (`gtd ui --host localhost --self-signed` puts a hostname where the
  * default Tailscale-scan path always puts a literal). Callers with a
  * hostname `--host` pass `ip: undefined`; the SAN then carries DNS only.
  */
@@ -59,13 +59,12 @@ export const generateSelfSignedCert = (
       .bash(command)
       .pipe(
         Effect.mapError(
-          (e) =>
-            new GtdError(`gtd serve: could not run openssl to issue a certificate: ${e.message}`),
+          (e) => new GtdError(`gtd ui: could not run openssl to issue a certificate: ${e.message}`),
         ),
       )
     if (outcome.status !== 0) {
       return yield* Effect.fail(
-        new GtdError("gtd serve: openssl exited without issuing a certificate", [
+        new GtdError("gtd ui: openssl exited without issuing a certificate", [
           `exit status: ${outcome.status ?? "signal"}`,
           ...outcome.output.trim().split("\n").filter(Boolean),
         ]),
@@ -79,7 +78,7 @@ export const generateSelfSignedCert = (
       }),
       catch: (e) =>
         new GtdError(
-          `gtd serve: openssl reported success but its output could not be read: ${
+          `gtd ui: openssl reported success but its output could not be read: ${
             e instanceof Error ? e.message : String(e)
           }`,
         ),
@@ -104,9 +103,7 @@ export const loadCertPair = (
     const read = (path: string) =>
       fs
         .readFileString(path)
-        .pipe(
-          Effect.mapError((e) => new GtdError(`gtd serve: could not read ${path}: ${e.message}`)),
-        )
+        .pipe(Effect.mapError((e) => new GtdError(`gtd ui: could not read ${path}: ${e.message}`)))
     const cert = yield* read(certPath)
     const key = yield* read(keyPath)
     return { cert, key }

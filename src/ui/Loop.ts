@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { worktreeId } from "./Discover.js"
 import type { DriveRefusalReason, Registry } from "./Registry.js"
 
-/** One loop child's outcome — `stdout`/`stderr` arrive as two separate strings, NEVER combined (unlike `CommandRunner`'s `CommandOutcome.output`), because the done action never parses either for state and only cares that the child exited. `signal` is set (and `status` `null`) on a signal death, matching `spawnSync`'s own contract. `spawnError` mirrors `Beat.ts`'s `SpawnOutcome.spawnError`: set (never `status`/`signal`) when the process could never start at all (no `bash` on `$PATH`, a vanished `cwd`) — Node reports that as an `error` event, not an `exit`, so without this `wait` would otherwise hang forever and an unhandled `error` on the `ChildProcess` emitter would crash the whole `gtd serve` process. */
+/** One loop child's outcome — `stdout`/`stderr` arrive as two separate strings, NEVER combined (unlike `CommandRunner`'s `CommandOutcome.output`), because the done action never parses either for state and only cares that the child exited. `signal` is set (and `status` `null`) on a signal death, matching `spawnSync`'s own contract. `spawnError` mirrors `Beat.ts`'s `SpawnOutcome.spawnError`: set (never `status`/`signal`) when the process could never start at all (no `bash` on `$PATH`, a vanished `cwd`) — Node reports that as an `error` event, not an `exit`, so without this `wait` would otherwise hang forever and an unhandled `error` on the `ChildProcess` emitter would crash the whole `gtd ui` process. */
 export interface LoopOutcome {
   readonly stdout: string
   readonly stderr: string
@@ -67,7 +67,7 @@ const signalGroup = (pid: number, signal: NodeJS.Signals): void => {
  * service — `Server.ts` calls it directly, and `StartLoopDeps.spawn` (below)
  * is the injection seam tests use instead of a service layer. `detached:
  * true` makes this `bash` the leader of its own new process group (rather
- * than sharing `gtd serve`'s own) — see `signalGroup`'s own doc comment for
+ * than sharing `gtd ui`'s own) — see `signalGroup`'s own doc comment for
  * why `interrupt`/`kill` signal that whole group, not just this one pid.
  */
 export const liveLoopSpawn = (request: LoopSpawnRequest): LoopChild => {
@@ -157,11 +157,11 @@ export interface StartLoopDeps {
   readonly spawn: (request: LoopSpawnRequest) => LoopChild
   /** Creates a fresh shim directory (see `Shim.ts#createShim`) resolved to THIS worktree's own local install when it has one — an `Effect` (not yet run) so this module never imports `FileSystem` itself. */
   readonly createShim: (worktreePath: string) => Effect.Effect<string, Error>
-  /** `undefined` when `serve.loop` isn't configured — `startLoop` then rejects rather than spawning nothing useful. */
+  /** `undefined` when `ui.loop` isn't configured — `startLoop` then rejects rather than spawning nothing useful. */
   readonly command: string | undefined
 }
 
-/** Best-effort recursive removal of a shim directory — a long-lived `gtd serve` would otherwise leak one temp directory per `done` action forever. Never throws: a cleanup failure (already gone, a permission quirk) is not worth failing anything over. */
+/** Best-effort recursive removal of a shim directory — a long-lived `gtd ui` would otherwise leak one temp directory per `done` action forever. Never throws: a cleanup failure (already gone, a permission quirk) is not worth failing anything over. */
 const removeShimDir = (dir: string): Promise<void> =>
   rm(dir, { recursive: true, force: true }).catch(() => {})
 
@@ -187,7 +187,7 @@ export const startLoop = async (
   deps: StartLoopDeps,
 ): Promise<StartLoopResult> => {
   if (deps.command === undefined) {
-    throw new Error("gtd serve: no serve.loop command configured")
+    throw new Error("gtd ui: no ui.loop command configured")
   }
   const id = worktreeId(worktreePath)
   if (!deps.registry.reserve(id)) return { ok: false, reason: "already-driving" }

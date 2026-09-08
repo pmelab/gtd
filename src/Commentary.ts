@@ -37,7 +37,7 @@ export class Narrator extends Context.Tag("Narrator")<
  * An error carrying REMEDIATION alongside its message — the offending config
  * key and the layer it came from, a corrupted ref's name, a missing binary's
  * resolved `$PATH`. Only four families construct one (see `Config.ts`,
- * `Git.ts`, `SteeringMode.ts`, `serve/Tls.ts`) — every other `Error` site
+ * `Git.ts`, `SteeringMode.ts`, `ui/Tls.ts`) — every other `Error` site
  * stays a plain `Error` and renders as the single `gtd: `-prefixed line it
  * always has.
  */

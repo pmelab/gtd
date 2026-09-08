@@ -74,15 +74,15 @@ Commands:
                    local web server (--port <n>, --no-open). Prints the
                    chosen port on its own line — with --port 0, this is the
                    only way to learn which port was picked
-  serve            Start a local HTTPS server (never plain http — the Web Speech
+  ui               Start a local HTTPS server (never plain http — the Web Speech
                    API is secure-context-only) exposing gtd's web/phone client
-                   for the roots declared under serve: in config (default: this
-                   repo) — the roots it scans are elsewhere, so it never needs a
-                   repository at the invoking directory. --host <addr> and
+                   for THIS worktree — the invoking directory, never a
+                   configured list of roots — and refuses outside a repository
+                   like every other state command. --host <addr> and
                    --port <n> override the bound address (default: an address
                    picked automatically, and port 8443); --self-signed
                    generates a throwaway TLS certificate instead of the
-                   configured serve.cert/serve.key; --dev runs against local
+                   configured ui.cert/ui.key; --dev runs against local
                    development sources instead of the packaged build
   check <mode> <file>
                    Read <file> and run the built-in steering format named
@@ -143,14 +143,14 @@ Options:
                    itself absent/null (e.g. session.id at a non-prompt rest),
                    which never counts as unknown; an unknown path is a usage
                    error (exit 2).
-  --port=<n>       (gtd visualize/gtd serve only) port to serve on (default:
-                   a free port for visualize, 8443 for serve)
+  --port=<n>       (gtd visualize/gtd ui only) port to serve on (default:
+                   a free port for visualize, 8443 for ui)
   --no-open        (gtd visualize only) do not open the browser
-  --host=<addr>    (gtd serve only) address to bind the server to (default:
+  --host=<addr>    (gtd ui only) address to bind the server to (default:
                    an address picked automatically)
-  --self-signed    (gtd serve only) generate a throwaway self-signed TLS
-                   certificate instead of the configured serve.cert/serve.key
-  --dev            (gtd serve only) run against local development sources
+  --self-signed    (gtd ui only) generate a throwaway self-signed TLS
+                   certificate instead of the configured ui.cert/ui.key
+  --dev            (gtd ui only) run against local development sources
                    instead of the packaged build
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land only, with --cost) tag that cost's model
@@ -226,11 +226,11 @@ driving a loop is a driver's job, not a bundled command (see
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository.
 The state commands (`land`, `--entry`, `abandon`, `restore`, `next`, `status`,
-`validate`, `summary`) must run from the **repository root** — gtd derives the
-workflow, pending changes, and process history relative to cwd, so they refuse
-with a clear error from a subdirectory; `lsp`, `init`, `visualize`, `serve`, and
-`check` are standalone and run from anywhere (see each command's own help
-entry).
+`validate`, `summary`, `ui`) must run from the **repository root** — gtd derives
+the workflow, pending changes, and process history relative to cwd, so they
+refuse with a clear error from a subdirectory; `lsp`, `init`, `visualize`,
+`check`, and `uncheck` are standalone and run from anywhere (see each command's
+own help entry).
 
 `install` is described on its own above: it writes nothing and installs
 knowledge into the calling agent's context, not files on disk.

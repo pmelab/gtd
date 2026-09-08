@@ -311,10 +311,10 @@ describe("resolveDiff", () => {
     // but the diff line itself is `+`-prefixed, has real hunks, and must
     // render as a normal text diff.
     const TEXT_DIFF_MENTIONING_BINARY = [
-      "diff --git a/src/serve/Diff.test.ts b/src/serve/Diff.test.ts",
+      "diff --git a/src/ui/Diff.test.ts b/src/ui/Diff.test.ts",
       "index 1111111..2222222 100644",
-      "--- a/src/serve/Diff.test.ts",
-      "+++ b/src/serve/Diff.test.ts",
+      "--- a/src/ui/Diff.test.ts",
+      "+++ b/src/ui/Diff.test.ts",
       "@@ -1,1 +1,2 @@",
       " const BINARY_OUTPUT =",
       '+  "Binary files a/image.png and b/image.png differ"',
@@ -322,7 +322,7 @@ describe("resolveDiff", () => {
     ].join("\n")
     const result = await resolveDiff(
       WORKTREE,
-      "src/serve/Diff.test.ts",
+      "src/ui/Diff.test.ts",
       1,
       deps(ok(TEXT_DIFF_MENTIONING_BINARY)),
     )

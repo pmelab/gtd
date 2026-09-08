@@ -29,9 +29,8 @@ all. Supported filenames (searched in this order):
   shell commands), layered over the active workflow's own `modes:` and gtd's
   built-in validators, so a project can plug in its formatter or linter without
   re-declaring that mode on the workflow itself.
-- **`serve`** (object, optional) — `gtd serve`'s own settings (bind roots, port,
-  host, certificate paths, loop command). See [The `serve:` key](#the-serve-key)
-  below.
+- **`ui`** (object, optional) — `gtd ui`'s own settings (bind roots, port, host,
+  certificate paths, loop command). See [The `ui:` key](#the-ui-key) below.
 - **`$schema`** (string, optional) — stripped before validation, so it never
   counts as an unknown key. Point it at the published schema for editor-backed
   autocompletion (this is what `gtd init` writes):
@@ -49,9 +48,9 @@ Any other top-level key is **rejected**. The engine blesses no VARIABLE NAMES
 either — `testCommand` is workflow-authored data like any other `it.vars` entry,
 not a special key gtd interprets.
 
-### The `serve:` key
+### The `ui:` key
 
-`gtd serve`'s six settings, all optional — a flat, non-templated struct (unlike
+`gtd ui`'s six settings, all optional — a flat, non-templated struct (unlike
 `vars:`/`modes:`, it needs no Eta compile step), so an unknown sub-key is
 rejected the same way any other unknown config key is:
 
@@ -62,24 +61,24 @@ rejected the same way any other unknown config key is:
 - **`port`** (integer, optional) — the port to bind. Default: `8443`.
 - **`host`** (string, optional) — the address to bind. Default: a Tailscale
   interface (a CGNAT `100.64.0.0/10` address), auto-detected; with neither this
-  key nor `--host` given and no such interface present, `gtd serve` refuses
-  rather than silently binding to every interface on the LAN.
+  key nor `--host` given and no such interface present, `gtd ui` refuses rather
+  than silently binding to every interface on the LAN.
 - **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
   and private key, used as-is. `--self-signed` always overrides these with a
   freshly generated throwaway pair, even when both are configured.
-- **`loop`** (string, optional) — the shell command `gtd serve` runs to drive a
+- **`loop`** (string, optional) — the shell command `gtd ui` runs to drive a
   session's loop, once per hand-back (the phone's "Done" action). The command
-  itself decides what a turn is; `gtd serve` only starts it, watches it, and
-  stops it — nothing about agent dispatch, sessions, `--cost`/`--model`, the
+  itself decides what a turn is; `gtd ui` only starts it, watches it, and stops
+  it — nothing about agent dispatch, sessions, `--cost`/`--model`, the
   self-validation fix loop and its retry cap, the first-beat rule, or reading
-  `settled`/`idle` belongs to `gtd serve` itself; see
+  `settled`/`idle` belongs to `gtd ui` itself; see
   [Driving the loop](./driver.md#driving-the-loop) for that whole contract,
   which any loop command written in any language must satisfy on its own. What
-  `gtd serve` itself guarantees around the command:
-  - it runs with the WORKTREE as its working directory, never `gtd serve`'s own.
+  `gtd ui` itself guarantees around the command:
+  - it runs with the WORKTREE as its working directory, never `gtd ui`'s own.
   - a shim directory is prepended to `$PATH`, so a bare `gtd` inside the command
     resolves to that worktree's own install (`node_modules/.bin/gtd`) when it
-    has one, else the running `gtd serve` build.
+    has one, else the running `gtd ui` build.
   - its exit code is ignored and its stdout/stderr are never parsed — the beat
     document `gtd next --json` reports is the only truth the phone reads back,
     so a loop command in any language works unchanged.
@@ -93,8 +92,8 @@ rejected the same way any other unknown config key is:
   - concurrency across worktrees is unlimited: no cap, no queue — every worktree
     with a configured `loop` can be driven at once.
 
-Flags (`--host`, `--port`, `--self-signed`) always override the matching
-`serve:` value; see `docs/cli.md`'s `serve` row for the full flag list.
+Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui:`
+value; see `docs/cli.md`'s `ui` row for the full flag list.
 
 ### The `workflow:` key
 

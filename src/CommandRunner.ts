@@ -16,7 +16,7 @@ export interface CommandOutcome {
  * finish, and get its combined output back as one string (a workflow
  * `script:` is run by the DRIVER, never by gtd). Lets a mode's
  * `format:`/`validate:` command be driven by a scripted double in the
- * `@inmem` e2e tier. `gtd serve`'s loop command is spawned by `Loop.ts`'s own
+ * `@inmem` e2e tier. `gtd ui`'s loop command is spawned by `Loop.ts`'s own
  * port instead — it needs a per-worktree cwd, a shim-prepended `PATH`, real
  * OS signal control while the child is still running, and never-combined
  * stdout/stderr, none of which this port's single-shot "run to completion"
