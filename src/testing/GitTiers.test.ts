@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { fakeGitOperations } from "./GitDoubles.js"
+import { fakeGitOperations } from "./FakeGitOperations.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { CONTRACT_COVERED_OPERATIONS } from "./GitTiers.js"
 

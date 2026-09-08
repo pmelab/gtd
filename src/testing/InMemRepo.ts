@@ -311,7 +311,7 @@ export class InMemRepo {
    * a DIFFERENT point in history — e.g. to build two diverging tips off one
    * shared base, so one of them is provably NOT an ancestor of the other,
    * `gtd review <commitish>`'s ancestor guard) and as this repo's backing for
-   * the production `GitOperations.hardResetTo` (wired in `GitDoubles.ts`).
+   * the production `GitOperations.hardResetTo` (wired in `FakeGitOperations.ts`).
    */
   hardResetTo(ref: string): void {
     const hash = this.resolveRef(ref)

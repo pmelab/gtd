@@ -20,7 +20,7 @@ import {
   type ConfigSource,
 } from "../Config.js"
 import type { FileRefReader } from "../PatternConfig.js"
-import { fakeGitOperations } from "./GitDoubles.js"
+import { fakeGitOperations } from "./FakeGitOperations.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { Cwd } from "../Cwd.js"
 import { EnvVars } from "../EnvVars.js"
