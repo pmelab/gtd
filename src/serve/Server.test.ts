@@ -346,6 +346,15 @@ describe("runServeCommand", () => {
     return { out: { write: (chunk: string) => written.push(chunk), flush: () => {} }, written }
   }
 
+  /** Polls up to 1s for the forked fiber to run past the blocking `Effect.never` and print its two lines — a single fixed `setTimeout` (the earlier shape here) is flaky under a loaded machine (e.g. the full `npm test` running build/lint/etc concurrently), where the fiber's own first tick can take longer than a bare 20ms. Mirrors `startScriptedServer`'s own poll below. */
+  const waitForWrites = async (written: readonly string[], count: number): Promise<void> => {
+    for (let i = 0; i < 50; i += 1) {
+      if (written.length >= count) return
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    throw new Error(`server never wrote ${count} lines (got ${written.length})`)
+  }
+
   it("prints the https:// URL on its own line, then a QR code encoding that exact URL, before blocking", async () => {
     const { out, written } = fakeOut()
     const certPath = join(tmpDir, "cert.pem")
@@ -372,7 +381,7 @@ describe("runServeCommand", () => {
     )
 
     // Give the forked fiber a turn to run past the blocking Effect.never.
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await waitForWrites(written, 2)
 
     expect(written[0]).toBe("https://100.90.1.2:4443/\n")
     // Pinned against the renderer's own output for the SAME URL just
@@ -434,8 +443,8 @@ describe("runServeCommand", () => {
       ),
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(written.length).toBe(2) // proves the server actually started before we interrupt it
+    await waitForWrites(written, 2) // proves the server actually started before we interrupt it
+    expect(written.length).toBe(2)
 
     expect(killAll).not.toHaveBeenCalled()
     await Effect.runPromise(Fiber.interrupt(fiber))
