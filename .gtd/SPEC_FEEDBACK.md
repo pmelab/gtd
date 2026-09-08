@@ -1,49 +1,44 @@
-# Spec feedback: 03-client-opens-on-the-step
+# Spec feedback — 03 the client opens on the step
 
-Three acceptance bullets have no test anywhere in the tree. Everything else in
-the package checks out: `SteeringFormat.apply` and both built-in
-implementations, `writeValue`/`setValue`/`writeRefusalFrom`, `App.tsx`'s
-two-branch step render, the deleted fleet screen, the client write-throughs, and
-the handed-back panel are all implemented and covered.
+Everything else in the package checks out: `apply` is mandatory on
+`SteeringFormat` with radio/one-edit-set/any-depth behavior and tests for each,
+`writeValue`/`setValue` mirror `writeNote` with no new `WriteRefusalReason`
+values, `Fleet` is gone from `src/`, `tests/`, and `.storybook/`, both screens
+render a terminal handed-back panel, and `npm test` is green across all ten
+turbo tasks.
 
-## The on-disk round trip is never asserted
+## 1. A refused question write silently shows as saved — the answer vanishes
 
-Requirement acceptance: "a scenario answers a question in the UI and asserts the
-answer is in the steering file on disk". Task 4 repeats it: "An answer given in
-the UI is in the steering file on disk, asserted by a scenario".
+`src/web/screens/Question.tsx:224` and `:231` both do
+`onCommitAnswer?.(anchor, opts)?.catch(() => {})`: the rejection is swallowed
+and the optimistic radio/free-text state is left standing. `Plan.tsx:387` seeds
+each question from `defaultAnswerFor(node)` only when `answers[index]` is
+absent, and never re-derives it from the refetched view, so the false "answered"
+state survives the `readSteeringFile` invalidation and every later render for
+the rest of the session.
 
-No such scenario exists. `tests/integration/features/ui.feature` covers only
-refusals; `ui-lifecycle.feature` covers signals, `done`, and `/close`.
-`grep -rn setValue tests/` returns nothing — no step definition and no
-`world.ts` helper drives a `setValue` mutation against a spawned `gtd ui`.
+Concretely: the human picks Option A, `setValue` refuses `stale-token` (the
+agent's own commit moved `headSha` between render and tap), the radio stays
+filled, and nothing is on disk. That is exactly the failure the requirement
+names — "the human's answers vanish".
 
-The two Storybook stories that exist —
-`Plan.stories.tsx#RealContainerWriteThroughsAnAnswerViaSetValue` and
-`Review.stories.tsx#RealContainerWriteThroughsAHunkTickViaSetValue` — record the
-mutation's INPUT against a mocked resolver that returns `{ ok: true }` without
-touching a file. They prove the client sends the right request; they prove
-nothing about disk.
+The comment at `:216-219` claims parity with `Review.tsx#useReviewState`'s
+optimistic ticks, but that screen does the opposite: `Review.tsx:139-146` and
+`:167-171` both revert `ticked`/`notes` on rejection. Same package, same write
+path, two contradictory policies, and the comment asserting the wrong one.
 
-Needed: a `@live` scenario alongside `ui-lifecycle.feature`'s handoff case —
-`world.ts` already has `spawnGtdUiAndHandOff` driving a real HTTPS tRPC round
-trip against a real spawned server, so the missing piece is a sibling helper
-that calls `setValue` and a `Then the file "PLAN.md" contains "[x]"`-style
-assertion on the served worktree's own file.
+Pick one and make the comment true. Reverting matches `Review.tsx` and the
+requirement; if the answers must stay optimistic instead, the divergence needs a
+stated reason and `Review.tsx`'s reverts need to go with it.
 
-## "An answer survives a page reload" is untested
+## 2. A test names a behavior it never exercises
 
-Task 4's last bullet. No test remounts the client and asserts the answer is
-still shown. The only match for `eload` under `src/web/` is a prose comment at
-`Plan.tsx:20`.
-
-## "A hunk tick survives a reload" is untested
-
-Task 5's last bullet, and the requirement's own third acceptance clause. Same
-gap: nothing remounts `Review` against a steering file whose bytes carry the
-tick and asserts the tick renders.
-
-Both reload bullets are reachable at the Storybook tier without a browser
-reload: mount against a `readSteeringFile` resolver returning content/`view`
-whose `checked` is already `true` (the state a real write leaves behind) and
-assert the control reads as ticked with the local optimistic map empty. The
-optimistic `answers`/`ticked` maps must NOT be what makes the assertion pass.
+`src/ui/Write.test.ts:287` — "commits checked and text together in one call" —
+builds `{ ...baseValueRequest(), checked: true }`. `baseValueRequest()` already
+sets `checked: true` and no `text` field is ever added, so the case is a
+byte-identical duplicate of the test above it and no `checked`+`text` request
+ever reaches `writeValue`. The combined path is covered at the format layer
+(`OpenQuestions.test.ts:1768`) and the router layer (`Router.test.ts:167`), so
+the gap is the lying test name, not the behavior: pass a `text` through
+`writeValue` and assert the label change landed in the written bytes, or delete
+the test.
