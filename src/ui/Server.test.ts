@@ -18,7 +18,7 @@ import { contentHashOf } from "./Write.js"
 // `os.networkInterfaces()` — mocked so the "calls through to the real system
 // scan by default" test below is deterministic on any machine, tailnet or
 // not, rather than depending on this runner having no Tailscale interface.
-vi.mock("./Bind.js", () => ({ pickBindHostFromSystem: () => undefined }))
+vi.mock("./BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
 
 import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"

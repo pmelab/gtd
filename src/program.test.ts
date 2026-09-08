@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 // dispatch test below succeed instead of refusing. Mocked so this test
 // exercises the dispatch wiring deterministically, independent of the host's
 // actual network.
-vi.mock("./ui/Bind.js", () => ({ pickBindHostFromSystem: () => undefined }))
+vi.mock("./ui/BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
 
 import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"

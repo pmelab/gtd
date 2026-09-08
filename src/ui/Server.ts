@@ -21,7 +21,7 @@ import {
   readStep,
   type Step,
 } from "./Beat.js"
-import { pickBindHostFromSystem } from "./Bind.js"
+import { pickBindHostFromSystem } from "./BindSystem.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { renderQrCode } from "./Qr.js"

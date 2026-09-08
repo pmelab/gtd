@@ -1,4 +1,4 @@
-import * as os from "node:os"
+import type * as os from "node:os"
 
 /**
  * Tailscale's CGNAT range: first octet 100, second octet 64-127
@@ -40,6 +40,3 @@ export const pickBindHost = (
 
   return best?.address
 }
-
-/** Production entry point: delegates to `pickBindHost` with the real interfaces. */
-export const pickBindHostFromSystem = (): string | undefined => pickBindHost(os.networkInterfaces())
