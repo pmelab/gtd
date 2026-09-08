@@ -40,7 +40,7 @@ one step could instead bind loopback only and let the human port-forward. This
 decides whether `--host`, `--self-signed`, `serve.cert`/`serve.key`, `Tls.ts`,
 `Qr.ts` and both refusal scenarios survive or join the deletions.
 
-- [ ] Keep network reach — bind a configurable host over HTTPS, keep the QR code
+- [x] Keep network reach — bind a configurable host over HTTPS, keep the QR code
       and the cert/tailnet refusals; a phone on the tailnet is the whole point
 - [ ] Loopback only — bind `127.0.0.1` over plain HTTP, delete TLS, QR, `--host`
       and `--self-signed`; the human reaches it by port-forward or local browser
@@ -52,7 +52,7 @@ Handoff exits the process, so the exit status is now the entire contract between
 the UI and the loop that started it. `docs/cli.md`'s exit-code table is a pinned
 generated view, so this lands in documented CLI surface either way.
 
-- [ ] One status — handoff exits 0, and so does any other clean shutdown; the
+- [x] One status — handoff exits 0, and so does any other clean shutdown; the
       loop re-reads state after every exit and needs no distinction
 - [ ] Distinct statuses — handoff exits 0, a human quitting or a signal exits
       non-zero (130/143 for signals), so the loop can stop instead of relooping
