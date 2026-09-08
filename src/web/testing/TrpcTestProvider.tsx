@@ -43,31 +43,21 @@ const mockLink = (
 /**
  * Wraps `children` in the same `trpc.Provider`/`QueryClientProvider` nesting
  * `main.tsx` sets up for the real app, over the mock link above — so a story
- * can render a real tRPC-backed container (`Fleet`, `Review`, …) and prove a
- * real `useQuery`/`refetch` round-trip actually happens. `resolveFleet` stays
- * as a dedicated prop (its own zero-input shape predates `resolvers`, and
- * every existing consumer already uses it); `resolvers` is the general escape
- * hatch for any other procedure path (`view`, `diff`, …) a story needs to
- * mock, keyed by the SAME path string `AppRouter`'s own procedure is
- * registered under.
+ * can render a real tRPC-backed container (`Plan`, `Review`, …) and prove a
+ * real `useQuery`/`refetch` round-trip actually happens. `resolvers` is the
+ * one escape hatch, for any procedure path (`step`, `view`, `diff`, …) a
+ * story needs to mock, keyed by the SAME path string `AppRouter`'s own
+ * procedure is registered under.
  */
 export const TrpcTestProvider = ({
-  resolveFleet,
   resolvers = {},
   children,
 }: {
-  readonly resolveFleet?: () => unknown
   readonly resolvers?: Readonly<Record<string, (input: unknown) => unknown>>
   readonly children: ReactNode
 }) => {
   const [queryClient] = useState(() => new QueryClient())
-  const [client] = useState(() =>
-    trpc.createClient({
-      links: [
-        mockLink(resolveFleet !== undefined ? { fleet: resolveFleet, ...resolvers } : resolvers),
-      ],
-    }),
-  )
+  const [client] = useState(() => trpc.createClient({ links: [mockLink(resolvers)] }))
   return (
     <trpc.Provider client={client} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
