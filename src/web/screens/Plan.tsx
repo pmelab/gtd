@@ -3,7 +3,7 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../Steer
 import { Card, CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { trpc } from "../api.js"
+import { driveRefusalFrom, trpc } from "../api.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
@@ -194,6 +194,17 @@ export interface PlanViewProps {
    * comment for why. Absent in `Plan.stories.tsx`'s pure-data stories.
    */
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
+  /**
+   * The done action (T2): saves the SAME note `onSaveNote` would, then hands
+   * the turn back — the real `Plan` container wires this to `trpc.done`,
+   * whose own resolution (spawn registered, never waiting for the child to
+   * exit) is what lets the caller navigate back to the fleet list
+   * immediately. Absent in `Plan.stories.tsx`'s pure-data stories, exactly
+   * like `onSaveNote`.
+   */
+  readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
+  /** T3's one named refusal off the LAST `onDoneNote` call — read via `api.ts#driveRefusalFrom`, the real `Plan` container's own catch. Absent whenever nothing has failed yet. */
+  readonly doneRefused?: boolean
 }
 
 /** `onOpen` absent renders every card in this section as an inert summary row — used for "Already answered", whose questions carry no options to drill into (see `QuestionCard`'s own doc comment). */
@@ -280,7 +291,14 @@ const PlanBody = ({
  * CRAP estimate scores it as untested regardless.
  */
 // fallow-ignore-next-line complexity
-export const PlanView = ({ view, contentHash, isLoading, onSaveNote }: PlanViewProps) => {
+export const PlanView = ({
+  view,
+  contentHash,
+  isLoading,
+  onSaveNote,
+  onDoneNote,
+  doneRefused,
+}: PlanViewProps) => {
   const { confirmed, confirm } = usePlanReadConfirmation(contentHash)
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
   const [noteOverrides, setNoteOverrides] = useState<Record<number, string>>({})
@@ -328,6 +346,17 @@ export const PlanView = ({ view, contentHash, isLoading, onSaveNote }: PlanViewP
           })
         }}
         onDismiss={() => setNoteSheetAnchor(undefined)}
+        {...(onDoneNote !== undefined
+          ? {
+              onDone: (anchor: SteeringAnchor, text: string) => {
+                if (anchor.kind === "paragraph") {
+                  setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
+                }
+                setNoteSheetAnchor(undefined)
+                onDoneNote(anchor, text)
+              },
+            }
+          : {})}
       />
     )
   }
@@ -362,6 +391,14 @@ export const PlanView = ({ view, contentHash, isLoading, onSaveNote }: PlanViewP
 
   return (
     <div data-testid="plan-screen" style={{ maxWidth: 390, margin: "0 auto" }}>
+      {doneRefused === true && (
+        <div
+          data-testid="done-refused-banner"
+          style={{ padding: "8px 12px", color: "#f66", fontSize: 12 }}
+        >
+          Already being driven — try again in a moment.
+        </div>
+      )}
       <CardList>
         <Card testId="read-plan-row" onOpen={confirm}>
           Read the plan{confirmed ? " ✓" : ""}
@@ -385,6 +422,13 @@ export interface PlanProps {
   /** Path to the plan/prose steering file, relative to `worktreePath`. */
   readonly filePath: string
   readonly mode: string
+  /**
+   * Called once `trpc.done` resolves (spawn registered, not the child's own
+   * exit) — `App.tsx` wires this to navigate back to the fleet list, T2's
+   * own "the phone returns to the fleet list immediately, without waiting
+   * for the child". Absent in `Plan.stories.tsx`'s pure-data stories.
+   */
+  readonly onDone?: () => void
 }
 
 /**
@@ -392,15 +436,17 @@ export interface PlanProps {
  * `readSteeringFile` (never a bare `content` prop with no way to have
  * actually been fetched — see `Review.tsx#Review`'s identical split), and
  * write-throughs a saved paragraph note via `writeNote`'s compare-and-swap
- * using the SAME tokens that fetch returned. Not yet imported by `App.tsx` —
- * routing between screens is a later package's task, not this one's.
+ * using the SAME tokens that fetch returned. `App.tsx` renders this when a
+ * tapped fleet row's `mode` isn't `"review"`.
  */
-export const Plan = ({ worktreePath, filePath, mode }: PlanProps) => {
+export const Plan = ({ worktreePath, filePath, mode, onDone }: PlanProps) => {
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ worktreePath, filePath, mode })
   const writeNote = trpc.writeNote.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ worktreePath, filePath, mode }),
   })
+  const done = trpc.done.useMutation()
+  const [doneRefused, setDoneRefused] = useState(false)
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
@@ -416,12 +462,43 @@ export const Plan = ({ worktreePath, filePath, mode }: PlanProps) => {
     })
   }
 
+  const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
+    const data = query.data
+    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    setDoneRefused(false)
+    return done
+      .mutateAsync({
+        worktreePath,
+        filePath,
+        expectedHeadSha: data.headSha,
+        expectedContentHash: data.contentHash,
+        mode,
+        anchor,
+        text,
+      })
+      .then((result) => {
+        onDone?.()
+        return result
+      })
+      .catch((error: unknown) => {
+        // The one refusal `driveRefusalFrom` names — an already-driving
+        // worktree — surfaces on-screen; anything else has no display for
+        // it yet, but is caught here regardless and never rethrown:
+        // `NoteSheet`'s own `onDone` is fire-and-forget (never awaited), so
+        // an uncaught rejection this far down would be a real unhandled
+        // promise rejection, not just a silently-discarded one.
+        if (driveRefusalFrom(error) !== undefined) setDoneRefused(true)
+      })
+  }
+
   return (
     <PlanView
       view={query.data?.view}
       contentHash={query.data?.contentHash ?? ""}
       isLoading={query.isLoading}
       onSaveNote={onSaveNote}
+      onDoneNote={onDoneNote}
+      doneRefused={doneRefused}
     />
   )
 }

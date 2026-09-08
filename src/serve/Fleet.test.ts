@@ -104,6 +104,50 @@ describe("groupIntoBuckets with a Registry", () => {
       .find((r) => r.id === "a")
     expect(entry?.foreignDriverPossible).toBe(false)
   })
+
+  it("carries the registry's lastLoopFailure onto the row, when one is recorded", async () => {
+    const registry = new Registry()
+    let resolveWait: (outcome: {
+      stdout: string
+      stderr: string
+      status: number | null
+      signal: null
+    }) => void = () => {}
+    const wait = new Promise<{
+      stdout: string
+      stderr: string
+      status: number | null
+      signal: null
+    }>((resolve) => {
+      resolveWait = resolve
+    })
+    registry.register("broken-loop", { wait, interrupt: vi.fn(), kill: vi.fn() })
+    resolveWait({ stdout: "", stderr: "gtd: command not found\n", status: 127, signal: null })
+    await wait
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const buckets = groupIntoBuckets([row({ id: "broken-loop", idle: true })], { registry })
+    const entry = Object.values(buckets)
+      .flat()
+      .find((r) => r.id === "broken-loop")
+    expect(entry?.lastLoopFailure).toEqual({
+      stdout: "",
+      stderr: "gtd: command not found\n",
+      status: 127,
+    })
+  })
+
+  it("omits lastLoopFailure entirely when nothing has failed", () => {
+    const registry = new Registry()
+    const buckets = groupIntoBuckets([row({ id: "clean" })], { registry })
+    const entry = Object.values(buckets)
+      .flat()
+      .find((r) => r.id === "clean")
+    expect(entry?.lastLoopFailure).toBeUndefined()
+    expect("lastLoopFailure" in (entry as object)).toBe(false)
+  })
 })
 
 describe("groupIntoBuckets", () => {

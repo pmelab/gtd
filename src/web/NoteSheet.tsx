@@ -17,6 +17,17 @@ export interface NoteSheetProps {
   readonly note?: string
   readonly onSave: (anchor: SteeringAnchor, text: string) => void
   readonly onDismiss: () => void
+  /**
+   * The done action's own trigger point: saves this note AND hands the turn
+   * back (writes the steering file, then spawns the configured loop
+   * command) — the server's `done` procedure always writes a note at a
+   * specific anchor, same as `writeNote`, so THIS sheet (the one place an
+   * anchor/text pair is already in hand right before a save) is where a
+   * screen wires it up. Absent in a pure-data story/screen that has no
+   * loop-lifecycle wiring; the "Save & Done" button then doesn't render at
+   * all, never a disabled one.
+   */
+  readonly onDone?: (anchor: SteeringAnchor, text: string) => void
 }
 
 /**
@@ -32,7 +43,7 @@ export interface NoteSheetProps {
  * still required, so dismissing after dictating discards it same as typed
  * text.
  */
-export const NoteSheet = ({ anchor, note, onSave, onDismiss }: NoteSheetProps) => {
+export const NoteSheet = ({ anchor, note, onSave, onDismiss, onDone }: NoteSheetProps) => {
   const [text, setText] = useState(note ?? "")
 
   return (
@@ -125,6 +136,15 @@ export const NoteSheet = ({ anchor, note, onSave, onDismiss }: NoteSheetProps) =
           <button type="button" data-testid="note-sheet-save" onClick={() => onSave(anchor, text)}>
             Save
           </button>
+          {onDone !== undefined && (
+            <button
+              type="button"
+              data-testid="note-sheet-done"
+              onClick={() => onDone(anchor, text)}
+            >
+              Save &amp; Done
+            </button>
+          )}
         </div>
       </div>
     </div>

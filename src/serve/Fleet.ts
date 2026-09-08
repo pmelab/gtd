@@ -1,13 +1,14 @@
 import type { BeatRead, WorktreeRef } from "./Beat.js"
 import { discoverWorktrees } from "./Discover.js"
-import type { Registry } from "./Registry.js"
+import type { LoopFailure, Registry } from "./Registry.js"
 
 export type FleetBucket = "wants-you" | "working" | "broken" | "quiet"
 
-/** One row on the fleet screen — a `BeatRead` plus the bucket it landed in, plus the imprecise foreign-driver signal (always `false` for a `broken` row, since there's no `logMtime` to read it off). */
+/** One row on the fleet screen — a `BeatRead` plus the bucket it landed in, plus the imprecise foreign-driver signal (always `false` for a `broken` row, since there's no `logMtime` to read it off) and the last loop failure (if any) `Registry` recorded for it — requirement 6's "failures show the captured output and the exit code inline". */
 export type FleetEntry = BeatRead & {
   readonly bucket: FleetBucket
   readonly foreignDriverPossible: boolean
+  readonly lastLoopFailure?: LoopFailure
 }
 
 /**
@@ -84,7 +85,13 @@ export const groupIntoBuckets = (
       ctx.registry !== undefined && row.status === "ok"
         ? ctx.registry.possiblyForeignDriven(row.id, row.logMtime, now)
         : false
-    grouped[bucket].push({ ...row, bucket, foreignDriverPossible })
+    const lastLoopFailure = ctx.registry?.lastLoopFailure(row.id)
+    grouped[bucket].push({
+      ...row,
+      bucket,
+      foreignDriverPossible,
+      ...(lastLoopFailure !== undefined ? { lastLoopFailure } : {}),
+    })
   }
   for (const bucket of bucketOrder) {
     grouped[bucket].sort((a, b) => compareRest(a, b, bucket === "wants-you"))

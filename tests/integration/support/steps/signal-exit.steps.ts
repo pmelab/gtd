@@ -12,6 +12,16 @@ When("I send SIGTERM to a spawned gtd next", async (world: GtdWorld) => {
   await world.spawnGtdNextAndSignal("SIGTERM")
 })
 
+// ── gtd serve's own process lifecycle (`@live` only — see world.ts's `spawnGtdServeAndSignal`) ──
+
+When("I send SIGINT to a spawned gtd serve", async (world: GtdWorld) => {
+  await world.spawnGtdServeAndSignal("SIGINT")
+})
+
+When("I send SIGTERM to a spawned gtd serve", async (world: GtdWorld) => {
+  await world.spawnGtdServeAndSignal("SIGTERM")
+})
+
 Then("the reported exit status is {int}", (world: GtdWorld, expected: number) => {
   const exit = world.lastSignalExit
   assert.notStrictEqual(

@@ -55,6 +55,30 @@ export const ExistingNotePrefillsForEditingNotADuplicate: Story = {
   },
 }
 
+export const NoOnDonePropRendersNoDoneButton: Story = {
+  args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByTestId("note-sheet-done")).not.toBeInTheDocument()
+  },
+}
+
+/** The done action's own trigger: "Save & Done" fires `onDone` with the SAME anchor/text `onSave` would get — never a second, disjoint save. */
+export const SaveAndDoneFiresOnDoneWithTheCurrentText: Story = {
+  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
+    await fireEvent.change(textarea, { target: { value: "final note before handing back" } })
+    await fireEvent.click(canvas.getByTestId("note-sheet-done"))
+    await expect(args.onDone).toHaveBeenCalledWith(
+      paragraphAnchor,
+      "final note before handing back",
+    )
+    expect(args.onSave).not.toHaveBeenCalled()
+  },
+}
+
 // T6's "no selection gesture is required to place a note" is pinned as a
 // real, enforced source-grep test in `NoteSheet.test.ts` (the sibling `.ts`
 // unit test), not left as a claim in a comment here.

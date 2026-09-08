@@ -3,7 +3,7 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../Steer
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { trpc } from "../api.js"
+import { driveRefusalFrom, trpc } from "../api.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { Hunk, type HunkProps } from "./Hunk.js"
 
@@ -58,6 +58,10 @@ export interface ReviewViewProps {
    * save feels instant. Absent in `Review.stories.tsx`'s pure-data stories.
    */
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
+  /** The done action (T2): saves the SAME note `onSaveNote` would, then hands the turn back — mirrors `Plan.tsx#PlanViewProps.onDoneNote`'s identical doc comment. Absent in `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`. */
+  readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
+  /** T3's one named refusal off the LAST `onDoneNote` call — mirrors `Plan.tsx#PlanViewProps.doneRefused`'s identical doc comment. */
+  readonly doneRefused?: boolean
 }
 
 /** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`, so a save/dismiss never has to re-look-up the node it came from. */
@@ -84,6 +88,7 @@ interface NoteSheetState {
  */
 const useReviewState = (
   onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
+  onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
 ) => {
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
@@ -120,6 +125,13 @@ const useReviewState = (
         return next
       })
     })
+  }
+
+  /** The done action's own trigger — same optimistic-note update `saveNote` does, then `onDoneNote` (never both: this is `NoteSheet`'s "Save & Done", not a second save). */
+  const doneNote = (anchor: SteeringAnchor, text: string) => {
+    setNotes((prev) => ({ ...prev, [noteKey(anchor)]: text }))
+    setNoteSheet(undefined)
+    onDoneNote?.(anchor, text)
   }
 
   const toggleChunk = (chunk: SteeringViewNode) => {
@@ -172,6 +184,7 @@ const useReviewState = (
     hasNoteText,
     openNoteSheet,
     saveNote,
+    doneNote,
     toggleChunk,
     setHunkChecked,
     openChunk,
@@ -313,15 +326,25 @@ const ChunkRow = ({
   )
 }
 
-/** The chunk list itself — one `ChunkRow` per top-level node. */
+/** The chunk list itself — one `ChunkRow` per top-level node, plus the done-refused banner (mirrors `Plan.tsx#PlanView`'s identical one) when `doneRefused` is set. */
 const ChunkList = ({
   nodes,
   state,
+  doneRefused,
 }: {
   readonly nodes: SteeringView["nodes"]
   readonly state: ReviewState
+  readonly doneRefused?: boolean | undefined
 }) => (
   <div data-testid="review-screen" style={{ maxWidth: 390, margin: "0 auto" }}>
+    {doneRefused === true && (
+      <div
+        data-testid="done-refused-banner"
+        style={{ padding: "8px 12px", color: "#f66", fontSize: 12 }}
+      >
+        Already being driven — try again in a moment.
+      </div>
+    )}
     <CardList>
       {nodes.map((chunk, chunkIndex) => (
         <ChunkRow key={chunkIndex} chunk={chunk} chunkIndex={chunkIndex} state={state} />
@@ -342,8 +365,15 @@ const ChunkList = ({
  * `Fleet.tsx#FleetView`'s own identical note).
  */
 // fallow-ignore-next-line complexity
-export const ReviewView = ({ view, isLoading, worktreePath, onSaveNote }: ReviewViewProps) => {
-  const state = useReviewState(onSaveNote)
+export const ReviewView = ({
+  view,
+  isLoading,
+  worktreePath,
+  onSaveNote,
+  onDoneNote,
+  doneRefused,
+}: ReviewViewProps) => {
+  const state = useReviewState(onSaveNote, onDoneNote)
 
   if (view === undefined) {
     return (
@@ -362,6 +392,7 @@ export const ReviewView = ({ view, isLoading, worktreePath, onSaveNote }: Review
           : {})}
         onSave={state.saveNote}
         onDismiss={() => state.setNoteSheet(undefined)}
+        {...(onDoneNote !== undefined ? { onDone: state.doneNote } : {})}
       />
     )
   }
@@ -377,13 +408,15 @@ export const ReviewView = ({ view, isLoading, worktreePath, onSaveNote }: Review
     return <HunkDeck chunk={openChunk} worktreePath={worktreePath} state={state} />
   }
 
-  return <ChunkList nodes={view.nodes} state={state} />
+  return <ChunkList nodes={view.nodes} state={state} doneRefused={doneRefused} />
 }
 
 export interface ReviewProps {
   readonly worktreePath: string
   /** Path to the review steering file, relative to `worktreePath` (`.gtd/REVIEW.md`, typically). */
   readonly filePath: string
+  /** Called once `trpc.done` resolves — mirrors `Plan.tsx#PlanProps.onDone`'s identical doc comment. Absent in `Review.stories.tsx`'s pure-data stories. */
+  readonly onDone?: () => void
 }
 
 /**
@@ -393,17 +426,19 @@ export interface ReviewProps {
  * compare-and-swap using the SAME `headSha`/`contentHash` that fetch
  * returned — refetching afterward so a stale local override never
  * outlives the server's own authoritative content. `worktreePath` also
- * threads through to `HunkDeck`'s live `trpc.diff` fetch. Not yet imported by
- * `App.tsx` — routing between screens is a later package's task, not this
- * one's; `Review.stories.tsx`'s own `RealContainerFetchesTheCurrentHunksDiffLive`
- * story is its one real consumer today.
+ * threads through to `HunkDeck`'s live `trpc.diff` fetch. `App.tsx` renders
+ * this when a tapped fleet row's `mode` is `"review"`;
+ * `Review.stories.tsx`'s own `RealContainerFetchesTheCurrentHunksDiffLive`
+ * story is its other real consumer.
  */
-export const Review = ({ worktreePath, filePath }: ReviewProps) => {
+export const Review = ({ worktreePath, filePath, onDone }: ReviewProps) => {
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ worktreePath, filePath, mode: "review" })
   const writeNote = trpc.writeNote.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ worktreePath, filePath, mode: "review" }),
   })
+  const done = trpc.done.useMutation()
+  const [doneRefused, setDoneRefused] = useState(false)
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
@@ -419,12 +454,39 @@ export const Review = ({ worktreePath, filePath }: ReviewProps) => {
     })
   }
 
+  const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
+    const data = query.data
+    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    setDoneRefused(false)
+    return done
+      .mutateAsync({
+        worktreePath,
+        filePath,
+        expectedHeadSha: data.headSha,
+        expectedContentHash: data.contentHash,
+        mode: "review",
+        anchor,
+        text,
+      })
+      .then((result) => {
+        onDone?.()
+        return result
+      })
+      .catch((error: unknown) => {
+        // Mirrors `Plan.tsx#Plan`'s identical `onDoneNote` catch — see its
+        // own doc comment for why this is caught, not rethrown.
+        if (driveRefusalFrom(error) !== undefined) setDoneRefused(true)
+      })
+  }
+
   return (
     <ReviewView
       view={query.data?.view}
       isLoading={query.isLoading}
       worktreePath={worktreePath}
       onSaveNote={onSaveNote}
+      doneRefused={doneRefused}
+      onDoneNote={onDoneNote}
     />
   )
 }

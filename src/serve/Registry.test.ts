@@ -15,6 +15,25 @@ const fakeChild = (): { child: LoopChild; exit: () => void } => {
   }
 }
 
+/** Like `fakeChild`, but `exit` resolves with an arbitrary outcome — for `lastLoopFailure`'s own tests, which care about exactly what the child reported. */
+const fakeChildWithOutcome = (): { child: LoopChild; exit: (outcome: LoopOutcome) => void } => {
+  let resolveWait: (outcome: LoopOutcome) => void = () => {}
+  const wait = new Promise<LoopOutcome>((resolve) => {
+    resolveWait = resolve
+  })
+  return {
+    child: { wait, interrupt: vi.fn(), kill: vi.fn() },
+    exit: (outcome) => resolveWait(outcome),
+  }
+}
+
+/** Flushes the microtask queue past `register`'s own `.then().finally()` chain — needed because that chain's `LoopFailure` recording runs one tick after `child.wait` resolves. */
+const flushMicrotasks = async (): Promise<void> => {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
 describe("Registry", () => {
   it("refuses nothing itself, but reports a worktree with a live child as driving", () => {
     const registry = new Registry()
@@ -162,6 +181,82 @@ describe("Registry", () => {
     it("a worktree with no log file at all does not read as driven", () => {
       const registry = new Registry()
       expect(registry.possiblyForeignDriven("a", undefined, 1_000_000)).toBe(false)
+    })
+  })
+
+  describe("lastLoopFailure", () => {
+    it("records a non-zero exit's stdout/stderr/status, readable after the row leaves Working", async () => {
+      const registry = new Registry()
+      const { child, exit } = fakeChildWithOutcome()
+      registry.register("a", child)
+      exit({
+        stdout: "trying to run\n",
+        stderr: "gtd: command not found\n",
+        status: 127,
+        signal: null,
+      })
+      await child.wait
+      await flushMicrotasks()
+      expect(registry.isDriving("a")).toBe(false)
+      expect(registry.lastLoopFailure("a")).toEqual({
+        stdout: "trying to run\n",
+        stderr: "gtd: command not found\n",
+        status: 127,
+      })
+    })
+
+    it("records a spawn failure (vanished worktree) the same way", async () => {
+      const registry = new Registry()
+      const { child, exit } = fakeChildWithOutcome()
+      registry.register("a", child)
+      exit({ stdout: "", stderr: "", status: null, signal: null, spawnError: "spawn bash ENOENT" })
+      await child.wait
+      await flushMicrotasks()
+      expect(registry.lastLoopFailure("a")).toEqual({
+        stdout: "",
+        stderr: "",
+        status: null,
+        spawnError: "spawn bash ENOENT",
+      })
+    })
+
+    it("never records a signal death as a failure — that's stop's own doing, not a failure", async () => {
+      const registry = new Registry()
+      const { child, exit } = fakeChildWithOutcome()
+      registry.register("a", child)
+      exit({ stdout: "", stderr: "", status: null, signal: "SIGINT" })
+      await child.wait
+      await flushMicrotasks()
+      expect(registry.lastLoopFailure("a")).toBeUndefined()
+    })
+
+    it("never records a clean exit", async () => {
+      const registry = new Registry()
+      const { child, exit } = fakeChild()
+      registry.register("a", child)
+      exit()
+      await child.wait
+      await flushMicrotasks()
+      expect(registry.lastLoopFailure("a")).toBeUndefined()
+    })
+
+    it("clears a prior failure once the same worktree is driven again", async () => {
+      const registry = new Registry()
+      const first = fakeChildWithOutcome()
+      registry.register("a", first.child)
+      first.exit({ stdout: "", stderr: "boom", status: 1, signal: null })
+      await first.child.wait
+      await flushMicrotasks()
+      expect(registry.lastLoopFailure("a")).toBeDefined()
+
+      const second = fakeChild()
+      registry.register("a", second.child)
+      expect(registry.lastLoopFailure("a")).toBeUndefined()
+    })
+
+    it("is undefined for a worktree that has never been driven", () => {
+      const registry = new Registry()
+      expect(registry.lastLoopFailure("never-driven")).toBeUndefined()
     })
   })
 })

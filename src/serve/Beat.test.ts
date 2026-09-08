@@ -148,19 +148,20 @@ describe("isSupportedVersion", () => {
 })
 
 describe("BeatCache.read — ok rows", () => {
-  it("never carries content or system fields, only the projected five plus identity plus logMtime", async () => {
+  it("never carries content or system fields, only the projected five plus identity plus logMtime/file", async () => {
     const deps = makeDeps()
     const cache = new BeatCache(deps, 8)
     const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
     expect(result.status).toBe("ok")
-    // `logMtime` (package 05, T4's own foreign-driver freshness signal) is
-    // the one addition beyond the original projected five plus identity —
-    // already computed here for the cache key, so exposing it costs nothing
-    // new to read.
+    // `logMtime`/`file`/`mode` (package 05) are the additions beyond the
+    // original projected five plus identity — `mode` is absent here since
+    // `beatJson`'s default fixture doesn't set one; a fixture that does is
+    // covered by the dedicated `mode`/`file` test below.
     expect(Object.keys(result).sort()).toEqual(
       [
         "actor",
         "branch",
+        "file",
         "id",
         "idle",
         "kind",
@@ -172,6 +173,28 @@ describe("BeatCache.read — ok rows", () => {
         "status",
       ].sort(),
     )
+  })
+
+  it("carries the beat-reported file and mode verbatim, for the phone to open the right steering screen", async () => {
+    const deps = makeDeps({ beatOutcome: ok(beatJson({ file: ".gtd/PLAN.md", mode: "qa" })) })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.file).toBe(".gtd/PLAN.md")
+      expect(result.mode).toBe("qa")
+    }
+  })
+
+  it("omits file/mode entirely when the beat reports neither", async () => {
+    const deps = makeDeps({ beatOutcome: ok(beatJson({ file: undefined, log: undefined })) })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.file).toBeUndefined()
+      expect(result.mode).toBeUndefined()
+    }
   })
 
   it("sets rest to HEAD's committer date", async () => {

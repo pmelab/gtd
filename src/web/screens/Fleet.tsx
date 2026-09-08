@@ -21,46 +21,160 @@ const restAge = (iso: string, now: number = Date.now()): string => {
   return `${Math.floor(hours / 24)}d`
 }
 
-const FleetRow = ({ row }: { readonly row: FleetEntry }) => {
-  if (row.status === "broken") {
-    return (
-      <div style={{ padding: "10px 12px", borderBottom: "1px solid #333" }}>
-        <div style={{ fontWeight: 600 }}>
-          {row.repo} / {row.branch || "?"}
-        </div>
-        <pre
-          style={{
-            margin: "4px 0 0",
-            whiteSpace: "pre-wrap",
-            color: "#f66",
-            fontSize: 12,
-          }}
-        >
-          {row.detail}
-        </pre>
+/** One steering file a Fleet row points at — `worktreePath` is the row's own `path`, `filePath`/`mode` are the beat-reported fields (`Beat.ts#FleetRow.file`/`.mode`) that only exist when a rest actually has a steering file to open. */
+export interface OpenSteeringTarget {
+  readonly worktreePath: string
+  readonly filePath: string
+  readonly mode: string
+}
+
+/** Requirement 6's "failures show the captured output and the exit code inline" — the SAME verbatim `stdout`/`stderr` rendering `BrokenRow`'s own `detail` uses below, never summarized or re-worded. */
+const LoopFailureDetail = ({
+  failure,
+}: {
+  readonly failure: NonNullable<FleetEntry["lastLoopFailure"]>
+}) => (
+  <div data-testid="loop-failure" style={{ marginTop: 4 }}>
+    <div style={{ fontSize: 11, opacity: 0.7 }}>
+      loop exited {failure.spawnError !== undefined ? "— never started" : `${failure.status}`}
+    </div>
+    <pre style={{ margin: "2px 0 0", whiteSpace: "pre-wrap", color: "#f66", fontSize: 12 }}>
+      {failure.spawnError ?? `${failure.stdout}${failure.stderr}`}
+    </pre>
+  </div>
+)
+
+const FleetRowBroken = ({ row }: { readonly row: Extract<FleetEntry, { status: "broken" }> }) => (
+  <div style={{ padding: "10px 12px", borderBottom: "1px solid #333" }}>
+    <div style={{ fontWeight: 600 }}>
+      {row.repo} / {row.branch || "?"}
+    </div>
+    <pre style={{ margin: "4px 0 0", whiteSpace: "pre-wrap", color: "#f66", fontSize: 12 }}>
+      {row.detail}
+    </pre>
+  </div>
+)
+
+/** The info stack every ok row shows regardless of whether it's wrapped in an open button — split out so `FleetRow` itself stays a flat dispatch, not one function carrying every branch's markup. */
+const FleetRowBody = ({ row }: { readonly row: Extract<FleetEntry, { status: "ok" }> }) => (
+  <>
+    <div style={{ fontWeight: 600 }}>
+      {row.repo} / {row.branch}
+    </div>
+    <div style={{ fontSize: 13 }}>{row.label}</div>
+    <div style={{ fontSize: 12, opacity: 0.7 }}>{restAge(row.rest)}</div>
+    {row.foreignDriverPossible && (
+      <div style={{ fontSize: 11, opacity: 0.7, color: "#fa4" }}>
+        possibly driven elsewhere — imprecise, based on a recently-touched log
       </div>
-    )
-  }
+    )}
+    {row.lastLoopFailure !== undefined && <LoopFailureDetail failure={row.lastLoopFailure} />}
+  </>
+)
+
+const OPEN_BUTTON_STYLE = {
+  flex: 1,
+  textAlign: "left" as const,
+  border: "none",
+  background: "none",
+  color: "inherit",
+  font: "inherit",
+  padding: 0,
+}
+
+/** An openable row's own button wrapper — `file`/`mode` are guaranteed present by `FleetRow`'s own `canOpen` check before this ever renders. */
+const FleetRowOpenButton = ({
+  row,
+  onOpen,
+}: {
+  readonly row: Extract<FleetEntry, { status: "ok" }>
+  readonly onOpen: (target: OpenSteeringTarget) => void
+}) => (
+  <button
+    type="button"
+    data-testid={`fleet-row-open-${row.id}`}
+    onClick={() => onOpen({ worktreePath: row.path, filePath: row.file!, mode: row.mode! })}
+    style={OPEN_BUTTON_STYLE}
+  >
+    <FleetRowBody row={row} />
+  </button>
+)
+
+const FleetRowStopButton = ({
+  worktreePath,
+  rowId,
+  onStop,
+}: {
+  readonly worktreePath: string
+  readonly rowId: string
+  readonly onStop: (worktreePath: string) => void
+}) => (
+  <button
+    type="button"
+    data-testid={`fleet-row-stop-${rowId}`}
+    onClick={() => onStop(worktreePath)}
+  >
+    Stop
+  </button>
+)
+
+/** Either the tappable open button (`file`+`mode` present, `onOpen` given) or a plain, non-interactive info stack — split out of `FleetRow` so ITS branch on `canOpen` doesn't also carry the row's outer wrapper/Stop-button markup. */
+const FleetRowMain = ({
+  row,
+  onOpen,
+}: {
+  readonly row: Extract<FleetEntry, { status: "ok" }>
+  readonly onOpen: ((target: OpenSteeringTarget) => void) | undefined
+}) =>
+  onOpen !== undefined && row.file !== undefined && row.mode !== undefined ? (
+    <FleetRowOpenButton row={row} onOpen={onOpen} />
+  ) : (
+    <div style={{ flex: 1 }}>
+      <FleetRowBody row={row} />
+    </div>
+  )
+
+const FleetRow = ({
+  row,
+  onOpen,
+  onStop,
+}: {
+  readonly row: FleetEntry
+} & RowCallbacks) => {
+  if (row.status === "broken") return <FleetRowBroken row={row} />
   return (
     <div
       data-testid={`fleet-row-${row.id}`}
-      style={{ padding: "10px 12px", borderBottom: "1px solid #333" }}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        padding: "10px 12px",
+        borderBottom: "1px solid #333",
+      }}
     >
-      <div style={{ fontWeight: 600 }}>
-        {row.repo} / {row.branch}
-      </div>
-      <div style={{ fontSize: 13 }}>{row.label}</div>
-      <div style={{ fontSize: 12, opacity: 0.7 }}>{restAge(row.rest)}</div>
-      {row.foreignDriverPossible && (
-        <div style={{ fontSize: 11, opacity: 0.7, color: "#fa4" }}>
-          possibly driven elsewhere — imprecise, based on a recently-touched log
-        </div>
+      <FleetRowMain row={row} onOpen={onOpen} />
+      {row.bucket === "working" && onStop !== undefined && (
+        <FleetRowStopButton worktreePath={row.path} rowId={row.id} onStop={onStop} />
       )}
     </div>
   )
 }
 
-const QuietBucket = ({ rows }: { readonly rows: readonly FleetEntry[] }) => {
+/** Threaded down from `FleetView` to every row — both absent in `Fleet.stories.tsx`'s pure-data stories that don't exercise navigation or Stop, same as `PlanView`'s `onSaveNote?`. */
+interface RowCallbacks {
+  /** Tapping an openable row (one whose beat carries both `file` and `mode`). */
+  readonly onOpen?: ((target: OpenSteeringTarget) => void) | undefined
+  /** Tapping a Working row's Stop button. */
+  readonly onStop?: ((worktreePath: string) => void) | undefined
+}
+
+const QuietBucket = ({
+  rows,
+  onOpen,
+  onStop,
+}: { readonly rows: readonly FleetEntry[] } & RowCallbacks) => {
   const [expanded, setExpanded] = useState(false)
   if (!expanded) {
     return (
@@ -77,7 +191,7 @@ const QuietBucket = ({ rows }: { readonly rows: readonly FleetEntry[] }) => {
     <section>
       <h2 style={{ fontSize: 13, opacity: 0.7, margin: "12px" }}>Quiet ({rows.length})</h2>
       {rows.map((row) => (
-        <FleetRow key={row.id} row={row} />
+        <FleetRow key={row.id} row={row} onOpen={onOpen} onStop={onStop} />
       ))}
     </section>
   )
@@ -86,17 +200,19 @@ const QuietBucket = ({ rows }: { readonly rows: readonly FleetEntry[] }) => {
 const BucketSection = ({
   bucket,
   rows,
+  onOpen,
+  onStop,
 }: {
   readonly bucket: FleetBucket
   readonly rows: readonly FleetEntry[]
-}) => {
+} & RowCallbacks) => {
   if (rows.length === 0) return null
-  if (bucket === "quiet") return <QuietBucket rows={rows} />
+  if (bucket === "quiet") return <QuietBucket rows={rows} onOpen={onOpen} onStop={onStop} />
   return (
     <section>
       <h2 style={{ fontSize: 13, opacity: 0.7, margin: "12px" }}>{BUCKET_TITLE[bucket]}</h2>
       {rows.map((row) => (
-        <FleetRow key={row.id} row={row} />
+        <FleetRow key={row.id} row={row} onOpen={onOpen} onStop={onStop} />
       ))}
     </section>
   )
@@ -132,7 +248,7 @@ const usePullToRefresh = (onRefresh: () => void) => {
 }
 
 /** Every bucket, or the empty-fleet explanation when all four are empty — split out of `FleetView` so its own branching doesn't add to that component's count. */
-const FleetBuckets = ({ data }: { readonly data: FleetPayload }) => {
+const FleetBuckets = ({ data, onOpen, onStop }: { readonly data: FleetPayload } & RowCallbacks) => {
   const isEmpty = BUCKET_ORDER.every((bucket) => data.buckets[bucket].length === 0)
   if (isEmpty) {
     return <p style={{ padding: 16, opacity: 0.7 }}>No worktrees found — nothing to triage.</p>
@@ -140,13 +256,19 @@ const FleetBuckets = ({ data }: { readonly data: FleetPayload }) => {
   return (
     <>
       {BUCKET_ORDER.map((bucket) => (
-        <BucketSection key={bucket} bucket={bucket} rows={data.buckets[bucket]} />
+        <BucketSection
+          key={bucket}
+          bucket={bucket}
+          rows={data.buckets[bucket]}
+          onOpen={onOpen}
+          onStop={onStop}
+        />
       ))}
     </>
   )
 }
 
-export interface FleetViewProps {
+export interface FleetViewProps extends RowCallbacks {
   readonly data: FleetPayload | undefined
   readonly isLoading: boolean
   readonly onRefresh: () => void
@@ -162,7 +284,7 @@ export interface FleetViewProps {
  * untested.
  */
 // fallow-ignore-next-line complexity
-export const FleetView = ({ data, isLoading, onRefresh }: FleetViewProps) => {
+export const FleetView = ({ data, isLoading, onRefresh, onOpen, onStop }: FleetViewProps) => {
   const { pull, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(onRefresh)
 
   useEffect(() => {
@@ -190,23 +312,39 @@ export const FleetView = ({ data, isLoading, onRefresh }: FleetViewProps) => {
           {pull > PULL_THRESHOLD ? "Release to refresh" : "Pull to refresh"}
         </div>
       )}
-      <FleetBuckets data={data} />
+      <FleetBuckets data={data} onOpen={onOpen} onStop={onStop} />
     </div>
   )
 }
 
 /**
- * The real fleet screen: wires `FleetView` to the actual `fleet` tRPC query.
- * This is the phone's entry screen (`App.tsx` renders it directly) — the
- * requirement's "the fleet screen is the first thing the phone loads".
+ * Re-reads `gtd next --json` every `FLEET_POLL_INTERVAL_MS` on its own,
+ * independent of any human pull-to-refresh gesture — requirement 6's "the
+ * beat is re-read after the child exits, on any exit code": the server
+ * itself pushes nothing (no beat, socket, or invalidation on a child's
+ * exit), so polling is what actually surfaces a completed hand-back within a
+ * bounded time instead of leaving a stale Working row until the next manual
+ * pull.
  */
-export const Fleet = () => {
-  const query = trpc.fleet.useQuery()
+const FLEET_POLL_INTERVAL_MS = 5_000
+
+/**
+ * The real fleet screen: wires `FleetView` to the actual `fleet` tRPC query,
+ * plus `stop` (T5) and the row-tap navigation callback threaded down from
+ * `App.tsx`. This is the phone's entry screen (`App.tsx` renders it
+ * directly) — the requirement's "the fleet screen is the first thing the
+ * phone loads".
+ */
+export const Fleet = ({ onOpen }: { readonly onOpen?: (target: OpenSteeringTarget) => void }) => {
+  const query = trpc.fleet.useQuery(undefined, { refetchInterval: FLEET_POLL_INTERVAL_MS })
+  const stop = trpc.stop.useMutation({ onSettled: () => void query.refetch() })
   return (
     <FleetView
       data={query.data}
       isLoading={query.isLoading}
       onRefresh={() => void query.refetch()}
+      {...(onOpen !== undefined ? { onOpen } : {})}
+      onStop={(worktreePath) => stop.mutate({ worktreePath })}
     />
   )
 }

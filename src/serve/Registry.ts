@@ -1,4 +1,4 @@
-import type { LoopChild } from "./Loop.js"
+import type { LoopChild, LoopOutcome } from "./Loop.js"
 
 /** The one named refusal: a second done action on a worktree with a live child. */
 export type DriveRefusalReason = "already-driving"
@@ -9,6 +9,26 @@ export type DriveRefusalReason = "already-driving"
  * each call site.
  */
 export const FOREIGN_DRIVER_FRESHNESS_MS = 30_000
+
+/**
+ * A loop child's failure, captured verbatim for the fleet row to show —
+ * requirement 6's "failures show the captured output and the exit code
+ * inline, since gtd exits 1 for every refusal and the text is the only thing
+ * that distinguishes them." Never derived from a signal death (a deliberate
+ * `stop` always ends in one — see `Loop.ts#stopChild`'s own doc comment —
+ * and that is not a failure), only from a non-zero exit or a spawn that
+ * never happened at all.
+ */
+export interface LoopFailure {
+  readonly stdout: string
+  readonly stderr: string
+  readonly status: number | null
+  readonly spawnError?: string
+}
+
+/** True for an outcome requirement 6's own sentence means to surface — never a signal death (that's `stop`'s own doing, not a failure). */
+const isFailure = (outcome: LoopOutcome): boolean =>
+  outcome.spawnError !== undefined || (outcome.status !== null && outcome.status !== 0)
 
 /**
  * One registry slot: `placeholder` is true only for the gap `reserve` opens
@@ -31,6 +51,7 @@ interface Slot {
  */
 export class Registry {
   private readonly live = new Map<string, Slot>()
+  private readonly lastFailure = new Map<string, LoopFailure>()
 
   /** True while a worktree has a live child OR a `reserve`d placeholder — the done action's own double-drive check, and a registry entry "always wins" over the foreign-driver log signal. */
   isDriving(worktreeId: string): boolean {
@@ -38,20 +59,36 @@ export class Registry {
   }
 
   /**
-   * Registers `child` under `worktreeId` and arranges its own removal once
-   * the child exits — on ANY exit, a clean one or a signal death alike,
-   * since `LoopChild.wait` resolves either way. Never queues: caller must
-   * check `isDriving` first and refuse rather than call this on a worktree
-   * already registered.
+   * Registers `child` under `worktreeId`, clears any PRIOR drive's recorded
+   * failure (a fresh drive starting deserves a clean slate, not yesterday's
+   * stale error), and arranges its own removal once the child exits — on ANY
+   * exit, a clean one or a signal death alike, since `LoopChild.wait`
+   * resolves either way. A non-zero exit or a spawn that never happened is
+   * recorded via `lastLoopFailure` before removal, so the fleet row can
+   * still show it after Working clears. Never queues: caller must check
+   * `isDriving` first and refuse rather than call this on a worktree already
+   * registered.
    */
   register(worktreeId: string, child: LoopChild): void {
+    this.lastFailure.delete(worktreeId)
     const slot: Slot = { child, placeholder: false }
     this.live.set(worktreeId, slot)
-    void child.wait.finally(() => {
-      // Only remove if THIS slot is still the registered one — guards a
-      // pathological re-register racing the old child's own exit.
-      if (this.live.get(worktreeId) === slot) this.live.delete(worktreeId)
-    })
+    void child.wait
+      .then((outcome) => {
+        if (isFailure(outcome)) {
+          this.lastFailure.set(worktreeId, {
+            stdout: outcome.stdout,
+            stderr: outcome.stderr,
+            status: outcome.status,
+            ...(outcome.spawnError !== undefined ? { spawnError: outcome.spawnError } : {}),
+          })
+        }
+      })
+      .finally(() => {
+        // Only remove if THIS slot is still the registered one — guards a
+        // pathological re-register racing the old child's own exit.
+        if (this.live.get(worktreeId) === slot) this.live.delete(worktreeId)
+      })
   }
 
   /**
@@ -66,6 +103,7 @@ export class Registry {
    */
   reserve(worktreeId: string): boolean {
     if (this.live.has(worktreeId)) return false
+    this.lastFailure.delete(worktreeId)
     this.live.set(worktreeId, {
       child: { wait: new Promise(() => {}), interrupt: () => {}, kill: () => {} },
       placeholder: true,
@@ -98,6 +136,11 @@ export class Registry {
   get(worktreeId: string): LoopChild | undefined {
     const slot = this.live.get(worktreeId)
     return slot !== undefined && !slot.placeholder ? slot.child : undefined
+  }
+
+  /** The most recent loop failure recorded for `worktreeId`, or `undefined` if its last (or current) drive never failed, or no drive has happened yet. Survives after `isDriving` goes back to `false` — the row stops reading Working but keeps showing what broke, until the next `register`/`reserve` clears it. */
+  lastLoopFailure(worktreeId: string): LoopFailure | undefined {
+    return this.lastFailure.get(worktreeId)
   }
 
   /** Kills every live child (a placeholder's `kill` is a harmless no-op) and forgets them all, persisting nothing — a restart's own contract. */

@@ -13,6 +13,19 @@ export default meta
 
 type Story = StoryObj<typeof PlanView>
 
+/** The real `Plan` container's args shared by every "real container" story below — one worktree/file/mode triple, reused rather than repeated at each call site. */
+const REAL_PLAN_ARGS = { worktreePath: "/repo", filePath: ".gtd/PLAN.md", mode: "qa" }
+
+/** Opens paragraph 0's note seam and types `text` into the sheet — the setup every "real container" story below shares before diverging into Save vs Save & Done. */
+const openNoteSeamAndType = async (
+  canvas: ReturnType<typeof within>,
+  text: string,
+): Promise<void> => {
+  await waitFor(() => expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument())
+  await fireEvent.click(canvas.getByTestId("note-seam-0"))
+  await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), { target: { value: text } })
+}
+
 const openQuestion = (index: number, title: string): SteeringViewNode => ({
   title,
   status: "open",
@@ -65,6 +78,35 @@ export const PlanProseRendersAlongsideQuestions: Story = {
     await expect(canvas.getByText("This plan adds a thing.")).toBeInTheDocument()
     await expect(canvas.getByText("Open Questions")).toBeInTheDocument()
     await expect(canvas.getByTestId("question-card-0")).toBeInTheDocument()
+  },
+}
+
+/** T3's one named refusal, surfaced on-screen (`api.ts#driveRefusalFrom`'s own consumer) — never a silent no-op. */
+export const DoneRefusedShowsAnAlreadyDrivingBanner: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: { nodes: [planNode(0, "This plan adds a thing.")] } satisfies SteeringView,
+    doneRefused: true,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("done-refused-banner")).toHaveTextContent(
+      "Already being driven",
+    )
+  },
+}
+
+/** No banner at all when nothing has been refused — the default, unremarkable state. */
+export const NoDoneRefusalShowsNoBanner: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: { nodes: [planNode(0, "This plan adds a thing.")] } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(canvas.queryByTestId("done-refused-banner")).not.toBeInTheDocument()
   },
 }
 
@@ -372,14 +414,10 @@ export const RealContainerWriteThroughsAParagraphNoteViaWriteNote: StoryObj<type
       </TrpcTestProvider>
     )
   },
-  args: { worktreePath: "/repo", filePath: ".gtd/PLAN.md", mode: "qa" },
+  args: REAL_PLAN_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("note-seam-0"))
-    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
-      target: { value: "worth flagging" },
-    })
+    await openNoteSeamAndType(canvas, "worth flagging")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() =>
       expect(canvas.getByTestId("write-calls")).toHaveTextContent("worth flagging"),
@@ -422,16 +460,89 @@ export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<type
       <Plan {...args} />
     </TrpcTestProvider>
   ),
-  args: { worktreePath: "/repo", filePath: ".gtd/PLAN.md", mode: "qa" },
+  args: REAL_PLAN_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("note-seam-0"))
-    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
-      target: { value: "This never actually lands." },
-    })
+    await openNoteSeamAndType(canvas, "This never actually lands.")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() => expect(canvas.queryByTestId("paragraph-note-0")).not.toBeInTheDocument())
     await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Add note")
+  },
+}
+
+/** A `useState`-backed recorder for BOTH the `done` mutation's input and how many times `onDone` fired — mirrors `PlanWriteCallRecorder`'s identical reasoning. */
+const PlanDoneCallRecorder = ({
+  args,
+  onRegisterDone,
+}: {
+  readonly args: { readonly worktreePath: string; readonly filePath: string; readonly mode: string }
+  readonly onRegisterDone: (record: (input: unknown) => void) => void
+}) => {
+  const [calls, setCalls] = useState<readonly unknown[]>([])
+  const [onDoneCount, setOnDoneCount] = useState(0)
+  onRegisterDone((input) => setCalls((prev) => [...prev, input]))
+  return (
+    <>
+      <div data-testid="done-calls">{JSON.stringify(calls)}</div>
+      <div data-testid="on-done-count">{onDoneCount}</div>
+      <Plan {...args} onDone={() => setOnDoneCount((prev) => prev + 1)} />
+    </>
+  )
+}
+
+/** Proves the REAL `Plan` container wires "Save & Done" to `trpc.done` (never a second, disjoint `writeNote` call) using the exact same tokens, and calls `onDone` once it resolves — T2's own "the phone returns to the fleet list immediately". */
+export const RealContainerSaveAndDoneCallsTrpcDoneThenOnDone: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
+            },
+          }),
+          done: (input) => {
+            record(input)
+            return { ok: true }
+          },
+          writeNote: () => {
+            throw new Error("writeNote must never be called by Save & Done")
+          },
+        }}
+      >
+        <PlanDoneCallRecorder args={args} onRegisterDone={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openNoteSeamAndType(canvas, "handing back now")
+    await fireEvent.click(canvas.getByTestId("note-sheet-done"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("done-calls")).toHaveTextContent("handing back now"),
+    )
+    await expect(canvas.getByTestId("done-calls")).toHaveTextContent(
+      JSON.stringify({
+        worktreePath: "/repo",
+        filePath: ".gtd/PLAN.md",
+        expectedHeadSha: "abc123",
+        expectedContentHash: "deadbeef",
+        mode: "qa",
+        anchor: { kind: "paragraph", line: 0 },
+        text: "handing back now",
+      }).slice(1, -1),
+    )
+    await waitFor(() => expect(canvas.getByTestId("on-done-count")).toHaveTextContent("1"))
   },
 }

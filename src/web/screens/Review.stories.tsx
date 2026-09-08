@@ -13,6 +13,19 @@ export default meta
 
 type Story = StoryObj<typeof ReviewView>
 
+/** The real `Review` container's args shared by every "real container" story below — one worktree/file pair, reused rather than repeated at each call site. */
+const REAL_REVIEW_ARGS = { worktreePath: "/repo", filePath: ".gtd/REVIEW.md" }
+
+/** Opens chunk 0's note affordance and types `text` into the sheet — the setup every "real container" note story below shares before diverging into Save vs Save & Done. */
+const openChunkNoteAndType = async (
+  canvas: ReturnType<typeof within>,
+  text: string,
+): Promise<void> => {
+  await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toBeInTheDocument())
+  await fireEvent.click(canvas.getByTestId("chunk-note-0"))
+  await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), { target: { value: text } })
+}
+
 /** Clicks a checkbox testid then asserts it lands checked — collapses the click+assert pair repeated across the tick/untick stories below into one call. */
 const clickAndExpectChecked = async (canvas: ReturnType<typeof within>, testId: string) => {
   await fireEvent.click(canvas.getByTestId(testId))
@@ -103,6 +116,17 @@ export const ChunkCardShowsProseCheckAllAndNoteAffordance: Story = {
     await expect(card).toHaveTextContent("Some prose describing chunk one's own intent.")
     await expect(canvas.getByTestId("chunk-check-all-0")).not.toBeChecked()
     await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Note")
+  },
+}
+
+/** T3's one named refusal, surfaced on-screen (`api.ts#driveRefusalFrom`'s own consumer) — mirrors `Plan.stories.tsx#DoneRefusedShowsAnAlreadyDrivingBanner`'s identical story. */
+export const DoneRefusedShowsAnAlreadyDrivingBanner: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false, doneRefused: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("done-refused-banner")).toHaveTextContent(
+      "Already being driven",
+    )
   },
 }
 
@@ -363,7 +387,7 @@ export const RealContainerFetchesTheCurrentHunksDiffLive: StoryObj<typeof Review
       <Review {...args} />
     </TrpcTestProvider>
   ),
-  args: { worktreePath: "/repo", filePath: ".gtd/REVIEW.md" },
+  args: REAL_REVIEW_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
@@ -416,14 +440,10 @@ export const RealContainerWriteThroughsASavedNoteViaWriteNote: StoryObj<typeof R
       </TrpcTestProvider>
     )
   },
-  args: { worktreePath: "/repo", filePath: ".gtd/REVIEW.md" },
+  args: REAL_REVIEW_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("chunk-note-0"))
-    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
-      target: { value: "Looks good overall." },
-    })
+    await openChunkNoteAndType(canvas, "Looks good overall.")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() =>
       expect(canvas.getByTestId("write-calls")).toHaveTextContent("Looks good overall."),
@@ -468,14 +488,10 @@ export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<type
       <Review {...args} />
     </TrpcTestProvider>
   ),
-  args: { worktreePath: "/repo", filePath: ".gtd/REVIEW.md" },
+  args: REAL_REVIEW_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("chunk-note-0"))
-    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
-      target: { value: "This never actually lands." },
-    })
+    await openChunkNoteAndType(canvas, "This never actually lands.")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     // Immediately after save, the optimistic badge shows (before the refusal
     // resolves) — then the refusal reverts it.
@@ -483,5 +499,76 @@ export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<type
       expect(canvas.queryByTestId("chunk-footnote-badge-0")).not.toBeInTheDocument(),
     )
     await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Note")
+  },
+}
+
+/** A `useState`-backed recorder for BOTH the `done` mutation's input and how many times `onDone` fired — mirrors `WriteCallRecorder`'s identical reasoning. */
+const DoneCallRecorder = ({
+  args,
+  onRegisterDone,
+}: {
+  readonly args: { readonly worktreePath: string; readonly filePath: string }
+  readonly onRegisterDone: (record: (input: unknown) => void) => void
+}) => {
+  const [calls, setCalls] = useState<readonly unknown[]>([])
+  const [onDoneCount, setOnDoneCount] = useState(0)
+  onRegisterDone((input) => setCalls((prev) => [...prev, input]))
+  return (
+    <>
+      <div data-testid="done-calls">{JSON.stringify(calls)}</div>
+      <div data-testid="on-done-count">{onDoneCount}</div>
+      <Review {...args} onDone={() => setOnDoneCount((prev) => prev + 1)} />
+    </>
+  )
+}
+
+/** Proves the REAL `Review` container wires "Save & Done" to `trpc.done` (never a second, disjoint `writeNote` call) using the exact same tokens, and calls `onDone` once it resolves — mirrors `Plan.stories.tsx`'s identical story. */
+export const RealContainerSaveAndDoneCallsTrpcDoneThenOnDone: StoryObj<typeof Review> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: SAMPLE_REVIEW_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          done: (input) => {
+            record(input)
+            return { ok: true }
+          },
+          writeNote: () => {
+            throw new Error("writeNote must never be called by Save & Done")
+          },
+        }}
+      >
+        <DoneCallRecorder args={args} onRegisterDone={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openChunkNoteAndType(canvas, "handing back now")
+    await fireEvent.click(canvas.getByTestId("note-sheet-done"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("done-calls")).toHaveTextContent("handing back now"),
+    )
+    await expect(canvas.getByTestId("done-calls")).toHaveTextContent(
+      JSON.stringify({
+        worktreePath: "/repo",
+        filePath: ".gtd/REVIEW.md",
+        expectedHeadSha: "abc123",
+        expectedContentHash: "deadbeef",
+        mode: "review",
+        anchor: { kind: "chunk", index: 0 },
+        text: "handing back now",
+      }).slice(1, -1),
+    )
+    await waitFor(() => expect(canvas.getByTestId("on-done-count")).toHaveTextContent("1"))
   },
 }

@@ -147,6 +147,90 @@ export const PossiblyForeignDriven: Story = {
   },
 }
 
+/**
+ * A row whose beat carries both `file` and `mode` is tappable — the ONE
+ * caller of `onOpen`, which `App.tsx` wires to navigate to `Plan`/`Review`.
+ * A row with neither renders as a plain (non-button) div instead — see the
+ * next story.
+ */
+export const OpenableRowNavigatesOnTap: Story = {
+  args: {
+    data: payload({
+      "wants-you": [okRow({ id: "wy", file: ".gtd/PLAN.md", mode: "qa" })],
+    }),
+    isLoading: false,
+    onRefresh: fn(),
+    onOpen: fn(),
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("fleet-row-open-wy"))
+    await expect(args.onOpen).toHaveBeenCalledWith({
+      worktreePath: "/repos/gtd",
+      filePath: ".gtd/PLAN.md",
+      mode: "qa",
+    })
+  },
+}
+
+/** No `file`/`mode` (a `script`/`stalled` rest, typically) — never rendered as a fake-clickable row even when `onOpen` is given. */
+export const RowWithNoSteeringFileIsNotTappable: Story = {
+  args: {
+    data: payload({ "wants-you": [okRow({ id: "wy" })] }),
+    isLoading: false,
+    onRefresh: fn(),
+    onOpen: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(canvas.queryByTestId("fleet-row-open-wy")).not.toBeInTheDocument()
+    expect(canvas.getByTestId("fleet-row-wy")).toBeInTheDocument()
+  },
+}
+
+/** T5: a Working row gets a Stop button; nothing else does. */
+export const WorkingRowHasAStopButton: Story = {
+  args: {
+    data: payload({
+      working: [okRow({ id: "wk", bucket: "working" })],
+      "wants-you": [okRow({ id: "wy", bucket: "wants-you" })],
+    }),
+    isLoading: false,
+    onRefresh: fn(),
+    onStop: fn(),
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    expect(canvas.queryByTestId("fleet-row-stop-wy")).not.toBeInTheDocument()
+    await fireEvent.click(canvas.getByTestId("fleet-row-stop-wk"))
+    await expect(args.onStop).toHaveBeenCalledWith("/repos/gtd")
+  },
+}
+
+/** Requirement 6: a loop failure's captured stdout/stderr/exit code inline on the row — verbatim, never summarized. */
+export const LoopFailureShowsCapturedOutputInline: Story = {
+  args: {
+    data: payload({
+      quiet: [
+        okRow({
+          id: "q1",
+          bucket: "quiet",
+          idle: true,
+          lastLoopFailure: { stdout: "", stderr: "gtd: command not found\n", status: 127 },
+        }),
+      ],
+    }),
+    isLoading: false,
+    onRefresh: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByText("Quiet (1)"))
+    expect(canvas.getByTestId("loop-failure").textContent).toContain("gtd: command not found")
+    expect(canvas.getByTestId("loop-failure").textContent).toContain("127")
+  },
+}
+
 export const QuietCollapsesBehindItsCount: Story = {
   args: {
     data: payload({

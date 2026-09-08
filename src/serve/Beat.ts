@@ -54,7 +54,7 @@ export interface WorktreeRef {
   readonly path: string
 }
 
-/** A normal, projected fleet row — never the beat's own `content`/`system` fields, only the five the fleet screen renders plus identity, plus `logMtime` (the foreign-driver freshness signal a `Registry` reads elsewhere, already computed here for the cache key). */
+/** A normal, projected fleet row — never the beat's own `content`/`system` fields, only the five the fleet screen renders plus identity, plus `logMtime`/`file`/`mode` (the plumbing a phone screen needs to actually open and hand back a steering file — see `Fleet.tsx`'s row tap). */
 export interface FleetRow {
   readonly status: "ok"
   readonly id: string
@@ -68,6 +68,10 @@ export interface FleetRow {
   readonly rest: string
   /** The beat-reported loop log's mtime in epoch ms, or `undefined` when no log path was reported or it doesn't exist — the only available signal for a foreign (non-server-spawned) driver. Imprecise by nature: honours `GTD_LOOP_LOG` first, then the git dir, and gtd never creates or truncates the file. */
   readonly logMtime?: number
+  /** The beat-reported steering file's path, relative to `path` — `undefined` when this rest has no steering file (a `script`/`stalled` rest, typically). The phone's own `readSteeringFile`/`writeNote`/`done` calls all need this alongside `mode`. */
+  readonly file?: string
+  /** The beat-reported steering mode (`qa`, `review`, a custom mode, …) — `undefined` alongside `file` exactly when there is no steering file to open. Never switched on here; only threaded through so a phone screen can pick `Plan` vs `Review` client-side. */
+  readonly mode?: string
 }
 
 /** A worktree that refused to read cleanly — `detail` is the verbatim text distinguishing one refusal from another (T5). */
@@ -263,6 +267,7 @@ type ParsedBeatFields = {
   readonly state?: unknown
   readonly file?: unknown
   readonly log?: unknown
+  readonly mode?: unknown
 }
 
 const FLEET_KINDS: readonly FleetKind[] = ["capture", "message", "script", "prompt", "stalled"]
@@ -283,6 +288,17 @@ const isValidBeat = (
   (FLEET_KINDS as readonly string[]).includes(fields.kind) &&
   typeof fields.actor === "string" &&
   fields.actor !== ""
+
+/** `okResult`'s own three all-optional fields (`file`/`mode`/`logMtime`) — each dropped entirely, never present-as-`undefined`, when its source value isn't there. Factored out so `okResult` itself stays a flat field list instead of growing one branch per optional field. */
+const optionalFleetFields = (
+  filePath: string | undefined,
+  mode: unknown,
+  logMtime: number | undefined,
+): Pick<FleetRow, "file" | "mode" | "logMtime"> => ({
+  ...(filePath !== undefined ? { file: filePath } : {}),
+  ...(typeof mode === "string" ? { mode } : {}),
+  ...(logMtime !== undefined ? { logMtime } : {}),
+})
 
 /** The successful-parse path: projects `fields` into a `FleetRow` and computes the cache key T3 pins from the SAME `file`/`log` the beat itself reported. */
 const okResult = async (
@@ -314,7 +330,7 @@ const okResult = async (
     actor: fields.actor,
     idle: Boolean(fields.idle),
     rest: meta.rest,
-    ...(logMtime !== undefined ? { logMtime } : {}),
+    ...optionalFleetFields(filePath, fields.mode, logMtime),
   }
   return { result, key: { headSha, filePath, fileMtime, logPath, logMtime } }
 }

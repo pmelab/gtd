@@ -2,6 +2,7 @@ import { QuickPickleWorld, setWorldConstructor } from "quickpickle"
 import type { TestContext } from "vitest"
 import type { InfoConstructor, QuickPickleWorldInterface } from "quickpickle"
 import { Effect } from "effect"
+import assert from "node:assert"
 import { execSync, execFile as execFileCb, spawn } from "node:child_process"
 import { promisify } from "node:util"
 
@@ -497,6 +498,47 @@ export class GtdWorld extends QuickPickleWorld {
     )
     await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
     await delay(300)
+    child.kill(signal)
+    const { code, signal: died } = await exited
+    this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+  }
+
+  /**
+   * Package 05's own process-lifecycle contract, exercised as a REAL OS
+   * process — something no `@inmem` scenario can reach at all: `gtd serve`
+   * blocks forever in-process on success (`Effect.never`), so the `@inmem`
+   * tier's own scenarios (`serve.feature`) only ever cover its fast, purely
+   * deterministic REFUSAL paths, never an actual bind. Here, `--host
+   * 127.0.0.1 --self-signed --port 0` sidesteps both things that make a
+   * successful bind non-deterministic in CI (no tailnet needed, no fixed
+   * port to collide on) — genuinely binds, prints its `https://` URL once
+   * ready (polled for, since certificate generation's own subprocess cost
+   * makes a fixed delay flaky the same way `spawnGtdNextAndSignal`'s 300ms
+   * never has to account for a subprocess of its own), then dies exactly
+   * like `spawnGtdNextAndSignal` — same signal, same re-raise contract,
+   * same `lastSignalExit`/"the reported exit status is {int}" step this
+   * reuses verbatim.
+   */
+  async spawnGtdServeAndSignal(signal: NodeJS.Signals): Promise<void> {
+    const child = spawn(
+      process.execPath,
+      [GTD_BIN, "serve", "--host", "127.0.0.1", "--self-signed", "--port", "0"],
+      { cwd: this.repoDir, env: this.spawnEnv(), stdio: ["ignore", "pipe", "pipe"] },
+    )
+    let stdout = ""
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8")
+    })
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => {
+        child.once("exit", (code, sig) => resolve({ code, signal: sig }))
+      },
+    )
+    await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
+    for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
+      await delay(50)
+    }
+    assert.ok(stdout.includes("https://"), `gtd serve never printed its bound URL: ${stdout}`)
     child.kill(signal)
     const { code, signal: died } = await exited
     this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
