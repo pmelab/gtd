@@ -1,53 +1,49 @@
 # Spec feedback: 03-client-opens-on-the-step
 
-Server side (`SteeringFormat.apply`, `writeValue`, the `setValue` procedure) and
-the Plan/Question answer write-through are done. Three spec areas are not.
+Three acceptance bullets have no test anywhere in the tree. Everything else in
+the package checks out: `SteeringFormat.apply` and both built-in
+implementations, `writeValue`/`setValue`/`writeRefusalFrom`, `App.tsx`'s
+two-branch step render, the deleted fleet screen, the client write-throughs, and
+the handed-back panel are all implemented and covered.
 
-## 1. Hunk and chunk ticks are still local-only in the real app
+## The on-disk round trip is never asserted
 
-`src/web/screens/Review.tsx` — the `Review` container (bottom of the file)
-declares `writeNote` and `done` mutations but **no `setValue` mutation**, and
-renders `<ReviewView ... />` **without `onSetValue`**. `useReviewState`'s
-`toggleChunk`/`setHunkChecked` therefore call `onSetValue?.(...)` on `undefined`
-every time: a hunk tick writes nothing to disk and does not survive a reload.
+Requirement acceptance: "a scenario answers a question in the UI and asserts the
+answer is in the steering file on disk". Task 4 repeats it: "An answer given in
+the UI is in the steering file on disk, asserted by a scenario".
 
-The whole "Write hunk and chunk ticks through to disk" task fails on this one
-missing wire — the plumbing beneath it (props, optimistic revert, one call per
-chunk anchor) is already correct.
+No such scenario exists. `tests/integration/features/ui.feature` covers only
+refusals; `ui-lifecycle.feature` covers signals, `done`, and `/close`.
+`grep -rn setValue tests/` returns nothing — no step definition and no
+`world.ts` helper drives a `setValue` mutation against a spawned `gtd ui`.
 
-Also, the invalidation the spec asks for is absent: `Review` has no
-`utils.readSteeringFile.invalidate({ filePath, mode: "review" })` on a
-`setValue` settle (`Plan.tsx:442` shows the shape to copy).
+The two Storybook stories that exist —
+`Plan.stories.tsx#RealContainerWriteThroughsAnAnswerViaSetValue` and
+`Review.stories.tsx#RealContainerWriteThroughsAHunkTickViaSetValue` — record the
+mutation's INPUT against a mocked resolver that returns `{ ok: true }` without
+touching a file. They prove the client sends the right request; they prove
+nothing about disk.
 
-## 2. Stale comment contradicting the shipped code
+Needed: a `@live` scenario alongside `ui-lifecycle.feature`'s handoff case —
+`world.ts` already has `spawnGtdUiAndHandOff` driving a real HTTPS tRPC round
+trip against a real spawned server, so the missing piece is a sibling helper
+that calls `setValue` and a `Then the file "PLAN.md" contains "[x]"`-style
+assertion on the served worktree's own file.
 
-`src/web/screens/Review.tsx`, `useReviewState`'s doc comment: "Ticks are STILL
-local/optimistic UI state only … there is no format-agnostic 'toggle' member on
-`SteeringFormat` the way `annotate` is one — adding that … is a real design
-decision". `SteeringFormat.apply` is exactly that member and now exists. The
-spec's "the 'not wired to writeNote, a later package' comments are gone" bullet
-is unmet in substance.
+## "An answer survives a page reload" is untested
 
-## 3. The "handed back" panel does not exist
+Task 4's last bullet. No test remounts the client and asserts the answer is
+still shown. The only match for `eload` under `src/web/` is a prose comment at
+`Plan.tsx:20`.
 
-Task "Show the human that the turn was handed back" is entirely unimplemented.
-`Plan.tsx#Plan.onDoneNote` and `Review.tsx#Review.onDoneNote` both `.catch()`
-and return; neither screen renders any terminal panel after `done` resolves, and
-no such panel exists anywhere in `src/web` (grep for "handed back" hits only
-tests). All three bullets are open.
+## "A hunk tick survives a reload" is untested
 
-## 4. Missing tests for the write-throughs
+Task 5's last bullet, and the requirement's own third acceptance clause. Same
+gap: nothing remounts `Review` against a steering file whose bytes carry the
+tick and asserts the tick renders.
 
-- No story anywhere mocks or asserts `setValue`
-  (`grep -rn setValue src/web/**/*.stories.tsx` → nothing). The spec bullet
-  "surviving stories' mock link answers `step` and `setValue`" is unmet, and
-  both write-throughs — the answer one that IS wired, and the tick one that is
-  not — are untested at the browser tier. `Plan.stories.tsx`'s real-container
-  stories (`RealContainerWriteThroughsAParagraphNoteViaWriteNote`) are the
-  pattern to mirror for `setValue`.
-- No scenario asserts "an answer given in the UI is in the steering file on
-  disk" — `tests/integration/features/ui.feature` and `ui-lifecycle.feature`
-  cover only the `done`/`writeNote` note path (`ui-lifecycle.feature:97`).
-  Acceptance names this scenario explicitly.
-- Nothing asserts "an answer survives a page reload" or "a hunk tick survives a
-  reload".
+Both reload bullets are reachable at the Storybook tier without a browser
+reload: mount against a `readSteeringFile` resolver returning content/`view`
+whose `checked` is already `true` (the state a real write leaves behind) and
+assert the control reads as ticked with the local optimistic map empty. The
+optimistic `answers`/`ticked` maps must NOT be what makes the assertion pass.
