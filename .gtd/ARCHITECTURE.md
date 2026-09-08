@@ -19,7 +19,7 @@ different builds. The shared guard is `needsOf(kind) === "state"` in
 command that exists. Exit 2 is the usage-error code and needs a bespoke
 pre-dispatch check that no other command has.
 
-- [ ] Exit 1 — drop `ui` into `needs: "state"` and change nothing else; it
+- [x] Exit 1 — drop `ui` into `needs: "state"` and change nothing else; it
       refuses identically to `gtd land` or `gtd next` run outside a repo, and
       the pinned exit-code table needs no new meaning
 - [ ] Exit 2 — a bespoke guard raising a usage error, matching the acceptance
@@ -38,7 +38,7 @@ INSIDE the invoking worktree — which, when you are developing gtd's own client
 IS the gtd checkout. The flag still works, but its whole reason for the walk is
 gone, and the requirements never mention it.
 
-- [ ] Keep it — the walk is harmless and it is the only way to see a client edit
+- [x] Keep it — the walk is harmless and it is the only way to see a client edit
       without a full `npm run build`; the rescope has no opinion on developer
       tooling
 - [ ] Delete it — the flag, its scope entry, its help row, the package-root walk
@@ -62,7 +62,7 @@ could run it from a phone.
 - [ ] A fallback screen that also runs a `script` step's command through
       `runCommand` and shows its output, keeping the mutation and accepting
       arbitrary shell execution on the tailnet as the shipped design
-- [ ] _your answer_
+- [x] it should just fail with a usage error
 
 ## Package 1 — `gtd ui`, its config key, and its docs pins
 
