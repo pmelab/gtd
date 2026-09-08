@@ -84,28 +84,32 @@ export class DriveRefusal extends Error {
   }
 }
 
+/** One `error.cause instanceof Ctor ? map(cause) : undefined` check, factored out so `errorFormatter` itself stays a flat field list instead of one growing branch per refusal type. */
+const refusalField = <T, R>(
+  cause: unknown,
+  ctor: new (...args: never[]) => T,
+  map: (value: T) => R,
+): R | undefined => (cause instanceof ctor ? map(cause) : undefined)
+
 const t = initTRPC.context<RouterContext>().create({
   errorFormatter({ shape, error }) {
-    const refusal = error.cause instanceof CommandRefusal ? error.cause : undefined
-    const writeRefusal = error.cause instanceof WriteNoteRefusal ? error.cause : undefined
-    const viewRefusal = error.cause instanceof UnsupportedModeRefusal ? error.cause : undefined
-    const readRefusal = error.cause instanceof ReadSteeringFileRefusal ? error.cause : undefined
-    const driveRefusal = error.cause instanceof DriveRefusal ? error.cause : undefined
+    const { cause } = error
     return {
       ...shape,
       data: {
         ...shape.data,
-        refusal:
-          refusal === undefined
-            ? undefined
-            : { stdout: refusal.stdout, stderr: refusal.stderr, exitCode: refusal.exitCode },
-        driveRefusal: driveRefusal === undefined ? undefined : { reason: driveRefusal.reason },
-        writeRefusal:
-          writeRefusal === undefined
-            ? undefined
-            : { reason: writeRefusal.reason, moved: writeRefusal.moved },
-        viewRefusal: viewRefusal === undefined ? undefined : { reason: viewRefusal.reason },
-        readRefusal: readRefusal === undefined ? undefined : { reason: readRefusal.reason },
+        refusal: refusalField(cause, CommandRefusal, (r) => ({
+          stdout: r.stdout,
+          stderr: r.stderr,
+          exitCode: r.exitCode,
+        })),
+        driveRefusal: refusalField(cause, DriveRefusal, (r) => ({ reason: r.reason })),
+        writeRefusal: refusalField(cause, WriteNoteRefusal, (r) => ({
+          reason: r.reason,
+          moved: r.moved,
+        })),
+        viewRefusal: refusalField(cause, UnsupportedModeRefusal, (r) => ({ reason: r.reason })),
+        readRefusal: refusalField(cause, ReadSteeringFileRefusal, (r) => ({ reason: r.reason })),
       },
     }
   },
