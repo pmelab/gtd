@@ -147,6 +147,31 @@ export const PossiblyForeignDriven: Story = {
   },
 }
 
+/** T6: a `prompt` rest left dirty by a killed loop (nothing persists across a restart) reads as Interrupted, in Wants you — never Working, which would otherwise claim a driver is still there. */
+export const InterruptedPromptReadsAsWantsYou: Story = {
+  args: {
+    data: payload({
+      "wants-you": [
+        okRow({
+          id: "wy",
+          bucket: "wants-you",
+          kind: "prompt",
+          actor: "agent",
+          idle: false,
+          interrupted: true,
+        }),
+      ],
+    }),
+    isLoading: false,
+    onRefresh: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText("Wants you")).toBeInTheDocument()
+    expect(canvas.getByTestId("interrupted-badge")).toHaveTextContent("Interrupted")
+  },
+}
+
 /**
  * A row whose beat carries both `file` and `mode` is tappable — the ONE
  * caller of `onOpen`, which `App.tsx` wires to navigate to `Plan`/`Review`.

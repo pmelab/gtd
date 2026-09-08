@@ -57,6 +57,22 @@ describe("bucketOf", () => {
   it("a registry entry always wins, even over an otherwise-Broken row", () => {
     expect(bucketOf(brokenRow(), true)).toBe("working")
   })
+
+  it("puts an interrupted prompt (T6: a dirty rest with nothing actually driving it) in Wants you", () => {
+    expect(bucketOf(row({ kind: "prompt", actor: "agent", idle: false, interrupted: true }))).toBe(
+      "wants-you",
+    )
+  })
+
+  it("a registry entry always wins over interrupted too — a live driver's own dirty tree is Working, not Wants you", () => {
+    expect(
+      bucketOf(row({ kind: "prompt", actor: "agent", idle: false, interrupted: true }), true),
+    ).toBe("working")
+  })
+
+  it("a clean (non-interrupted) prompt still buckets as Working, unaffected", () => {
+    expect(bucketOf(row({ kind: "prompt", actor: "agent", idle: false }))).toBe("working")
+  })
 })
 
 describe("groupIntoBuckets with a Registry", () => {

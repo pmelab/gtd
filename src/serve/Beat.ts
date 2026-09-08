@@ -72,6 +72,17 @@ export interface FleetRow {
   readonly file?: string
   /** The beat-reported steering mode (`qa`, `review`, a custom mode, …) — `undefined` alongside `file` exactly when there is no steering file to open. Never switched on here; only threaded through so a phone screen can pick `Plan` vs `Review` client-side. */
   readonly mode?: string
+  /**
+   * `true` only for a `prompt` kind whose tree carries pending changes
+   * (`gtd next --json`'s own `changes` array is non-empty) — never present
+   * (never `false`) otherwise. A restart persists nothing (`Registry.ts`'s
+   * own contract): a `prompt` rest left dirty by a killed loop reads
+   * identically to one an agent is still actively working, UNLESS this is
+   * surfaced — `Fleet.ts#bucketOf` reads it to bucket such a row as Wants
+   * you (interrupted) rather than Working when no registry entry is
+   * actually driving it.
+   */
+  readonly interrupted?: boolean
 }
 
 /** A worktree that refused to read cleanly — `detail` is the verbatim text distinguishing one refusal from another (T5). */
@@ -268,6 +279,7 @@ type ParsedBeatFields = {
   readonly file?: unknown
   readonly log?: unknown
   readonly mode?: unknown
+  readonly changes?: unknown
 }
 
 const FLEET_KINDS: readonly FleetKind[] = ["capture", "message", "script", "prompt", "stalled"]
@@ -289,15 +301,22 @@ const isValidBeat = (
   typeof fields.actor === "string" &&
   fields.actor !== ""
 
-/** `okResult`'s own three all-optional fields (`file`/`mode`/`logMtime`) — each dropped entirely, never present-as-`undefined`, when its source value isn't there. Factored out so `okResult` itself stays a flat field list instead of growing one branch per optional field. */
+/** `true` only for a `prompt` kind whose beat-reported `changes` array is non-empty — see `FleetRow.interrupted`'s own doc comment for why this matters. `fields.changes` is validated defensively (an unparseable/missing array reads as clean, never as dirty) since a Broken read never reaches here at all — this only ever sees a beat that already passed `isValidBeat`. */
+const isInterruptedPrompt = (kind: FleetKind, changes: unknown): boolean =>
+  kind === "prompt" && Array.isArray(changes) && changes.length > 0
+
+/** `okResult`'s own four all-optional fields (`file`/`mode`/`logMtime`/`interrupted`) — each dropped entirely, never present-as-`undefined`-or-`false`, when its source value isn't there. Factored out so `okResult` itself stays a flat field list instead of growing one branch per optional field. */
 const optionalFleetFields = (
   filePath: string | undefined,
   mode: unknown,
   logMtime: number | undefined,
-): Pick<FleetRow, "file" | "mode" | "logMtime"> => ({
+  kind: FleetKind,
+  changes: unknown,
+): Pick<FleetRow, "file" | "mode" | "logMtime" | "interrupted"> => ({
   ...(filePath !== undefined ? { file: filePath } : {}),
   ...(typeof mode === "string" ? { mode } : {}),
   ...(logMtime !== undefined ? { logMtime } : {}),
+  ...(isInterruptedPrompt(kind, changes) ? { interrupted: true } : {}),
 })
 
 /** The successful-parse path: projects `fields` into a `FleetRow` and computes the cache key T3 pins from the SAME `file`/`log` the beat itself reported. */
@@ -330,7 +349,7 @@ const okResult = async (
     actor: fields.actor,
     idle: Boolean(fields.idle),
     rest: meta.rest,
-    ...optionalFleetFields(filePath, fields.mode, logMtime),
+    ...optionalFleetFields(filePath, fields.mode, logMtime, fields.kind, fields.changes),
   }
   return { result, key: { headSha, filePath, fileMtime, logPath, logMtime } }
 }

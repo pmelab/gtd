@@ -197,6 +197,52 @@ describe("BeatCache.read — ok rows", () => {
     }
   })
 
+  it("reads a dirty prompt rest as interrupted (T6: nothing persists across a restart, so a killed loop's dirty tree must say so on the row itself)", async () => {
+    const deps = makeDeps({
+      beatOutcome: ok(
+        beatJson({
+          kind: "prompt",
+          changes: [{ status: "M", path: "src/x.ts", pattern: null }],
+        }),
+      ),
+    })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") expect(result.interrupted).toBe(true)
+  })
+
+  it("never reads a CLEAN prompt rest as interrupted", async () => {
+    const deps = makeDeps({ beatOutcome: ok(beatJson({ kind: "prompt", changes: [] })) })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") expect(result.interrupted).toBeUndefined()
+  })
+
+  it("never reads a dirty NON-prompt rest as interrupted — only a prompt rest reads this way", async () => {
+    const deps = makeDeps({
+      beatOutcome: ok(
+        beatJson({
+          kind: "script",
+          changes: [{ status: "M", path: "src/x.ts", pattern: null }],
+        }),
+      ),
+    })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") expect(result.interrupted).toBeUndefined()
+  })
+
+  it("omits interrupted entirely (never present-as-false) when the beat reports no changes array at all", async () => {
+    const deps = makeDeps({ beatOutcome: ok(beatJson({ kind: "prompt" })) })
+    const cache = new BeatCache(deps, 8)
+    const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") expect("interrupted" in result).toBe(false)
+  })
+
   it("sets rest to HEAD's committer date", async () => {
     const deps = makeDeps()
     const cache = new BeatCache(deps, 8)

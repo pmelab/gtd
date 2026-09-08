@@ -174,6 +174,34 @@ describe("process-group signaling — a loop's forked grandchild dies too, not j
   })
 })
 
+/**
+ * `close`, not `exit`: `exit` fires the instant the process terminates,
+ * before its piped stdio is necessarily drained, so a large tail written
+ * right before exit can still be sitting in the pipe, unread, when `exit`
+ * fires — silently truncating the captured output. 300 KB comfortably
+ * exceeds a single pipe buffer (64 KB on both Linux and macOS), so a naive
+ * `exit`-based `wait` would resolve here with a short read; `close` never
+ * does.
+ */
+describe("liveLoopSpawn — output larger than one pipe buffer, written immediately before exit", () => {
+  it("captures the full output, not a pipe-buffer-sized prefix of it", async () => {
+    const child = await Effect.runPromise(
+      Effect.gen(function* () {
+        const runner = yield* LoopRunner
+        return runner.spawn({
+          command: "head -c 300000 /dev/zero | tr '\\0' 'a'",
+          cwd: tmpDir,
+          shimDir,
+        })
+      }).pipe(Effect.provide(LoopRunner.Live)),
+    )
+    const outcome = await child.wait
+    expect(outcome.status).toBe(0)
+    expect(outcome.stdout).toHaveLength(300_000)
+    expect(outcome.stdout).toBe("a".repeat(300_000))
+  })
+})
+
 describe("liveLoopSpawn — spawn failure", () => {
   it("resolves wait with spawnError set, rather than throwing or hanging, when the process can never start (a vanished cwd)", async () => {
     const child = await Effect.runPromise(

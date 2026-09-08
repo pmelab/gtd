@@ -63,6 +63,11 @@ const FleetRowBody = ({ row }: { readonly row: Extract<FleetEntry, { status: "ok
     </div>
     <div style={{ fontSize: 13 }}>{row.label}</div>
     <div style={{ fontSize: 12, opacity: 0.7 }}>{restAge(row.rest)}</div>
+    {row.interrupted === true && (
+      <div data-testid="interrupted-badge" style={{ fontSize: 11, color: "#e0a030" }}>
+        Interrupted — a restart left this rest dirty with nothing driving it
+      </div>
+    )}
     {row.foreignDriverPossible && (
       <div style={{ fontSize: 11, opacity: 0.7, color: "#fa4" }}>
         possibly driven elsewhere — imprecise, based on a recently-touched log

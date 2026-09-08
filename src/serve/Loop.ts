@@ -79,16 +79,27 @@ export const liveLoopSpawn = (request: LoopSpawnRequest): LoopChild => {
     stderr += chunk.toString("utf8")
   })
   const wait = new Promise<LoopOutcome>((resolve) => {
-    // `error` (spawn never happened at all) and `exit` (it happened) are
+    // `error` (spawn never happened at all) and `close` (it happened) are
     // mutually exclusive per Node's own contract, but `once` on both plus a
     // resolved flag keeps this correct even if that ever isn't quite true.
+    // `close`, deliberately NOT `exit`: `exit` fires the moment the process
+    // terminates, before its piped stdio is necessarily drained — a loop
+    // command that writes a large tail to stderr right before exiting could
+    // resolve `wait` with that tail still sitting unread in the pipe,
+    // silently truncating `LoopOutcome.stdout`/`stderr` (and so
+    // `Registry.ts#register`'s own `LoopFailure`, and `Fleet.tsx`'s
+    // rendering of it) — exactly the output requirement 6 says must be
+    // shown inline to distinguish one failure from another. `close` is
+    // Node's own guarantee that every stdio stream has ended, mirroring
+    // `Beat.ts#liveRunInWorktree`'s `execFile`, whose callback likewise
+    // never fires until stdio is fully collected.
     let settled = false
     child.once("error", (error) => {
       if (settled) return
       settled = true
       resolve({ stdout, stderr, status: null, signal: null, spawnError: error.message })
     })
-    child.once("exit", (code, signal) => {
+    child.once("close", (code, signal) => {
       if (settled) return
       settled = true
       resolve({ stdout, stderr, status: code, signal })

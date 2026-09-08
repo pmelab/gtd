@@ -15,18 +15,24 @@ export type FleetEntry = BeatRead & {
  * `idle` is load-bearing and `actor` alone is not: an idle worktree reports
  * `actor: human` too (the last human turn is still on record even though
  * nothing is waiting on anyone). So **Wants you** is `!idle && actor ===
- * "human"`, plus every `stalled` kind regardless of actor/idle. **Broken** is
- * anything `BeatCache` couldn't read cleanly. **Quiet** is `idle`. **Working**
- * is whatever is left — today that's a not-idle agent-actor row, OR any row
- * the `Registry` reports as having a live child, which always wins:
- * `driving` is checked before anything else, since a worktree the server
- * itself is actively driving belongs in Working even if its beat is
- * transiently unreadable mid-turn.
+ * "human"`, plus every `stalled` kind regardless of actor/idle, plus a
+ * `row.interrupted` prompt (T6: a restart persists nothing, so a `prompt`
+ * rest a killed loop left dirty otherwise reads identically to one an agent
+ * is still actively driving — `Beat.ts#FleetRow.interrupted`'s own doc
+ * comment). **Broken** is anything `BeatCache` couldn't read cleanly.
+ * **Quiet** is `idle`. **Working** is whatever is left — today that's a
+ * not-idle agent-actor row, OR any row the `Registry` reports as having a
+ * live child, which always wins over EVERYTHING below, `interrupted`
+ * included: `driving` is checked before anything else, since a worktree the
+ * server itself is actively driving belongs in Working even if its beat is
+ * transiently unreadable mid-turn, or genuinely dirty from that same live
+ * turn.
  */
 export const bucketOf = (row: BeatRead, driving: boolean = false): FleetBucket => {
   if (driving) return "working"
   if (row.status === "broken") return "broken"
   if (row.kind === "stalled") return "wants-you"
+  if (row.interrupted === true) return "wants-you"
   if (!row.idle && row.actor === "human") return "wants-you"
   if (row.idle) return "quiet"
   return "working"
