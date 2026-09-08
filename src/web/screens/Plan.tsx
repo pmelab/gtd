@@ -439,17 +439,35 @@ export interface PlanProps {
   readonly mode: string
 }
 
+/** The compare-and-swap fields every one of `Plan`'s mutation wrappers sends — `filePath`/`mode` from props, `expectedHeadSha`/`expectedContentHash` from the live `readSteeringFile` read — factored out so `onCommitAnswer`/`onSaveNote`/`onDoneNote` don't each repeat the same five fields. `undefined` when the read hasn't resolved yet, mirroring `Review.tsx`'s identical "no steering file loaded yet" guard. */
+const casTokensFor = (
+  filePath: string,
+  mode: string,
+  anchor: SteeringAnchor,
+  data: { readonly headSha: string; readonly contentHash: string } | undefined,
+) =>
+  data === undefined
+    ? undefined
+    : {
+        filePath,
+        expectedHeadSha: data.headSha,
+        expectedContentHash: data.contentHash,
+        mode,
+        anchor,
+      }
+
 /**
- * The real plan screen: fetches content/`view`/tokens through
- * `readSteeringFile` (never a bare `content` prop with no way to have
- * actually been fetched — see `Review.tsx#Review`'s identical split), and
- * write-throughs a saved paragraph note via `writeNote`'s compare-and-swap
- * using the SAME tokens that fetch returned. `App.tsx` renders this when
- * `trpc.step`'s own `mode` isn't `"review"`.
+ * Every mutation `Plan` wires up, pulled into one hook so the component
+ * itself stays a thin fetch-then-render dispatch (see `useReviewState` in
+ * `Review.tsx` for the same split, applied to that screen's own local state
+ * instead of its mutations).
  */
-export const Plan = ({ filePath, mode }: PlanProps) => {
+const usePlanMutations = (
+  filePath: string,
+  mode: string,
+  data: { readonly headSha: string; readonly contentHash: string } | undefined,
+) => {
   const utils = trpc.useUtils()
-  const query = trpc.readSteeringFile.useQuery({ filePath, mode })
   const writeNote = trpc.writeNote.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode }),
   })
@@ -462,62 +480,62 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<unknown> => {
-    const data = query.data
-    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return setValue.mutateAsync({
-      filePath,
-      expectedHeadSha: data.headSha,
-      expectedContentHash: data.contentHash,
-      mode,
-      anchor,
-      ...opts,
-    })
+    const tokens = casTokensFor(filePath, mode, anchor, data)
+    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return setValue.mutateAsync({ ...tokens, ...opts })
   }
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const data = query.data
-    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return writeNote.mutateAsync({
-      filePath,
-      expectedHeadSha: data.headSha,
-      expectedContentHash: data.contentHash,
-      mode,
-      anchor,
-      text,
-    })
+    const tokens = casTokensFor(filePath, mode, anchor, data)
+    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return writeNote.mutateAsync({ ...tokens, text })
   }
 
   const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const data = query.data
-    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return done
-      .mutateAsync({
-        filePath,
-        expectedHeadSha: data.headSha,
-        expectedContentHash: data.contentHash,
-        mode,
-        anchor,
-        text,
-      })
-      .catch(() => {
-        // No refusal has a display yet — caught regardless and never
-        // rethrown: `NoteSheet`'s own `onDone` is fire-and-forget (never
-        // awaited), so an uncaught rejection this far down would be a real
-        // unhandled promise rejection, not just a silently-discarded one.
-      })
+    const tokens = casTokensFor(filePath, mode, anchor, data)
+    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return done.mutateAsync({ ...tokens, text }).catch(() => {
+      // No refusal has a display yet — caught regardless and never
+      // rethrown: `NoteSheet`'s own `onDone` is fire-and-forget (never
+      // awaited), so an uncaught rejection this far down would be a real
+      // unhandled promise rejection, not just a silently-discarded one.
+    })
   }
+
+  return { onCommitAnswer, onSaveNote, onDoneNote, isDone: done.isSuccess }
+}
+
+/** `PlanView`'s own two data props, both `undefined`-safe over an in-flight `readSteeringFile` read — split out so `Plan` itself doesn't carry the two optional-chaining branches inline. */
+const planViewDataProps = (
+  data: { readonly view?: SteeringView; readonly contentHash?: string } | undefined,
+) => ({ view: data?.view, contentHash: data?.contentHash ?? "" })
+
+/**
+ * The real plan screen: fetches content/`view`/tokens through
+ * `readSteeringFile` (never a bare `content` prop with no way to have
+ * actually been fetched — see `Review.tsx#Review`'s identical split), and
+ * write-throughs a saved paragraph note via `writeNote`'s compare-and-swap
+ * using the SAME tokens that fetch returned. `App.tsx` renders this when
+ * `trpc.step`'s own `mode` isn't `"review"`.
+ */
+export const Plan = ({ filePath, mode }: PlanProps) => {
+  const query = trpc.readSteeringFile.useQuery({ filePath, mode })
+  const { onCommitAnswer, onSaveNote, onDoneNote, isDone } = usePlanMutations(
+    filePath,
+    mode,
+    query.data,
+  )
 
   // Once `done` resolves, the server has already written the note and
   // called `ctx.handOff()` — see `Review.tsx#Review`'s identical check for
   // why nothing past this point renders `PlanView` again.
-  if (done.isSuccess) {
+  if (isDone) {
     return <HandedBackPanel />
   }
 
   return (
     <PlanView
-      view={query.data?.view}
-      contentHash={query.data?.contentHash ?? ""}
+      {...planViewDataProps(query.data)}
       isLoading={query.isLoading}
       onSaveNote={onSaveNote}
       onDoneNote={onDoneNote}
