@@ -158,6 +158,7 @@ const OptionRow = ({
   isSelected,
   freeText,
   onSelect,
+  onFocusFreeText,
   onFreeTextChange,
   onDictate,
   onCommitFreeText,
@@ -168,7 +169,10 @@ const OptionRow = ({
   readonly isFreeText: boolean
   readonly isSelected: boolean
   readonly freeText: string
+  /** The radio's own click/change — writes through immediately (T4's "selecting an option calls setValue"). */
   readonly onSelect: () => void
+  /** The free-text slot's focus/keystroke tracking — LOCAL selection only, never a write; see `Question.tsx#Question`'s `selectLocally` doc comment for why. */
+  readonly onFocusFreeText: () => void
   readonly onFreeTextChange: (text: string) => void
   readonly onDictate: (text: string) => void
   readonly onCommitFreeText: () => void
@@ -187,7 +191,7 @@ const OptionRow = ({
     {isFreeText && (
       <FreeTextOption
         freeText={freeText}
-        onFocus={onSelect}
+        onFocus={onFocusFreeText}
         onFreeTextChange={onFreeTextChange}
         onDictate={onDictate}
         onCommit={onCommitFreeText}
@@ -213,33 +217,55 @@ export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: Quest
   const lastIndex = options.length - 1
   const { selected, freeText } = answer
 
-  const setSelected = (index: number) => {
-    const previous = answer
-    onAnswerChange((prev) => ({ ...prev, selected: index }))
-    // A fire-and-forget write-through, mirrored on `commitFreeText` below:
-    // neither is awaited, but a rejection (a `CONFLICT` refusal, a network
-    // failure, …) DOES revert the optimistic selection set just above, back
-    // to whatever `answer` was before this tap — mirrors
-    // `Review.tsx#useReviewState`'s own revert-on-rejection for ticks.
-    // Leaving the radio filled on a refused write would show "answered" for
-    // a question whose file was never actually touched — the requirement's
-    // own "the human's answers vanish" failure mode, just delayed rather
-    // than prevented.
-    const anchor = options[index]?.anchor
-    if (anchor !== undefined) {
-      onCommitAnswer?.(anchor, { checked: true })?.catch(() => onAnswerChange(previous))
-    }
+  /** Updates `selected` LOCALLY only — never a write. Used for the free-text slot's own focus/keystroke tracking (`onFocusFreeText` below), so merely tapping into (or typing in) the textarea never itself reaches the network: a stray focus-then-blur with nothing typed must change nothing, neither on disk nor in this local state (see `commitFreeText`'s own guard for the write half of that same guarantee). */
+  const selectLocally = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
+
+  /**
+   * The one write-through both `setSelected` and `commitFreeText` fire —
+   * split out so neither caller's own branching (an out-of-range index, an
+   * empty-text guard) also carries the anchor-resolved / anchor-missing
+   * split here. Fire-and-forget: never awaited, but a rejection (a
+   * `CONFLICT` refusal, a network failure, …) DOES revert the optimistic
+   * local update the caller already applied, back to `previous` — mirrors
+   * `Review.tsx#useReviewState`'s own revert-on-rejection for ticks. Leaving
+   * the local state standing on a refused write would show "answered" for a
+   * question whose file was never actually touched — the requirement's own
+   * "the human's answers vanish" failure mode, just delayed rather than
+   * prevented. A no-op when `anchor` is `undefined` (an out-of-range index).
+   */
+  const commitAnchor = (
+    anchor: SteeringAnchor | undefined,
+    opts: { readonly checked?: boolean; readonly text?: string },
+    previous: QuestionAnswer,
+  ) => {
+    if (anchor === undefined) return
+    onCommitAnswer?.(anchor, opts)?.catch(() => onAnswerChange(previous))
   }
 
-  /** The free-text slot's own commit point (`FreeTextOption`'s `onBlur`): writes the CURRENT `freeText` prop plus `checked: true` in one call — never split into a separate tick-then-text pair, matching T3's "both fields together, not two separate writes" acceptance bullet. A refused/failed write reverts the optimistic `answer` to its pre-commit value, mirroring `setSelected`'s identical revert above. */
-  const commitFreeText = () => {
+  /** An ordinary option's own click: local selection AND an immediate write-through (T4's "selecting an option calls setValue") — never used for the free-text slot's focus tracking, which must stay local-only (`selectLocally`). */
+  const setSelected = (index: number) => {
     const previous = answer
+    selectLocally(index)
+    commitAnchor(options[index]?.anchor, { checked: true }, previous)
+  }
+
+  /**
+   * The free-text slot's own commit point (`FreeTextOption`'s `onBlur`):
+   * writes the CURRENT `freeText` prop plus `checked: true` in one call —
+   * never split into a separate tick-then-text pair, matching T3's "both
+   * fields together, not two separate writes" acceptance bullet. Fires
+   * NOTHING when there is no meaningful text (`normalizeAnswerText` empty) —
+   * a bare focus-then-blur, or blurring after deleting everything typed,
+   * must never tick the empty slot NOR blank out a previously written
+   * answer; both were real, silent-data-loss bugs (a one-finger mis-tap on
+   * the exact target device) before this guard existed.
+   */
+  const commitFreeText = () => {
+    if (normalizeAnswerText(freeText).length === 0) return
+    const previous = answer
+    selectLocally(lastIndex)
     const anchor = lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
-    if (anchor !== undefined) {
-      onCommitAnswer?.(anchor, { checked: true, text: freeText })?.catch(() =>
-        onAnswerChange(previous),
-      )
-    }
+    commitAnchor(anchor, { checked: true, text: freeText }, previous)
   }
 
   /**
@@ -295,6 +321,7 @@ export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: Quest
           isSelected={selected === index}
           freeText={freeText}
           onSelect={() => setSelected(index)}
+          onFocusFreeText={() => selectLocally(index)}
           onFreeTextChange={setFreeText}
           onDictate={onDictate}
           onCommitFreeText={commitFreeText}

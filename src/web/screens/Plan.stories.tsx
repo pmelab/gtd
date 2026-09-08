@@ -616,6 +616,61 @@ export const RealContainerRevertsTheOptimisticAnswerOnARefusedWrite: StoryObj<ty
   },
 }
 
+/**
+ * The exact defect the spec review caught: focusing the free-text slot's
+ * textarea and blurring it again WITHOUT TYPING ANYTHING — a one-finger
+ * mis-tap on a phone, the target device — must send NO `setValue` call at
+ * all. Before `Question.tsx`'s `commitFreeText` guarded on
+ * `normalizeAnswerText(freeText).length === 0` and its `onFocus` stopped
+ * writing through, this sequence fired TWO real writes: one on focus
+ * (unticking whatever the human had already picked, via radio semantics on
+ * the free-text anchor) and one on blur (blanking the free-text option's own
+ * label to `""`, unrecoverable) — silently destroying a real answer with no
+ * user-visible error.
+ */
+export const RealContainerFocusingAndBlurringFreeTextWithNoTypingSendsNoWrite: StoryObj<
+  typeof Plan
+> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "Sample plan.\n\n## Open Questions\n\n### Which option?\n",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: { nodes: [openQuestion(0, "Which option?")] },
+          }),
+          setValue: (input) => {
+            record(input)
+            return { ok: true }
+          },
+        }}
+      >
+        <PlanSetValueCallRecorder args={args} onRegisterSetValue={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("question-card-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    const textarea = canvas.getByTestId("free-text-input")
+    await fireEvent.focus(textarea)
+    await fireEvent.blur(textarea)
+    // No `waitFor` here on purpose — a write-through, if one fired, would
+    // already have resolved synchronously against this mock resolver; a
+    // fixed assertion right after the blur is what actually catches a
+    // regression, where `waitFor` would just wait out its own timeout
+    // finding nothing, indistinguishable from success.
+    await expect(canvas.getByTestId("set-value-calls")).toHaveTextContent("[]")
+    await expect(canvas.getByTestId("option-radio-1")).not.toBeChecked()
+  },
+}
+
 /** After `done` resolves, the client renders the terminal "handed back" panel — no further server round trip, no way back to any list. Mirrors `Review.stories.tsx`'s identical story. */
 export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Plan> = {
   render: (args) => (
