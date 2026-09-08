@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
@@ -80,6 +80,97 @@ describe("LoopRunner.Live", () => {
     } finally {
       rmSync(otherShimDir, { recursive: true, force: true })
     }
+  })
+})
+
+/** `true` while `pid` is a live process (`ESRCH` is the only "definitely dead" signal — any other error, e.g. `EPERM`, means it still exists but we can't signal it, which still counts as alive here). */
+const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH"
+  }
+}
+
+/** Polls until `pid` is no longer alive — `stopChild`/`killAll` both signal asynchronously (neither one's own return/resolution is a synchronous guarantee that the OS has already reaped the process), so a single immediate check would be racy. */
+const waitUntilDead = async (pid: number, timeoutMs = 2_000): Promise<void> => {
+  const start = Date.now()
+  while (isAlive(pid)) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`pid ${pid} is still alive after ${timeoutMs}ms`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+/** Polls until `path` exists with non-empty content, returning it parsed as a pid — the loop command below writes its forked grandchild's pid to a file since `LoopChild` exposes no live stdout tap to scrape one out of mid-flight. */
+const readPidFileWhenReady = async (path: string, timeoutMs = 2_000): Promise<number> => {
+  const start = Date.now()
+  while (true) {
+    if (existsSync(path)) {
+      const content = readFileSync(path, "utf8").trim()
+      if (content.length > 0) return Number(content)
+    }
+    if (Date.now() - start > timeoutMs) throw new Error(`${path} never appeared`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+/**
+ * Reproduces the canonical loop shape (`docs/driver.md`'s own `while :; do
+ * ... claude ...; done`, which runs the agent turn in the FOREGROUND of that
+ * loop, never backgrounded with `&`) — a `bash -c` loop whose body forks a
+ * separate process per turn under the same top-level bash. A bare signal to
+ * that top bash pid alone never reaches the forked turn — these pin that
+ * `stopChild`/`Registry.killAll` instead signal the WHOLE process group
+ * `liveLoopSpawn` makes this `bash` the leader of, so the forked grandchild
+ * dies too, not just the wrapper. `exec sleep 30` (not `sleep 30 &`, which
+ * this failed against earlier): a BACKGROUNDED job is a materially different
+ * case — POSIX has the shell set `&` jobs' own SIGINT/SIGQUIT disposition to
+ * ignored specifically so an interactive Ctrl-C doesn't kill background work
+ * by accident, which would fail this test for a reason that has nothing to
+ * do with process-group signaling at all. `exec` replaces the inner `sh`
+ * with `sleep` in place (same pid) so the recorded pid is live regardless of
+ * which image is currently running under it.
+ */
+describe("process-group signaling — a loop's forked grandchild dies too, not just bash itself", () => {
+  const grandchildLoopCommand = (pidFile: string): string =>
+    `while true; do sh -c 'echo $$ > "${pidFile}"; exec sleep 30'; done`
+
+  it("stopChild kills the long-running process the loop's own bash forked", async () => {
+    const pidFile = join(tmpDir, "grandchild-stop.pid")
+    const child = await Effect.runPromise(
+      Effect.gen(function* () {
+        const runner = yield* LoopRunner
+        return runner.spawn({ command: grandchildLoopCommand(pidFile), cwd: tmpDir, shimDir })
+      }).pipe(Effect.provide(LoopRunner.Live)),
+    )
+    const grandchildPid = await readPidFileWhenReady(pidFile)
+    expect(isAlive(grandchildPid)).toBe(true)
+
+    await stopChild(child)
+
+    await waitUntilDead(grandchildPid)
+  })
+
+  it("Registry.killAll kills the same forked grandchild, not just the registered wrapper", async () => {
+    const pidFile = join(tmpDir, "grandchild-killall.pid")
+    const child = await Effect.runPromise(
+      Effect.gen(function* () {
+        const runner = yield* LoopRunner
+        return runner.spawn({ command: grandchildLoopCommand(pidFile), cwd: tmpDir, shimDir })
+      }).pipe(Effect.provide(LoopRunner.Live)),
+    )
+    const grandchildPid = await readPidFileWhenReady(pidFile)
+    expect(isAlive(grandchildPid)).toBe(true)
+
+    const registry = new Registry()
+    registry.register("w", child)
+    registry.killAll()
+    await child.wait
+
+    await waitUntilDead(grandchildPid)
   })
 })
 

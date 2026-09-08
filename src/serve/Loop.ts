@@ -13,7 +13,7 @@ export interface LoopOutcome {
   readonly spawnError?: string
 }
 
-/** A live loop child: `interrupt`/`kill` send real OS signals to the actual process, not merely cancel an Effect fiber — `wait` resolves once the child has exited, on any exit, clean or signalled. */
+/** A live loop child: `interrupt`/`kill` send real OS signals to the actual process's whole GROUP, not just its own pid (see `signalGroup`'s own doc comment for why) — never merely cancelling an Effect fiber. `wait` resolves once the child (the group's own leader) has exited, on any exit, clean or signalled. */
 export interface LoopChild {
   readonly wait: Promise<LoopOutcome>
   readonly interrupt: () => void
@@ -30,17 +30,46 @@ export interface LoopSpawnRequest {
 }
 
 /**
+ * Signals `pid`'s own process GROUP (`-pid`), never just `pid` itself: the
+ * canonical loop shape (`docs/driver.md`'s own `while :; do ... claude ...;
+ * done`) forks a new process per turn under the SAME bash — a bare
+ * `child.kill(signal)` reaches only that top bash pid, never the driver it
+ * forked, which then survives both the interrupt AND the escalation kill,
+ * keeps committing to the worktree, and leaves `isDriving` false (T3's
+ * double-drive guard) and the row Working with a live driver still inside it
+ * once `bash` itself has died (T5/T6). `detached: true` at spawn (below)
+ * makes this pid the group's own leader, so `-pid` reaches bash AND every
+ * process it forked. `ESRCH` (group already gone — the whole thing already
+ * exited) is swallowed; anything else rethrows.
+ */
+const signalGroup = (pid: number, signal: NodeJS.Signals): void => {
+  try {
+    process.kill(-pid, signal)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+  }
+}
+
+/**
  * The real spawn: `bash -c <command>` with `cwd` set to the worktree and
  * `shimDir` PREPENDED to `$PATH` — a plain function (mirroring `Beat.ts`'s
  * `liveRunInWorktree`), not wrapped in an Effect service, so `Server.ts` can
  * call it directly without threading a runtime through for one function.
+ * `detached: true` makes this `bash` the leader of its own new process
+ * group (rather than sharing `gtd serve`'s own) — see `signalGroup`'s own
+ * doc comment for why `interrupt`/`kill` signal that whole group, not just
+ * this one pid.
  */
 export const liveLoopSpawn = (request: LoopSpawnRequest): LoopChild => {
   const env = {
     ...process.env,
     PATH: `${request.shimDir}:${process.env["PATH"] ?? ""}`,
   }
-  const child = spawn("bash", ["-c", request.command], { cwd: request.cwd, env })
+  const child = spawn("bash", ["-c", request.command], {
+    cwd: request.cwd,
+    env,
+    detached: true,
+  })
   let stdout = ""
   let stderr = ""
   child.stdout?.on("data", (chunk: Buffer) => {
@@ -68,10 +97,10 @@ export const liveLoopSpawn = (request: LoopSpawnRequest): LoopChild => {
   return {
     wait,
     interrupt: () => {
-      child.kill("SIGINT")
+      if (child.pid !== undefined) signalGroup(child.pid, "SIGINT")
     },
     kill: () => {
-      child.kill("SIGKILL")
+      if (child.pid !== undefined) signalGroup(child.pid, "SIGKILL")
     },
   }
 }
