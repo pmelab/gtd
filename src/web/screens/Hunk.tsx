@@ -28,6 +28,10 @@ const LINE_BACKGROUND: Readonly<Record<string, string>> = {
   del: "#2b1113",
   context: "transparent",
   header: "#1a1a1a",
+  // Git's own `\ No newline at end of file` marker — visually distinct from
+  // `context` (T8: added/removed/context lines must be distinguishable, and
+  // this is deliberately none of the three), never painted as one.
+  marker: "#1a1a1a",
 }
 
 /**

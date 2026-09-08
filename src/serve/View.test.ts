@@ -32,7 +32,11 @@ describe("steeringViewFor", () => {
   it("yields the question view's open and answered questions separately, in their own status field", () => {
     const result = steeringViewFor("qa", QA_FORMAT.sample)
     if (!result.ok) throw new Error("expected ok")
-    const statuses = result.view.nodes.map((n) => n.status)
+    // QA_FORMAT.sample also carries its own lead prose ("Sample plan. Add a
+    // thing.") ahead of the question, projected as its own `undefined`-status
+    // paragraph node (requirement 4/T5's "Read the plan" row) — filtered out
+    // here since this test is about QUESTION status specifically.
+    const statuses = result.view.nodes.filter((n) => n.status !== undefined).map((n) => n.status)
     expect(statuses).toContain("open")
     // QA_FORMAT.sample carries only an open question — the format's own
     // ability to separate the two is covered directly in

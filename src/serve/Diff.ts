@@ -34,31 +34,56 @@ export type DiffResult =
 /** The `@@ -oldStart[,oldLines] +newStart[,newLines] @@` hunk header — `oldLines`/`newLines` default to 1 when omitted, matching unified-diff's own convention for a one-line range. */
 const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
 
+/** `true` for the four prefixes a hunk BODY line can start with — `+`/`-`/` ` (added/removed/context) plus `\` (the rare "no newline at end of file" marker, see `Highlight.ts#lineKind`'s own `marker` kind). Pulled out so `parseUnifiedDiff`'s own loop reads as one condition per line kind, not a four-way `||` inline. */
+const isHunkBodyLine = (line: string): boolean =>
+  line.startsWith("+") || line.startsWith("-") || line.startsWith(" ") || line.startsWith("\\")
+
+type OpenHunk = { header: string; newStart: number; newLines: number; lines: string[] }
+
+/** Parses one `@@ -a,b +c,d @@` header line into a fresh, empty `OpenHunk` — `undefined` when `line` isn't a hunk header at all. Pulled out of `parseUnifiedDiff`'s own loop so that function's own job reads as "dispatch on what kind of line this is", not also the header's own regex-group arithmetic. */
+const openHunkFrom = (line: string): OpenHunk | undefined => {
+  const match = HUNK_HEADER.exec(line)
+  if (match === null) return undefined
+  return {
+    header: line,
+    newStart: Number(match[1]),
+    newLines: match[2] !== undefined ? Number(match[2]) : 1,
+    lines: [],
+  }
+}
+
 /**
  * Parses `git diff`'s unified output for a SINGLE path into hunks. Only lines
  * inside a hunk body are kept (`+`/`-`/` ` prefixed, plus the rare `\ No
  * newline at end of file` marker) — the `diff --git`/`index`/`---`/`+++`
  * preamble carries no post-image line numbers and is dropped.
+ *
+ * A `diff --git ` line (the ONLY preamble line that can never be confused
+ * with real hunk content — unlike `--- a/x`/`+++ b/x`, which are
+ * indistinguishable from a `-`/`+`-prefixed diff LINE by prefix alone) always
+ * ends whatever hunk is currently open, even before the next `@@` header: a
+ * pointer that resolves to more than one file (a stale pointer naming a
+ * directory, or a path git's own pathspec matches loosely) emits MULTIPLE
+ * `diff --git` sections back to back, and without this, the second file's
+ * own `---`/`+++` preamble would otherwise get appended into the FIRST
+ * file's last hunk as fake `+`/`-` content.
  */
 export const parseUnifiedDiff = (path: string, text: string): FileDiff => {
   const hunks: DiffHunk[] = []
-  let current: { header: string; newStart: number; newLines: number; lines: string[] } | undefined
+  let current: OpenHunk | undefined
   for (const line of text.split("\n")) {
-    const match = HUNK_HEADER.exec(line)
-    if (match !== null) {
+    if (line.startsWith("diff --git ")) {
       if (current !== undefined) hunks.push(current)
-      const newStart = Number(match[1])
-      const newLines = match[2] !== undefined ? Number(match[2]) : 1
-      current = { header: line, newStart, newLines, lines: [] }
+      current = undefined
       continue
     }
-    if (current === undefined) continue
-    if (
-      line.startsWith("+") ||
-      line.startsWith("-") ||
-      line.startsWith(" ") ||
-      line.startsWith("\\")
-    ) {
+    const opened = openHunkFrom(line)
+    if (opened !== undefined) {
+      if (current !== undefined) hunks.push(current)
+      current = opened
+      continue
+    }
+    if (current !== undefined && isHunkBodyLine(line)) {
       current.lines.push(line)
     }
   }
@@ -88,10 +113,19 @@ export interface DiffDeps {
 
 /**
  * Resolves a review hunk pointer: runs `gtd base` to find the review anchor,
- * diffs it against the working tree for exactly one path (shell-quoted, with
- * `--` so a path containing `#` or leading `-` is never misread as an
- * option), and selects the pointed-at hunk. Falls back to the whole-file diff
- * whenever the pointer doesn't land on a hunk — never an empty result.
+ * diffs it against `HEAD` — never the working tree — for exactly one path
+ * (shell-quoted, with `--` so a path containing `#` or leading `-` is never
+ * misread as an option), and selects the pointed-at hunk. Falls back to the
+ * whole-file diff whenever the pointer doesn't land on a hunk — never an
+ * empty result.
+ *
+ * `base..HEAD`, not `base..working-tree`: a review doc's pointers are
+ * 1-based against the post-image AS COMMITTED at `HEAD` (that's the only
+ * post-image a human reviewing the round actually agreed to), so if this
+ * diffed the working tree instead, any uncommitted edit sitting on top —
+ * a stray save, `oxfmt --write` mid-round — would shift post-image line
+ * numbers and make a pointer silently select the WRONG hunk while still
+ * returning `kind: "hunk"`, with no banner to say so.
  */
 export const resolveDiff = async (
   worktreePath: string,
@@ -109,7 +143,7 @@ export const resolveDiff = async (
   const base = baseOutcome.stdout.trim()
 
   const quotedPath = `'${path.replace(/'/g, "'\\''")}'`
-  const diffOutcome = await deps.run(worktreePath, `git diff ${base} -- ${quotedPath}`)
+  const diffOutcome = await deps.run(worktreePath, `git diff ${base} HEAD -- ${quotedPath}`)
   if (diffOutcome.status !== 0) {
     return {
       kind: "refused",
@@ -126,7 +160,14 @@ export const resolveDiff = async (
     return { kind: "binary" }
   }
 
-  if (line === undefined) {
+  // `line === 0` means the SAME thing as `line === undefined` here: a bare
+  // `./path` pointer with no `#N` suffix parses to line 0 (T3's own "a bare
+  // path with no number means line 0"), and 0 is never a valid 1-based
+  // post-image line — `selectHunk`/`hunkContainsLine` would otherwise treat
+  // it as landing on a pure-deletion hunk's own `newStart` when that hunk's
+  // `newStart` (by construction) is 0, selecting a hunk where the spec
+  // mandates the whole-file fallback.
+  if (line === undefined || line === 0) {
     return { kind: "whole-file", diff, reason: "no-line" }
   }
 

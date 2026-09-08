@@ -55,10 +55,9 @@ export const ExistingNotePrefillsForEditingNotADuplicate: Story = {
   },
 }
 
-// This file contains no `window.getSelection()`/selection-range code anywhere
-// — the sheet is opened purely from an `anchor` prop, so no selection
-// gesture is ever required to place a note. (Nothing to assert at runtime;
-// this is a structural fact about the source, confirmed by reading it.)
+// T6's "no selection gesture is required to place a note" is pinned as a
+// real, enforced source-grep test in `NoteSheet.test.ts` (the sibling `.ts`
+// unit test), not left as a claim in a comment here.
 
 const DismissDiscardsHarness = (args: {
   readonly anchor: SteeringAnchor
@@ -212,5 +211,42 @@ export const DictationWritesToTheTextareaOnAttachNotToOnSave: Story = {
     expect(args.onSave).not.toHaveBeenCalled()
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await expect(args.onSave).toHaveBeenCalledWith(hunkAnchor, "looks good to me")
+  },
+}
+
+/** T7's OTHER mandated mic mount point — its own fallback branch (no speech API → hidden mic, one-line hint, textarea kept) was untested; only the happy-path mic worked. */
+export const NoSpeechApiShowsAHintAndKeepsTheTextarea: Story = {
+  args: { anchor: hunkAnchor, onSave: fn(), onDismiss: fn() },
+  beforeEach: () => {
+    withoutApi()
+    return () => {}
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByTestId("note-sheet-mic")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("note-sheet-mic-hint")).toBeInTheDocument()
+    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
+    await fireEvent.change(textarea, { target: { value: "typed by hand instead" } })
+    expect(textarea.value).toBe("typed by hand instead")
+  },
+}
+
+/** The note sheet's own interim display — displayed but never written through, mirroring `Question.stories.tsx`'s identical proof at the free-text-option layer. */
+export const InterimResultsDisplayInTheNoteSheetButNeverWriteThrough: Story = {
+  args: { anchor: hunkAnchor, onSave: fn(), onDismiss: fn() },
+  beforeEach: () => {
+    withApi()
+    return withoutApi
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("note-sheet-mic"))
+    const recognition = FakeSpeechRecognition.instances.at(-1)
+    recognition?.emitResult([fakeResult("still speaking", false)])
+    await waitFor(() =>
+      expect(canvas.getByTestId("note-sheet-mic-interim")).toHaveTextContent("still speaking"),
+    )
+    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
+    expect(textarea.value).toBe("")
   },
 }

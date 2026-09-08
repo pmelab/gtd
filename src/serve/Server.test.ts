@@ -409,53 +409,64 @@ describe("runServeCommand", () => {
   })
 })
 
+/** Awaits `promise`, asserts it rejects with a real `TRPCClientError` (proof the request actually reached the real HTTP adapter and `errorFormatter`, unlike `createCaller` in unit tests elsewhere), and returns its `.data` — the one shape every `*Refusal` assertion below shares. */
+const refusalDataFrom = async <T>(promise: Promise<unknown>): Promise<T | undefined> => {
+  const error = await promise.catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(TRPCClientError)
+  return (error as InstanceType<typeof TRPCClientError>).data as T | undefined
+}
+
+/** Generates a self-signed cert into `dir`, starts a real `runServeCommand` over a scripted `CommandRunner` (`false` always exits 1 with the given stdout/stderr), and polls for the bound URL `out.write` prints once `HttpsServer.Live` actually binds the ephemeral port. Pulled out of the test itself so ITS OWN complexity is the tRPC assertions, not also this setup. */
+const startScriptedServer = async (
+  dir: string,
+): Promise<{ readonly boundUrl: string; readonly fiber: Fiber.RuntimeFiber<void, unknown> }> => {
+  const certPath = join(dir, "cert.pem")
+  const keyPath = join(dir, "key.pem")
+  const cert = await Effect.runPromise(
+    generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
+      Effect.provide(CommandRunner.Live),
+      Effect.provide(Cwd.layer(dir)),
+      Effect.provide(NodeContext.layer),
+    ),
+  )
+  writeFileSync(certPath, cert.cert)
+  writeFileSync(keyPath, cert.key)
+
+  const written: string[] = []
+  const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
+
+  const scriptedRunner = CommandRunner.layer(() =>
+    Effect.succeed({
+      status: 1,
+      output: "partial\nline1\nline2\n",
+      stdout: "partial\n",
+      stderr: "line1\nline2\n",
+    }),
+  )
+
+  const fiber = Effect.runFork(
+    runServeCommand(
+      { selfSigned: false, dev: false, port: 0 },
+      { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0 },
+      out,
+    ).pipe(
+      Effect.provide(HttpsServer.Live),
+      Effect.provide(scriptedRunner),
+      Effect.provide(NodeContext.layer),
+      Effect.provide(Cwd.Live),
+    ),
+  )
+
+  for (let i = 0; i < 50; i += 1) {
+    if (written[0] !== undefined) return { boundUrl: written[0].trim(), fiber }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error("server never printed its bound URL")
+}
+
 describe("the tRPC API surface mounted under /trpc", () => {
   it("reaches Router.ts's runCommand through the real HTTPS adapter end-to-end, with a refusal's stdout/stderr/exitCode separately readable and stderr's two lines intact", async () => {
-    const certPath = join(tmpDir, "cert.pem")
-    const keyPath = join(tmpDir, "key.pem")
-    const cert = await Effect.runPromise(
-      generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
-        Effect.provide(CommandRunner.Live),
-        Effect.provide(Cwd.layer(tmpDir)),
-        Effect.provide(NodeContext.layer),
-      ),
-    )
-    writeFileSync(certPath, cert.cert)
-    writeFileSync(keyPath, cert.key)
-
-    const written: string[] = []
-    const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
-
-    const scriptedRunner = CommandRunner.layer(() =>
-      Effect.succeed({
-        status: 1,
-        output: "partial\nline1\nline2\n",
-        stdout: "partial\n",
-        stderr: "line1\nline2\n",
-      }),
-    )
-
-    const fiber = Effect.runFork(
-      runServeCommand(
-        { selfSigned: false, dev: false, port: 0 },
-        { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0 },
-        out,
-      ).pipe(
-        Effect.provide(HttpsServer.Live),
-        Effect.provide(scriptedRunner),
-        Effect.provide(NodeContext.layer),
-        Effect.provide(Cwd.Live),
-      ),
-    )
-
-    // Poll for the bound URL — `out.write` fires only once the real
-    // HttpsServer.Live has actually bound the ephemeral port.
-    let boundUrl: string | undefined
-    for (let i = 0; i < 50 && boundUrl === undefined; i++) {
-      if (written[0] !== undefined) boundUrl = written[0].trim()
-      else await new Promise((resolve) => setTimeout(resolve, 20))
-    }
-    if (boundUrl === undefined) throw new Error("server never printed its bound URL")
+    const { boundUrl, fiber } = await startScriptedServer(tmpDir)
 
     // Real client dials a real self-signed HTTPS server — accepting that
     // untrusted cert is the only thing disabled here, matching what a phone
@@ -467,15 +478,36 @@ describe("the tRPC API surface mounted under /trpc", () => {
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
       })
 
-      const error = await client.runCommand.mutate({ command: "false" }).catch((e: unknown) => e)
-      expect(error).toBeInstanceOf(TRPCClientError)
-      const data = (error as InstanceType<typeof TRPCClientError>).data as
-        | { refusal?: { stdout: string; stderr: string; exitCode: number | null } }
-        | undefined
+      const data = await refusalDataFrom<{
+        refusal?: { stdout: string; stderr: string; exitCode: number | null }
+      }>(client.runCommand.mutate({ command: "false" }))
       expect(data?.refusal?.stdout).toBe("partial\n")
       expect(data?.refusal?.stderr).toBe("line1\nline2\n")
       expect(data?.refusal?.stderr.split("\n")).toEqual(["line1", "line2", ""])
       expect(data?.refusal?.exitCode).toBe(1)
+
+      // T2's "an unknown mode yields a typed refusal, not an empty screen":
+      // `createCaller` (unit tests elsewhere) never runs `errorFormatter` at
+      // all, so only a REAL client dialing a REAL server proves
+      // `viewRefusal` actually reaches this far, as `writeRefusal` above
+      // just did for `runCommand`.
+      const viewData = await refusalDataFrom<{ viewRefusal?: { reason: string } }>(
+        client.view.query({ mode: "not-a-real-mode", content: "x" }),
+      )
+      expect(viewData?.viewRefusal?.reason).toBe("unsupported-mode")
+
+      // Same proof for `readSteeringFile`'s own refusal, mirroring
+      // `writeRefusal`'s pattern (`src/web/api.ts#writeRefusalFrom`) — there
+      // is no `readRefusalFrom` client helper yet, so this is the one place
+      // `readRefusal` reaching a real client is pinned at all.
+      const readData = await refusalDataFrom<{ readRefusal?: { reason: string } }>(
+        client.readSteeringFile.query({
+          worktreePath: tmpDir,
+          filePath: "does-not-exist.md",
+          mode: "qa",
+        }),
+      )
+      expect(readData?.readRefusal?.reason).toBe("file-vanished")
     } finally {
       if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
       else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject

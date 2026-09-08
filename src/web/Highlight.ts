@@ -12,7 +12,7 @@ export interface Token {
   readonly className?: string
 }
 
-export type LineKind = "add" | "del" | "context" | "header"
+export type LineKind = "add" | "del" | "context" | "header" | "marker"
 
 /**
  * Ported verbatim from the prototype's own tokenizer, down to the token
@@ -55,24 +55,29 @@ export const tokenize = (code: string): Token[] => {
   return tokens
 }
 
-/** A hunk header (`@@ ... @@`) first, else the diff prefix character — `+`/`-`/anything else (context, including a missing prefix on the last, unterminated line). */
+/** A hunk header (`@@ ... @@`) first, then git's own `\ No newline at end of file` marker (a bare `\`-prefixed line `Diff.ts` keeps verbatim in `hunk.lines`, never a `+`/`-`/context source line), else the diff prefix character — `+`/`-`/anything else (context, including a missing prefix on the last, unterminated line). */
 export const lineKind = (line: string): LineKind => {
   if (line.startsWith("@@")) return "header"
+  if (line.startsWith("\\")) return "marker"
   if (line.startsWith("+")) return "add"
   if (line.startsWith("-")) return "del"
   return "context"
 }
 
 /**
- * Tokenizes one diff line for rendering. A hunk header is returned as a
- * single plain token — never handed to `tokenize` — so it renders
- * unhighlighted, matching the prototype. Every other kind has its leading
+ * Tokenizes one diff line for rendering. A hunk header OR a `\ No newline at
+ * end of file` marker is returned as a single plain token — never handed to
+ * `tokenize`, and never `.slice(1)`'d — so it renders unhighlighted and
+ * intact, matching the prototype for headers and (T8: "added, removed and
+ * context lines are visually distinguishable" — this is deliberately NONE
+ * of the three, so it must never be silently folded into "context") a
+ * distinct fourth kind for the marker. Every other kind has its leading
  * diff-prefix character stripped before tokenizing.
  */
 export const highlightDiffLine = (
   line: string,
 ): { readonly kind: LineKind; readonly tokens: readonly Token[] } => {
   const kind = lineKind(line)
-  if (kind === "header") return { kind, tokens: [{ text: line }] }
+  if (kind === "header" || kind === "marker") return { kind, tokens: [{ text: line }] }
   return { kind, tokens: tokenize(line.slice(1)) }
 }

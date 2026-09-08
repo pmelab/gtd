@@ -405,7 +405,7 @@ describe("footnoteAttachEdits", () => {
     expect(first.id).not.toBe(second.id)
   })
 
-  it("two attaches at the same anchor are rejected rather than producing a duplicate id", () => {
+  it("a second attach at the SAME anchor EDITS the existing note in place, rather than rejecting it (T6: 'offers editing it, not a second note')", () => {
     const content = "Chunk A"
     const first = footnoteAttachEdits(
       content,
@@ -430,10 +430,19 @@ describe("footnoteAttachEdits", () => {
       },
       "note a, again",
     )
-    expect(second).toEqual({ ok: false, reason: "id-collision" })
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    // Same id, single replace edit — no second marker, no second definition.
+    expect(second.id).toBe(first.id)
+    expect(second.edits).toHaveLength(1)
+    const reapplied = applyEdits(applied, second.edits)
+    expect(reapplied).toContain(`[^${first.id}]: note a, again`)
+    expect(reapplied).not.toContain("note a, again, again")
+    expect((reapplied.match(new RegExp(`\\[\\^${first.id}\\]`, "g")) ?? []).length).toBe(2) // one marker, one definition
+    expect(parseFootnotes(reapplied).definitions).toHaveLength(1)
   })
 
-  it("an id colliding with an existing definition, compared case-insensitively, is rejected", () => {
+  it("an id colliding with a definition NOT already attached at THIS anchor's own line is still rejected", () => {
     const key = "chunk:a"
     const generated = footnoteAttachEdits(
       "x",
@@ -443,7 +452,11 @@ describe("footnoteAttachEdits", () => {
     expect(generated.ok).toBe(true)
     if (!generated.ok) return
     const upperId = generated.id.toUpperCase()
-    const content = `text[^${upperId}]\n\n[^${upperId}]: existing reason\n`
+    // The existing marker/definition sit on line 5 — a different line than
+    // where THIS anchor's own attach would land (line 0) — so this reads as
+    // a genuine collision with unrelated content, never a re-attach at the
+    // same spot.
+    const content = `text\n\n\n\n\nelsewhere[^${upperId}]\n\n[^${upperId}]: existing reason\n`
     const result = footnoteAttachEdits(
       content,
       {

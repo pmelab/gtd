@@ -217,6 +217,15 @@ describe("parseOpenQuestions", () => {
       })
     })
 
+    it("normalizes the placeholder case-insensitively, regardless of the constant's OWN casing — never assumes FREE_TEXT_PLACEHOLDER itself is already lowercase", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST", "- [ ] GraphQL", `- [x] ${FREE_TEXT_PLACEHOLDER.toUpperCase()}`]),
+      )
+      const question = result.questions[0]!
+      expect(question.answered).toBe(false)
+      expect(question.options[2]!.text).toBe("")
+    })
+
     it("accepts `* [X]` bullet/upper-case tick syntax", () => {
       const result = parseOpenQuestions(q(["", "* [ ] REST", "* [X] GraphQL"]))
       expect(result.questions[0]!.answered).toBe(true)
@@ -1547,11 +1556,19 @@ describe("QA_FORMAT.view", () => {
 
   it("exposes both open and answered questions, in document order — title carries the actual question, detail the body summary", () => {
     const view = QA_FORMAT.view(CONTENT)
-    expect(view.nodes.map((q) => [q.status, q.title, q.detail])).toEqual([
+    const questionNodes = view.nodes.filter((n) => n.status !== undefined)
+    expect(questionNodes.map((q) => [q.status, q.title, q.detail])).toEqual([
       ["open", "First?", "- [ ] Option A"],
       ["answered", "Second?", "Already decided."],
     ])
-    expect(view.nodes[0]!.children!.map((o) => o.title)).toEqual(["Option A", "Option B"])
+    expect(questionNodes[0]!.children!.map((o) => o.title)).toEqual(["Option A", "Option B"])
+  })
+
+  it("prepends the plan's own lead prose (before '## Open Questions') as a paragraph node, ahead of every question (requirement 4/T5's 'Read the plan' row needs an actual plan to read)", () => {
+    const view = QA_FORMAT.view(CONTENT)
+    expect(view.nodes[0]).toMatchObject({ title: "Plan.", anchor: { kind: "paragraph", line: 0 } })
+    expect(view.nodes[0]!.status).toBeUndefined()
+    expect(view.nodes.slice(1).every((n) => n.status !== undefined)).toBe(true)
   })
 
   it("is built from one parse of the document, not one per element", () => {
@@ -1622,7 +1639,14 @@ describe("QA_FORMAT.view — prose-only projection (T2, no Open/Answered Questio
       "",
     ].join("\n")
     const view = QA_FORMAT.view(content)
-    expect(view.nodes.map((n) => n.status)).toEqual(["open"])
+    // NOT prose-only: the real question node is still there — but its own
+    // intro prose is now ALSO a node (a separate, `undefined`-status
+    // paragraph node), never dropped.
+    expect(view.nodes.map((n) => n.status)).toEqual([undefined, "open"])
+    expect(view.nodes[0]).toMatchObject({
+      title: "Some intro prose.",
+      anchor: { kind: "paragraph", line: 0 },
+    })
   })
 })
 

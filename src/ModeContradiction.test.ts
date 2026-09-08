@@ -183,12 +183,13 @@ const anchorsIn = (value: unknown): unknown[] => {
 
 /**
  * Attaches `text` at the first anchor `view(content)` reports that `annotate`
- * actually accepts (every OTHER anchor in a built-in's `sample` already
- * carries the server-written note T7 requires, so annotating it again is a
- * correctly-refused `id-collision` — this just skips those and uses the
- * first one that's still free), and returns the resulting document. Throws
- * if no anchor is free, which would mean the fixture no longer has room for
- * this test to attach anything at all.
+ * actually accepts, and returns the resulting document. An anchor that
+ * already carries the server-written note T7 requires now EDITS that note
+ * in place (`Footnotes.ts#footnoteAttachEdits`'s same-anchor update path)
+ * rather than refusing, so this always succeeds on the FIRST anchor tried —
+ * still named "free" for what it once had to search past, kept as the
+ * throwing fallback in case a future fixture ever adds a genuinely
+ * unresolvable anchor.
  */
 const attachAtFirstFreeAnchor = (
   format: NonNullable<ReturnType<typeof steeringFormatFor>>,

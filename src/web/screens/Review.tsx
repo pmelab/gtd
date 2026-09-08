@@ -131,7 +131,8 @@ const useReviewState = (
   const toggleChunk = (chunk: SteeringViewNode) => {
     const hunks = hunksOf(chunk)
     const target = !(hunks.length > 0 && hunks.every(isChecked))
-    // TODO(no tick-toggle procedure): local-only, see module doc comment above.
+    // Local-only by design — see package 04's own "Deliberately deferred to a
+    // later package" note under T4 for why ticks aren't wired to writeNote.
     setTicked((prev) => {
       const next = { ...prev }
       for (const hunk of hunks) next[hunkKey(hunk.anchor)] = target
@@ -140,7 +141,8 @@ const useReviewState = (
   }
 
   const setHunkChecked = (hunk: SteeringViewNode, checked: boolean) => {
-    // TODO(no tick-toggle procedure): local-only, see module doc comment above.
+    // Local-only by design — see package 04's own "Deliberately deferred to a
+    // later package" note under T4 for why ticks aren't wired to writeNote.
     setTicked((prev) => ({ ...prev, [hunkKey(hunk.anchor)]: checked }))
   }
 

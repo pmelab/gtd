@@ -160,23 +160,32 @@ describe("writeNote", () => {
     expect(deps.writeFile).not.toHaveBeenCalled()
   })
 
-  it("an anchor that already has a note attached is its own distinct refusal (note-collision), never anchor-unresolved", async () => {
+  it("writing a SECOND note at an anchor that already has one EDITS it in place, rather than refusing (T6: 'offers editing it, not a second note')", async () => {
     // Attach a note to the chunk anchor for REAL first (via the same
     // `REVIEW_FORMAT.annotate` `writeNote` itself delegates to), so the
-    // derived id that collides is the format's own, never a guessed literal.
+    // derived id involved is the format's own, never a guessed literal.
     const firstAttach = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 }, "first note")
     expect(firstAttach.ok).toBe(true)
     if (!firstAttach.ok) return
     const alreadyNotedContent = applySteeringEdits(CONTENT, firstAttach.edits)
 
-    const deps = fakeDeps({ readFile: vi.fn(async () => alreadyNotedContent) })
+    const deps = fakeDeps({
+      readFile: vi.fn(async () => alreadyNotedContent),
+      writeFile: vi.fn(async () => undefined),
+    })
     const request = {
       ...baseRequest(),
       expectedContentHash: contentHashOf(alreadyNotedContent),
       anchor: { kind: "chunk" as const, index: 0 },
+      text: "edited note",
     }
-    expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "note-collision" })
-    expect(deps.writeFile).not.toHaveBeenCalled()
+    expect(await writeNote(request, deps)).toEqual({ ok: true })
+    expect(deps.writeFile).toHaveBeenCalledTimes(1)
+    const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
+    expect(written).toContain("edited note")
+    expect(written).not.toContain("first note")
+    // Still exactly one definition — an edit, never a second attach.
+    expect(REVIEW_FORMAT.validate(written)).toEqual([])
   })
 
   it("no refusal path leaves a partially written file — writeFile is only ever called on a full success", async () => {

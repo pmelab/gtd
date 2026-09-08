@@ -261,3 +261,34 @@ export const KeywordTokensAreVisiblyColoredDifferentlyFromPlainText: Story = {
     expect(keywordColor).not.toBe(plainColor)
   },
 }
+
+/** Git's own `\ No newline at end of file` marker line — none of the three visually-distinguishable kinds T8 names (added/removed/context), so it must reach the screen as its own kind, verbatim (no leading `\` eaten, no source line mangled into looking like context). */
+export const NoNewlineMarkerRendersVerbatimNotAsContext: Story = {
+  args: {
+    node: hunkNode(),
+    diff: {
+      kind: "hunk",
+      diff: { path: "src/x.ts", hunks: [] },
+      hunk: {
+        header: "@@ -1,2 +1,2 @@",
+        newStart: 1,
+        newLines: 2,
+        lines: ["-const old = 2", "+const value2 = 2", "\\ No newline at end of file"],
+      },
+    } satisfies DiffResult,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const markerLine = canvas.getByTestId("diff-line-2")
+    expect(markerLine).toHaveAttribute("data-kind", "marker")
+    expect(markerLine).not.toHaveAttribute("data-kind", "context")
+    expect(markerLine).toHaveTextContent("\\ No newline at end of file")
+  },
+}

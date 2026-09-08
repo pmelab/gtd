@@ -64,6 +64,11 @@ describe("lineKind", () => {
     const kinds = new Set([lineKind("+a"), lineKind("-a"), lineKind(" a")])
     expect(kinds.size).toBe(3)
   })
+
+  it("classifies git's own '\\ No newline at end of file' marker as its own kind, never context", () => {
+    expect(lineKind("\\ No newline at end of file")).toBe("marker")
+    expect(lineKind("\\ No newline at end of file")).not.toBe("context")
+  })
 })
 
 describe("highlightDiffLine", () => {
@@ -109,5 +114,12 @@ describe("highlightDiffLine", () => {
   it("a script tag inside a hunk header also survives as inert plain text, not sub-tokenized", () => {
     const result = highlightDiffLine("@@ <script>alert(1)</script> @@")
     expect(result.tokens).toEqual([{ text: "@@ <script>alert(1)</script> @@" }])
+  })
+
+  it("renders a '\\ No newline at end of file' marker verbatim — no leading character stripped, no sub-tokenizing, not painted as context", () => {
+    const line = "\\ No newline at end of file"
+    const result = highlightDiffLine(line)
+    expect(result.kind).toBe("marker")
+    expect(result.tokens).toEqual([{ text: line }])
   })
 })

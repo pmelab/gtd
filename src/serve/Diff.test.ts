@@ -62,6 +62,33 @@ describe("parseUnifiedDiff", () => {
     ])
     expect(diff.hunks[1]).toMatchObject({ newStart: 10, newLines: 2 })
   })
+
+  it("never appends a SECOND file's own preamble (---/+++) into the FIRST file's last hunk, when a pointer matches more than one file", () => {
+    // `--- a/b.ts`/`+++ b/b.ts` are indistinguishable from a real `-`/`+`
+    // diff LINE by leading character alone — only the `diff --git` boundary
+    // between the two files tells them apart.
+    const MULTI_FILE_DIFF = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,1 +1,1 @@",
+      "-old",
+      "+new",
+      "diff --git a/src/b.ts b/src/b.ts",
+      "index 3333333..4444444 100644",
+      "--- a/src/b.ts",
+      "+++ b/src/b.ts",
+      "@@ -1,1 +1,1 @@",
+      "-old two",
+      "+new two",
+      "",
+    ].join("\n")
+    const diff = parseUnifiedDiff("src", MULTI_FILE_DIFF)
+    expect(diff.hunks).toHaveLength(2)
+    expect(diff.hunks[0]!.lines).toEqual(["-old", "+new"])
+    expect(diff.hunks[1]!.lines).toEqual(["-old two", "+new two"])
+  })
 })
 
 describe("selectHunk", () => {
@@ -112,6 +139,25 @@ describe("resolveDiff", () => {
     expect(result).toMatchObject({ kind: "whole-file", reason: "no-line" })
   })
 
+  it("treats a `#0` pointer (a bare path parses to line 0) the SAME as no line number at all — never a hunk selection", async () => {
+    // Without this, a pure-deletion hunk's own `newStart: 0` would make
+    // `selectHunk` match line 0 as a real hunk (see the `hunkContainsLine`
+    // unit test above), even though a bare path/line-0 pointer must ALWAYS
+    // fall back to the whole-file diff, per T3.
+    const DELETED_DIFF = [
+      "diff --git a/src/gone.ts b/src/gone.ts",
+      "deleted file mode 100644",
+      "--- a/src/gone.ts",
+      "+++ /dev/null",
+      "@@ -1,2 +0,0 @@",
+      "-line one",
+      "-line two",
+      "",
+    ].join("\n")
+    const result = await resolveDiff(WORKTREE, "src/gone.ts", 0, deps(ok(DELETED_DIFF)))
+    expect(result).toMatchObject({ kind: "whole-file", reason: "no-line" })
+  })
+
   it("selects the hunk at the first line of its post-image range, not the previous hunk", async () => {
     const result = await resolveDiff(WORKTREE, "src/a.ts", 2, deps(ok(TWO_HUNK_DIFF)))
     expect(result.kind).toBe("hunk")
@@ -147,7 +193,7 @@ describe("resolveDiff", () => {
     const result = await resolveDiff(WORKTREE, HASH_PATH, 1, { run })
     expect(result.kind).toBe("hunk")
     const diffCall = calls.find((c) => c.startsWith("git diff"))
-    expect(diffCall).toBe(`git diff ${BASE} -- 'src/weird#name.ts'`)
+    expect(diffCall).toBe(`git diff ${BASE} HEAD -- 'src/weird#name.ts'`)
   })
 
   it("renders a file added in the range as an all-additions diff", async () => {

@@ -139,6 +139,15 @@ A chunk tick ticks **all** of that chunk's hunks. That is the only honest
 meaning available: `##` headings carry no checkbox in the format, and
 read-progress is all a tick ever conveyed.
 
+**Deliberately deferred to a later package:** ticks (and `qa` answers) are
+local/optimistic UI state only in this package — `ReviewDoc.ts`'s own
+`toggleFilePointer`/`toggleChunkEdits` exist, but there is no format-agnostic
+"toggle" primitive on `SteeringFormat` the way `annotate` is one, and no
+`Router.ts` surface for it either. Adding that primitive (and deciding how a
+`qa` radio-answer's own tick semantics map onto the same primitive) is a real
+design decision, not a screen's call to make alone — a later package owns wiring
+ticks through to the file; until then, a reload/refetch loses them.
+
 Paths: `src/web/screens/Review.tsx`, `src/web/screens/Review.stories.tsx`,
 `src/web/screens/Hunk.tsx`, `src/web/screens/Hunk.stories.tsx`.
 

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fireEvent, fn, waitFor, within } from "storybook/test"
+import { vi } from "vitest"
 import { Mic, type MicRenderState } from "./Mic.js"
 
 const meta: Meta<typeof Mic> = {
@@ -212,5 +213,38 @@ export const DeniedPermissionMidSessionNeverAttachesPartialText: Story = {
     await waitFor(() => expect(canvas.getByTestId("mic-hint")).toBeInTheDocument())
     expect(args.onAttach).not.toHaveBeenCalled()
     expect(canvas.getByTestId("mic-attached")).toHaveTextContent("")
+  },
+}
+
+/**
+ * "No audio ever leaves the browser" — assertable for real, not just by
+ * grep: spy on every network primitive a component could use to actually
+ * send bytes somewhere, run a full dictate → interim → final session, and
+ * assert none of them were ever called. Recognition itself is entirely
+ * fake here (`FakeSpeechRecognition` never touches a real microphone or
+ * network either), so this proves `Mic.tsx`'s OWN code path makes no
+ * network call around a session, not that the browser API happens not to.
+ */
+export const NoAudioOrTranscriptEverLeavesTheBrowser: Story = {
+  ...micStoryWithApi,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const fetchSpy = vi.spyOn(window, "fetch")
+    const sendBeaconSpy = vi.spyOn(navigator, "sendBeacon")
+    const xhrSendSpy = vi.spyOn(XMLHttpRequest.prototype, "send")
+
+    const recognition = await clickMicAndGetRecognition(canvas)
+    recognition?.emitResult([fakeResult("partial thought", false)])
+    recognition?.emitResult([fakeResult("a finished thought", true)])
+    await fireEvent.click(canvas.getByTestId("mic-button"))
+    await waitFor(() => expect(canvas.getByTestId("mic-attached")).toHaveTextContent("finished"))
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(sendBeaconSpy).not.toHaveBeenCalled()
+    expect(xhrSendSpy).not.toHaveBeenCalled()
+
+    fetchSpy.mockRestore()
+    sendBeaconSpy.mockRestore()
+    xhrSendSpy.mockRestore()
   },
 }

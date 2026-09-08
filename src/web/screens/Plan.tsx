@@ -5,7 +5,7 @@ import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { trpc } from "../api.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
-import { Question } from "./Question.js"
+import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 const readPlanStorageKey = (contentHash: string): string => `gtd:plan-read:${contentHash}`
 
@@ -241,10 +241,18 @@ const PlanBody = ({
       <ProseParagraphs nodes={view.nodes} noteOverrides={noteOverrides} onOpenNote={onOpenNote} />
     )
   }
+  // `OpenQuestions.ts#questionsView` prepends the plan's own lead prose
+  // (everything before `## Open Questions`) as plain paragraph nodes ahead
+  // of the question nodes — render it here too, or the "Read the plan" row
+  // above confirms a plan that's nowhere on screen (requirement 4/T5).
+  const planNodes = view.nodes.filter((node) => !isQuestionNode(node))
   const openNodes = questionNodes.filter((node) => node.status === "open")
   const answeredNodes = questionNodes.filter((node) => node.status === "answered")
   return (
     <>
+      {planNodes.length > 0 && (
+        <ProseParagraphs nodes={planNodes} noteOverrides={noteOverrides} onOpenNote={onOpenNote} />
+      )}
       {/*
        * `allNodes={openNodes}`, NOT `questionNodes` — a card's start index
        * must be its position in the SAME list `PlanView` feeds `Deck`
@@ -277,6 +285,11 @@ export const PlanView = ({ view, contentHash, isLoading, onSaveNote }: PlanViewP
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
   const [noteOverrides, setNoteOverrides] = useState<Record<number, string>>({})
   const [noteSheetAnchor, setNoteSheetAnchor] = useState<SteeringAnchor | undefined>(undefined)
+  // Keyed by the SAME index `openQuestionNodesOf` assigns (the deck's own
+  // item index) — lives here, above `Deck`, so an answer survives paging
+  // next-then-back: `Deck`'s `renderItem` remounts a fresh `Question` per
+  // index, which would otherwise discard whatever was just answered.
+  const [answers, setAnswers] = useState<Record<number, QuestionAnswer>>({})
   const scroll = useScrollRestoration()
 
   if (view === undefined) {
@@ -329,7 +342,20 @@ export const PlanView = ({ view, contentHash, isLoading, onSaveNote }: PlanViewP
           setDeckIndex(undefined)
           scroll.restore()
         }}
-        renderItem={(node, index) => <Question key={index} node={node} />}
+        renderItem={(node, index) => (
+          <Question
+            key={index}
+            node={node}
+            answer={answers[index] ?? defaultAnswerFor(node)}
+            onAnswerChange={(update) =>
+              setAnswers((prev) => {
+                const current = prev[index] ?? defaultAnswerFor(node)
+                const next = typeof update === "function" ? update(current) : update
+                return { ...prev, [index]: next }
+              })
+            }
+          />
+        )}
       />
     )
   }

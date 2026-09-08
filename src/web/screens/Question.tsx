@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../OpenQuestions.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
 import { Mic } from "../Mic.js"
@@ -9,9 +8,61 @@ const normalizeAnswerText = (text: string): string => {
   return trimmed.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : trimmed
 }
 
+/** One question's own in-progress radio/free-text state — never derived fresh from `node.children` after the first touch (see `defaultAnswerFor`'s own doc comment for why that matters). */
+export interface QuestionAnswer {
+  readonly selected: number | undefined
+  readonly freeText: string
+}
+
+/**
+ * Exactly one ticked option seeds a real selection; ZERO or TWO-OR-MORE both
+ * seed `undefined` — never "pick the first one" for the multi-tick case,
+ * which would render "answered" for a document the server's own
+ * `isAnswered`/landing gate both read as unanswered (`ticked.length !== 1`
+ * fails immediately). A stale/malformed `node.children` snapshot with two
+ * `- [x]` options is the one shape this guards against; the radio UI itself
+ * can never produce it once a human is driving the screen.
+ */
+const singleCheckedIndex = (options: readonly SteeringViewNode[]): number | undefined => {
+  const checkedIndices = options
+    .map((option, index) => (option.checked === true ? index : undefined))
+    .filter((index): index is number => index !== undefined)
+  return checkedIndices.length === 1 ? checkedIndices[0] : undefined
+}
+
+/** The answer a question STARTS at, read off `node.children`'s own `checked`/`title` fields — used ONLY to seed state the first time a question is ever shown; a caller must persist edits itself from then on (`Plan.tsx`'s own `answers` map), never re-derive this on every render, or an in-progress edit would reset the moment the node prop happens to re-render. */
+export const defaultAnswerFor = (node: SteeringViewNode): QuestionAnswer => {
+  const options = node.children ?? []
+  const lastOption = options[options.length - 1]
+  const freeText = lastOption?.checked === true ? lastOption.title : ""
+  return { selected: singleCheckedIndex(options), freeText }
+}
+
 export interface QuestionProps {
   /** One `qa`-view question node — `children` are its options, the LAST one (by array position, never by label) the free-text slot. */
   readonly node: SteeringViewNode
+  /**
+   * Fully CONTROLLED: the caller (`Plan.tsx`'s `PlanView`, or a story's own
+   * harness) owns this state, keyed per-question, so it survives `Deck`
+   * navigating away and back — this component holds no `useState` of its
+   * own for the answer. Without this, paging next-then-back through the
+   * deck silently discarded whatever the human had just answered, since
+   * `Deck`'s `renderItem` remounts a fresh `Question` per index.
+   *
+   * Accepts a FUNCTIONAL updater as well as a plain value — the same shape
+   * React's own `setState` offers, and for the same reason: `Mic` binds its
+   * `onAttach` handler once, inside `start()`, so a dictation session ending
+   * later calls back into a closure captured at tap-time. A plain value
+   * computed from that stale closure's own `answer.freeText` would silently
+   * drop anything typed meanwhile; a functional updater instead defers the
+   * read of "current text" to WHEN the caller's own `setState` applies it,
+   * which sees the true latest state no matter how old the closure calling
+   * it is.
+   */
+  readonly answer: QuestionAnswer
+  readonly onAnswerChange: (
+    update: QuestionAnswer | ((prev: QuestionAnswer) => QuestionAnswer),
+  ) => void
 }
 
 /**
@@ -135,23 +186,31 @@ const OptionRow = ({
  * CRAP estimate scores it as untested regardless.
  */
 // fallow-ignore-next-line complexity
-export const Question = ({ node }: QuestionProps) => {
+export const Question = ({ node, answer, onAnswerChange }: QuestionProps) => {
   const options = node.children ?? []
   const lastIndex = options.length - 1
+  const { selected, freeText } = answer
 
-  const [selected, setSelected] = useState<number | undefined>(() => {
-    const checkedIndex = options.findIndex((option) => option.checked === true)
-    return checkedIndex === -1 ? undefined : checkedIndex
-  })
-  const [freeText, setFreeText] = useState<string>(() => {
-    const option = options[lastIndex]
-    return option?.checked === true ? option.title : ""
-  })
+  const setSelected = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
 
-  /** Appends dictated `text` to whatever the CURRENT `freeText` is at attach time — the functional updater form, so text typed WHILE dictation was recording is never clobbered by a handler bound back when Dictate was first tapped (`FreeTextOption`'s own doc comment explains why a closed-over `freeText` read would be stale here). */
-  const onDictate = (text: string) => {
-    setFreeText((prev) => (prev.length > 0 ? `${prev} ${text}` : text))
-  }
+  /**
+   * Appends dictated `text` to whatever `freeText` is AT ATTACH TIME —
+   * via `onAnswerChange`'s own functional-updater form, never the `answer`
+   * prop closed over here. `Mic` binds `onAttach` once, inside `start()`,
+   * capturing THIS closure as it existed when Dictate was tapped; if this
+   * read `freeText` directly, text typed during an active session would be
+   * silently clobbered the moment the session ends (`FreeTextOption`'s own
+   * doc comment). The functional updater instead defers that read to
+   * whenever the caller's `setState` actually applies it, which always sees
+   * the true latest text.
+   */
+  const onDictate = (text: string) =>
+    onAnswerChange((prev) => ({
+      ...prev,
+      freeText: prev.freeText.length > 0 ? `${prev.freeText} ${text}` : text,
+    }))
+
+  const setFreeText = (text: string) => onAnswerChange((prev) => ({ ...prev, freeText: text }))
 
   /**
    * The SAME `isAnswered` predicate the server enforces (`OpenQuestions.ts`),

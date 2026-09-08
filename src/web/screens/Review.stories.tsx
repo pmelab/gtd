@@ -216,6 +216,34 @@ export const NoteAffordanceOnAChunkOpensTheNoteSheet: Story = {
   },
 }
 
+/**
+ * T6: "the sheet opens from a chunk, from a hunk, and from a paragraph seam"
+ * — the CHUNK half is covered above; this covers the HUNK half specifically
+ * (`Hunk.stories.tsx` alone can't prove it: its own stories pass a fake
+ * `onOpenNote` that never mounts the real `NoteSheet`).
+ */
+export const NoteAffordanceOnAHunkOpensTheNoteSheet: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await expect(canvas.getByTestId("hunk-screen")).toBeInTheDocument()
+
+    await fireEvent.click(canvas.getByTestId("hunk-note-affordance"))
+    await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
+    await expect(canvas.getByText("Note on this hunk")).toBeInTheDocument()
+
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "Double-check this line." },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+
+    // Back on the hunk screen, note visible via the affordance's own label.
+    await expect(canvas.getByTestId("hunk-screen")).toBeInTheDocument()
+    await expect(canvas.getByTestId("hunk-note-affordance")).toHaveTextContent("Edit note")
+  },
+}
+
 export const LoadingStateRendersBeforeTheViewArrives: Story = {
   args: { view: undefined, isLoading: true },
   play: async ({ canvasElement }) => {

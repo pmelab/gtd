@@ -117,11 +117,13 @@ describe("every registry entry's view", () => {
   // there would fail on a confusing `undefined`, not on the property under
   // test). `format.sample` already carries a note attached at ONE of its own
   // anchors (T7 requires a server-written note in the sample) — annotating
-  // that SAME anchor again with the SAME derived id is correctly refused as
-  // an `id-collision` (`Footnotes.ts#footnoteAttachEdits`'s own by-design
-  // dedup), which this treats as a PASS; only `anchor-not-found` — the anchor
-  // itself failing to resolve — is the failure this property actually
-  // guards against.
+  // that SAME anchor again now EDITS the existing note in place
+  // (`Footnotes.ts#footnoteAttachEdits`'s same-anchor update path, T6: "offers
+  // editing it, not a second note"), which this treats as a PASS (`ok: true`)
+  // same as any other anchor; a genuine `id-collision` (an unrelated anchor's
+  // derived id colliding with existing content) remains an acceptable refusal
+  // too. Only `anchor-not-found` — the anchor itself failing to resolve — is
+  // the failure this property actually guards against.
   it("every anchor `view` reports is one `annotate` accepts (or correctly refuses only as an id-collision, never as anchor-not-found)", () => {
     for (const mode of builtInModeNames()) {
       const format = steeringFormatFor(mode)!

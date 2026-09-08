@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
-import { Question } from "./Question.js"
+import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 /**
  * Stands in for the browser's `SpeechRecognition` — mirrors
@@ -39,8 +40,23 @@ class FakeSpeechRecognition extends EventTarget {
   }
 }
 
+/**
+ * `Question` is fully controlled (no internal `useState` of its own — see
+ * its own doc comment for why: state must survive `Deck` remounting it per
+ * navigation, which only a caller-owned answer can do). Every story below
+ * still just passes `{node}`, unaware of that — this harness supplies the
+ * `answer`/`onAnswerChange` half via `meta.render`, seeded from the SAME
+ * `defaultAnswerFor` the real `Plan.tsx` uses, so a story exercises the
+ * exact same "starts from node.children, then tracks edits" behavior.
+ */
+const ControlledQuestionHarness = (props: { readonly node: SteeringViewNode }) => {
+  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(props.node))
+  return <Question node={props.node} answer={answer} onAnswerChange={setAnswer} />
+}
+
 const meta: Meta<typeof Question> = {
   component: Question,
+  render: (args) => <ControlledQuestionHarness node={args.node} />,
 }
 
 export default meta
@@ -74,6 +90,44 @@ export const TickingASecondOptionUnticksTheFirst: Story = {
     await fireEvent.click(canvas.getByTestId("option-radio-1"))
     await expect(canvas.getByTestId("option-radio-1")).toBeChecked()
     await expect(canvas.getByTestId("option-radio-0")).not.toBeChecked()
+  },
+}
+
+/**
+ * A stale/malformed `node.children` snapshot with TWO options already
+ * `checked: true` must seed as unanswered — never "pick the first ticked
+ * one", which would render "answered" for a document the server's own
+ * `isAnswered` (and the landing gate) both read as unanswered
+ * (`ticked.length !== 1` fails immediately). The radio UI itself can never
+ * produce this once a human is driving the screen; this guards the SEED.
+ */
+export const ANodeWithTwoOptionsAlreadyCheckedSeedsAsUnanswered: Story = {
+  args: {
+    node: questionNode({
+      children: [
+        {
+          title: "Option A",
+          checked: true,
+          anchor: { kind: "option", questionIndex: 0, index: 0 },
+        },
+        {
+          title: "Option B",
+          checked: true,
+          anchor: { kind: "option", questionIndex: 0, index: 1 },
+        },
+        {
+          title: "Ship it this way",
+          checked: false,
+          anchor: { kind: "option", questionIndex: 0, index: 2 },
+        },
+      ],
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("option-radio-0")).not.toBeChecked()
+    await expect(canvas.getByTestId("option-radio-1")).not.toBeChecked()
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("unanswered")
   },
 }
 
@@ -148,6 +202,13 @@ export const NoSpeechApiShowsAHintInsteadOfAMicButton: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.queryByTestId("mic-toggle")).not.toBeInTheDocument()
     await expect(canvas.getByTestId("mic-hint")).toBeInTheDocument()
+    // T7: "hides the mic, KEEPS THE TEXTAREA, and shows a one-line hint" —
+    // the textarea itself must still be there and still usable, never
+    // removed alongside the mic.
+    const textarea = canvas.getByTestId("free-text-input") as HTMLTextAreaElement
+    expect(textarea).toBeInTheDocument()
+    await fireEvent.change(textarea, { target: { value: "typed by hand instead" } })
+    expect(textarea.value).toBe("typed by hand instead")
   },
 }
 

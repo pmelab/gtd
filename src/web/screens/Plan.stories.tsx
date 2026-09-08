@@ -40,6 +40,34 @@ const answeredQuestion = (index: number, title: string): SteeringViewNode => ({
   children: [],
 })
 
+/** A plan's own lead-prose node — `OpenQuestions.ts#questionsView` now prepends these to a document that ALSO has questions, so "Read the plan" has real content behind it (requirement 4/T5). */
+const planNode = (line: number, title: string): SteeringViewNode => ({
+  title,
+  anchor: { kind: "paragraph", line },
+})
+
+/**
+ * The "Read the plan" row must have an actual plan to read even when the
+ * document ALSO has open/answered questions — before this fix, a `qa`
+ * document's lead prose was dropped entirely from `view.nodes`, so the row
+ * confirmed nothing.
+ */
+export const PlanProseRendersAlongsideQuestions: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [planNode(0, "This plan adds a thing."), openQuestion(0, "Which option?")],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText("This plan adds a thing.")).toBeInTheDocument()
+    await expect(canvas.getByText("Open Questions")).toBeInTheDocument()
+    await expect(canvas.getByTestId("question-card-0")).toBeInTheDocument()
+  },
+}
+
 export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
   args: {
     contentHash: "qa-sample-hash",
@@ -70,6 +98,22 @@ export const DocumentWithNoOpenQuestionsRendersNoEmptyHeading: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.queryByText("Open Questions")).not.toBeInTheDocument()
     await expect(canvas.getByText("Already answered")).toBeInTheDocument()
+  },
+}
+
+/** The mirror of the story above — a document with open questions and NONE answered must not show an empty "Already answered" heading either. */
+export const DocumentWithNoAnsweredQuestionsRendersNoEmptyHeading: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [openQuestion(0, "Open one")],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText("Open Questions")).toBeInTheDocument()
+    await expect(canvas.queryByText("Already answered")).not.toBeInTheDocument()
   },
 }
 
@@ -109,6 +153,39 @@ export const DeckNavigationPastTheLastOpenQuestionNeverReachesAnAnsweredOne: Sto
     // Back to the list — never an answered question rendering "unanswered".
     await expect(canvas.queryByTestId("question-screen")).not.toBeInTheDocument()
     await expect(canvas.getByTestId("plan-screen")).toBeInTheDocument()
+  },
+}
+
+/**
+ * An answer must survive `deck-next`/`deck-prev` navigation — `Deck.tsx`
+ * remounts a fresh `Question` per index, so before this fix the answer
+ * lived only in `Question`'s own internal (now-removed) `useState` and was
+ * silently discarded the moment the deck paged away and back.
+ */
+export const AnAnswerSurvivesPagingNextThenBackThroughTheDeck: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [openQuestion(0, "First?"), openQuestion(1, "Second?")],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+    await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+
+    await fireEvent.click(canvas.getByTestId("deck-next"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("Second?")
+    await expect(canvas.getByTestId("option-radio-0")).not.toBeChecked()
+
+    await fireEvent.click(canvas.getByTestId("deck-prev"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
+    await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
   },
 }
 
@@ -155,9 +232,21 @@ export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
     // A REAL, visible affordance — legible label text and a non-zero touch
     // target — not a 0-visible-pixels strip a test could only ever find by
     // testid.
-    await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Add note")
-    expect(canvas.getByTestId("note-seam-0").getBoundingClientRect().height).toBeGreaterThanOrEqual(
-      44,
+    const seam = canvas.getByTestId("note-seam-0")
+    await expect(seam).toHaveTextContent("Add note")
+    expect(seam.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+    // "spans the full width" — geometrically, not just `style.width`: the
+    // seam's own box must equal the width of the paragraph it belongs to
+    // (their shared container), never a fraction of it.
+    const paragraph = canvas.getByText("First paragraph of the plan.")
+    const container = paragraph.parentElement!
+    expect(seam.getBoundingClientRect().width).toBe(container.getBoundingClientRect().width)
+    // "sits below its paragraph" — geometrically: the seam's own top edge
+    // is at or after the paragraph's own bottom edge, never above/overlapping
+    // it (which a mutant moving the seam ABOVE the `<p>` in the JSX would
+    // otherwise still pass a testid-only or text-only assertion).
+    expect(seam.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      paragraph.getBoundingClientRect().bottom,
     )
     await expect(canvas.getByTestId("note-seam-1")).toHaveTextContent("Add note")
     await expect(canvas.queryByText("Open Questions")).not.toBeInTheDocument()

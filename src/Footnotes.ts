@@ -341,20 +341,51 @@ export type FootnoteAttachResult =
  * shared by chunk/hunk/paragraph notes alike (the caller resolves its own
  * `key` per kind). `id` is derived from `anchor.key` alone (`anchorId`),
  * never counted, so this is safe to call from two concurrent requests
- * without a shared counter: rejects rather than double-attaching when the
- * derived id already names an existing definition (case-insensitively) —
- * whether because this exact anchor was already attached, or because the
- * derived id coincidentally collides with a human-authored one.
+ * without a shared counter.
+ *
+ * A SECOND call at the SAME anchor is an EDIT, not a collision: this is
+ * exactly what "a paragraph already carrying a note offers editing it, not a
+ * second note" (T6) requires, and `id` being deterministic in `anchor.key`
+ * is what makes detecting "same anchor" possible at all — a marker whose
+ * folded name already equals `id` AND already sits on `anchor.line` (the
+ * exact spot THIS anchor's own marker edit would land, every time) can only
+ * be this anchor's own earlier attach, never a coincidence. That case
+ * replaces the existing definition's whole body span with the new text —
+ * one edit, no new marker (already there) — rather than the two-edit
+ * attach below. A `foldName(d.name) === foldName(id)` collision with NO
+ * marker on `anchor.line` is the genuine ambiguous case (a hash collision
+ * with an unrelated anchor, or a human-authored id) and still refuses.
  */
 export const footnoteAttachEdits = (
   content: string,
   anchor: FootnoteAnchor,
   text: string,
 ): FootnoteAttachResult => {
-  const { definitions } = parseFootnotes(content)
+  const { markers, definitions } = parseFootnotes(content)
   const id = anchorId(anchor.key)
-  if (definitions.some((d) => foldName(d.name) === foldName(id))) {
-    return { ok: false, reason: "id-collision" }
+  const existing = definitions.find((d) => foldName(d.name) === foldName(id))
+  if (existing) {
+    const attachedHere = markers.some(
+      (m) => foldName(m.name) === foldName(id) && m.line === anchor.line,
+    )
+    if (!attachedHere) {
+      return { ok: false, reason: "id-collision" }
+    }
+    const lines = content.split(/\r?\n/)
+    const lastLine = lines[existing.endLine] ?? ""
+    return {
+      ok: true,
+      id,
+      edits: [
+        {
+          range: {
+            start: { line: existing.line, character: 0 },
+            end: { line: existing.endLine, character: lastLine.length },
+          },
+          newText: `[^${id}]: ${text}`,
+        },
+      ],
+    }
   }
 
   const lines = content.split(/\r?\n/)

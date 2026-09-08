@@ -275,7 +275,12 @@ const parseOptions = (
   return items.map((item, i) => {
     const freeText = i === lastIndex
     const rawText = optionText(content, lines, item)
-    const text = freeText && rawText.toLowerCase() === FREE_TEXT_PLACEHOLDER ? "" : rawText
+    // `.toLowerCase()` on BOTH sides — never assume `FREE_TEXT_PLACEHOLDER`
+    // itself is already lowercase, mirroring `Question.tsx`'s identical
+    // client-side comparison exactly, so the two can never silently diverge
+    // if the constant's own casing ever changes.
+    const text =
+      freeText && rawText.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : rawText
     return {
       checked: item.checked === true,
       text,
@@ -379,7 +384,10 @@ const checkSectionOrder = (tree: Root, content: string): readonly SteeringFindin
   const answeredIndex = h2.findIndex((h) => headingText(content, h) === "Answered Questions")
 
   const findings: SteeringFinding[] = []
-  if (openIndex !== -1 && h2.some((_h, i) => i !== openIndex && i < openIndex)) {
+  // `openIndex > 0` — a section exists BEFORE it — is the whole condition;
+  // `i !== openIndex` was always true whenever `i < openIndex` already held,
+  // so it added nothing (a guaranteed-surviving mutant on the dead clause).
+  if (openIndex > 0) {
     const offender = h2[0]!
     findings.push({
       message: "A '##' section appears before '## Open Questions', which must come first",
@@ -387,7 +395,9 @@ const checkSectionOrder = (tree: Root, content: string): readonly SteeringFindin
       range: headingRange(offender),
     })
   }
-  if (answeredIndex !== -1 && h2.some((_h, i) => i !== answeredIndex && i > answeredIndex)) {
+  // Same simplification: `answeredIndex < h2.length - 1` — a section exists
+  // AFTER it — is the whole condition.
+  if (answeredIndex !== -1 && answeredIndex < h2.length - 1) {
     const offender = h2[h2.length - 1]!
     findings.push({
       message: "A '##' section appears after '## Answered Questions', which must come last",
@@ -907,8 +917,26 @@ const isProseOnly = (tree: Root, content: string): boolean =>
   )
 
 /**
- * A prose-only document's own paragraph nodes: one per top-level `paragraph`
- * mdast node (never a footnote DEFINITION block, which parses as a distinct
+ * The `## Open Questions`/`## Answered Questions` heading NODE'S OWN INDEX
+ * into `tree.children` — `undefined` when neither exists (the prose-only
+ * case `isProseOnly` already names). Used to scope `paragraphNodesOf` to
+ * the PLAN'S OWN prose (everything before the first such heading), never a
+ * question block's own body text.
+ */
+const questionsSectionHeadingIndex = (tree: Root, content: string): number | undefined => {
+  const index = tree.children.findIndex(
+    (n): n is Heading =>
+      n.type === "heading" &&
+      n.depth === 2 &&
+      (headingText(content, n) === "Open Questions" ||
+        headingText(content, n) === "Answered Questions"),
+  )
+  return index === -1 ? undefined : index
+}
+
+/**
+ * A document's own paragraph nodes — one per top-level `paragraph` mdast
+ * node (never a footnote DEFINITION block, which parses as a distinct
  * `footnoteDefinition` node type), each carrying a REAL, SERVER-COMPUTED
  * `{kind:"paragraph", line}` anchor at the paragraph's own start line —
  * exactly the line `resolveQuestionsParagraphAnchor`/`blockNodeAt` resolve
@@ -917,14 +945,19 @@ const isProseOnly = (tree: Root, content: string): boolean =>
  * marker anchored at that same start line surfaces as the node's own `note`
  * (mirrors `ReviewDoc.ts#chunkNoteOf`'s exact-line-match convention), so a
  * paragraph already carrying a note offers editing it, not a second one.
+ * `beforeIndex`, when given, scopes this to `tree.children` BEFORE that
+ * index — the plan's own lead prose, never a question block's body text
+ * that happens to also be a `paragraph` node further down the tree.
  */
 const paragraphNodesOf = (
   content: string,
   tree: Root,
+  beforeIndex?: number,
 ): readonly SteeringView["nodes"][number][] => {
   const { markers, definitions } = parseFootnotes(content)
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
-  return tree.children
+  const scope = beforeIndex !== undefined ? tree.children.slice(0, beforeIndex) : tree.children
+  return scope
     .filter((node): node is RootContent & { type: "paragraph" } => node.type === "paragraph")
     .filter((node) => node.position !== undefined)
     .map((node) => {
@@ -945,35 +978,44 @@ const paragraphNodesOf = (
 /**
  * `qa`-mode's `view`: a prose-only document (no `## Open Questions`/`##
  * Answered Questions` section at all) yields paragraph nodes and no
- * questions (`paragraphNodesOf`, T2's own criterion); otherwise every
- * question is a container node — `title` the question's own heading TEXT
- * (`OpenQuestion.question`, never `OpenQuestion.text`, which is only the
- * first body line, a summary carried separately as `detail`), plus
- * status/answered flag and own `question` anchor — with every one of its
- * options as a child item node (checked, text as `title`, own `option`
- * anchor). Built from ONE `parseOpenQuestions` call, never one parse per
- * question/option. Uses `SteeringViewNode`'s generic shape, never a
- * `qa`-only type — see that type's own doc comment.
+ * questions (`paragraphNodesOf`, T2's own criterion). Otherwise the PLAN's
+ * own lead prose (everything before the first such heading) is projected as
+ * paragraph nodes FIRST — requirement 4/T5's "Read the plan" row needs an
+ * actual plan to read; without this, a `qa` document with any open/answered
+ * question drops its own intro prose entirely and the row confirms nothing
+ * — followed by every question as a container node: `title` the question's
+ * own heading TEXT (`OpenQuestion.question`, never `OpenQuestion.text`,
+ * which is only the first body line, a summary carried separately as
+ * `detail`), plus status/answered flag and own `question` anchor — with
+ * every one of its options as a child item node (checked, text as `title`,
+ * own `option` anchor). Built from ONE `parseOpenQuestions` call plus one
+ * `paragraphNodesOf` scoped walk, never one parse per question/option. Uses
+ * `SteeringViewNode`'s generic shape, never a `qa`-only type — see that
+ * type's own doc comment.
  */
 const questionsView = (content: string): SteeringView => {
   const tree = parseMarkdown(content)
   if (isProseOnly(tree, content)) {
     return { nodes: paragraphNodesOf(content, tree) }
   }
+  const planNodes = paragraphNodesOf(content, tree, questionsSectionHeadingIndex(tree, content))
   const { questions } = parseOpenQuestions(content)
   return {
-    nodes: questions.map((question, questionIndex) => ({
-      title: question.question,
-      detail: question.text,
-      status: question.status,
-      answered: question.answered,
-      anchor: { kind: "question", index: questionIndex },
-      children: question.options.map((option, index) => ({
-        title: option.text,
-        checked: option.checked,
-        anchor: { kind: "option", questionIndex, index },
+    nodes: [
+      ...planNodes,
+      ...questions.map((question, questionIndex) => ({
+        title: question.question,
+        detail: question.text,
+        status: question.status,
+        answered: question.answered,
+        anchor: { kind: "question" as const, index: questionIndex },
+        children: question.options.map((option, index) => ({
+          title: option.text,
+          checked: option.checked,
+          anchor: { kind: "option" as const, questionIndex, index },
+        })),
       })),
-    })),
+    ],
   }
 }
 
