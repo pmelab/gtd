@@ -11,4 +11,11 @@ import { vi } from "vitest"
 // project) so the scan is deterministic; this has no effect on the `e2e-live`
 // project, which spawns a genuinely separate `gtd` OS process no in-process
 // mock can reach.
+//
+// MUST load before `world.ts` in `setup-files.ts`'s own list: `world.ts`
+// statically imports `Cli.js`, which eagerly loads the real `Bind.js` through
+// `program.ts` -> `ui/Server.js`. Once that real module is loaded and cached,
+// a `vi.mock` registered afterward (in a setup file later in the list) never
+// takes effect — the mock must be registered before ANYTHING else in the
+// setup chain imports this module transitively.
 vi.mock("../../../../src/ui/Bind.js", () => ({ pickBindHostFromSystem: () => undefined }))
