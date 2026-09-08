@@ -1,6 +1,15 @@
+import type { Step, StepRead } from "../ui/Beat.js"
 import { Plan } from "./screens/Plan.js"
 import { Review } from "./screens/Review.js"
 import { trpc } from "./api.js"
+
+/**
+ * The one shape a screen can open: a clean read resting on a steering file.
+ * Package 02's own refuse-to-start gate means the server never binds on
+ * anything else, so the `false` branch is defensive, not a production shape.
+ */
+const openable = (step: StepRead | undefined): step is Step & { file: string } =>
+  step?.status === "ok" && step.file !== undefined
 
 /**
  * The whole phone's navigation: `gtd ui` serves exactly one worktree resting
@@ -15,7 +24,7 @@ import { trpc } from "./api.js"
 export const App = () => {
   const step = trpc.step.useQuery().data
 
-  if (step === undefined || step.status !== "ok" || step.file === undefined) {
+  if (!openable(step)) {
     return null
   }
 
