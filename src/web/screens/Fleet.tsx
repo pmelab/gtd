@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react"
-import type { BeatRead } from "../../serve/Beat.js"
 import type { FleetBucket, FleetEntry, FleetPayload } from "../../serve/Fleet.js"
 import { trpc } from "../api.js"
 
@@ -22,7 +21,7 @@ const restAge = (iso: string, now: number = Date.now()): string => {
   return `${Math.floor(hours / 24)}d`
 }
 
-const FleetRow = ({ row }: { readonly row: BeatRead }) => {
+const FleetRow = ({ row }: { readonly row: FleetEntry }) => {
   if (row.status === "broken") {
     return (
       <div style={{ padding: "10px 12px", borderBottom: "1px solid #333" }}>
@@ -52,6 +51,11 @@ const FleetRow = ({ row }: { readonly row: BeatRead }) => {
       </div>
       <div style={{ fontSize: 13 }}>{row.label}</div>
       <div style={{ fontSize: 12, opacity: 0.7 }}>{restAge(row.rest)}</div>
+      {row.foreignDriverPossible && (
+        <div style={{ fontSize: 11, opacity: 0.7, color: "#fa4" }}>
+          possibly driven elsewhere — imprecise, based on a recently-touched log
+        </div>
+      )}
     </div>
   )
 }

@@ -28,6 +28,7 @@ const okRow = (over: Partial<OkEntry>): FleetEntry => ({
   idle: false,
   rest: new Date(Date.now() - 5 * 60_000).toISOString(),
   bucket: "wants-you",
+  foreignDriverPossible: false,
   ...over,
 })
 
@@ -39,6 +40,7 @@ const brokenRow = (over: Partial<BrokenEntry>): FleetEntry => ({
   branch: "main",
   detail: "gtd: refused — dirty tree at exit 1",
   bucket: "broken",
+  foreignDriverPossible: false,
   ...over,
 })
 

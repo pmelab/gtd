@@ -23,9 +23,12 @@ import {
 import { pickBindHostFromSystem } from "./Bind.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readFleet, type FleetDeps } from "./Fleet.js"
+import { liveLoopSpawn, startLoop, stopLoop } from "./Loop.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { renderQrCode } from "./Qr.js"
+import { Registry } from "./Registry.js"
 import { appRouter, type RouterContext } from "./Router.js"
+import { createShim } from "./Shim.js"
 import { inlineScript } from "./scriptTag.mjs"
 import { generateSelfSignedCert, loadCertPair, type CertPair } from "./Tls.js"
 import { liveActorAt, liveReadFile, liveWriteFile, writeNote, type WriteDeps } from "./Write.js"
@@ -293,9 +296,15 @@ export const runServeCommand = (
       headSha: liveHeadSha,
       statMtime: liveStatMtime,
     })
+    // The server's own process-lifetime child-process registry (T3) — one
+    // instance for the whole `gtd serve` run, never persisted (T6): a
+    // restart loses it entirely, which is the point.
+    const registry = new Registry()
+
     const fleetDeps: FleetDeps = {
       roots: config?.roots ?? [cwd.root],
       readBeat: (worktree) => beatCache.read(worktree),
+      registry,
     }
 
     const writeDeps: WriteDeps = {
@@ -318,6 +327,14 @@ export const runServeCommand = (
         writeNote: (request) => writeNote(request, writeDeps),
         resolveDiff: (worktreePath, path, line) => resolveDiff(worktreePath, path, line, diffDeps),
         readSteeringFile: (request) => readSteeringFile(request, readDeps),
+        startLoop: (worktreePath) =>
+          startLoop(worktreePath, {
+            registry,
+            spawn: liveLoopSpawn,
+            createShim: () => createShim(fs),
+            command: config?.loop,
+          }),
+        stopLoop: (worktreePath) => stopLoop(worktreePath, registry),
       }),
     })
 
@@ -344,5 +361,16 @@ export const runServeCommand = (
     out.write(`${url}\n`)
     out.write(`${renderQrCode(url)}\n`)
     out.flush()
-    yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => bound.close())))
+    // T6's restart: kills every live child and persists nothing — the next
+    // process start gets a brand-new, empty `Registry`, so every worktree
+    // reports its real rest with no Working rows carried over, and nothing
+    // auto-resumes.
+    yield* Effect.never.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          registry.killAll()
+          bound.close()
+        }),
+      ),
+    )
   })

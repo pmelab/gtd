@@ -12,10 +12,16 @@ export interface CommandOutcome {
 }
 
 /**
- * The subprocess port: run one shell command in the repo root — the only place
- * gtd itself spawns a subprocess (a workflow `script:` is run by the DRIVER,
- * never by gtd). Lets a mode's `format:`/`validate:` command be driven by a
- * scripted double in the `@inmem` e2e tier.
+ * The subprocess port: run one shell command in the repo root, wait for it to
+ * finish, and get its combined output back as one string (a workflow
+ * `script:` is run by the DRIVER, never by gtd). Lets a mode's
+ * `format:`/`validate:` command be driven by a scripted double in the
+ * `@inmem` e2e tier. `gtd serve`'s loop command is spawned by `Loop.ts`'s own
+ * port instead — it needs a per-worktree cwd, a shim-prepended `PATH`, real
+ * OS signal control while the child is still running, and never-combined
+ * stdout/stderr, none of which this port's single-shot "run to completion"
+ * shape supports — so this is no longer the only place gtd itself spawns a
+ * subprocess.
  */
 export class CommandRunner extends Context.Tag("CommandRunner")<
   CommandRunner,

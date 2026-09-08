@@ -148,13 +148,29 @@ describe("isSupportedVersion", () => {
 })
 
 describe("BeatCache.read — ok rows", () => {
-  it("never carries content or system fields, only the projected five plus identity", async () => {
+  it("never carries content or system fields, only the projected five plus identity plus logMtime", async () => {
     const deps = makeDeps()
     const cache = new BeatCache(deps, 8)
     const result = await cache.read({ id: "abc123", path: "/repos/gtd" })
     expect(result.status).toBe("ok")
+    // `logMtime` (package 05, T4's own foreign-driver freshness signal) is
+    // the one addition beyond the original projected five plus identity —
+    // already computed here for the cache key, so exposing it costs nothing
+    // new to read.
     expect(Object.keys(result).sort()).toEqual(
-      ["actor", "branch", "id", "idle", "kind", "label", "path", "repo", "rest", "status"].sort(),
+      [
+        "actor",
+        "branch",
+        "id",
+        "idle",
+        "kind",
+        "label",
+        "logMtime",
+        "path",
+        "repo",
+        "rest",
+        "status",
+      ].sort(),
     )
   })
 

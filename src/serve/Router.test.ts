@@ -1,10 +1,11 @@
 import { Effect } from "effect"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
 import { QA_FORMAT } from "../OpenQuestions.js"
 import {
   appRouter,
   CommandRefusal,
+  DriveRefusal,
   ReadSteeringFileRefusal,
   UnsupportedModeRefusal,
   WriteNoteRefusal,
@@ -24,6 +25,8 @@ const contextFor = (
     Promise.resolve({ kind: "refused", detail: "resolveDiff unexpectedly invoked" }),
   readSteeringFile: RouterContext["readSteeringFile"] = () =>
     Promise.resolve({ ok: false, reason: "file-vanished" }),
+  startLoop: RouterContext["startLoop"] = () => Promise.resolve({ ok: true }),
+  stopLoop: RouterContext["stopLoop"] = () => Promise.resolve(),
 ): RouterContext => ({
   runtime: Effect.runSync(
     Effect.runtime<CommandRunner>().pipe(Effect.provide(CommandRunner.layer(bash))),
@@ -32,7 +35,19 @@ const contextFor = (
   writeNote,
   resolveDiff,
   readSteeringFile,
+  startLoop,
+  stopLoop,
 })
+
+const doneRequest = {
+  worktreePath: "/repos/x",
+  filePath: "TODO.md",
+  expectedHeadSha: "sha",
+  expectedContentHash: "hash",
+  mode: "qa",
+  anchor: { kind: "paragraph" as const, line: 3 },
+  text: "a note",
+}
 
 describe("appRouter.runCommand", () => {
   it("returns stdout, stderr, and exitCode on a clean exit", async () => {
@@ -315,6 +330,86 @@ describe("appRouter.readSteeringFile", () => {
       contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
     )
     await expect(caller.readSteeringFile({ worktreePath: "/repo" } as never)).rejects.toThrow()
+  })
+})
+
+describe("appRouter.done", () => {
+  it("writes the steering file then spawns the loop, in that order", async () => {
+    const calls: string[] = []
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.succeed({ status: 0, output: "", stdout: "", stderr: "" }),
+        undefined,
+        () => {
+          calls.push("write")
+          return Promise.resolve({ ok: true })
+        },
+        undefined,
+        undefined,
+        () => {
+          calls.push("spawn")
+          return Promise.resolve({ ok: true })
+        },
+      ),
+    )
+    const result = await caller.done(doneRequest)
+    expect(result).toEqual({ ok: true })
+    expect(calls).toEqual(["write", "spawn"])
+  })
+
+  it("aborts before spawning anything when the write fails", async () => {
+    const startLoop = vi.fn(() => Promise.resolve({ ok: true as const }))
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.succeed({ status: 0, output: "", stdout: "", stderr: "" }),
+        undefined,
+        () => Promise.resolve({ ok: false, reason: "stale-token", moved: "sha" }),
+        undefined,
+        undefined,
+        startLoop,
+      ),
+    )
+    const error = await caller.done(doneRequest).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as { cause?: unknown }).cause).toBeInstanceOf(WriteNoteRefusal)
+    expect(startLoop).not.toHaveBeenCalled()
+  })
+
+  it("surfaces an already-driving refusal as a named DriveRefusal, distinct from a write refusal", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.succeed({ status: 0, output: "", stdout: "", stderr: "" }),
+        undefined,
+        () => Promise.resolve({ ok: true }),
+        undefined,
+        undefined,
+        () => Promise.resolve({ ok: false, reason: "already-driving" }),
+      ),
+    )
+    const error = await caller.done(doneRequest).catch((e: unknown) => e)
+    const cause = (error as { cause?: unknown }).cause
+    expect(cause).toBeInstanceOf(DriveRefusal)
+    expect((cause as DriveRefusal).reason).toBe("already-driving")
+  })
+})
+
+describe("appRouter.stop", () => {
+  it("delegates to ctx.stopLoop with the given worktreePath", async () => {
+    const stopLoop = vi.fn(() => Promise.resolve())
+    const caller = appRouter.createCaller(
+      contextFor(
+        () => Effect.succeed({ status: 0, output: "", stdout: "", stderr: "" }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        stopLoop,
+      ),
+    )
+    const result = await caller.stop({ worktreePath: "/repos/x" })
+    expect(result).toEqual({ ok: true })
+    expect(stopLoop).toHaveBeenCalledWith("/repos/x")
   })
 })
 

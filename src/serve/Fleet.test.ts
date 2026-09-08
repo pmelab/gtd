@@ -1,9 +1,11 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { BeatRead, WorktreeRef } from "./Beat.js"
 import { bucketOf, groupIntoBuckets, readFleet, wantsYouCount } from "./Fleet.js"
+import { Registry } from "./Registry.js"
+import type { LoopChild } from "./Loop.js"
 
 const row = (over: Partial<Extract<BeatRead, { status: "ok" }>> = {}): BeatRead => ({
   status: "ok",
@@ -50,6 +52,57 @@ describe("bucketOf", () => {
 
   it("puts a broken row in Broken", () => {
     expect(bucketOf(brokenRow())).toBe("broken")
+  })
+
+  it("a registry entry always wins, even over an otherwise-Broken row", () => {
+    expect(bucketOf(brokenRow(), true)).toBe("working")
+  })
+})
+
+describe("groupIntoBuckets with a Registry", () => {
+  const fakeChild: LoopChild = { wait: new Promise(() => {}), interrupt: vi.fn(), kill: vi.fn() }
+
+  it("puts a driven worktree in Working regardless of its own beat", () => {
+    const registry = new Registry()
+    registry.register("driven", fakeChild)
+    const buckets = groupIntoBuckets([row({ id: "driven", idle: true, actor: "human" })], {
+      registry,
+    })
+    expect(buckets.working.map((r) => r.id)).toEqual(["driven"])
+    expect(buckets["wants-you"]).toHaveLength(0)
+  })
+
+  it("flags a recently-touched log with no registry entry as possibly foreign-driven", () => {
+    const registry = new Registry()
+    const now = 1_000_000
+    const buckets = groupIntoBuckets([row({ id: "foreign", logMtime: now - 1_000 })], {
+      registry,
+      now,
+    })
+    const entry = Object.values(buckets)
+      .flat()
+      .find((r) => r.id === "foreign")
+    expect(entry?.foreignDriverPossible).toBe(true)
+  })
+
+  it("does not flag a worktree the registry itself is driving as foreign", () => {
+    const registry = new Registry()
+    registry.register("driven", fakeChild)
+    const now = 1_000_000
+    const buckets = groupIntoBuckets([row({ id: "driven", logMtime: now - 1_000, idle: true })], {
+      registry,
+      now,
+    })
+    const entry = buckets.working.find((r) => r.id === "driven")
+    expect(entry?.foreignDriverPossible).toBe(false)
+  })
+
+  it("without a registry, every row's foreignDriverPossible is false", () => {
+    const buckets = groupIntoBuckets([row({ id: "a" })])
+    const entry = Object.values(buckets)
+      .flat()
+      .find((r) => r.id === "a")
+    expect(entry?.foreignDriverPossible).toBe(false)
   })
 })
 

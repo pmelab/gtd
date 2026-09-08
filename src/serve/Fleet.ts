@@ -1,10 +1,14 @@
 import type { BeatRead, WorktreeRef } from "./Beat.js"
 import { discoverWorktrees } from "./Discover.js"
+import type { Registry } from "./Registry.js"
 
 export type FleetBucket = "wants-you" | "working" | "broken" | "quiet"
 
-/** One row on the fleet screen — a `BeatRead` plus the bucket it landed in. */
-export type FleetEntry = BeatRead & { readonly bucket: FleetBucket }
+/** One row on the fleet screen — a `BeatRead` plus the bucket it landed in, plus T4's own imprecise foreign-driver signal (always `false` for a `broken` row, since there's no `logMtime` to read it off). */
+export type FleetEntry = BeatRead & {
+  readonly bucket: FleetBucket
+  readonly foreignDriverPossible: boolean
+}
 
 /**
  * `idle` is load-bearing and `actor` alone is not: an idle worktree reports
@@ -12,11 +16,14 @@ export type FleetEntry = BeatRead & { readonly bucket: FleetBucket }
  * nothing is waiting on anyone). So **Wants you** is `!idle && actor ===
  * "human"`, plus every `stalled` kind regardless of actor/idle. **Broken** is
  * anything `BeatCache` couldn't read cleanly. **Quiet** is `idle`. **Working**
- * is whatever is left — today that's a not-idle agent-actor row; once a loop
- * registry exists (a later package) it becomes that registry's answer
- * instead, but the bucket taxonomy here doesn't change shape for that.
+ * is whatever is left — today that's a not-idle agent-actor row, OR any row
+ * the `Registry` (T3) reports as having a live child, which always wins:
+ * `driving` is checked before anything else, since a worktree the server
+ * itself is actively driving belongs in Working even if its beat is
+ * transiently unreadable mid-turn.
  */
-export const bucketOf = (row: BeatRead): FleetBucket => {
+export const bucketOf = (row: BeatRead, driving: boolean = false): FleetBucket => {
+  if (driving) return "working"
   if (row.status === "broken") return "broken"
   if (row.kind === "stalled") return "wants-you"
   if (!row.idle && row.actor === "human") return "wants-you"
@@ -52,10 +59,18 @@ const compareRest = (a: BeatRead, b: BeatRead, oldestFirst: boolean): number => 
   return oldestFirst ? diff : -diff
 }
 
-/** Groups and sorts `BeatRead`s into the four buckets, in fixed display order. */
+/** The `Registry` (T3) plus a clock, both optional so every existing single-argument call keeps working with no server-side driving/foreign-driver signal at all. */
+export interface BucketingContext {
+  readonly registry?: Registry
+  readonly now?: number
+}
+
+/** Groups and sorts `BeatRead`s into the four buckets, in fixed display order — consulting `ctx.registry` (T3/T4) for the Working override and the foreign-driver signal when one is given. */
 export const groupIntoBuckets = (
   rows: readonly BeatRead[],
+  ctx: BucketingContext = {},
 ): Record<FleetBucket, readonly FleetEntry[]> => {
+  const now = ctx.now ?? Date.now()
   const grouped: Record<FleetBucket, FleetEntry[]> = {
     "wants-you": [],
     working: [],
@@ -63,8 +78,13 @@ export const groupIntoBuckets = (
     quiet: [],
   }
   for (const row of rows) {
-    const bucket = bucketOf(row)
-    grouped[bucket].push({ ...row, bucket })
+    const driving = ctx.registry?.isDriving(row.id) ?? false
+    const bucket = bucketOf(row, driving)
+    const foreignDriverPossible =
+      ctx.registry !== undefined && row.status === "ok"
+        ? ctx.registry.possiblyForeignDriven(row.id, row.logMtime, now)
+        : false
+    grouped[bucket].push({ ...row, bucket, foreignDriverPossible })
   }
   for (const bucket of bucketOrder) {
     grouped[bucket].sort((a, b) => compareRest(a, b, bucket === "wants-you"))
@@ -84,6 +104,8 @@ export interface FleetPayload {
 export interface FleetDeps {
   readonly roots: readonly string[]
   readonly readBeat: (worktree: WorktreeRef) => Promise<BeatRead>
+  /** The server's own `Registry` (T3) — `undefined` only in tests that don't care about Working/foreign-driver at all. */
+  readonly registry?: Registry
 }
 
 /**
@@ -114,6 +136,9 @@ export const readFleet = async (deps: FleetDeps): Promise<FleetPayload> => {
       }
     }),
   )
-  const buckets = groupIntoBuckets(rows)
+  const buckets = groupIntoBuckets(
+    rows,
+    deps.registry !== undefined ? { registry: deps.registry } : {},
+  )
   return { buckets, wantsYouCount: wantsYouCount(buckets) }
 }
