@@ -9,6 +9,14 @@ CLI/config entry point, a `src/serve/` server, a `src/web/` client, and a
 itself on the phone. Two-bundle build (browser bundle inlined into the node
 bundle) and a Storybook browser test tier come along with it.
 
+i reconsidered how the ui should work. it should be scoped to a single worktree
+only. no discovery, no fleet listing.
+
+`gtd ui` should spin up the server on a defined port for that worktree, showing
+the web user interface for that given step. the "handoff" event in the ui should
+effectively just terminate the server process to let the outer loop react to
+that.
+
 **Read the three security notes in "Server plumbing and the tRPC surface" and
 the two wiring gaps in "Phone client — screens" first. Everything else is
 routine.**
