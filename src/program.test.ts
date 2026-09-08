@@ -2344,10 +2344,13 @@ describe("runCommand — refuses in a repository with no commits", () => {
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      // `src/ui/Server.ts`'s own refusal (no Tailscale interface in this
-      // fake environment, no --host) — not the repository/commit guard's.
+      // `src/ui/Server.ts`'s own refusal — it reads the served worktree's
+      // beat (a REAL subprocess spawn, `InMemRepo`'s fake root has no real
+      // directory behind it) before ever resolving a bind host, so THIS is
+      // its own dispatch's first refusal now, not the repository/commit
+      // guard's and not the host-resolution one downstream of it.
       expect(String(exit.cause)).not.toContain(NO_COMMITS_MESSAGE)
-      expect(String(exit.cause)).toContain("gtd ui: no Tailscale interface found")
+      expect(String(exit.cause)).toContain("gtd ui: refuses to start")
     }
   })
 })

@@ -52,6 +52,20 @@ export class GtdError extends Error {
 }
 
 /**
+ * A `GtdError` that names how gtd was INVOKED, not what it did — `Cli.ts`'s
+ * `report` maps this to `EXIT_USAGE_ERROR` alongside `SelectorUsageError`,
+ * rather than the `EXIT_RUNTIME_ERROR` every plain `GtdError` gets. `gtd ui`
+ * refusing to start on a step it cannot render is the one constructor today
+ * (see `ui/Server.ts`).
+ */
+export class GtdUsageError extends GtdError {
+  constructor(message: string, detail: readonly string[] = []) {
+    super(message, detail)
+    this.name = "GtdUsageError"
+  }
+}
+
+/**
  * The stderr text for a CLI failure: a `gtd: ` prefix UNLESS the message
  * already carries one, then one two-space-indented line per `GtdError`
  * detail (none, for a plain `Error`) — unconditional, at every verbosity.

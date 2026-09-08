@@ -185,25 +185,26 @@ describe("ConfigService", () => {
   it("reads a top-level `ui:` key through as-is", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [
-        `ui:`,
-        `  roots:`,
-        `    - /repo/a`,
-        `  port: 4173`,
-        `  host: 0.0.0.0`,
-        `  loop: "gtd next --json"`,
-        ``,
-      ].join("\n"),
+      [`ui:`, `  port: 4173`, `  host: 0.0.0.0`, ``].join("\n"),
     )
 
     const cfg = await getConfig()
 
     expect(cfg.ui).toEqual({
-      roots: ["/repo/a"],
       port: 4173,
       host: "0.0.0.0",
-      loop: "gtd next --json",
     })
+  })
+
+  it("rejects `ui.loop` and `ui.roots` as excess properties", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`ui:`, `  loop: "gtd next --json"`, ``].join("\n"),
+    )
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+
+    expect(Exit.isFailure(exit)).toBe(true)
   })
 
   it("merges `ui:` levels low->high: cwd's `port` overlays the ancestor's, cwd wins on overlap", async () => {
@@ -234,7 +235,7 @@ describe("ConfigService", () => {
       // user's file (see `Config.ts`'s `formatSchemaError` — dropped exactly
       // because a loose match here would let that noise silently return).
       expect(String(exit.cause)).toContain(
-        'Invalid gtd config: ui.bogus: is unexpected, expected: "roots" | "port" | "host" | "cert" | "key" | "loop"',
+        'Invalid gtd config: ui.bogus: is unexpected, expected: "port" | "host" | "cert" | "key"',
       )
       expect(String(exit.cause)).not.toContain("Expected undefined")
     }

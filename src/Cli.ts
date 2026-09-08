@@ -1,7 +1,7 @@
 import { NodeContext } from "@effect/platform-node"
 import { createRequire } from "node:module"
 import { Cause, Effect, Either, Layer } from "effect"
-import { Narrator, renderFailure } from "./Commentary.js"
+import { GtdUsageError, Narrator, renderFailure } from "./Commentary.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -1169,10 +1169,12 @@ const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
  * — it must read stderr or the exit code instead. `Effect.sandbox` means this also
  * fires for a DEFECT, not just a typed error. Unreached by an ordinary usage
  * error (an unknown flag, bad arity, a scope violation) — those never build a
- * layer at all. The one exception is `SelectorUsageError`: an unknown
- * `--json=<path>` selector can only be judged after the layer is built and
- * the fields object it's reduced against is fully resolved, so it fails HERE
- * rather than in `parseArgv` — `EXIT_USAGE_ERROR` still applies to it below.
+ * layer at all. Two exceptions map to `EXIT_USAGE_ERROR` instead, below:
+ * `SelectorUsageError` (an unknown `--json=<path>` selector can only be
+ * judged after the layer is built and the fields object it's reduced
+ * against is fully resolved, so it fails HERE rather than in `parseArgv`)
+ * and `GtdUsageError` (`gtd ui` refusing to start on a step it cannot
+ * render — see `Commentary.ts`).
  */
 const report =
   (io: CliIo, json: boolean) =>
@@ -1184,7 +1186,11 @@ const report =
         io.stderr(`${JSON.stringify({ state: "error", prompt: message })}\n`)
       }
       io.stderr(`${renderFailure(error)}\n`)
-      io.exit(error instanceof SelectorUsageError ? EXIT_USAGE_ERROR : EXIT_RUNTIME_ERROR)
+      io.exit(
+        error instanceof SelectorUsageError || error instanceof GtdUsageError
+          ? EXIT_USAGE_ERROR
+          : EXIT_RUNTIME_ERROR,
+      )
     })
 
 export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, Error> => {

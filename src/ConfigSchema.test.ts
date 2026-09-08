@@ -134,28 +134,31 @@ describe("ConfigSchema — top-level `ui:`", () => {
   it("decodes with every sub-key present", () => {
     const input = {
       ui: {
-        roots: ["/repo/a", "/repo/b"],
         port: 4173,
         host: "0.0.0.0",
         cert: "./certs/server.crt",
         key: "./certs/server.key",
-        loop: "gtd next --json",
       },
     }
     expect(decode(input).ui).toEqual(input.ui)
   })
 
-  it.each(["roots", "port", "host", "cert", "key", "loop"] as const)(
-    "decodes with only `%s` present",
-    (key) => {
-      const value = key === "roots" ? ["/repo"] : key === "port" ? 4173 : "x"
-      const cfg = decode({ ui: { [key]: value } })
-      expect(cfg.ui).toEqual({ [key]: value })
-    },
-  )
+  it.each(["port", "host", "cert", "key"] as const)("decodes with only `%s` present", (key) => {
+    const value = key === "port" ? 4173 : "x"
+    const cfg = decode({ ui: { [key]: value } })
+    expect(cfg.ui).toEqual({ [key]: value })
+  })
 
   it("rejects an unknown sub-key under `ui:` as an excess property", () => {
     expect(() => decode({ ui: { bogus: true } })).toThrow()
+  })
+
+  it("rejects `ui.loop` as an excess property", () => {
+    expect(() => decode({ ui: { loop: "gtd next --json" } })).toThrow()
+  })
+
+  it("rejects `ui.roots` as an excess property", () => {
+    expect(() => decode({ ui: { roots: ["/repo"] } })).toThrow()
   })
 
   it("rejects a non-integer `port`", () => {
@@ -168,7 +171,7 @@ describe("ConfigSchema — top-level `ui:`", () => {
     expect(typeof ui["description"]).toBe("string")
     expect((ui["description"] as string).length).toBeGreaterThan(0)
     const properties = ui["properties"] as Record<string, JsonObject>
-    expect(Object.keys(properties)).toEqual(["roots", "port", "host", "cert", "key", "loop"])
+    expect(Object.keys(properties)).toEqual(["port", "host", "cert", "key"])
     for (const [key, prop] of Object.entries(properties)) {
       expect(typeof prop["description"], `property "${key}"`).toBe("string")
       expect((prop["description"] as string).length, `property "${key}"`).toBeGreaterThan(0)

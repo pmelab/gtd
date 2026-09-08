@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
-import { readFile, stat } from "node:fs/promises"
-import { basename, dirname, isAbsolute, join } from "node:path"
+import { readFile } from "node:fs/promises"
+import { basename, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { NodeContext } from "@effect/platform-node"
 import { Effect } from "effect"
@@ -18,14 +18,24 @@ import { worktreeGitDir } from "../WorktreeState.js"
  * two contexts. Mirrors `Server.ts`'s `findPackageRoot` (same reason, same
  * walk), checking `name` so an npm-installed copy nested under some other
  * project's `node_modules` can't pick up that project's own `package.json`.
+ *
+ * Memoized rather than run at module scope: importing this module from a
+ * directory tree with no `@pmelab/gtd` `package.json` above it (a test
+ * runner's own temp dir, for instance) must load cleanly — only actually
+ * checking a version pays this walk's cost, and then only once.
  */
+let ownVersion: string | undefined
 const findOwnVersion = (): string => {
+  if (ownVersion !== undefined) return ownVersion
   let dir = dirname(fileURLToPath(import.meta.url))
   for (let i = 0; i < 8; i++) {
     const pkgPath = join(dir, "package.json")
     if (existsSync(pkgPath)) {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: string; version?: string }
-      if (pkg.name === "@pmelab/gtd" && typeof pkg.version === "string") return pkg.version
+      if (pkg.name === "@pmelab/gtd" && typeof pkg.version === "string") {
+        ownVersion = pkg.version
+        return ownVersion
+      }
     }
     const parent = dirname(dir)
     if (parent === dir) break
@@ -33,9 +43,6 @@ const findOwnVersion = (): string => {
   }
   throw new Error("no @pmelab/gtd package.json found above src/ui/Beat.ts")
 }
-
-const GTD_VERSION: string = findOwnVersion()
-const CURRENT_MAJOR = Number(GTD_VERSION.split(".")[0])
 
 /**
  * Mirrors `src/Beat.ts`'s (root) `BeatKind` union verbatim, duplicated
@@ -46,56 +53,40 @@ const CURRENT_MAJOR = Number(GTD_VERSION.split(".")[0])
  * module's types, so keeping this vocabulary local keeps the client's
  * type-check graph shallow.
  */
-export type FleetKind = "capture" | "message" | "script" | "prompt" | "stalled"
+export type StepKind = "capture" | "message" | "script" | "prompt" | "stalled"
 
-/** One worktree `Discover.ts` found — the input every read below is keyed on. */
+/** The worktree `gtd ui` serves — the input `readStep` is keyed on. */
 export interface WorktreeRef {
-  readonly id: string
   readonly path: string
 }
 
-/** A normal, projected fleet row — never the beat's own `content`/`system` fields, only the five the fleet screen renders plus identity, plus `logMtime`/`file`/`mode` (the plumbing a phone screen needs to actually open and hand back a steering file — see `Fleet.tsx`'s row tap). */
-export interface FleetRow {
+/** The served worktree's own rest, projected down to what the phone UI renders plus `file`/`mode` (the plumbing a phone screen needs to actually open and hand back a steering file). */
+export interface Step {
   readonly status: "ok"
-  readonly id: string
   readonly path: string
   readonly repo: string
   readonly branch: string
   readonly label: string
-  readonly kind: FleetKind
+  readonly kind: StepKind
   readonly actor: Actor
   readonly idle: boolean
   readonly rest: string
-  /** The beat-reported loop log's mtime in epoch ms, or `undefined` when no log path was reported or it doesn't exist — the only available signal for a foreign (non-server-spawned) driver. Imprecise by nature: honours `GTD_LOOP_LOG` first, then the git dir, and gtd never creates or truncates the file. */
-  readonly logMtime?: number
   /** The beat-reported steering file's path, relative to `path` — `undefined` when this rest has no steering file (a `script`/`stalled` rest, typically). The phone's own `readSteeringFile`/`writeNote`/`done` calls all need this alongside `mode`. */
   readonly file?: string
   /** The beat-reported steering mode (`qa`, `review`, a custom mode, …) — `undefined` alongside `file` exactly when there is no steering file to open. Never switched on here; only threaded through so a phone screen can pick `Plan` vs `Review` client-side. */
   readonly mode?: string
-  /**
-   * `true` only for a `prompt` kind whose tree carries pending changes
-   * (`gtd next --json`'s own `changes` array is non-empty) — never present
-   * (never `false`) otherwise. A restart persists nothing (`Registry.ts`'s
-   * own contract): a `prompt` rest left dirty by a killed loop reads
-   * identically to one an agent is still actively working, UNLESS this is
-   * surfaced — `Fleet.ts#bucketOf` reads it to bucket such a row as Wants
-   * you (interrupted) rather than Working when no registry entry is
-   * actually driving it.
-   */
-  readonly interrupted?: boolean
 }
 
-/** A worktree that refused to read cleanly — `detail` is the verbatim text distinguishing one refusal from another (T5). */
-export interface BrokenRow {
+/** The served worktree refused to read cleanly — `detail` is the verbatim text distinguishing one refusal from another. */
+export interface BrokenStep {
   readonly status: "broken"
-  readonly id: string
   readonly path: string
   readonly repo: string
   readonly branch: string
   readonly detail: string
 }
 
-export type BeatRead = FleetRow | BrokenRow
+export type StepRead = Step | BrokenStep
 
 /** One subprocess's outcome — `spawnError` set (never `status`/`stdout`/`stderr`) when the process could never start at all (no `bash`, bad cwd), so callers can tell "never ran" from "ran and exited non-zero". */
 export interface SpawnOutcome {
@@ -111,7 +102,7 @@ export type RunInWorktree = (cwd: string, command: string) => Promise<SpawnOutco
  * The real subprocess spawn: `bash -c <command>` with `cwd` set to the
  * worktree — never the invoking process's own directory. `<cwd>/node_modules/.bin`
  * is prepended to `$PATH` so a worktree with its own `@pmelab/gtd`
- * devDependency actually RUNS that install rather than the fleet server's
+ * devDependency actually RUNS that install rather than the server's
  * own — otherwise `readLocalGtdVersionAt`'s version check would inspect a
  * `package.json` that has no bearing on what `gtd next --json` here executes.
  * Falls through to the inherited `$PATH` (the server's own `gtd`) when no
@@ -143,60 +134,28 @@ export const liveRunInWorktree: RunInWorktree = (cwd, command) =>
     )
   })
 
-/**
- * The dependencies a beat read needs, all injectable so tests never spawn a
- * real subprocess or touch a real filesystem. `headSha` and `statMtime` are
- * filesystem-only (mirroring `WorktreeState.ts`'s own git-dir resolution) —
- * `BeatCache.read` below calls them on EVERY request, including a warm one,
- * so they must never shell out.
- */
+/** The dependencies a step read needs, all injectable so tests never spawn a real subprocess or touch a real filesystem. */
 export interface BeatDeps {
   readonly run: RunInWorktree
   readonly readLocalGtdVersion: (path: string) => Promise<string | undefined>
   readonly headSha: (path: string) => Promise<string | undefined>
-  readonly statMtime: (path: string) => Promise<number | undefined>
 }
 
 /**
  * A version is supported when its major matches this build's own — the beat
  * JSON envelope (`src/Beat.ts`'s `BeatFields`) is only guaranteed stable
- * within a major. Exported so tests aren't tied to this checkout's own
+ * within a major. Defaults to this build's own major, resolved lazily via
+ * `findOwnVersion` — exported so tests aren't tied to this checkout's own
  * `package.json` version.
  */
 export const isSupportedVersion = (
   version: string,
-  currentMajor: number = CURRENT_MAJOR,
+  currentMajor: number = Number(findOwnVersion().split(".")[0]),
 ): boolean => {
   const major = Number(version.split(".")[0])
   return Number.isFinite(major) && major === currentMajor
 }
 
-/**
- * Resolves a beat-reported path (`file`/`log`) against the worktree: absolute
- * as-is (a linked worktree's `log`, whose `gitdir:` pointer can point
- * anywhere), otherwise joined onto `worktreePath` — an ordinary clone's `log`
- * (`.git/gtd-loop.log`, from `WorktreeState.ts`'s literal `".git"` fallback)
- * is relative to the WORKTREE, not to the fleet server's own cwd. Joining it
- * unconditionally (the earlier shape, for `log` only) resolved that relative
- * path against the server's process instead: touching a plain repo's real
- * loop log never invalidated its cache entry, and since `gtd ui` itself
- * runs inside a gtd repo, that same relative path usually landed on the
- * SERVER's own log — one shared file invalidating every plain-repo row at
- * once.
- */
-const resolveInWorktree = (worktreePath: string, reportedPath: string): string =>
-  isAbsolute(reportedPath) ? reportedPath : join(worktreePath, reportedPath)
-
-/**
- * Sequential, not `Promise.all` — `coldRead` runs entirely inside `withSlot`,
- * so T3's cap ("never more than that many child processes alive at once")
- * covers every subprocess a cold read spawns, not just `gtd next --json`.
- * Three concurrent `git` calls per slot would let a `concurrency: 8` cache
- * run up to 24 live processes at once; one at a time per slot keeps the
- * total exactly at the configured cap. These reads are a few milliseconds
- * each next to `gtd next --json`'s 520–660 ms bundle parse, so serializing
- * them costs nothing worth trading the cap's own guarantee away for.
- */
 const readGitMeta = async (
   path: string,
   run: RunInWorktree,
@@ -211,63 +170,16 @@ const readGitMeta = async (
   }
 }
 
-/** The three-part cache key T3 pins: HEAD's sha, the resting steering file's mtime, the loop log's mtime — `undefined` on any axis that isn't known (no file/log reported, or a stat failure). */
-interface BeatCacheKey {
-  readonly headSha: string | undefined
-  readonly filePath: string | undefined
-  readonly fileMtime: number | undefined
-  readonly logPath: string | undefined
-  readonly logMtime: number | undefined
-}
-
-/**
- * `a.headSha !== undefined` is load-bearing, not redundant with the equality
- * check that follows: a worktree whose HEAD can't be read (a `.git` this
- * process can't parse) reports `undefined` on every warm check forever, and
- * `undefined === undefined` would otherwise read as "unchanged" — the exact
- * opposite of `liveHeadSha`'s own documented contract ("the cache then
- * treats that axis as always 'changed'"). Requiring `a.headSha` (the CACHED
- * key) to be a real sha means an entry can only ever be served warm once its
- * identity is actually known.
- */
-const sameKey = (a: BeatCacheKey, b: BeatCacheKey): boolean =>
-  a.headSha !== undefined &&
-  a.headSha === b.headSha &&
-  a.filePath === b.filePath &&
-  a.fileMtime === b.fileMtime &&
-  a.logPath === b.logPath &&
-  a.logMtime === b.logMtime
-
 const broken = (
   worktree: WorktreeRef,
   meta: { readonly repo: string; readonly branch: string },
   detail: string,
-): BrokenRow => ({
+): BrokenStep => ({
   status: "broken",
-  id: worktree.id,
   path: worktree.path,
   repo: meta.repo,
   branch: meta.branch,
   detail,
-})
-
-type ColdReadResult = { readonly result: BeatRead; readonly key: BeatCacheKey }
-
-/** A Broken outcome's cache key only ever pins `headSha` — `file`/`log` are never known, since nothing was successfully parsed. */
-const brokenResult = async (
-  worktree: WorktreeRef,
-  meta: { readonly repo: string; readonly branch: string },
-  deps: BeatDeps,
-  detail: string,
-): Promise<ColdReadResult> => ({
-  result: broken(worktree, meta, detail),
-  key: {
-    headSha: await deps.headSha(worktree.path),
-    filePath: undefined,
-    fileMtime: undefined,
-    logPath: undefined,
-    logMtime: undefined,
-  },
 })
 
 type ParsedBeatFields = {
@@ -277,70 +189,45 @@ type ParsedBeatFields = {
   readonly label?: unknown
   readonly state?: unknown
   readonly file?: unknown
-  readonly log?: unknown
   readonly mode?: unknown
-  readonly changes?: unknown
 }
 
-const FLEET_KINDS: readonly FleetKind[] = ["capture", "message", "script", "prompt", "stalled"]
+const STEP_KINDS: readonly StepKind[] = ["capture", "message", "script", "prompt", "stalled"]
 
 /**
  * Validates the two fields the row can't render without: `kind` must be one
- * of the closed `FleetKind` vocabulary, `actor` a non-empty string. Valid
+ * of the closed `StepKind` vocabulary, `actor` a non-empty string. Valid
  * JSON that isn't a beat (e.g. a `$PATH` `gtd` the version check couldn't
  * see, parsing to some unrelated envelope) parses cleanly but fails this
- * check — T4's Broken bucket is "spawn failed, unsupported version,
+ * check — the Broken outcome is "spawn failed, unsupported version,
  * **unparseable beat**", and an unchecked cast here would otherwise render a
  * blank-labeled row with an `undefined` kind/actor instead.
  */
 const isValidBeat = (
   fields: ParsedBeatFields,
-): fields is ParsedBeatFields & { readonly kind: FleetKind; readonly actor: string } =>
+): fields is ParsedBeatFields & { readonly kind: StepKind; readonly actor: string } =>
   typeof fields.kind === "string" &&
-  (FLEET_KINDS as readonly string[]).includes(fields.kind) &&
+  (STEP_KINDS as readonly string[]).includes(fields.kind) &&
   typeof fields.actor === "string" &&
   fields.actor !== ""
 
-/** `true` only for a `prompt` kind whose beat-reported `changes` array is non-empty — see `FleetRow.interrupted`'s own doc comment for why this matters. `fields.changes` is validated defensively (an unparseable/missing array reads as clean, never as dirty) since a Broken read never reaches here at all — this only ever sees a beat that already passed `isValidBeat`. */
-const isInterruptedPrompt = (kind: FleetKind, changes: unknown): boolean =>
-  kind === "prompt" && Array.isArray(changes) && changes.length > 0
-
-/** `okResult`'s own four all-optional fields (`file`/`mode`/`logMtime`/`interrupted`) — each dropped entirely, never present-as-`undefined`-or-`false`, when its source value isn't there. Factored out so `okResult` itself stays a flat field list instead of growing one branch per optional field. */
-const optionalFleetFields = (
+/** `okResult`'s own two optional fields (`file`/`mode`) — dropped entirely, never present-as-`undefined`, when its source value isn't there. */
+const optionalStepFields = (
   filePath: string | undefined,
   mode: unknown,
-  logMtime: number | undefined,
-  kind: FleetKind,
-  changes: unknown,
-): Pick<FleetRow, "file" | "mode" | "logMtime" | "interrupted"> => ({
+): Pick<Step, "file" | "mode"> => ({
   ...(filePath !== undefined ? { file: filePath } : {}),
   ...(typeof mode === "string" ? { mode } : {}),
-  ...(logMtime !== undefined ? { logMtime } : {}),
-  ...(isInterruptedPrompt(kind, changes) ? { interrupted: true } : {}),
 })
 
-/** The successful-parse path: projects `fields` into a `FleetRow` and computes the cache key T3 pins from the SAME `file`/`log` the beat itself reported. */
-const okResult = async (
+const okResult = (
   worktree: WorktreeRef,
   meta: { readonly repo: string; readonly branch: string; readonly rest: string },
-  fields: ParsedBeatFields & { readonly kind: FleetKind; readonly actor: string },
-  deps: BeatDeps,
-): Promise<ColdReadResult> => {
+  fields: ParsedBeatFields & { readonly kind: StepKind; readonly actor: string },
+): Step => {
   const filePath = typeof fields.file === "string" ? fields.file : undefined
-  const logPath = typeof fields.log === "string" ? fields.log : undefined
-  const [headSha, fileMtime, logMtime] = await Promise.all([
-    deps.headSha(worktree.path),
-    filePath !== undefined
-      ? deps.statMtime(resolveInWorktree(worktree.path, filePath))
-      : Promise.resolve(undefined),
-    logPath !== undefined
-      ? deps.statMtime(resolveInWorktree(worktree.path, logPath))
-      : Promise.resolve(undefined),
-  ])
-
-  const result: FleetRow = {
+  return {
     status: "ok",
-    id: worktree.id,
     path: worktree.path,
     repo: meta.repo,
     branch: meta.branch,
@@ -349,167 +236,63 @@ const okResult = async (
     actor: fields.actor,
     idle: Boolean(fields.idle),
     rest: meta.rest,
-    ...optionalFleetFields(filePath, fields.mode, logMtime, fields.kind, fields.changes),
+    ...optionalStepFields(filePath, fields.mode),
   }
-  return { result, key: { headSha, filePath, fileMtime, logPath, logMtime } }
 }
 
 /**
- * The one place `gtd next --json` is actually run for a worktree — always
- * exactly once per cold read, never re-run within it. Everything else
- * (`readGitMeta`, `readLocalGtdVersion`, `headSha`/`statMtime` for the cache
- * key) is either a cheap read-only git call or a plain filesystem read; none
- * of it writes, commits, or moves a ref.
+ * The one place `gtd next --json` is actually run for the served worktree —
+ * always exactly once per call. Everything else (`readGitMeta`,
+ * `readLocalGtdVersion`) is either a cheap read-only git call or a plain
+ * filesystem read; none of it writes, commits, or moves a ref.
  */
-const coldRead = async (worktree: WorktreeRef, deps: BeatDeps): Promise<ColdReadResult> => {
+export const readStep = async (worktree: WorktreeRef, deps: BeatDeps): Promise<StepRead> => {
   const meta = await readGitMeta(worktree.path, deps.run)
 
   // The version check reads the worktree's LOCALLY INSTALLED gtd's own
   // package.json directly — never a second `gtd --version` spawn, which
-  // would pay the same ~500ms bundle parse `gtd next --json` already pays,
-  // doubling the cold-read cost this package's whole caching strategy exists
-  // to amortize. No local install (the common case) means nothing to check.
+  // would pay the same ~500ms bundle parse `gtd next --json` already pays.
   const version = await deps.readLocalGtdVersion(worktree.path)
   if (version !== undefined && !isSupportedVersion(version)) {
-    return brokenResult(worktree, meta, deps, `unsupported gtd version: ${version}`)
+    return broken(worktree, meta, `unsupported gtd version: ${version}`)
   }
 
   const outcome = await deps.run(worktree.path, "gtd next --json")
   if (outcome.spawnError !== undefined) {
-    return brokenResult(worktree, meta, deps, outcome.spawnError)
+    return broken(worktree, meta, outcome.spawnError)
   }
   if (outcome.status !== 0) {
-    return brokenResult(worktree, meta, deps, outcome.stderr)
+    return broken(worktree, meta, outcome.stderr)
   }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(outcome.stdout)
   } catch {
-    return brokenResult(
-      worktree,
-      meta,
-      deps,
-      `invalid JSON from gtd next --json: ${outcome.stdout}`,
-    )
+    return broken(worktree, meta, `invalid JSON from gtd next --json: ${outcome.stdout}`)
   }
 
   const fields = parsed as ParsedBeatFields
   if (!isValidBeat(fields)) {
-    return brokenResult(
+    return broken(
       worktree,
       meta,
-      deps,
       `unparseable beat: kind=${JSON.stringify(fields.kind)} actor=${JSON.stringify(fields.actor)}`,
     )
   }
 
-  return okResult(worktree, meta, fields, deps)
-}
-
-/**
- * Bounded-concurrency memo over `coldRead`, keyed by worktree id. A cache hit
- * spawns nothing at all: the warm-path staleness check below only calls
- * `deps.headSha`/`deps.statMtime`, both filesystem-only. Cold reads queue
- * behind `concurrency` — a 30-worktree cold `Fleet` load never has more than
- * that many `gtd next --json` processes alive at once.
- */
-export class BeatCache {
-  private readonly entries = new Map<
-    string,
-    { readonly key: BeatCacheKey; readonly result: BeatRead }
-  >()
-  private active = 0
-  private readonly queue: Array<() => void> = []
-
-  constructor(
-    private readonly deps: BeatDeps,
-    private readonly concurrency: number = 8,
-  ) {}
-
-  /** How many cold reads currently hold a slot — test-only instrumentation for pinning `withSlot`'s handoff invariant directly, rather than inferring it from `deps.run` call timing several `await`s downstream. */
-  get activeSlots(): number {
-    return this.active
-  }
-
-  /**
-   * A slot is handed DIRECTLY from a finishing holder to the next waiter —
-   * `active` is never decremented and re-incremented across that handoff.
-   * The earlier shape did decrement-then-resume: the resumed waiter's own
-   * `active++` ran only after its `await` settled (a microtask later), so a
-   * THIRD call arriving in that window saw `active < concurrency`, took a
-   * slot of its own, and the resumed waiter then pushed `active` one past
-   * `concurrency` — an extra live `gtd next --json` per pending waiter,
-   * reachable whenever two fleet requests overlap (a phone refresh during a
-   * cold load). Handing the slot off inside the same synchronous `finally`
-   * closes that window: `active` only ever grows when a slot is granted
-   * fresh (below cap) and only ever shrinks when nobody is waiting for it.
-   */
-  private async withSlot<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.active < this.concurrency) {
-      this.active++
-    } else {
-      await new Promise<void>((resolve) => this.queue.push(resolve))
-    }
-    try {
-      return await fn()
-    } finally {
-      const next = this.queue.shift()
-      if (next !== undefined) next()
-      else this.active--
-    }
-  }
-
-  async read(worktree: WorktreeRef): Promise<BeatRead> {
-    const cached = this.entries.get(worktree.id)
-    if (cached !== undefined) {
-      const [headSha, fileMtime, logMtime] = await Promise.all([
-        this.deps.headSha(worktree.path),
-        cached.key.filePath !== undefined
-          ? this.deps.statMtime(resolveInWorktree(worktree.path, cached.key.filePath))
-          : Promise.resolve(undefined),
-        cached.key.logPath !== undefined
-          ? this.deps.statMtime(resolveInWorktree(worktree.path, cached.key.logPath))
-          : Promise.resolve(undefined),
-      ])
-      if (
-        sameKey(cached.key, {
-          headSha,
-          filePath: cached.key.filePath,
-          fileMtime,
-          logPath: cached.key.logPath,
-          logMtime,
-        })
-      ) {
-        return cached.result
-      }
-    }
-    return this.withSlot(async () => {
-      const { result, key } = await coldRead(worktree, this.deps)
-      // A Broken outcome is never memoized: its key only ever pins `headSha`
-      // (nothing parsed, so no `file`/`log` to key on), and most refusals —
-      // a dirty tree, an unsupported version — never move HEAD. Caching it
-      // would serve that Broken row for the rest of the process's life, long
-      // after whatever caused it was fixed; a Broken worktree costs one more
-      // cold read on the next request instead, same as any worktree that has
-      // never been read yet.
-      if (result.status === "ok") this.entries.set(worktree.id, { key, result })
-      return result
-    })
-  }
+  return okResult(worktree, meta, fields)
 }
 
 /**
  * Reads `<path>/node_modules/@pmelab/gtd/package.json`'s `version` — the
  * version of `gtd` a plain `gtd next --json` spawn would actually run in
  * THAT worktree if it resolved locally, never the scanned project's OWN
- * `version` (that field belongs to whatever the worktree happens to be, not
- * to gtd — most scanned projects aren't gtd checkouts at all). `undefined`
- * (never a throw) when there is no local install: the overwhelming common
- * case, where the spawn falls through to whatever `gtd` the fleet server's
- * own `$PATH` resolves — by construction the SAME build running this
- * check — so there is nothing to range-check and the worktree is never
- * held Broken on that account.
+ * `version`. `undefined` (never a throw) when there is no local install: the
+ * overwhelming common case, where the spawn falls through to whatever `gtd`
+ * the server's own `$PATH` resolves — by construction the SAME build
+ * running this check — so there is nothing to range-check and the worktree
+ * is never held Broken on that account.
  */
 export const readLocalGtdVersionAt = async (path: string): Promise<string | undefined> => {
   try {
@@ -527,8 +310,7 @@ export const readLocalGtdVersionAt = async (path: string): Promise<string | unde
  * then follows `HEAD` itself: either a bare 40-hex sha (detached), or a
  * `ref: refs/heads/x` line resolved against the loose ref file, falling back
  * to `packed-refs` when the branch has been packed. Returns `undefined` on
- * any read failure — the cache then treats that axis as always "changed",
- * forcing a fresh cold read rather than serving a stale one.
+ * any read failure.
  */
 export const liveHeadSha = async (path: string): Promise<string | undefined> => {
   try {
@@ -550,15 +332,6 @@ export const liveHeadSha = async (path: string): Promise<string | undefined> => 
       }
       return undefined
     }
-  } catch {
-    return undefined
-  }
-}
-
-/** A file's mtime in milliseconds — `undefined` (never a throw) when it doesn't exist, matching the "no file/log reported" case in `BeatCacheKey`. */
-export const liveStatMtime = async (path: string): Promise<number | undefined> => {
-  try {
-    return (await stat(path)).mtimeMs
   } catch {
     return undefined
   }

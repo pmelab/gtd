@@ -1,46 +1,45 @@
-import { Effect } from "effect"
 import { describe, expect, it, vi } from "vitest"
-import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
 import { QA_FORMAT } from "../OpenQuestions.js"
+import type { StepRead } from "./Beat.js"
 import {
   appRouter,
-  CommandRefusal,
-  DriveRefusal,
   ReadSteeringFileRefusal,
   UnsupportedModeRefusal,
   WriteNoteRefusal,
   type RouterContext,
 } from "./Router.js"
 
-/** A `Runtime<CommandRunner>` over a canned `bash` — the same runtime-capture pattern `Server.ts` uses for its HTML-serving path, scoped here to just the one service a router test needs. */
+const OK_STEP: StepRead = {
+  status: "ok",
+  path: "/repos/x",
+  repo: "gtd",
+  branch: "main",
+  label: "do the thing",
+  kind: "prompt",
+  actor: "human",
+  idle: false,
+  rest: "2026-08-01T10:00:00+00:00",
+  file: ".gtd/TODO.md",
+  mode: "qa",
+}
+
 const contextFor = (
-  bash: (command: string) => Effect.Effect<CommandOutcome, Error>,
-  readFleet: RouterContext["readFleet"] = () =>
-    Promise.resolve({
-      buckets: { "wants-you": [], working: [], broken: [], quiet: [] },
-      wantsYouCount: 0,
-    }),
+  readStep: RouterContext["readStep"] = () => Promise.resolve(OK_STEP),
   writeNote: RouterContext["writeNote"] = () => Promise.resolve({ ok: true }),
   resolveDiff: RouterContext["resolveDiff"] = () =>
     Promise.resolve({ kind: "refused", detail: "resolveDiff unexpectedly invoked" }),
   readSteeringFile: RouterContext["readSteeringFile"] = () =>
     Promise.resolve({ ok: false, reason: "file-vanished" }),
-  startLoop: RouterContext["startLoop"] = () => Promise.resolve({ ok: true }),
-  stopLoop: RouterContext["stopLoop"] = () => Promise.resolve(),
+  handOff: RouterContext["handOff"] = () => {},
 ): RouterContext => ({
-  runtime: Effect.runSync(
-    Effect.runtime<CommandRunner>().pipe(Effect.provide(CommandRunner.layer(bash))),
-  ),
-  readFleet,
+  readStep,
   writeNote,
   resolveDiff,
   readSteeringFile,
-  startLoop,
-  stopLoop,
+  handOff,
 })
 
 const doneRequest = {
-  worktreePath: "/repos/x",
   filePath: "TODO.md",
   expectedHeadSha: "sha",
   expectedContentHash: "hash",
@@ -49,82 +48,15 @@ const doneRequest = {
   text: "a note",
 }
 
-describe("appRouter.runCommand", () => {
-  it("returns stdout, stderr, and exitCode on a clean exit", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() => Effect.succeed({ status: 0, output: "ok\n", stdout: "ok\n", stderr: "" })),
-    )
-    const result = await caller.runCommand({ command: "echo ok" })
-    expect(result).toEqual({ stdout: "ok\n", stderr: "", exitCode: 0 })
-  })
-
-  it("surfaces a non-zero exit as a typed refusal with stdout, stderr, and exitCode all separately readable", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() =>
-        Effect.succeed({
-          status: 1,
-          output: "partial output\nsome error\n",
-          stdout: "partial output\n",
-          stderr: "some error\n",
-        }),
-      ),
-    )
-
-    const error = await caller.runCommand({ command: "false" }).catch((e: unknown) => e)
-    expect(error).toBeInstanceOf(Error)
-    const cause = (error as { cause?: unknown }).cause
-    expect(cause).toBeInstanceOf(CommandRefusal)
-    const refusal = cause as CommandRefusal
-    expect(refusal.stdout).toBe("partial output\n")
-    expect(refusal.stderr).toBe("some error\n")
-    expect(refusal.exitCode).toBe(1)
-  })
-
-  it("keeps both lines of a two-line stderr intact — no newline collapsing", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() =>
-        Effect.succeed({
-          status: 1,
-          output: "line1\nline2\n",
-          stdout: "",
-          stderr: "line1\nline2\n",
-        }),
-      ),
-    )
-
-    const error = await caller.runCommand({ command: "false" }).catch((e: unknown) => e)
-    const refusal = (error as { cause?: unknown }).cause as CommandRefusal
-    expect(refusal.stderr).toBe("line1\nline2\n")
-    expect(refusal.stderr.split("\n")).toEqual(["line1", "line2", ""])
-  })
-
-  it("rejects malformed input rather than reaching CommandRunner", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
-    )
-    await expect(caller.runCommand({ command: 42 } as never)).rejects.toThrow()
-  })
-})
-
-describe("appRouter.fleet", () => {
-  it("delegates straight to the context's readFleet", async () => {
-    const payload = {
-      buckets: { "wants-you": [], working: [], broken: [], quiet: [] },
-      wantsYouCount: 0,
-    }
-    const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        () => Promise.resolve(payload),
-      ),
-    )
-    await expect(caller.fleet()).resolves.toEqual(payload)
+describe("appRouter.step", () => {
+  it("delegates straight to the context's readStep", async () => {
+    const caller = appRouter.createCaller(contextFor(() => Promise.resolve(OK_STEP)))
+    await expect(caller.step()).resolves.toEqual(OK_STEP)
   })
 })
 
 describe("appRouter.writeNote", () => {
   const request = {
-    worktreePath: "/repo",
     filePath: ".gtd/REVIEW.md",
     expectedHeadSha: "sha1",
     expectedContentHash: "hash1",
@@ -135,21 +67,15 @@ describe("appRouter.writeNote", () => {
 
   it("delegates to the context's writeNote and returns ok on success", async () => {
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        () => Promise.resolve({ ok: true }),
-      ),
+      contextFor(undefined, () => Promise.resolve({ ok: true })),
     )
     await expect(caller.writeNote(request)).resolves.toEqual({ ok: true })
   })
 
   it("surfaces a refusal as a typed WriteNoteRefusal cause, naming the reason", async () => {
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        () => Promise.resolve({ ok: false, reason: "stale-token", moved: "sha" }),
+      contextFor(undefined, () =>
+        Promise.resolve({ ok: false, reason: "stale-token", moved: "sha" }),
       ),
     )
     const error = await caller.writeNote(request).catch((e: unknown) => e)
@@ -161,31 +87,35 @@ describe("appRouter.writeNote", () => {
 
   it("rejects malformed input rather than reaching writeNote", async () => {
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        () => Promise.reject(new Error("writeNote unexpectedly invoked")),
-      ),
+      contextFor(undefined, () => Promise.reject(new Error("writeNote unexpectedly invoked"))),
     )
     await expect(
       caller.writeNote({ ...request, anchor: { kind: "unknown" } } as never),
     ).rejects.toThrow()
   })
+
+  it("accepts no worktreePath field at all — the server writes through the one worktree it serves", async () => {
+    let received: unknown
+    const caller = appRouter.createCaller(
+      contextFor(undefined, (input) => {
+        received = input
+        return Promise.resolve({ ok: true })
+      }),
+    )
+    await caller.writeNote({ ...request, worktreePath: "/should/be/dropped" } as never)
+    expect(received).not.toHaveProperty("worktreePath")
+  })
 })
 
 describe("appRouter.view", () => {
   it("returns a qa-mode document's view", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
-    )
+    const caller = appRouter.createCaller(contextFor())
     const result = await caller.view({ mode: "qa", content: QA_FORMAT.sample })
     expect(result).toEqual({ view: QA_FORMAT.view(QA_FORMAT.sample) })
   })
 
   it("surfaces an unregistered mode as a typed UnsupportedModeRefusal cause", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
-    )
+    const caller = appRouter.createCaller(contextFor())
     const error = await caller
       .view({ mode: "not-a-real-mode", content: "x" })
       .catch((e: unknown) => e)
@@ -195,71 +125,54 @@ describe("appRouter.view", () => {
   })
 
   it("rejects malformed input rather than reaching steeringViewFor", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
-    )
+    const caller = appRouter.createCaller(contextFor())
     await expect(caller.view({ mode: "qa" } as never)).rejects.toThrow()
   })
 })
 
 describe("appRouter.diff", () => {
-  it("delegates straight to the context's resolveDiff, forwarding worktreePath/path/line", async () => {
-    let received: readonly [string, string, number | undefined] | undefined
+  it("delegates straight to the context's resolveDiff, forwarding path/line", async () => {
+    let received: readonly [string, number | undefined] | undefined
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        undefined,
-        (worktreePath, path, line) => {
-          received = [worktreePath, path, line]
-          return Promise.resolve({ kind: "binary" })
-        },
-      ),
+      contextFor(undefined, undefined, (path, line) => {
+        received = [path, line]
+        return Promise.resolve({ kind: "binary" })
+      }),
     )
-    const result = await caller.diff({ worktreePath: "/repo", path: "./src/a.ts", line: 3 })
+    const result = await caller.diff({ path: "./src/a.ts", line: 3 })
     expect(result).toEqual({ kind: "binary" })
-    expect(received).toEqual(["/repo", "./src/a.ts", 3])
+    expect(received).toEqual(["./src/a.ts", 3])
   })
 
   it("forwards an absent line as undefined, not zero or a validation error", async () => {
     let received: number | undefined = -1
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        undefined,
-        (_worktreePath, _path, line) => {
-          received = line
-          return Promise.resolve({
-            kind: "whole-file",
-            diff: { path: "x", hunks: [] },
-            reason: "no-line",
-          })
-        },
-      ),
+      contextFor(undefined, undefined, (_path, line) => {
+        received = line
+        return Promise.resolve({
+          kind: "whole-file",
+          diff: { path: "x", hunks: [] },
+          reason: "no-line",
+        })
+      }),
     )
-    await caller.diff({ worktreePath: "/repo", path: "./src/a.ts" })
+    await caller.diff({ path: "./src/a.ts" })
     expect(received).toBeUndefined()
   })
 
   it("returns a `refused` result as plain data, never a thrown TRPCError — DiffResult is already the typed refusal", async () => {
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        undefined,
-        () => Promise.resolve({ kind: "refused", detail: "gtd base: refused" }),
+      contextFor(undefined, undefined, () =>
+        Promise.resolve({ kind: "refused", detail: "gtd base: refused" }),
       ),
     )
-    const result = await caller.diff({ worktreePath: "/repo", path: "./src/a.ts" })
+    const result = await caller.diff({ path: "./src/a.ts" })
     expect(result).toEqual({ kind: "refused", detail: "gtd base: refused" })
   })
 
   it("rejects malformed input rather than reaching resolveDiff", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
-    )
-    await expect(caller.diff({ worktreePath: "/repo" } as never)).rejects.toThrow()
+    const caller = appRouter.createCaller(contextFor())
+    await expect(caller.diff({} as never)).rejects.toThrow()
   })
 })
 
@@ -273,34 +186,20 @@ describe("appRouter.readSteeringFile", () => {
       view: QA_FORMAT.view(QA_FORMAT.sample),
     }
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        undefined,
-        undefined,
-        () => Promise.resolve(okResult),
-      ),
+      contextFor(undefined, undefined, undefined, () => Promise.resolve(okResult)),
     )
-    const result = await caller.readSteeringFile({
-      worktreePath: "/repo",
-      filePath: ".gtd/PLAN.md",
-      mode: "qa",
-    })
+    const result = await caller.readSteeringFile({ filePath: ".gtd/PLAN.md", mode: "qa" })
     expect(result).toEqual(okResult)
   })
 
   it("surfaces a file-vanished refusal as a typed ReadSteeringFileRefusal cause with a NOT_FOUND code", async () => {
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        undefined,
-        undefined,
-        () => Promise.resolve({ ok: false, reason: "file-vanished" }),
+      contextFor(undefined, undefined, undefined, () =>
+        Promise.resolve({ ok: false, reason: "file-vanished" }),
       ),
     )
     const error = await caller
-      .readSteeringFile({ worktreePath: "/repo", filePath: "x.md", mode: "qa" })
+      .readSteeringFile({ filePath: "x.md", mode: "qa" })
       .catch((e: unknown) => e)
     const cause = (error as { cause?: unknown }).cause
     expect(cause).toBeInstanceOf(ReadSteeringFileRefusal)
@@ -309,16 +208,12 @@ describe("appRouter.readSteeringFile", () => {
 
   it("surfaces an unsupported-mode refusal as a typed ReadSteeringFileRefusal cause", async () => {
     const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-        undefined,
-        undefined,
-        undefined,
-        () => Promise.resolve({ ok: false, reason: "unsupported-mode" }),
+      contextFor(undefined, undefined, undefined, () =>
+        Promise.resolve({ ok: false, reason: "unsupported-mode" }),
       ),
     )
     const error = await caller
-      .readSteeringFile({ worktreePath: "/repo", filePath: "x.md", mode: "not-a-real-mode" })
+      .readSteeringFile({ filePath: "x.md", mode: "not-a-real-mode" })
       .catch((e: unknown) => e)
     const cause = (error as { cause?: unknown }).cause
     expect(cause).toBeInstanceOf(ReadSteeringFileRefusal)
@@ -326,19 +221,16 @@ describe("appRouter.readSteeringFile", () => {
   })
 
   it("rejects malformed input rather than reaching readSteeringFile", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(() => Effect.fail(new Error("CommandRunner unexpectedly invoked"))),
-    )
-    await expect(caller.readSteeringFile({ worktreePath: "/repo" } as never)).rejects.toThrow()
+    const caller = appRouter.createCaller(contextFor())
+    await expect(caller.readSteeringFile({} as never)).rejects.toThrow()
   })
 })
 
 describe("appRouter.done", () => {
-  it("writes the steering file then spawns the loop, in that order", async () => {
+  it("writes the steering file then hands off, in that order", async () => {
     const calls: string[] = []
     const caller = appRouter.createCaller(
       contextFor(
-        () => Effect.succeed({ status: 0, output: "", stdout: "", stderr: "" }),
         undefined,
         () => {
           calls.push("write")
@@ -347,69 +239,60 @@ describe("appRouter.done", () => {
         undefined,
         undefined,
         () => {
-          calls.push("spawn")
-          return Promise.resolve({ ok: true })
+          calls.push("handoff")
         },
       ),
     )
     const result = await caller.done(doneRequest)
     expect(result).toEqual({ ok: true })
-    expect(calls).toEqual(["write", "spawn"])
+    expect(calls).toEqual(["write", "handoff"])
   })
 
-  it("aborts before spawning anything when the write fails", async () => {
-    const startLoop = vi.fn(() => Promise.resolve({ ok: true as const }))
+  it("aborts before handing off when the write fails", async () => {
+    const handOff = vi.fn()
     const caller = appRouter.createCaller(
       contextFor(
-        () => Effect.succeed({ status: 0, output: "", stdout: "", stderr: "" }),
         undefined,
         () => Promise.resolve({ ok: false, reason: "stale-token", moved: "sha" }),
         undefined,
         undefined,
-        startLoop,
+        handOff,
       ),
     )
     const error = await caller.done(doneRequest).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(Error)
     expect((error as { cause?: unknown }).cause).toBeInstanceOf(WriteNoteRefusal)
-    expect(startLoop).not.toHaveBeenCalled()
-  })
-
-  it("surfaces an already-driving refusal as a named DriveRefusal, distinct from a write refusal", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.succeed({ status: 0, output: "", stdout: "", stderr: "" }),
-        undefined,
-        () => Promise.resolve({ ok: true }),
-        undefined,
-        undefined,
-        () => Promise.resolve({ ok: false, reason: "already-driving" }),
-      ),
-    )
-    const error = await caller.done(doneRequest).catch((e: unknown) => e)
-    const cause = (error as { cause?: unknown }).cause
-    expect(cause).toBeInstanceOf(DriveRefusal)
-    expect((cause as DriveRefusal).reason).toBe("already-driving")
+    expect(handOff).not.toHaveBeenCalled()
   })
 })
 
-describe("appRouter.stop", () => {
-  it("delegates to ctx.stopLoop with the given worktreePath", async () => {
-    const stopLoop = vi.fn(() => Promise.resolve())
-    const caller = appRouter.createCaller(
-      contextFor(
-        () => Effect.succeed({ status: 0, output: "", stdout: "", stderr: "" }),
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        stopLoop,
-      ),
-    )
-    const result = await caller.stop({ worktreePath: "/repos/x" })
-    expect(result).toEqual({ ok: true })
-    expect(stopLoop).toHaveBeenCalledWith("/repos/x")
+describe("no procedure input carries a filesystem path from the client", () => {
+  // Every input validator this router registers, introspected directly:
+  // none may accept a `worktreePath` (or any other path-shaped) field. The
+  // server always writes/reads through the one worktree it serves, resolved
+  // server-side from `Cwd`, never named by the client.
+  it("rejects a worktreePath field passed to writeNote/done/readSteeringFile even when every other field is well-formed", async () => {
+    const caller = appRouter.createCaller(contextFor())
+    // Passed as an extra field: proves the validator doesn't merely ignore
+    // it silently but that no code path here ever reads `input.worktreePath`
+    // — the fixtures above assert this for `writeNote`; this pins the whole
+    // set doesn't declare the field as part of its accepted shape by
+    // checking each procedure still behaves identically whether or not it's
+    // present.
+    const withPath = { ...doneRequest, worktreePath: "/etc/passwd" }
+    const without = { ...doneRequest }
+    const a = await caller.done(withPath as never)
+    const b = await caller.done(without)
+    expect(a).toEqual(b)
+  })
+
+  it("readSteeringFile's, diff's and writeNote's input validators build their return value with no worktreePath key", async () => {
+    const { readFileSync } = await import("node:fs")
+    const { fileURLToPath } = await import("node:url")
+    const source = readFileSync(fileURLToPath(new URL("./Router.ts", import.meta.url)), "utf8")
+    const validators = source.match(/^const \w+Input = \(.*$[\s\S]*?^\}$/gm) ?? []
+    expect(validators.length).toBeGreaterThan(0)
+    for (const validator of validators) expect(validator).not.toMatch(/worktreePath/)
   })
 })
 

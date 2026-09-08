@@ -34,18 +34,12 @@ const modesJsonSchema = {
   },
 } as const
 
-/** The top-level `ui:` shape: `gtd ui`'s own settings (repo roots, listen address/TLS, and the loop command it spawns per session). */
+/** The top-level `ui:` shape: `gtd ui`'s own settings (listen address/TLS) for the one worktree it serves. */
 const uiJsonSchema = {
   type: "object",
-  description:
-    "Settings for `gtd ui`: which repo roots it scans, where it listens, optional TLS, and the loop command it runs per session.",
+  description: "Settings for `gtd ui`: where it listens, and optional TLS.",
   additionalProperties: false,
   properties: {
-    roots: {
-      type: "array",
-      items: { type: "string" },
-      description: "Repo root paths `gtd ui` scans for projects. Defaults to the cwd alone.",
-    },
     port: {
       type: "integer",
       description: "TCP port `gtd ui` listens on.",
@@ -61,10 +55,6 @@ const uiJsonSchema = {
     key: {
       type: "string",
       description: "Path to a TLS private key file, enabling HTTPS. Requires `cert` too.",
-    },
-    loop: {
-      type: "string",
-      description: "Shell command `gtd ui` runs to drive a session's loop.",
     },
   },
 } as const
@@ -217,12 +207,10 @@ const workflowJsonSchema = {
  * with the rest of `.gtdrc` decoding wins; this exits 1 like every sibling.
  */
 const UiSchema = Schema.Struct({
-  roots: Schema.optional(Schema.Array(Schema.String)),
   port: Schema.optional(Schema.Int),
   host: Schema.optional(Schema.String),
   cert: Schema.optional(Schema.String),
   key: Schema.optional(Schema.String),
-  loop: Schema.optional(Schema.String),
 }).annotations({ jsonSchema: uiJsonSchema })
 
 export const ConfigSchema = Schema.Struct({
@@ -234,5 +222,5 @@ export const ConfigSchema = Schema.Struct({
 
 export type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
 
-/** The decoded `ui:` shape — `gtd ui` and its CLI flags read `roots`/`port`/`host`/`cert`/`key`/`loop` off this. */
+/** The decoded `ui:` shape — `gtd ui` and its CLI flags read `port`/`host`/`cert`/`key` off this. */
 export type UiConfig = Schema.Schema.Type<typeof UiSchema>

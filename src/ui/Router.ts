@@ -1,51 +1,27 @@
 import { TRPCError, initTRPC } from "@trpc/server"
-import { Effect, Runtime } from "effect"
-import { CommandRunner } from "../CommandRunner.js"
 import type { SteeringAnchor } from "../SteeringFormat.js"
+import type { StepRead } from "./Beat.js"
 import type { DiffResult } from "./Diff.js"
-import type { FleetPayload } from "./Fleet.js"
-import type { StartLoopResult } from "./Loop.js"
-import type { DriveRefusalReason } from "./Registry.js"
 import type { ReadSteeringFileRequest, ReadSteeringFileResult } from "./ReadSteeringFile.js"
 import { steeringViewFor } from "./View.js"
 import type { WriteNoteRequest, WriteResult } from "./Write.js"
 
-/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<UiRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes the fleet read's own memo actually memoize across requests. `writeNote`/`readSteeringFile` close over the live `WriteDeps`/`ReadSteeringFileDeps` (see `Write.ts`/`ReadSteeringFile.ts`); `resolveDiff` closes over the live `DiffDeps` (see `Diff.ts`) the same way. `startLoop`/`stopLoop` close over the server's one process-lifetime `Registry` — this router never imports `Shim` or `Registry` itself, staying as ignorant of subprocess spawning as it already is of the filesystem; `StartLoopResult` is `Loop.ts#startLoop`'s own result type, imported here as the consumer, mirroring `Write.ts#WriteResult`/`ReadSteeringFile.ts#ReadSteeringFileResult`/`Diff.ts#DiffResult`. The router never imports a format module or a filesystem API directly. */
+/** A request shape with the client-supplied `worktreePath` stripped — the server always writes/reads through the one worktree it serves, closed over server-side, never named by the client. */
+type NoWorktreePath<T> = Omit<T, "worktreePath">
+
+/** What every tRPC resolver needs: the one worktree `Server.ts` serves, closed over by every function here — no path ever reaches this router from a request. `readStep`/`writeNote`/`readSteeringFile`/`resolveDiff` each close over their own live deps (see `Beat.ts`/`Write.ts`/`ReadSteeringFile.ts`/`Diff.ts`). `handOff` is the done action's second half: resolves the deferred `Server.ts`'s main Effect awaits in place of `Effect.never`, so the process exits once the HTTP response carrying `done`'s result has actually flushed. The router never imports a format module or a filesystem API directly. */
 export interface RouterContext {
-  readonly runtime: Runtime.Runtime<CommandRunner>
-  readonly readFleet: () => Promise<FleetPayload>
-  readonly writeNote: (request: WriteNoteRequest) => Promise<WriteResult>
-  readonly resolveDiff: (
-    worktreePath: string,
-    path: string,
-    line: number | undefined,
-  ) => Promise<DiffResult>
-  readonly readSteeringFile: (request: ReadSteeringFileRequest) => Promise<ReadSteeringFileResult>
-  /** The done action's second half: spawns the configured loop command and registers it — resolves once spawned, NEVER waiting for the child to exit, so the phone returns to the fleet list immediately. */
-  readonly startLoop: (worktreePath: string) => Promise<StartLoopResult>
-  /** Stop: SIGINT, escalating to SIGKILL after a timeout — a no-op, not an error, when nothing is live for `worktreePath`. */
-  readonly stopLoop: (worktreePath: string) => Promise<void>
+  readonly readStep: () => Promise<StepRead>
+  readonly writeNote: (request: NoWorktreePath<WriteNoteRequest>) => Promise<WriteResult>
+  readonly resolveDiff: (path: string, line: number | undefined) => Promise<DiffResult>
+  readonly readSteeringFile: (
+    request: NoWorktreePath<ReadSteeringFileRequest>,
+  ) => Promise<ReadSteeringFileResult>
+  /** Schedules the process exit that follows a successful `done` — never invoked directly by anything in this file besides `done` itself. */
+  readonly handOff: () => void
 }
 
-/**
- * A non-zero exit as a typed refusal: set as a thrown `TRPCError`'s `cause` so
- * the error formatter below can lift `stdout`/`stderr`/`exitCode` into
- * `error.data.refusal`, separately readable on the client — never flattened
- * into `error.message`, because every gtd refusal exits 1 and the text is the
- * only discriminator.
- */
-export class CommandRefusal extends Error {
-  constructor(
-    readonly stdout: string,
-    readonly stderr: string,
-    readonly exitCode: number | null,
-  ) {
-    super("gtd ui: command exited non-zero")
-    this.name = "CommandRefusal"
-  }
-}
-
-/** One of `Write.ts#WriteNoteRequest`'s four typed refusals, carried as a thrown `TRPCError`'s `cause` — T8's "the phone renders a different sentence for each" reads this off `error.data.writeRefusal`, never off `error.message`. */
+/** One of `Write.ts#WriteNoteRequest`'s four typed refusals, carried as a thrown `TRPCError`'s `cause` — the phone renders a different sentence for each, read off `error.data.writeRefusal`, never off `error.message`. */
 export class WriteNoteRefusal extends Error {
   constructor(
     readonly reason: import("./Write.js").WriteRefusalReason,
@@ -72,14 +48,6 @@ export class ReadSteeringFileRefusal extends Error {
   }
 }
 
-/** The registry's one named refusal (already-driving), carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.driveRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. Never a silent no-op: the refusal is a named value the phone can render. */
-export class DriveRefusal extends Error {
-  constructor(readonly reason: DriveRefusalReason) {
-    super(`gtd ui: drive refused (${reason})`)
-    this.name = "DriveRefusal"
-  }
-}
-
 /** One `error.cause instanceof Ctor ? map(cause) : undefined` check, factored out so `errorFormatter` itself stays a flat field list instead of one growing branch per refusal type. */
 const refusalField = <T, R>(
   cause: unknown,
@@ -94,12 +62,6 @@ const t = initTRPC.context<RouterContext>().create({
       ...shape,
       data: {
         ...shape.data,
-        refusal: refusalField(cause, CommandRefusal, (r) => ({
-          stdout: r.stdout,
-          stderr: r.stderr,
-          exitCode: r.exitCode,
-        })),
-        driveRefusal: refusalField(cause, DriveRefusal, (r) => ({ reason: r.reason })),
         writeRefusal: refusalField(cause, WriteNoteRefusal, (r) => ({
           reason: r.reason,
           moved: r.moved,
@@ -110,18 +72,6 @@ const t = initTRPC.context<RouterContext>().create({
     }
   },
 })
-
-/** A `{ command: string }` input validator with no `zod` dependency — this repo has none yet, and one field doesn't warrant adding one. */
-const commandInput = (value: unknown): { command: string } => {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    typeof (value as { command?: unknown }).command !== "string"
-  ) {
-    throw new Error("expected { command: string }")
-  }
-  return value as { command: string }
-}
 
 /** True for a plain object with every named string field present and non-empty — the shared shape check `steeringAnchorInput` and `writeNoteInput` both build on. */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -150,7 +100,7 @@ const parseOptionAnchor = (value: Record<string, unknown>): SteeringAnchor | und
 const parseParagraphAnchor = (value: Record<string, unknown>): SteeringAnchor | undefined =>
   typeof value.line === "number" ? { kind: "paragraph", line: value.line } : undefined
 
-/** A `{ kind: string, ... }` shape validator for `SteeringAnchor` — no `zod` dependency, mirroring `commandInput`. Rejects anything outside the closed `kind` vocabulary (or with the wrong shape for it) rather than passing it through to `annotate` unchecked. */
+/** A `{ kind: string, ... }` shape validator for `SteeringAnchor` — no `zod` dependency, this repo has none. Rejects anything outside the closed `kind` vocabulary (or with the wrong shape for it) rather than passing it through to `annotate` unchecked. */
 const steeringAnchorInput = (value: unknown): SteeringAnchor => {
   if (!isRecord(value) || typeof value.kind !== "string") {
     throw new Error("expected a SteeringAnchor")
@@ -169,11 +119,10 @@ const steeringAnchorInput = (value: unknown): SteeringAnchor => {
   return parsed
 }
 
-/** `writeNote`'s own input validator — every field is required, no `zod` dependency, mirroring `commandInput`. `text` is the human's own typed note body, carried verbatim into the new footnote definition (never a placeholder). */
+/** `writeNote`'s own input validator — every field is required, no `worktreePath`: the server writes through the one worktree it serves. `text` is the human's own typed note body, carried verbatim into the new footnote definition (never a placeholder). */
 const writeNoteInput = (
   value: unknown,
 ): {
-  readonly worktreePath: string
   readonly filePath: string
   readonly expectedHeadSha: string
   readonly expectedContentHash: string
@@ -182,12 +131,11 @@ const writeNoteInput = (
   readonly text: string
 } => {
   if (!isRecord(value)) throw new Error("expected a write request")
-  const { worktreePath, filePath, expectedHeadSha, expectedContentHash, mode, anchor, text } = value
-  for (const field of [worktreePath, filePath, expectedHeadSha, expectedContentHash, mode, text]) {
+  const { filePath, expectedHeadSha, expectedContentHash, mode, anchor, text } = value
+  for (const field of [filePath, expectedHeadSha, expectedContentHash, mode, text]) {
     if (typeof field !== "string") throw new Error("expected string fields on a write request")
   }
   return {
-    worktreePath: worktreePath as string,
     filePath: filePath as string,
     expectedHeadSha: expectedHeadSha as string,
     expectedContentHash: expectedContentHash as string,
@@ -197,7 +145,7 @@ const writeNoteInput = (
   }
 }
 
-/** `steeringView`'s own input validator — a `{ content: string, mode: string }`, no `zod` dependency, mirroring `commandInput`. */
+/** `steeringView`'s own input validator — a `{ content: string, mode: string }`, no `worktreePath`. */
 const viewInput = (value: unknown): { readonly content: string; readonly mode: string } => {
   if (!isRecord(value) || typeof value.content !== "string" || typeof value.mode !== "string") {
     throw new Error("expected { content: string, mode: string }")
@@ -205,79 +153,30 @@ const viewInput = (value: unknown): { readonly content: string; readonly mode: s
   return { content: value.content, mode: value.mode }
 }
 
-/** `resolveDiff`'s own input validator — `{ worktreePath: string, path: string, line?: number }`, no `zod` dependency, mirroring `commandInput`. `line` is optional: a bare pointer with no line number is a real, valid case (`resolveDiff`'s own "no line number"), not a validation failure. */
-const diffInput = (
-  value: unknown,
-): { readonly worktreePath: string; readonly path: string; readonly line?: number } => {
-  if (
-    !isRecord(value) ||
-    typeof value.worktreePath !== "string" ||
-    typeof value.path !== "string"
-  ) {
-    throw new Error("expected { worktreePath: string, path: string, line?: number }")
+/** `resolveDiff`'s own input validator — `{ path: string, line?: number }`, no `worktreePath`. `line` is optional: a bare pointer with no line number is a real, valid case (`resolveDiff`'s own "no line number"), not a validation failure. */
+const diffInput = (value: unknown): { readonly path: string; readonly line?: number } => {
+  if (!isRecord(value) || typeof value.path !== "string") {
+    throw new Error("expected { path: string, line?: number }")
   }
   if (value.line !== undefined && typeof value.line !== "number") {
     throw new Error("expected line to be a number when present")
   }
-  return {
-    worktreePath: value.worktreePath,
-    path: value.path,
-    ...(value.line !== undefined ? { line: value.line } : {}),
-  }
+  return { path: value.path, ...(value.line !== undefined ? { line: value.line } : {}) }
 }
 
-/** `readSteeringFile`'s own input validator — `{ worktreePath: string, filePath: string, mode: string }`, no `zod` dependency, mirroring `commandInput`. */
+/** `readSteeringFile`'s own input validator — `{ filePath: string, mode: string }`, no `worktreePath`. */
 const readSteeringFileInput = (
   value: unknown,
-): { readonly worktreePath: string; readonly filePath: string; readonly mode: string } => {
-  if (
-    !isRecord(value) ||
-    typeof value.worktreePath !== "string" ||
-    typeof value.filePath !== "string" ||
-    typeof value.mode !== "string"
-  ) {
-    throw new Error("expected { worktreePath: string, filePath: string, mode: string }")
+): { readonly filePath: string; readonly mode: string } => {
+  if (!isRecord(value) || typeof value.filePath !== "string" || typeof value.mode !== "string") {
+    throw new Error("expected { filePath: string, mode: string }")
   }
-  return { worktreePath: value.worktreePath, filePath: value.filePath, mode: value.mode }
-}
-
-/** `stop`'s own input validator — `{ worktreePath: string }`, no `zod` dependency, mirroring `commandInput`. */
-const worktreePathInput = (value: unknown): { readonly worktreePath: string } => {
-  if (!isRecord(value) || typeof value.worktreePath !== "string") {
-    throw new Error("expected { worktreePath: string }")
-  }
-  return { worktreePath: value.worktreePath }
+  return { filePath: value.filePath, mode: value.mode }
 }
 
 export const appRouter = t.router({
-  /**
-   * Runs `input.command` VERBATIM via `CommandRunner` — `commandInput` only
-   * checks it is a string, nothing about its content. The unauthenticated
-   * surface is the accepted design (tailnet-only binding, `gtd ui`
-   * refuses to start otherwise); this is arbitrary shell execution on
-   * whatever bound the server, and any future caller must treat it as such.
-   * The single Effect-to-Promise boundary for this resolver is the
-   * `Runtime.runPromise` call below — everything upstream of it stays Effect.
-   */
-  runCommand: t.procedure.input(commandInput).mutation(async ({ input, ctx }) => {
-    const outcome = await Runtime.runPromise(ctx.runtime)(
-      Effect.gen(function* () {
-        const runner = yield* CommandRunner
-        return yield* runner.bash(input.command)
-      }),
-    )
-    if (outcome.status !== 0) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "gtd ui: command exited non-zero",
-        cause: new CommandRefusal(outcome.stdout ?? "", outcome.stderr ?? "", outcome.status),
-      })
-    }
-    return { stdout: outcome.stdout ?? "", stderr: outcome.stderr ?? "", exitCode: outcome.status }
-  }),
-
-  /** The fleet screen's one read: re-scans the configured roots and every worktree's beat, never failing outright on one bad worktree (see `Fleet.ts`'s `readFleet`). */
-  fleet: t.procedure.query(({ ctx }) => ctx.readFleet()),
+  /** The step screen's one read: the served worktree's own beat, projected — no input, since there is only ever one worktree to read (see `Beat.ts#readStep`). */
+  step: t.procedure.query(({ ctx }) => ctx.readStep()),
 
   /**
    * The compare-and-swap steering-file write (package 03): delegates every
@@ -300,18 +199,14 @@ export const appRouter = t.router({
   }),
 
   /**
-   * The done action: writes the steering file exactly as `writeNote`
-   * does, then hands the turn to the loop — `ctx.startLoop` spawns the
-   * configured loop command and registers it, resolving once spawned,
-   * never waiting for the child to exit, so this mutation itself returns
-   * fast and the phone can return to the fleet list immediately. A write
-   * failure aborts before anything is spawned, surfaced identically to
-   * `writeNote`'s own `WriteNoteRefusal`. A refused spawn (the registry's
-   * already-driving case) becomes a `TRPCError` whose `cause` is a
-   * `DriveRefusal` — read back via `error.data.driveRefusal.reason`. The
-   * server itself emits no beat, lands no turn, and creates no session —
-   * `ctx.startLoop` only spawns and registers, the loop command owns
-   * everything else.
+   * The done action: writes the steering file exactly as `writeNote` does,
+   * then hands the turn back — `ctx.handOff()` schedules the process exit
+   * that follows this response actually reaching the client, never spawning
+   * a child process or waiting for one. A write failure aborts before
+   * anything is scheduled, surfaced identically to `writeNote`'s own
+   * `WriteNoteRefusal`. The server itself emits no beat, lands no turn, and
+   * creates no session — the outer loop that started `gtd ui` re-reads gtd
+   * state after the process exits and drives the next turn itself.
    */
   done: t.procedure.input(writeNoteInput).mutation(async ({ input, ctx }) => {
     const write = await ctx.writeNote(input)
@@ -322,25 +217,7 @@ export const appRouter = t.router({
         cause: new WriteNoteRefusal(write.reason, write.moved),
       })
     }
-    const started = await ctx.startLoop(input.worktreePath)
-    if (!started.ok) {
-      throw new TRPCError({
-        code: "CONFLICT",
-        message: `gtd ui: drive refused (${started.reason})`,
-        cause: new DriveRefusal(started.reason),
-      })
-    }
-    return { ok: true as const }
-  }),
-
-  /**
-   * Stop: SIGINT first, escalating to SIGKILL after a timeout —
-   * `ctx.stopLoop` does the actual signalling (see `Loop.ts#stopChild`) and
-   * removes the registry entry either way. A no-op, not an error, when
-   * nothing is live for `input.worktreePath`.
-   */
-  stop: t.procedure.input(worktreePathInput).mutation(async ({ input, ctx }) => {
-    await ctx.stopLoop(input.worktreePath)
+    ctx.handOff()
     return { ok: true as const }
   }),
 
@@ -375,7 +252,7 @@ export const appRouter = t.router({
    */
   diff: t.procedure
     .input(diffInput)
-    .query(({ input, ctx }) => ctx.resolveDiff(input.worktreePath, input.path, input.line)),
+    .query(({ input, ctx }) => ctx.resolveDiff(input.path, input.line)),
 
   /**
    * A screen's one entry point before it can render OR write back:

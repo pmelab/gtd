@@ -17,6 +17,7 @@ import { type ScriptedCommand } from "../../../src/testing/Layers.js"
 import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 import { applyEmittedScript } from "../../../src/testing/EmittedScriptRecognizer.js"
 import { EXIT_OK } from "../../../src/ExitCodes.js"
+import type { AppRouter } from "../../../src/ui/Router.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 // Exported so hooks.ts's PATH shim execs this SAME bundle, never a globally-installed gtd.
@@ -520,6 +521,24 @@ export class GtdWorld extends QuickPickleWorld {
    * reuses verbatim.
    */
   async spawnGtdUiAndSignal(signal: NodeJS.Signals): Promise<void> {
+    const { child, exited } = await this.spawnBoundGtdUi()
+    child.kill(signal)
+    const { code, signal: died } = await exited
+    this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+  }
+
+  /**
+   * Spawns a real `gtd ui` over the same `--host 127.0.0.1 --self-signed
+   * --port 0` shape `spawnGtdUiAndSignal` uses, polls for its printed
+   * `https://` URL, and returns once bound — factored out so a scenario that
+   * needs to talk tRPC to the real listener (`spawnGtdUiAndHandOff`) doesn't
+   * duplicate the spawn/poll dance.
+   */
+  private async spawnBoundGtdUi(): Promise<{
+    readonly child: ReturnType<typeof spawn>
+    readonly boundUrl: string
+    readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+  }> {
     const child = spawn(
       process.execPath,
       [GTD_BIN, "ui", "--host", "127.0.0.1", "--self-signed", "--port", "0"],
@@ -539,9 +558,54 @@ export class GtdWorld extends QuickPickleWorld {
       await delay(50)
     }
     assert.ok(stdout.includes("https://"), `gtd ui never printed its bound URL: ${stdout}`)
-    child.kill(signal)
-    const { code, signal: died } = await exited
-    this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+    const boundUrl = stdout.split("\n")[0]!.trim()
+    return { child, boundUrl, exited }
+  }
+
+  /**
+   * Requirement A end to end: a REAL `gtd ui` subprocess, a REAL HTTPS tRPC
+   * `done` call against it, then the process observed exiting ON ITS OWN
+   * (never signalled) — proving `handOff` actually terminates the server
+   * once the response has flushed, with the note durably on disk first.
+   * `filePath`'s content and the fresh `HEAD` sha are read directly (the
+   * same tokens the phone client would have rendered) so the compare-and-
+   * swap succeeds for real, not against a stale/guessed token.
+   */
+  async spawnGtdUiAndHandOff(filePath: string, mode: string, text: string): Promise<void> {
+    const { boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/Write.js"),
+        import("@trpc/client"),
+      ])
+      // `git rev-parse HEAD` directly, not `liveHeadSha` — `createTestProject`
+      // is a PLAIN `git init` (no `--separate-git-dir`), and `liveHeadSha`'s
+      // own relative-`.git`-path fallback resolves against the CALLING
+      // process's cwd (this test file's), never `this.repoDir`, on a plain
+      // repo shaped that way.
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.done.mutate({
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(content),
+        mode,
+        anchor: { kind: "paragraph", line: 0 },
+        text,
+      })
+    } finally {
+      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+    }
+
+    const { code, signal } = await exited
+    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
   }
 
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */

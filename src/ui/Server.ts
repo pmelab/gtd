@@ -6,29 +6,26 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createHTTPHandler } from "@trpc/server/adapters/standalone"
 import { FileSystem } from "@effect/platform"
-import { Context, Effect, Either, Layer, Runtime } from "effect"
+import { Context, Deferred, Effect, Either, Layer, Runtime } from "effect"
 import type { ArtifactOut } from "../Cli.js"
-import { GtdError } from "../Commentary.js"
+import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import type { UiConfig } from "../ConfigSchema.js"
 import { Cwd } from "../Cwd.js"
+import { steeringFormatFor } from "../SteeringFormats.js"
 import generatedClientHtml from "../web/generated.html"
 import {
-  BeatCache,
   liveHeadSha,
   liveRunInWorktree,
-  liveStatMtime,
   readLocalGtdVersionAt,
+  readStep,
+  type Step,
 } from "./Beat.js"
 import { pickBindHostFromSystem } from "./Bind.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
-import { readFleet, type FleetDeps } from "./Fleet.js"
-import { liveLoopSpawn, startLoop, stopLoop } from "./Loop.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { renderQrCode } from "./Qr.js"
-import { Registry } from "./Registry.js"
 import { appRouter, type RouterContext } from "./Router.js"
-import { createShim } from "./Shim.js"
 import { inlineScript } from "./scriptTag.mjs"
 import { generateSelfSignedCert, loadCertPair, type CertPair } from "./Tls.js"
 import { liveActorAt, liveReadFile, liveWriteFile, writeNote, type WriteDeps } from "./Write.js"
@@ -263,10 +260,53 @@ export const resolveClientHtml = (
 
 export type UiRequirements = CommandRunner | FileSystem.FileSystem | HttpsServer | Cwd
 
+/** Every dependency `readStep` needs, wired to the real subprocess/filesystem reads — `gtd ui` never injects a fake here, unlike its own test suite. */
+const liveBeatDeps = {
+  run: liveRunInWorktree,
+  readLocalGtdVersion: readLocalGtdVersionAt,
+  headSha: liveHeadSha,
+}
+
 /**
- * `gtd ui`: binds an HTTPS server exposing the phone/web client. Blocks
- * forever on success (mirrors `gtd visualize`'s `Effect.never` pattern) —
- * the process only exits on Ctrl-C or a bind refusal.
+ * `true` only for the one rest the phone client can actually render: a
+ * `prompt` step (not idle) carrying a `file` and a `mode` that resolves to a
+ * registered steering format. Every other rest — `message`/`script`/
+ * `capture`/`stalled`, an idle worktree, an unreadable (`broken`) worktree,
+ * or a `prompt` whose `mode` names nothing registered — has no screen.
+ */
+const isRenderable = (
+  step: Step,
+): step is Step & { readonly file: string; readonly mode: string } =>
+  !step.idle &&
+  step.kind === "prompt" &&
+  step.file !== undefined &&
+  step.mode !== undefined &&
+  steeringFormatFor(step.mode) !== undefined
+
+/**
+ * The refusal named for whatever the served worktree actually rests at — an
+ * unreadable worktree names the read failure verbatim; anything else names
+ * the step's own `label` and `kind` (T1's own "no port bound" case), never a
+ * generic "cannot start" with no further detail.
+ */
+const refusalFor = (
+  step: Step | { readonly status: "broken"; readonly detail: string },
+): GtdUsageError =>
+  step.status === "broken"
+    ? new GtdUsageError(`gtd ui: refuses to start — this worktree can't be read: ${step.detail}`)
+    : new GtdUsageError(
+        `gtd ui: refuses to start — "${step.label}" rests at ${step.kind}${step.idle ? " (idle)" : ""}, which has no phone screen`,
+        ["gtd ui only renders a prompt step whose mode resolves to a registered steering format"],
+      )
+
+/**
+ * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
+ * worktree `Cwd` names — never a fleet, never a spawned loop. The server
+ * lives for exactly one step: it starts, shows that step, takes the human's
+ * input, and exits — either because the human handed the turn back (`done`
+ * resolves `ctx.handOff()`'s deferred once the response has flushed) or
+ * because the process was signalled (SIGINT/SIGTERM, handled by the runtime,
+ * untouched here).
  */
 export const runUiCommand = (
   options: UiCommandOptions,
@@ -274,6 +314,15 @@ export const runUiCommand = (
   out: ArtifactOut,
 ): Effect.Effect<void, GtdError, UiRequirements> =>
   Effect.gen(function* () {
+    const cwd = yield* Cwd
+
+    // Read before resolving the bind host or the certificate, so a refusal
+    // never invokes openssl (T1's own acceptance bullet).
+    const step = yield* Effect.promise(() => readStep({ path: cwd.root }, liveBeatDeps))
+    if (step.status === "broken" || !isRenderable(step)) {
+      return yield* Effect.fail(refusalFor(step))
+    }
+
     const host = yield* resolveBindHost(options.host, config)
     const certPair = yield* resolveCertPair(options, config, host)
     const port = options.port ?? config?.port ?? DEFAULT_PORT
@@ -281,28 +330,7 @@ export const runUiCommand = (
     const runner = yield* CommandRunner
     const fs = yield* FileSystem.FileSystem
     const httpsServer = yield* HttpsServer
-    const cwd = yield* Cwd
     const runtime = yield* Effect.runtime<UiRequirements>()
-
-    // One `BeatCache` for the whole server process, never one per request —
-    // its memo only amortizes the `gtd next --json` cost if it survives
-    // across fleet reads.
-    const beatCache = new BeatCache({
-      run: liveRunInWorktree,
-      readLocalGtdVersion: readLocalGtdVersionAt,
-      headSha: liveHeadSha,
-      statMtime: liveStatMtime,
-    })
-    // The server's own process-lifetime child-process registry — one
-    // instance for the whole `gtd ui` run, never persisted: a restart
-    // loses it entirely, which is the point.
-    const registry = new Registry()
-
-    const fleetDeps: FleetDeps = {
-      roots: config?.roots ?? [cwd.root],
-      readBeat: (worktree) => beatCache.read(worktree),
-      registry,
-    }
 
     const writeDeps: WriteDeps = {
       headSha: liveHeadSha,
@@ -310,28 +338,34 @@ export const runUiCommand = (
       readFile: liveReadFile,
       writeFile: liveWriteFile,
     }
-
     const diffDeps: DiffDeps = { run: liveRunInWorktree }
-
     const readDeps: ReadSteeringFileDeps = { headSha: liveHeadSha, readFile: liveReadFile }
+
+    // Resolved by `handOff` (scheduled on the HTTP response's `finish` event,
+    // with a 2s fallback so a vanished client can't wedge the process) in
+    // place of the never-resolving wait a fleet server could get away with —
+    // this server outlives exactly one step, not the whole process lifetime.
+    const handoffDeferred = yield* Deferred.make<void>()
 
     const trpcHandler = createHTTPHandler({
       router: appRouter,
       basePath: `${TRPC_PATH_PREFIX}/`,
-      createContext: (): RouterContext => ({
-        runtime,
-        readFleet: () => readFleet(fleetDeps),
-        writeNote: (request) => writeNote(request, writeDeps),
-        resolveDiff: (worktreePath, path, line) => resolveDiff(worktreePath, path, line, diffDeps),
-        readSteeringFile: (request) => readSteeringFile(request, readDeps),
-        startLoop: (worktreePath) =>
-          startLoop(worktreePath, {
-            registry,
-            spawn: liveLoopSpawn,
-            createShim: (worktreePath) => createShim(fs, worktreePath),
-            command: config?.loop,
-          }),
-        stopLoop: (worktreePath) => stopLoop(worktreePath, registry),
+      createContext: ({ res }): RouterContext => ({
+        readStep: () => readStep({ path: cwd.root }, liveBeatDeps),
+        writeNote: (request) => writeNote({ ...request, worktreePath: cwd.root }, writeDeps),
+        resolveDiff: (path, line) => resolveDiff(cwd.root, path, line, diffDeps),
+        readSteeringFile: (request) =>
+          readSteeringFile({ ...request, worktreePath: cwd.root }, readDeps),
+        handOff: () => {
+          let settled = false
+          const settle = (): void => {
+            if (settled) return
+            settled = true
+            Runtime.runFork(runtime)(Deferred.succeed(handoffDeferred, undefined))
+          }
+          res.once("finish", settle)
+          setTimeout(settle, 2_000)
+        },
       }),
     })
 
@@ -358,16 +392,5 @@ export const runUiCommand = (
     out.write(`${url}\n`)
     out.write(`${renderQrCode(url)}\n`)
     out.flush()
-    // A restart kills every live child and persists nothing — the next
-    // process start gets a brand-new, empty `Registry`, so every worktree
-    // reports its real rest with no Working rows carried over, and nothing
-    // auto-resumes.
-    yield* Effect.never.pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          registry.killAll()
-          bound.close()
-        }),
-      ),
-    )
+    yield* Deferred.await(handoffDeferred).pipe(Effect.ensuring(Effect.sync(() => bound.close())))
   })
