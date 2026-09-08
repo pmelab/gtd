@@ -83,6 +83,29 @@ describe("LoopRunner.Live", () => {
   })
 })
 
+describe("liveLoopSpawn — spawn failure", () => {
+  it("resolves wait with spawnError set, rather than throwing or hanging, when the process can never start (a vanished cwd)", async () => {
+    const child = await Effect.runPromise(
+      Effect.gen(function* () {
+        const runner = yield* LoopRunner
+        // A cwd that doesn't exist reliably fails the spawn itself (Node
+        // emits `error`, never `exit`, for this) — mirrors "a worktree
+        // removed between the fleet read and the done action".
+        return runner.spawn({
+          command: "echo unreachable",
+          cwd: join(tmpDir, "does-not-exist"),
+          shimDir,
+        })
+      }).pipe(Effect.provide(LoopRunner.Live)),
+    )
+    const outcome = await child.wait
+    expect(outcome.status).toBeNull()
+    expect(outcome.signal).toBeNull()
+    expect(outcome.spawnError).toBeDefined()
+    expect(outcome.stdout).toBe("")
+  })
+})
+
 describe("LoopRunner.layer", () => {
   it("provides a canned spawn — no real subprocess", async () => {
     const canned: LoopChild = {
@@ -204,6 +227,48 @@ describe("startLoop", () => {
       }),
     ).rejects.toThrow()
   })
+
+  it("releases the reservation when shim creation fails, so a later done action is not refused already-driving forever", async () => {
+    const registry = new Registry()
+    const spawn = vi.fn()
+    await expect(
+      startLoop("/repos/x", {
+        registry,
+        spawn,
+        createShim: () => Effect.fail(new Error("temp dir unwritable")),
+        command: "npm run loop",
+      }),
+    ).rejects.toThrow("temp dir unwritable")
+    expect(spawn).not.toHaveBeenCalled()
+    expect(registry.isDriving(worktreeId("/repos/x"))).toBe(false)
+
+    // Proves the release actually took effect, not just that isDriving lies:
+    // a second call must be able to reserve and spawn normally.
+    const { child } = fakeChild()
+    const retry = await startLoop("/repos/x", {
+      registry,
+      spawn: () => child,
+      createShim: () => Effect.succeed("/shim/dir"),
+      command: "npm run loop",
+    })
+    expect(retry).toEqual({ ok: true })
+  })
+
+  it("releases the reservation when spawn itself throws synchronously", async () => {
+    const registry = new Registry()
+    const spawn = vi.fn(() => {
+      throw new Error("spawn EMFILE")
+    })
+    await expect(
+      startLoop("/repos/x", {
+        registry,
+        spawn,
+        createShim: () => Effect.succeed("/shim/dir"),
+        command: "npm run loop",
+      }),
+    ).rejects.toThrow("spawn EMFILE")
+    expect(registry.isDriving(worktreeId("/repos/x"))).toBe(false)
+  })
 })
 
 describe("stopLoop", () => {
@@ -220,5 +285,14 @@ describe("stopLoop", () => {
     expect(child.interrupt).toHaveBeenCalledTimes(1)
     resolve()
     await promise
+  })
+
+  it("is a genuine no-op, never a hang, against a worktree still mid-reservation (no real child yet)", async () => {
+    const registry = new Registry()
+    registry.reserve(worktreeId("/repos/x"))
+    // If this ever awaited the placeholder's own never-resolving `wait`
+    // (Registry.reserve's `wait: new Promise(() => {})`), this would hang
+    // the test until its timeout rather than resolving promptly.
+    await expect(stopLoop("/repos/x", registry)).resolves.toBeUndefined()
   })
 })

@@ -28,9 +28,8 @@ export const shimScript = (binary: { readonly exec: string; readonly script: str
 
 /**
  * Creates a fresh temp directory containing one executable file named `gtd`.
- * One call per spawn — T1's "two worktrees driven at once each get their own
- * shim, with no crosstalk" is this: a distinct directory per call, never
- * shared or reused across worktrees.
+ * One call per spawn: two worktrees driven at once each get their own
+ * directory, with no crosstalk — never shared or reused across worktrees.
  */
 export const createShim = (
   fs: FileSystem.FileSystem,

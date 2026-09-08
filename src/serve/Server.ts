@@ -288,7 +288,7 @@ export const runServeCommand = (
     const runtime = yield* Effect.runtime<ServeRequirements>()
 
     // One `BeatCache` for the whole server process, never one per request —
-    // T3's memo only amortizes the `gtd next --json` cost if it survives
+    // its memo only amortizes the `gtd next --json` cost if it survives
     // across fleet reads.
     const beatCache = new BeatCache({
       run: liveRunInWorktree,
@@ -296,9 +296,9 @@ export const runServeCommand = (
       headSha: liveHeadSha,
       statMtime: liveStatMtime,
     })
-    // The server's own process-lifetime child-process registry (T3) — one
-    // instance for the whole `gtd serve` run, never persisted (T6): a
-    // restart loses it entirely, which is the point.
+    // The server's own process-lifetime child-process registry — one
+    // instance for the whole `gtd serve` run, never persisted: a restart
+    // loses it entirely, which is the point.
     const registry = new Registry()
 
     const fleetDeps: FleetDeps = {
@@ -361,7 +361,7 @@ export const runServeCommand = (
     out.write(`${url}\n`)
     out.write(`${renderQrCode(url)}\n`)
     out.flush()
-    // T6's restart: kills every live child and persists nothing — the next
+    // A restart kills every live child and persists nothing — the next
     // process start gets a brand-new, empty `Registry`, so every worktree
     // reports its real rest with no Working rows carried over, and nothing
     // auto-resumes.

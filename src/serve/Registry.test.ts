@@ -105,6 +105,37 @@ describe("Registry", () => {
       await Promise.resolve()
       expect(registry.isDriving("a")).toBe(false)
     })
+
+    it("get returns undefined for a bare reservation — nothing real exists yet to signal, so stop must read it as a no-op, never hang against it", () => {
+      const registry = new Registry()
+      registry.reserve("a")
+      expect(registry.isDriving("a")).toBe(true)
+      expect(registry.get("a")).toBeUndefined()
+    })
+
+    it("release frees a bare reservation, so a later reserve for the same worktree succeeds", () => {
+      const registry = new Registry()
+      registry.reserve("a")
+      registry.release("a")
+      expect(registry.isDriving("a")).toBe(false)
+      expect(registry.reserve("a")).toBe(true)
+    })
+
+    it("release is a no-op once replace installed the real child — never undoes a real registration", () => {
+      const registry = new Registry()
+      registry.reserve("a")
+      const { child } = fakeChild()
+      registry.replace("a", child)
+      registry.release("a")
+      expect(registry.get("a")).toBe(child)
+      expect(registry.isDriving("a")).toBe(true)
+    })
+
+    it("release on a worktree with no entry at all is a no-op", () => {
+      const registry = new Registry()
+      expect(() => registry.release("nothing-here")).not.toThrow()
+      expect(registry.isDriving("nothing-here")).toBe(false)
+    })
   })
 
   describe("possiblyForeignDriven", () => {

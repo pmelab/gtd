@@ -9,12 +9,12 @@ import type { ReadSteeringFileRequest, ReadSteeringFileResult } from "./ReadStee
 import { steeringViewFor } from "./View.js"
 import type { WriteNoteRequest, WriteResult } from "./Write.js"
 
-/** `startLoop`'s own result: `{ ok: true }` once the child is spawned and registered, or T3's one named refusal — never a queue. */
+/** `startLoop`'s own result: `{ ok: true }` once the child is spawned and registered, or the registry's one named refusal (a worktree already being driven is never double-driven) — never a queue. */
 export type StartLoopResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: DriveRefusalReason }
 
-/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes T3's memo actually memoize across requests. `writeNote`/`readSteeringFile` close over the live `WriteDeps`/`ReadSteeringFileDeps` (see `Write.ts`/`ReadSteeringFile.ts`); `resolveDiff` closes over the live `DiffDeps` (see `Diff.ts`) the same way. `startLoop`/`stopLoop` close over the server's one process-lifetime `Registry` (T3) — this router never imports `LoopRunner`, `Shim`, or `Registry` itself, staying as ignorant of subprocess spawning as it already is of the filesystem. The router never imports a format module or a filesystem API directly. */
+/** What every tRPC resolver needs: the runtime `Server.ts` already captures via `Effect.runtime<ServeRequirements>()` for its HTML-serving path — reused here rather than a second capture. `readFleet` closes over a `BeatCache` that lives for the whole server process, never one per request — that's what makes the fleet read's own memo actually memoize across requests. `writeNote`/`readSteeringFile` close over the live `WriteDeps`/`ReadSteeringFileDeps` (see `Write.ts`/`ReadSteeringFile.ts`); `resolveDiff` closes over the live `DiffDeps` (see `Diff.ts`) the same way. `startLoop`/`stopLoop` close over the server's one process-lifetime `Registry` — this router never imports `LoopRunner`, `Shim`, or `Registry` itself, staying as ignorant of subprocess spawning as it already is of the filesystem. The router never imports a format module or a filesystem API directly. */
 export interface RouterContext {
   readonly runtime: Runtime.Runtime<CommandRunner>
   readonly readFleet: () => Promise<FleetPayload>
@@ -25,9 +25,9 @@ export interface RouterContext {
     line: number | undefined,
   ) => Promise<DiffResult>
   readonly readSteeringFile: (request: ReadSteeringFileRequest) => Promise<ReadSteeringFileResult>
-  /** The done action's second half (T2): spawns the configured loop command and registers it (T3) — resolves once spawned, NEVER waiting for the child to exit, so the phone returns to the fleet list immediately. */
+  /** The done action's second half: spawns the configured loop command and registers it — resolves once spawned, NEVER waiting for the child to exit, so the phone returns to the fleet list immediately. */
   readonly startLoop: (worktreePath: string) => Promise<StartLoopResult>
-  /** T5's stop: SIGINT, escalating to SIGKILL after a timeout — a no-op, not an error, when nothing is live for `worktreePath`. */
+  /** Stop: SIGINT, escalating to SIGKILL after a timeout — a no-op, not an error, when nothing is live for `worktreePath`. */
   readonly stopLoop: (worktreePath: string) => Promise<void>
 }
 
@@ -76,7 +76,7 @@ export class ReadSteeringFileRefusal extends Error {
   }
 }
 
-/** T3's one named refusal, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.driveRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. Never a silent no-op: T3's own acceptance is "the refusal is a named value the phone can render". */
+/** The registry's one named refusal (already-driving), carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.driveRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. Never a silent no-op: the refusal is a named value the phone can render. */
 export class DriveRefusal extends Error {
   constructor(readonly reason: DriveRefusalReason) {
     super(`gtd serve: drive refused (${reason})`)
@@ -209,7 +209,7 @@ const viewInput = (value: unknown): { readonly content: string; readonly mode: s
   return { content: value.content, mode: value.mode }
 }
 
-/** `resolveDiff`'s own input validator — `{ worktreePath: string, path: string, line?: number }`, no `zod` dependency, mirroring `commandInput`. `line` is optional: a bare pointer with no line number is T3's own "no line number" case, not a validation failure. */
+/** `resolveDiff`'s own input validator — `{ worktreePath: string, path: string, line?: number }`, no `zod` dependency, mirroring `commandInput`. `line` is optional: a bare pointer with no line number is a real, valid case (`resolveDiff`'s own "no line number"), not a validation failure. */
 const diffInput = (
   value: unknown,
 ): { readonly worktreePath: string; readonly path: string; readonly line?: number } => {
@@ -304,13 +304,13 @@ export const appRouter = t.router({
   }),
 
   /**
-   * The done action (T2): writes the steering file exactly as `writeNote`
+   * The done action: writes the steering file exactly as `writeNote`
    * does, then hands the turn to the loop — `ctx.startLoop` spawns the
-   * configured loop command and registers it (T3), resolving once spawned,
+   * configured loop command and registers it, resolving once spawned,
    * never waiting for the child to exit, so this mutation itself returns
    * fast and the phone can return to the fleet list immediately. A write
    * failure aborts before anything is spawned, surfaced identically to
-   * `writeNote`'s own `WriteNoteRefusal`. A refused spawn (T3's
+   * `writeNote`'s own `WriteNoteRefusal`. A refused spawn (the registry's
    * already-driving case) becomes a `TRPCError` whose `cause` is a
    * `DriveRefusal` — read back via `error.data.driveRefusal.reason`. The
    * server itself emits no beat, lands no turn, and creates no session —
@@ -338,7 +338,7 @@ export const appRouter = t.router({
   }),
 
   /**
-   * T5's stop: SIGINT first, escalating to SIGKILL after a timeout —
+   * Stop: SIGINT first, escalating to SIGKILL after a timeout —
    * `ctx.stopLoop` does the actual signalling (see `Loop.ts#stopChild`) and
    * removes the registry entry either way. A no-op, not an error, when
    * nothing is live for `input.worktreePath`.

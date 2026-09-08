@@ -22,6 +22,7 @@ import { CommandRunner } from "../CommandRunner.js"
 import { Cwd } from "../Cwd.js"
 import type { ServeConfig } from "../ConfigSchema.js"
 import { renderQrCode } from "./Qr.js"
+import { Registry } from "./Registry.js"
 import { generateSelfSignedCert, type CertPair } from "./Tls.js"
 import {
   HttpsServer,
@@ -406,6 +407,41 @@ describe("runServeCommand", () => {
 
     expect(Exit.isFailure(exit)).toBe(true)
     expect(listenCalled).toBe(false)
+  })
+
+  it("kills every live child of its own Registry on shutdown, before restart could carry any Working row over", async () => {
+    const killAll = vi.spyOn(Registry.prototype, "killAll")
+    const { out, written } = fakeOut()
+    const certPath = join(tmpDir, "cert.pem")
+    const keyPath = join(tmpDir, "key.pem")
+    writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+    writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+
+    const fakeHttpsServer = Layer.succeed(HttpsServer, {
+      listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+    })
+
+    const fiber = Effect.runFork(
+      runServeCommand(
+        { selfSigned: false, dev: false },
+        { host: "100.90.1.2", cert: certPath, key: keyPath },
+        out,
+      ).pipe(
+        Effect.provide(fakeHttpsServer),
+        Effect.provide(noCommandRunner),
+        Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.Live),
+      ),
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(written.length).toBe(2) // proves the server actually started before we interrupt it
+
+    expect(killAll).not.toHaveBeenCalled()
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    expect(killAll).toHaveBeenCalledTimes(1)
+
+    killAll.mockRestore()
   })
 })
 

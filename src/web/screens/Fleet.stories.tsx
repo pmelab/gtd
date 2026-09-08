@@ -123,6 +123,30 @@ export const BrokenRowShowsStderrVerbatim: Story = {
   },
 }
 
+/**
+ * T4's own acceptance: a worktree possibly driven by a foreign (non-server-
+ * spawned) driver states that imprecision on the row itself, not behind a
+ * hover/title attribute — this story is the one place `foreignDriverPossible:
+ * true` is ever exercised; every other fixture in this file hardcodes
+ * `false`.
+ */
+export const PossiblyForeignDriven: Story = {
+  args: {
+    data: payload({
+      working: [okRow({ id: "wk", bucket: "working", foreignDriverPossible: true })],
+    }),
+    isLoading: false,
+    onRefresh: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const row = canvas.getByTestId("fleet-row-wk")
+    expect(row.textContent).toContain("possibly driven elsewhere")
+    // Visible text content, not a `title` attribute a hover would be needed to read.
+    expect(row.querySelector("[title]")).toBeNull()
+  },
+}
+
 export const QuietCollapsesBehindItsCount: Story = {
   args: {
     data: payload({

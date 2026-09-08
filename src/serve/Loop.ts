@@ -4,12 +4,13 @@ import { worktreeId } from "./Discover.js"
 import type { Registry } from "./Registry.js"
 import type { StartLoopResult } from "./Router.js"
 
-/** One loop child's outcome — `stdout`/`stderr` arrive as two separate strings, NEVER combined (unlike `CommandRunner`'s `CommandOutcome.output`), because T2 never parses either for state and the done action only cares that the child exited. `signal` is set (and `status` `null`) on a signal death, matching `spawnSync`'s own contract. */
+/** One loop child's outcome — `stdout`/`stderr` arrive as two separate strings, NEVER combined (unlike `CommandRunner`'s `CommandOutcome.output`), because the done action never parses either for state and only cares that the child exited. `signal` is set (and `status` `null`) on a signal death, matching `spawnSync`'s own contract. `spawnError` mirrors `Beat.ts`'s `SpawnOutcome.spawnError`: set (never `status`/`signal`) when the process could never start at all (no `bash` on `$PATH`, a vanished `cwd`) — Node reports that as an `error` event, not an `exit`, so without this `wait` would otherwise hang forever and an unhandled `error` on the `ChildProcess` emitter would crash the whole `gtd serve` process. */
 export interface LoopOutcome {
   readonly stdout: string
   readonly stderr: string
   readonly status: number | null
   readonly signal: NodeJS.Signals | null
+  readonly spawnError?: string
 }
 
 /** A live loop child: `interrupt`/`kill` send real OS signals to the actual process, not merely cancel an Effect fiber — `wait` resolves once the child has exited, on any exit, clean or signalled. */
@@ -49,7 +50,18 @@ export const liveLoopSpawn = (request: LoopSpawnRequest): LoopChild => {
     stderr += chunk.toString("utf8")
   })
   const wait = new Promise<LoopOutcome>((resolve) => {
+    // `error` (spawn never happened at all) and `exit` (it happened) are
+    // mutually exclusive per Node's own contract, but `once` on both plus a
+    // resolved flag keeps this correct even if that ever isn't quite true.
+    let settled = false
+    child.once("error", (error) => {
+      if (settled) return
+      settled = true
+      resolve({ stdout, stderr, status: null, signal: null, spawnError: error.message })
+    })
     child.once("exit", (code, signal) => {
+      if (settled) return
+      settled = true
       resolve({ stdout, stderr, status: code, signal })
     })
   })
@@ -87,14 +99,13 @@ export class LoopRunner extends Context.Tag("LoopRunner")<
 }
 
 /**
- * T5's escalation timeout: how long a child gets to finish its beat after
- * SIGINT before SIGKILL follows — a single named constant, not repeated at
- * each call site.
+ * How long a child gets to finish its beat after SIGINT before SIGKILL
+ * follows — a single named constant, not repeated at each call site.
  */
 export const LOOP_STOP_ESCALATION_MS = 5_000
 
 /**
- * T5's stop: SIGINT first, never SIGKILL first; a child that exits on its
+ * SIGINT first, never SIGKILL first; a child that exits on its
  * own before `escalationMs` is never sent the kill signal at all. The
  * process re-raises SIGINT as a real signal death after its fiber unwinds
  * (`src/main.ts`'s own contract) — a genuine 130 for the loop's parent to
@@ -112,7 +123,7 @@ export const stopChild = (
   })
 }
 
-/** T2's done-action second half's own dependencies — injectable so `Router.test.ts`/`Loop.test.ts` never spawn a real subprocess or touch a real filesystem. */
+/** The done action's second half's own dependencies — injectable so `Router.test.ts`/`Loop.test.ts` never spawn a real subprocess or touch a real filesystem. */
 export interface StartLoopDeps {
   readonly registry: Registry
   readonly spawn: (request: LoopSpawnRequest) => LoopChild
@@ -123,12 +134,16 @@ export interface StartLoopDeps {
 }
 
 /**
- * T2's done action, second half: write the steering file (the caller's job,
+ * The done action, second half: write the steering file (the caller's job,
  * BEFORE calling this), then spawn the configured loop command and register
- * it (T3) — resolves once spawned, NEVER waiting for the child to exit.
+ * it — resolves once spawned, NEVER waiting for the child to exit.
  * `Registry.reserve`/`replace` (not a plain `isDriving` check then
  * `register`) close the race between checking and registering across the
- * `await` shim creation needs.
+ * `await` shim creation needs. Wrapped in `try`/`catch`: if shim creation
+ * rejects or `deps.spawn` itself throws, `registry.release` frees the
+ * reservation before rethrowing — otherwise that worktree would be pinned to
+ * Working forever, refusing every later `done` as `already-driving` with no
+ * real child ever having existed to exit and remove it.
  */
 export const startLoop = async (
   worktreePath: string,
@@ -139,13 +154,18 @@ export const startLoop = async (
   }
   const id = worktreeId(worktreePath)
   if (!deps.registry.reserve(id)) return { ok: false, reason: "already-driving" }
-  const shimDir = await Effect.runPromise(deps.createShim())
-  const child = deps.spawn({ command: deps.command, cwd: worktreePath, shimDir })
-  deps.registry.replace(id, child)
-  return { ok: true }
+  try {
+    const shimDir = await Effect.runPromise(deps.createShim())
+    const child = deps.spawn({ command: deps.command, cwd: worktreePath, shimDir })
+    deps.registry.replace(id, child)
+    return { ok: true }
+  } catch (error) {
+    deps.registry.release(id)
+    throw error
+  }
 }
 
-/** T5's stop: a no-op, not an error, when nothing is live for `worktreePath`. */
+/** A no-op, not an error, when nothing is live for `worktreePath`. */
 export const stopLoop = async (worktreePath: string, registry: Registry): Promise<void> => {
   const child = registry.get(worktreeId(worktreePath))
   if (child === undefined) return

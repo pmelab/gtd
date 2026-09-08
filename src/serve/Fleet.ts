@@ -4,7 +4,7 @@ import type { Registry } from "./Registry.js"
 
 export type FleetBucket = "wants-you" | "working" | "broken" | "quiet"
 
-/** One row on the fleet screen — a `BeatRead` plus the bucket it landed in, plus T4's own imprecise foreign-driver signal (always `false` for a `broken` row, since there's no `logMtime` to read it off). */
+/** One row on the fleet screen — a `BeatRead` plus the bucket it landed in, plus the imprecise foreign-driver signal (always `false` for a `broken` row, since there's no `logMtime` to read it off). */
 export type FleetEntry = BeatRead & {
   readonly bucket: FleetBucket
   readonly foreignDriverPossible: boolean
@@ -17,7 +17,7 @@ export type FleetEntry = BeatRead & {
  * "human"`, plus every `stalled` kind regardless of actor/idle. **Broken** is
  * anything `BeatCache` couldn't read cleanly. **Quiet** is `idle`. **Working**
  * is whatever is left — today that's a not-idle agent-actor row, OR any row
- * the `Registry` (T3) reports as having a live child, which always wins:
+ * the `Registry` reports as having a live child, which always wins:
  * `driving` is checked before anything else, since a worktree the server
  * itself is actively driving belongs in Working even if its beat is
  * transiently unreadable mid-turn.
@@ -59,13 +59,13 @@ const compareRest = (a: BeatRead, b: BeatRead, oldestFirst: boolean): number => 
   return oldestFirst ? diff : -diff
 }
 
-/** The `Registry` (T3) plus a clock, both optional so every existing single-argument call keeps working with no server-side driving/foreign-driver signal at all. */
+/** The `Registry` plus a clock, both optional so every existing single-argument call keeps working with no server-side driving/foreign-driver signal at all. */
 export interface BucketingContext {
   readonly registry?: Registry
   readonly now?: number
 }
 
-/** Groups and sorts `BeatRead`s into the four buckets, in fixed display order — consulting `ctx.registry` (T3/T4) for the Working override and the foreign-driver signal when one is given. */
+/** Groups and sorts `BeatRead`s into the four buckets, in fixed display order — consulting `ctx.registry` for the Working override and the foreign-driver signal when one is given. */
 export const groupIntoBuckets = (
   rows: readonly BeatRead[],
   ctx: BucketingContext = {},
@@ -104,7 +104,7 @@ export interface FleetPayload {
 export interface FleetDeps {
   readonly roots: readonly string[]
   readonly readBeat: (worktree: WorktreeRef) => Promise<BeatRead>
-  /** The server's own `Registry` (T3) — `undefined` only in tests that don't care about Working/foreign-driver at all. */
+  /** The server's own `Registry` — `undefined` only in tests that don't care about Working/foreign-driver at all. */
   readonly registry?: Registry
 }
 

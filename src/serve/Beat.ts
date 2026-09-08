@@ -54,7 +54,7 @@ export interface WorktreeRef {
   readonly path: string
 }
 
-/** A normal, projected fleet row — never the beat's own `content`/`system` fields, only the five the fleet screen renders plus identity, plus `logMtime` (T4's own foreign-driver freshness signal, already computed here for the cache key). */
+/** A normal, projected fleet row — never the beat's own `content`/`system` fields, only the five the fleet screen renders plus identity, plus `logMtime` (the foreign-driver freshness signal a `Registry` reads elsewhere, already computed here for the cache key). */
 export interface FleetRow {
   readonly status: "ok"
   readonly id: string
@@ -66,7 +66,7 @@ export interface FleetRow {
   readonly actor: Actor
   readonly idle: boolean
   readonly rest: string
-  /** The beat-reported loop log's mtime in epoch ms, or `undefined` when no log path was reported or it doesn't exist — T4's only available signal for a foreign (non-server-spawned) driver. Imprecise by nature: honours `GTD_LOOP_LOG` first, then the git dir, and gtd never creates or truncates the file. */
+  /** The beat-reported loop log's mtime in epoch ms, or `undefined` when no log path was reported or it doesn't exist — the only available signal for a foreign (non-server-spawned) driver. Imprecise by nature: honours `GTD_LOOP_LOG` first, then the git dir, and gtd never creates or truncates the file. */
   readonly logMtime?: number
 }
 
