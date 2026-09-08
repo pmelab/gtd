@@ -577,6 +577,45 @@ export const RealContainerWriteThroughsAnAnswerViaSetValue: StoryObj<typeof Plan
   },
 }
 
+/**
+ * A refused `setValue` write must revert the optimistic radio selection —
+ * otherwise the question reads "answered" forever even though the file was
+ * never actually touched, which is exactly the requirement's own "the
+ * human's answers vanish" failure mode, just delayed rather than prevented.
+ * See `Question.tsx#setSelected`'s identical revert-on-rejection.
+ */
+export const RealContainerRevertsTheOptimisticAnswerOnARefusedWrite: StoryObj<typeof Plan> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: "Sample plan.\n\n## Open Questions\n\n### Which option?\n",
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: { nodes: [openQuestion(0, "Which option?")] },
+        }),
+        setValue: () => {
+          throw new Error("stale token")
+        },
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("question-card-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+    // Immediately after the tap, the optimistic radio shows checked (before
+    // the refusal resolves) — then the refusal reverts it.
+    await waitFor(() => expect(canvas.getByTestId("option-radio-0")).not.toBeChecked())
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("unanswered")
+  },
+}
+
 /** After `done` resolves, the client renders the terminal "handed back" panel — no further server round trip, no way back to any list. Mirrors `Review.stories.tsx`'s identical story. */
 export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Plan> = {
   render: (args) => (

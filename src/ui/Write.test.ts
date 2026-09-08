@@ -20,6 +20,19 @@ const CONTENT = [
   "",
 ].join("\n")
 
+/** A `qa`-mode fixture with an unfilled free-text slot — the LAST option — used only by the `checked`+`text` combined-write test below. */
+const QA_CONTENT = [
+  "Sample plan.",
+  "",
+  "## Open Questions",
+  "",
+  "### Which option?",
+  "",
+  "- [ ] Option A",
+  "- [ ] _your answer_",
+  "",
+].join("\n")
+
 const fakeDeps = (overrides: Partial<WriteDeps> = {}): WriteDeps => ({
   headSha: vi.fn(async () => "sha1"),
   actorAt: vi.fn(async () => "human"),
@@ -284,11 +297,24 @@ describe("writeValue", () => {
     expect(written).toContain("- [x] ./a.ts#1 hunk")
   })
 
-  it("commits checked and text together in one call, for the free-text slot's own equivalent shape (a chunk/hunk anchor here, since REVIEW_FORMAT has no free-text slot)", async () => {
-    const deps = fakeDeps()
-    const request = { ...baseValueRequest(), checked: true }
+  it("commits checked and text together in ONE call for a qa free-text slot, landing the label change in the written bytes", async () => {
+    const deps = fakeDeps({ readFile: vi.fn(async () => QA_CONTENT) })
+    const request = {
+      worktreePath: WORKTREE,
+      filePath: FILE,
+      expectedHeadSha: "sha1",
+      expectedContentHash: contentHashOf(QA_CONTENT),
+      mode: "qa",
+      // The free-text slot is always the LAST option (`OpenQuestions.ts`'s
+      // own positional convention) — index 1 here, the second of two.
+      anchor: { kind: "option" as const, questionIndex: 0, index: 1 },
+      checked: true,
+      text: "worth flagging",
+    }
     const result = await writeValue(request, deps)
     expect(result).toEqual({ ok: true })
+    const [, written] = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls[0]!
+    expect(written).toContain("[x] worth flagging")
   })
 
   it("rejects a write whose sha moved, and the file is untouched", async () => {

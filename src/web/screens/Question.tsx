@@ -214,21 +214,31 @@ export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: Quest
   const { selected, freeText } = answer
 
   const setSelected = (index: number) => {
+    const previous = answer
     onAnswerChange((prev) => ({ ...prev, selected: index }))
-    // A fire-and-forget write-through, mirrored on `onCommitFreeText` below:
-    // neither is awaited, and a rejection (a `CONFLICT` refusal, a network
-    // failure, …) is swallowed rather than surfaced — the local radio state
-    // just set above is the tap-responsive truth this screen shows either
-    // way, exactly like `Review.tsx#useReviewState`'s own optimistic ticks.
+    // A fire-and-forget write-through, mirrored on `commitFreeText` below:
+    // neither is awaited, but a rejection (a `CONFLICT` refusal, a network
+    // failure, …) DOES revert the optimistic selection set just above, back
+    // to whatever `answer` was before this tap — mirrors
+    // `Review.tsx#useReviewState`'s own revert-on-rejection for ticks.
+    // Leaving the radio filled on a refused write would show "answered" for
+    // a question whose file was never actually touched — the requirement's
+    // own "the human's answers vanish" failure mode, just delayed rather
+    // than prevented.
     const anchor = options[index]?.anchor
-    if (anchor !== undefined) onCommitAnswer?.(anchor, { checked: true })?.catch(() => {})
+    if (anchor !== undefined) {
+      onCommitAnswer?.(anchor, { checked: true })?.catch(() => onAnswerChange(previous))
+    }
   }
 
-  /** The free-text slot's own commit point (`FreeTextOption`'s `onBlur`): writes the CURRENT `freeText` prop plus `checked: true` in one call — never split into a separate tick-then-text pair, matching T3's "both fields together, not two separate writes" acceptance bullet. */
+  /** The free-text slot's own commit point (`FreeTextOption`'s `onBlur`): writes the CURRENT `freeText` prop plus `checked: true` in one call — never split into a separate tick-then-text pair, matching T3's "both fields together, not two separate writes" acceptance bullet. A refused/failed write reverts the optimistic `answer` to its pre-commit value, mirroring `setSelected`'s identical revert above. */
   const commitFreeText = () => {
+    const previous = answer
     const anchor = lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
     if (anchor !== undefined) {
-      onCommitAnswer?.(anchor, { checked: true, text: freeText })?.catch(() => {})
+      onCommitAnswer?.(anchor, { checked: true, text: freeText })?.catch(() =>
+        onAnswerChange(previous),
+      )
     }
   }
 
