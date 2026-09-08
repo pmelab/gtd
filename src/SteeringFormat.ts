@@ -236,4 +236,26 @@ export interface SteeringFormat {
     anchor: SteeringAnchor,
     text: string,
   ) => SteeringAnnotateResult
+  /**
+   * The checkbox-writing counterpart to `annotate`: turns an `anchor` (as
+   * reported by this same format's `view`) plus a desired `checked` state
+   * and/or replacement `text` into the byte-range edits that set it, or the
+   * SAME typed refusal shape `annotate` returns (`apply` never produces
+   * `id-collision` itself — it edits an existing checkbox rather than
+   * attaching a new footnote — but keeps the shape for uniformity). `qa`'s
+   * `option` anchor is RADIO: ticking one option unticks every sibling of the
+   * same question; ticking the free-text slot with `text` set also replaces
+   * its label, both in ONE edit set. `review`'s `hunk` anchor sets that one
+   * hunk's tick; its `chunk` anchor sets every hunk beneath it, at any
+   * nesting depth, to the SAME target state the caller already knows — never
+   * a majority-flip heuristic, unlike `ReviewDoc.ts`'s own cursor-driven
+   * `toggleChunkEdits`. An anchor of the wrong kind for this format (a `hunk`
+   * anchor given to `qa`, say) or a stale index refuses `anchor-not-found`,
+   * exactly as `annotate` does.
+   */
+  readonly apply: (
+    content: string,
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ) => SteeringAnnotateResult
 }

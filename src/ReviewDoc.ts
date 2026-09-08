@@ -920,6 +920,47 @@ const reviewAnnotate = (
   return { ok: true, edits: result.edits }
 }
 
+/** Edits that set every one of `files`' ticks to `checked` — one edit per file not already at that state, none when the set is already uniform. Shared by `reviewApply`'s `hunk` (single-element) and `chunk` (every hunk beneath it) cases, so the two can never diverge on how a tick is actually set. */
+const setFileTickEdits = (
+  content: string,
+  files: readonly ReviewFile[],
+  checked: boolean,
+): SteeringEdit[] => {
+  const edits: SteeringEdit[] = []
+  for (const file of files) {
+    if (file.checked === checked) continue
+    const edit = toggleFilePointer(content, file.sourceLine)
+    if (edit) edits.push(edit)
+  }
+  return edits
+}
+
+/**
+ * `review`-mode's `apply`: a `hunk` anchor sets that ONE file's tick; a
+ * `chunk` anchor sets EVERY hunk beneath it (already flattened at any depth
+ * into `chunk.files` by `parseChunkBody`) to the SAME target `opts.checked` —
+ * never `toggleChunkEdits`'s own majority-flip heuristic, since the caller
+ * here already knows and sends the exact state it wants. `opts.checked`
+ * defaults to `true` (ticking is the only action either screen offers; there
+ * is no "leave it as found" case). A `question`/`option`/`paragraph` anchor
+ * (not this format's own kind) or a stale index refuses `anchor-not-found`.
+ */
+const reviewApply: SteeringFormat["apply"] = (content, anchor, opts) => {
+  const { changesets } = parseReviewDoc(content)
+  const checked = opts.checked ?? true
+  if (anchor.kind === "hunk") {
+    const file = changesets[anchor.chunkIndex]?.files[anchor.index]
+    if (!file) return { ok: false, reason: "anchor-not-found" }
+    return { ok: true, edits: setFileTickEdits(content, [file], checked) }
+  }
+  if (anchor.kind === "chunk") {
+    const chunk = changesets[anchor.index]
+    if (!chunk) return { ok: false, reason: "anchor-not-found" }
+    return { ok: true, edits: setFileTickEdits(content, chunk.files, checked) }
+  }
+  return { ok: false, reason: "anchor-not-found" }
+}
+
 export const REVIEW_FORMAT: SteeringFormat = {
   sample: REVIEW_SAMPLE,
   validate: (content) => [...parseReviewDoc(content).findings, ...parseFootnotes(content).findings],
@@ -929,4 +970,5 @@ export const REVIEW_FORMAT: SteeringFormat = {
   documentLinks: reviewDocumentLinks,
   view: reviewView,
   annotate: reviewAnnotate,
+  apply: reviewApply,
 }

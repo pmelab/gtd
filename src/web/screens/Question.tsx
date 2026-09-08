@@ -1,5 +1,5 @@
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../OpenQuestions.js"
-import type { SteeringViewNode } from "../../SteeringFormat.js"
+import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
 import { Mic } from "../Mic.js"
 
 /** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */
@@ -63,6 +63,20 @@ export interface QuestionProps {
   readonly onAnswerChange: (
     update: QuestionAnswer | ((prev: QuestionAnswer) => QuestionAnswer),
   ) => void
+  /**
+   * Write-through to the steering file (package 03): the real `Plan`
+   * container wires this to `trpc.setValue.mutateAsync` followed by a
+   * `readSteeringFile` invalidation, mirroring `Plan.tsx`'s own
+   * `onSaveNote`/`onDoneNote` pattern — fired ALONGSIDE `onAnswerChange`
+   * (never instead of it), so the controlled local state above still gives
+   * instant tap feedback regardless of the write's own latency or outcome.
+   * Absent in `Question.stories.tsx`'s/`Plan.stories.tsx`'s pure-data
+   * stories, exactly like those two.
+   */
+  readonly onCommitAnswer?: (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ) => Promise<unknown>
 }
 
 /**
@@ -82,11 +96,14 @@ const FreeTextOption = ({
   onFocus,
   onFreeTextChange,
   onDictate,
+  onCommit,
 }: {
   readonly freeText: string
   readonly onFocus: () => void
   readonly onFreeTextChange: (text: string) => void
   readonly onDictate: (text: string) => void
+  /** Fires on blur — the natural "the human is done typing" moment for a textarea — carrying the CURRENT `freeText` prop, never a stale closure: a blur event always fires on a later render than the keystroke that produced the text it commits. */
+  readonly onCommit: () => void
 }) => (
   <div style={{ marginTop: 8 }}>
     <textarea
@@ -98,6 +115,7 @@ const FreeTextOption = ({
         onFreeTextChange(event.target.value)
         onFocus()
       }}
+      onBlur={onCommit}
       style={{ width: "100%", minHeight: 60 }}
     />
     <Mic
@@ -142,6 +160,7 @@ const OptionRow = ({
   onSelect,
   onFreeTextChange,
   onDictate,
+  onCommitFreeText,
 }: {
   readonly option: SteeringViewNode
   readonly index: number
@@ -152,6 +171,7 @@ const OptionRow = ({
   readonly onSelect: () => void
   readonly onFreeTextChange: (text: string) => void
   readonly onDictate: (text: string) => void
+  readonly onCommitFreeText: () => void
 }) => (
   <div data-testid={`option-${index}`} style={{ padding: "8px 0", borderBottom: "1px solid #333" }}>
     <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -170,6 +190,7 @@ const OptionRow = ({
         onFocus={onSelect}
         onFreeTextChange={onFreeTextChange}
         onDictate={onDictate}
+        onCommit={onCommitFreeText}
       />
     )}
   </div>
@@ -187,12 +208,29 @@ const OptionRow = ({
  * untested regardless.
  */
 // fallow-ignore-next-line complexity
-export const Question = ({ node, answer, onAnswerChange }: QuestionProps) => {
+export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: QuestionProps) => {
   const options = node.children ?? []
   const lastIndex = options.length - 1
   const { selected, freeText } = answer
 
-  const setSelected = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
+  const setSelected = (index: number) => {
+    onAnswerChange((prev) => ({ ...prev, selected: index }))
+    // A fire-and-forget write-through, mirrored on `onCommitFreeText` below:
+    // neither is awaited, and a rejection (a `CONFLICT` refusal, a network
+    // failure, …) is swallowed rather than surfaced — the local radio state
+    // just set above is the tap-responsive truth this screen shows either
+    // way, exactly like `Review.tsx#useReviewState`'s own optimistic ticks.
+    const anchor = options[index]?.anchor
+    if (anchor !== undefined) onCommitAnswer?.(anchor, { checked: true })?.catch(() => {})
+  }
+
+  /** The free-text slot's own commit point (`FreeTextOption`'s `onBlur`): writes the CURRENT `freeText` prop plus `checked: true` in one call — never split into a separate tick-then-text pair, matching T3's "both fields together, not two separate writes" acceptance bullet. */
+  const commitFreeText = () => {
+    const anchor = lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
+    if (anchor !== undefined) {
+      onCommitAnswer?.(anchor, { checked: true, text: freeText })?.catch(() => {})
+    }
+  }
 
   /**
    * Appends dictated `text` to whatever `freeText` is AT ATTACH TIME —
@@ -249,6 +287,7 @@ export const Question = ({ node, answer, onAnswerChange }: QuestionProps) => {
           onSelect={() => setSelected(index)}
           onFreeTextChange={setFreeText}
           onDictate={onDictate}
+          onCommitFreeText={commitFreeText}
         />
       ))}
     </div>

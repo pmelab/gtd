@@ -1914,6 +1914,123 @@ describe("REVIEW_FORMAT.annotate", () => {
   })
 })
 
+/** Applies edits back-to-front (as `ui/Write.ts#applySteeringEdits` does) — local to this test file, mirroring `REVIEW_FORMAT.annotate`'s own describe block's inline splice pattern above. */
+const applyEdits = (
+  content: string,
+  edits: readonly {
+    readonly range: {
+      readonly start: { readonly line: number; readonly character: number }
+      readonly end: { readonly line: number; readonly character: number }
+    }
+    readonly newText: string
+  }[],
+): string => {
+  const lines = content.split("\n")
+  const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+    return offset + pos.character
+  }
+  const sorted = [...edits].sort((a, b) => toOffset(b.range.start) - toOffset(a.range.start))
+  let result = content
+  for (const edit of sorted) {
+    result =
+      result.slice(0, toOffset(edit.range.start)) +
+      edit.newText +
+      result.slice(toOffset(edit.range.end))
+  }
+  return result
+}
+
+describe("REVIEW_FORMAT.apply", () => {
+  const NESTED_CONTENT = [
+    "# Review: abc1234",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Chunk one",
+    "",
+    "Some description.",
+    "",
+    "- [ ] ./a.ts#1 outer hunk",
+    "  - [x] ./b.ts#2 nested hunk",
+    "",
+    "## Chunk two",
+    "",
+    "- [ ] ./c.ts#3",
+    "",
+  ].join("\n")
+
+  it("a hunk anchor sets just that hunk's tick", () => {
+    const result = REVIEW_FORMAT.apply(
+      NESTED_CONTENT,
+      { kind: "hunk", chunkIndex: 0, index: 0 },
+      {
+        checked: true,
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(NESTED_CONTENT, result.edits)
+    const { changesets } = parseReviewDoc(applied)
+    expect(changesets[0]!.files.map((f) => f.checked)).toEqual([true, true])
+  })
+
+  it("a chunk anchor sets the tick on every hunk beneath it, at any nesting depth, to the exact target state — not a majority-flip", () => {
+    const result = REVIEW_FORMAT.apply(
+      NESTED_CONTENT,
+      { kind: "chunk", index: 0 },
+      {
+        checked: true,
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(NESTED_CONTENT, result.edits)
+    const { changesets } = parseReviewDoc(applied)
+    // The outer hunk was unchecked, the nested one already checked — a
+    // majority-flip heuristic (`chunkToggleTarget`) would uncheck both since
+    // one of two was already checked; `apply` instead drives both to the
+    // caller's own exact target, `true`.
+    expect(changesets[0]!.files.map((f) => f.checked)).toEqual([true, true])
+    // Chunk two, untouched, keeps its own state.
+    expect(changesets[1]!.files.map((f) => f.checked)).toEqual([false])
+  })
+
+  it("a chunk anchor can also drive every hunk beneath it to unchecked", () => {
+    const result = REVIEW_FORMAT.apply(
+      NESTED_CONTENT,
+      { kind: "chunk", index: 0 },
+      {
+        checked: false,
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(NESTED_CONTENT, result.edits)
+    const { changesets } = parseReviewDoc(applied)
+    expect(changesets[0]!.files.map((f) => f.checked)).toEqual([false, false])
+  })
+
+  it("a stale chunk/hunk index refuses anchor-not-found", () => {
+    expect(
+      REVIEW_FORMAT.apply(NESTED_CONTENT, { kind: "chunk", index: 5 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+    expect(
+      REVIEW_FORMAT.apply(
+        NESTED_CONTENT,
+        { kind: "hunk", chunkIndex: 0, index: 5 },
+        { checked: true },
+      ),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+  })
+
+  it("a question/option anchor — not this format's own kind — refuses anchor-not-found", () => {
+    expect(
+      REVIEW_FORMAT.apply(NESTED_CONTENT, { kind: "question", index: 0 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+  })
+})
+
 describe("REVIEW_FORMAT.view — chunk-level footnote projection", () => {
   it("projects a footnote marker on the chunk's own heading line as that chunk node's own `note`, distinct from a hunk's own note", () => {
     // REVIEW_FORMAT.sample carries exactly this shape: `## Sample chunk[^naduiqc4]`

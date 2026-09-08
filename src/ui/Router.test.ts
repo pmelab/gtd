@@ -31,9 +31,11 @@ const contextFor = (
   readSteeringFile: RouterContext["readSteeringFile"] = () =>
     Promise.resolve({ ok: false, reason: "file-vanished" }),
   handOff: RouterContext["handOff"] = () => {},
+  writeValue: RouterContext["writeValue"] = () => Promise.resolve({ ok: true }),
 ): RouterContext => ({
   readStep,
   writeNote,
+  writeValue,
   resolveDiff,
   readSteeringFile,
   handOff,
@@ -104,6 +106,78 @@ describe("appRouter.writeNote", () => {
     )
     await caller.writeNote({ ...request, worktreePath: "/should/be/dropped" } as never)
     expect(received).not.toHaveProperty("worktreePath")
+  })
+})
+
+describe("appRouter.setValue", () => {
+  const request = {
+    filePath: ".gtd/REVIEW.md",
+    expectedHeadSha: "sha1",
+    expectedContentHash: "hash1",
+    mode: "review",
+    anchor: { kind: "hunk" as const, chunkIndex: 0, index: 0 },
+    checked: true,
+  }
+
+  it("delegates to the context's writeValue and returns ok on success", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(undefined, undefined, undefined, undefined, undefined, () =>
+        Promise.resolve({ ok: true }),
+      ),
+    )
+    await expect(caller.setValue(request)).resolves.toEqual({ ok: true })
+  })
+
+  it("surfaces a refusal as a typed WriteNoteRefusal cause, naming the reason", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(undefined, undefined, undefined, undefined, undefined, () =>
+        Promise.resolve({ ok: false, reason: "stale-token", moved: "content-hash" }),
+      ),
+    )
+    const error = await caller.setValue(request).catch((e: unknown) => e)
+    const cause = (error as { cause?: unknown }).cause
+    expect(cause).toBeInstanceOf(WriteNoteRefusal)
+    expect((cause as WriteNoteRefusal).reason).toBe("stale-token")
+    expect((cause as WriteNoteRefusal).moved).toBe("content-hash")
+  })
+
+  it("rejects malformed input rather than reaching writeValue", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(undefined, undefined, undefined, undefined, undefined, () =>
+        Promise.reject(new Error("writeValue unexpectedly invoked")),
+      ),
+    )
+    await expect(
+      caller.setValue({ ...request, anchor: { kind: "unknown" } } as never),
+    ).rejects.toThrow()
+  })
+
+  it("accepts no worktreePath field at all — the server writes through the one worktree it serves", async () => {
+    let received: unknown
+    const caller = appRouter.createCaller(
+      contextFor(undefined, undefined, undefined, undefined, undefined, (input) => {
+        received = input
+        return Promise.resolve({ ok: true })
+      }),
+    )
+    await caller.setValue({ ...request, worktreePath: "/should/be/dropped" } as never)
+    expect(received).not.toHaveProperty("worktreePath")
+  })
+
+  it("accepts checked and text together in one call, and accepts checked alone with no text field", async () => {
+    let received: unknown
+    const caller = appRouter.createCaller(
+      contextFor(undefined, undefined, undefined, undefined, undefined, (input) => {
+        received = input
+        return Promise.resolve({ ok: true })
+      }),
+    )
+    await caller.setValue({ ...request, checked: true, text: "my answer" })
+    expect(received).toMatchObject({ checked: true, text: "my answer" })
+
+    await caller.setValue(request)
+    expect(received).toMatchObject({ checked: true })
+    expect(received).not.toHaveProperty("text")
   })
 })
 

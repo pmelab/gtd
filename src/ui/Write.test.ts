@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 import { REVIEW_FORMAT } from "../ReviewDoc.js"
-import { applySteeringEdits, contentHashOf, writeNote, type WriteDeps } from "./Write.js"
+import {
+  applySteeringEdits,
+  contentHashOf,
+  writeNote,
+  writeValue,
+  type WriteDeps,
+} from "./Write.js"
 
 const WORKTREE = "/repo"
 const FILE = ".gtd/REVIEW.md"
@@ -254,5 +260,109 @@ describe("writeNote", () => {
     expect(rejected).toHaveLength(1)
     expect(rejected[0]).toMatchObject({ reason: "stale-token", moved: "content-hash" })
     expect(writes).toHaveLength(1)
+  })
+})
+
+describe("writeValue", () => {
+  const baseValueRequest = () => ({
+    worktreePath: WORKTREE,
+    filePath: FILE,
+    expectedHeadSha: "sha1",
+    expectedContentHash: contentHashOf(CONTENT),
+    mode: "review",
+    anchor: { kind: "hunk" as const, chunkIndex: 0, index: 0 },
+    checked: true,
+  })
+
+  it("succeeds when the sha and content hash both match, and the worktree rests with a human", async () => {
+    const deps = fakeDeps()
+    const result = await writeValue(baseValueRequest(), deps)
+    expect(result).toEqual({ ok: true })
+    expect(deps.writeFile).toHaveBeenCalledTimes(1)
+    const [absPath, written] = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls[0]!
+    expect(absPath).toBe("/repo/.gtd/REVIEW.md")
+    expect(written).toContain("- [x] ./a.ts#1 hunk")
+  })
+
+  it("commits checked and text together in one call, for the free-text slot's own equivalent shape (a chunk/hunk anchor here, since REVIEW_FORMAT has no free-text slot)", async () => {
+    const deps = fakeDeps()
+    const request = { ...baseValueRequest(), checked: true }
+    const result = await writeValue(request, deps)
+    expect(result).toEqual({ ok: true })
+  })
+
+  it("rejects a write whose sha moved, and the file is untouched", async () => {
+    const deps = fakeDeps({ headSha: vi.fn(async () => "sha2") })
+    const result = await writeValue(baseValueRequest(), deps)
+    expect(result).toEqual({ ok: false, reason: "stale-token", moved: "sha" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("rejects a write whose content hash moved, and the file is untouched", async () => {
+    const deps = fakeDeps({ readFile: vi.fn(async () => CONTENT + "\n") })
+    const result = await writeValue(baseValueRequest(), deps)
+    expect(result).toEqual({ ok: false, reason: "stale-token", moved: "content-hash" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("a worktree not resting with a human refuses with not-resting", async () => {
+    for (const actor of ["agent", "check", undefined]) {
+      const deps = fakeDeps({ actorAt: vi.fn(async () => actor) })
+      const result = await writeValue(baseValueRequest(), deps)
+      expect(result).toEqual({ ok: false, reason: "not-resting" })
+      expect(deps.writeFile).not.toHaveBeenCalled()
+    }
+  })
+
+  it("a file deleted between render and write yields the vanished-file refusal, not a crash", async () => {
+    const deps = fakeDeps({ readFile: vi.fn(async () => undefined) })
+    await expect(writeValue(baseValueRequest(), deps)).resolves.toEqual({
+      ok: false,
+      reason: "file-vanished",
+    })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("an anchor that no longer resolves is rejected, not silently dropped", async () => {
+    const deps = fakeDeps()
+    const request = {
+      ...baseValueRequest(),
+      anchor: { kind: "hunk" as const, chunkIndex: 0, index: 99 },
+    }
+    expect(await writeValue(request, deps)).toEqual({ ok: false, reason: "anchor-unresolved" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("an unsupported mode is its own distinct refusal, never anchor-unresolved", async () => {
+    const deps = fakeDeps()
+    const request = { ...baseValueRequest(), mode: "not-a-real-mode" }
+    expect(await writeValue(request, deps)).toEqual({ ok: false, reason: "unsupported-mode" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("a chunk anchor ticks every hunk beneath it in one write", async () => {
+    const nestedContent = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./a.ts#1 outer hunk",
+      "  - [ ] ./b.ts#2 nested hunk",
+      "",
+    ].join("\n")
+    const deps = fakeDeps({ readFile: vi.fn(async () => nestedContent) })
+    const request = {
+      ...baseValueRequest(),
+      expectedContentHash: contentHashOf(nestedContent),
+      anchor: { kind: "chunk" as const, index: 0 },
+      checked: true,
+    }
+    const result = await writeValue(request, deps)
+    expect(result).toEqual({ ok: true })
+    const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
+    expect(written).toContain("- [x] ./a.ts#1 outer hunk")
+    expect(written).toContain("- [x] ./b.ts#2 nested hunk")
+    expect(REVIEW_FORMAT.validate(written)).toEqual([])
   })
 })

@@ -63,6 +63,24 @@ export interface WriteNoteRequest {
 }
 
 /**
+ * `writeValue`'s own request — mirrors `WriteNoteRequest` field for field
+ * except its last: `checked`/`text` are both OPTIONAL (a hunk tick sends only
+ * `checked`; a free-text commit sends both together in ONE request), where
+ * `WriteNoteRequest.text` is mandatory. Delegates to `SteeringFormat.apply`
+ * rather than `annotate`.
+ */
+export interface WriteValueRequest {
+  readonly worktreePath: string
+  readonly filePath: string
+  readonly expectedHeadSha: string
+  readonly expectedContentHash: string
+  readonly mode: string
+  readonly anchor: SteeringAnchor
+  readonly checked?: boolean
+  readonly text?: string
+}
+
+/**
  * Every side effect `writeNote` needs, injected so tests never touch a real
  * git checkout or filesystem — mirrors `ui/Beat.ts`'s own `BeatDeps`
  * pattern. `actorAt` and `headSha` are both called FRESH on every write
@@ -153,6 +171,50 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
     }
 
     const nextContent = applySteeringEdits(content, annotated.edits)
+    await deps.writeFile(absPath, nextContent)
+    return { ok: true }
+  })
+}
+
+/**
+ * The compare-and-swap write for a CHECKBOX value (package 03): the same
+ * actor/sha/content-hash gate `writeNote` runs, splicing through
+ * `SteeringFormat.apply` instead of `annotate` — a question answer's radio
+ * pick, or a review hunk/chunk tick. `WriteRefusalReason` gains no new
+ * values: `apply`'s own `anchor-not-found`/`id-collision` map onto
+ * `anchor-unresolved`/`note-collision` exactly as `annotate`'s do in
+ * `writeNote`, even though `apply` never actually produces the latter.
+ */
+export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise<WriteResult> => {
+  const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
+  if (absPath === undefined) return Promise.resolve({ ok: false, reason: "file-vanished" })
+  return enqueue(absPath, async (): Promise<WriteResult> => {
+    const actor = await deps.actorAt(request.worktreePath)
+    if (actor !== "human") return { ok: false, reason: "not-resting" }
+
+    const content = await deps.readFile(absPath)
+    if (content === undefined) return { ok: false, reason: "file-vanished" }
+
+    const [sha, hash] = [await deps.headSha(request.worktreePath), contentHashOf(content)]
+    if (sha !== request.expectedHeadSha) return { ok: false, reason: "stale-token", moved: "sha" }
+    if (hash !== request.expectedContentHash) {
+      return { ok: false, reason: "stale-token", moved: "content-hash" }
+    }
+
+    const format = steeringFormatFor(request.mode)
+    if (format === undefined) return { ok: false, reason: "unsupported-mode" }
+    const applied = format.apply(content, request.anchor, {
+      ...(request.checked !== undefined ? { checked: request.checked } : {}),
+      ...(request.text !== undefined ? { text: request.text } : {}),
+    })
+    if (!applied.ok) {
+      return {
+        ok: false,
+        reason: applied.reason === "id-collision" ? "note-collision" : "anchor-unresolved",
+      }
+    }
+
+    const nextContent = applySteeringEdits(content, applied.edits)
     await deps.writeFile(absPath, nextContent)
     return { ok: true }
   })

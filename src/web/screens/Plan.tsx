@@ -203,6 +203,17 @@ export interface PlanViewProps {
    * exactly like `onSaveNote`.
    */
   readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
+  /**
+   * Write-through for a question answer (package 03): passed straight to
+   * `Question.tsx`'s own `onCommitAnswer` prop — see that prop's doc comment
+   * for why it fires alongside, never instead of, this component's own
+   * `answers` state. Absent in `Plan.stories.tsx`'s pure-data stories,
+   * exactly like `onSaveNote`/`onDoneNote`.
+   */
+  readonly onCommitAnswer?: (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ) => Promise<unknown>
 }
 
 /** `onOpen` absent renders every card in this section as an inert summary row — used for "Already answered", whose questions carry no options to drill into (see `QuestionCard`'s own doc comment). */
@@ -295,6 +306,7 @@ export const PlanView = ({
   isLoading,
   onSaveNote,
   onDoneNote,
+  onCommitAnswer,
 }: PlanViewProps) => {
   const { confirmed, confirm } = usePlanReadConfirmation(contentHash)
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
@@ -380,6 +392,7 @@ export const PlanView = ({
                 return { ...prev, [index]: next }
               })
             }
+            {...(onCommitAnswer !== undefined ? { onCommitAnswer } : {})}
           />
         )}
       />
@@ -426,7 +439,26 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
   const writeNote = trpc.writeNote.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode }),
   })
+  const setValue = trpc.setValue.useMutation({
+    onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode }),
+  })
   const done = trpc.done.useMutation()
+
+  const onCommitAnswer = (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<unknown> => {
+    const data = query.data
+    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return setValue.mutateAsync({
+      filePath,
+      expectedHeadSha: data.headSha,
+      expectedContentHash: data.contentHash,
+      mode,
+      anchor,
+      ...opts,
+    })
+  }
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
@@ -468,6 +500,7 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
       isLoading={query.isLoading}
       onSaveNote={onSaveNote}
       onDoneNote={onDoneNote}
+      onCommitAnswer={onCommitAnswer}
     />
   )
 }

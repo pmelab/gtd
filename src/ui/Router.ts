@@ -4,7 +4,7 @@ import type { StepRead } from "./Beat.js"
 import type { DiffResult } from "./Diff.js"
 import type { ReadSteeringFileRequest, ReadSteeringFileResult } from "./ReadSteeringFile.js"
 import { steeringViewFor } from "./View.js"
-import type { WriteNoteRequest, WriteResult } from "./Write.js"
+import type { WriteNoteRequest, WriteResult, WriteValueRequest } from "./Write.js"
 
 /** A request shape with the client-supplied `worktreePath` stripped — the server always writes/reads through the one worktree it serves, closed over server-side, never named by the client. */
 type NoWorktreePath<T> = Omit<T, "worktreePath">
@@ -13,6 +13,7 @@ type NoWorktreePath<T> = Omit<T, "worktreePath">
 export interface RouterContext {
   readonly readStep: () => Promise<StepRead>
   readonly writeNote: (request: NoWorktreePath<WriteNoteRequest>) => Promise<WriteResult>
+  readonly writeValue: (request: NoWorktreePath<WriteValueRequest>) => Promise<WriteResult>
   readonly resolveDiff: (path: string, line: number | undefined) => Promise<DiffResult>
   readonly readSteeringFile: (
     request: NoWorktreePath<ReadSteeringFileRequest>,
@@ -145,6 +146,45 @@ const writeNoteInput = (
   }
 }
 
+/**
+ * `setValue`'s own input validator — mirrors `writeNoteInput` field for
+ * field, except `checked`/`text` are both OPTIONAL (a hunk tick sends only
+ * `checked`; a free-text commit sends both together): no `worktreePath`, the
+ * server writes through the one worktree it serves.
+ */
+const setValueInput = (
+  value: unknown,
+): {
+  readonly filePath: string
+  readonly expectedHeadSha: string
+  readonly expectedContentHash: string
+  readonly mode: string
+  readonly anchor: SteeringAnchor
+  readonly checked?: boolean
+  readonly text?: string
+} => {
+  if (!isRecord(value)) throw new Error("expected a write request")
+  const { filePath, expectedHeadSha, expectedContentHash, mode, anchor, checked, text } = value
+  for (const field of [filePath, expectedHeadSha, expectedContentHash, mode]) {
+    if (typeof field !== "string") throw new Error("expected string fields on a write request")
+  }
+  if (checked !== undefined && typeof checked !== "boolean") {
+    throw new Error("expected checked to be a boolean when present")
+  }
+  if (text !== undefined && typeof text !== "string") {
+    throw new Error("expected text to be a string when present")
+  }
+  return {
+    filePath: filePath as string,
+    expectedHeadSha: expectedHeadSha as string,
+    expectedContentHash: expectedContentHash as string,
+    mode: mode as string,
+    anchor: steeringAnchorInput(anchor),
+    ...(checked !== undefined ? { checked } : {}),
+    ...(text !== undefined ? { text } : {}),
+  }
+}
+
 /** `steeringView`'s own input validator — a `{ content: string, mode: string }`, no `worktreePath`. */
 const viewInput = (value: unknown): { readonly content: string; readonly mode: string } => {
   if (!isRecord(value) || typeof value.content !== "string" || typeof value.mode !== "string") {
@@ -188,6 +228,27 @@ export const appRouter = t.router({
    */
   writeNote: t.procedure.input(writeNoteInput).mutation(async ({ input, ctx }) => {
     const result = await ctx.writeNote(input)
+    if (!result.ok) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `gtd ui: write refused (${result.reason})`,
+        cause: new WriteNoteRefusal(result.reason, result.moved),
+      })
+    }
+    return { ok: true as const }
+  }),
+
+  /**
+   * The compare-and-swap CHECKBOX write (package 03): a question's radio
+   * pick, a hunk tick, or a chunk's check-all — delegates every check and the
+   * actual splice to `Write.ts#writeValue`, which calls `SteeringFormat.apply`
+   * instead of `annotate`. The SAME `WriteNoteRefusal` class `writeNote`
+   * throws carries the refusal here too, so `api.ts#writeRefusalFrom` needs
+   * no changes to read it — it reads `error.data.writeRefusal` off any
+   * procedure's thrown `WriteNoteRefusal`, regardless of procedure name.
+   */
+  setValue: t.procedure.input(setValueInput).mutation(async ({ input, ctx }) => {
+    const result = await ctx.writeValue(input)
     if (!result.ok) {
       throw new TRPCError({
         code: "CONFLICT",

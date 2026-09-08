@@ -28,7 +28,14 @@ import { renderQrCode } from "./Qr.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript } from "./scriptTag.mjs"
 import { generateSelfSignedCert, loadCertPair, type CertPair } from "./Tls.js"
-import { liveActorAt, liveReadFile, liveWriteFile, writeNote, type WriteDeps } from "./Write.js"
+import {
+  liveActorAt,
+  liveReadFile,
+  liveWriteFile,
+  writeNote,
+  writeValue,
+  type WriteDeps,
+} from "./Write.js"
 
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
@@ -365,6 +372,7 @@ export const runUiCommand = (
       createContext: ({ res }): RouterContext => ({
         readStep: () => readStep({ path: cwd.root }, liveBeatDeps),
         writeNote: (request) => writeNote({ ...request, worktreePath: cwd.root }, writeDeps),
+        writeValue: (request) => writeValue({ ...request, worktreePath: cwd.root }, writeDeps),
         resolveDiff: (path, line) => resolveDiff(cwd.root, path, line, diffDeps),
         readSteeringFile: (request) =>
           readSteeringFile({ ...request, worktreePath: cwd.root }, readDeps),

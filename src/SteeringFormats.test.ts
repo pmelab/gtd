@@ -76,6 +76,15 @@ describe("seededValidateCommand / isSeededValidateCommand", () => {
   })
 })
 
+describe("every registry entry declares apply", () => {
+  it("has a function-typed apply member, not just annotate", () => {
+    for (const mode of builtInModeNames()) {
+      const format = steeringFormatFor(mode)!
+      expect(typeof format.apply).toBe("function")
+    }
+  })
+})
+
 describe("every registry entry's sample", () => {
   // Load-bearing, not a nicety (see the package's own doc comment on this
   // acceptance criterion): `src/ModeContradiction.ts` round-trips this exact

@@ -834,6 +834,95 @@ const pickOptionEdits = (
   return edits
 }
 
+/**
+ * The `apply`-callable counterpart to `pickOptionEdits`: sets `option` to an
+ * explicit `checked` STATE rather than assuming (as `pickOptionEdits`'s own
+ * caller, `optionAction`, does) that the target isn't already ticked.
+ * `checked: true` is radio semantics — ticks the target (only if not already
+ * ticked) and unticks every OTHER already-ticked sibling; `checked: false`
+ * only unticks the target itself, leaving siblings untouched.
+ */
+const setOptionCheckedEdits = (
+  content: string,
+  question: OpenQuestion,
+  option: QuestionOption,
+  checked: boolean,
+): SteeringEdit[] => {
+  if (!checked) {
+    if (!option.checked) return []
+    const edit = toggleCheckbox(content, option.sourceLine)
+    return edit ? [edit] : []
+  }
+  const edits: SteeringEdit[] = []
+  for (const sibling of question.options) {
+    const isTarget = sibling.sourceLine === option.sourceLine
+    if (isTarget ? sibling.checked : !sibling.checked) continue
+    const edit = toggleCheckbox(content, sibling.sourceLine)
+    if (edit) edits.push(edit)
+  }
+  return edits
+}
+
+/**
+ * The edit that replaces `option`'s own label text — everything after the
+ * checkbox marker, on its source line only — with `text` verbatim: used only
+ * for the free-text slot, whose placeholder (or prior answer) the human's
+ * typed answer replaces in place. `undefined` when the option's content
+ * doesn't start on its own source line (mirrors `optionText`'s identical
+ * guard) — there is no single-line span left to replace.
+ */
+const replaceOptionTextEdit = (
+  content: string,
+  lines: readonly string[],
+  item: ListItem,
+  option: QuestionOption,
+  text: string,
+): SteeringEdit | undefined => {
+  const offset = optionContentOffset(item)
+  if (offset === undefined) return undefined
+  const position = toLspPositionFromOffset(content, offset)
+  if (position.line !== option.sourceLine) return undefined
+  const lineLength = (lines[option.sourceLine] ?? "").length
+  return {
+    range: { start: position, end: { line: option.sourceLine, character: lineLength } },
+    newText: text,
+  }
+}
+
+/**
+ * `qa`-mode's `apply`: only the `option` anchor resolves here — a
+ * `chunk`/`hunk` anchor (not this format's own kind) refuses
+ * `anchor-not-found`, mirroring `resolveQuestionsAnchor`'s own discipline.
+ * `opts.checked` defaults to `true` (picking an option always ticks it; there
+ * is no "leave it as found" case). `opts.text`, when given, replaces the
+ * option's own label in the SAME edit set as the tick — never a second
+ * `apply` call.
+ */
+const questionsApply: SteeringFormat["apply"] = (content, anchor, opts) => {
+  if (anchor.kind !== "option") return { ok: false, reason: "anchor-not-found" }
+  const { questions } = parseOpenQuestions(content)
+  const question = questions[anchor.questionIndex]
+  const option = question?.options[anchor.index]
+  if (!question || !option) return { ok: false, reason: "anchor-not-found" }
+
+  const checked = opts.checked ?? true
+  const edits = setOptionCheckedEdits(content, question, option, checked)
+
+  if (opts.text !== undefined) {
+    const tree = parseMarkdown(content)
+    const lines = content.split(/\r?\n/)
+    const item = taskItems(tree).find(
+      (it) => toLspPosition(it.position!.start).line === option.sourceLine,
+    )
+    const textEdit = item
+      ? replaceOptionTextEdit(content, lines, item, option, opts.text)
+      : undefined
+    if (textEdit) edits.push(textEdit)
+  }
+
+  return { ok: true, edits }
+}
+
 /** The single action for the option line the cursor sits on: uncheck it if ticked, else pick it (radio). `undefined` when there is no edit to make. */
 const optionAction = (
   content: string,
@@ -1126,4 +1215,5 @@ export const QA_FORMAT: SteeringFormat = {
   pointerAt: questionsPointerAt,
   view: questionsView,
   annotate: questionsAnnotate,
+  apply: questionsApply,
 }

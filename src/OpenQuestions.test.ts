@@ -1709,3 +1709,93 @@ describe("QA_FORMAT.annotate", () => {
     expect(QA_FORMAT.validate(applied)).toEqual([])
   })
 })
+
+/** Applies edits back-to-front (as `ui/Write.ts#applySteeringEdits` does) — local to this test file so `apply` tests can assert on the resulting document text, mirroring the `annotate` describe block above's own inline `toOffset`/splice pattern. */
+const applyEdits = (
+  content: string,
+  edits: readonly {
+    readonly range: {
+      readonly start: { readonly line: number; readonly character: number }
+      readonly end: { readonly line: number; readonly character: number }
+    }
+    readonly newText: string
+  }[],
+): string => {
+  const lines = content.split("\n")
+  const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+    return offset + pos.character
+  }
+  const sorted = [...edits].sort((a, b) => toOffset(b.range.start) - toOffset(a.range.start))
+  let result = content
+  for (const edit of sorted) {
+    result =
+      result.slice(0, toOffset(edit.range.start)) +
+      edit.newText +
+      result.slice(toOffset(edit.range.end))
+  }
+  return result
+}
+
+describe("QA_FORMAT.apply", () => {
+  const CONTENT = [
+    "## Open Questions",
+    "",
+    "### First?",
+    "",
+    "- [x] Option A",
+    "- [ ] Option B",
+    `- [ ] ${FREE_TEXT_PLACEHOLDER}`,
+    "",
+  ].join("\n")
+
+  it("radio: ticking one option unticks an already-ticked sibling", () => {
+    const result = QA_FORMAT.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 1 },
+      {
+        checked: true,
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(CONTENT, result.edits)
+    const { questions } = parseOpenQuestions(applied)
+    expect(questions[0]!.options.map((o) => o.checked)).toEqual([false, true, false])
+  })
+
+  it("ticking the free-text slot with text sets both the tick and the label in one edit set", () => {
+    const result = QA_FORMAT.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 2 },
+      {
+        checked: true,
+        text: "my real answer",
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(CONTENT, result.edits)
+    const { questions } = parseOpenQuestions(applied)
+    expect(questions[0]!.options[2]).toMatchObject({ checked: true, text: "my real answer" })
+    // radio semantics fired too: Option A (already ticked) is now unticked
+    expect(questions[0]!.options[0]!.checked).toBe(false)
+  })
+
+  it("a stale option index refuses anchor-not-found", () => {
+    expect(
+      QA_FORMAT.apply(CONTENT, { kind: "option", questionIndex: 0, index: 99 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+  })
+
+  it("a hunk/chunk anchor — not this format's own kind — refuses anchor-not-found", () => {
+    expect(QA_FORMAT.apply(CONTENT, { kind: "chunk", index: 0 }, { checked: true })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+    expect(
+      QA_FORMAT.apply(CONTENT, { kind: "hunk", chunkIndex: 0, index: 0 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+  })
+})

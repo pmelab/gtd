@@ -61,6 +61,17 @@ export interface ReviewViewProps {
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
   /** The done action (T2): saves the SAME note `onSaveNote` would, then hands the turn back — mirrors `Plan.tsx#PlanViewProps.onDoneNote`'s identical doc comment. Absent in `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`. */
   readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
+  /**
+   * Write-through for a hunk/chunk tick (package 03): the real `Review`
+   * container wires this to `trpc.setValue.mutateAsync` (invalidating
+   * `readSteeringFile` on settle), the exact SAME compare-and-swap `onSaveNote`
+   * uses for a note, just calling `SteeringFormat.apply` server-side instead
+   * of `annotate`. `useReviewState`'s `ticked` map stays optimistic/local
+   * either way — this is the write-through ALONGSIDE it, mirroring
+   * `saveNote`'s own revert-on-rejection pattern. Absent in
+   * `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`.
+   */
+  readonly onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>
 }
 
 /** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`, so a save/dismiss never has to re-look-up the node it came from. */
@@ -88,6 +99,7 @@ interface NoteSheetState {
 const useReviewState = (
   onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
   onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
+  onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>,
 ) => {
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
@@ -136,19 +148,34 @@ const useReviewState = (
   const toggleChunk = (chunk: SteeringViewNode) => {
     const hunks = hunksOf(chunk)
     const target = !(hunks.length > 0 && hunks.every(isChecked))
-    // Local-only by design — see package 04's own "Deliberately deferred to a
-    // later package" note under T4 for why ticks aren't wired to writeNote.
+    const previous = new Map(hunks.map((hunk) => [hunkKey(hunk.anchor), isChecked(hunk)]))
+    // Every hunk beneath the chunk updates locally for immediate feedback,
+    // but the write-through below is ONE `setValue` call at the chunk anchor
+    // — `REVIEW_FORMAT.apply` ticks every hunk beneath it server-side in one
+    // edit set, so a call per hunk would be redundant network traffic, not
+    // just slower.
     setTicked((prev) => {
       const next = { ...prev }
       for (const hunk of hunks) next[hunkKey(hunk.anchor)] = target
       return next
     })
+    onSetValue?.(chunk.anchor, target)?.catch(() => {
+      setTicked((prev) => {
+        const next = { ...prev }
+        for (const hunk of hunks)
+          next[hunkKey(hunk.anchor)] = previous.get(hunkKey(hunk.anchor)) ?? false
+        return next
+      })
+    })
   }
 
   const setHunkChecked = (hunk: SteeringViewNode, checked: boolean) => {
-    // Local-only by design — see package 04's own "Deliberately deferred to a
-    // later package" note under T4 for why ticks aren't wired to writeNote.
     setTicked((prev) => ({ ...prev, [hunkKey(hunk.anchor)]: checked }))
+    // A refused/failed write reverts the optimistic tick — mirrors `saveNote`'s
+    // own revert-on-rejection above.
+    onSetValue?.(hunk.anchor, checked)?.catch(() => {
+      setTicked((prev) => ({ ...prev, [hunkKey(hunk.anchor)]: !checked }))
+    })
   }
 
   const openChunk = (index: number) => {
@@ -348,8 +375,15 @@ const ChunkList = ({
  * Storybook/vitest-browser runs, so it scores this as untested.
  */
 // fallow-ignore-next-line complexity
-export const ReviewView = ({ view, isLoading, live, onSaveNote, onDoneNote }: ReviewViewProps) => {
-  const state = useReviewState(onSaveNote, onDoneNote)
+export const ReviewView = ({
+  view,
+  isLoading,
+  live,
+  onSaveNote,
+  onDoneNote,
+  onSetValue,
+}: ReviewViewProps) => {
+  const state = useReviewState(onSaveNote, onDoneNote, onSetValue)
 
   if (view === undefined) {
     return (
