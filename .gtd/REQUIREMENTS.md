@@ -29,35 +29,6 @@ package: `docs/cli.md`'s `## Commands` block and its exit-code table are pinned
 equal to rendered help output, so they red the instant the command is renamed. A
 concern that leaves them stale is not green on its own.
 
-## Open Questions
-
-### Is `gtd ui` still reachable from a phone over the network, or localhost-only?
-
-The branch is `feat/phone-web-ui` and the shipped server binds a configurable
-host over HTTPS with a QR code, a `--self-signed` escape hatch, and scenarios
-that refuse `--host` without a tailnet name or a cert. A server that lives for
-one step could instead bind loopback only and let the human port-forward. This
-decides whether `--host`, `--self-signed`, `serve.cert`/`serve.key`, `Tls.ts`,
-`Qr.ts` and both refusal scenarios survive or join the deletions.
-
-- [x] Keep network reach — bind a configurable host over HTTPS, keep the QR code
-      and the cert/tailnet refusals; a phone on the tailnet is the whole point
-- [ ] Loopback only — bind `127.0.0.1` over plain HTTP, delete TLS, QR, `--host`
-      and `--self-signed`; the human reaches it by port-forward or local browser
-- [ ] _your answer_
-
-### What does the outer loop see when the human closes the UI without handing off?
-
-Handoff exits the process, so the exit status is now the entire contract between
-the UI and the loop that started it. `docs/cli.md`'s exit-code table is a pinned
-generated view, so this lands in documented CLI surface either way.
-
-- [x] One status — handoff exits 0, and so does any other clean shutdown; the
-      loop re-reads state after every exit and needs no distinction
-- [ ] Distinct statuses — handoff exits 0, a human quitting or a signal exits
-      non-zero (130/143 for signals), so the loop can stop instead of relooping
-- [ ] _your answer_
-
 ## `gtd ui` replaces `gtd serve` as a single-worktree command
 
 PRODUCT. The command is named `ui`, and it operates on the worktree it is
@@ -72,6 +43,14 @@ a repo it must refuse, not start.
 
 The port is settled below: default 8443, `--port <n>` override, `ui.port` config
 key.
+
+**The UI keeps its network reach** — a phone on the tailnet is the whole point,
+so single-worktree scope shrinks nothing here. `gtd ui` binds a configurable
+host over HTTPS, prints the QR code, and keeps `--host`, `--self-signed`,
+`ui.cert`/`ui.key`, `src/serve/Tls.ts` and `src/serve/Qr.ts`. Both refusal
+scenarios survive as behaviour and are re-pointed at the new command name:
+`--host` without a tailnet name still refuses, and `--host` without a cert still
+refuses. Nothing in the TLS or QR path joins the deletions below.
 
 Forced into this concern, because they red the moment the name changes: the CLI
 help row and every flag `scope`/`scopeError` in `src/Cli.ts`, the `## Commands`
@@ -107,9 +86,23 @@ states that same contract a second time.
 `tests/integration/features/serve-loop-lifecycle.feature` is rewritten, not
 patched — every scenario in it pins spawn behaviour that no longer exists.
 
-Acceptance: a scenario drives handoff and asserts the process exits with the
-settled status, the note is on disk, and no child process was spawned; a config
-file with `ui.loop` fails to decode.
+**Handoff exits 0, and so does every other clean shutdown.** The UI never
+signals "the human quit" apart from "the human handed off" — the outer loop
+re-reads gtd state after the exit and decides from there, so it needs no
+distinction. That keeps `docs/cli.md`'s pinned exit-code table unchanged: 0
+success, 1 runtime error, 2 usage error, 130/143 for SIGINT/SIGTERM. A signal
+still exits 130/143 because the runtime does that, not because the UI encodes
+intent in it.
+
+Risk, stated plainly: a human who closes the tab without handing off produces
+the same exit 0 as a handoff, so a loop that reruns on exit 0 will loop on a
+step whose input never arrived. State on disk is the only thing that
+distinguishes them, and the loop must read it.
+
+Acceptance: a scenario drives handoff and asserts the process exits 0, the note
+is on disk, and no child process was spawned; a scenario closes the UI without
+handing off and asserts exit 0 with no note written; a config file with
+`ui.loop` fails to decode.
 
 ## Discovery, the fleet, and the loop-spawn machinery come out
 
@@ -197,3 +190,14 @@ with no caller is where the two confirmed security defects were living.
 
 Deleted, unless the client-entry work genuinely needs it. It has no importer
 outside its own test, and the rescope shrinks the client rather than growing it.
+
+### Is `gtd ui` still reachable from a phone over the network, or localhost-only?
+
+Over the network. It binds a configurable host over HTTPS and keeps the QR code,
+`--host`, `--self-signed`, `ui.cert`/`ui.key` and both cert/tailnet refusals — a
+phone on the tailnet is the whole point of the feature.
+
+### What does the outer loop see when the human closes the UI without handing off?
+
+Exit 0, the same as a handoff. One status for every clean shutdown; the loop
+re-reads gtd state after the exit rather than reading intent off the code.
