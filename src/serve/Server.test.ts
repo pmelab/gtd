@@ -1,7 +1,8 @@
 import * as https from "node:https"
 import * as http from "node:http"
 import * as net from "node:net"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
@@ -9,7 +10,9 @@ import { NodeContext } from "@effect/platform-node"
 import { createTRPCClient, httpBatchLink, TRPCClientError } from "@trpc/client"
 import { Effect, Exit, Fiber, Layer } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { liveHeadSha } from "./Beat.js"
 import type { AppRouter } from "./Router.js"
+import { contentHashOf } from "./Write.js"
 
 // `resolveBindHost`'s default `pickHost` reaches the real
 // `os.networkInterfaces()` — mocked so the "calls through to the real system
@@ -556,6 +559,191 @@ describe("the tRPC API surface mounted under /trpc", () => {
     } finally {
       if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
       else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+    }
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+})
+
+/**
+ * Starts a real `runServeCommand` (real `HttpsServer`, real self-signed
+ * cert) with `config.loop` set to `loopCommand` — the ONE piece of coverage
+ * `tests/integration/features/serve-loop-lifecycle.feature`'s own prose used
+ * to claim lived here but didn't: `Server.ts#createContext`'s live
+ * `startLoop(worktreePath, { registry, spawn: liveLoopSpawn, createShim,
+ * command: config?.loop })` wiring, reached only through a REAL `client.done`
+ * call over a REAL tRPC HTTP round trip — never through `Loop.test.ts`'s
+ * injected fakes or `Router.test.ts`'s injected `ctx.startLoop`. Mirrors
+ * `startScriptedServer`'s own shape; `noCommandRunner` is safe here since
+ * none of `done`/`stop`/the loop child touch the injected `CommandRunner` —
+ * `Write.ts#liveActorAt`/`liveHeadSha` and `Loop.ts#liveLoopSpawn` all spawn
+ * real subprocesses directly, bypassing that service entirely.
+ */
+const startServerWithLoop = async (
+  dir: string,
+  loopCommand: string,
+): Promise<{ readonly boundUrl: string; readonly fiber: Fiber.RuntimeFiber<void, unknown> }> => {
+  const certPath = join(dir, "cert.pem")
+  const keyPath = join(dir, "key.pem")
+  const cert = await Effect.runPromise(
+    generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
+      Effect.provide(CommandRunner.Live),
+      Effect.provide(Cwd.layer(dir)),
+      Effect.provide(NodeContext.layer),
+    ),
+  )
+  writeFileSync(certPath, cert.cert)
+  writeFileSync(keyPath, cert.key)
+
+  const written: string[] = []
+  const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
+
+  const fiber = Effect.runFork(
+    runServeCommand(
+      { selfSigned: false, dev: false, port: 0 },
+      { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0, loop: loopCommand },
+      out,
+    ).pipe(
+      Effect.provide(HttpsServer.Live),
+      Effect.provide(noCommandRunner),
+      Effect.provide(NodeContext.layer),
+      Effect.provide(Cwd.layer(dir)),
+    ),
+  )
+
+  for (let i = 0; i < 50; i += 1) {
+    if (written[0] !== undefined) return { boundUrl: written[0].trim(), fiber }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error("server never printed its bound URL")
+}
+
+/** Polls up to `timeoutMs` for `predicate()` to become true — the loop child's own marker-file write and its shim/registry bookkeeping are all real, asynchronous OS work, never a synchronous guarantee the instant a mutation call resolves. */
+const waitForCondition = async (predicate: () => boolean, timeoutMs = 3_000): Promise<void> => {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs)
+      throw new Error(`condition never became true within ${timeoutMs}ms`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+describe("the live done/stop wiring — Server.ts#createContext's real startLoop/stopLoop, never an injected fake", () => {
+  it("a real client.done spawns the configured loop command in the worktree; a second done refuses already-driving; client.stop ends it, letting a third done succeed", async () => {
+    // A real git repo — `Write.ts#liveHeadSha` reads `.git/HEAD` directly,
+    // filesystem-only, no subprocess and no injectable double.
+    // `--separate-git-dir` (a linked-worktree-shaped `.git` FILE carrying an
+    // ABSOLUTE `gitdir:` pointer, `WorktreeState.ts#worktreeGitDir`'s own
+    // pointer branch) rather than a plain `.git` directory: the plain-repo
+    // fallback there resolves relative to the CALLING PROCESS's own cwd
+    // (this test file's), never `path`, so `liveHeadSha` would silently read
+    // nothing from `tmpDir` at all — a real gitdir pointer sidesteps that
+    // entirely, and it's the shape gtd's own docs assume for "a worktree"
+    // throughout anyway.
+    const realGitDir = mkdtempSync(join(tmpdir(), "gtd-serve-test-gitdir-"))
+    execFileSync("git", ["init", "-q", `--separate-git-dir=${realGitDir}`], { cwd: tmpDir })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: tmpDir })
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: tmpDir })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: tmpDir })
+
+    // `Write.ts#liveActorAt` shells `gtd next --json` directly (via
+    // `Beat.ts#liveRunInWorktree`, `<worktreePath>/node_modules/.bin`
+    // prepended to $PATH) — a fake local install answers "human" for every
+    // invocation, so `done`'s own write half never refuses `not-resting`.
+    const localBinDir = join(tmpDir, "node_modules/.bin")
+    mkdirSync(localBinDir, { recursive: true })
+    writeFileSync(join(localBinDir, "gtd"), '#!/bin/sh\necho \'{"actor":"human"}\'\n', {
+      mode: 0o755,
+    })
+
+    const filePath = "NOTES.md"
+    const absPath = join(tmpDir, filePath)
+    const content = "Paragraph zero here.\n\nParagraph two here.\n\nParagraph four here.\n"
+    writeFileSync(absPath, content)
+    execFileSync("git", ["add", "-A"], { cwd: tmpDir })
+    execFileSync("git", ["commit", "-q", "-m", "chore: initial commit"], { cwd: tmpDir })
+    // The SAME `liveHeadSha` the real server itself uses (not a hand-rolled
+    // `git rev-parse HEAD`) — guarantees this test's own expected token can
+    // never drift from what `Write.ts`'s compare-and-swap actually reads.
+    const headSha = await liveHeadSha(tmpDir)
+    if (headSha === undefined) throw new Error("liveHeadSha resolved to undefined")
+
+    // The loop command itself never touches `gtd` at all — just proves it
+    // ran, in the right cwd, and keeps running until stopped.
+    const markerPath = join(tmpDir, "loop-ran.marker")
+    const loopCommand = `echo "ran-in:$(pwd)" > ${JSON.stringify(markerPath)}; sleep 30`
+
+    const { boundUrl, fiber } = await startServerWithLoop(tmpDir, loopCommand)
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+
+      const first = await client.done.mutate({
+        worktreePath: tmpDir,
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(content),
+        mode: "qa",
+        anchor: { kind: "paragraph", line: 0 },
+        text: "first note",
+      })
+      expect(first).toEqual({ ok: true })
+
+      // The child actually ran, in the worktree (not the server's own cwd).
+      await waitForCondition(() => {
+        try {
+          return readFileSync(markerPath, "utf8").length > 0
+        } catch {
+          return false
+        }
+      })
+      expect(readFileSync(markerPath, "utf8").trim()).toBe(`ran-in:${realpathSync(tmpDir)}`)
+
+      // Written by the first `done`'s own write half — the second call
+      // needs the token this produced, at a DIFFERENT anchor (the same one
+      // twice would be a `note-collision`, a different refusal).
+      const afterFirst = readFileSync(absPath, "utf8")
+      const secondData = await client.done
+        .mutate({
+          worktreePath: tmpDir,
+          filePath,
+          expectedHeadSha: headSha,
+          expectedContentHash: contentHashOf(afterFirst),
+          mode: "qa",
+          anchor: { kind: "paragraph", line: 2 },
+          text: "second note",
+        })
+        .catch((e: unknown) => e)
+      expect(secondData).toBeInstanceOf(TRPCClientError)
+      const driveRefusal = (secondData as InstanceType<typeof TRPCClientError>).data as {
+        driveRefusal?: { reason: string }
+      }
+      expect(driveRefusal.driveRefusal?.reason).toBe("already-driving")
+
+      const stopResult = await client.stop.mutate({ worktreePath: tmpDir })
+      expect(stopResult).toEqual({ ok: true })
+
+      // The refused second call's own write half still ran (write precedes
+      // the drive check) — its token is what a third, POST-stop call needs.
+      const afterSecond = readFileSync(absPath, "utf8")
+      const third = await client.done.mutate({
+        worktreePath: tmpDir,
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(afterSecond),
+        mode: "qa",
+        anchor: { kind: "paragraph", line: 4 },
+        text: "third note",
+      })
+      expect(third).toEqual({ ok: true })
+    } finally {
+      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+      rmSync(realGitDir, { recursive: true, force: true })
     }
 
     await Effect.runPromise(Fiber.interrupt(fiber))

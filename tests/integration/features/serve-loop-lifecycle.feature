@@ -10,12 +10,15 @@ Feature: gtd serve's loop lifecycle as a real OS process
   tier structurally cannot: that it actually starts, and that a restart
   (SIGINT/SIGTERM, same as Ctrl-C) kills it cleanly rather than hanging or
   leaving an orphaned process. The `done`/`stop` tRPC round trip itself —
-  spawning the configured loop command, registering it, killing it on
-  shutdown — is exercised at the `Server.test.ts` unit tier instead (a real
-  HTTPS listener, a real tRPC client, no `gtd` subprocess needed for that
-  part), since scripting a full loop-command fixture through a cucumber step
-  would duplicate that coverage without adding anything a live process
-  boundary specifically proves.
+  spawning the configured `serve.loop` command via the REAL
+  `Server.ts#createContext` wiring (`startLoop`/`stopLoop`, never an injected
+  fake), registering it, refusing a second `done` as already-driving,
+  ending it via `stop` — is exercised at the `Server.test.ts` unit tier
+  instead, by its own `describe("the live done/stop wiring — …")` block: a
+  real HTTPS listener, a real tRPC client, a real spawned loop command, no
+  `gtd` subprocess needed for that part. Scripting that same fixture through
+  a cucumber step here would duplicate that coverage without adding anything
+  a live PROCESS boundary (this file's own subject) specifically proves.
 
   Scenario: gtd serve binds for real and exits 130 on SIGINT — the same signal Ctrl-C sends
     Given a test project
