@@ -331,7 +331,7 @@ export const runServeCommand = (
           startLoop(worktreePath, {
             registry,
             spawn: liveLoopSpawn,
-            createShim: () => createShim(fs),
+            createShim: (worktreePath) => createShim(fs, worktreePath),
             command: config?.loop,
           }),
         stopLoop: (worktreePath) => stopLoop(worktreePath, registry),

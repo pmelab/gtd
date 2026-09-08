@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { rm } from "node:fs/promises"
 import { Context, Effect, Layer } from "effect"
 import { worktreeId } from "./Discover.js"
 import type { Registry } from "./Registry.js"
@@ -167,11 +168,15 @@ export const stopChild = (
 export interface StartLoopDeps {
   readonly registry: Registry
   readonly spawn: (request: LoopSpawnRequest) => LoopChild
-  /** Creates a fresh shim directory (see `Shim.ts#createShim`) for one spawn — an `Effect` (not yet run) so this module never imports `FileSystem` itself. */
-  readonly createShim: () => Effect.Effect<string, Error>
+  /** Creates a fresh shim directory (see `Shim.ts#createShim`) resolved to THIS worktree's own local install when it has one — an `Effect` (not yet run) so this module never imports `FileSystem` itself. */
+  readonly createShim: (worktreePath: string) => Effect.Effect<string, Error>
   /** `undefined` when `serve.loop` isn't configured — `startLoop` then rejects rather than spawning nothing useful. */
   readonly command: string | undefined
 }
+
+/** Best-effort recursive removal of a shim directory — a long-lived `gtd serve` would otherwise leak one temp directory per `done` action forever. Never throws: a cleanup failure (already gone, a permission quirk) is not worth failing anything over. */
+const removeShimDir = (dir: string): Promise<void> =>
+  rm(dir, { recursive: true, force: true }).catch(() => {})
 
 /**
  * The done action, second half: write the steering file (the caller's job,
@@ -183,7 +188,12 @@ export interface StartLoopDeps {
  * rejects or `deps.spawn` itself throws, `registry.release` frees the
  * reservation before rethrowing — otherwise that worktree would be pinned to
  * Working forever, refusing every later `done` as `already-driving` with no
- * real child ever having existed to exit and remove it.
+ * real child ever having existed to exit and remove it; a shim already
+ * created by that point is removed too, rather than left orphaned. Once the
+ * child DOES exist, its shim directory is removed once it exits (`removeShimDir`) —
+ * on any exit, clean or signalled — never before, since the shim's `PATH`
+ * entry has to keep resolving `gtd` for as long as the child (or anything it
+ * forked) might still call it.
  */
 export const startLoop = async (
   worktreePath: string,
@@ -194,13 +204,17 @@ export const startLoop = async (
   }
   const id = worktreeId(worktreePath)
   if (!deps.registry.reserve(id)) return { ok: false, reason: "already-driving" }
+  let shimDir: string | undefined
   try {
-    const shimDir = await Effect.runPromise(deps.createShim())
+    shimDir = await Effect.runPromise(deps.createShim(worktreePath))
     const child = deps.spawn({ command: deps.command, cwd: worktreePath, shimDir })
     deps.registry.replace(id, child)
+    const cleanup = shimDir
+    void child.wait.finally(() => void removeShimDir(cleanup))
     return { ok: true }
   } catch (error) {
     deps.registry.release(id)
+    if (shimDir !== undefined) void removeShimDir(shimDir)
     throw error
   }
 }

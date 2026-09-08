@@ -104,6 +104,17 @@ const waitUntilDead = async (pid: number, timeoutMs = 2_000): Promise<void> => {
   }
 }
 
+/** Polls until `path` no longer exists — `startLoop`'s own shim cleanup is fire-and-forget real (async) filesystem I/O, not something a synchronous check right after can observe reliably. */
+const waitUntilRemoved = async (path: string, timeoutMs = 2_000): Promise<void> => {
+  const start = Date.now()
+  while (existsSync(path)) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`${path} is still present after ${timeoutMs}ms`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
 /** Polls until `path` exists with non-empty content, returning it parsed as a pid — the loop command below writes its forked grandchild's pid to a file since `LoopChild` exposes no live stdout tap to scrape one out of mid-flight. */
 const readPidFileWhenReady = async (path: string, timeoutMs = 2_000): Promise<number> => {
   const start = Date.now()
@@ -387,6 +398,42 @@ describe("startLoop", () => {
       }),
     ).rejects.toThrow("spawn EMFILE")
     expect(registry.isDriving(worktreeId("/repos/x"))).toBe(false)
+  })
+
+  it("removes the shim directory once the child exits — a long-lived gtd serve must not leak one per done action", async () => {
+    const registry = new Registry()
+    const realShimDir = mkdtempSync(join(tmpDir, "gtd-real-shim-"))
+    const { child, resolve } = fakeChild()
+    await startLoop("/repos/x", {
+      registry,
+      spawn: () => child,
+      createShim: () => Effect.succeed(realShimDir),
+      command: "npm run loop",
+    })
+    expect(existsSync(realShimDir)).toBe(true)
+    resolve()
+    await child.wait
+    // The removal is chained onto the SAME `child.wait` promise the caller
+    // just awaited, but as its own fire-and-forget `.finally` doing REAL
+    // (async, libuv-threadpool) filesystem I/O — a couple of microtask
+    // ticks isn't a guarantee it has actually finished, so poll instead.
+    await waitUntilRemoved(realShimDir)
+  })
+
+  it("removes an already-created shim directory when spawn itself throws after shim creation succeeded", async () => {
+    const registry = new Registry()
+    const realShimDir = mkdtempSync(join(tmpDir, "gtd-real-shim-"))
+    await expect(
+      startLoop("/repos/x", {
+        registry,
+        spawn: () => {
+          throw new Error("spawn EMFILE")
+        },
+        createShim: () => Effect.succeed(realShimDir),
+        command: "npm run loop",
+      }),
+    ).rejects.toThrow("spawn EMFILE")
+    await waitUntilRemoved(realShimDir)
   })
 })
 
