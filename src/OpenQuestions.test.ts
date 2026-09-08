@@ -1783,6 +1783,43 @@ describe("QA_FORMAT.apply", () => {
     expect(questions[0]!.options[0]!.checked).toBe(false)
   })
 
+  it("trims trailing whitespace off a typed free-text answer, so the written label stays an oxfmt fixed point", () => {
+    const result = QA_FORMAT.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 2 },
+      {
+        checked: true,
+        text: "my real answer   ",
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(CONTENT, result.edits)
+    const { questions } = parseOpenQuestions(applied)
+    expect(questions[0]!.options[2]).toMatchObject({ checked: true, text: "my real answer" })
+    expect(applied).not.toMatch(/ +\n/)
+  })
+
+  it("collapses interior newlines in a typed free-text answer to a single line, so the written label stays an oxfmt fixed point", () => {
+    const result = QA_FORMAT.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 2 },
+      {
+        checked: true,
+        text: "line one\nline two",
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(CONTENT, result.edits)
+    const { questions } = parseOpenQuestions(applied)
+    expect(questions[0]!.options[2]).toMatchObject({ checked: true, text: "line one line two" })
+    // The option's own line count must stay exactly one — a real newline
+    // spliced into the label would split it into two markdown lines, one of
+    // them unindented free-floating text no longer inside the list item.
+    expect(applied.split("\n").filter((line) => line.includes("line one"))).toHaveLength(1)
+  })
+
   it("a stale option index refuses anchor-not-found", () => {
     expect(
       QA_FORMAT.apply(CONTENT, { kind: "option", questionIndex: 0, index: 99 }, { checked: true }),

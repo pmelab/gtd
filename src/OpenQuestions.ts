@@ -890,13 +890,27 @@ const replaceOptionTextEdit = (
 }
 
 /**
+ * Collapses a human-typed free-text answer to the single-line,
+ * whitespace-trimmed shape a list-item's own label must be — a raw textarea
+ * value can carry interior newlines or trailing whitespace, either of which
+ * would leave `.gtd/`'s own oxfmt fixed point broken the moment it's spliced
+ * onto a `- [x] ` line (AGENTS.md's "`.gtd/` is formatted, not ignored" rule
+ * — every steering file, including a server-written one, is covered by
+ * `format:check`). Interior whitespace, a real newline included, collapses
+ * to a single space — mirrors `headingText`'s identical normalization
+ * elsewhere in this file, applied here to a WRITE rather than a read.
+ */
+const normalizeFreeTextAnswer = (text: string): string => text.replace(/\s+/g, " ").trim()
+
+/**
  * `qa`-mode's `apply`: only the `option` anchor resolves here — a
  * `chunk`/`hunk` anchor (not this format's own kind) refuses
  * `anchor-not-found`, mirroring `resolveQuestionsAnchor`'s own discipline.
  * `opts.checked` defaults to `true` (picking an option always ticks it; there
- * is no "leave it as found" case). `opts.text`, when given, replaces the
- * option's own label in the SAME edit set as the tick — never a second
- * `apply` call.
+ * is no "leave it as found" case). `opts.text`, when given, is normalized
+ * (`normalizeFreeTextAnswer`) and replaces the option's own label in the SAME
+ * edit set as the tick — never a second `apply` call, and never the raw
+ * textarea value verbatim.
  */
 const questionsApply: SteeringFormat["apply"] = (content, anchor, opts) => {
   if (anchor.kind !== "option") return { ok: false, reason: "anchor-not-found" }
@@ -915,7 +929,7 @@ const questionsApply: SteeringFormat["apply"] = (content, anchor, opts) => {
       (it) => toLspPosition(it.position!.start).line === option.sourceLine,
     )
     const textEdit = item
-      ? replaceOptionTextEdit(content, lines, item, option, opts.text)
+      ? replaceOptionTextEdit(content, lines, item, option, normalizeFreeTextAnswer(opts.text))
       : undefined
     if (textEdit) edits.push(textEdit)
   }
