@@ -87,14 +87,11 @@ interface NoteSheetState {
  * chunk list) instead of a single large function carrying both state and
  * markup.
  *
- * Ticks are STILL local/optimistic UI state only:
- * `src/ReviewDoc.ts#toggleFilePointer`/`toggleChunkEdits` exist, but there is
- * no format-agnostic "toggle" member on `SteeringFormat` the way `annotate`
- * is one — adding that (and the router surface it'd need) is a real design
- * decision for a format-agnostic tick primitive, not this screen's call to
- * make alone. A saved NOTE, by contrast, already had everywhere it needed:
- * `annotate` is that exact generic primitive, so `onSaveNote` (when the
- * container supplies one) write-throughs via `writeNote` for real.
+ * `ticked`'s local map stays optimistic/tap-responsive UI state, exactly like
+ * `notes` below, but both `toggleChunk` and `setHunkChecked` ALSO write
+ * through via `onSetValue` (when the container supplies one) — `apply` is
+ * `SteeringFormat`'s format-agnostic tick primitive, splicing through
+ * `writeValue`'s compare-and-swap the same way `annotate` does for a note.
  */
 const useReviewState = (
   onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
@@ -421,6 +418,20 @@ export const ReviewView = ({
   return <ChunkList nodes={view.nodes} state={state} />
 }
 
+/**
+ * The terminal panel after `done` resolves (T2): the server has already
+ * written the note and called `ctx.handOff()`, so the process exits moments
+ * later — this needs no further server round trip, and offers no way back to
+ * any list. Identical in shape to `Plan.tsx#HandedBackPanel`; kept as two
+ * small copies rather than a shared import since each screen owns its own
+ * file per this package's declared scope.
+ */
+const HandedBackPanel = () => (
+  <div data-testid="handed-back-panel" style={{ padding: 16 }}>
+    Handed back — this turn is done.
+  </div>
+)
+
 export interface ReviewProps {
   /** Path to the review steering file, relative to the served worktree (`.gtd/REVIEW.md`, typically). */
   readonly filePath: string
@@ -444,7 +455,23 @@ export const Review = ({ filePath }: ReviewProps) => {
   const writeNote = trpc.writeNote.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode: "review" }),
   })
+  const setValue = trpc.setValue.useMutation({
+    onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode: "review" }),
+  })
   const done = trpc.done.useMutation()
+
+  const onSetValue = (anchor: SteeringAnchor, checked: boolean): Promise<unknown> => {
+    const data = query.data
+    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return setValue.mutateAsync({
+      filePath,
+      expectedHeadSha: data.headSha,
+      expectedContentHash: data.contentHash,
+      mode: "review",
+      anchor,
+      checked,
+    })
+  }
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const data = query.data
@@ -477,6 +504,15 @@ export const Review = ({ filePath }: ReviewProps) => {
       })
   }
 
+  // Once `done` resolves, the server has already written the note and called
+  // `ctx.handOff()` — the process exits moments later, so nothing here needs
+  // (or can get) another round trip. No screen offers a way back to a list,
+  // this included: rendering `ReviewView` past this point would let a human
+  // tap into a chunk/hunk whose write can never land.
+  if (done.isSuccess) {
+    return <HandedBackPanel />
+  }
+
   return (
     <ReviewView
       view={query.data?.view}
@@ -484,6 +520,7 @@ export const Review = ({ filePath }: ReviewProps) => {
       live={true}
       onSaveNote={onSaveNote}
       onDoneNote={onDoneNote}
+      onSetValue={onSetValue}
     />
   )
 }

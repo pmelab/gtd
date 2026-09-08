@@ -419,6 +419,20 @@ export const PlanView = ({
   )
 }
 
+/**
+ * The terminal panel after `done` resolves (T2): the server has already
+ * written the note and called `ctx.handOff()`, so the process exits moments
+ * later — this needs no further server round trip, and offers no way back to
+ * any list. Identical in shape to `Review.tsx#HandedBackPanel` — see that
+ * component's own doc comment for why this stays a second small copy rather
+ * than a shared import.
+ */
+const HandedBackPanel = () => (
+  <div data-testid="handed-back-panel" style={{ padding: 16 }}>
+    Handed back — this turn is done.
+  </div>
+)
+
 export interface PlanProps {
   /** Path to the plan/prose steering file, relative to the served worktree. */
   readonly filePath: string
@@ -491,6 +505,13 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
         // awaited), so an uncaught rejection this far down would be a real
         // unhandled promise rejection, not just a silently-discarded one.
       })
+  }
+
+  // Once `done` resolves, the server has already written the note and
+  // called `ctx.handOff()` — see `Review.tsx#Review`'s identical check for
+  // why nothing past this point renders `PlanView` again.
+  if (done.isSuccess) {
+    return <HandedBackPanel />
   }
 
   return (

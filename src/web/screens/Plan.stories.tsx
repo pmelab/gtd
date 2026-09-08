@@ -512,3 +512,99 @@ export const RealContainerSaveAndDoneCallsTrpcDone: StoryObj<typeof Plan> = {
     )
   },
 }
+
+/** A `useState`-backed recorder for the `setValue` mutation's own input — mirrors `PlanWriteCallRecorder`'s identical reasoning. */
+const PlanSetValueCallRecorder = ({
+  args,
+  onRegisterSetValue,
+}: {
+  readonly args: { readonly filePath: string; readonly mode: string }
+  readonly onRegisterSetValue: (record: (input: unknown) => void) => void
+}) => {
+  const [calls, setCalls] = useState<readonly unknown[]>([])
+  onRegisterSetValue((input) => setCalls((prev) => [...prev, input]))
+  return (
+    <>
+      <div data-testid="set-value-calls">{JSON.stringify(calls)}</div>
+      <Plan {...args} />
+    </>
+  )
+}
+
+/** Proves the REAL `Plan` container write-throughs picking a radio option via `trpc.setValue`, using the exact tokens `readSteeringFile` returned — closes the gap the spec review flagged (T4's "write question answers through to disk"). */
+export const RealContainerWriteThroughsAnAnswerViaSetValue: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "Sample plan.\n\n## Open Questions\n\n### Which option?\n",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: { nodes: [openQuestion(0, "Which option?")] },
+          }),
+          setValue: (input) => {
+            record(input)
+            return { ok: true }
+          },
+        }}
+      >
+        <PlanSetValueCallRecorder args={args} onRegisterSetValue={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("question-card-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("set-value-calls")).toHaveTextContent('"checked":true'),
+    )
+    await expect(canvas.getByTestId("set-value-calls")).toHaveTextContent(
+      JSON.stringify({
+        filePath: ".gtd/PLAN.md",
+        expectedHeadSha: "abc123",
+        expectedContentHash: "deadbeef",
+        mode: "qa",
+        anchor: { kind: "option", questionIndex: 0, index: 0 },
+        checked: true,
+      }).slice(1, -1),
+    )
+  },
+}
+
+/** After `done` resolves, the client renders the terminal "handed back" panel — no further server round trip, no way back to any list. Mirrors `Review.stories.tsx`'s identical story. */
+export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Plan> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: "A paragraph worth commenting on.",
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: {
+            nodes: [
+              { title: "A paragraph worth commenting on.", anchor: { kind: "paragraph", line: 0 } },
+            ],
+          },
+        }),
+        done: () => ({ ok: true }),
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openNoteSeamAndType(canvas, "handing back now")
+    await fireEvent.click(canvas.getByTestId("note-sheet-done"))
+    await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
+    await expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
+  },
+}

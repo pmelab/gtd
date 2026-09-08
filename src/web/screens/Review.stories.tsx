@@ -556,3 +556,143 @@ export const RealContainerSaveAndDoneCallsTrpcDone: StoryObj<typeof Review> = {
     )
   },
 }
+
+/** A `useState`-backed recorder for the `setValue` mutation's own input — mirrors `WriteCallRecorder`'s identical reasoning. */
+const SetValueCallRecorder = ({
+  args,
+  onRegisterSetValue,
+}: {
+  readonly args: { readonly filePath: string }
+  readonly onRegisterSetValue: (record: (input: unknown) => void) => void
+}) => {
+  const [calls, setCalls] = useState<readonly unknown[]>([])
+  onRegisterSetValue((input) => setCalls((prev) => [...prev, input]))
+  return (
+    <>
+      <div data-testid="set-value-calls">{JSON.stringify(calls)}</div>
+      <Review {...args} />
+    </>
+  )
+}
+
+/** Proves the REAL `Review` container write-throughs a single hunk tick via `trpc.setValue`, using the exact tokens `readSteeringFile` returned — closes the gap the spec review flagged (T4's "write hunk ticks through to disk"). */
+export const RealContainerWriteThroughsAHunkTickViaSetValue: StoryObj<typeof Review> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: SAMPLE_REVIEW_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          setValue: (input) => {
+            record(input)
+            return { ok: true }
+          },
+        }}
+      >
+        <SetValueCallRecorder args={args} onRegisterSetValue={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("set-value-calls")).toHaveTextContent('"checked":true'),
+    )
+    await expect(canvas.getByTestId("set-value-calls")).toHaveTextContent(
+      JSON.stringify({
+        filePath: ".gtd/REVIEW.md",
+        expectedHeadSha: "abc123",
+        expectedContentHash: "deadbeef",
+        mode: "review",
+        anchor: { kind: "hunk", chunkIndex: 0, index: 0 },
+        checked: true,
+      }).slice(1, -1),
+    )
+  },
+}
+
+/** Proves the REAL `Review` container write-throughs a chunk check-all as EXACTLY ONE `setValue` call at the chunk anchor — never one call per hunk beneath it (T4's own "never one call per hunk" acceptance bullet). */
+export const RealContainerChunkCheckAllCallsSetValueOnce: StoryObj<typeof Review> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: { nodes: [NESTED_CHUNK] } satisfies SteeringView,
+          }),
+          diff: () => ({ kind: "binary" }),
+          setValue: (input) => {
+            record(input)
+            return { ok: true }
+          },
+        }}
+      >
+        <SetValueCallRecorder args={args} onRegisterSetValue={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-check-all-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("set-value-calls")).toHaveTextContent('"checked":true'),
+    )
+    const calls = JSON.parse(canvas.getByTestId("set-value-calls").textContent ?? "[]") as unknown[]
+    await expect(calls).toHaveLength(1)
+    await expect(calls[0]).toEqual({
+      filePath: ".gtd/REVIEW.md",
+      expectedHeadSha: "abc123",
+      expectedContentHash: "deadbeef",
+      mode: "review",
+      anchor: { kind: "chunk", index: 0 },
+      checked: true,
+    })
+  },
+}
+
+/** After `done` resolves, the client renders the terminal "handed back" panel — no further server round trip, no way back to any list. Mirrors `Plan.stories.tsx`'s identical story. */
+export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: SAMPLE_REVIEW_VIEW,
+        }),
+        diff: () => ({ kind: "binary" }),
+        done: () => ({ ok: true }),
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openChunkNoteAndType(canvas, "handing back now")
+    await fireEvent.click(canvas.getByTestId("note-sheet-done"))
+    await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
+    await expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
+  },
+}
