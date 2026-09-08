@@ -696,3 +696,57 @@ export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Revie
     await expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
   },
 }
+
+/**
+ * "A hunk tick survives a page reload" (T5's own last acceptance bullet, and
+ * the requirement's own third acceptance clause): a FRESH mount of the real
+ * `Review` container against a `readSteeringFile` resolver whose hunk is
+ * already `checked: true` — the exact byte state a real `setValue` write
+ * leaves on disk. No tick happens before the assertion, so `useReviewState`'s
+ * local `ticked` map is still empty — `isChecked`'s own `hunk.checked === true`
+ * fallback is what must be reading true here, not an optimistic override a
+ * real reload would have discarded. The chunk's check-all reflects it too,
+ * since it derives from the exact same `isChecked` predicate.
+ */
+export const RealContainerAHunkTickSurvivesAPageReload: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: {
+            nodes: [
+              {
+                title: "Add calculator",
+                anchor: { kind: "chunk", index: 0 },
+                children: [
+                  {
+                    title: "./src/calc.ts#1",
+                    path: "./src/calc.ts",
+                    line: 1,
+                    checked: true,
+                    anchor: { kind: "hunk", chunkIndex: 0, index: 0 },
+                  },
+                ],
+              },
+            ],
+          } satisfies SteeringView,
+        }),
+        diff: () => ({ kind: "binary" }),
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-check-all-0")).toBeInTheDocument())
+    await expect(canvas.getByTestId("chunk-check-all-0")).toBeChecked()
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await expect(canvas.getByTestId("hunk-tick")).toBeChecked()
+  },
+}

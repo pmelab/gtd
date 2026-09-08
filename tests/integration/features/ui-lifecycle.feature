@@ -140,6 +140,57 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And the file "PLAN.md" contains "handed back"
 
   @live
+  Scenario: picking a question option writes the tick through to disk over a real setValue round trip
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": working
+              working:
+                actor: human
+                file: "PLAN.md"
+                mode: qa
+                prompt: "answer the plan"
+                on:
+                  "* **": idle
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file "PLAN.md" with:
+      """
+      Sample plan.
+
+      ## Open Questions
+
+      ### Which option?
+
+      - [ ] Option A
+      - [ ] Option B
+      """
+    # `spawnGtdUiAndSetValue` drives a REAL `setValue` mutation over a REAL
+    # HTTPS tRPC round trip against a REAL spawned `gtd ui`, splicing through
+    # `SteeringFormat.apply` server-side — the same checkbox write path the
+    # phone client's `Question.tsx` uses when a human picks an option, never
+    # a note/`annotate`/`done` round trip. Unlike a handoff, `setValue` never
+    # ends the turn, so the process is torn down explicitly afterward.
+    When I pick option 0 of question 0 in "PLAN.md" mode "qa" via a spawned gtd ui
+    Then the file "PLAN.md" contains "[x] Option A"
+
+  @live
   Scenario: closing the UI without handing off exits 0 and writes no note
     # `main.tsx`'s own `pagehide` listener fires a `sendBeacon` POST to
     # `/close` — `Server.ts`'s plain (non-tRPC) handler for it resolves the

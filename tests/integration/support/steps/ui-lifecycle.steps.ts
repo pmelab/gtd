@@ -13,6 +13,26 @@ When(
   },
 )
 
+// ── gtd ui's setValue write-through — a real checkbox mutation against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndSetValue) ──
+
+When(
+  "I pick option {int} of question {int} in {string} mode {string} via a spawned gtd ui",
+  async (
+    world: GtdWorld,
+    optionIndex: number,
+    questionIndex: number,
+    filePath: string,
+    mode: string,
+  ) => {
+    await world.spawnGtdUiAndSetValue(
+      filePath,
+      mode,
+      { kind: "option", questionIndex, index: optionIndex },
+      { checked: true },
+    )
+  },
+)
+
 // ── gtd ui's close-without-handoff — a real POST /close beacon against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndClose) ──
 
 When("I close a spawned gtd ui without handing off", async (world: GtdWorld) => {

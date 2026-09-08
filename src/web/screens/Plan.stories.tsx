@@ -608,3 +608,62 @@ export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Plan>
     await expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
   },
 }
+
+/**
+ * "An answer survives a page reload" (T4's own last acceptance bullet): a
+ * FRESH mount of the real `Plan` container — never `PlanView` driven by
+ * hand-built `answer` state — against a `readSteeringFile` resolver whose
+ * option is already `checked: true`, the exact byte state a real `setValue`
+ * write leaves on disk. No interaction happens before the assertion, so
+ * `Question.tsx`'s local `answers`/`QuestionAnswer` map is still empty —
+ * `defaultAnswerFor` seeding straight off `node.children`'s own `checked` is
+ * what must be reading true here, not an optimistic override left by a prior
+ * tap (which a real reload would have discarded along with the rest of the
+ * page's JS state).
+ */
+export const RealContainerAnAnsweredOptionSurvivesAPageReload: StoryObj<typeof Plan> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: "Sample plan.\n\n## Open Questions\n\n### Which option?\n",
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: {
+            nodes: [
+              {
+                title: "Which option?",
+                status: "open",
+                answered: true,
+                anchor: { kind: "question", index: 0 },
+                children: [
+                  {
+                    title: "Option A",
+                    checked: true,
+                    anchor: { kind: "option", questionIndex: 0, index: 0 },
+                  },
+                  {
+                    title: "Option B",
+                    checked: false,
+                    anchor: { kind: "option", questionIndex: 0, index: 1 },
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("question-card-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+  },
+}

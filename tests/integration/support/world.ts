@@ -18,6 +18,7 @@ import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 import { applyEmittedScript } from "../../../src/testing/EmittedScriptRecognizer.js"
 import { EXIT_OK } from "../../../src/ExitCodes.js"
 import type { AppRouter } from "../../../src/ui/Router.js"
+import type { SteeringAnchor } from "../../../src/SteeringFormat.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 // Exported so hooks.ts's PATH shim execs this SAME bundle, never a globally-installed gtd.
@@ -606,6 +607,56 @@ export class GtdWorld extends QuickPickleWorld {
 
     const { code, signal } = await exited
     this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+  }
+
+  /**
+   * Package 03's own on-disk round trip: a REAL `gtd ui` subprocess, a REAL
+   * `setValue` tRPC mutation against it, splicing through
+   * `SteeringFormat.apply` server-side (never `annotate`/`done` — this is
+   * the checkbox write-through, not a note or a handoff). Unlike
+   * `spawnGtdUiAndHandOff`/`spawnGtdUiAndClose`, `setValue` never ends the
+   * turn, so the process does NOT exit on its own — this kills it (SIGTERM,
+   * the same re-raise contract `spawnGtdUiAndSignal` uses) once the mutation
+   * has resolved, so the scenario itself is what tears the spawned process
+   * down, not a server-side handoff.
+   */
+  async spawnGtdUiAndSetValue(
+    filePath: string,
+    mode: string,
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<void> {
+    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/Write.js"),
+        import("@trpc/client"),
+      ])
+      // `git rev-parse HEAD` directly — see `spawnGtdUiAndHandOff`'s identical
+      // comment for why, not `liveHeadSha`.
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.setValue.mutate({
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(content),
+        mode,
+        anchor,
+        ...opts,
+      })
+    } finally {
+      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+    }
+
+    child.kill("SIGTERM")
+    await exited
   }
 
   /**
