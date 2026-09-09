@@ -1,33 +1,62 @@
 # Requirements
 
-currently, when trying to answer a question, i see:
-
-"Someone else committed a change underneath you — reload to see the latest
-before trying again."
-
-there seems to be an error. we have to fix it.
-
 ## Open Questions
 
-### Does the redesign ship a light theme, or stay dark-only?
+### When HEAD moves under an open page, should the write still refuse?
 
-- [x] Dark-only — keep `color-scheme: dark`; one palette to design, one set of
-      contrast ratios to prove, and the phone is used in a terminal-adjacent
-      context where dark is the expectation
-- [ ] Both — palette tokens resolve through `prefers-color-scheme`, so a
-      daylight phone is readable; doubles the palette and the contrast proof
+- [ ] Content-hash only — drop `expectedHeadSha` from the compare-and-swap
+      token, so only the steering file's own bytes gate a write. A commit that
+      touches nothing this page edits stops blocking answers. Cost: a write can
+      land on a file whose surrounding repository has moved on
+- [ ] Keep HEAD, recover in place — the client refetches the token and retries
+      the write once, silently, on `moved: "sha"`, and only shows the banner
+      when the retry also refuses or when the file's own bytes changed. Cost: a
+      write can be applied one commit later than the human saw
 - [ ] _your answer_
 
-### Does the anchored bottom bar carry each screen's primary action, or only the deck's Back/Next?
+## PRODUCT — Answering a question must not refuse with "someone else committed"
 
-- [x] Deck only — `Deck.tsx`'s Back/progress/Next becomes the anchored bar;
-      `Review`'s hand-back, `NoteSheet`'s save and the chunk-level controls stay
-      where they are, sized to 44px but in flow
-- [ ] Every screen — one shared bottom-bar component that every screen hangs its
-      primary action on, so the thumb always finds the commit action in the same
-      place; larger change, and `NoteSheet`'s sheet already owns the bottom of
-      the screen while the keyboard is open
-- [ ] _your answer_
+Answering a question on the phone refuses. The banner reads "Someone else
+committed a change underneath you — reload to see the latest before trying
+again." That sentence is `src/web/Refusal.tsx#13`, reachable only from
+`reason: "stale-token"` with `moved: "sha"`: **HEAD moved between the render the
+client took its token from and the write, and the file's own bytes are not the
+problem.** The human is told to reload, and reloading is the only recovery the
+client offers.
+
+Two mechanisms can produce that, and the fix has to establish which is live here
+before changing the token scheme:
+
+- `src/ui/Write.ts#155` — `verifyForWrite` calls `deps.actorAt` FIRST and reads
+  `deps.headSha` four lines later at `#159`. `liveActorAt` spawns
+  `gtd next --json` (`src/ui/Write.ts#233`). A `gtd next` on an edge-driven
+  state commits as part of that invocation, so the gate can move HEAD itself and
+  then compare the token against the HEAD it just moved. Self-inflicted, and it
+  refuses every write, not an occasional one.
+- The loop the server spawns commits `gtd(human): …`, `gtd(check): …` and
+  baseline repairs while a page stays open. Any one of them moves HEAD, and
+  every write from that page refuses from then on. With two open questions in
+  one file, answering the second one after the first lands is the ordinary path,
+  not an edge case.
+
+`src/ui/ReadSteeringFile.ts#61` adds a third, narrower failure: read coerces a
+missing sha to `""` (`?? ""`) while `src/ui/Write.ts#159` compares against
+`liveHeadSha`'s raw `string | undefined`. **A worktree where `liveHeadSha` fails
+— it is filesystem-only, reading `.git/HEAD`, then the loose ref, then
+`packed-refs`, and returns `undefined` on any read failure — refuses every write
+forever**, because `undefined !== ""`. Fix that asymmetry regardless of which
+token scheme the open question settles.
+
+**Acceptance**: a test that answers a question, moves HEAD with an unrelated
+commit, answers a second question, and expects the second answer on disk.
+`src/ui/Write.test.ts#353` currently asserts the opposite (`stale-token`,
+`moved: "sha"`) — that assertion encodes today's behaviour and gets rewritten
+with the token scheme, not worked around. `src/web/screens/Question.stories.tsx`
+lines 591, 622 and 697 pin the banner text; whichever writes stop refusing, the
+banner must still appear for a genuine content change.
+
+This concern is first. It is a functional refusal that stops the phone being
+usable at all, and the two redesign concerns below both edit the same screens.
 
 ## PRODUCT — Make every control reachable and hittable with one thumb
 
@@ -40,6 +69,12 @@ no target is sized for a thumb.
 Redesign the interaction layout around one-handed use: primary actions
 permanently inside the thumb-reachable bottom third, no hit target below 44×44
 CSS px, and no primary action that requires scrolling to reach.
+
+**Only `Deck.tsx`'s Back/progress/Next row becomes the anchored bar.**
+`Review`'s hand-back, `NoteSheet`'s save and the chunk-level controls stay in
+flow where they are, sized up to the 44px floor — no shared bottom-bar
+component, and nothing new competing with `NoteSheet`'s sheet for the bottom of
+the screen while the keyboard is open.
 
 **This concern also builds the one home for sizing and spacing values**, because
 a 44px floor and a spacing rhythm cannot land as literals re-typed in eleven
@@ -110,6 +145,10 @@ pressed / disabled) for every control. Contrast must clear WCAG AA — 4.5:1 for
 body text, 3:1 for large text and control boundaries. Ratios get asserted
 against the token values, not eyeballed.
 
+**Dark-only.** `color-scheme: dark` stays, there is no light palette and no
+`prefers-color-scheme` branch: one palette to design, one set of contrast ratios
+to prove.
+
 - `src/web/index.html#18` — the entire current palette: three hardcoded values
   in one inline `<style>`. This is where a real palette replaces them.
 - `src/web/Card.tsx#16` — the inline style block sets `background: none`,
@@ -120,6 +159,10 @@ against the token values, not eyeballed.
   unrenderable states are all `<div style={{ padding: 16 }}>` with raw text.
   Five user-facing states with no design at all; they are part of "prettier",
   not an exception to it.
+- `src/web/Refusal.tsx`'s banner is the seventh such state, and the first
+  concern above proves the human actually reads it. It needs a designed
+  treatment — legible against the dark page, distinct from a `Saved` label
+  sharing the same live region.
 - The four `*.stories.tsx` screen files (`Review.stories.tsx` ~32KB,
   `Plan.stories.tsx` ~30KB, `Question.stories.tsx` ~29KB, `Hunk.stories.tsx`
   ~14KB) are the harness for judging the result — every restyled control needs
@@ -139,6 +182,17 @@ the bundle stays one file, or make the inline step fail loudly on an un-inlined
 asset.
 
 ## Answered Questions
+
+### Does the redesign ship a light theme, or stay dark-only?
+
+Dark-only. `color-scheme: dark` stays and no `prefers-color-scheme` branch is
+added — one palette to design, one set of contrast ratios to prove.
+
+### Does the anchored bottom bar carry each screen's primary action, or only the deck's Back/Next?
+
+Only the deck's. `Deck.tsx`'s Back/progress/Next row becomes the anchored bar;
+`Review`'s hand-back, `NoteSheet`'s save and the chunk-level controls stay in
+flow, sized to the 44px floor.
 
 ### What is the minimum hit-target size — 44px or 48px?
 
@@ -164,6 +218,11 @@ call at review; geometry is not.
 
 Stays near-black dark with a single accent hue, refined rather than replaced —
 it matches the existing `color-scheme: dark` and is the smallest change that
-still answers "make it prettier". The human sees the result at review and can
-redirect it there; the open theme question above is the part that cannot be
-undone cheaply.
+still answers "make it prettier".
+
+### Does the refusal banner get an in-page recovery control instead of the word "reload"?
+
+Yes, if the open question above keeps HEAD in the token — a human told to reload
+on a phone loses their place in a deck. If the token drops HEAD, the banner only
+fires on a genuine content change, where re-reading the file is the honest
+instruction and a reload button is enough.
