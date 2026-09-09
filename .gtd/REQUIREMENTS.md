@@ -1,65 +1,65 @@
 # Requirements
 
-## Open Questions
-
-### When HEAD moves under an open page, should the write still refuse?
-
-- [ ] Content-hash only — drop `expectedHeadSha` from the compare-and-swap
-      token, so only the steering file's own bytes gate a write. A commit that
-      touches nothing this page edits stops blocking answers. Cost: a write can
-      land on a file whose surrounding repository has moved on
-- [x] Keep HEAD, recover in place — the client refetches the token and retries
-      the write once, silently, on `moved: "sha"`, and only shows the banner
-      when the retry also refuses or when the file's own bytes changed. Cost: a
-      write can be applied one commit later than the human saw
-- [ ] _your answer_
-
 ## PRODUCT — Answering a question must not refuse with "someone else committed"
-
-the error showed without anybody committing. it stopped at the human gate and i
-started the ui. no other operations running.
 
 Answering a question on the phone refuses. The banner reads "Someone else
 committed a change underneath you — reload to see the latest before trying
 again." That sentence is `src/web/Refusal.tsx#13`, reachable only from
-`reason: "stale-token"` with `moved: "sha"`: **HEAD moved between the render the
-client took its token from and the write, and the file's own bytes are not the
-problem.** The human is told to reload, and reloading is the only recovery the
-client offers.
+`reason: "stale-token"` with `moved: "sha"`. Nobody committed anything: the
+process stopped at a human gate, the ui was started, nothing else was running.
 
-Two mechanisms can produce that, and the fix has to establish which is live here
-before changing the token scheme:
+**Root cause, proven by running it: `liveHeadSha` (`src/ui/Beat.ts#332`) returns
+`undefined` in every linked worktree.** In this worktree `.git` is a file
+pointing at `…/gtd/.git/worktrees/feat-phone-web-ui`, so `worktreeGitDir`
+resolves there. That directory's `HEAD` is `ref: refs/heads/feat/phone-web-ui`,
+and both fallbacks miss: `join(gitDir, "refs/heads/feat/phone-web-ui")` does not
+exist — a linked worktree's gitdir carries no `refs/` tree, branch refs live in
+the common directory named by its `commondir` file — and `packed-refs` does not
+exist there either, so the `.catch(() => "")` yields an empty string with no
+match. `git rev-parse HEAD` in the same directory returns
+`db9e813850a8f6d06cdbe921971cb513f0194c06` without trouble.
 
-- `src/ui/Write.ts#155` — `verifyForWrite` calls `deps.actorAt` FIRST and reads
-  `deps.headSha` four lines later at `#159`. `liveActorAt` spawns
-  `gtd next --json` (`src/ui/Write.ts#233`). A `gtd next` on an edge-driven
-  state commits as part of that invocation, so the gate can move HEAD itself and
-  then compare the token against the HEAD it just moved. Self-inflicted, and it
-  refuses every write, not an occasional one.
-- The loop the server spawns commits `gtd(human): …`, `gtd(check): …` and
-  baseline repairs while a page stays open. Any one of them moves HEAD, and
-  every write from that page refuses from then on. With two open questions in
-  one file, answering the second one after the first lands is the ordinary path,
-  not an edge case.
+**That `undefined` becomes a token that can never match.**
+`src/ui/ReadSteeringFile.ts#61` coerces it to `""` (`?? ""`) and hands `""` to
+the client; `src/ui/Write.ts#159` compares the raw `string | undefined` against
+it, and `undefined !== ""` refuses. Every write behind `verifyForWrite` —
+`writeNote`, `setValue`, `done` — refuses with `moved: "sha"`, on the first
+attempt, forever, with no commit by anyone. **The phone is unusable in any
+linked worktree, which is how this repository is worked on.**
 
-`src/ui/ReadSteeringFile.ts#61` adds a third, narrower failure: read coerces a
-missing sha to `""` (`?? ""`) while `src/ui/Write.ts#159` compares against
-`liveHeadSha`'s raw `string | undefined`. **A worktree where `liveHeadSha` fails
-— it is filesystem-only, reading `.git/HEAD`, then the loose ref, then
-`packed-refs`, and returns `undefined` on any read failure — refuses every write
-forever**, because `undefined !== ""`. Fix that asymmetry regardless of which
-token scheme the open question settles.
+The fix is two changes, both required:
 
-**Acceptance**: a test that answers a question, moves HEAD with an unrelated
-commit, answers a second question, and expects the second answer on disk.
-`src/ui/Write.test.ts#353` currently asserts the opposite (`stale-token`,
-`moved: "sha"`) — that assertion encodes today's behaviour and gets rewritten
-with the token scheme, not worked around. `src/web/screens/Question.stories.tsx`
-lines 591, 622 and 697 pin the banner text; whichever writes stop refusing, the
-banner must still appear for a genuine content change.
+- Resolve the ref through the common directory: keep reading `HEAD` from the
+  per-worktree gitdir (it is per-worktree, correctly), but resolve
+  `refs/heads/*` and `packed-refs` against the path in `commondir`. A bare
+  40-hex detached `HEAD` keeps working as it does today.
+- Delete the `?? ""` asymmetry. An unresolvable sha must refuse the READ with a
+  named reason, never hand out a token no write can ever match. The current doc
+  comment on `ReadSteeringFileDeps` argues the opposite — that a mismatch is "a
+  normal, already-handled `stale-token` refusal either way" — and that reasoning
+  is what shipped this bug; it goes with the code.
 
-This concern is first. It is a functional refusal that stops the phone being
-usable at all, and the two redesign concerns below both edit the same screens.
+**HEAD stays in the compare-and-swap token, and the client recovers in place.**
+On `moved: "sha"` the client refetches `readSteeringFile` and retries the write
+once, silently; the banner appears only when that retry also refuses. A write
+may therefore land one commit later than the human saw it, which is accepted.
+
+Risk: **the retry must fire on `moved: "sha"` only, never on
+`moved: "content-hash"`, and never more than once.** Retrying a content-hash
+refusal silently overwrites an edit someone else made to the same file, and an
+uncapped retry turns two clients writing the same file into a loop.
+
+**Acceptance**: a test that builds a real linked worktree (`git worktree add`)
+and expects `liveHeadSha` to equal `git rev-parse HEAD` there — it fails today,
+and no existing fixture covers a linked worktree at all. Then a test that moves
+HEAD with an unrelated commit between render and write and expects the write to
+land through the single silent retry. `src/ui/Write.test.ts#353` asserts today's
+`stale-token`/`moved: "sha"` refusal and gets rewritten.
+`src/web/screens/Question.stories.tsx` lines 591, 622 and 697 pin the banner
+text — it must still appear for a genuine content-hash change.
+
+This concern is first. It is a total functional failure, and the two redesign
+concerns below edit the same screens.
 
 ## PRODUCT — Make every control reachable and hittable with one thumb
 
@@ -225,7 +225,20 @@ still answers "make it prettier".
 
 ### Does the refusal banner get an in-page recovery control instead of the word "reload"?
 
-Yes, if the open question above keeps HEAD in the token — a human told to reload
-on a phone loses their place in a deck. If the token drops HEAD, the banner only
-fires on a genuine content change, where re-reading the file is the honest
-instruction and a reload button is enough.
+Yes. HEAD stays in the token, so the banner survives as a real state — and a
+human told to reload on a phone loses their place in a deck. The banner gets a
+control that refetches and retries in place.
+
+### When HEAD moves under an open page, should the write still refuse?
+
+Keep HEAD in the token and recover in place: on `moved: "sha"` the client
+refetches the token and retries the write once, silently, showing the banner
+only when that retry also refuses or when the file's own bytes changed. A write
+may land one commit later than the human saw it.
+
+### Did a concurrent commit cause the refusal the human hit?
+
+No. The process stopped at a human gate with nothing else running, which ruled
+out the loop-commit theory and pointed at the read itself: `liveHeadSha` returns
+`undefined` in a linked worktree, and `readSteeringFile`'s `?? ""` turns that
+into a token no write can match.
