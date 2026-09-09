@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { basename, dirname, join } from "node:path"
+import { basename, dirname, isAbsolute, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { NodeContext } from "@effect/platform-node"
 import { Effect } from "effect"
@@ -322,12 +322,32 @@ export const readLocalGtdVersionAt = async (path: string): Promise<string | unde
 }
 
 /**
+ * The directory branch refs actually live in: `gitDir` itself for a normal
+ * (non-worktree) checkout, or the path named by a linked worktree's own
+ * `commondir` file otherwise. A linked worktree's gitdir (`worktreeGitDir`)
+ * carries a per-worktree `HEAD` but NO `refs/` tree and no `packed-refs` of
+ * its own — both live only in the common `.git` directory, named by
+ * `commondir` (a single line, relative to `gitDir` when not absolute).
+ * Falls back to `gitDir` itself when `commondir` doesn't exist — the
+ * non-worktree case, where `gitDir` already IS the common directory.
+ */
+const commonGitDir = async (gitDir: string): Promise<string> => {
+  try {
+    const raw = (await readFile(join(gitDir, "commondir"), "utf8")).trim()
+    return isAbsolute(raw) ? raw : join(gitDir, raw)
+  } catch {
+    return gitDir
+  }
+}
+
+/**
  * HEAD's sha, filesystem-only — reuses `WorktreeState.ts`'s `worktreeGitDir`
  * (via a one-off `Cwd` layer bound to `path`) for the `.git` resolution,
  * then follows `HEAD` itself: either a bare 40-hex sha (detached), or a
- * `ref: refs/heads/x` line resolved against the loose ref file, falling back
- * to `packed-refs` when the branch has been packed. Returns `undefined` on
- * any read failure.
+ * `ref: refs/heads/x` line resolved against the loose ref file or
+ * `packed-refs` — both resolved through `commonGitDir`, never against the
+ * per-worktree `gitDir` directly, since a linked worktree's own gitdir has
+ * neither. Returns `undefined` on any read failure.
  */
 export const liveHeadSha = async (path: string): Promise<string | undefined> => {
   try {
@@ -339,10 +359,11 @@ export const liveHeadSha = async (path: string): Promise<string | undefined> => 
     const refMatch = /^ref:\s*(.+)$/.exec(head)
     if (refMatch === null) return undefined
     const ref = refMatch[1]!.trim()
+    const refsDir = await commonGitDir(gitDir)
     try {
-      return (await readFile(join(gitDir, ref), "utf8")).trim()
+      return (await readFile(join(refsDir, ref), "utf8")).trim()
     } catch {
-      const packed = await readFile(join(gitDir, "packed-refs"), "utf8").catch(() => "")
+      const packed = await readFile(join(refsDir, "packed-refs"), "utf8").catch(() => "")
       for (const line of packed.split("\n")) {
         const [sha, name] = line.trim().split(" ")
         if (name === ref && sha !== undefined) return sha

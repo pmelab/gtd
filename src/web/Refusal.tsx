@@ -1,19 +1,19 @@
 import { useState } from "react"
-import { writeRefusalFrom, type WriteRefusalInfo } from "./api.js"
+import { writeRefusalFrom, type ReadRefusalInfo, type WriteRefusalInfo } from "./api.js"
 
 /** Every shape `useRefusal.show` can hold — `WriteRefusalInfo`'s six named reasons, plus `"unknown"` for an error `writeRefusalFrom` can't read at all (a network failure, a dead server) — package 03's own seventh, generic sentence. */
 export type RefusalState = WriteRefusalInfo | { readonly reason: "unknown" }
 
-/** One sentence per reason, naming which token moved for `stale-token` when known — never `error.message` (`api.ts#writeRefusalFrom`'s own doc comment: that text is for a log, not a client to display). */
+/** One sentence per reason, naming which token moved for `stale-token` when known — never `error.message` (`api.ts#writeRefusalFrom`'s own doc comment: that text is for a log, not a client to display). Task 01 drops "reload" from every one of these: the banner now recovers in place via `RefusalBanner`'s own `Try again` control, never by sending a human off to reload the page. */
 // fallow-ignore-next-line complexity
 const messageFor = (refusal: RefusalState): string => {
   switch (refusal.reason) {
     case "stale-token":
       return refusal.moved === "sha"
-        ? "Someone else committed a change underneath you — reload to see the latest before trying again."
+        ? "Someone else committed a change underneath you, and the automatic retry still didn't land — try again."
         : refusal.moved === "content-hash"
-          ? "The file's content changed underneath you — reload to see the latest before trying again."
-          : "This file changed underneath you — reload to see the latest before trying again."
+          ? "The file's content changed underneath you — try again once you've seen the latest."
+          : "This file changed underneath you — try again."
     case "not-resting":
       return "This step no longer rests with you, so that write was refused."
     case "file-vanished":
@@ -30,6 +30,25 @@ const messageFor = (refusal: RefusalState): string => {
 }
 
 /**
+ * One sentence per `readSteeringFile` refusal reason — `Plan.tsx`/`Review.tsx`
+ * render this in their "no view yet" branch instead of the generic "Could
+ * not load the plan/review." fallback. `head-unresolved` names a repository
+ * state a retry can't fix (task 01's own wording); the other two are
+ * ordinary, named failures, not the empty-message crutch that shipped
+ * before this existed.
+ */
+export const messageForReadRefusal = (refusal: ReadRefusalInfo): string => {
+  switch (refusal.reason) {
+    case "head-unresolved":
+      return "Can't read this repository's current commit — editing is disabled until that's fixed."
+    case "file-vanished":
+      return "The file this screen would show is no longer being served."
+    case "unsupported-mode":
+      return "This steering file's mode isn't supported by the phone client."
+  }
+}
+
+/**
  * Holds the current refusal (or `undefined`, meaning none) plus save-status
  * text shown through the SAME live region (Task 3's "same aria-live region"
  * bullet) — a refusal always takes priority over a `Saving…`/`Saved` label
@@ -42,14 +61,47 @@ export type SaveStatus = "idle" | "saving" | "saved"
 
 export const useRefusal = () => {
   const [refusal, setRefusal] = useState<RefusalState | undefined>(undefined)
+  const [retry, setRetry] = useState<(() => Promise<unknown>) | undefined>(undefined)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
 
-  /** Reads a thrown mutation error the same way every `.catch` in `Question.tsx`/`Review.tsx`/`Plan.tsx` already does — never `error.message`. */
-  const showRefusal = (error: unknown): void => {
+  /**
+   * Reads a thrown mutation error the same way every `.catch` in
+   * `Question.tsx`/`Review.tsx`/`Plan.tsx` already does — never
+   * `error.message`. `retryAction`, when a caller supplies one (task 01's
+   * "in-page recovery"), is the WHOLE write path that just failed — calling
+   * it again re-derives fresh compare-and-swap tokens and retries through
+   * `staleRetry.ts#withStaleShaRetry` itself, never a replay of the exact
+   * tokens that just refused. `setRetry(() => retryAction)` — not
+   * `setRetry(retryAction)` — because `useState`'s setter treats a bare
+   * function argument as an updater function, not a value to store.
+   */
+  const showRefusal = (error: unknown, retryAction?: () => Promise<unknown>): void => {
     setRefusal(writeRefusalFrom(error) ?? { reason: "unknown" })
+    setRetry(() => retryAction)
   }
 
-  const dismiss = (): void => setRefusal(undefined)
+  const dismiss = (): void => {
+    setRefusal(undefined)
+    setRetry(undefined)
+  }
+
+  /**
+   * `RefusalBanner`'s `Try again` control, `undefined` when the refusal that
+   * produced the current `refusal` state carried no retry thunk at all.
+   * Resolving clears the refusal like a genuine write success would;
+   * rejecting re-shows the SAME refusal (through the same `showRefusal`,
+   * with the SAME retry thunk still attached) so a second failed retry
+   * leaves the banner up rather than silently vanishing.
+   */
+  const onRetry =
+    retry === undefined
+      ? undefined
+      : (): void => {
+          retry().then(
+            () => dismiss(),
+            (error: unknown) => showRefusal(error, retry),
+          )
+        }
 
   /**
    * Wraps a mutation call with the `Saving…`/`Saved` affordance (Task 3) —
@@ -83,13 +135,15 @@ export const useRefusal = () => {
     )
   }
 
-  return { refusal, saveStatus, showRefusal, dismiss, trackSave }
+  return { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry }
 }
 
 export interface RefusalBannerProps {
   readonly refusal: RefusalState | undefined
   readonly saveStatus: SaveStatus
   readonly onDismiss: () => void
+  /** `useRefusal.onRetry` — absent when the current refusal carried no retry thunk, in which case the banner offers no `Try again` control at all (task 01's own `head-unresolved`, e.g., is never even routed through here — see `Plan.tsx`/`Review.tsx`'s "no view yet" branch instead). */
+  readonly onRetry?: (() => void) | undefined
 }
 
 /**
@@ -100,7 +154,7 @@ export interface RefusalBannerProps {
  * a save in flight/just-settled, rather than an empty live region.
  */
 // fallow-ignore-next-line complexity
-export const RefusalBanner = ({ refusal, saveStatus, onDismiss }: RefusalBannerProps) => {
+export const RefusalBanner = ({ refusal, saveStatus, onDismiss, onRetry }: RefusalBannerProps) => {
   const message =
     refusal !== undefined
       ? messageFor(refusal)
@@ -127,9 +181,16 @@ export const RefusalBanner = ({ refusal, saveStatus, onDismiss }: RefusalBannerP
     >
       <span data-testid="refusal-message">{message}</span>
       {refusal !== undefined && (
-        <button type="button" data-testid="refusal-dismiss" onClick={onDismiss}>
-          Dismiss
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {onRetry !== undefined && (
+            <button type="button" data-testid="refusal-retry" onClick={onRetry}>
+              Try again
+            </button>
+          )}
+          <button type="button" data-testid="refusal-dismiss" onClick={onDismiss}>
+            Dismiss
+          </button>
+        </div>
       )}
     </div>
   )

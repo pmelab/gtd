@@ -3,8 +3,9 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../Steer
 import { Card, CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { RefusalBanner, useRefusal } from "../Refusal.js"
-import { trpc } from "../api.js"
+import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
+import { readRefusalFrom, trpc } from "../api.js"
+import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
@@ -184,6 +185,8 @@ export interface PlanViewProps {
   /** The file's `contentHash` (`Write.ts#contentHashOf`, already computed server-side by `readSteeringFile`) — used ONLY to key the "read the plan" confirmation below. Never the raw file bytes: there is nothing else in this component that needs them since paragraph text comes from `view.nodes` (`OpenQuestions.ts#paragraphNodesOf`), not a client-side split of raw content. */
   readonly contentHash: string
   readonly isLoading: boolean
+  /** The `readSteeringFile` query's own thrown error, read through `api.ts#readRefusalFrom` to render a named sentence when `view` is `undefined` and nothing is loading — `Plan.stories.tsx`'s pure-data stories leave this unset and see the generic fallback. */
+  readonly readError?: unknown
   /**
    * Called with a saved paragraph note's `anchor`/`text` — the real `Plan`
    * container wires this to an actual `writeNote` mutation, returning
@@ -212,8 +215,20 @@ export interface PlanViewProps {
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ) => Promise<unknown>
-  /** Every write refusal this screen's mutations surface (package 03 Task 1) — passed straight to `Question.tsx`'s own `onRefusal`, and to `onSaveNote`/`onDoneNote`'s own `.catch`, so the same `RefusalBanner` the real `Plan` container mounts above this view shows a named reason instead of the write silently reverting. Absent in `Plan.stories.tsx`'s pure-data stories. */
-  readonly onRefusal?: (error: unknown) => void
+  /**
+   * Every write refusal this screen's mutations surface (package 03 Task 1)
+   * — passed straight to `Question.tsx`'s own `onRefusal`, and to
+   * `onSaveNote`/`onDoneNote`'s own `.catch`, so the same `RefusalBanner` the
+   * real `Plan` container mounts above this view shows a named reason
+   * instead of the write silently reverting. The optional second argument
+   * (task 01) is the whole write path that just failed, wired through to
+   * `RefusalBanner`'s own `Try again` control — `onSaveNote`'s own `.catch`
+   * below is the only call site here that supplies one; `Question.tsx`'s own
+   * `onRefusal` call (for `onCommitAnswer`) is unchanged and supplies none,
+   * since that screen already has its own retry-by-retyping affordance
+   * (package 03). Absent in `Plan.stories.tsx`'s pure-data stories.
+   */
+  readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
 }
 
 /** `onOpen` absent renders every card in this section as an inert summary row — used for "Already answered", whose questions carry no options to drill into (see `QuestionCard`'s own doc comment). */
@@ -302,6 +317,7 @@ export const PlanView = ({
   view,
   contentHash,
   isLoading,
+  readError,
   onSaveNote,
   onDoneNote,
   onCommitAnswer,
@@ -319,9 +335,14 @@ export const PlanView = ({
   const scroll = useScrollRestoration()
 
   if (view === undefined) {
+    const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
     return (
       <div style={{ padding: 16 }}>
-        {isLoading ? "Loading the plan…" : "Could not load the plan."}
+        {isLoading
+          ? "Loading the plan…"
+          : refusal !== undefined
+            ? messageForReadRefusal(refusal)
+            : "Could not load the plan."}
       </div>
     )
   }
@@ -344,7 +365,9 @@ export const PlanView = ({
           // A refused/failed write reverts the optimistic override — see
           // `Review.tsx#useReviewState`'s `saveNote`'s identical comment.
           onSaveNote?.(anchor, text)?.catch((error: unknown) => {
-            onRefusal?.(error)
+            // `onSaveNote` is surely defined here — this `.catch` only runs
+            // off a promise `onSaveNote?.(...)` itself returned.
+            onRefusal?.(error, () => onSaveNote(anchor, text))
             if (anchor.kind === "paragraph") {
               setNoteOverrides((prev) => {
                 const next = { ...prev }
@@ -362,7 +385,7 @@ export const PlanView = ({
                   setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
                 }
                 return onSaveNote(anchor, text).catch((error: unknown) => {
-                  onRefusal?.(error)
+                  onRefusal?.(error, () => onSaveNote(anchor, text))
                   if (anchor.kind === "paragraph") {
                     setNoteOverrides((prev) => {
                       const next = { ...prev }
@@ -467,28 +490,22 @@ export interface PlanProps {
   readonly mode: string
 }
 
-/** The compare-and-swap fields every one of `Plan`'s mutation wrappers sends — `filePath`/`mode` from props, `expectedHeadSha`/`expectedContentHash` from the live `readSteeringFile` read — factored out so `onCommitAnswer`/`onSaveNote`/`onDoneNote` don't each repeat the same five fields. `undefined` when the read hasn't resolved yet, mirroring `Review.tsx`'s identical "no steering file loaded yet" guard. */
+/** The compare-and-swap token pair every one of `Plan`'s mutation wrappers sends, off the live `readSteeringFile` read — `undefined` when the read hasn't resolved yet, mirroring `Review.tsx`'s identical "no steering file loaded yet" guard. */
 const casTokensFor = (
-  filePath: string,
-  mode: string,
-  anchor: SteeringAnchor,
   data: { readonly headSha: string; readonly contentHash: string } | undefined,
-) =>
+): CasTokens | undefined =>
   data === undefined
     ? undefined
-    : {
-        filePath,
-        expectedHeadSha: data.headSha,
-        expectedContentHash: data.contentHash,
-        mode,
-        anchor,
-      }
+    : { expectedHeadSha: data.headSha, expectedContentHash: data.contentHash }
 
 /**
  * Every mutation `Plan` wires up, pulled into one hook so the component
  * itself stays a thin fetch-then-render dispatch (see `useReviewState` in
  * `Review.tsx` for the same split, applied to that screen's own local state
- * instead of its mutations).
+ * instead of its mutations). Every write routes through
+ * `staleRetry.ts#withStaleShaRetry` (task 01): a `stale-token`/`moved: "sha"`
+ * refusal refetches fresh tokens and retries once, silently, before the
+ * banner ever shows.
  */
 const usePlanMutations = (
   filePath: string,
@@ -505,25 +522,46 @@ const usePlanMutations = (
   })
   const done = trpc.done.useMutation()
 
+  // `fetch`, never `invalidate` — the retry needs the fresh tokens back as a
+  // value to call `attempt` with a second time; `onSettled`'s own
+  // `invalidate` above stays and populates the SAME cache entry, so the two
+  // don't fight (see the package's own task 4 doc comment).
+  const refetchTokens = async (): Promise<CasTokens> => {
+    const fresh = await utils.readSteeringFile.fetch({ filePath, mode })
+    return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
+  }
+
   const onCommitAnswer = (
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<unknown> => {
-    const tokens = casTokensFor(filePath, mode, anchor, data)
+    const tokens = casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return setValue.mutateAsync({ ...tokens, ...opts })
+    return withStaleShaRetry(
+      (cas) => setValue.mutateAsync({ filePath, ...cas, mode, anchor, ...opts }),
+      tokens,
+      refetchTokens,
+    )
   }
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = casTokensFor(filePath, mode, anchor, data)
+    const tokens = casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return writeNote.mutateAsync({ ...tokens, text })
+    return withStaleShaRetry(
+      (cas) => writeNote.mutateAsync({ filePath, ...cas, mode, anchor, text }),
+      tokens,
+      refetchTokens,
+    )
   }
 
   const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = casTokensFor(filePath, mode, anchor, data)
+    const tokens = casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return done.mutateAsync({ ...tokens, text }).catch((error: unknown) => {
+    return withStaleShaRetry(
+      (cas) => done.mutateAsync({ filePath, ...cas, mode, anchor, text }),
+      tokens,
+      refetchTokens,
+    ).catch((error: unknown) => {
       // Shows the reason but never rethrows: `NoteSheet`'s own `onDone` is
       // fire-and-forget (never awaited), so an uncaught rejection this far
       // down would be a real unhandled promise rejection, not just a
@@ -550,7 +588,7 @@ const planViewDataProps = (
  */
 export const Plan = ({ filePath, mode }: PlanProps) => {
   const query = trpc.readSteeringFile.useQuery({ filePath, mode })
-  const { refusal, saveStatus, showRefusal, dismiss, trackSave } = useRefusal()
+  const { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry } = useRefusal()
   const { onCommitAnswer, onSaveNote, onDoneNote, isDone } = usePlanMutations(
     filePath,
     mode,
@@ -571,7 +609,12 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
 
   return (
     <>
-      <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
+      <RefusalBanner
+        refusal={refusal}
+        saveStatus={saveStatus}
+        onDismiss={dismiss}
+        onRetry={onRetry}
+      />
       {isDone ? (
         // Once `done` resolves, the server has already written the note and
         // called `ctx.handOff()` — see `Review.tsx#Review`'s identical check
@@ -581,6 +624,7 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
         <PlanView
           {...planViewDataProps(query.data)}
           isLoading={query.isLoading}
+          readError={query.error}
           onSaveNote={onSaveNoteTracked}
           onDoneNote={onDoneNote}
           onCommitAnswer={onCommitAnswerTracked}

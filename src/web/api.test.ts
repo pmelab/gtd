@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { writeRefusalFrom } from "./api.js"
+import { readRefusalFrom, writeRefusalFrom } from "./api.js"
 
 describe("writeRefusalFrom", () => {
   it("reads the reason and moved fields off error.data.writeRefusal", () => {
@@ -18,5 +18,20 @@ describe("writeRefusalFrom", () => {
     expect(writeRefusalFrom(null)).toBeUndefined()
     expect(writeRefusalFrom("boom")).toBeUndefined()
     expect(writeRefusalFrom(new Error("network error"))).toBeUndefined()
+  })
+})
+
+describe("readRefusalFrom", () => {
+  it("reads the reason off error.data.readRefusal", () => {
+    const error = { data: { readRefusal: { reason: "head-unresolved" } } }
+    expect(readRefusalFrom(error)).toEqual({ reason: "head-unresolved" })
+  })
+
+  it("returns undefined for an error with no readRefusal data", () => {
+    expect(readRefusalFrom({ data: {} })).toBeUndefined()
+    expect(readRefusalFrom({})).toBeUndefined()
+    expect(readRefusalFrom(null)).toBeUndefined()
+    expect(readRefusalFrom("boom")).toBeUndefined()
+    expect(readRefusalFrom(new Error("network error"))).toBeUndefined()
   })
 })

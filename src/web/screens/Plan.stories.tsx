@@ -406,6 +406,62 @@ export const RealContainerWriteThroughsAParagraphNoteViaWriteNote: StoryObj<type
   },
 }
 
+/** Task 01's own trigger: a linked worktree where `liveHeadSha` can't resolve — `readSteeringFile` refuses `head-unresolved` rather than handing out an empty token. The real `Plan` container renders the named sentence, with no retry control anywhere on screen. */
+export const RealContainerRendersHeadUnresolvedWithNoRetry: StoryObj<typeof Plan> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => {
+          throw {
+            error: {
+              message: "gtd ui: read refused (head-unresolved)",
+              code: -32600,
+              data: { code: "BAD_REQUEST", readRefusal: { reason: "head-unresolved" } },
+            },
+          }
+        },
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText(/Can't read this repository's current commit/)).toBeInTheDocument(),
+    )
+    expect(canvas.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument()
+  },
+}
+
+/** A `file-vanished` read refusal renders its own named sentence — never the generic "Could not load the plan." fallback a plain fetch failure would show. */
+export const RealContainerRendersFileVanishedByName: StoryObj<typeof Plan> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => {
+          throw {
+            error: {
+              message: "gtd ui: read refused (file-vanished)",
+              code: -32600,
+              data: { code: "NOT_FOUND", readRefusal: { reason: "file-vanished" } },
+            },
+          }
+        },
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByText(/no longer being served/)).toBeInTheDocument())
+    expect(canvas.queryByText("Could not load the plan.")).not.toBeInTheDocument()
+  },
+}
+
 /** A refused write must revert the optimistic `noteOverrides` entry — see `Review.stories.tsx#RealContainerRevertsTheOptimisticNoteOnARefusedWrite`'s identical doc comment. */
 export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<typeof Plan> = {
   render: (args) => (
@@ -437,6 +493,199 @@ export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<type
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() => expect(canvas.queryByTestId("paragraph-note-0")).not.toBeInTheDocument())
     await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Add note")
+  },
+}
+
+/**
+ * Task 01's own in-place recovery: `writeNote` refuses `moved: "sha"` on its
+ * first call — exactly what a linked worktree crossing a human gate looks
+ * like, per the package's own root-cause writeup — and `readSteeringFile`
+ * hands back a NEW `headSha` on the refetch `withStaleShaRetry` triggers.
+ * The write must land on the silent retry with no banner ever appearing.
+ */
+export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let readCalls = 0
+    let writeCalls = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => {
+            readCalls += 1
+            return {
+              ok: true,
+              content: "A paragraph worth commenting on.",
+              headSha: readCalls === 1 ? "abc123" : "def456",
+              contentHash: "deadbeef",
+              view: {
+                nodes: [
+                  {
+                    title: "A paragraph worth commenting on.",
+                    anchor: { kind: "paragraph", line: 0 },
+                  },
+                ],
+              },
+            }
+          },
+          writeNote: (input) => {
+            writeCalls += 1
+            if (writeCalls === 1) {
+              throw {
+                error: {
+                  message: "gtd ui: write refused (stale-token)",
+                  code: -32600,
+                  data: { code: "CONFLICT", writeRefusal: { reason: "stale-token", moved: "sha" } },
+                },
+              }
+            }
+            expect((input as { expectedHeadSha: string }).expectedHeadSha).toBe("def456")
+            return { ok: true }
+          },
+        }}
+      >
+        <Plan {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openNoteSeamAndType(canvas, "worth flagging")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("worth flagging"),
+    )
+    // The silent retry must never surface the refusal banner — a "Saved"
+    // status label (Task 3's own affordance) is fine, since the write DID
+    // eventually land; only the refusal sentence itself must never show.
+    expect(canvas.queryByText(/committed a change underneath you/)).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * Task 01's Task 5: a `content-hash` refusal (an actual concurrent edit,
+ * never auto-retried by `withStaleShaRetry`) shows the banner WITH its new,
+ * "reload"-free sentence and a `Try again` control. Pressing it re-runs the
+ * exact same write path; a `writeNote` resolver that succeeds on its second
+ * call proves the retry actually re-fires the write, landing the note and
+ * dismissing the banner.
+ */
+export const RealContainerTryAgainRerunsTheWriteAndDismissesOnSuccess: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    let writeCalls = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
+            },
+          }),
+          writeNote: (input) => {
+            writeCalls += 1
+            record(input)
+            if (writeCalls === 1) {
+              throw {
+                error: {
+                  message: "gtd ui: write refused (stale-token)",
+                  code: -32600,
+                  data: {
+                    code: "CONFLICT",
+                    writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                  },
+                },
+              }
+            }
+            return { ok: true }
+          },
+        }}
+      >
+        <PlanWriteCallRecorder args={args} onRegisterWriteNote={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openNoteSeamAndType(canvas, "worth flagging")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+        "The file's content changed underneath you",
+      ),
+    )
+    expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
+    await fireEvent.click(canvas.getByTestId("refusal-retry"))
+    // The refusal itself (and its `Try again` control) clears on a
+    // successful retry — the banner element can still exist showing Task
+    // 3's own "Saved" status label, which is a genuine, different success.
+    await waitFor(() => expect(canvas.queryByTestId("refusal-retry")).not.toBeInTheDocument())
+    expect(canvas.queryByText(/content changed underneath you/)).not.toBeInTheDocument()
+    // `writeNote` fired exactly twice: the original write that refused, and
+    // `Try again`'s own re-run of the SAME write path — proof this is a real
+    // retry, not a silent no-op the banner just happened to clear on.
+    await expect(canvas.getByTestId("write-calls")).toHaveTextContent("worth flagging")
+    const calls = JSON.parse(canvas.getByTestId("write-calls").textContent ?? "[]") as unknown[]
+    expect(calls).toHaveLength(2)
+  },
+}
+
+/** Pressing `Try again` on a refusal that fails AGAIN must leave the banner up, with the refusal's own message — never silently dismiss on a second failure. */
+export const RealContainerTryAgainOnASecondRefusalLeavesTheBannerUp: StoryObj<typeof Plan> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: "A paragraph worth commenting on.",
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: {
+            nodes: [
+              { title: "A paragraph worth commenting on.", anchor: { kind: "paragraph", line: 0 } },
+            ],
+          },
+        }),
+        writeNote: () => {
+          throw {
+            error: {
+              message: "gtd ui: write refused (stale-token)",
+              code: -32600,
+              data: {
+                code: "CONFLICT",
+                writeRefusal: { reason: "stale-token", moved: "content-hash" },
+              },
+            },
+          }
+        },
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openNoteSeamAndType(canvas, "worth flagging")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.getByTestId("refusal-banner")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("refusal-retry"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+        "The file's content changed underneath you",
+      ),
+    )
+    expect(canvas.getByTestId("refusal-banner")).toBeInTheDocument()
   },
 }
 

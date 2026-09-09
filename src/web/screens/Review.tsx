@@ -3,8 +3,9 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../Steer
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { RefusalBanner, useRefusal } from "../Refusal.js"
-import { trpc } from "../api.js"
+import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
+import { readRefusalFrom, trpc } from "../api.js"
+import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { Hunk, type HunkProps } from "./Hunk.js"
 
@@ -35,6 +36,8 @@ const noteKey = (anchor: SteeringAnchor): string =>
 export interface ReviewViewProps {
   readonly view: SteeringView | undefined
   readonly isLoading: boolean
+  /** The `readSteeringFile` query's own thrown error — mirrors `Plan.tsx#PlanViewProps.readError`'s identical doc comment. */
+  readonly readError?: unknown
   /**
    * `true` only for the real `Review` container — every hunk screen then
    * fetches its own diff live via `HunkDeck`'s `trpc.diff` call
@@ -73,8 +76,17 @@ export interface ReviewViewProps {
    * `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`.
    */
   readonly onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>
-  /** Every write refusal this screen's mutations surface (package 03 Task 1) — the same `RefusalBanner` the real `Review` container mounts above this view shows a named reason instead of the write silently reverting. Absent in `Review.stories.tsx`'s pure-data stories. */
-  readonly onRefusal?: (error: unknown) => void
+  /**
+   * Every write refusal this screen's mutations surface (package 03 Task 1)
+   * — the same `RefusalBanner` the real `Review` container mounts above
+   * this view shows a named reason instead of the write silently reverting.
+   * The optional second argument (task 01) mirrors
+   * `Plan.tsx#PlanViewProps.onRefusal`'s identical doc comment — see that
+   * for why `saveNote`/`autoSaveNote`/`toggleChunk`/`setHunkChecked` below
+   * each supply one and `doneNote` doesn't. Absent in `Review.stories.tsx`'s
+   * pure-data stories.
+   */
+  readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
 }
 
 /** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`, so a save/dismiss never has to re-look-up the node it came from. */
@@ -100,7 +112,7 @@ const useReviewState = (
   onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
   onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
   onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>,
-  onRefusal?: (error: unknown) => void,
+  onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void,
 ) => {
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
@@ -149,7 +161,9 @@ const useReviewState = (
     // (and the "keeps this round open" badge claiming it) forever, even
     // though the file was never actually touched.
     onSaveNote?.(anchor, text)?.catch((error: unknown) => {
-      onRefusal?.(error)
+      // `onSaveNote` is surely defined here — this `.catch` only runs off a
+      // promise `onSaveNote?.(...)` itself returned.
+      onRefusal?.(error, () => onSaveNote(anchor, text))
       setNotes((prev) => {
         const next = { ...prev }
         delete next[noteKey(anchor)]
@@ -163,7 +177,7 @@ const useReviewState = (
     setNotes((prev) => ({ ...prev, [noteKey(anchor)]: text }))
     return (
       onSaveNote?.(anchor, text)?.catch((error: unknown) => {
-        onRefusal?.(error)
+        onRefusal?.(error, () => onSaveNote(anchor, text))
         setNotes((prev) => {
           const next = { ...prev }
           delete next[noteKey(anchor)]
@@ -205,7 +219,7 @@ const useReviewState = (
       return next
     })
     onSetValue?.(chunk.anchor, target)?.catch((error: unknown) => {
-      onRefusal?.(error)
+      onRefusal?.(error, () => onSetValue(chunk.anchor, target))
       setTicked((prev) => {
         const next = { ...prev }
         for (const hunk of hunks) {
@@ -232,7 +246,7 @@ const useReviewState = (
     // latest issued for `key` (Task 7), so a stale rejection can never
     // clobber a newer, already-landed tick on the same hunk.
     onSetValue?.(hunk.anchor, checked)?.catch((error: unknown) => {
-      onRefusal?.(error)
+      onRefusal?.(error, () => onSetValue(hunk.anchor, checked))
       if (seqRef.current.get(key) === seq) {
         setTicked((prev) => ({ ...prev, [key]: !checked }))
       }
@@ -438,6 +452,7 @@ const ChunkList = ({
 export const ReviewView = ({
   view,
   isLoading,
+  readError,
   live,
   onSaveNote,
   onDoneNote,
@@ -447,9 +462,14 @@ export const ReviewView = ({
   const state = useReviewState(onSaveNote, onDoneNote, onSetValue, onRefusal)
 
   if (view === undefined) {
+    const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
     return (
       <div style={{ padding: 16 }}>
-        {isLoading ? "Loading the review…" : "Could not load the review."}
+        {isLoading
+          ? "Loading the review…"
+          : refusal !== undefined
+            ? messageForReadRefusal(refusal)
+            : "Could not load the review."}
       </div>
     )
   }
@@ -515,7 +535,7 @@ export interface ReviewProps {
  * story is its other real consumer.
  */
 export const Review = ({ filePath }: ReviewProps) => {
-  const { refusal, saveStatus, showRefusal, dismiss, trackSave } = useRefusal()
+  const { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry } = useRefusal()
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath, mode: "review" })
   const writeNote = trpc.writeNote.useMutation({
@@ -526,49 +546,54 @@ export const Review = ({ filePath }: ReviewProps) => {
   })
   const done = trpc.done.useMutation()
 
-  const onSetValue = (anchor: SteeringAnchor, checked: boolean): Promise<unknown> => {
+  // `fetch`, never `invalidate` — mirrors `Plan.tsx#usePlanMutations`'s
+  // identical `refetchTokens`/doc comment: the retry needs the fresh tokens
+  // back as a value, and `onSettled`'s own `invalidate` above already
+  // populates the same cache entry, so the two don't fight.
+  const refetchTokens = async (): Promise<CasTokens> => {
+    const fresh = await utils.readSteeringFile.fetch({ filePath, mode: "review" })
+    return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
+  }
+
+  const casTokensFor = (): CasTokens | undefined => {
     const data = query.data
-    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return setValue.mutateAsync({
-      filePath,
-      expectedHeadSha: data.headSha,
-      expectedContentHash: data.contentHash,
-      mode: "review",
-      anchor,
-      checked,
-    })
+    return data === undefined
+      ? undefined
+      : { expectedHeadSha: data.headSha, expectedContentHash: data.contentHash }
+  }
+
+  const onSetValue = (anchor: SteeringAnchor, checked: boolean): Promise<unknown> => {
+    const tokens = casTokensFor()
+    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return withStaleShaRetry(
+      (cas) => setValue.mutateAsync({ filePath, ...cas, mode: "review", anchor, checked }),
+      tokens,
+      refetchTokens,
+    )
   }
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const data = query.data
-    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return writeNote.mutateAsync({
-      filePath,
-      expectedHeadSha: data.headSha,
-      expectedContentHash: data.contentHash,
-      mode: "review",
-      anchor,
-      text,
-    })
+    const tokens = casTokensFor()
+    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return withStaleShaRetry(
+      (cas) => writeNote.mutateAsync({ filePath, ...cas, mode: "review", anchor, text }),
+      tokens,
+      refetchTokens,
+    )
   }
 
   const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const data = query.data
-    if (data === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return done
-      .mutateAsync({
-        filePath,
-        expectedHeadSha: data.headSha,
-        expectedContentHash: data.contentHash,
-        mode: "review",
-        anchor,
-        text,
-      })
-      .catch((error: unknown) => {
-        // Mirrors `Plan.tsx#Plan`'s identical `onDoneNote` catch — see its
-        // own doc comment for why this is caught, not rethrown.
-        showRefusal(error)
-      })
+    const tokens = casTokensFor()
+    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
+    return withStaleShaRetry(
+      (cas) => done.mutateAsync({ filePath, ...cas, mode: "review", anchor, text }),
+      tokens,
+      refetchTokens,
+    ).catch((error: unknown) => {
+      // Mirrors `Plan.tsx#Plan`'s identical `onDoneNote` catch — see its
+      // own doc comment for why this is caught, not rethrown.
+      showRefusal(error)
+    })
   }
 
   // Task 3's "Saving…"/"Saved" affordance — mirrors `Plan.tsx#Plan`'s
@@ -582,7 +607,12 @@ export const Review = ({ filePath }: ReviewProps) => {
 
   return (
     <>
-      <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
+      <RefusalBanner
+        refusal={refusal}
+        saveStatus={saveStatus}
+        onDismiss={dismiss}
+        onRetry={onRetry}
+      />
       {done.isSuccess ? (
         // Once `done` resolves, the server has already written the note and
         // called `ctx.handOff()` — the process exits moments later, so
@@ -595,6 +625,7 @@ export const Review = ({ filePath }: ReviewProps) => {
         <ReviewView
           view={query.data?.view}
           isLoading={query.isLoading}
+          readError={query.error}
           live={true}
           onSaveNote={onSaveNoteTracked}
           onDoneNote={onDoneNote}

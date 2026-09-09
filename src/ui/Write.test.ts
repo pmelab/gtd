@@ -347,6 +347,11 @@ describe("writeValue", () => {
     expect(written).toContain("[x] worth flagging")
   })
 
+  // Task 01's in-place recovery (`web/staleRetry.ts#withStaleShaRetry`) lives
+  // entirely client-side: it refetches and retries ONCE against the client's
+  // own stale HEAD guess. It changes nothing about the compare-and-swap
+  // itself — a genuine sha move (someone else really did commit) must still
+  // refuse here, every time, with no server-side softening of any kind.
   it("rejects a write whose sha moved, and the file is untouched", async () => {
     const deps = fakeDeps({ headSha: vi.fn(async () => "sha2") })
     const result = await writeValue(baseValueRequest(), deps)

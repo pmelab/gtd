@@ -47,3 +47,24 @@ export const writeRefusalFrom = (error: unknown): WriteRefusalInfo | undefined =
   }
   return { reason: reason as WriteRefusalInfo["reason"] }
 }
+
+/** `ui/ReadSteeringFile.ts#ReadSteeringFileResult`'s refusal half, read back off a `readSteeringFile` query's error — mirrors `WriteRefusalInfo`'s own shape and doc comment. `reason` mirrors `ui/ReadSteeringFile.ts`'s own union verbatim. */
+export interface ReadRefusalInfo {
+  readonly reason: "file-vanished" | "unsupported-mode" | "head-unresolved"
+}
+
+/**
+ * Reads the typed refusal off a `readSteeringFile` query's thrown error —
+ * `error.data.readRefusal`, as `Router.ts`'s `errorFormatter` attaches it —
+ * or `undefined` for anything else, exactly mirroring `writeRefusalFrom`.
+ */
+export const readRefusalFrom = (error: unknown): ReadRefusalInfo | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const data = (error as { data?: unknown }).data
+  if (typeof data !== "object" || data === null) return undefined
+  const refusal = (data as { readRefusal?: unknown }).readRefusal
+  if (typeof refusal !== "object" || refusal === null) return undefined
+  const reason = (refusal as { reason?: unknown }).reason
+  if (typeof reason !== "string") return undefined
+  return { reason: reason as ReadRefusalInfo["reason"] }
+}

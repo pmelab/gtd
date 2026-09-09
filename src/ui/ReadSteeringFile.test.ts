@@ -75,17 +75,11 @@ describe("readSteeringFile", () => {
     expect(result).toEqual({ ok: false, reason: "unsupported-mode" })
   })
 
-  it("falls back to an empty headSha string, never undefined, when the worktree has no commits yet", async () => {
+  it("refuses as head-unresolved when headSha resolves undefined, never an ok:true carrying an empty headSha", async () => {
     const result = await readSteeringFile(
       { worktreePath: "/repo", filePath: "x.md", mode: "qa" },
       depsFor({ "/repo/x.md": "Just prose.\n" }, undefined),
     )
-    expect(result).toEqual({
-      ok: true,
-      content: "Just prose.\n",
-      headSha: "",
-      contentHash: contentHashOf("Just prose.\n"),
-      view: QA_FORMAT.view("Just prose.\n"),
-    })
+    expect(result).toEqual({ ok: false, reason: "head-unresolved" })
   })
 })

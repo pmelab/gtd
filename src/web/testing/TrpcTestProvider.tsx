@@ -33,9 +33,16 @@ const mockLink = (
           observer.next({ result: { type: "data", data: resolve(op.input) } })
           observer.complete()
         } catch (error) {
-          observer.error(
-            TRPCClientError.from(error instanceof Error ? error : new Error(String(error))),
-          )
+          // `TRPCClientError.from` itself already handles every shape: a
+          // plain `Error` (message-only, `.data` absent), or a
+          // `{ error: { message, code, data } }` cause (`isTRPCErrorResponse`)
+          // — the shape a resolver throws to simulate a real refusal, e.g.
+          // `{ error: { message: "...", code: -32600, data: { readRefusal: {...} } } }`
+          // — carrying `.data` through untouched. Forcing every non-`Error`
+          // thrown value through `new Error(String(error))` (as this used to)
+          // discarded that shape entirely, so a resolver could never simulate
+          // a refusal with a typed `error.data.readRefusal`/`writeRefusal`.
+          observer.error(TRPCClientError.from(error as Error))
         }
       })
 }
@@ -56,7 +63,14 @@ export const TrpcTestProvider = ({
   readonly resolvers?: Readonly<Record<string, (input: unknown) => unknown>>
   readonly children: ReactNode
 }) => {
-  const [queryClient] = useState(() => new QueryClient())
+  // `retry: false` — react-query's default (3 retries, exponential backoff)
+  // would leave a query-error story's `waitFor` racing a ~30s backoff
+  // instead of seeing the rejection immediately, since every resolver here
+  // fails deterministically on every call (there's no real backend to
+  // eventually succeed against).
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  )
   const [client] = useState(() => trpc.createClient({ links: [mockLink(resolvers)] }))
   return (
     <trpc.Provider client={client} queryClient={queryClient}>

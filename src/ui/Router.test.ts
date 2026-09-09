@@ -295,6 +295,21 @@ describe("appRouter.readSteeringFile", () => {
     expect((cause as ReadSteeringFileRefusal).reason).toBe("unsupported-mode")
   })
 
+  it("surfaces a head-unresolved refusal as a typed ReadSteeringFileRefusal cause with a BAD_REQUEST code", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(undefined, undefined, undefined, () =>
+        Promise.resolve({ ok: false, reason: "head-unresolved" }),
+      ),
+    )
+    const error = await caller
+      .readSteeringFile({ filePath: "x.md", mode: "qa" })
+      .catch((e: unknown) => e)
+    const cause = (error as { cause?: unknown }).cause
+    expect(cause).toBeInstanceOf(ReadSteeringFileRefusal)
+    expect((cause as ReadSteeringFileRefusal).reason).toBe("head-unresolved")
+    expect((error as { code?: string }).code).toBe("BAD_REQUEST")
+  })
+
   it("rejects malformed input rather than reaching readSteeringFile", async () => {
     const caller = appRouter.createCaller(contextFor())
     await expect(caller.readSteeringFile({} as never)).rejects.toThrow()

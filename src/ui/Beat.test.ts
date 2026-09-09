@@ -274,6 +274,63 @@ describe("readStep [real git] — the spawned read never mutates the worktree", 
   })
 })
 
+describe("liveHeadSha in a linked worktree", () => {
+  const dirs: string[] = []
+
+  const gitExecIn = (dir: string, ...args: string[]): string =>
+    execSync(`git ${args.join(" ")}`, { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim()
+
+  afterEach(() => {
+    while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true })
+  })
+
+  const makeMainAndLinkedWorktree = (): { readonly main: string; readonly linked: string } => {
+    const main = realpathSync(mkdtempSync(join(tmpdir(), "gtd-beat-main-")))
+    dirs.push(main)
+    gitExecIn(main, "init", "-q")
+    gitExecIn(main, "config", "user.email", "test@test.com")
+    gitExecIn(main, "config", "user.name", "Test")
+    writeFileSync(join(main, "README.md"), "hello\n")
+    gitExecIn(main, "add", "README.md")
+    gitExecIn(main, "commit", "-q", "-m", "init")
+
+    const linkedParent = realpathSync(mkdtempSync(join(tmpdir(), "gtd-beat-linked-")))
+    dirs.push(linkedParent)
+    const linked = join(linkedParent, "linked")
+    gitExecIn(main, "worktree", "add", "-q", "-b", "linked-branch", linked)
+
+    return { main, linked }
+  }
+
+  it("resolves the same sha as `git rev-parse HEAD` run in the linked worktree, via a loose ref", async () => {
+    const { linked } = makeMainAndLinkedWorktree()
+    const expected = gitExecIn(linked, "rev-parse", "HEAD")
+
+    await expect(liveHeadSha(linked)).resolves.toBe(expected)
+  })
+
+  it("resolves the same sha through `packed-refs` once the main worktree packs its refs", async () => {
+    const { main, linked } = makeMainAndLinkedWorktree()
+    gitExecIn(main, "pack-refs", "--all")
+    const expected = gitExecIn(linked, "rev-parse", "HEAD")
+
+    await expect(liveHeadSha(linked)).resolves.toBe(expected)
+  })
+
+  it("still resolves a bare 40-hex detached HEAD in the linked worktree, untouched", async () => {
+    const { linked } = makeMainAndLinkedWorktree()
+    gitExecIn(linked, "checkout", "-q", "--detach", "HEAD")
+    const expected = gitExecIn(linked, "rev-parse", "HEAD")
+
+    await expect(liveHeadSha(linked)).resolves.toBe(expected)
+  })
+
+  it("spawns no subprocess", () => {
+    const source = liveHeadSha.toString()
+    expect(source).not.toMatch(/CommandRunner|\brun\(/)
+  })
+})
+
 describe("importing this module with no @pmelab/gtd package.json above it", () => {
   afterEach(() => {
     vi.doUnmock("node:fs")

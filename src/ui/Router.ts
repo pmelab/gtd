@@ -43,7 +43,7 @@ export class UnsupportedModeRefusal extends Error {
 
 /** One of `ReadSteeringFile.ts#ReadSteeringFileResult`'s two typed refusals, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.readRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. */
 export class ReadSteeringFileRefusal extends Error {
-  constructor(readonly reason: "file-vanished" | "unsupported-mode") {
+  constructor(readonly reason: "file-vanished" | "unsupported-mode" | "head-unresolved") {
     super(`gtd ui: read refused (${reason})`)
     this.name = "ReadSteeringFileRefusal"
   }

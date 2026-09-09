@@ -426,6 +426,62 @@ const SAMPLE_REVIEW_VIEW = {
   ],
 }
 
+/** Mirrors `Plan.stories.tsx#RealContainerRendersHeadUnresolvedWithNoRetry`'s identical doc comment. */
+export const RealContainerRendersHeadUnresolvedWithNoRetry: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => {
+          throw {
+            error: {
+              message: "gtd ui: read refused (head-unresolved)",
+              code: -32600,
+              data: { code: "BAD_REQUEST", readRefusal: { reason: "head-unresolved" } },
+            },
+          }
+        },
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText(/Can't read this repository's current commit/)).toBeInTheDocument(),
+    )
+    expect(canvas.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument()
+  },
+}
+
+/** Mirrors `Plan.stories.tsx#RealContainerRendersFileVanishedByName`'s identical doc comment. */
+export const RealContainerRendersFileVanishedByName: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => {
+          throw {
+            error: {
+              message: "gtd ui: read refused (file-vanished)",
+              code: -32600,
+              data: { code: "NOT_FOUND", readRefusal: { reason: "file-vanished" } },
+            },
+          }
+        },
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByText(/no longer being served/)).toBeInTheDocument())
+    expect(canvas.queryByText("Could not load the review.")).not.toBeInTheDocument()
+  },
+}
+
 export const RealContainerFetchesTheCurrentHunksDiffLive: StoryObj<typeof Review> = {
   render: (args) => (
     <TrpcTestProvider
@@ -521,6 +577,60 @@ export const RealContainerWriteThroughsASavedNoteViaWriteNote: StoryObj<typeof R
         text: "Looks good overall.",
       }).slice(1, -1),
     )
+  },
+}
+
+/** Mirrors `Plan.stories.tsx#RealContainerRecoversInPlaceFromAStaleShaRefusal`'s identical doc comment, applied to `Review`'s own note write. */
+export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof Review> = {
+  render: (args) => {
+    let readCalls = 0
+    let writeCalls = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => {
+            readCalls += 1
+            return {
+              ok: true,
+              content: REVIEW_CONTENT,
+              headSha: readCalls === 1 ? "abc123" : "def456",
+              contentHash: "deadbeef",
+              view: SAMPLE_REVIEW_VIEW,
+            }
+          },
+          diff: () => ({ kind: "binary" }),
+          writeNote: (input) => {
+            writeCalls += 1
+            if (writeCalls === 1) {
+              throw {
+                error: {
+                  message: "gtd ui: write refused (stale-token)",
+                  code: -32600,
+                  data: { code: "CONFLICT", writeRefusal: { reason: "stale-token", moved: "sha" } },
+                },
+              }
+            }
+            expect((input as { expectedHeadSha: string }).expectedHeadSha).toBe("def456")
+            return { ok: true }
+          },
+        }}
+      >
+        <Review {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openChunkNoteAndType(canvas, "Looks good overall.")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    // `chunk-note-0` is a fixed-label button ("Note"/"Edit note"), never the
+    // note's own text — "Edit note" is what proves a note now exists.
+    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note"))
+    // The silent retry must never surface the refusal banner — see
+    // `Plan.stories.tsx#RealContainerRecoversInPlaceFromAStaleShaRefusal`'s
+    // identical doc comment for why a "Saved" status label is fine here.
+    expect(canvas.queryByText(/committed a change underneath you/)).not.toBeInTheDocument()
   },
 }
 

@@ -21,7 +21,10 @@ export type ReadSteeringFileResult =
       readonly contentHash: string
       readonly view: SteeringView
     }
-  | { readonly ok: false; readonly reason: "file-vanished" | "unsupported-mode" }
+  | {
+      readonly ok: false
+      readonly reason: "file-vanished" | "unsupported-mode" | "head-unresolved"
+    }
 
 export interface ReadSteeringFileRequest {
   readonly worktreePath: string
@@ -30,7 +33,7 @@ export interface ReadSteeringFileRequest {
   readonly mode: string
 }
 
-/** Injected side effects, mirroring `Write.ts#WriteDeps`'s split — `headSha` absent (not `undefined`'s own string) is a real possibility (a fresh worktree with no commits yet), so it's carried through as `""` rather than failing the whole read over it: a token mismatch on write is a normal, already-handled `stale-token` refusal either way. */
+/** Injected side effects, mirroring `Write.ts#WriteDeps`'s split. */
 export interface ReadSteeringFileDeps {
   readonly headSha: (worktreePath: string) => Promise<string | undefined>
   readonly readFile: (absPath: string) => Promise<string | undefined>
@@ -58,6 +61,7 @@ export const readSteeringFile = async (
   const viewResult = steeringViewFor(request.mode, content)
   if (!viewResult.ok) return { ok: false, reason: "unsupported-mode" }
 
-  const headSha = (await deps.headSha(request.worktreePath)) ?? ""
+  const headSha = await deps.headSha(request.worktreePath)
+  if (headSha === undefined) return { ok: false, reason: "head-unresolved" }
   return { ok: true, content, headSha, contentHash: contentHashOf(content), view: viewResult.view }
 }
