@@ -3,6 +3,7 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../Steer
 import { Card, CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
+import { RefusalBanner, useRefusal } from "../Refusal.js"
 import { trpc } from "../api.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
@@ -214,6 +215,8 @@ export interface PlanViewProps {
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ) => Promise<unknown>
+  /** Every write refusal this screen's mutations surface (package 03 Task 1) — passed straight to `Question.tsx`'s own `onRefusal`, and to `onSaveNote`/`onDoneNote`'s own `.catch`, so the same `RefusalBanner` the real `Plan` container mounts above this view shows a named reason instead of the write silently reverting. Absent in `Plan.stories.tsx`'s pure-data stories. */
+  readonly onRefusal?: (error: unknown) => void
 }
 
 /** `onOpen` absent renders every card in this section as an inert summary row — used for "Already answered", whose questions carry no options to drill into (see `QuestionCard`'s own doc comment). */
@@ -307,6 +310,7 @@ export const PlanView = ({
   onSaveNote,
   onDoneNote,
   onCommitAnswer,
+  onRefusal,
 }: PlanViewProps) => {
   const { confirmed, confirm } = usePlanReadConfirmation(contentHash)
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
@@ -344,7 +348,8 @@ export const PlanView = ({
           setNoteSheetAnchor(undefined)
           // A refused/failed write reverts the optimistic override — see
           // `Review.tsx#useReviewState`'s `saveNote`'s identical comment.
-          onSaveNote?.(anchor, text)?.catch(() => {
+          onSaveNote?.(anchor, text)?.catch((error: unknown) => {
+            onRefusal?.(error)
             if (anchor.kind === "paragraph") {
               setNoteOverrides((prev) => {
                 const next = { ...prev }
@@ -393,6 +398,7 @@ export const PlanView = ({
               })
             }
             {...(onCommitAnswer !== undefined ? { onCommitAnswer } : {})}
+            {...(onRefusal !== undefined ? { onRefusal } : {})}
           />
         )}
       />
@@ -466,6 +472,7 @@ const usePlanMutations = (
   filePath: string,
   mode: string,
   data: { readonly headSha: string; readonly contentHash: string } | undefined,
+  onRefusal: (error: unknown) => void,
 ) => {
   const utils = trpc.useUtils()
   const writeNote = trpc.writeNote.useMutation({
@@ -494,11 +501,12 @@ const usePlanMutations = (
   const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const tokens = casTokensFor(filePath, mode, anchor, data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return done.mutateAsync({ ...tokens, text }).catch(() => {
-      // No refusal has a display yet — caught regardless and never
-      // rethrown: `NoteSheet`'s own `onDone` is fire-and-forget (never
-      // awaited), so an uncaught rejection this far down would be a real
-      // unhandled promise rejection, not just a silently-discarded one.
+    return done.mutateAsync({ ...tokens, text }).catch((error: unknown) => {
+      // Shows the reason but never rethrows: `NoteSheet`'s own `onDone` is
+      // fire-and-forget (never awaited), so an uncaught rejection this far
+      // down would be a real unhandled promise rejection, not just a
+      // silently-discarded one.
+      onRefusal(error)
     })
   }
 
@@ -520,26 +528,32 @@ const planViewDataProps = (
  */
 export const Plan = ({ filePath, mode }: PlanProps) => {
   const query = trpc.readSteeringFile.useQuery({ filePath, mode })
+  const { refusal, saveStatus, showRefusal, dismiss } = useRefusal()
   const { onCommitAnswer, onSaveNote, onDoneNote, isDone } = usePlanMutations(
     filePath,
     mode,
     query.data,
+    showRefusal,
   )
 
-  // Once `done` resolves, the server has already written the note and
-  // called `ctx.handOff()` — see `Review.tsx#Review`'s identical check for
-  // why nothing past this point renders `PlanView` again.
-  if (isDone) {
-    return <HandedBackPanel />
-  }
-
   return (
-    <PlanView
-      {...planViewDataProps(query.data)}
-      isLoading={query.isLoading}
-      onSaveNote={onSaveNote}
-      onDoneNote={onDoneNote}
-      onCommitAnswer={onCommitAnswer}
-    />
+    <>
+      <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
+      {isDone ? (
+        // Once `done` resolves, the server has already written the note and
+        // called `ctx.handOff()` — see `Review.tsx#Review`'s identical check
+        // for why nothing past this point renders `PlanView` again.
+        <HandedBackPanel />
+      ) : (
+        <PlanView
+          {...planViewDataProps(query.data)}
+          isLoading={query.isLoading}
+          onSaveNote={onSaveNote}
+          onDoneNote={onDoneNote}
+          onCommitAnswer={onCommitAnswer}
+          onRefusal={showRefusal}
+        />
+      )}
+    </>
   )
 }

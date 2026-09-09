@@ -23,6 +23,7 @@ const openable = (
  * (a phone over a tailnet with nothing on-screen to explain why) — every
  * branch below renders SOMETHING, even the in-flight and error ones.
  */
+// fallow-ignore-next-line complexity
 export const App = () => {
   const query = trpc.step.useQuery()
   const step = query.data

@@ -3,6 +3,7 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../Steer
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { NoteSheet } from "../NoteSheet.js"
+import { RefusalBanner, useRefusal } from "../Refusal.js"
 import { trpc } from "../api.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { Hunk, type HunkProps } from "./Hunk.js"
@@ -72,6 +73,8 @@ export interface ReviewViewProps {
    * `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`.
    */
   readonly onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>
+  /** Every write refusal this screen's mutations surface (package 03 Task 1) — the same `RefusalBanner` the real `Review` container mounts above this view shows a named reason instead of the write silently reverting. Absent in `Review.stories.tsx`'s pure-data stories. */
+  readonly onRefusal?: (error: unknown) => void
 }
 
 /** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`, so a save/dismiss never has to re-look-up the node it came from. */
@@ -97,6 +100,7 @@ const useReviewState = (
   onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
   onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
   onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>,
+  onRefusal?: (error: unknown) => void,
 ) => {
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
@@ -126,7 +130,8 @@ const useReviewState = (
     // CONFLICT (stale token, anchor moved, …) would leave this note showing
     // (and the "keeps this round open" badge claiming it) forever, even
     // though the file was never actually touched.
-    onSaveNote?.(anchor, text)?.catch(() => {
+    onSaveNote?.(anchor, text)?.catch((error: unknown) => {
+      onRefusal?.(error)
       setNotes((prev) => {
         const next = { ...prev }
         delete next[noteKey(anchor)]
@@ -156,7 +161,8 @@ const useReviewState = (
       for (const hunk of hunks) next[hunkKey(hunk.anchor)] = target
       return next
     })
-    onSetValue?.(chunk.anchor, target)?.catch(() => {
+    onSetValue?.(chunk.anchor, target)?.catch((error: unknown) => {
+      onRefusal?.(error)
       setTicked((prev) => {
         const next = { ...prev }
         for (const hunk of hunks)
@@ -170,7 +176,8 @@ const useReviewState = (
     setTicked((prev) => ({ ...prev, [hunkKey(hunk.anchor)]: checked }))
     // A refused/failed write reverts the optimistic tick — mirrors `saveNote`'s
     // own revert-on-rejection above.
-    onSetValue?.(hunk.anchor, checked)?.catch(() => {
+    onSetValue?.(hunk.anchor, checked)?.catch((error: unknown) => {
+      onRefusal?.(error)
       setTicked((prev) => ({ ...prev, [hunkKey(hunk.anchor)]: !checked }))
     })
   }
@@ -379,8 +386,9 @@ export const ReviewView = ({
   onSaveNote,
   onDoneNote,
   onSetValue,
+  onRefusal,
 }: ReviewViewProps) => {
-  const state = useReviewState(onSaveNote, onDoneNote, onSetValue)
+  const state = useReviewState(onSaveNote, onDoneNote, onSetValue, onRefusal)
 
   if (view === undefined) {
     return (
@@ -450,6 +458,7 @@ export interface ReviewProps {
  * story is its other real consumer.
  */
 export const Review = ({ filePath }: ReviewProps) => {
+  const { refusal, saveStatus, showRefusal, dismiss } = useRefusal()
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath, mode: "review" })
   const writeNote = trpc.writeNote.useMutation({
@@ -498,29 +507,35 @@ export const Review = ({ filePath }: ReviewProps) => {
         anchor,
         text,
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         // Mirrors `Plan.tsx#Plan`'s identical `onDoneNote` catch — see its
         // own doc comment for why this is caught, not rethrown.
+        showRefusal(error)
       })
   }
 
-  // Once `done` resolves, the server has already written the note and called
-  // `ctx.handOff()` — the process exits moments later, so nothing here needs
-  // (or can get) another round trip. No screen offers a way back to a list,
-  // this included: rendering `ReviewView` past this point would let a human
-  // tap into a chunk/hunk whose write can never land.
-  if (done.isSuccess) {
-    return <HandedBackPanel />
-  }
-
   return (
-    <ReviewView
-      view={query.data?.view}
-      isLoading={query.isLoading}
-      live={true}
-      onSaveNote={onSaveNote}
-      onDoneNote={onDoneNote}
-      onSetValue={onSetValue}
-    />
+    <>
+      <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
+      {done.isSuccess ? (
+        // Once `done` resolves, the server has already written the note and
+        // called `ctx.handOff()` — the process exits moments later, so
+        // nothing here needs (or can get) another round trip. No screen
+        // offers a way back to a list, this included: rendering `ReviewView`
+        // past this point would let a human tap into a chunk/hunk whose
+        // write can never land.
+        <HandedBackPanel />
+      ) : (
+        <ReviewView
+          view={query.data?.view}
+          isLoading={query.isLoading}
+          live={true}
+          onSaveNote={onSaveNote}
+          onDoneNote={onDoneNote}
+          onSetValue={onSetValue}
+          onRefusal={showRefusal}
+        />
+      )}
+    </>
   )
 }

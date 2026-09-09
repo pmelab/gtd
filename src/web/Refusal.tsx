@@ -5,6 +5,7 @@ import { writeRefusalFrom, type WriteRefusalInfo } from "./api.js"
 export type RefusalState = WriteRefusalInfo | { readonly reason: "unknown" }
 
 /** One sentence per reason, naming which token moved for `stale-token` when known — never `error.message` (`api.ts#writeRefusalFrom`'s own doc comment: that text is for a log, not a client to display). */
+// fallow-ignore-next-line complexity
 const messageFor = (refusal: RefusalState): string => {
   switch (refusal.reason) {
     case "stale-token":
@@ -71,8 +72,6 @@ export const useRefusal = () => {
   return { refusal, saveStatus, showRefusal, dismiss, trackSave }
 }
 
-export type UseRefusal = ReturnType<typeof useRefusal>
-
 export interface RefusalBannerProps {
   readonly refusal: RefusalState | undefined
   readonly saveStatus: SaveStatus
@@ -86,6 +85,7 @@ export interface RefusalBannerProps {
  * needed to discover it. Renders nothing when there is neither a refusal nor
  * a save in flight/just-settled, rather than an empty live region.
  */
+// fallow-ignore-next-line complexity
 export const RefusalBanner = ({ refusal, saveStatus, onDismiss }: RefusalBannerProps) => {
   const message =
     refusal !== undefined
