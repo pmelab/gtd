@@ -1,33 +1,5 @@
 # Architecture
 
-## Open Questions
-
-### How is the `tailscale` binary located?
-
-- [x] `$PATH` only — one `tailscale status --json` through `CommandRunner.bash`,
-      no path list to maintain; a macOS App Store install (binary at
-      `/Applications/Tailscale.app/Contents/MacOS/Tailscale`, never on `$PATH`)
-      silently falls back to the CGNAT IP and the cert refusal
-- [ ] `$PATH` first, then a hardcoded candidate list
-      (`/Applications/Tailscale.app/Contents/MacOS/Tailscale`,
-      `/usr/local/bin/tailscale`) — covers the App Store install, at the cost of
-      macOS-specific paths baked into `src/ui/`
-- [ ] _your answer_
-
-### What happens when `tailscale cert` itself fails after the branch was chosen?
-
-`Self.CertDomains` non-empty says the branch is available; the command can still
-exit non-zero — rate limit, HTTPS turned off between the two calls, a tailnet
-ACL change.
-
-- [ ] Fall through to the existing refusal, with `tailscale cert`'s own output
-      as extra hint lines — the user sees the real cause and the `--self-signed`
-      escape in one message
-- [x] Fail hard on the `tailscale cert` error alone, no fallback — the branch
-      was chosen deliberately, so a silent slide back into "no certificate
-      configured" hides a broken tailnet
-- [ ] _your answer_
-
 ## The served page carries no styling at all
 
 An inline `<style>` block in `src/web/index.html`'s `<head>`. Not a `.css` file,
@@ -108,6 +80,12 @@ call without stubbing pure logic:
 the DNS root (`…tailb2e719.ts.net.`) and that dot must never reach a URL or a QR
 code.
 
+**The binary is located through `$PATH` only** — one `tailscale status --json`
+through `CommandRunner.bash`, no candidate-path list. **Risk accepted: a macOS
+App Store install puts the binary at
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale` and never on `$PATH`, so
+that user silently gets the CGNAT IP and the certificate refusal.**
+
 Three empty results, each falling back to today's IP rather than failing: binary
 absent from `$PATH` (spawn failure or non-zero exit), `BackendState` not
 `"Running"`, MagicDNS off so no `DNSName` at all. **The probe never fails the
@@ -134,9 +112,17 @@ Certificate re-issue per invocation is accepted, not a problem to solve here:
 certificate when the existing one is still valid, so this is a local state-dir
 read, not a CA round trip per step.
 
+**A non-zero `tailscale cert` fails the command outright — no fallback to the
+refusal, no fallback to self-signed.** The error carries `tailscale cert`'s own
+output as hint lines. The branch was chosen because `CertDomains` said it was
+available, so a rate limit, an ACL change, or HTTPS switched off between the two
+calls is a broken tailnet, and sliding back into "no certificate is configured"
+would name the wrong cause. `--self-signed` remains the user's escape.
+
 **The refusal's two hint lines gain a third naming the Tailscale path**, or a
 user on a tailnet with HTTPS disabled reads a message that omits the reason they
-landed there.
+landed there. That refusal is reached only when `CertDomains` is empty — never
+after a failed `tailscale cert`.
 
 ### Comments this falsifies
 
@@ -192,3 +178,15 @@ it. Only the JSON parsing splits out, as pure code.
 
 `CertDomains[0]` first — it carries no trailing dot and its presence doubles as
 the HTTPS-enabled probe. `DNSName`, dot-stripped, is the fallback.
+
+### How is the `tailscale` binary located?
+
+`$PATH` only. A macOS App Store install is not on `$PATH` and falls back to the
+CGNAT IP and the certificate refusal — accepted, rather than baking
+macOS-specific paths into `src/ui/`.
+
+### What happens when `tailscale cert` itself fails after the branch was chosen?
+
+It fails the command hard, surfacing `tailscale cert`'s own output — no
+fallback. A silent slide back into the generic refusal would hide a broken
+tailnet.
