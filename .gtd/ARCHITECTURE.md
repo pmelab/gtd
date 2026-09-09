@@ -22,7 +22,7 @@ silently.
       `scripts/inline-web-client.mjs` to inline the emitted `main.css` into a
       `<style>` tag (and to throw when an emitted asset is left un-inlined),
       plus a `tests/tooling/` test pinning that behaviour.
-- [ ] _your answer_
+- [x] add tailwindcss and use that
 
 ## Concern 1 — Worktree-correct HEAD token and in-place recovery
 
