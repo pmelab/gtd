@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
-import type { SteeringView } from "../../SteeringFormat.js"
+import type { SteeringAnchor, SteeringView } from "../../SteeringFormat.js"
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { Review, ReviewView } from "./Review.js"
 
@@ -174,6 +174,80 @@ export const UntickingAChunkUnticksEveryHunk: Story = {
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(canvas.getByTestId("hunk-tick")).not.toBeChecked() // nested hunk 2
     await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 3 / 3")
+  },
+}
+
+/**
+ * A hand-built `onSetValue` whose write for hunk A (index 0) never resolves
+ * until this harness's own "Reject A" button fires it — every OTHER anchor
+ * (hunk B, index 1) resolves immediately. Exposes the pending rejection as a
+ * DOM control rather than a closure the play function has no seam back into,
+ * mirroring `Review.stories.tsx`'s existing recorder-component pattern.
+ */
+const TwoHunkRevertHarness = () => {
+  const pendingRejectRef = useRef<((error: unknown) => void) | undefined>(undefined)
+  const onSetValue = (anchor: SteeringAnchor, checked: boolean): Promise<unknown> => {
+    void checked
+    if (anchor.kind === "hunk" && anchor.index === 0) {
+      return new Promise((_resolve, reject) => {
+        pendingRejectRef.current = reject
+      })
+    }
+    return Promise.resolve({ ok: true })
+  }
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="reject-hunk-a"
+        onClick={() => pendingRejectRef.current?.(new Error("stale token"))}
+      >
+        Reject A
+      </button>
+      <ReviewView view={SAMPLE_VIEW} isLoading={false} onSetValue={onSetValue} />
+    </>
+  )
+}
+
+/**
+ * Package 03's Task 7: a rejected write for one hunk (anchor A) must not
+ * clobber a LATER, already-issued tick on a different hunk (anchor B) — the
+ * per-hunk-key sequence number (`useReviewState`'s `seqRef`) is what makes
+ * this safe; the previous whole-state `previous` Map snapshot would instead
+ * revert B too, since it captured every hunk's state at A's own call time.
+ */
+export const ARejectedTickOnOneHunkLeavesALaterTickOnAnotherHunkStanding: StoryObj<
+  typeof ReviewView
+> = {
+  render: () => <TwoHunkRevertHarness />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    // Ticks hunk A (index 0) — its own `setValue` never resolves yet.
+    // `Hunk.tsx`'s own `onToggle` auto-approves on a tick to `true`, which
+    // advances the deck straight to hunk B — never asserted checked here,
+    // since by the time the assertion could run the screen has already
+    // moved on to a different hunk's own (unrelated) checkbox.
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+
+    // Now on hunk B's (index 1) own screen — ticks it too; its own
+    // `setValue` resolves immediately. Auto-approves again, advancing to the
+    // nested hunk (index 2).
+    await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 2 / 3")
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 3 / 3")
+
+    // Now A's write rejects, late — B's tick (a LATER, already-issued write)
+    // must still stand.
+    await fireEvent.click(canvas.getByTestId("reject-hunk-a"))
+
+    await fireEvent.click(canvas.getByTestId("deck-prev"))
+    await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 2 / 3")
+    await waitFor(() => expect(canvas.getByTestId("hunk-tick")).toBeChecked()) // still B
+
+    await fireEvent.click(canvas.getByTestId("deck-prev"))
+    await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 1 / 3")
+    await waitFor(() => expect(canvas.getByTestId("hunk-tick")).not.toBeChecked()) // A reverted
   },
 }
 
@@ -698,17 +772,20 @@ export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Revie
 }
 
 /**
- * "A hunk tick survives a page reload" (T5's own last acceptance bullet, and
- * the requirement's own third acceptance clause): a FRESH mount of the real
- * `Review` container against a `readSteeringFile` resolver whose hunk is
- * already `checked: true` — the exact byte state a real `setValue` write
- * leaves on disk. No tick happens before the assertion, so `useReviewState`'s
- * local `ticked` map is still empty — `isChecked`'s own `hunk.checked === true`
- * fallback is what must be reading true here, not an optimistic override a
- * real reload would have discarded. The chunk's check-all reflects it too,
- * since it derives from the exact same `isChecked` predicate.
+ * A FRESH mount of the real `Review` container against a `readSteeringFile`
+ * resolver whose hunk is already `checked: true` — the exact byte state a
+ * real `setValue` write leaves on disk. No tick happens before the
+ * assertion, so `useReviewState`'s local `ticked` map is still empty —
+ * `isChecked`'s own `hunk.checked === true` fallback is what must be reading
+ * true here, not an optimistic override. The chunk's check-all reflects it
+ * too, since it derives from the exact same `isChecked` predicate. This
+ * proves only that a fresh mount re-reads server state, NOT that a reload
+ * survives — package 03's real reload acceptance is `ui-lifecycle.feature`'s
+ * `@live` "a page reload does not kill gtd ui" scenario, which exercises the
+ * actual process across a real reload; nothing here can, since Storybook
+ * never tears down and remounts the page.
  */
-export const RealContainerAHunkTickSurvivesAPageReload: StoryObj<typeof Review> = {
+export const RealContainerReadsAnAlreadyTickedHunkOnFreshMount: StoryObj<typeof Review> = {
   render: (args) => (
     <TrpcTestProvider
       resolvers={{

@@ -198,11 +198,11 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Then the file ".gtd/PLAN.md" contains "[x] Option A"
 
   @live
-  Scenario: closing the UI without handing off exits 0 and writes no note
-    # `main.tsx`'s own `pagehide` listener fires a `sendBeacon` POST to
-    # `/close` — `Server.ts`'s plain (non-tRPC) handler for it resolves the
-    # SAME deferred `handOff` does, with no write ever attempted, so the
-    # process exits 0 exactly like a real handoff, just with nothing landed.
+  Scenario: a page reload does not kill gtd ui — it survives and still hands off through done
+    # No `pagehide` beacon exists any more (package 03 Task 8) to mistake a
+    # reload for a close — a real GET against the served origin (the exact
+    # request a pull-to-refresh reissues) must still be served, and the
+    # process must still end through a real `done` handoff afterward, exit 0.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -232,15 +232,15 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
-    And a file "PLAN.md" with:
+    And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
 
       Paragraph two here.
       """
-    When I close a spawned gtd ui without handing off
+    When I reload the client of a spawned gtd ui, then hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back"
     Then the reported exit status is 0
-    And the file "PLAN.md" does not contain "handed back"
+    And the file ".gtd/PLAN.md" contains "handed back"
 
   @inmem
   Scenario: a config file with ui.loop fails to decode

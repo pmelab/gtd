@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
-import { vi } from "vitest"
 import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
+import { RefusalBanner, useRefusal } from "../Refusal.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 /**
@@ -104,6 +104,42 @@ const questionNode = (over: Partial<SteeringViewNode> = {}): SteeringViewNode =>
   ],
   ...over,
 })
+
+/**
+ * `onCommitAnswer` recorded into the DOM (`data-testid="commit-calls"`) as
+ * JSON, mirroring `Review.stories.tsx#SetValueCallRecorder`'s identical
+ * pattern — a plain closure-captured array goes stale across `Question`'s
+ * own re-renders (the bug the previous version of these two stories had:
+ * `calls` never actually populated, so both asserted nothing). Reading calls
+ * back off the DOM instead means `waitFor` always sees the CURRENT state.
+ */
+const CommitCallRecordingHarness = ({ node }: { readonly node: SteeringViewNode }) => {
+  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
+  const [calls, setCalls] = useState<
+    ReadonlyArray<{
+      readonly anchor: SteeringAnchor
+      readonly opts: { readonly checked?: boolean; readonly text?: string }
+    }>
+  >([])
+  const onCommitAnswer = (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ) => {
+    setCalls((prev) => [...prev, { anchor, opts }])
+    return Promise.resolve({ ok: true })
+  }
+  return (
+    <>
+      <div data-testid="commit-calls">{JSON.stringify(calls)}</div>
+      <Question
+        node={node}
+        answer={answer}
+        onAnswerChange={setAnswer}
+        onCommitAnswer={onCommitAnswer}
+      />
+    </>
+  )
+}
 
 export const TickingASecondOptionUnticksTheFirst: Story = {
   args: { node: questionNode() },
@@ -270,33 +306,23 @@ export const TypingDuringAnActiveDictationSessionIsNeverClobbered: Story = {
   },
 }
 
-/** Package 03's Task 10: `Question.stories.tsx`'s first commit-path coverage — type, blur, exactly one `setValue`-shaped call carrying `checked` and `text` together, never two separate writes. */
-export const TypingThenBlurringCommitsOnceWithCheckedAndTextTogether: Story = {
+/** Package 03's Task 10: `Question.stories.tsx`'s first commit-path coverage — type, blur, exactly one `setValue`-shaped call carrying `checked` and `text` together, never two separate writes. Never taps the radio directly: `FreeTextOption`'s own focus/change handlers stay LOCAL-only (`selectLocally`), so the blur is the ONLY write this produces — a radio tap would fire its own separate `{checked:true}`-only write first. */
+export const TypingThenBlurringCommitsOnceWithCheckedAndTextTogether: StoryObj<typeof Question> = {
   args: { node: questionNode() },
+  render: (args) => <CommitCallRecordingHarness node={args.node} />,
   play: async ({ canvasElement }) => {
-    const calls: Array<{
-      readonly anchor: SteeringAnchor
-      readonly opts: { readonly checked?: boolean; readonly text?: string }
-    }> = []
-    const onCommitAnswer = (
-      anchor: SteeringAnchor,
-      opts: { readonly checked?: boolean; readonly text?: string },
-    ) => {
-      calls.push({ anchor, opts })
-      return Promise.resolve({ ok: true })
-    }
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("option-radio-2"))
     const textarea = canvas.getByTestId("free-text-input")
     await fireEvent.change(textarea, { target: { value: "the third way, typed" } })
-    // `onCommitAnswer` is only wired AFTER the tick above (a `Question`
-    // re-render carries new args every time `meta.render` runs), so register
-    // it just before the blur that actually commits — the harness above
-    // re-renders `Question` with the new prop on the very next tick.
-    ;(canvas.getByTestId("free-text-input") as HTMLTextAreaElement).dataset["ignore"] = "noop"
     await fireEvent.blur(textarea)
-    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(0))
-    void onCommitAnswer
+    await waitFor(() => {
+      const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as unknown[]
+      expect(calls).toHaveLength(1)
+    })
+    const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as Array<{
+      readonly opts: { readonly checked?: boolean; readonly text?: string }
+    }>
+    expect(calls[0]?.opts).toEqual({ checked: true, text: "the third way, typed" })
   },
 }
 
@@ -306,22 +332,138 @@ export const TypingThenBlurringCommitsOnceWithCheckedAndTextTogether: Story = {
  * must still land, or a tab close/screen lock before any blur silently
  * discards it (`Question.tsx#118`'s own package doc comment).
  */
-export const TypedTextCommitsOnItsOwnAfterTheDebounceWithNoBlur: Story = {
+export const TypedTextCommitsOnItsOwnAfterTheDebounceWithNoBlur: StoryObj<typeof Question> = {
   args: { node: questionNode() },
+  render: (args) => <CommitCallRecordingHarness node={args.node} />,
   play: async ({ canvasElement }) => {
-    const calls: Array<{ readonly checked?: boolean; readonly text?: string }> = []
-    vi.useFakeTimers()
-    try {
-      const canvas = within(canvasElement)
-      await fireEvent.click(canvas.getByTestId("option-radio-2"))
-      await fireEvent.change(canvas.getByTestId("free-text-input"), {
-        target: { value: "typed but never blurred" },
-      })
-      expect(calls).toHaveLength(0)
-      await vi.advanceTimersByTimeAsync(800)
-      expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
-    } finally {
-      vi.useRealTimers()
-    }
+    const canvas = within(canvasElement)
+    await fireEvent.change(canvas.getByTestId("free-text-input"), {
+      target: { value: "typed but never blurred" },
+    })
+    expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
+    // A real wait, not `vi.useFakeTimers()`: this Storybook interaction test
+    // runs the component in a real browser iframe, whose own `setTimeout`
+    // fake timers installed in the OUTER test realm never reach — advancing
+    // a fake clock here just leaves the real 800ms timer never actually
+    // firing.
+    await waitFor(
+      () => {
+        const calls = JSON.parse(
+          canvas.getByTestId("commit-calls").textContent ?? "[]",
+        ) as unknown[]
+        expect(calls).toHaveLength(1)
+      },
+      { timeout: 2_000 },
+    )
+    const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as Array<{
+      readonly opts: { readonly checked?: boolean; readonly text?: string }
+    }>
+    expect(calls[0]?.opts).toEqual({ checked: true, text: "typed but never blurred" })
+  },
+}
+
+/**
+ * Package 03's Task 6: deleting a previously-written free-text answer and
+ * blurring must write the ERASE (`checked: false, text: ""`), not silently
+ * leave the stale text on disk while the UI shows empty — the guard moved
+ * off "is the text empty" onto "did the text change from what was last
+ * committed", so a bare focus-then-blur (covered elsewhere) still writes
+ * nothing, but THIS, an actual edit back to empty, must write through.
+ */
+export const DeletingAPreviouslyWrittenAnswerAndBlurringErasesIt: StoryObj<typeof Question> = {
+  args: {
+    node: questionNode({
+      children: [
+        {
+          title: "Option A",
+          checked: false,
+          anchor: { kind: "option", questionIndex: 0, index: 0 },
+        },
+        {
+          title: "Option B",
+          checked: false,
+          anchor: { kind: "option", questionIndex: 0, index: 1 },
+        },
+        {
+          title: "an existing typed answer",
+          checked: true,
+          anchor: { kind: "option", questionIndex: 0, index: 2 },
+        },
+      ],
+    }),
+  },
+  render: (args) => <CommitCallRecordingHarness node={args.node} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const textarea = canvas.getByTestId("free-text-input")
+    await expect(textarea).toHaveValue("an existing typed answer")
+    await fireEvent.change(textarea, { target: { value: "" } })
+    await fireEvent.blur(textarea)
+    await waitFor(() => {
+      const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as unknown[]
+      expect(calls).toHaveLength(1)
+    })
+    const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as Array<{
+      readonly opts: { readonly checked?: boolean; readonly text?: string }
+    }>
+    expect(calls[0]?.opts).toEqual({ checked: false, text: "" })
+  },
+}
+
+/**
+ * `RefusalHarness` mounts the SAME `useRefusal`/`RefusalBanner` pair the real
+ * `Plan`/`Review` containers mount, wired to `Question`'s own `onRefusal`
+ * prop — package 03 Task 1's acceptance: a rejected write names its reason on
+ * screen, not silence.
+ */
+const RefusalHarness = ({
+  node,
+  onCommitAnswer,
+}: {
+  readonly node: SteeringViewNode
+  readonly onCommitAnswer: (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ) => Promise<unknown>
+}) => {
+  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
+  const { refusal, saveStatus, showRefusal, dismiss } = useRefusal()
+  return (
+    <>
+      <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
+      <Question
+        node={node}
+        answer={answer}
+        onAnswerChange={setAnswer}
+        onCommitAnswer={onCommitAnswer}
+        onRefusal={showRefusal}
+      />
+    </>
+  )
+}
+
+/**
+ * Package 03's Task 1: a `setValue`-shaped write rejecting with a
+ * `stale-token` refusal (`moved: "sha"`) must show `Refusal.tsx`'s own named
+ * sentence for it — never silence, never `error.message`.
+ */
+export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeof Question> = {
+  args: { node: questionNode() },
+  render: (args) => (
+    <RefusalHarness
+      node={args.node}
+      onCommitAnswer={() =>
+        Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "sha" } } })
+      }
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+        "Someone else committed a change underneath you",
+      ),
+    )
   },
 }

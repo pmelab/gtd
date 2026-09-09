@@ -660,21 +660,41 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * The OTHER half of Requirement A: a REAL `gtd ui` subprocess, a REAL
-   * fire-and-forget `POST /close` — `main.tsx`'s own `pagehide` beacon,
-   * mirrored here with a plain `fetch` whose response this never reads, same
-   * as `navigator.sendBeacon` — then the process observed exiting ON ITS
-   * OWN (never signalled), with no `done` mutation ever sent. Proves a human
-   * closing the tab without handing off still ends the server's one-step
-   * lifetime, exit 0, no note written.
+   * Requirement B's real-process acceptance (package 03 Task 9): a REAL `gtd
+   * ui` subprocess, a plain GET against its served origin — a page reload,
+   * the exact request a pull-to-refresh reissues, no `pagehide` beacon exists
+   * any more to mistake it for a close (Task 8) — THEN the same real `done`
+   * handoff `spawnGtdUiAndHandOff` drives. Proves the server is still alive
+   * through the reload and exits 0 through `done`, never through a beacon.
    */
-  async spawnGtdUiAndClose(): Promise<void> {
+  async spawnGtdUiReloadThenHandOff(filePath: string, mode: string, text: string): Promise<void> {
     const { boundUrl, exited } = await this.spawnBoundGtdUi()
 
     const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
     process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
     try {
-      await fetch(`${boundUrl}close`, { method: "POST" })
+      const reload = await fetch(boundUrl)
+      assert.strictEqual(reload.status, 200, "the reload must still be served, not a dead port")
+
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/Write.js"),
+        import("@trpc/client"),
+      ])
+      // `git rev-parse HEAD` directly — see `spawnGtdUiAndHandOff`'s identical
+      // comment for why, not `liveHeadSha`.
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.done.mutate({
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(content),
+        mode,
+        anchor: { kind: "paragraph", line: 0 },
+        text,
+      })
     } finally {
       if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
       else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject

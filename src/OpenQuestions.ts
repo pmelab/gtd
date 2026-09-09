@@ -900,7 +900,21 @@ const replaceOptionTextEdit = (
  * to a single space — mirrors `headingText`'s identical normalization
  * elsewhere in this file, applied here to a WRITE rather than a read.
  */
-const normalizeFreeTextAnswer = (text: string): string => text.replace(/\s+/g, " ").trim()
+/**
+ * Empty normalizes to `FREE_TEXT_PLACEHOLDER`, never to `""` — an empty
+ * label leaves `- [ ] ` with nothing after the marker, which
+ * `optionContentOffset` can't find a content offset for (its own guard
+ * requires content ON the marker's line), permanently breaking this
+ * anchor's own `apply` from then on (`anchor-not-found`, forever). Package
+ * 03's Task 6 erase path relies on this: writing the placeholder instead
+ * keeps the option re-editable, and `parseOptions` already normalizes the
+ * placeholder back to `""` on read, so an erase still reads back as
+ * unanswered.
+ */
+const normalizeFreeTextAnswer = (text: string): string => {
+  const normalized = text.replace(/\s+/g, " ").trim()
+  return normalized.length === 0 ? FREE_TEXT_PLACEHOLDER : normalized
+}
 
 /**
  * `qa`-mode's `apply`: only the `option` anchor resolves here — a

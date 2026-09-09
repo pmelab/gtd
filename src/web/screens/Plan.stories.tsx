@@ -704,18 +704,20 @@ export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Plan>
 }
 
 /**
- * "An answer survives a page reload" (T4's own last acceptance bullet): a
- * FRESH mount of the real `Plan` container — never `PlanView` driven by
+ * A FRESH mount of the real `Plan` container — never `PlanView` driven by
  * hand-built `answer` state — against a `readSteeringFile` resolver whose
  * option is already `checked: true`, the exact byte state a real `setValue`
  * write leaves on disk. No interaction happens before the assertion, so
  * `Question.tsx`'s local `answers`/`QuestionAnswer` map is still empty —
  * `defaultAnswerFor` seeding straight off `node.children`'s own `checked` is
  * what must be reading true here, not an optimistic override left by a prior
- * tap (which a real reload would have discarded along with the rest of the
- * page's JS state).
+ * tap. This proves only that a fresh mount re-reads server state, NOT that a
+ * reload survives — package 03's real reload acceptance is
+ * `ui-lifecycle.feature`'s `@live` "a page reload does not kill gtd ui"
+ * scenario, which exercises the actual process across a real reload; nothing
+ * here can, since Storybook never tears down and remounts the page.
  */
-export const RealContainerAnAnsweredOptionSurvivesAPageReload: StoryObj<typeof Plan> = {
+export const RealContainerReadsAnAlreadyAnsweredOptionOnFreshMount: StoryObj<typeof Plan> = {
   render: (args) => (
     <TrpcTestProvider
       resolvers={{

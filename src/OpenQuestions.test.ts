@@ -1820,6 +1820,59 @@ describe("QA_FORMAT.apply", () => {
     expect(applied.split("\n").filter((line) => line.includes("line one"))).toHaveLength(1)
   })
 
+  it("erasing a free-text answer ({checked: false, text: \"\"}) restores the placeholder, and the option is still writable afterward — never a dead 'anchor-not-found' anchor", () => {
+    // Seed a question whose free-text slot already carries a real typed
+    // answer — mirrors what `ticking the free-text slot with text` above
+    // just wrote.
+    const answered = applyEdits(
+      CONTENT,
+      (() => {
+        const first = QA_FORMAT.apply(
+          CONTENT,
+          { kind: "option", questionIndex: 0, index: 2 },
+          { checked: true, text: "my typed answer" },
+        )
+        if (!first.ok) throw new Error("setup apply failed")
+        return first.edits
+      })(),
+    )
+    expect(parseOpenQuestions(answered).questions[0]!.options[2]).toMatchObject({
+      checked: true,
+      text: "my typed answer",
+    })
+
+    const erase = QA_FORMAT.apply(
+      answered,
+      { kind: "option", questionIndex: 0, index: 2 },
+      { checked: false, text: "" },
+    )
+    expect(erase.ok).toBe(true)
+    if (!erase.ok) return
+    const erased = applyEdits(answered, erase.edits)
+    // Package 03's own bug: an empty label ("- [ ] ") leaves nothing for
+    // `optionContentOffset` to find, so this must NOT literally write "".
+    expect(erased).toContain(`- [ ] ${FREE_TEXT_PLACEHOLDER}`)
+    expect(parseOpenQuestions(erased).questions[0]!.options[2]).toMatchObject({
+      checked: false,
+      text: "",
+    })
+
+    // The anchor must still resolve — a real retype after an erase, the
+    // round trip a human erasing-then-retyping on the phone depends on.
+    const retype = QA_FORMAT.apply(
+      erased,
+      { kind: "option", questionIndex: 0, index: 2 },
+      { checked: true, text: "a new answer" },
+    )
+    expect(retype.ok).toBe(true)
+    if (!retype.ok) return
+    const retyped = applyEdits(erased, retype.edits)
+    expect(parseOpenQuestions(retyped).questions[0]!.options[2]).toMatchObject({
+      checked: true,
+      text: "a new answer",
+    })
+  })
+
   it("a stale option index refuses anchor-not-found", () => {
     expect(
       QA_FORMAT.apply(CONTENT, { kind: "option", questionIndex: 0, index: 99 }, { checked: true }),

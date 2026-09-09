@@ -99,7 +99,7 @@ const QuestionCard = ({
   )
 }
 
-/** One paragraph plus its inline note (if any) and its note seam — `line` is the paragraph's real, server-computed anchor line when it has one (every prose-only node does), falling back to array `index` only for a malformed/non-paragraph node so the row still renders and keys uniquely. Exercised by `Plan.stories.tsx`'s `play()` interaction tests — fallow's static CRAP estimate only sees real coverage reports, not Storybook/vitest-browser runs, so it scores this as untested regardless. */
+/** One paragraph plus its inline note (if any) and its note seam — `line` is the paragraph's real, server-computed anchor line when it has one (every prose-only node does), falling back to array `index` only for a malformed/non-paragraph node so the row still renders and keys uniquely. */
 // fallow-ignore-next-line complexity
 const ProseParagraph = ({
   node,
@@ -298,9 +298,7 @@ const PlanBody = ({
  * props so `Plan.stories.tsx` can drive every shape with plain data, no
  * mocked tRPC transport required. Never switches on a mode name: whether
  * this renders questions or plain prose is read entirely off `view.nodes`'
- * own shape. Exercised by `Plan.stories.tsx`'s `play()` interaction tests —
- * fallow's static CRAP estimate only sees real coverage reports, not
- * Storybook/vitest-browser runs, so it scores this as untested regardless.
+ * own shape.
  */
 // fallow-ignore-next-line complexity
 export const PlanView = ({
@@ -360,6 +358,25 @@ export const PlanView = ({
           })
         }}
         onDismiss={() => setNoteSheetAnchor(undefined)}
+        {...(onSaveNote !== undefined
+          ? {
+              onAutoSave: (anchor: SteeringAnchor, text: string) => {
+                if (anchor.kind === "paragraph") {
+                  setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
+                }
+                return onSaveNote(anchor, text).catch((error: unknown) => {
+                  onRefusal?.(error)
+                  if (anchor.kind === "paragraph") {
+                    setNoteOverrides((prev) => {
+                      const next = { ...prev }
+                      delete next[anchor.line]
+                      return next
+                    })
+                  }
+                })
+              },
+            }
+          : {})}
         {...(onDoneNote !== undefined
           ? {
               onDone: (anchor: SteeringAnchor, text: string) => {
@@ -434,7 +451,7 @@ export const PlanView = ({
  * than a shared import.
  */
 const HandedBackPanel = () => (
-  <div data-testid="handed-back-panel" style={{ padding: 16 }}>
+  <div data-testid="handed-back-panel" role="status" aria-live="polite" style={{ padding: 16 }}>
     Handed back — this turn is done.
   </div>
 )
@@ -528,13 +545,24 @@ const planViewDataProps = (
  */
 export const Plan = ({ filePath, mode }: PlanProps) => {
   const query = trpc.readSteeringFile.useQuery({ filePath, mode })
-  const { refusal, saveStatus, showRefusal, dismiss } = useRefusal()
+  const { refusal, saveStatus, showRefusal, dismiss, trackSave } = useRefusal()
   const { onCommitAnswer, onSaveNote, onDoneNote, isDone } = usePlanMutations(
     filePath,
     mode,
     query.data,
     showRefusal,
   )
+
+  // Task 3's "Saving…"/"Saved" affordance — wraps only the two write paths a
+  // human sits waiting on mid-interaction (a tick, a note save); `onDoneNote`
+  // is excluded since a successful `done` unmounts this screen for
+  // `HandedBackPanel` before the banner could ever show "Saved".
+  const onCommitAnswerTracked = (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<unknown> => trackSave(onCommitAnswer(anchor, opts))
+  const onSaveNoteTracked = (anchor: SteeringAnchor, text: string): Promise<unknown> =>
+    trackSave(onSaveNote(anchor, text))
 
   return (
     <>
@@ -548,9 +576,9 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
         <PlanView
           {...planViewDataProps(query.data)}
           isLoading={query.isLoading}
-          onSaveNote={onSaveNote}
+          onSaveNote={onSaveNoteTracked}
           onDoneNote={onDoneNote}
-          onCommitAnswer={onCommitAnswer}
+          onCommitAnswer={onCommitAnswerTracked}
           onRefusal={showRefusal}
         />
       )}

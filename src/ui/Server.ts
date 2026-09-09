@@ -41,9 +41,6 @@ import {
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
 
-/** The one non-tRPC endpoint this server exposes — `main.tsx`'s `pagehide` beacon posts here (never a tRPC mutation: `navigator.sendBeacon` sends a plain body, not a tRPC batch envelope, and firing mid-unload rules out anything that needs to await a JSON round trip). */
-const CLOSE_PATH = "/close"
-
 /** The fields `Cli.ts`'s parsed `{ kind: "ui" }` command carries — this module never reads `Command` itself to stay independent of its parsing. */
 export interface UiCommandOptions {
   readonly host?: string
@@ -396,15 +393,18 @@ export const runUiCommand = (
 
     // Resolved by `handOff` (scheduled on the HTTP response's `finish` event,
     // with a 2s fallback so a vanished client can't wedge the process) or by
-    // `CLOSE_PATH` below (a human closing the tab with no handoff) — in
-    // place of the never-resolving wait a fleet server could get away with,
-    // since this server outlives exactly one step, not the whole process
-    // lifetime.
+    // the moved-on detection below (the outer loop advanced while this server
+    // was up) — in place of the never-resolving wait a fleet server could get
+    // away with, since this server outlives exactly one step, not the whole
+    // process lifetime. `gtd ui` now ends through exactly these two doors —
+    // no heuristic guesses at a closed tab (package 03 Task 8): a signal is
+    // the only other way out, owned by whatever spawned this process.
     const handoffDeferred = yield* Deferred.make<void>()
     // `Deferred.succeed` on an already-resolved deferred is a documented
     // no-op (returns `false`, changes nothing) — safe to call from both
-    // `handOff` and `CLOSE_PATH` with no extra guard, since whichever fires
-    // first wins and the process still exits exactly once, exit 0.
+    // `handOff` and the moved-on detection with no extra guard, since
+    // whichever fires first wins and the process still exits exactly once,
+    // exit 0.
     const endServer = (): void => {
       Runtime.runFork(runtime)(Deferred.succeed(handoffDeferred, undefined))
     }
@@ -413,10 +413,10 @@ export const runUiCommand = (
     // compared against the rest captured above. A mismatched `state`, a read
     // that's gone broken, or one that's no longer renderable all mean the
     // outer loop moved on while this server was up: end it the SAME
-    // idempotent way `handOff`/`CLOSE_PATH` do, one exit, exit 0, and hand
-    // the client a `moved-on` read instead of a stale or now-unrenderable
-    // one. No polling timer drives this — it rides the `step` query the
-    // client already issues.
+    // idempotent way `handOff` does, one exit, exit 0, and hand the client a
+    // `moved-on` read instead of a stale or now-unrenderable one. No polling
+    // timer drives this — it rides the `step` query the client already
+    // issues.
     const readServedStep = async (): Promise<StepRead> => {
       const read = await readStep({ path: cwd.root }, liveBeatDeps)
       const movedOn = read.status === "broken" || read.state !== servedState || !isRenderable(read)
@@ -477,20 +477,6 @@ export const runUiCommand = (
     const handler: RequestHandler = (req, res) => {
       if (req.url === TRPC_PATH_PREFIX || req.url?.startsWith(`${TRPC_PATH_PREFIX}/`)) {
         trpcHandler(req, res)
-        return
-      }
-      // The human closed the tab (or navigated away) with no handoff —
-      // `main.tsx` fires this off a `pagehide` listener via `sendBeacon`,
-      // the one API browsers guarantee still delivers mid-unload. No note
-      // was ever written (only `done` writes one), so the process exits 0
-      // with the worktree exactly as `writeNote`/`done` last left it —
-      // `endServer` is the SAME idempotent resolve `handOff` calls, so this
-      // and a real handoff can never race into a double exit.
-      if (req.method === "POST" && req.url === CLOSE_PATH) {
-        req.resume()
-        res.writeHead(204)
-        res.end()
-        endServer()
         return
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
