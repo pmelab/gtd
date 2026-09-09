@@ -6,12 +6,13 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   it shares the repo-root and at-least-one-commit guard with every other
   state command. Before ever resolving a bind host or a certificate, it reads
   the served worktree's own beat (a real `gtd next --json` subprocess spawn)
-  and refuses — exit 2, no port ever bound — unless that beat rests at a
-  `prompt` step carrying a `file` and a `mode` that resolves to a registered
-  steering format: every other rest has no phone screen to show it on. That
-  beat read needs a REAL worktree underneath it, so every scenario below that
-  gets past it (or specifically proves a NON-renderable rest) is `@live`; only
-  the two fast, purely config/guard-level refusals stay `@inmem`.
+  and refuses — exit 2, no port ever bound — unless that beat rests with a
+  HUMAN actor, non-idle, carrying a `file` and a `mode` that resolves to a
+  registered steering format: every other rest has no phone screen to show it
+  on, regardless of its reported content kind. That beat read needs a REAL
+  worktree underneath it, so every scenario below that gets past it (or
+  specifically proves a NON-renderable rest) is `@live`; only the two fast,
+  purely config/guard-level refusals stay `@inmem`.
 
   @inmem
   Scenario: a repository with no commits refuses through the shared repo guard, not gtd ui's own refusal — inverted from when gtd serve skipped this guard entirely
@@ -40,7 +41,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And stderr contains "idle"
 
   @live
-  Scenario: a clean message rest (non-idle) refuses, naming the message kind
+  Scenario: a clean message rest (non-idle), resting with a human but with no steering file, refuses on the actor axis
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -67,10 +68,10 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
     And the exit code is 2
-    And stderr contains "message"
+    And stderr contains "rests with you"
 
   @live
-  Scenario: a dirty message rest (capture) refuses, naming the capture kind
+  Scenario: a dirty message rest (capture), resting with a human but with no steering file, refuses on the actor axis
     Given a test project
     And a file "scratch.txt" with:
       """
@@ -79,10 +80,10 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
     And the exit code is 2
-    And stderr contains "capture"
+    And stderr contains "rests with you"
 
   @live
-  Scenario: a script rest refuses, naming the script kind
+  Scenario: a script rest, resting with the check actor, refuses on the actor axis
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -124,10 +125,10 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
     And the exit code is 2
-    And stderr contains "script"
+    And stderr contains "check"
 
   @live
-  Scenario: a stalled rest (a clean-tree agent attempt at a prompt state) refuses, naming the stalled kind
+  Scenario: a stalled rest (a clean-tree agent attempt at a prompt state), resting with the agent actor, refuses on the actor axis
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -157,11 +158,11 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
     And the exit code is 2
-    And stderr contains "stalled"
+    And stderr contains "agent"
 
 
   @live
-  Scenario: a prompt rest whose mode resolves to no registered steering format refuses
+  Scenario: a prompt rest resting with a human, whose mode resolves to no registered steering format, refuses naming the unregistered mode
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -193,6 +194,56 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
     And the exit code is 2
+    And stderr contains "custom-mode"
+
+  # ── The positive scenario that fails today (T7): a human rest carrying a
+  # `file` and a registered `mode`, reporting kind `message` (not `prompt`) —
+  # the exact shape of `build.review.await-review` — binds a port and exits
+  # 0. The pre-existing render gate (kind === "prompt") refuses this with
+  # exit 2; only the actor-based gate this package installs admits it.
+  # Proven via the same real spawn-and-handoff round trip
+  # `ui-lifecycle.feature` already uses (`world.ts#spawnGtdUiAndHandOff`) —
+  # bind, then a real HTTPS tRPC `done` call, then the process exits 0 on
+  # its own. ─────────────────────────────────────────────────────────────
+
+  @live
+  Scenario: a human rest reporting kind message, carrying a file and a registered mode, binds a port and exits 0
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": awaiting-review
+              awaiting-review:
+                actor: human
+                file: "REVIEW.md"
+                mode: qa
+                message: "awaiting your review"
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file "REVIEW.md" with:
+      """
+      Paragraph zero here.
+
+      Paragraph two here.
+      """
+    When I hand off "REVIEW.md" in mode "qa" with the text "handed back" to a spawned gtd ui
+    Then the reported exit status is 0
+    And the file "REVIEW.md" contains "handed back"
 
   # `resolveBindHost`/`resolveCertPair` themselves (the Tailscale-scan
   # default, --self-signed, ui.cert/ui.key) are pinned deterministically at

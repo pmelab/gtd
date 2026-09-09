@@ -15,6 +15,7 @@ const OK_STEP: StepRead = {
   repo: "gtd",
   branch: "main",
   label: "do the thing",
+  state: "doing",
   kind: "prompt",
   actor: "human",
   idle: false,

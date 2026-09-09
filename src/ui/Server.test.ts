@@ -86,6 +86,7 @@ const renderablePromptJson = JSON.stringify({
   idle: false,
   actor: "human",
   label: "answer the questions",
+  state: "build.review.await-review",
   file: "NOTES.md",
   mode: "qa",
 })
@@ -506,38 +507,59 @@ describe("runUiCommand", () => {
       return { listenCalled, error }
     }
 
-    it("refuses a message step, naming its label and rest", async () => {
+    it("refuses a message step resting with a human but no steering file, naming the actor axis not the content kind", async () => {
       const { listenCalled, error } = await attemptStart(
         JSON.stringify({ kind: "message", idle: false, actor: "human", label: "just an fyi" }),
       )
       expect(listenCalled).toBe(false)
       expect(error).toBeInstanceOf(GtdUsageError)
       expect((error as GtdUsageError).message).toContain("just an fyi")
-      expect((error as GtdUsageError).message).toContain("message")
+      expect((error as GtdUsageError).message).toContain("rests with you")
+      expect((error as GtdUsageError).message).not.toContain("message")
     })
 
-    it("refuses a script step", async () => {
+    it("refuses a script step resting with the agent, naming the actor not the content kind", async () => {
       const { listenCalled, error } = await attemptStart(
         JSON.stringify({ kind: "script", idle: false, actor: "agent", label: "run it" }),
       )
       expect(listenCalled).toBe(false)
       expect(error).toBeInstanceOf(GtdUsageError)
+      expect((error as GtdUsageError).message).toContain("run it")
+      expect((error as GtdUsageError).message).toContain("agent")
+      expect((error as GtdUsageError).message).not.toContain("script")
     })
 
-    it("refuses a capture step", async () => {
+    it("refuses a capture step resting with a human but no steering file", async () => {
       const { listenCalled, error } = await attemptStart(
         JSON.stringify({ kind: "capture", idle: false, actor: "human", label: "capture it" }),
       )
       expect(listenCalled).toBe(false)
       expect(error).toBeInstanceOf(GtdUsageError)
+      expect((error as GtdUsageError).message).toContain("rests with you")
     })
 
-    it("refuses a stalled step", async () => {
+    it("refuses a stalled step resting with a human but no steering file", async () => {
       const { listenCalled, error } = await attemptStart(
         JSON.stringify({ kind: "stalled", idle: false, actor: "human", label: "stuck" }),
       )
       expect(listenCalled).toBe(false)
       expect(error).toBeInstanceOf(GtdUsageError)
+      expect((error as GtdUsageError).message).not.toContain("stalled")
+    })
+
+    it("starts on a human, non-idle rest with file/mode even when the beat reports kind message — kind is never read", async () => {
+      const { listenCalled, error } = await attemptStart(
+        JSON.stringify({
+          kind: "message",
+          idle: false,
+          actor: "human",
+          label: "answer the questions",
+          file: "NOTES.md",
+          mode: "qa",
+        }),
+      )
+      expect(listenCalled).toBe(true)
+      expect(error).toBeUndefined()
     })
 
     it("refuses an idle worktree even if its kind is prompt", async () => {
@@ -693,6 +715,42 @@ describe("the tRPC API surface mounted under /trpc", () => {
       expect(step).toMatchObject({ status: "ok", kind: "prompt", file: "NOTES.md", mode: "qa" })
     })
     await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
+  it("step reports moved-on and ends the process once the outer loop advances the served rest's state", async () => {
+    const { boundUrl, fiber } = await startRealServer(tmpDir)
+    await withInsecureTls(async () => {
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      const first = await client.step.query()
+      expect(first.status).toBe("ok")
+
+      // The outer loop moved the worktree on to a different rest — same
+      // shape, different `state` — while this server was still up.
+      installFakeGtd(
+        tmpDir,
+        JSON.stringify({
+          kind: "prompt",
+          idle: false,
+          actor: "human",
+          label: "a different rest",
+          state: "build.review.deciding",
+          file: "NOTES.md",
+          mode: "qa",
+        }),
+      )
+
+      const second = await client.step.query()
+      expect(second).toEqual({ status: "moved-on", label: "a different rest" })
+    })
+
+    // `Fiber.await`, not `Fiber.interrupt`: proves the main Effect completed
+    // ON ITS OWN, driven by the same idempotent end-of-life resolve `handOff`
+    // calls — no polling timer, this rides the `step` query the client
+    // already issued above.
+    const exit = await Effect.runPromise(Fiber.await(fiber))
+    expect(exit._tag).toBe("Success")
   })
 })
 

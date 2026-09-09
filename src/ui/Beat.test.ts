@@ -97,7 +97,19 @@ describe("readStep — ok rows", () => {
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("ok")
     expect(Object.keys(result).sort()).toEqual(
-      ["actor", "branch", "file", "idle", "kind", "label", "path", "repo", "rest", "status"].sort(),
+      [
+        "actor",
+        "branch",
+        "file",
+        "idle",
+        "kind",
+        "label",
+        "path",
+        "repo",
+        "rest",
+        "state",
+        "status",
+      ].sort(),
     )
   })
 
@@ -133,6 +145,18 @@ describe("readStep — ok rows", () => {
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("ok")
     if (result.status === "ok") expect(result.label).toBe("reviewing")
+  })
+
+  it("carries state as its own field, surviving even when label and state differ", async () => {
+    const deps = makeDeps({
+      beatOutcome: ok(beatJson({ label: "do the thing", state: "build.doing-the-thing" })),
+    })
+    const result = await readStep({ path: "/repos/gtd" }, deps)
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.label).toBe("do the thing")
+      expect(result.state).toBe("build.doing-the-thing")
+    }
   })
 })
 

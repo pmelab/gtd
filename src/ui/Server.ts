@@ -20,6 +20,7 @@ import {
   readLocalGtdVersionAt,
   readStep,
   type Step,
+  type StepRead,
 } from "./Beat.js"
 import { pickBindHostFromSystem } from "./BindSystem.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
@@ -279,35 +280,59 @@ const liveBeatDeps = {
 
 /**
  * `true` only for the one rest the phone client can actually render: a
- * `prompt` step (not idle) carrying a `file` and a `mode` that resolves to a
- * registered steering format. Every other rest — `message`/`script`/
- * `capture`/`stalled`, an idle worktree, an unreadable (`broken`) worktree,
- * or a `prompt` whose `mode` names nothing registered — has no screen.
+ * non-idle rest whose ACTOR is human, carrying a `file` and a `mode` that
+ * resolves to a registered steering format. `kind` is never read — a
+ * `message` rest whose beat reports a human actor with a registered mode is
+ * just as renderable as a `prompt` rest with the same shape, and content
+ * kind shifts under the human's own editing (a `message` rest turns
+ * `capture` the moment the tree is dirtied), so it's the wrong axis
+ * regardless of which kinds would be listed. This is the SAME axis
+ * `Write.ts#verifyForWrite` already gates writes on (`actorAt !== "human"` →
+ * `not-resting`), so startup and write agree.
  */
 const isRenderable = (
   step: Step,
 ): step is Step & { readonly file: string; readonly mode: string } =>
   !step.idle &&
-  step.kind === "prompt" &&
+  step.actor === "human" &&
   step.file !== undefined &&
   step.mode !== undefined &&
   steeringFormatFor(step.mode) !== undefined
 
 /**
- * The refusal named for whatever the served worktree actually rests at — an
- * unreadable worktree names the read failure verbatim; anything else names
- * the step's own `label` and `kind` (T1's own "no port bound" case), never a
- * generic "cannot start" with no further detail.
+ * The refusal named for whatever the served worktree actually rests at, in
+ * order so the narrower cause always wins: unreadable, idle (checked BEFORE
+ * the actor test — an idle worktree reports `actor: human` too, so an
+ * actor-only test would bind a port on a finished worktree), a non-human
+ * actor, then a human rest whose steering file isn't usable.
  */
-const refusalFor = (
-  step: Step | { readonly status: "broken"; readonly detail: string },
-): GtdUsageError =>
-  step.status === "broken"
-    ? new GtdUsageError(`gtd ui: refuses to start — this worktree can't be read: ${step.detail}`)
-    : new GtdUsageError(
-        `gtd ui: refuses to start — "${step.label}" rests at ${step.kind}${step.idle ? " (idle)" : ""}, which has no phone screen`,
-        ["gtd ui only renders a prompt step whose mode resolves to a registered steering format"],
-      )
+const refusalFor = (step: StepRead): GtdUsageError => {
+  if (step.status !== "ok") {
+    return new GtdUsageError(
+      `gtd ui: refuses to start — this worktree can't be read: ${step.status === "broken" ? step.detail : step.label}`,
+    )
+  }
+  if (step.idle) {
+    return new GtdUsageError(
+      `gtd ui: refuses to start — "${step.label}" is idle, so there is nothing to hand back`,
+    )
+  }
+  if (step.actor !== "human") {
+    return new GtdUsageError(
+      `gtd ui: refuses to start — "${step.label}" rests with the ${step.actor}, which has no phone screen`,
+    )
+  }
+  const hint =
+    step.mode === undefined
+      ? "gtd next --json reported no steering mode for this rest"
+      : steeringFormatFor(step.mode) === undefined
+        ? `"${step.mode}" is not a registered steering mode`
+        : "gtd next --json reported no steering file for this rest"
+  return new GtdUsageError(
+    `gtd ui: refuses to start — "${step.label}" rests with you, but its steering file has no phone screen`,
+    [hint],
+  )
+}
 
 /**
  * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
@@ -332,6 +357,12 @@ export const runUiCommand = (
     if (step.status === "broken" || !isRenderable(step)) {
       return yield* Effect.fail(refusalFor(step))
     }
+    // Captured once, at startup — the served rest's own machine identity, so
+    // `step` (below) can tell "still the same rest" from "the outer loop
+    // moved on while we were up" without re-deriving anything from `label`,
+    // which a workflow edit can reword with the rest never actually moving.
+    const servedState = step.state
+    const servedLabel = step.label
 
     const host = yield* resolveBindHost(options.host, config)
     const certPair = yield* resolveCertPair(options, config, host)
@@ -366,11 +397,27 @@ export const runUiCommand = (
       Runtime.runFork(runtime)(Deferred.succeed(handoffDeferred, undefined))
     }
 
+    // The `step` query's actual resolver — every read after startup is
+    // compared against the rest captured above. A mismatched `state`, a read
+    // that's gone broken, or one that's no longer renderable all mean the
+    // outer loop moved on while this server was up: end it the SAME
+    // idempotent way `handOff`/`CLOSE_PATH` do, one exit, exit 0, and hand
+    // the client a `moved-on` read instead of a stale or now-unrenderable
+    // one. No polling timer drives this — it rides the `step` query the
+    // client already issues.
+    const readServedStep = async (): Promise<StepRead> => {
+      const read = await readStep({ path: cwd.root }, liveBeatDeps)
+      const movedOn = read.status === "broken" || read.state !== servedState || !isRenderable(read)
+      if (!movedOn) return read
+      endServer()
+      return { status: "moved-on", label: read.status === "ok" ? read.label : servedLabel }
+    }
+
     const trpcHandler = createHTTPHandler({
       router: appRouter,
       basePath: `${TRPC_PATH_PREFIX}/`,
       createContext: ({ res }): RouterContext => ({
-        readStep: () => readStep({ path: cwd.root }, liveBeatDeps),
+        readStep: readServedStep,
         writeNote: (request) => writeNote({ ...request, worktreePath: cwd.root }, writeDeps),
         writeValue: (request) => writeValue({ ...request, worktreePath: cwd.root }, writeDeps),
         resolveDiff: (path, line) => resolveDiff(cwd.root, path, line, diffDeps),

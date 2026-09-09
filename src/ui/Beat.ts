@@ -67,6 +67,8 @@ export interface Step {
   readonly repo: string
   readonly branch: string
   readonly label: string
+  /** The rest's own machine identity, straight off the beat's `state` field — stable across a workflow edit that rewords `label`, unlike `label` itself. */
+  readonly state: string
   readonly kind: StepKind
   readonly actor: Actor
   readonly idle: boolean
@@ -86,7 +88,18 @@ export interface BrokenStep {
   readonly detail: string
 }
 
-export type StepRead = Step | BrokenStep
+/**
+ * The served rest moved on since the server captured it (a different
+ * `state`, a read that's gone `broken`, or one that's no longer
+ * renderable) — `Server.ts`'s own `step` resolution, never produced by
+ * `readStep` itself.
+ */
+export interface MovedOnStep {
+  readonly status: "moved-on"
+  readonly label: string
+}
+
+export type StepRead = Step | BrokenStep | MovedOnStep
 
 /** One subprocess's outcome — `spawnError` set (never `status`/`stdout`/`stderr`) when the process could never start at all (no `bash`, bad cwd), so callers can tell "never ran" from "ran and exited non-zero". */
 export interface SpawnOutcome {
@@ -232,6 +245,7 @@ const okResult = (
     repo: meta.repo,
     branch: meta.branch,
     label: typeof fields.label === "string" ? fields.label : String(fields.state ?? ""),
+    state: String(fields.state ?? ""),
     kind: fields.kind,
     actor: fields.actor,
     idle: Boolean(fields.idle),
@@ -246,7 +260,10 @@ const okResult = (
  * `readLocalGtdVersion`) is either a cheap read-only git call or a plain
  * filesystem read; none of it writes, commits, or moves a ref.
  */
-export const readStep = async (worktree: WorktreeRef, deps: BeatDeps): Promise<StepRead> => {
+export const readStep = async (
+  worktree: WorktreeRef,
+  deps: BeatDeps,
+): Promise<Step | BrokenStep> => {
   const meta = await readGitMeta(worktree.path, deps.run)
 
   // The version check reads the worktree's LOCALLY INSTALLED gtd's own
