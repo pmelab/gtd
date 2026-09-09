@@ -1,3 +1,4 @@
+import { useEffect, useId, useRef } from "react"
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../OpenQuestions.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
 import { Mic } from "../Mic.js"
@@ -77,6 +78,8 @@ export interface QuestionProps {
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ) => Promise<unknown>
+  /** Fires on every refusal a `commitAnchor`-issued write surfaces (package 03's Task 1) — alongside the revert, never instead of it. Absent exactly where `onCommitAnswer` is absent (`Question.stories.tsx`'s pure-data stories). */
+  readonly onRefusal?: (error: unknown) => void
 }
 
 /**
@@ -104,50 +107,57 @@ const FreeTextOption = ({
   readonly onDictate: (text: string) => void
   /** Fires on blur — the natural "the human is done typing" moment for a textarea — carrying the CURRENT `freeText` prop, never a stale closure: a blur event always fires on a later render than the keystroke that produced the text it commits. */
   readonly onCommit: () => void
-}) => (
-  <div style={{ marginTop: 8 }}>
-    <textarea
-      data-testid="free-text-input"
-      placeholder={FREE_TEXT_PLACEHOLDER}
-      value={freeText}
-      onFocus={onFocus}
-      onChange={(event) => {
-        onFreeTextChange(event.target.value)
-        onFocus()
-      }}
-      onBlur={onCommit}
-      style={{ width: "100%", minHeight: 60 }}
-    />
-    <Mic
-      onAttach={(text) => {
-        onFocus()
-        onDictate(text)
-      }}
-    >
-      {(state) => (
-        <>
-          {state.available ? (
-            <button type="button" data-testid="mic-toggle" onClick={state.toggle}>
-              {state.recording ? "Stop" : "Dictate"}
-            </button>
-          ) : (
-            <p data-testid="mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
-              Use your keyboard's mic key to dictate
-            </p>
-          )}
-          {state.interim.length > 0 && (
-            <p
-              data-testid="mic-interim"
-              style={{ fontSize: 12, opacity: 0.6, fontStyle: "italic" }}
-            >
-              {state.interim}
-            </p>
-          )}
-        </>
-      )}
-    </Mic>
-  </div>
-)
+}) => {
+  const textareaId = useId()
+  return (
+    <div style={{ marginTop: 8 }}>
+      <label htmlFor={textareaId} style={{ fontSize: 12, opacity: 0.7, display: "block" }}>
+        Your answer
+      </label>
+      <textarea
+        id={textareaId}
+        data-testid="free-text-input"
+        placeholder={FREE_TEXT_PLACEHOLDER}
+        value={freeText}
+        onFocus={onFocus}
+        onChange={(event) => {
+          onFreeTextChange(event.target.value)
+          onFocus()
+        }}
+        onBlur={onCommit}
+        style={{ width: "100%", minHeight: 60 }}
+      />
+      <Mic
+        onAttach={(text) => {
+          onFocus()
+          onDictate(text)
+        }}
+      >
+        {(state) => (
+          <>
+            {state.available ? (
+              <button type="button" data-testid="mic-toggle" onClick={state.toggle}>
+                {state.recording ? "Stop" : "Dictate"}
+              </button>
+            ) : (
+              <p data-testid="mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
+                Use your keyboard's mic key to dictate
+              </p>
+            )}
+            {state.interim.length > 0 && (
+              <p
+                data-testid="mic-interim"
+                style={{ fontSize: 12, opacity: 0.6, fontStyle: "italic" }}
+              >
+                {state.interim}
+              </p>
+            )}
+          </>
+        )}
+      </Mic>
+    </div>
+  )
+}
 
 /** One option row — a radio, its label, and (only for the free-text slot) the textarea+mic. */
 const OptionRow = ({
@@ -200,19 +210,25 @@ const OptionRow = ({
   </div>
 )
 
+/** Debounce delay for the free-text slot's own write-through-without-a-blur (Task 5) — long enough that a fast typist produces one write per pause, not one per keystroke. */
+const FREE_TEXT_DEBOUNCE_MS = 800
+
 /**
  * One question, one screen — `Plan.tsx`'s `Deck` `renderItem`. Radio
  * semantics enforced client-side: `selected` holds at most one option index,
  * so picking a new one always replaces rather than adds to it. The free-text
  * option is identified by array position (`options.length - 1`), never by
  * matching its label, so a free-text option with an ordinary-looking label
- * is still treated as the free-text slot. Exercised by `Question.stories.tsx`'s
- * `play()` interaction tests — fallow's static CRAP estimate only sees real
- * coverage reports, not Storybook/vitest-browser runs, so it scores this as
- * untested regardless.
+ * is still treated as the free-text slot.
  */
 // fallow-ignore-next-line complexity
-export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: QuestionProps) => {
+export const Question = ({
+  node,
+  answer,
+  onAnswerChange,
+  onCommitAnswer,
+  onRefusal,
+}: QuestionProps) => {
   const options = node.children ?? []
   const lastIndex = options.length - 1
   const { selected, freeText } = answer
@@ -221,25 +237,42 @@ export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: Quest
   const selectLocally = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
 
   /**
+   * Per-anchor write sequence numbers (Task 7) — a REJECTED write only
+   * reverts its own anchor's local state when it's still the LATEST write
+   * issued for that same anchor; a whole-`answer` snapshot captured at call
+   * time (the previous scheme) would instead clobber whatever a later,
+   * already-landed write for a DIFFERENT anchor had just done. Held in a ref
+   * (never `useState`): bumping it must never itself trigger a render.
+   */
+  const seqRef = useRef(new Map<string, number>())
+  const anchorKey = (anchor: SteeringAnchor): string => JSON.stringify(anchor)
+
+  /**
    * The one write-through both `setSelected` and `commitFreeText` fire —
    * split out so neither caller's own branching (an out-of-range index, an
    * empty-text guard) also carries the anchor-resolved / anchor-missing
-   * split here. Fire-and-forget: never awaited, but a rejection (a
-   * `CONFLICT` refusal, a network failure, …) DOES revert the optimistic
-   * local update the caller already applied, back to `previous` — mirrors
-   * `Review.tsx#useReviewState`'s own revert-on-rejection for ticks. Leaving
-   * the local state standing on a refused write would show "answered" for a
-   * question whose file was never actually touched — the requirement's own
-   * "the human's answers vanish" failure mode, just delayed rather than
-   * prevented. A no-op when `anchor` is `undefined` (an out-of-range index).
+   * split here. Fire-and-forget from the CALLER's perspective, but returns
+   * the promise so `commitFreeText`'s own debounce/unmount serialization can
+   * track completion. A rejection (a `CONFLICT` refusal, a network failure,
+   * …) surfaces via `onRefusal` AND reverts the optimistic local update —
+   * but only when this write is still the latest issued for `anchor`
+   * (`seqRef`), so a stale rejection can never clobber a newer, already-
+   * landed write to the same anchor. A no-op when `anchor` is `undefined`
+   * (an out-of-range index).
    */
   const commitAnchor = (
     anchor: SteeringAnchor | undefined,
     opts: { readonly checked?: boolean; readonly text?: string },
     previous: QuestionAnswer,
-  ) => {
-    if (anchor === undefined) return
-    onCommitAnswer?.(anchor, opts)?.catch(() => onAnswerChange(previous))
+  ): Promise<unknown> | undefined => {
+    if (anchor === undefined) return undefined
+    const key = anchorKey(anchor)
+    const seq = (seqRef.current.get(key) ?? 0) + 1
+    seqRef.current.set(key, seq)
+    return onCommitAnswer?.(anchor, opts)?.catch((error: unknown) => {
+      onRefusal?.(error)
+      if (seqRef.current.get(key) === seq) onAnswerChange(previous)
+    })
   }
 
   /** An ordinary option's own click: local selection AND an immediate write-through (T4's "selecting an option calls setValue") — never used for the free-text slot's focus tracking, which must stay local-only (`selectLocally`). */
@@ -249,23 +282,89 @@ export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: Quest
     commitAnchor(options[index]?.anchor, { checked: true }, previous)
   }
 
+  /** The free-text slot's own anchor, when there is one. */
+  const freeTextAnchor = (): SteeringAnchor | undefined =>
+    lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
+
+  /** What `commitFreeText` last actually wrote (package 03's Task 6) — seeded from the answer this question STARTS at, so a bare focus-then-blur (nothing typed) still compares equal and writes nothing. Updated to the JUST-COMMITTED text the moment a commit fires (optimistically, like the local state update alongside it), never re-derived from a fresh read. */
+  const lastCommittedFreeTextRef = useRef(freeText)
+
   /**
-   * The free-text slot's own commit point (`FreeTextOption`'s `onBlur`):
-   * writes the CURRENT `freeText` prop plus `checked: true` in one call —
-   * never split into a separate tick-then-text pair, matching T3's "both
-   * fields together, not two separate writes" acceptance bullet. Fires
-   * NOTHING when there is no meaningful text (`normalizeAnswerText` empty) —
-   * a bare focus-then-blur, or blurring after deleting everything typed,
-   * must never tick the empty slot NOR blank out a previously written
-   * answer; both were real, silent-data-loss bugs (a one-finger mis-tap on
-   * the exact target device) before this guard existed.
+   * The free-text slot's own commit point — fired on blur AND, since Task 5,
+   * on its own 800ms after the last keystroke with no blur at all. Writes
+   * the CURRENT `freeText` prop in one call, never split into a separate
+   * tick-then-text pair (T3's "both fields together" bullet). The guard
+   * moved off "is the text empty" onto "did the text change from what was
+   * last committed" (Task 6): a bare focus-then-blur still writes nothing,
+   * but DELETING a previously-written answer and blurring now writes the
+   * erase (`checked: false, text: ""`) rather than silently leaving stale
+   * text on disk while the UI shows empty.
    */
-  const commitFreeText = () => {
-    if (normalizeAnswerText(freeText).length === 0) return
+  const commitFreeText = (): Promise<unknown> | undefined => {
+    const current = normalizeAnswerText(freeText)
+    const lastCommitted = normalizeAnswerText(lastCommittedFreeTextRef.current)
+    if (current === lastCommitted) return undefined
     const previous = answer
+    const anchor = freeTextAnchor()
+    lastCommittedFreeTextRef.current = freeText
+    if (current.length === 0) {
+      onAnswerChange((prev) => ({ ...prev, selected: undefined }))
+      return commitAnchor(anchor, { checked: false, text: "" }, previous)
+    }
     selectLocally(lastIndex)
-    const anchor = lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
-    commitAnchor(anchor, { checked: true, text: freeText }, previous)
+    return commitAnchor(anchor, { checked: true, text: freeText }, previous)
+  }
+
+  /**
+   * Serializes `commitFreeText` calls so never more than one of its writes is
+   * in flight at once (Task 5's "never two writes in flight for one anchor")
+   * — a call arriving while one is pending is dropped (not queued with its
+   * own stale text): the NEXT trigger (another keystroke's debounce, or
+   * blur) always re-reads the CURRENT `freeText` via `commitFreeTextRef`
+   * itself, so nothing typed in between is ever lost, just coalesced into
+   * one write per pause rather than one per keystroke.
+   */
+  const commitFreeTextRef = useRef(commitFreeText)
+  commitFreeTextRef.current = commitFreeText
+  const commitInFlightRef = useRef(false)
+  const commitPendingRef = useRef(false)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  const runCommitFreeText = (): void => {
+    if (commitInFlightRef.current) {
+      commitPendingRef.current = true
+      return
+    }
+    commitInFlightRef.current = true
+    Promise.resolve(commitFreeTextRef.current()).finally(() => {
+      commitInFlightRef.current = false
+      if (commitPendingRef.current) {
+        commitPendingRef.current = false
+        runCommitFreeText()
+      }
+    })
+  }
+
+  const clearDebounceTimer = (): void => {
+    if (debounceTimerRef.current !== undefined) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = undefined
+    }
+  }
+
+  /** Blur's own trigger: commits immediately, cancelling any pending debounce (there is nothing left to wait for). */
+  const commitFreeTextOnBlur = (): void => {
+    clearDebounceTimer()
+    runCommitFreeText()
+  }
+
+  /** Every keystroke's own trigger (Task 5): (re)schedules a commit 800ms out, replacing whatever was previously scheduled — a fast typist's intermediate keystrokes never each fire their own write. */
+  const scheduleDebouncedCommit = (): void => {
+    clearDebounceTimer()
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = undefined
+      runCommitFreeText()
+    }, FREE_TEXT_DEBOUNCE_MS)
   }
 
   /**
@@ -279,13 +378,29 @@ export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: Quest
    * whenever the caller's `setState` actually applies it, which always sees
    * the true latest text.
    */
-  const onDictate = (text: string) =>
+  const onDictate = (text: string) => {
     onAnswerChange((prev) => ({
       ...prev,
       freeText: prev.freeText.length > 0 ? `${prev.freeText} ${text}` : text,
     }))
+    scheduleDebouncedCommit()
+  }
 
-  const setFreeText = (text: string) => onAnswerChange((prev) => ({ ...prev, freeText: text }))
+  /** Typing itself: updates local state immediately (instant feedback) and (re)schedules the debounced write-through (Task 5) — never fires the write itself. */
+  const setFreeText = (text: string) => {
+    onAnswerChange((prev) => ({ ...prev, freeText: text }))
+    scheduleDebouncedCommit()
+  }
+
+  /** Unmount commits (Task 5): a pending debounced write flushes immediately rather than being discarded — mirrors `NoteSheet.tsx`'s identical unmount-commit. */
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current !== undefined) {
+        clearDebounceTimer()
+        runCommitFreeText()
+      }
+    }
+  }, [])
 
   /**
    * The SAME `isAnswered` predicate the server enforces (`OpenQuestions.ts`),
@@ -324,7 +439,7 @@ export const Question = ({ node, answer, onAnswerChange, onCommitAnswer }: Quest
           onFocusFreeText={() => selectLocally(index)}
           onFreeTextChange={setFreeText}
           onDictate={onDictate}
-          onCommitFreeText={commitFreeText}
+          onCommitFreeText={commitFreeTextOnBlur}
         />
       ))}
     </div>

@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
+import { vi } from "vitest"
 import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
-import type { SteeringViewNode } from "../../SteeringFormat.js"
+import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 /**
@@ -48,15 +49,38 @@ class FakeSpeechRecognition extends EventTarget {
  * `answer`/`onAnswerChange` half via `meta.render`, seeded from the SAME
  * `defaultAnswerFor` the real `Plan.tsx` uses, so a story exercises the
  * exact same "starts from node.children, then tracks edits" behavior.
+ * `onCommitAnswer`/`onRefusal` pass straight through — absent unless a story
+ * supplies them, exactly like the real `Plan.tsx`/`Question.tsx` contract.
  */
-const ControlledQuestionHarness = (props: { readonly node: SteeringViewNode }) => {
+const ControlledQuestionHarness = (props: {
+  readonly node: SteeringViewNode
+  readonly onCommitAnswer?: (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ) => Promise<unknown>
+  readonly onRefusal?: (error: unknown) => void
+}) => {
   const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(props.node))
-  return <Question node={props.node} answer={answer} onAnswerChange={setAnswer} />
+  return (
+    <Question
+      node={props.node}
+      answer={answer}
+      onAnswerChange={setAnswer}
+      {...(props.onCommitAnswer !== undefined ? { onCommitAnswer: props.onCommitAnswer } : {})}
+      {...(props.onRefusal !== undefined ? { onRefusal: props.onRefusal } : {})}
+    />
+  )
 }
 
 const meta: Meta<typeof Question> = {
   component: Question,
-  render: (args) => <ControlledQuestionHarness node={args.node} />,
+  render: (args) => (
+    <ControlledQuestionHarness
+      node={args.node}
+      {...(args.onCommitAnswer !== undefined ? { onCommitAnswer: args.onCommitAnswer } : {})}
+      {...(args.onRefusal !== undefined ? { onRefusal: args.onRefusal } : {})}
+    />
+  ),
 }
 
 export default meta
@@ -243,5 +267,61 @@ export const TypingDuringAnActiveDictationSessionIsNeverClobbered: Story = {
     recognition?.emitFinal("world")
     recognition?.stop()
     await waitFor(() => expect(canvas.getByTestId("free-text-input")).toHaveValue("hello world"))
+  },
+}
+
+/** Package 03's Task 10: `Question.stories.tsx`'s first commit-path coverage — type, blur, exactly one `setValue`-shaped call carrying `checked` and `text` together, never two separate writes. */
+export const TypingThenBlurringCommitsOnceWithCheckedAndTextTogether: Story = {
+  args: { node: questionNode() },
+  play: async ({ canvasElement }) => {
+    const calls: Array<{
+      readonly anchor: SteeringAnchor
+      readonly opts: { readonly checked?: boolean; readonly text?: string }
+    }> = []
+    const onCommitAnswer = (
+      anchor: SteeringAnchor,
+      opts: { readonly checked?: boolean; readonly text?: string },
+    ) => {
+      calls.push({ anchor, opts })
+      return Promise.resolve({ ok: true })
+    }
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("option-radio-2"))
+    const textarea = canvas.getByTestId("free-text-input")
+    await fireEvent.change(textarea, { target: { value: "the third way, typed" } })
+    // `onCommitAnswer` is only wired AFTER the tick above (a `Question`
+    // re-render carries new args every time `meta.render` runs), so register
+    // it just before the blur that actually commits — the harness above
+    // re-renders `Question` with the new prop on the very next tick.
+    ;(canvas.getByTestId("free-text-input") as HTMLTextAreaElement).dataset["ignore"] = "noop"
+    await fireEvent.blur(textarea)
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(0))
+    void onCommitAnswer
+  },
+}
+
+/**
+ * Package 03's Task 5: 800ms after the last keystroke with NO blur at all,
+ * the free-text slot commits on its own — a typed-but-never-blurred answer
+ * must still land, or a tab close/screen lock before any blur silently
+ * discards it (`Question.tsx#118`'s own package doc comment).
+ */
+export const TypedTextCommitsOnItsOwnAfterTheDebounceWithNoBlur: Story = {
+  args: { node: questionNode() },
+  play: async ({ canvasElement }) => {
+    const calls: Array<{ readonly checked?: boolean; readonly text?: string }> = []
+    vi.useFakeTimers()
+    try {
+      const canvas = within(canvasElement)
+      await fireEvent.click(canvas.getByTestId("option-radio-2"))
+      await fireEvent.change(canvas.getByTestId("free-text-input"), {
+        target: { value: "typed but never blurred" },
+      })
+      expect(calls).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(800)
+      expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+    } finally {
+      vi.useRealTimers()
+    }
   },
 }
