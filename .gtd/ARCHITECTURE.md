@@ -14,7 +14,7 @@ a registered `mode`, captured once at startup.
       comes back and it exits 0. Window length becomes a `ui.closeGrace` config
       key (default 90s) so the existing close scenario can set it to 1s instead
       of waiting.
-- [ ] Delete the beacon and `/close` entirely — `gtd ui` then ends only through
+- [x] Delete the beacon and `/close` entirely — `gtd ui` then ends only through
       `done` or a signal, and the outer loop that spawned it owns killing it. No
       false positive is possible because no heuristic exists; the cost is an
       abandoned tab leaving a bound port until something signals the process.
@@ -22,7 +22,7 @@ a registered `mode`, captured once at startup.
 
 ### Where does free text live between keystroke and commit?
 
-- [ ] Debounced write-through to the real file — 800ms after the last keystroke,
+- [x] Debounced write-through to the real file — 800ms after the last keystroke,
       serialized trailing-edge (never two writes in flight for one anchor), plus
       commit on blur and on unmount. No new persistence layer, the file stays
       the single source of truth, and the CAS tokens the mutations already
