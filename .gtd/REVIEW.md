@@ -79,6 +79,29 @@ error class that maps to exit 2.
 - [ ] ./src/ui/Server.ts#287 — `isRenderable`: the server starts only on a
       non-idle `prompt` step carrying a `file` and a `mode` that resolves to a
       registered steering format
+
+  This gate admits exactly the wrong half of the workflow. Grep `mode:` in
+  `src/workflows/unified.yaml`: of the seven states carrying a mode, the two
+  with `actor: human` — `build.review.await-review` and the QA `answer` gate —
+  both declare `message:`, so `beatKindOf` reports `message` and this guard
+  rejects them. The five it does admit are `actor: agent` or `actor: check`,
+  i.e. states no human ever sits at. Result: `gtd ui` cannot start on either
+  step it exists for, and starts only mid-agent-turn. Verified on this very
+  worktree at `build.review.await-review`: "refuses to start — 'Awaiting your
+  review' rests at message, which has no phone screen".
+
+  The whole point of this command is to facilitate the steps where a HUMAN
+  provides feedback to a steering file. Gate on that instead of on content kind:
+  a human-actor rest whose `file` and `mode` resolve to a registered steering
+  format. Note `kind` shifts again once the human starts editing — a `message`
+  state with a dirty tree becomes `capture` — so a kind-based test is the wrong
+  axis regardless of which kinds it lists.
+
+  The mid-flight staleness already noted below is the same defect seen from the
+  other side, and both e2e scenarios covering the refusal (`ui.feature#163`, and
+  the `ui-lifecycle` startup cases) pin the current behaviour, so they move with
+  the gate.
+
 - [ ] ./src/ui/Server.ts#302 — `refusalFor` builds the `GtdUsageError`, naming
       the step's label and what the worktree rests at
 - [ ] ./src/ui/Server.ts#331 — the beat is read **before** host and certificate
