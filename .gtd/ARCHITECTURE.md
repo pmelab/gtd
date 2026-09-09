@@ -4,37 +4,6 @@ Four packages, in build order. Package 01 establishes the invariant packages 02
 and 03 both lean on: the served step is a human rest carrying a known `file` and
 a registered `mode`, captured once at startup.
 
-## Open Questions
-
-### How does a closed tab end `gtd ui`, now that `pagehide` cannot tell a reload from a close?
-
-- [ ] Keep the `/close` beacon, add a grace window — the server arms a timer on
-      `POST /close` and any later HTTP request cancels it; a reload's own `step`
-      query lands inside the window and the process lives, a real close never
-      comes back and it exits 0. Window length becomes a `ui.closeGrace` config
-      key (default 90s) so the existing close scenario can set it to 1s instead
-      of waiting.
-- [x] Delete the beacon and `/close` entirely — `gtd ui` then ends only through
-      `done` or a signal, and the outer loop that spawned it owns killing it. No
-      false positive is possible because no heuristic exists; the cost is an
-      abandoned tab leaving a bound port until something signals the process.
-- [ ] _your answer_
-
-### Where does free text live between keystroke and commit?
-
-- [x] Debounced write-through to the real file — 800ms after the last keystroke,
-      serialized trailing-edge (never two writes in flight for one anchor), plus
-      commit on blur and on unmount. No new persistence layer, the file stays
-      the single source of truth, and the CAS tokens the mutations already
-      refetch on settle carry the next write. Cost: a `setValue` per typing
-      pause over the tailnet.
-- [ ] Restore a client-side draft layer — text lands in `localStorage` on every
-      keystroke and is rehydrated on mount; the file is written only on an
-      explicit commit. Survives a reload and a crash with zero network traffic,
-      and re-introduces the divergence `drafts.ts` was deleted for: a draft on
-      disk that the steering file does not have.
-- [ ] _your answer_
-
 ## Merged Concerns
 
 Package 03 merges requirement 2 and requirement 3. Both center on the same files
@@ -168,14 +137,14 @@ procedure returns `{ status: "moved-on", label }` and calls the SAME idempotent
 the settled doctrine says.
 
 **No background poll.** Detection rides the `step` query the client already
-issues; nothing spawns `gtd next --json` on a timer. Requirement 4 records
+issues; nothing spawns `gtd next --json` on a timer. Package 02 records
 subprocess amplification as an accepted, unfixed risk — adding a polling timer
 would make that risk worse to fix a case the next client read catches anyway.
 
-**This package does not touch `Write.ts`, `endServer`'s body, or `CLOSE_PATH`.**
-Package 02 edits `Write.ts`'s path gate and package 03 edits the close
-semantics; keeping 01's lifetime work to a startup capture plus a comparison
-inside the `step` resolver leaves both of those as clean, non-overlapping edits.
+**This package does not touch `Write.ts` or `endServer`'s body.** Package 02
+edits `Write.ts`'s path gate and package 03 deletes the close endpoint; keeping
+01's lifetime work to a startup capture plus a comparison inside the `step`
+resolver leaves both of those as clean, non-overlapping edits.
 
 **Acceptance**: a new `ui.feature` scenario resting at a human state with a
 `file` and `mode: qa` — the shape of `await-review` — binds a port and exits 0,
@@ -189,29 +158,29 @@ Primary paths: `src/ui/Tls.ts`, `src/ui/Diff.ts`, `src/ui/SafePath.ts`,
 `src/ui/Shell.ts` and its test.
 
 **One shared quoting helper, no new subprocess port.** `src/ui/Shell.ts` exports
-`singleQuoted(value: string): string`, wrapping in `'…'` with `'` → `'\''`.
-`Tls.ts` runs `host` through it in `-subj`, in `subjectAltName`, and for both
-temp paths; `Diff.ts` runs `base` through it and deletes its own inline copy of
-the same escape in favour of the shared one. `CommandRunner` exposes only
-`bash(command)`, so an argv array means a new port method plus a Live
-implementation plus every test double in the repo — quoting reaches the same
-guarantee against a `.gtdrc`-supplied `ui.host` at a fraction of the blast
-radius. A `host` containing `/` or `=` can still confuse openssl's own `-subj`
-parsing; that is a failed certificate request with a named error, not code
-execution, and is accepted.
+`singleQuoted(value: string): string`, wrapping the value in single quotes with
+every embedded quote escaped. `Tls.ts` runs `host` through it in `-subj`, in
+`subjectAltName`, and for both temp paths; `Diff.ts` runs `base` through it and
+deletes its own inline copy of the same escape in favour of the shared one.
+`CommandRunner` exposes only `bash(command)`, so an argv array means a new port
+method plus a Live implementation plus every test double in the repo — quoting
+reaches the same guarantee against a `.gtdrc`-supplied `ui.host` at a fraction
+of the blast radius. A `host` containing `/` or `=` can still confuse openssl's
+own `-subj` parsing; that is a failed certificate request with a named error,
+not code execution, and is accepted.
 
 **The private key never outlives the call.** `generateSelfSignedCert` wraps
-everything after `mkdtempSync` in
-`Effect.ensuring(Effect.sync(() => rmSync(dir, { recursive: true, force: true })))`,
-so the openssl failure path, the read-back failure path and the interrupt path
-all remove the tmpdir. The success-path-only `rmSync` at `Tls.ts#87` is deleted.
+everything after `mkdtempSync` in an `Effect.ensuring` that removes the tmpdir
+recursively, so the openssl failure path, the read-back failure path and the
+interrupt path all clean up. The success-path-only `rmSync` at `Tls.ts#87` is
+deleted.
 
 **`resolveWithinRoot` compares segments and resolves symlinks.** Two changes,
 one function, still synchronous (all four call sites are sync, ahead of
 `Write.ts`'s `enqueue`):
 
-- containment test becomes `relative(root, candidate).split(sep)[0] !== ".."`
-  instead of `startsWith("..")`, so a legitimate `..foo` resolves and a real
+- containment test becomes a first-segment comparison against `..` instead of a
+  `startsWith("..")` string prefix, so a legitimate `..foo` resolves and a real
   escape still refuses
 - the candidate is `realpathSync`'d before the test, walking up to the nearest
   existing ancestor when the leaf does not exist yet and re-appending the tail,
@@ -265,24 +234,22 @@ host, because there is none to refuse.
 
 Primary paths: `src/web/App.tsx`, `src/web/api.ts`, `src/web/main.tsx`,
 `src/web/NoteSheet.tsx`, `src/web/screens/*.tsx` and their stories, plus a new
-`src/web/Refusal.tsx`; `src/ui/Server.ts` (`CLOSE_PATH` only),
-`src/ConfigSchema.ts`, `docs/cli.md`,
+`src/web/Refusal.tsx`; `src/ui/Server.ts` (the close endpoint only),
 `tests/integration/features/ui-lifecycle.feature`.
 
 **One refusal surface, six sentences.** New `src/web/Refusal.tsx` exports a
-`RefusalBanner` and the `useRefusal()` hook holding the current
-`WriteRefusalInfo | "unknown" | undefined`. `writeRefusalFrom` and
-`WriteRefusalInfo` are kept and finally get real callers: one sentence per
-reason (`stale-token` naming which token moved, `not-resting`, `file-vanished`,
-`anchor-unresolved`, `note-collision`, `unsupported-mode`), plus a seventh
-generic sentence for an error `writeRefusalFrom` cannot read — a network failure
-or a dead server — which today produces the same silence. The banner carries
-`role="status" aria-live="polite"` and a dismiss control, and sits at the top of
-both `Plan` and `Review`. Every `.catch(() => revert)` in `Question.tsx`,
-`Review.tsx` and `Plan.tsx` becomes `.catch(e => { revert(); show(e) })`, and
-`onDoneNote`'s `.catch(() => {})` becomes the same — it may still never rethrow,
-because `NoteSheet`'s `onDone` is not awaited, but it stops discarding the
-reason.
+`RefusalBanner` and a `useRefusal()` hook holding the current refusal.
+`writeRefusalFrom` and `WriteRefusalInfo` are kept and finally get real callers:
+one sentence per reason (`stale-token` naming which token moved, `not-resting`,
+`file-vanished`, `anchor-unresolved`, `note-collision`, `unsupported-mode`),
+plus a seventh generic sentence for an error `writeRefusalFrom` cannot read — a
+network failure or a dead server — which today produces the same silence. The
+banner carries `role="status" aria-live="polite"` and a dismiss control, and
+sits at the top of both `Plan` and `Review`. Every `.catch(() => revert)` in
+`Question.tsx`, `Review.tsx` and `Plan.tsx` becomes a catch that reverts AND
+shows, and `onDoneNote`'s `.catch(() => {})` becomes the same — it may still
+never rethrow, because `NoteSheet`'s `onDone` is not awaited, but it stops
+discarding the reason.
 
 **`App.tsx` never returns `null`.** Five branches, each rendering something:
 in-flight (`aria-busy="true"` skeleton), query error (named failure),
@@ -294,8 +261,8 @@ no longer reach `readSteeringFile` and produce an invisible `unsupported-mode`.
 
 **Accessibility rides along.** Both `HandedBackPanel` copies get
 `role="status" aria-live="polite"`; the free-text textarea and the note sheet's
-textarea each get a real `<label>` alongside the placeholder; and the commit
-path gets a live "Saving…" / "Saved" affordance, announced through the same
+textarea each get a real label alongside the placeholder; and the commit path
+gets a live "Saving…" / "Saved" affordance, announced through the same
 `aria-live` region, so a blur that is invisible on touch still reports whether
 the write landed.
 
@@ -303,47 +270,69 @@ the write landed.
 six, not consolidated into a seventh. The machine-read
 `// fallow-ignore-next-line` pragmas stay — tooling reads those.
 
-**Free text commits without a blur.** Mechanism follows the second open
-question. Either way three things change in `Question.tsx` and `NoteSheet.tsx`:
-a commit fires on unmount as well as on blur, the note sheet stops being the
-only text with no durability at all, and the empty-text guard is replaced. The
-guard moves off "is the text empty" onto "did the text change from what was last
-committed": a bare focus-then-blur still writes nothing, and deleting an
-existing answer writes the erase. **Implementation checkpoint**: clearing sends
-`text: ""` with `checked: false`, which `OpenQuestions.ts`'s `apply` must treat
-as an erase of both — if it cannot express that today, extending
-`QA_FORMAT.apply` is part of this package, not a follow-up.
+**Free text commits without a blur — debounced write-through to the real file.**
+800ms after the last keystroke, `Question.tsx`'s free-text slot and
+`NoteSheet.tsx`'s note body each fire the same commit their blur handler fires.
+Serialized trailing-edge: never two writes in flight for one anchor — a commit
+issued while one is pending replaces the queued text and fires once the pending
+one settles, so a fast typist produces one write per pause, not one per
+keystroke. Blur still commits, and so does unmount. No new persistence layer:
+the file stays the single source of truth, and the compare-and-swap tokens the
+mutations already refetch on settle carry the next write.
+
+**Risk, blunt**: this puts a `setValue` on the tailnet at every typing pause,
+each one spawning a `gtd next --json` through `verifyForWrite`'s `actorAt` — the
+uncapped subprocess amplification package 02 records as accepted now has a
+caller that fires on a timer, not on a tap.
+
+**The empty-text guard is replaced.** It moves off "is the text empty" onto "did
+the text change from what was last committed": a bare focus-then-blur still
+writes nothing, and deleting an existing answer writes the erase.
+**Implementation checkpoint**: clearing sends `text: ""` with `checked: false`,
+which `OpenQuestions.ts`'s `apply` must treat as an erase of both — if it cannot
+express that today, extending `QA_FORMAT.apply` is part of this package, not a
+follow-up.
 
 **Revert-on-rejection stops clobbering.** No handler snapshots whole state any
-more. Each write is stamped with a per-anchor sequence number held in a
-`useRef<Map<string, number>>`; a rejection reverts a key only when the failed
-write is still the latest issued for that key. Tick A, tick B, A fails — B
-stands. This replaces `Question.tsx#247`'s whole-`answer` snapshot and
-`Review.tsx#148`'s `previous` Map alike.
+more. Each write is stamped with a per-anchor sequence number held in a ref; a
+rejection reverts a key only when the failed write is still the latest issued
+for that key. Tick A, tick B, A fails — B stands. This replaces
+`Question.tsx#247`'s whole-`answer` snapshot and `Review.tsx#148`'s `previous`
+Map alike.
 
-**The beacon becomes injectable and its trigger changes.** `main.tsx`'s
-top-level `window.addEventListener("pagehide", …)` moves behind an exported
-`registerHandOffBeacon(target)` a story can drive. Its server-side counterpart
-follows the first open question; under the grace-window answer, `Server.ts`'s
-`CLOSE_PATH` handler arms a timer instead of calling `endServer()`, any
-subsequent HTTP request clears it, and the window is a new `ui.closeGrace`
-config key (seconds, default 90) added to `UiSchema`, its `uiJsonSchema` and
-`docs/cli.md`'s config table. 90 seconds is chosen against the asymmetry: a
-window too short kills a live turn when a phone screen locks, a window too long
-only makes the outer loop wait after a real close. The existing "closing the UI
-without handing off exits 0" scenario sets `ui.closeGrace: 1` so it does not sit
-for 90 seconds. Nothing listens to `visibilitychange`, then or now.
+**The beacon and `/close` are deleted outright.** `main.tsx`'s top-level
+`pagehide` listener goes, and with it `Server.ts`'s `CLOSE_PATH` constant, its
+handler branch and its doc comment. `endServer` stays, called only by `handOff`
+and by package 01's `moved-on` detection. No heuristic remains that could
+mistake a reload, an iOS app switch or a screen lock for a close, because no
+heuristic remains at all. Nothing listens to `visibilitychange`, then or now. No
+config key is added — `ui.closeGrace` is not built, and `src/ConfigSchema.ts`,
+`uiJsonSchema` and `docs/cli.md` stay untouched by this package.
+
+`gtd ui` then ends through exactly two doors: `done`, or a signal. The outer
+loop that spawned it owns killing it.
+
+**Risk, blunt**: an abandoned tab leaves the port bound and the process alive
+until something signals it — a `gtd ui` started by hand and then forgotten needs
+a Ctrl-C the beacon used to spare the human.
+
+**The existing "closing the UI without handing off exits 0" scenario is
+deleted**, along with its `I close a spawned gtd ui without handing off` step —
+both describe a path that no longer exists. Deleting a green scenario is
+deliberate here, not collateral.
 
 **Acceptance**: a story where `setValue` rejects with `stale-token` asserts a
 visible, named reason on screen; a story with `trpc.step` in flight asserts a
 non-empty document; `Question.stories.tsx` gains its first `onCommitAnswer`
 coverage — type, blur, exactly one `setValue` carrying `checked` and `text`
-together; a story asserting a rejected write for anchor A leaves a later tick on
-anchor B standing; and a real-process `@live` `ui-lifecycle` scenario that
-closes, re-requests, and then hands off, exiting 0 through `done` rather than
-through the beacon. The two mocked "survives a page reload" stories are
-rewritten or deleted — they prove only that a fresh React mount re-reads the
-server.
+together; a story asserting a typed-but-never-blurred answer commits on its own
+once the debounce elapses; a story asserting a rejected write for anchor A
+leaves a later tick on anchor B standing; and a real-process `@live`
+`ui-lifecycle` scenario that loads the client, re-requests it (a reload), then
+hands off, exiting 0 through `done` — it passes trivially once the beacon is
+gone, and pins that against a future re-introduction. The two mocked "survives a
+page reload" stories are rewritten or deleted — they prove only that a fresh
+React mount re-reads the server.
 
 ## 04 — Take the graft agent tooling off this branch
 
@@ -418,3 +407,17 @@ The server packages go first: 01 establishes the human-rest invariant with a
 narrowed `file`/`mode`, 02 consumes it for path confinement and may adjust the
 refusal vocabulary, and only then does 03 write the client's display for that
 final vocabulary. Package 04 is last, per its own requirement.
+
+### How does a closed tab end `gtd ui`, now that `pagehide` cannot tell a reload from a close?
+
+It does not. The beacon and `/close` are deleted entirely, and `gtd ui` ends
+only through `done` or a signal — no heuristic remains that could produce a
+false positive. The accepted cost: an abandoned tab leaves a bound port and a
+live process until something signals it.
+
+### Where does free text live between keystroke and commit?
+
+In the file. A debounced write-through fires 800ms after the last keystroke,
+serialized trailing-edge, alongside the existing blur commit and a new unmount
+commit — no `localStorage` draft layer, so no draft can diverge from the
+steering file.
