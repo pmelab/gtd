@@ -4,7 +4,7 @@
 
 ### How is the `tailscale` binary located?
 
-- [ ] `$PATH` only — one `tailscale status --json` through `CommandRunner.bash`,
+- [x] `$PATH` only — one `tailscale status --json` through `CommandRunner.bash`,
       no path list to maintain; a macOS App Store install (binary at
       `/Applications/Tailscale.app/Contents/MacOS/Tailscale`, never on `$PATH`)
       silently falls back to the CGNAT IP and the cert refusal
@@ -23,7 +23,7 @@ ACL change.
 - [ ] Fall through to the existing refusal, with `tailscale cert`'s own output
       as extra hint lines — the user sees the real cause and the `--self-signed`
       escape in one message
-- [ ] Fail hard on the `tailscale cert` error alone, no fallback — the branch
+- [x] Fail hard on the `tailscale cert` error alone, no fallback — the branch
       was chosen deliberately, so a silent slide back into "no certificate
       configured" hides a broken tailnet
 - [ ] _your answer_
