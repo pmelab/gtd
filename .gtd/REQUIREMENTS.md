@@ -4,7 +4,7 @@
 
 ### Which theme should the phone client paint — dark, light, or a `prefers-color-scheme` pair?
 
-- [ ] Dark only — matches every color already hardcoded in the components
+- [x] Dark only — matches every color already hardcoded in the components
       (`#111`, `#3a2a00`, and `Highlight.ts`'s dark-editor token set), so no
       component changes, only a page shell to sit under them
 - [ ] A `prefers-color-scheme` pair — respects the phone's own setting, but
@@ -17,7 +17,7 @@
 - [ ] Stop at the URL and QR code — the printed address becomes the tailnet
       hostname; `--self-signed` and `ui.cert`/`ui.key` stay exactly as they are,
       so the browser warning on every load stays too
-- [ ] Also obtain a real cert via `tailscale cert` for the hostname in
+- [x] Also obtain a real cert via `tailscale cert` for the hostname in
       `Self.CertDomains` — removes the warning entirely and becomes the new
       default when Tailscale is present, but adds a third branch to
       `resolveCertPair` and a dependency on the tailnet having HTTPS enabled
