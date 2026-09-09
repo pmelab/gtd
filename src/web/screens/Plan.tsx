@@ -61,9 +61,6 @@ const openQuestionNodesOf = (view: SteeringView): readonly SteeringViewNode[] =>
  * and — worse — recomputes "unanswered" from that empty state, contradicting
  * the very section the card came from. An answered card renders as an
  * inert, non-button summary row instead of a fake-clickable `Card`.
- * Exercised by `Plan.stories.tsx`'s `play()` interaction tests — fallow's
- * static CRAP estimate only sees real coverage reports, not
- * Storybook/vitest-browser runs, so it scores this as untested regardless.
  */
 // fallow-ignore-next-line complexity
 const QuestionCard = ({

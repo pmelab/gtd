@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
@@ -407,6 +407,138 @@ export const DeletingAPreviouslyWrittenAnswerAndBlurringErasesIt: StoryObj<typeo
       readonly opts: { readonly checked?: boolean; readonly text?: string }
     }>
     expect(calls[0]?.opts).toEqual({ checked: false, text: "" })
+  },
+}
+
+/**
+ * A hand-built `onCommitAnswer` whose write for option 0 never resolves
+ * until this harness's own "Reject A" button fires it — every OTHER option
+ * resolves immediately. Mirrors `Review.stories.tsx#TwoHunkRevertHarness`'s
+ * identical pattern, at `Question`'s own layer.
+ */
+const RevertScopeHarness = ({ node }: { readonly node: SteeringViewNode }) => {
+  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
+  const pendingRejectRef = useRef<((error: unknown) => void) | undefined>(undefined)
+  const onCommitAnswer = (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<unknown> => {
+    void opts
+    if (anchor.kind === "option" && anchor.index === 0) {
+      return new Promise((_resolve, reject) => {
+        pendingRejectRef.current = reject
+      })
+    }
+    return Promise.resolve({ ok: true })
+  }
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="reject-option-a"
+        onClick={() => pendingRejectRef.current?.(new Error("stale token"))}
+      >
+        Reject A
+      </button>
+      <Question
+        node={node}
+        answer={answer}
+        onAnswerChange={setAnswer}
+        onCommitAnswer={onCommitAnswer}
+      />
+    </>
+  )
+}
+
+/**
+ * Package 03's Task 7, verbatim concrete failure: tick option 0 (slow
+ * write), tick option 1 (lands), option 0's write rejects — option 1's tick
+ * must still stand. The per-FIELD (`selected`) seq is what makes this safe:
+ * a whole-`answer` snapshot revert (the previous defect) would instead wipe
+ * `selected` back to whatever it was before option 0 was ever tapped,
+ * discarding option 1's own, already-landed tick.
+ */
+export const ARejectedTickOnOneOptionLeavesALaterTickOnAnotherOptionStanding: StoryObj<
+  typeof Question
+> = {
+  args: { node: questionNode() },
+  render: (args) => <RevertScopeHarness node={args.node} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("option-radio-0")) // A — write never resolves yet
+    await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
+
+    await fireEvent.click(canvas.getByTestId("option-radio-1")) // B — write resolves immediately
+    await expect(canvas.getByTestId("option-radio-1")).toBeChecked()
+    await expect(canvas.getByTestId("option-radio-0")).not.toBeChecked()
+
+    await fireEvent.click(canvas.getByTestId("reject-option-a"))
+    await waitFor(() => expect(canvas.getByTestId("option-radio-1")).toBeChecked()) // still B
+    await expect(canvas.getByTestId("option-radio-0")).not.toBeChecked()
+  },
+}
+
+/**
+ * A hand-built `onCommitAnswer` whose free-text write (option 2, carrying
+ * `text`) never resolves until "Reject Free Text" fires it — an ordinary
+ * option tick resolves immediately.
+ */
+const FreeTextRevertScopeHarness = ({ node }: { readonly node: SteeringViewNode }) => {
+  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
+  const pendingRejectRef = useRef<((error: unknown) => void) | undefined>(undefined)
+  const onCommitAnswer = (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<unknown> => {
+    if (opts.text !== undefined) {
+      return new Promise((_resolve, reject) => {
+        pendingRejectRef.current = reject
+      })
+    }
+    void anchor
+    return Promise.resolve({ ok: true })
+  }
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="reject-free-text"
+        onClick={() => pendingRejectRef.current?.(new Error("stale token"))}
+      >
+        Reject free text
+      </button>
+      <Question
+        node={node}
+        answer={answer}
+        onAnswerChange={setAnswer}
+        onCommitAnswer={onCommitAnswer}
+      />
+    </>
+  )
+}
+
+/**
+ * The free-text half of Task 7's same defect: typing into the free-text
+ * slot and blurring fires a write that never resolves yet; a plain option
+ * tick made WHILE it's still pending resolves immediately and must still
+ * stand once the free-text write rejects — a whole-`answer` snapshot revert
+ * would instead restore `previous.selected` too, discarding the radio tick
+ * made in the interim.
+ */
+export const ARejectedFreeTextWriteLeavesALaterRadioTickStanding: StoryObj<typeof Question> = {
+  args: { node: questionNode() },
+  render: (args) => <FreeTextRevertScopeHarness node={args.node} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const textarea = canvas.getByTestId("free-text-input")
+    await fireEvent.change(textarea, { target: { value: "typed while in flight" } })
+    await fireEvent.blur(textarea) // write never resolves yet
+
+    await fireEvent.click(canvas.getByTestId("option-radio-0")) // resolves immediately
+    await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
+
+    await fireEvent.click(canvas.getByTestId("reject-free-text"))
+    await waitFor(() => expect(canvas.getByTestId("option-radio-0")).toBeChecked()) // still ticked
   },
 }
 

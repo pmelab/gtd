@@ -237,15 +237,21 @@ export const Question = ({
   const selectLocally = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
 
   /**
-   * Per-anchor write sequence numbers (Task 7) — a REJECTED write only
-   * reverts its own anchor's local state when it's still the LATEST write
-   * issued for that same anchor; a whole-`answer` snapshot captured at call
-   * time (the previous scheme) would instead clobber whatever a later,
-   * already-landed write for a DIFFERENT anchor had just done. Held in a ref
-   * (never `useState`): bumping it must never itself trigger a render.
+   * Per-FIELD write sequence numbers (Task 7) — NOT per-anchor: `selected`
+   * is one shared radio slot across every option's own anchor (ticking
+   * option 1 supersedes option 0's own in-flight write even though they're
+   * different anchors), so keying a revert guard by anchor JSON — the
+   * previous scheme — let a stale rejection for option 0 clobber option 1's
+   * already-landed tick, exactly the "tick A, tick B, A's write fails, B's
+   * tick vanishes too" failure the spec calls out. A REJECTED write now only
+   * reverts a FIELD (`selected` or `freeText`) when it's still the latest
+   * write that touched that field, whichever anchor issued it. Held in refs
+   * (never `useState`): bumping either must never itself trigger a render.
    */
-  const seqRef = useRef(new Map<string, number>())
-  const anchorKey = (anchor: SteeringAnchor): string => JSON.stringify(anchor)
+  const selectedSeqRef = useRef(0)
+  const freeTextSeqRef = useRef(0)
+  const bumpSelectedSeq = (): number => ++selectedSeqRef.current
+  const bumpFreeTextSeq = (): number => ++freeTextSeqRef.current
 
   /**
    * The one write-through both `setSelected` and `commitFreeText` fire —
@@ -254,32 +260,44 @@ export const Question = ({
    * split here. Fire-and-forget from the CALLER's perspective, but returns
    * the promise so `commitFreeText`'s own debounce/unmount serialization can
    * track completion. A rejection (a `CONFLICT` refusal, a network failure,
-   * …) surfaces via `onRefusal` AND reverts the optimistic local update —
-   * but only when this write is still the latest issued for `anchor`
-   * (`seqRef`), so a stale rejection can never clobber a newer, already-
-   * landed write to the same anchor. A no-op when `anchor` is `undefined`
-   * (an out-of-range index).
+   * …) surfaces via `onRefusal` AND reverts ONLY the fields `reverts` names —
+   * each gated by ITS OWN field-level seq, so a stale rejection can never
+   * clobber a field a newer write (to any anchor) already changed. A no-op
+   * when `anchor` is `undefined` (an out-of-range index).
    */
   const commitAnchor = (
     anchor: SteeringAnchor | undefined,
     opts: { readonly checked?: boolean; readonly text?: string },
-    previous: QuestionAnswer,
+    reverts: ReadonlyArray<
+      | { readonly field: "selected"; readonly seq: number; readonly value: number | undefined }
+      | { readonly field: "freeText"; readonly seq: number; readonly value: string }
+    >,
   ): Promise<unknown> | undefined => {
     if (anchor === undefined) return undefined
-    const key = anchorKey(anchor)
-    const seq = (seqRef.current.get(key) ?? 0) + 1
-    seqRef.current.set(key, seq)
     return onCommitAnswer?.(anchor, opts)?.catch((error: unknown) => {
       onRefusal?.(error)
-      if (seqRef.current.get(key) === seq) onAnswerChange(previous)
+      onAnswerChange((prev) => {
+        let next = prev
+        for (const revert of reverts) {
+          const currentSeq =
+            revert.field === "selected" ? selectedSeqRef.current : freeTextSeqRef.current
+          if (currentSeq === revert.seq) {
+            next = { ...next, [revert.field]: revert.value }
+          }
+        }
+        return next
+      })
     })
   }
 
-  /** An ordinary option's own click: local selection AND an immediate write-through (T4's "selecting an option calls setValue") — never used for the free-text slot's focus tracking, which must stay local-only (`selectLocally`). */
+  /** An ordinary option's own click: local selection AND an immediate write-through (T4's "selecting an option calls setValue") — never used for the free-text slot's focus tracking, which must stay local-only (`selectLocally`). Touches ONLY `selected` — `freeText` is never part of this write's own revert. */
   const setSelected = (index: number) => {
-    const previous = answer
+    const previousSelected = selected
+    const seq = bumpSelectedSeq()
     selectLocally(index)
-    commitAnchor(options[index]?.anchor, { checked: true }, previous)
+    commitAnchor(options[index]?.anchor, { checked: true }, [
+      { field: "selected", seq, value: previousSelected },
+    ])
   }
 
   /** The free-text slot's own anchor, when there is one. */
@@ -298,21 +316,31 @@ export const Question = ({
    * last committed" (Task 6): a bare focus-then-blur still writes nothing,
    * but DELETING a previously-written answer and blurring now writes the
    * erase (`checked: false, text: ""`) rather than silently leaving stale
-   * text on disk while the UI shows empty.
+   * text on disk while the UI shows empty. Touches BOTH `selected` and
+   * `freeText`, each reverted only against its OWN field-level seq — a plain
+   * option tap landing/failing independently in between can never be undone
+   * by this write's own rejection, and vice versa.
    */
   const commitFreeText = (): Promise<unknown> | undefined => {
     const current = normalizeAnswerText(freeText)
     const lastCommitted = normalizeAnswerText(lastCommittedFreeTextRef.current)
     if (current === lastCommitted) return undefined
-    const previous = answer
+    const previousSelected = selected
+    const previousFreeText = freeText
     const anchor = freeTextAnchor()
     lastCommittedFreeTextRef.current = freeText
+    const freeTextSeq = bumpFreeTextSeq()
+    const selectedSeq = bumpSelectedSeq()
+    const reverts = [
+      { field: "freeText" as const, seq: freeTextSeq, value: previousFreeText },
+      { field: "selected" as const, seq: selectedSeq, value: previousSelected },
+    ]
     if (current.length === 0) {
       onAnswerChange((prev) => ({ ...prev, selected: undefined }))
-      return commitAnchor(anchor, { checked: false, text: "" }, previous)
+      return commitAnchor(anchor, { checked: false, text: "" }, reverts)
     }
     selectLocally(lastIndex)
-    return commitAnchor(anchor, { checked: true, text: freeText }, previous)
+    return commitAnchor(anchor, { checked: true, text: freeText }, reverts)
   }
 
   /**
