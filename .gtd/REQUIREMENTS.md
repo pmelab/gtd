@@ -1,10 +1,17 @@
 # Requirements
 
+currently, when trying to answer a question, i see:
+
+"Someone else committed a change underneath you — reload to see the latest
+before trying again."
+
+there seems to be an error. we have to fix it.
+
 ## Open Questions
 
 ### Does the redesign ship a light theme, or stay dark-only?
 
-- [ ] Dark-only — keep `color-scheme: dark`; one palette to design, one set of
+- [x] Dark-only — keep `color-scheme: dark`; one palette to design, one set of
       contrast ratios to prove, and the phone is used in a terminal-adjacent
       context where dark is the expectation
 - [ ] Both — palette tokens resolve through `prefers-color-scheme`, so a
@@ -13,7 +20,7 @@
 
 ### Does the anchored bottom bar carry each screen's primary action, or only the deck's Back/Next?
 
-- [ ] Deck only — `Deck.tsx`'s Back/progress/Next becomes the anchored bar;
+- [x] Deck only — `Deck.tsx`'s Back/progress/Next becomes the anchored bar;
       `Review`'s hand-back, `NoteSheet`'s save and the chunk-level controls stay
       where they are, sized to 44px but in flow
 - [ ] Every screen — one shared bottom-bar component that every screen hangs its
