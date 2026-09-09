@@ -428,6 +428,78 @@ describe("runUiCommand", () => {
     expect(closed).toBe(true)
   })
 
+  it("T5: under --dev, rebuilds the client exactly once at startup — no HTTP request triggers a rebuild", async () => {
+    initGitRepo(tmpDir)
+    installFakeGtd(tmpDir, renderablePromptJson)
+    const { out } = fakeOut()
+    const certPath = join(tmpDir, "cert.pem")
+    const keyPath = join(tmpDir, "key.pem")
+    writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+    writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+
+    const bashCalls: string[] = []
+    const runner = CommandRunner.layer((command) => {
+      bashCalls.push(command)
+      return Effect.succeed({ status: 0, output: "" })
+    })
+    const devFs = FileSystem.makeNoop({
+      readFileString: (path: string) =>
+        Effect.succeed(
+          path.endsWith("index.html")
+            ? '<!doctype html><body><script type="module" src="./main.js"></script></body>'
+            : "console.log('dev build')",
+        ),
+    })
+
+    let handler: ((req: http.IncomingMessage, res: http.ServerResponse) => void) | undefined
+    const fakeHttpsServer = Layer.succeed(HttpsServer, {
+      listen: (_certPair, _host, _port, h) => {
+        handler = h
+        return Effect.succeed({ port: 4443, close: () => {} })
+      },
+    })
+
+    const fiber = Effect.runFork(
+      runUiCommand(
+        { selfSigned: false, dev: true },
+        { host: "100.90.1.2", cert: certPath, key: keyPath },
+        out,
+      ).pipe(
+        Effect.provide(fakeHttpsServer),
+        Effect.provide(runner),
+        Effect.provideService(FileSystem.FileSystem, devFs),
+        Effect.provide(Cwd.layer(tmpDir)),
+      ),
+    )
+
+    for (let i = 0; i < 50 && handler === undefined; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    if (handler === undefined) throw new Error("server never registered its request handler")
+    const registeredHandler = handler
+
+    const fakeReqRes = (): { body: string[] } => {
+      const body: string[] = []
+      const req = { url: "/", method: "GET" } as http.IncomingMessage
+      const res = {
+        writeHead: () => {},
+        end: (chunk?: string) => {
+          if (chunk !== undefined) body.push(chunk)
+        },
+      } as unknown as http.ServerResponse
+      registeredHandler(req, res)
+      return { body }
+    }
+
+    const first = fakeReqRes()
+    const second = fakeReqRes()
+    expect(first.body[0]).toContain("console.log('dev build')")
+    expect(second.body[0]).toContain("console.log('dev build')")
+    expect(bashCalls.filter((c) => c.includes("tsdown"))).toHaveLength(1)
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
   it("refuses before ever reaching HttpsServer when no host resolves", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
@@ -702,6 +774,50 @@ describe("the tRPC API surface mounted under /trpc", () => {
       expect(readData?.readRefusal?.reason).toBe("file-vanished")
     })
 
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
+  it("T4: readSteeringFile refuses a filePath other than the served step's own file — arbitrary reads inside the worktree are confined", async () => {
+    const { boundUrl, fiber } = await startRealServer(tmpDir)
+    await withInsecureTls(async () => {
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      // renderablePromptJson names "NOTES.md" — a request for ANY other
+      // path inside the worktree, including a real file like .git/config
+      // (an actual git file initGitRepo creates, so this proves the refusal
+      // is the confinement gate, not just resolveWithinRoot's "vanished"),
+      // is refused identically.
+      const readData = await refusalDataFrom<{ readRefusal?: { reason: string } }>(
+        client.readSteeringFile.query({ filePath: ".git/config", mode: "qa" }),
+      )
+      expect(readData?.readRefusal?.reason).toBe("file-vanished")
+    })
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
+  it("T4: writeNote/setValue refuse a filePath other than the served step's own file", async () => {
+    const { boundUrl, fiber } = await startRealServer(tmpDir)
+    await withInsecureTls(async () => {
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      const casFields = {
+        filePath: "seed.txt",
+        expectedHeadSha: "whatever",
+        expectedContentHash: "whatever",
+        mode: "qa",
+        anchor: { kind: "paragraph" as const, line: 0 },
+      }
+      const writeData = await refusalDataFrom<{ writeRefusal?: { reason: string } }>(
+        client.writeNote.mutate({ ...casFields, text: "hijacked" }),
+      )
+      expect(writeData?.writeRefusal?.reason).toBe("file-vanished")
+      const setValueData = await refusalDataFrom<{ writeRefusal?: { reason: string } }>(
+        client.setValue.mutate({ ...casFields, checked: true }),
+      )
+      expect(setValueData?.writeRefusal?.reason).toBe("file-vanished")
+    })
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 

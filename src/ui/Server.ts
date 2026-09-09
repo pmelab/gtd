@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createHTTPHandler } from "@trpc/server/adapters/standalone"
 import { FileSystem } from "@effect/platform"
-import { Context, Deferred, Effect, Either, Layer, Runtime } from "effect"
+import { Context, Deferred, Effect, Layer, Runtime } from "effect"
 import type { ArtifactOut } from "../Cli.js"
 import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
@@ -61,11 +61,14 @@ interface BoundServer {
 
 /**
  * Determines the bind host: an explicit `--host`, then a configured
- * `ui.host`, then a scan for a Tailscale interface — refusing only when
- * all three are absent, because a server that reads and writes working
- * trees without authentication must never silently appear on the LAN.
- * `pickHost` defaults to the real system scan but is a parameter so tests
- * can simulate "no tailnet" without touching `os.networkInterfaces()`.
+ * `ui.host`, then a scan for a Tailscale interface — refusing only when all
+ * three are absent. The tailnet IS this server's whole authentication
+ * boundary (there is no other), so an explicit `--host`/`ui.host` is the
+ * user's own deliberate consent and stays honoured exactly as given,
+ * `--host 0.0.0.0` included — this never second-guesses that choice, only
+ * supplies a default when none was made. `pickHost` defaults to the real
+ * system scan but is a parameter so tests can simulate "no tailnet" without
+ * touching `os.networkInterfaces()`.
  */
 export const resolveBindHost = (
   host: string | undefined,
@@ -200,7 +203,7 @@ const findPackageRoot = (): Effect.Effect<string, GtdError> =>
       ]),
   })
 
-/** `--dev`: the raw template, read fresh off disk every call — editing it needs no rebuild. */
+/** `--dev`: the raw template, read once at startup — editing it needs a server restart, same as the rebuilt script it's inlined into (T5: the server lives for exactly one step, so a mid-step rebuild would have nothing left to reflect). */
 const readDevTemplate = (
   fs: FileSystem.FileSystem,
   root: string,
@@ -220,9 +223,11 @@ const readDevTemplate = (
  * source file with no manual `npm run build`. Runs with `root` (the gtd
  * package's OWN directory, never the invoking cwd) as its working directory —
  * a plain `npx tsdown` in the invoking directory would have no tsdown.config.ts
- * to select against, since `ui` deliberately runs outside any repo. Costs
- * one subprocess build per request; acceptable for local development, never
- * reached in production.
+ * to select against, since `ui` deliberately runs outside any repo. Called
+ * exactly ONCE, ahead of `httpsServer.listen` (T5) — an HTTP request can no
+ * longer trigger this build: the server lives for exactly one step, so a
+ * mid-step rebuild would have nothing left to reflect, and a build per
+ * unauthenticated request was subprocess amplification for free.
  */
 const rebuildDevClientScript = (
   runner: Context.Tag.Service<typeof CommandRunner>,
@@ -254,7 +259,7 @@ const rebuildDevClientScript = (
       )
   })
 
-/** The one piece of content this server ever serves: the client HTML, with its JS inlined — a build-time constant in production, freshly read/rebuilt per request under `--dev`. */
+/** The one piece of content this server ever serves: the client HTML, with its JS inlined — a build-time constant in production, resolved ONCE at startup under `--dev` too (T5) and held for the process's whole lifetime, never re-read or rebuilt per request. */
 export const resolveClientHtml = (
   dev: boolean,
   runner: Context.Tag.Service<typeof CommandRunner>,
@@ -373,6 +378,13 @@ export const runUiCommand = (
     const httpsServer = yield* HttpsServer
     const runtime = yield* Effect.runtime<UiRequirements>()
 
+    // T5: resolved ONCE, here, ahead of `httpsServer.listen` — never inside
+    // the request handler. The server lives for exactly one step, so a
+    // mid-step `--dev` rebuild would have nothing left to reflect, and a
+    // build per unauthenticated HTTP request was subprocess amplification
+    // reachable by anything on the tailnet.
+    const clientHtml = yield* resolveClientHtml(options.dev, runner, fs)
+
     const writeDeps: WriteDeps = {
       headSha: liveHeadSha,
       actorAt: liveActorAt,
@@ -413,16 +425,36 @@ export const runUiCommand = (
       return { status: "moved-on", label: read.status === "ok" ? read.label : servedLabel }
     }
 
+    // T4's confinement gate: every read/write is narrowed to the ONE file
+    // the served step actually named at startup (`step.file`, captured
+    // above) — never the whole worktree. Lives here, not inside
+    // `writeNote`/`writeValue`/`readSteeringFile` themselves, because those
+    // functions have no notion of "the step this server serves"; only the
+    // context closing over `step` does. `"file-vanished"` reuses the
+    // existing refusal rather than adding a seventh `WriteRefusalReason` —
+    // a seventh value means a seventh client display sentence for a case
+    // only a hand-rolled client (never the real phone UI, which only ever
+    // requests `step.file`) could reach.
+    const isServedFile = (filePath: string): boolean => filePath === step.file
+
     const trpcHandler = createHTTPHandler({
       router: appRouter,
       basePath: `${TRPC_PATH_PREFIX}/`,
       createContext: ({ res }): RouterContext => ({
         readStep: readServedStep,
-        writeNote: (request) => writeNote({ ...request, worktreePath: cwd.root }, writeDeps),
-        writeValue: (request) => writeValue({ ...request, worktreePath: cwd.root }, writeDeps),
+        writeNote: (request) =>
+          isServedFile(request.filePath)
+            ? writeNote({ ...request, worktreePath: cwd.root }, writeDeps)
+            : Promise.resolve({ ok: false, reason: "file-vanished" }),
+        writeValue: (request) =>
+          isServedFile(request.filePath)
+            ? writeValue({ ...request, worktreePath: cwd.root }, writeDeps)
+            : Promise.resolve({ ok: false, reason: "file-vanished" }),
         resolveDiff: (path, line) => resolveDiff(cwd.root, path, line, diffDeps),
         readSteeringFile: (request) =>
-          readSteeringFile({ ...request, worktreePath: cwd.root }, readDeps),
+          isServedFile(request.filePath)
+            ? readSteeringFile({ ...request, worktreePath: cwd.root }, readDeps)
+            : Promise.resolve({ ok: false, reason: "file-vanished" }),
         handOff: () => {
           let settled = false
           const settle = (): void => {
@@ -461,17 +493,8 @@ export const runUiCommand = (
         endServer()
         return
       }
-      Runtime.runPromise(runtime)(
-        resolveClientHtml(options.dev, runner, fs).pipe(Effect.either),
-      ).then((result) => {
-        if (Either.isLeft(result)) {
-          res.writeHead(500, { "content-type": "text/plain; charset=utf-8" })
-          res.end(result.left.message)
-          return
-        }
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
-        res.end(result.right)
-      })
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
+      res.end(clientHtml)
     }
 
     const bound = yield* httpsServer.listen(certPair, host, port, handler)

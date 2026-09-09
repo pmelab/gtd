@@ -1,5 +1,6 @@
 import type { RunInWorktree } from "./Beat.js"
 import { resolveWithinRoot } from "./SafePath.js"
+import { singleQuoted } from "./Shell.js"
 
 /** One `@@ -a,b +c,d @@` hunk: `newStart`/`newLines` are the post-image range this hunk's `lines` cover — line numbers are 1-based, matching the pointer format T3 parses this for. `header` is the raw `@@ ... @@` text, kept verbatim for rendering. */
 export interface DiffHunk {
@@ -168,8 +169,10 @@ export const resolveDiff = async (
   }
   const base = baseOutcome.stdout.trim()
 
-  const quotedPath = `'${path.replace(/'/g, "'\\''")}'`
-  const diffOutcome = await deps.run(worktreePath, `git diff ${base} HEAD -- ${quotedPath}`)
+  const diffOutcome = await deps.run(
+    worktreePath,
+    `git diff ${singleQuoted(base)} HEAD -- ${singleQuoted(path)}`,
+  )
   if (diffOutcome.status !== 0) {
     return {
       kind: "refused",

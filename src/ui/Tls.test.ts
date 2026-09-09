@@ -1,5 +1,5 @@
 import { X509Certificate } from "node:crypto"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { NodeContext } from "@effect/platform-node"
@@ -80,6 +80,22 @@ describe("generateSelfSignedCert", () => {
     expect(key).toContain("PRIVATE KEY")
   })
 
+  it("T1: a .gtdrc-supplied ui.host containing a command substitution never executes it — real openssl, just a failed certificate request", async () => {
+    const marker = join(tmpDir, "pwned")
+    const exit = await Effect.runPromiseExit(
+      generateSelfSignedCert({ host: `$(touch ${marker})` }).pipe(
+        Effect.provide(CommandRunner.Live),
+        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(NodeContext.layer),
+      ),
+    )
+    // The would-be side effect of shell-executing the substitution never
+    // happened — proof `host` reached openssl as an inert literal string,
+    // never interpreted by bash.
+    expect(existsSync(marker)).toBe(false)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
   it("fails naming the openssl binary when the spawn reports a non-zero exit (e.g. absent)", async () => {
     const missingOpenssl = CommandRunner.layer(() =>
       Effect.succeed({ status: 127, output: "bash: openssl: command not found\n" }),
@@ -92,6 +108,32 @@ describe("generateSelfSignedCert", () => {
     )
     expect(thrown).toBeInstanceOf(GtdError)
     expect(thrown.message).toContain("openssl")
+  })
+
+  const gtdTlsDirs = (): string[] =>
+    readdirSync(tmpdir()).filter((name) => name.startsWith("gtd-tls-"))
+
+  it("removes its private-key tmpdir even after openssl reports a non-zero exit", async () => {
+    const before = gtdTlsDirs()
+    const nonZeroExit = CommandRunner.layer(() =>
+      Effect.succeed({ status: 1, output: "openssl: some failure\n" }),
+    )
+    await Effect.runPromiseExit(
+      generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(nonZeroExit)),
+    )
+    expect(gtdTlsDirs()).toEqual(before)
+  })
+
+  it("removes its private-key tmpdir even when reading back the issued cert/key fails", async () => {
+    const before = gtdTlsDirs()
+    // Reports success without actually writing cert.pem/key.pem into the
+    // tmpdir generateSelfSignedCert created — the read-back Effect.try fails.
+    const liesAboutSuccess = CommandRunner.layer(() => Effect.succeed({ status: 0, output: "" }))
+    const exit = await Effect.runPromiseExit(
+      generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(liesAboutSuccess)),
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(gtdTlsDirs()).toEqual(before)
   })
 })
 

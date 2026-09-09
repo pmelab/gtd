@@ -5,6 +5,7 @@ import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
 import { GtdError } from "../Commentary.js"
+import { singleQuoted } from "./Shell.js"
 
 /** A certificate and its matching private key, as PEM content — never file paths, so callers (the https server, tests) never re-read the filesystem. */
 export interface CertPair {
@@ -47,45 +48,45 @@ export const generateSelfSignedCert = (
       request.ip !== undefined ? `IP:${request.ip},DNS:${request.host}` : `DNS:${request.host}`
     const command = [
       "openssl req -x509 -newkey rsa:2048 -nodes -days 825",
-      `-keyout ${keyPath}`,
-      `-out ${certPath}`,
-      `-subj "/CN=${request.host}"`,
-      `-addext "subjectAltName=${subjectAltName}"`,
+      `-keyout ${singleQuoted(keyPath)}`,
+      `-out ${singleQuoted(certPath)}`,
+      `-subj ${singleQuoted(`/CN=${request.host}`)}`,
+      `-addext ${singleQuoted(`subjectAltName=${subjectAltName}`)}`,
       `-addext "extendedKeyUsage=serverAuth"`,
       `-addext "basicConstraints=critical,CA:FALSE"`,
     ].join(" ")
 
-    const outcome = yield* runner
-      .bash(command)
-      .pipe(
-        Effect.mapError(
-          (e) => new GtdError(`gtd ui: could not run openssl to issue a certificate: ${e.message}`),
-        ),
-      )
-    if (outcome.status !== 0) {
-      return yield* Effect.fail(
-        new GtdError("gtd ui: openssl exited without issuing a certificate", [
-          `exit status: ${outcome.status ?? "signal"}`,
-          ...outcome.output.trim().split("\n").filter(Boolean),
-        ]),
-      )
-    }
-
-    const pair = yield* Effect.try({
-      try: (): CertPair => ({
-        cert: readFileSync(certPath, "utf8"),
-        key: readFileSync(keyPath, "utf8"),
-      }),
-      catch: (e) =>
-        new GtdError(
-          `gtd ui: openssl reported success but its output could not be read: ${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        ),
-    })
-
-    yield* Effect.sync(() => rmSync(dir, { recursive: true, force: true }))
-    return pair
+    return yield* runner.bash(command).pipe(
+      Effect.mapError(
+        (e) => new GtdError(`gtd ui: could not run openssl to issue a certificate: ${e.message}`),
+      ),
+      Effect.flatMap((outcome) =>
+        outcome.status !== 0
+          ? Effect.fail(
+              new GtdError("gtd ui: openssl exited without issuing a certificate", [
+                `exit status: ${outcome.status ?? "signal"}`,
+                ...outcome.output.trim().split("\n").filter(Boolean),
+              ]),
+            )
+          : Effect.try({
+              try: (): CertPair => ({
+                cert: readFileSync(certPath, "utf8"),
+                key: readFileSync(keyPath, "utf8"),
+              }),
+              catch: (e) =>
+                new GtdError(
+                  `gtd ui: openssl reported success but its output could not be read: ${
+                    e instanceof Error ? e.message : String(e)
+                  }`,
+                ),
+            }),
+      ),
+      // The tmpdir holds the private key (mode 0700, but still on disk) —
+      // removed on EVERY exit path (a failed spawn, a non-zero exit, a
+      // read-back failure, or success), never only the success path a
+      // previous version left it on.
+      Effect.ensuring(Effect.sync(() => rmSync(dir, { recursive: true, force: true }))),
+    )
   })
 
 /**

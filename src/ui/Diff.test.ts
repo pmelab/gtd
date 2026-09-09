@@ -219,7 +219,15 @@ describe("resolveDiff", () => {
     const result = await resolveDiff(WORKTREE, HASH_PATH, 1, { run })
     expect(result.kind).toBe("hunk")
     const diffCall = calls.find((c) => c.startsWith("git diff"))
-    expect(diffCall).toBe(`git diff ${BASE} HEAD -- 'src/weird#name.ts'`)
+    expect(diffCall).toBe(`git diff '${BASE}' HEAD -- 'src/weird#name.ts'`)
+  })
+
+  it("single-quotes gtd base's own stdout before interpolating it into git diff — a compromised base never reaches the shell unescaped", async () => {
+    const maliciousBase = "$(touch PWNED_MARKER)"
+    const { run, calls } = fakeRun(ok(""), ok(`${maliciousBase}\n`))
+    await resolveDiff(WORKTREE, "src/a.ts", 1, { run })
+    const diffCall = calls.find((c) => c.startsWith("git diff"))
+    expect(diffCall).toBe(`git diff '${maliciousBase}' HEAD -- 'src/a.ts'`)
   })
 
   it("renders a file added in the range as an all-additions diff", async () => {
