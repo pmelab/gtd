@@ -124,7 +124,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
-    And a file "PLAN.md" with:
+    # The workflow's own `file: "PLAN.md"` is RELATIVE to ".gtd/" — the
+    # compiler prepends that directory (`StateFields.ts`'s own doc comment),
+    # so the steering file the served step actually names, and the one a
+    # real phone client's `readSteeringFile`/`writeNote` calls would use, is
+    # ".gtd/PLAN.md" — never bare "PLAN.md" at the repo root.
+    And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
 
@@ -135,9 +140,9 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     # process to exit ON ITS OWN — never signalled — proving `ctx.handOff()`
     # actually terminates the server once the response has flushed. No
     # `ui.loop`/child process exists anywhere in this design to spawn.
-    When I hand off "PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui
+    When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui
     Then the reported exit status is 0
-    And the file "PLAN.md" contains "handed back"
+    And the file ".gtd/PLAN.md" contains "handed back"
 
   @live
   Scenario: picking a question option writes the tick through to disk over a real setValue round trip
@@ -170,7 +175,9 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
-    And a file "PLAN.md" with:
+    # See the handoff scenario above: the workflow's `file: "PLAN.md"` is
+    # relative to ".gtd/", so the served steering file is ".gtd/PLAN.md".
+    And a file ".gtd/PLAN.md" with:
       """
       Sample plan.
 
@@ -187,8 +194,8 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     # phone client's `Question.tsx` uses when a human picks an option, never
     # a note/`annotate`/`done` round trip. Unlike a handoff, `setValue` never
     # ends the turn, so the process is torn down explicitly afterward.
-    When I pick option 0 of question 0 in "PLAN.md" mode "qa" via a spawned gtd ui
-    Then the file "PLAN.md" contains "[x] Option A"
+    When I pick option 0 of question 0 in ".gtd/PLAN.md" mode "qa" via a spawned gtd ui
+    Then the file ".gtd/PLAN.md" contains "[x] Option A"
 
   @live
   Scenario: closing the UI without handing off exits 0 and writes no note

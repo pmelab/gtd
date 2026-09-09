@@ -235,15 +235,19 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
     When I run gtd land
     Then it succeeds
-    And a file "REVIEW.md" with:
+    # The workflow's own `file: "REVIEW.md"` is RELATIVE to ".gtd/" — the
+    # compiler prepends that directory (`StateFields.ts`'s own doc comment),
+    # so the served steering file is ".gtd/REVIEW.md", never bare
+    # "REVIEW.md" at the repo root.
+    And a file ".gtd/REVIEW.md" with:
       """
       Paragraph zero here.
 
       Paragraph two here.
       """
-    When I hand off "REVIEW.md" in mode "qa" with the text "handed back" to a spawned gtd ui
+    When I hand off ".gtd/REVIEW.md" in mode "qa" with the text "handed back" to a spawned gtd ui
     Then the reported exit status is 0
-    And the file "REVIEW.md" contains "handed back"
+    And the file ".gtd/REVIEW.md" contains "handed back"
 
   # `resolveBindHost`/`resolveCertPair` themselves (the Tailscale-scan
   # default, --self-signed, ui.cert/ui.key) are pinned deterministically at
