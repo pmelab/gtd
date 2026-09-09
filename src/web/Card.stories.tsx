@@ -1,54 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { cdp, page } from "@vitest/browser/context"
+import { page } from "@vitest/browser/context"
 import { useRef, useState } from "react"
 import { expect, fireEvent, within } from "storybook/test"
 import { Card, CardList } from "./Card.js"
 import { Deck } from "./Deck.js"
+import { withRealMousePress } from "./testing/realMousePress.js"
 import { useScrollRestoration } from "./useScrollRestoration.js"
-
-/**
- * `context.d.ts`'s own `CDPSession` interface is intentionally empty ("methods
- * are defined by the provider type augmentation") — see `Button.stories.tsx`'s
- * identical cast/comment for why this narrow interface is needed.
- */
-interface PlaywrightCdpSession {
-  send: (method: string, params?: Record<string, unknown>) => Promise<unknown>
-}
-
-/**
- * `Card`'s own `active:bg-surface` — like every other `active:` utility in
- * this codebase — only ever applies to a REAL, trusted mouse press;
- * Chromium ignores synthetic `fireEvent` dispatches for `:active` entirely.
- * Mirrors `Button.stories.tsx`'s identical `withRealMousePress` helper.
- */
-const withRealMousePress = async (
-  element: Element,
-  duringPress: () => void | Promise<void>,
-): Promise<void> => {
-  const rect = element.getBoundingClientRect()
-  const x = rect.left + rect.width / 2
-  const y = rect.top + rect.height / 2
-  const session = cdp() as unknown as PlaywrightCdpSession
-  await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y })
-  await session.send("Input.dispatchMouseEvent", {
-    type: "mousePressed",
-    x,
-    y,
-    button: "left",
-    clickCount: 1,
-  })
-  try {
-    await duringPress()
-  } finally {
-    await session.send("Input.dispatchMouseEvent", {
-      type: "mouseReleased",
-      x,
-      y,
-      button: "left",
-      clickCount: 1,
-    })
-  }
-}
 
 const meta: Meta<typeof CardList> = {
   component: CardList,

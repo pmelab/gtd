@@ -4,6 +4,7 @@ import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import type { SteeringAnchor, SteeringView } from "../../SteeringFormat.js"
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
+import { withRealMousePress } from "../testing/realMousePress.js"
 import { Review, ReviewView } from "./Review.js"
 
 const meta: Meta<typeof ReviewView> = {
@@ -135,7 +136,43 @@ export const ChunkCheckAllMeetsThe44pxFloor: Story = {
   },
 }
 
-/** Package 02 Task 6: the chunk-open button's disabled state (zero hunks) is visually distinct — `Button`'s `disabled:` utilities apply, not a hand-rolled opacity/cursor pair. */
+/**
+ * package 02 Task 6: no pressed story existed for `chunk-open` — pinned here
+ * against its real, trusted-press `active:` colour (`ghost` variant). A real
+ * mouse press releases as a real click, which fires `onClick` (opening the
+ * chunk's hunk deck) — harmless, since the pressed colour is read INSIDE
+ * `duringPress`, before release, but it's why this and `chunk-note`'s own
+ * pressed story below are two separate stories rather than one sequential
+ * one: the first button's release already navigates away.
+ */
+export const ChunkOpenPressedStateDiffersFromRest: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const open = canvas.getByTestId("chunk-open-0")
+    const openRest = getComputedStyle(open).backgroundColor
+    await withRealMousePress(open, () => {
+      expect(getComputedStyle(open).backgroundColor).not.toBe(openRest)
+      expect(getComputedStyle(open).backgroundColor).toBe("rgb(28, 28, 30)")
+    })
+  },
+}
+
+/** package 02 Task 6: no pressed story existed for `chunk-note` — pinned here against its real, trusted-press `active:` colour (`secondary` variant). See `ChunkOpenPressedStateDiffersFromRest`'s own comment for why this is a separate story. */
+export const ChunkNotePressedStateDiffersFromRest: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const note = canvas.getByTestId("chunk-note-0")
+    const noteRest = getComputedStyle(note).backgroundColor
+    await withRealMousePress(note, () => {
+      expect(getComputedStyle(note).backgroundColor).not.toBe(noteRest)
+      expect(getComputedStyle(note).backgroundColor).toBe("rgb(107, 107, 112)")
+    })
+  },
+}
+
+/** Package 02 Task 6: the chunk-open button's disabled state (zero hunks) is visually distinct — `Button`'s own `disabled:text-disabled` utility applies, not a hand-rolled opacity/cursor pair (a call-site `disabled:opacity-60` used to sit here, and composited `--color-disabled` under 3:1 against the page — removed, not just left unasserted). */
 export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
   args: {
     view: {
@@ -150,7 +187,12 @@ export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(canvas.getByTestId("chunk-open-0")).toBeDisabled()
+    const button = canvas.getByTestId("chunk-open-0")
+    await expect(button).toBeDisabled()
+    // `Button`'s ghost variant: rest text is `--color-text` (#f0f0f0), disabled
+    // text is `--color-disabled` (#5a5a5e) — the computed style, not just the
+    // `disabled` DOM attribute, is what actually proves it's visually distinct.
+    expect(getComputedStyle(button).color).toBe("rgb(90, 90, 94)")
   },
 }
 

@@ -4,6 +4,7 @@ import { useState } from "react"
 import { expect, fireEvent, fn, waitFor, within } from "storybook/test"
 import type { SteeringAnchor } from "../SteeringFormat.js"
 import { NoteSheet } from "./NoteSheet.js"
+import { withRealMousePress } from "./testing/realMousePress.js"
 
 const meta: Meta<typeof NoteSheet> = {
   component: NoteSheet,
@@ -399,5 +400,45 @@ export const FooterControlsMeetThe44pxFloor: Story = {
       expect(rect.height).toBeGreaterThanOrEqual(44)
       expect(rect.width).toBeGreaterThanOrEqual(44)
     }
+  },
+}
+
+/** package 02 Task 6: no pressed story existed for any of the footer's four controls — pinned here against each one's real, trusted-press `active:` colour (mic/save are `secondary`, dismiss is `ghost`, done is `primary`). */
+export const FooterControlsPressedStatesDifferFromRest: Story = {
+  args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
+  beforeEach: () => {
+    withApi()
+    return withoutApi
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+
+    const mic = canvas.getByTestId("note-sheet-mic")
+    const micRest = getComputedStyle(mic).backgroundColor
+    await withRealMousePress(mic, () => {
+      expect(getComputedStyle(mic).backgroundColor).not.toBe(micRest)
+      expect(getComputedStyle(mic).backgroundColor).toBe("rgb(107, 107, 112)")
+    })
+
+    const dismiss = canvas.getByTestId("note-sheet-dismiss")
+    const dismissRest = getComputedStyle(dismiss).backgroundColor
+    await withRealMousePress(dismiss, () => {
+      expect(getComputedStyle(dismiss).backgroundColor).not.toBe(dismissRest)
+      expect(getComputedStyle(dismiss).backgroundColor).toBe("rgb(28, 28, 30)")
+    })
+
+    const save = canvas.getByTestId("note-sheet-save")
+    const saveRest = getComputedStyle(save).backgroundColor
+    await withRealMousePress(save, () => {
+      expect(getComputedStyle(save).backgroundColor).not.toBe(saveRest)
+      expect(getComputedStyle(save).backgroundColor).toBe("rgb(107, 107, 112)")
+    })
+
+    const done = canvas.getByTestId("note-sheet-done")
+    const doneRest = getComputedStyle(done).backgroundColor
+    await withRealMousePress(done, () => {
+      expect(getComputedStyle(done).backgroundColor).not.toBe(doneRest)
+      expect(getComputedStyle(done).backgroundColor).toBe("rgb(63, 127, 224)")
+    })
   },
 }

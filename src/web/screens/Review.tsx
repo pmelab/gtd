@@ -389,7 +389,7 @@ const ChunkRow = ({
         data-testid={`chunk-open-${chunkIndex}`}
         onClick={() => state.openChunk(chunkIndex)}
         disabled={hunks.length === 0}
-        className="flex-1 text-left disabled:opacity-60"
+        className="flex-1 text-left"
       >
         <div className="font-semibold">{chunk.title}</div>
         {chunk.detail !== undefined && chunk.detail.length > 0 && (

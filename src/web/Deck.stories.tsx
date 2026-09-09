@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { page } from "@vitest/browser/context"
 import { expect, fireEvent, fn, within } from "storybook/test"
 import { Deck } from "./Deck.js"
+import { withRealMousePress } from "./testing/realMousePress.js"
 
 /**
  * The real ancestor shape `App.tsx` gives every screen — a viewport-tall
@@ -165,6 +166,39 @@ export const BackAndNextMeetThe44pxFloor: Story = {
       expect(rect.height).toBeGreaterThanOrEqual(44)
       expect(rect.width).toBeGreaterThanOrEqual(44)
     }
+  },
+}
+
+/** package 02 Task 6: Back (`Button` `secondary`) and Next (`Button` `primary`) had no pressed story anywhere — this pins both against their real, trusted-press `active:` colour. */
+export const BackAndNextPressedStatesDifferFromRest: Story = {
+  args: {
+    items: ["one"],
+    renderItem: (item) => <p data-testid="deck-item-content">{item}</p>,
+    onExit: fn(),
+  },
+  render: (args) => (
+    <Shell>
+      <Deck {...args} />
+    </Shell>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+
+    const prev = canvas.getByTestId("deck-prev")
+    const prevRest = getComputedStyle(prev).backgroundColor
+    await withRealMousePress(prev, () => {
+      const pressed = getComputedStyle(prev).backgroundColor
+      expect(pressed).not.toBe(prevRest)
+      expect(pressed).toBe("rgb(107, 107, 112)") // secondary's active:bg-border
+    })
+
+    const next = canvas.getByTestId("deck-next")
+    const nextRest = getComputedStyle(next).backgroundColor
+    await withRealMousePress(next, () => {
+      const pressed = getComputedStyle(next).backgroundColor
+      expect(pressed).not.toBe(nextRest)
+      expect(pressed).toBe("rgb(63, 127, 224)") // primary's active:bg-accent-pressed
+    })
   },
 }
 

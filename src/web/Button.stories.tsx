@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { cdp } from "@vitest/browser/context"
 import { expect, fn, within } from "storybook/test"
 import { Button } from "./Button.js"
+import { withRealMousePress } from "./testing/realMousePress.js"
 
 const meta: Meta<typeof Button> = {
   component: Button,
@@ -10,56 +10,6 @@ const meta: Meta<typeof Button> = {
 export default meta
 
 type Story = StoryObj<typeof Button>
-
-/**
- * `context.d.ts`'s own `CDPSession` interface is intentionally empty ("methods
- * are defined by the provider type augmentation") — the playwright provider
- * this project uses supplies `.send()` at runtime, but nothing augments the
- * type in this package, so this is the one narrow cast needed to call it.
- */
-interface PlaywrightCdpSession {
-  send: (method: string, params?: Record<string, unknown>) => Promise<unknown>
-}
-
-/**
- * `Button`'s `active:` utilities only ever apply to a REAL, trusted mouse
- * press — Chromium's `:active` pseudo-class ignores synthetic
- * `fireEvent`/`userEvent.pointer` dispatches entirely (see
- * `Hunk.stories.tsx`'s identical note on its own note-affordance button).
- * The only way to actually observe it here is the raw CDP `Input.
- * dispatchMouseEvent` this test runner exposes via `cdp()` — a real,
- * OS-level-equivalent press the browser can't distinguish from hardware
- * input. Presses and holds at the element's center, runs `duringPress` while
- * held, then always releases.
- */
-const withRealMousePress = async (
-  element: Element,
-  duringPress: () => void | Promise<void>,
-): Promise<void> => {
-  const rect = element.getBoundingClientRect()
-  const x = rect.left + rect.width / 2
-  const y = rect.top + rect.height / 2
-  const session = cdp() as unknown as PlaywrightCdpSession
-  await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y })
-  await session.send("Input.dispatchMouseEvent", {
-    type: "mousePressed",
-    x,
-    y,
-    button: "left",
-    clickCount: 1,
-  })
-  try {
-    await duringPress()
-  } finally {
-    await session.send("Input.dispatchMouseEvent", {
-      type: "mouseReleased",
-      x,
-      y,
-      button: "left",
-      clickCount: 1,
-    })
-  }
-}
 
 const assertMeets44pxFloor = (element: Element): void => {
   const rect = element.getBoundingClientRect()
