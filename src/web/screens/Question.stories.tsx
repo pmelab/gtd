@@ -570,8 +570,13 @@ const RefusalHarness = ({
 
 /**
  * Package 03's Task 1: a `setValue`-shaped write rejecting with a
- * `stale-token` refusal (`moved: "sha"`) must show `Refusal.tsx`'s own named
- * sentence for it — never silence, never `error.message`.
+ * `stale-token` refusal must show `Refusal.tsx`'s own named sentence for it
+ * — never silence, never `error.message`. Task 01 pins this on
+ * `moved: "content-hash"` specifically (a genuine concurrent edit, never
+ * auto-retried by `staleRetry.ts#withStaleShaRetry`) — see this file's own
+ * doc comment on why: `moved: "sha"` is covered end-to-end, including the
+ * post-refusal recovery, by `Plan.stories.tsx`/`Review.stories.tsx`'s own
+ * "recovers in place"/"Try again" stories instead.
  */
 export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeof Question> = {
   args: { node: questionNode() },
@@ -579,7 +584,7 @@ export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeo
     <RefusalHarness
       node={args.node}
       onCommitAnswer={() =>
-        Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "sha" } } })
+        Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "content-hash" } } })
       }
     />
   ),
@@ -588,9 +593,10 @@ export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeo
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
     await waitFor(() =>
       expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
-        "Someone else committed a change underneath you",
+        "The file's content changed underneath you",
       ),
     )
+    expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
   },
 }
 
@@ -610,7 +616,7 @@ export const DismissingARefusalNeverThenReportsSaved: StoryObj<typeof Question> 
     <RefusalHarness
       node={args.node}
       onCommitAnswer={() =>
-        Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "sha" } } })
+        Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "content-hash" } } })
       }
     />
   ),
@@ -619,9 +625,10 @@ export const DismissingARefusalNeverThenReportsSaved: StoryObj<typeof Question> 
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
     await waitFor(() =>
       expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
-        "Someone else committed a change underneath you",
+        "The file's content changed underneath you",
       ),
     )
+    expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
     await fireEvent.click(canvas.getByTestId("refusal-dismiss"))
     // The banner (the SAME live region) must disappear entirely, not fall
     // through to `saveStatus`'s own "Saved" branch — `RefusalBanner` renders
@@ -655,7 +662,7 @@ const RefusalRetryHarness = ({ node }: { readonly node: SteeringViewNode }) => {
     const callIndex = calls.length
     setCalls((prev) => [...prev, { anchor, opts }])
     return callIndex === 0
-      ? Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "sha" } } })
+      ? Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "content-hash" } } })
       : Promise.resolve({ ok: true })
   }
   return (
@@ -694,9 +701,10 @@ export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<ty
     await fireEvent.blur(textarea)
     await waitFor(() =>
       expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
-        "Someone else committed a change underneath you",
+        "The file's content changed underneath you",
       ),
     )
+    expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
 
     // Retype the SAME text and blur again — must fire a second write, not
