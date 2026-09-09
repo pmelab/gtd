@@ -535,18 +535,16 @@ export class GtdWorld extends QuickPickleWorld {
    * needs to talk tRPC to the real listener (`spawnGtdUiAndHandOff`) doesn't
    * duplicate the spawn/poll dance.
    */
-  private async spawnBoundGtdUi(
-    args: readonly string[] = ["--host", "127.0.0.1", "--self-signed", "--port", "0"],
-  ): Promise<{
+  private async spawnBoundGtdUi(): Promise<{
     readonly child: ReturnType<typeof spawn>
     readonly boundUrl: string
     readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
   }> {
-    const child = spawn(process.execPath, [GTD_BIN, "ui", ...args], {
-      cwd: this.repoDir,
-      env: this.spawnEnv(),
-      stdio: ["ignore", "pipe", "pipe"],
-    })
+    const child = spawn(
+      process.execPath,
+      [GTD_BIN, "ui", "--host", "127.0.0.1", "--self-signed", "--port", "0"],
+      { cwd: this.repoDir, env: this.spawnEnv(), stdio: ["ignore", "pipe", "pipe"] },
+    )
     let stdout = ""
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8")
@@ -563,27 +561,6 @@ export class GtdWorld extends QuickPickleWorld {
     assert.ok(stdout.includes("https://"), `gtd ui never printed its bound URL: ${stdout}`)
     const boundUrl = stdout.split("\n")[0]!.trim()
     return { child, boundUrl, exited }
-  }
-
-  /**
-   * Package 02's Tailscale display-host coverage: spawns `gtd ui
-   * --self-signed --port 0` with NO `--host` at all (unlike every other
-   * `@live` scenario's `spawnBoundGtdUi`, which hardcodes `--host 127.0.0.1`
-   * specifically to sidestep this), so `resolveBindHost` reaches the real
-   * system scan — this machine carries a genuine Tailscale CGNAT interface,
-   * matching the package's own requirements text — and `runUiCommand`'s own
-   * probe (`Tailscale.ts#probeTailscaleStatus`) actually runs. That probe
-   * shells out to a `tailscale` resolved off `$PATH`, which a scenario-
-   * installed shim on `world.pathShimDir` (prepended by `spawnEnv`) replaces
-   * — never the real `/opt/homebrew/bin/tailscale` binary. Kills the process
-   * once its first stdout line is captured and stores it in `lastResult` so
-   * the existing "stdout contains" step reads it same as any other command.
-   */
-  async spawnGtdUiPrintingUrl(): Promise<void> {
-    const { child, boundUrl, exited } = await this.spawnBoundGtdUi(["--self-signed", "--port", "0"])
-    child.kill("SIGTERM")
-    await exited
-    this.lastResult = { exitCode: 0, stdout: `${boundUrl}\n`, stderr: "" }
   }
 
   /**

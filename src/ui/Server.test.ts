@@ -554,7 +554,7 @@ describe("runUiCommand", () => {
     expect(closed).toBe(true)
   })
 
-  it("prints the probed Tailscale hostname as the displayed URL while binding the CGNAT IP the system scan found — no --host/ui.host given", async () => {
+  it("prints the probed Tailscale hostname as the displayed URL, and the QR code encoding that same URL, while binding the CGNAT IP the system scan found — no --host/ui.host given, CommandRunner-doubled `tailscale status --json`", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out, written } = fakeOut()
@@ -593,6 +593,52 @@ describe("runUiCommand", () => {
     await waitForWrites(written, 2)
 
     expect(written[0]).toBe("https://host.tailnet.ts.net:4443/\n")
+    // Pinned against the renderer's own output for the SAME URL just
+    // printed above, same as the plain-IP URL-printing test above —
+    // proof the QR code carries the tailnet hostname too, not just stdout's
+    // first line.
+    expect(written[1]).toBe(`${renderQrCode("https://host.tailnet.ts.net:4443/")}\n`)
+    expect(boundHost).toBe("100.90.1.2")
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
+  it("prints the CGNAT IP, exactly as before, as both the displayed URL and the QR code when the probe finds no backend", async () => {
+    initGitRepo(tmpDir)
+    installFakeGtd(tmpDir, renderablePromptJson)
+    const { out, written } = fakeOut()
+    const certPath = join(tmpDir, "cert.pem")
+    const keyPath = join(tmpDir, "key.pem")
+    writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+    writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+
+    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    let boundHost: string | undefined
+    const fakeHttpsServer = Layer.succeed(HttpsServer, {
+      listen: (_certPair, host) => {
+        boundHost = host
+        return Effect.succeed({ port: 4443, close: () => {} })
+      },
+    })
+    // The empty-probe case: BackendState isn't "Running", one of the three
+    // ways `Tailscale.ts#parseTailscaleStatus` falls back to `undefined`.
+    const runner = CommandRunner.layer(() =>
+      Effect.succeed({ status: 0, output: JSON.stringify({ BackendState: "Stopped" }) }),
+    )
+
+    const fiber = Effect.runFork(
+      runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+        Effect.provide(fakeHttpsServer),
+        Effect.provide(runner),
+        Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.layer(tmpDir)),
+      ),
+    )
+
+    await waitForWrites(written, 2)
+
+    expect(written[0]).toBe("https://100.90.1.2:4443/\n")
+    expect(written[1]).toBe(`${renderQrCode("https://100.90.1.2:4443/")}\n`)
     expect(boundHost).toBe("100.90.1.2")
 
     await Effect.runPromise(Fiber.interrupt(fiber))

@@ -258,81 +258,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # make that same guarantee — it would depend on the CI/dev machine's real
   # network shape — so that coverage is not duplicated here.
 
-  # ── Package 02: the printed URL/QR code carry the tailnet hostname when
-  # detection answers, and the CGNAT IP exactly as before when it doesn't —
-  # both driven by a fake `tailscale` on $PATH, never the real binary, and
-  # both spawned WITHOUT --host so `resolveBindHost`'s own real-system scan
-  # (this machine's actual Tailscale interface) and the new probe both run
-  # for real, exactly like a plain `gtd ui`. Accepted, not a false negative:
-  # unlike every other `@live` scenario above (which all pass --self-signed
-  # --host to sidestep exactly this), these two depend on the runner's own
-  # network genuinely carrying a 100.64.0.0/10 CGNAT address — a runner not
-  # joined to a tailnet fails these on "gtd ui never printed its bound URL"
-  # after 5s, not on a real regression. ───────────────────────────────────
-
-  @live
-  Scenario: the printed URL and QR code carry the Tailscale hostname when the probe finds a running backend
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": awaiting-review
-              awaiting-review:
-                actor: human
-                file: "REVIEW.md"
-                mode: qa
-                message: "awaiting your review"
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    When I run gtd land
-    Then it succeeds
-    And a fake tailscale binary on PATH reporting a running backend with hostname "phone.tailnet.ts.net"
-    When I spawn gtd ui without --host and capture its printed URL
-    Then stdout contains "https://phone.tailnet.ts.net:"
-
-  @live
-  Scenario: the printed URL and QR code carry the CGNAT IP, exactly as before, when the probe finds no backend
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": awaiting-review
-              awaiting-review:
-                actor: human
-                file: "REVIEW.md"
-                mode: qa
-                message: "awaiting your review"
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    When I run gtd land
-    Then it succeeds
-    And a fake tailscale binary on PATH reporting no backend
-    When I spawn gtd ui without --host and capture its printed URL
-    Then stdout does not contain "tailnet"
-    And stdout matches "https:\/\/\d+\.\d+\.\d+\.\d+:"
+  # Package 02's own printed-URL/QR-code-carries-the-tailnet-hostname
+  # coverage (both the probe-answers and probe-empty paths, `CommandRunner`-
+  # doubled) lives at the unit tier instead of here, in
+  # `src/ui/Server.test.ts`'s own `describe("runUiCommand")` block: unlike
+  # every other assertion in THIS file, it needs `pickBindHostFromSystem` and
+  # `CommandRunner` both mockable, which only the in-process unit tier gives —
+  # a spawned `@live` subprocess can inject neither, and would additionally
+  # depend on the runner's own machine genuinely carrying a Tailscale CGNAT
+  # interface to bind at all.
