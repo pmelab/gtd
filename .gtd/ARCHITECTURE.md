@@ -1,29 +1,5 @@
 # Architecture
 
-## Open Questions
-
-### What mechanism carries the design tokens — JS objects with inline styles, or a real stylesheet with CSS custom properties?
-
-Both concerns below route every size, colour and type value through one home,
-and the choice changes the build, not just the syntax. Inline styles cannot
-express `:active`/`:disabled`/`:focus-visible`, which the visual concern
-requires for every control; a stylesheet can, but makes the browser build emit a
-second asset that `scripts/inline-web-client.mjs` reads nothing about and drops
-silently.
-
-- [ ] JS-resident tokens (`src/web/tokens.ts`) + inline `style={}` — zero build
-      change, the bundle stays exactly one file, tokens are typed and testable
-      for contrast in the unit project. Pressed/disabled states become React
-      state on a shared `Button` component (`onPointerDown`/`onPointerUp`), not
-      pseudo-classes; hover and `:focus-visible` are lost.
-- [ ] One `src/web/styles.css` imported from `main.tsx`, tokens as `:root`
-      custom properties, controls addressed by class — real pseudo-class states,
-      real media queries, less per-render object churn. Requires
-      `scripts/inline-web-client.mjs` to inline the emitted `main.css` into a
-      `<style>` tag (and to throw when an emitted asset is left un-inlined),
-      plus a `tests/tooling/` test pinning that behaviour.
-- [x] add tailwindcss and use that
-
 ## Concern 1 — Worktree-correct HEAD token and in-place recovery
 
 `liveHeadSha` resolves branch refs against the wrong directory in a linked
@@ -122,31 +98,59 @@ over every surface — restyling `Card.tsx`, `NoteSheet.tsx`, `Refusal.tsx` and
 the four screens twice, once for size and once for colour, is two edits to the
 same lines.
 
-**One home: `src/web/tokens.ts`.** Exports `space` (4/8/12/16/24), `tap` (44 —
-the floor, one constant, referenced never retyped), `radius`, `type` (size +
-line-height pairs), and `color` (page, surface, border, text, muted, accent,
-accent-pressed, disabled). Dark only; no `prefers-color-scheme` branch, no
-second palette. Under the stylesheet option the same module is the generator for
-the `:root` custom properties rather than being read at render time — the
-question above decides which, the value set does not change either way.
+**One home: Tailwind CSS v4's `@theme`, in `src/web/styles.css`.** Tailwind is
+the mechanism — utility classes at every call site, no `style={{ … }}` objects
+left in the web tree. v4 is CSS-first, so the token home is an `@theme` block in
+one stylesheet: `--color-*` (page, surface, border, text, muted, accent,
+accent-pressed, disabled), `--text-*` (size + line-height pairs), and the
+default 4px spacing scale kept as-is, which makes the 44px floor exactly
+`min-h-11 min-w-11` — one utility, no literal to retype. Dark only; no `dark:`
+variant, no `prefers-color-scheme` branch, no second palette. `@source "./"`
+declares the scan root explicitly rather than relying on auto-detection.
+`index.html`'s three hardcoded values move into the stylesheet's base layer;
+`color-scheme: dark` stays.
 
-**Contrast is asserted against the token values.** `src/web/tokens.test.ts`
-(unit project, no browser) implements WCAG relative luminance and asserts every
-shipped pair: ≥4.5:1 for body text on its background, ≥3:1 for large text and
-for every control boundary against its surface. Ratios never get eyeballed.
+**The CSS is built by the Tailwind CLI as its own step, never by tsdown.**
+`npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css` runs between
+`tsdown --filter web` and the inline step in `npm run build`. tsdown's browser
+config keeps a single JS entry and stays CSS-free — no PostCSS in rolldown, no
+CSS import from `main.tsx`, no second emitted asset it has to reason about.
+Storybook and the `test:web` browser project get the same stylesheet through
+`@tailwindcss/vite` in `.storybook/main.ts`'s `viteFinal` plus an import of
+`../src/web/styles.css` in `.storybook/preview.ts` — one source file, two
+consumers, no duplicated palette.
+
+**Risk, blunt: `gtd ui --dev` is a second, separate inlining path and it will
+serve unstyled if only the packaged build is fixed.**
+`Server.ts#resolveClientHtml`'s dev branch runs `npx tsdown --filter web`, reads
+`dist/web/main.js`, and calls the shared `src/ui/scriptTag.mjs#inlineScript` —
+it never touches `scripts/inline-web-client.mjs`. The CSS inlining therefore
+lands in `scriptTag.mjs` as `STYLE_TAG_PATTERN` + `inlineStyles(template, css)`,
+next to its `<\/script>` escaping sibling (a literal `</style>` in the CSS gets
+the same guard), and the dev branch runs the Tailwind CLI too. Two call sites,
+one module, or the phone looks right in Storybook and ships grey in `--dev`.
+
+**Contrast is asserted against the shipped token values.**
+`src/web/tokens.test.ts` (unit project, no browser) reads `src/web/styles.css`,
+parses the `@theme` block's `--color-*` declarations, implements WCAG relative
+luminance, and asserts every shipped pair: ≥4.5:1 for body text on its
+background, ≥3:1 for large text and for every control boundary against its
+surface. Parsing the real file, not a duplicated JS copy of the palette, is what
+keeps the assertion honest. Ratios never get eyeballed.
 
 **The anchored bar is a layout-chain change, not a `Deck.tsx` edit.** The screen
-shell becomes a `100dvh` flex column: `body`/`#root`/`App`'s wrapper pass height
-through, each screen owns exactly one scroll container
-(`flex: 1; overflow: auto`), and the deck's Back/progress/Next row is that
-container's non-shrinking flex sibling. Nothing is `position: fixed` or `sticky`
-— the bar is in flow, so it cannot overlay content, and it is inside the
-viewport with zero page scroll because the column is exactly viewport-tall.
-`interactive-widget=resizes-content` shrinking the layout viewport shrinks the
-scroll area, and the bar rides up with it; nothing new competes with
-`NoteSheet`'s sheet for the bottom of the screen. `Deck.tsx`'s doc comment about
-never being absolutely positioned stays true and gets rewritten to name the new
-guarantee.
+shell becomes a viewport-tall flex column — `h-dvh flex flex-col` on
+`body`/`#root`/`App`'s wrapper — each screen owns exactly one scroll container
+(`flex-1 min-h-0 overflow-auto`; `min-h-0` is mandatory, a flex child's default
+`min-height: auto` refuses to shrink and the bar goes off-screen again), and the
+deck's Back/progress/Next row is that container's `shrink-0` sibling. Nothing is
+`position: fixed` or `sticky` — the bar is in flow, so it cannot overlay
+content, and it is inside the viewport with zero page scroll because the column
+is exactly viewport-tall. `interactive-widget=resizes-content` shrinking the
+layout viewport shrinks the scroll area, and the bar rides up with it; nothing
+new competes with `NoteSheet`'s sheet for the bottom of the screen. `Deck.tsx`'s
+doc comment about never being absolutely positioned stays true and gets
+rewritten to name the new guarantee.
 
 **Risk, blunt: this breaks window-level scroll restoration in two places.**
 `src/web/useScrollRestoration.ts` reads and writes `window.scrollY`, and
@@ -160,11 +164,13 @@ hook ships a working-looking regression that no assertion catches in its old
 form.
 
 **One control system replaces the per-call-site reset.** New
-`src/web/Button.tsx`: `variant: "primary" | "secondary" | "ghost"`, min 44×44
-from `tap`, default/pressed/disabled states, and the chrome reset (`background`,
-`border`, `font`, `color`) done once inside it. Call sites that today re-erase
-button chrome by hand stop doing that: `Card.tsx` (which also loses its four
-duplicated `borderBottom*` longhands and gains `minHeight: tap`),
+`src/web/Button.tsx`: `variant: "primary" | "secondary" | "ghost"`, always
+`min-h-11 min-w-11`, and default/`active:`/`disabled:`/`focus-visible:` states
+as real pseudo-class utilities — Tailwind's own reset makes the hand-written
+`background: none`/`border: none`/`font: inherit`/`color: inherit` erasure
+unnecessary, so it is deleted rather than centralised. Call sites that today
+re-erase button chrome by hand stop doing that: `Card.tsx` (which also loses its
+four duplicated `borderBottom*` longhands and gains `min-h-11`),
 `NoteSheet.tsx#232`'s dismiss/save/mic trio, `Review.tsx#368` and
 `Review.tsx#401`'s two adjacent chunk controls, and `Deck.tsx`'s Back/Next.
 
@@ -175,15 +181,17 @@ query-error, broken, moved-on and unrenderable branches are five
 tone (`info` / `error`), so a refusal reads visually distinct from the `Saved`
 label sharing its live region rather than differing only by background hex.
 
-**The build trap gets closed regardless of which mechanism wins.**
-`scripts/inline-web-client.mjs` throws only on a missing `<script>` tag and
-never looks at anything else in `dist/web/`. It gains a check that fails loudly
-when the browser build emitted any asset the generated HTML does not carry, and
-`tests/tooling/` gains a test for that check. Under the JS-token option this
-makes the trap unreachable rather than merely unsprung; under the stylesheet
-option it is the safety net for the CSS inlining itself. `turbo.json`'s existing
-`build` inputs already cover `scripts/**`; the new tooling test rides
-`test:unit`'s own `tests/**`.
+**The build trap is now live, not hypothetical — Tailwind emits the asset the
+inline step was blind to.** `scripts/inline-web-client.mjs` throws only on a
+missing `<script>` tag and never looks at anything else in `dist/web/`. It now
+inlines `dist/web/main.css` through `scriptTag.mjs#inlineStyles` AND throws when
+that file is missing, empty, or when any emitted `dist/web/` asset is left
+un-inlined. `tests/tooling/` gains a test pinning both throws: the served HTML
+is one self-contained file with a non-empty `<style>`, or the build fails.
+`turbo.json`'s `build` inputs already cover `scripts/**` and `src/**`; the new
+tooling test rides `test:unit`'s own `tests/**`. `test:web` inputs still exclude
+`src/web/generated.html`, which is correct — Storybook never reads it — and is
+exactly why the tooling test, not `test:web`, is the gate here.
 
 Acceptance runs in the browser at 390×844 through `npm run test:web`, with the
 `page.viewport` + `getBoundingClientRect` pattern `Card.stories.tsx#141` and
@@ -371,3 +379,10 @@ dies silently.
 One `src/web/Button.tsx` with variants and states. Seven call sites currently
 re-erase default button chrome by hand; a control system is what stops that, and
 it is the only way default/pressed/disabled land consistently.
+
+### What mechanism carries the design tokens — JS objects with inline styles, or a real stylesheet with CSS custom properties?
+
+Neither: Tailwind CSS v4, with the palette and type scale in an `@theme` block
+in `src/web/styles.css`, built by `@tailwindcss/cli` into `dist/web/main.css`
+and inlined into the served HTML by both the packaged build and the `--dev`
+path.
