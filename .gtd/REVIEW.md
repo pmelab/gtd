@@ -24,6 +24,25 @@ resolves to `undefined`, never a failed Effect.
       note, which this change contradicts.
 - [ ] ./src/ui/Tailscale.test.ts#9 — parser + probe coverage, all five fallback
       paths
+- [ ] ./src/ui/Tailscale.ts#37 — **Bug: `CertDomains` is read from the wrong
+      object, so the Tailscale cert branch never fires.**
+      `parsed.Self     .CertDomains` does not exist: in real
+      `tailscale status --json` output `CertDomains` is a TOP-LEVEL field, while
+      `Self` carries only `DNSName`. `certDomains` is therefore always `[]`,
+      `resolveCertPair`'s `tailscale cert` branch is unreachable, and every
+      plain `gtd ui` on any tailnet — HTTPS certs enabled or not — refuses with
+      "HTTPS is mandatory and no certificate is configured". Confirmed against
+      tailscale 1.102.3 on a Running node with HTTPS enabled: top-level
+      `CertDomains` is `["philipps-macbook-pro-m5.tailb2e719.ts.net"]` and
+      `Self` has no `CertDomains` key at all. Hostname detection is unaffected
+      (the `DNSName` fallback carries it), which is why the URL looks right
+      under `--self-signed` while the cert path is dead. Not caught by tests
+      because `./src/ui/Tailscale.test.ts` and `./src/ui/Server.test.ts#579`
+      build fixtures with the same wrong `Self: { CertDomains: [...] }` shape —
+      the parser and its fixtures agree with each other and disagree with
+      Tailscale. Fix: move `CertDomains` to the top level of
+      `RawTailscaleStatus`, read it there, keep `Self.DNSName` for the hostname
+      fallback, and reshape both fixture sets.
 
 ## Real Tailscale certificate
 
