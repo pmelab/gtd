@@ -8,13 +8,16 @@
       token, so only the steering file's own bytes gate a write. A commit that
       touches nothing this page edits stops blocking answers. Cost: a write can
       land on a file whose surrounding repository has moved on
-- [ ] Keep HEAD, recover in place — the client refetches the token and retries
+- [x] Keep HEAD, recover in place — the client refetches the token and retries
       the write once, silently, on `moved: "sha"`, and only shows the banner
       when the retry also refuses or when the file's own bytes changed. Cost: a
       write can be applied one commit later than the human saw
 - [ ] _your answer_
 
 ## PRODUCT — Answering a question must not refuse with "someone else committed"
+
+the error showed without anybody committing. it stopped at the human gate and i
+started the ui. no other operations running.
 
 Answering a question on the phone refuses. The banner reads "Someone else
 committed a change underneath you — reload to see the latest before trying
