@@ -53,20 +53,34 @@ export const useRefusal = () => {
 
   /**
    * Wraps a mutation call with the `Saving…`/`Saved` affordance (Task 3) —
-   * settles to `"saved"` regardless of outcome (a rejection already gets its
-   * own banner text via `showRefusal`, fired by the caller's own `.catch`),
-   * then clears back to `"idle"` after `SAVED_LINGER_MS` so blur — invisible
-   * on touch otherwise — visibly reports whether the write landed.
+   * settles to `"saved"` ONLY on a genuine resolve, never on rejection: a
+   * refused write already gets its own banner text via `showRefusal` (fired
+   * by the caller's own `.catch`, chained after this), and reporting
+   * `"saved"` for it anyway is the exact misreport this affordance exists to
+   * prevent. `dismiss` only clears `refusal`, not `saveStatus` — this file's
+   * own spec feedback caught that a rejection's `.finally`-based `"saved"`
+   * survived a Dismiss tap, since nothing else ever cleared it. On
+   * rejection, resets to `"idle"` immediately (not lingering) UNLESS a
+   * different, LATER `trackSave` call already settled to `"saved"` in the
+   * meantime — never clobber a newer, real success with an older failure's
+   * own reset.
    */
   const trackSave = <T,>(promise: Promise<T>): Promise<T> => {
     setSaveStatus("saving")
-    return promise.finally(() => {
-      setSaveStatus("saved")
-      setTimeout(
-        () => setSaveStatus((current) => (current === "saved" ? "idle" : current)),
-        SAVED_LINGER_MS,
-      )
-    })
+    return promise.then(
+      (value) => {
+        setSaveStatus("saved")
+        setTimeout(
+          () => setSaveStatus((current) => (current === "saved" ? "idle" : current)),
+          SAVED_LINGER_MS,
+        )
+        return value
+      },
+      (error: unknown) => {
+        setSaveStatus((current) => (current === "saving" ? "idle" : current))
+        throw error
+      },
+    )
   }
 
   return { refusal, saveStatus, showRefusal, dismiss, trackSave }

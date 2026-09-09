@@ -532,7 +532,11 @@ export const ARejectedFreeTextWriteLeavesALaterRadioTickStanding: StoryObj<typeo
  * `RefusalHarness` mounts the SAME `useRefusal`/`RefusalBanner` pair the real
  * `Plan`/`Review` containers mount, wired to `Question`'s own `onRefusal`
  * prop — package 03 Task 1's acceptance: a rejected write names its reason on
- * screen, not silence.
+ * screen, not silence. Also wraps `onCommitAnswer` in `trackSave`, exactly
+ * like `Plan.tsx`'s own `onCommitAnswerTracked` — needed to reproduce the
+ * spec-feedback bug where a refused write's `saveStatus` still settled to
+ * `"saved"`, later showing "Saved" for a write that never landed once the
+ * refusal itself was dismissed.
  */
 const RefusalHarness = ({
   node,
@@ -545,7 +549,11 @@ const RefusalHarness = ({
   ) => Promise<unknown>
 }) => {
   const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
-  const { refusal, saveStatus, showRefusal, dismiss } = useRefusal()
+  const { refusal, saveStatus, showRefusal, dismiss, trackSave } = useRefusal()
+  const onCommitAnswerTracked = (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<unknown> => trackSave(onCommitAnswer(anchor, opts))
   return (
     <>
       <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
@@ -553,7 +561,7 @@ const RefusalHarness = ({
         node={node}
         answer={answer}
         onAnswerChange={setAnswer}
-        onCommitAnswer={onCommitAnswer}
+        onCommitAnswer={onCommitAnswerTracked}
         onRefusal={showRefusal}
       />
     </>
@@ -583,6 +591,44 @@ export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeo
         "Someone else committed a change underneath you",
       ),
     )
+  },
+}
+
+/**
+ * Spec feedback on package 03: dismissing a refusal must not leave the SAME
+ * live region announcing "Saved" for the write that was just refused.
+ * `trackSave` used to settle `saveStatus` to `"saved"` in a `.finally`
+ * regardless of outcome, and `dismiss` only ever cleared `refusal` — so once
+ * the human dismissed (a realistic tap within `SAVED_LINGER_MS`), the banner
+ * fell through to `saveStatus`'s own `"saved"` branch and reported the write
+ * landed when it did not. `trackSave` now only ever settles to `"saved"` on
+ * a genuine resolve.
+ */
+export const DismissingARefusalNeverThenReportsSaved: StoryObj<typeof Question> = {
+  args: { node: questionNode() },
+  render: (args) => (
+    <RefusalHarness
+      node={args.node}
+      onCommitAnswer={() =>
+        Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "sha" } } })
+      }
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+        "Someone else committed a change underneath you",
+      ),
+    )
+    await fireEvent.click(canvas.getByTestId("refusal-dismiss"))
+    // The banner (the SAME live region) must disappear entirely, not fall
+    // through to `saveStatus`'s own "Saved" branch — `RefusalBanner` renders
+    // nothing when there's neither a refusal nor an in-flight/settled save,
+    // so its continued absence IS the assertion that "Saved" never shows for
+    // the write that was just refused.
+    await waitFor(() => expect(canvas.queryByTestId("refusal-banner")).not.toBeInTheDocument())
   },
 }
 
