@@ -1,7 +1,10 @@
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { QA_FORMAT } from "../OpenQuestions.js"
 import { readSteeringFile } from "./ReadSteeringFile.js"
-import { contentHashOf } from "./Write.js"
+import { contentHashOf, liveReadFile } from "./Write.js"
 
 const depsFor = (files: Readonly<Record<string, string>>, headSha: string | undefined) => ({
   headSha: () => Promise.resolve(headSha),
@@ -45,6 +48,23 @@ describe("readSteeringFile", () => {
     )
     expect(result).toEqual({ ok: false, reason: "file-vanished" })
     expect(readCalled).toBe(false)
+  })
+
+  it("T3: refuses a symlink inside the worktree root whose real target lands outside it, real on-disk, through the actual readFile", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gtd-readsteering-"))
+    const outside = mkdtempSync(join(tmpdir(), "gtd-readsteering-outside-"))
+    try {
+      writeFileSync(join(outside, "secret.md"), "top secret")
+      symlinkSync(join(outside, "secret.md"), join(root, "escape.md"))
+      const result = await readSteeringFile(
+        { worktreePath: root, filePath: "escape.md", mode: "qa" },
+        { headSha: () => Promise.resolve("abc123"), readFile: liveReadFile },
+      )
+      expect(result).toEqual({ ok: false, reason: "file-vanished" })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 
   it("returns unsupported-mode for an unregistered mode, never a throw or a stale/empty view", async () => {

@@ -96,6 +96,24 @@ describe("generateSelfSignedCert", () => {
     expect(Exit.isFailure(exit)).toBe(true)
   })
 
+  it("T1: a host containing a slash confuses openssl's own -subj parsing — a named GtdError, never code execution", async () => {
+    // Accepted, not fixed (Tls.ts's own comment at the `-subj` line):
+    // `singleQuoted` stops the SHELL from ever seeing a real `/`, but
+    // openssl's `-subj "/CN=..."` itself reads `/`-separated `key=value`
+    // pairs, so a host containing `/` (or `=`) still confuses openssl's OWN
+    // parser. Real openssl, no fake CommandRunner — this must fail with a
+    // GtdError, not hang, not throw uncaught, and never execute anything.
+    const thrown = await Effect.runPromise(
+      generateSelfSignedCert({ host: "exa/mple.local" }).pipe(
+        Effect.provide(CommandRunner.Live),
+        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(NodeContext.layer),
+        Effect.flip,
+      ),
+    )
+    expect(thrown).toBeInstanceOf(GtdError)
+  })
+
   it("fails naming the openssl binary when the spawn reports a non-zero exit (e.g. absent)", async () => {
     const missingOpenssl = CommandRunner.layer(() =>
       Effect.succeed({ status: 127, output: "bash: openssl: command not found\n" }),

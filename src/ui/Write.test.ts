@@ -1,8 +1,13 @@
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { REVIEW_FORMAT } from "../ReviewDoc.js"
 import {
   applySteeringEdits,
   contentHashOf,
+  liveReadFile,
+  liveWriteFile,
   writeNote,
   writeValue,
   type WriteDeps,
@@ -93,6 +98,31 @@ describe("writeNote", () => {
     expect(result).toEqual({ ok: false, reason: "file-vanished" })
     expect(deps.readFile).not.toHaveBeenCalled()
     expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("T3: refuses a symlink inside the worktree root whose real target lands outside it, real on-disk, through the actual readFile/writeFile", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gtd-write-"))
+    const outside = mkdtempSync(join(tmpdir(), "gtd-write-outside-"))
+    try {
+      writeFileSync(join(outside, "secret.md"), "top secret")
+      symlinkSync(join(outside, "secret.md"), join(root, "escape.md"))
+      const readFile = vi.fn(liveReadFile)
+      const deps: WriteDeps = {
+        headSha: vi.fn(async () => "sha1"),
+        actorAt: vi.fn(async () => "human"),
+        readFile,
+        writeFile: liveWriteFile,
+      }
+      const result = await writeNote(
+        { ...baseRequest(), worktreePath: root, filePath: "escape.md" },
+        deps,
+      )
+      expect(result).toEqual({ ok: false, reason: "file-vanished" })
+      expect(readFile).not.toHaveBeenCalled()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 
   it("rejects a write whose sha moved, and the file is untouched", async () => {

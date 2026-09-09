@@ -50,6 +50,11 @@ export const generateSelfSignedCert = (
       "openssl req -x509 -newkey rsa:2048 -nodes -days 825",
       `-keyout ${singleQuoted(keyPath)}`,
       `-out ${singleQuoted(certPath)}`,
+      // Accepted, not fixed: `singleQuoted` only stops SHELL execution — a
+      // `host` containing `/` or `=` reaches openssl as an inert literal
+      // but can still confuse openssl's OWN `-subj` parsing (which reads
+      // `/`-separated `key=value` pairs). That surfaces as a failed
+      // certificate request with a named error below, never code execution.
       `-subj ${singleQuoted(`/CN=${request.host}`)}`,
       `-addext ${singleQuoted(`subjectAltName=${subjectAltName}`)}`,
       `-addext "extendedKeyUsage=serverAuth"`,
