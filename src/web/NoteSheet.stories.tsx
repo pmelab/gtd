@@ -255,6 +255,110 @@ export const NoSpeechApiShowsAHintAndKeepsTheTextarea: Story = {
   },
 }
 
+/**
+ * A hand-built `onAutoSave` recorded into the DOM (mirroring
+ * `Question.stories.tsx#CommitCallRecordingHarness`'s identical reasoning —
+ * a closure-captured array goes stale across `NoteSheet`'s own re-renders).
+ * `shouldReject` lets ONE story drive both the happy debounce and its
+ * refused-then-retried counterpart from the same harness.
+ */
+const AutoSaveCallRecordingHarness = ({
+  anchor,
+  shouldReject,
+}: {
+  readonly anchor: SteeringAnchor
+  readonly shouldReject: (callIndex: number) => boolean
+}) => {
+  const [calls, setCalls] = useState<ReadonlyArray<{ readonly text: string }>>([])
+  const onAutoSave = (writtenAnchor: SteeringAnchor, text: string): Promise<unknown> => {
+    void writtenAnchor
+    const callIndex = calls.length
+    setCalls((prev) => [...prev, { text }])
+    return shouldReject(callIndex)
+      ? Promise.reject(new Error("stale token"))
+      : Promise.resolve({ ok: true })
+  }
+  return (
+    <>
+      <div data-testid="autosave-calls">{JSON.stringify(calls)}</div>
+      <NoteSheet anchor={anchor} onSave={() => {}} onDismiss={() => {}} onAutoSave={onAutoSave} />
+    </>
+  )
+}
+
+/** Package 03's Task 5: 800ms after the last keystroke with no blur/dismiss at all, the note body commits on its own — the SAME debounced write-through `Question.tsx`'s free-text slot gets, extended here to `NoteSheet`'s note body. */
+export const NoteBodyCommitsOnItsOwnAfterTheDebounceWithNoBlur: Story = {
+  render: (args) => (
+    <AutoSaveCallRecordingHarness anchor={args.anchor} shouldReject={() => false} />
+  ),
+  args: { anchor: paragraphAnchor },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "typed but never blurred" },
+    })
+    expect(canvas.getByTestId("autosave-calls")).toHaveTextContent("[]")
+    await waitFor(
+      () => {
+        const calls = JSON.parse(
+          canvas.getByTestId("autosave-calls").textContent ?? "[]",
+        ) as unknown[]
+        expect(calls).toHaveLength(1)
+      },
+      { timeout: 2_000 },
+    )
+    expect(canvas.getByTestId("autosave-calls")).toHaveTextContent("typed but never blurred")
+  },
+}
+
+/**
+ * A refused autosave must not poison its own retry (spec feedback on
+ * package 03): the FIRST debounced write rejects; without rolling
+ * `lastAutoSavedRef` back to its pre-write value, the unchanged-since-last-
+ * commit guard would then compare the SAME text against itself and silently
+ * skip every later debounce/blur/unmount commit — exactly the "nothing
+ * typed is silently lost" failure this package exists to close. Blurring
+ * after the refusal must fire a SECOND write with the same text.
+ *
+ * A genuine focus transition (`.focus()` on a DIFFERENT element), not a bare
+ * `fireEvent.blur` — this runs against a REAL browser (vitest-browser), and
+ * an element that was never actually focused never emits a real blur event
+ * no matter what's dispatched at it; `Question.stories.tsx`'s own blur
+ * stories get away with the bare form only because their textarea already
+ * has synthetic focus tracking from an earlier `fireEvent.focus`-triggering
+ * interaction in the same flow.
+ */
+export const ARefusedAutosaveRetriesOnTheNextBlurRatherThanSilentlySkipping: Story = {
+  render: (args) => (
+    <AutoSaveCallRecordingHarness anchor={args.anchor} shouldReject={(i) => i === 0} />
+  ),
+  args: { anchor: paragraphAnchor },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
+    textarea.focus()
+    await fireEvent.change(textarea, { target: { value: "needs work" } })
+    await waitFor(
+      () => {
+        const calls = JSON.parse(
+          canvas.getByTestId("autosave-calls").textContent ?? "[]",
+        ) as unknown[]
+        expect(calls).toHaveLength(1)
+      },
+      { timeout: 2_000 },
+    )
+    // The debounced write above rejected — moving focus away with the SAME,
+    // unchanged text must still fire a retry, not silently no-op.
+    ;(canvas.getByTestId("note-sheet-dismiss") as HTMLButtonElement).focus()
+    await waitFor(() => {
+      const calls = JSON.parse(
+        canvas.getByTestId("autosave-calls").textContent ?? "[]",
+      ) as unknown[]
+      expect(calls).toHaveLength(2)
+    })
+  },
+}
+
 /** The note sheet's own interim display — displayed but never written through, mirroring `Question.stories.tsx`'s identical proof at the free-text-option layer. */
 export const InterimResultsDisplayInTheNoteSheetButNeverWriteThrough: Story = {
   args: { anchor: hunkAnchor, onSave: fn(), onDismiss: fn() },

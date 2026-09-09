@@ -169,6 +169,13 @@ const useReviewState = (
           delete next[noteKey(anchor)]
           return next
         })
+        // Rethrown, unlike `saveNote`'s own identical wrapper — the caller
+        // is `NoteSheet.tsx`'s own `runAutoSave`, which rolls its
+        // `lastAutoSavedRef` back to retry ONLY on a rejection; swallowing
+        // it here would leave that ref pointing at text that was never
+        // actually written, permanently skipping every later debounce/
+        // blur/unmount commit for this same text.
+        throw error
       }) ?? Promise.resolve()
     )
   }

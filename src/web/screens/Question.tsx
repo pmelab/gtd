@@ -253,6 +253,9 @@ export const Question = ({
   const bumpSelectedSeq = (): number => ++selectedSeqRef.current
   const bumpFreeTextSeq = (): number => ++freeTextSeqRef.current
 
+  /** What `commitFreeText` last actually wrote (package 03's Task 6) — seeded from the answer this question STARTS at, so a bare focus-then-blur (nothing typed) still compares equal and writes nothing. Updated to the JUST-COMMITTED text the moment a commit fires (optimistically, like the local state update alongside it), never re-derived from a fresh read. Rolled BACK to its OWN prior value by `commitAnchor`'s own rejection handler (see its doc comment) whenever the `freeText` field's write is refused — otherwise a refused write leaves this ref pointing at text that was never actually written, poisoning the very next retry: Task 6's changed-since-last-commit guard would then compare the retyped text against that never-written value, see no change, and silently skip the write. */
+  const lastCommittedFreeTextRef = useRef(freeText)
+
   /**
    * The one write-through both `setSelected` and `commitFreeText` fire —
    * split out so neither caller's own branching (an out-of-range index, an
@@ -262,20 +265,28 @@ export const Question = ({
    * track completion. A rejection (a `CONFLICT` refusal, a network failure,
    * …) surfaces via `onRefusal` AND reverts ONLY the fields `reverts` names —
    * each gated by ITS OWN field-level seq, so a stale rejection can never
-   * clobber a field a newer write (to any anchor) already changed. A no-op
-   * when `anchor` is `undefined` (an out-of-range index).
+   * clobber a field a newer write (to any anchor) already changed. Each
+   * revert entry's own optional `onReverted` fires in the SAME seq-gated
+   * branch as its state update — `commitFreeText` uses it to roll
+   * `lastCommittedFreeTextRef` back to its OWN prior value (never the same
+   * value as the state field's own revert target, which is the just-typed
+   * text itself — see that call site's doc comment). A no-op when `anchor`
+   * is `undefined` (an out-of-range index).
    */
   const commitAnchor = (
     anchor: SteeringAnchor | undefined,
     opts: { readonly checked?: boolean; readonly text?: string },
-    reverts: ReadonlyArray<
-      | { readonly field: "selected"; readonly seq: number; readonly value: number | undefined }
-      | { readonly field: "freeText"; readonly seq: number; readonly value: string }
-    >,
+    reverts: ReadonlyArray<{
+      readonly field: "selected" | "freeText"
+      readonly seq: number
+      readonly value: number | string | undefined
+      readonly onReverted?: () => void
+    }>,
   ): Promise<unknown> | undefined => {
     if (anchor === undefined) return undefined
     return onCommitAnswer?.(anchor, opts)?.catch((error: unknown) => {
       onRefusal?.(error)
+      // fallow-ignore-next-line complexity
       onAnswerChange((prev) => {
         let next = prev
         for (const revert of reverts) {
@@ -283,6 +294,7 @@ export const Question = ({
             revert.field === "selected" ? selectedSeqRef.current : freeTextSeqRef.current
           if (currentSeq === revert.seq) {
             next = { ...next, [revert.field]: revert.value }
+            revert.onReverted?.()
           }
         }
         return next
@@ -304,9 +316,6 @@ export const Question = ({
   const freeTextAnchor = (): SteeringAnchor | undefined =>
     lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
 
-  /** What `commitFreeText` last actually wrote (package 03's Task 6) — seeded from the answer this question STARTS at, so a bare focus-then-blur (nothing typed) still compares equal and writes nothing. Updated to the JUST-COMMITTED text the moment a commit fires (optimistically, like the local state update alongside it), never re-derived from a fresh read. */
-  const lastCommittedFreeTextRef = useRef(freeText)
-
   /**
    * The free-text slot's own commit point — fired on blur AND, since Task 5,
    * on its own 800ms after the last keystroke with no blur at all. Writes
@@ -327,12 +336,27 @@ export const Question = ({
     if (current === lastCommitted) return undefined
     const previousSelected = selected
     const previousFreeText = freeText
+    // The ref's own PRIOR value — distinct from `previousFreeText` above
+    // (the just-typed text this commit is about to send): on rejection the
+    // FIELD reverts to what's already on screen (a no-op, so the human never
+    // loses what they typed), but the REF must roll back to what it held
+    // before this attempt, or a retry compares against text that was never
+    // actually written and silently skips the write (see this ref's own
+    // doc comment).
+    const previousLastCommitted = lastCommittedFreeTextRef.current
     const anchor = freeTextAnchor()
     lastCommittedFreeTextRef.current = freeText
     const freeTextSeq = bumpFreeTextSeq()
     const selectedSeq = bumpSelectedSeq()
     const reverts = [
-      { field: "freeText" as const, seq: freeTextSeq, value: previousFreeText },
+      {
+        field: "freeText" as const,
+        seq: freeTextSeq,
+        value: previousFreeText,
+        onReverted: () => {
+          lastCommittedFreeTextRef.current = previousLastCommitted
+        },
+      },
       { field: "selected" as const, seq: selectedSeq, value: previousSelected },
     ]
     if (current.length === 0) {

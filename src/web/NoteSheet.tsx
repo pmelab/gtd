@@ -82,16 +82,27 @@ export const NoteSheet = ({
       return
     }
     const current = textRef.current
-    if (current === lastAutoSavedRef.current) return
+    const previousAutoSaved = lastAutoSavedRef.current
+    if (current === previousAutoSaved) return
     inFlightRef.current = true
     lastAutoSavedRef.current = current
-    Promise.resolve(onAutoSave(anchor, current)).finally(() => {
-      inFlightRef.current = false
-      if (pendingRef.current) {
-        pendingRef.current = false
-        runAutoSave()
-      }
-    })
+    Promise.resolve(onAutoSave(anchor, current))
+      .catch(() => {
+        // Refused or failed (the caller already surfaced the reason via its
+        // own `onRefusal`) — roll `lastAutoSavedRef` back to what it held
+        // BEFORE this attempt, so the very next debounce/blur/unmount
+        // retries instead of comparing against text that was never
+        // actually written and silently skipping the write (this ref's own
+        // doc comment; mirrors `Question.tsx`'s identical fix).
+        lastAutoSavedRef.current = previousAutoSaved
+      })
+      .finally(() => {
+        inFlightRef.current = false
+        if (pendingRef.current) {
+          pendingRef.current = false
+          runAutoSave()
+        }
+      })
   }
 
   const clearDebounceTimer = (): void => {

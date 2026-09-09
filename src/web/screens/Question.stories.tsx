@@ -105,22 +105,25 @@ const questionNode = (over: Partial<SteeringViewNode> = {}): SteeringViewNode =>
   ...over,
 })
 
+/** One recorded `onCommitAnswer` call — shared by every harness/story below that records commits, so the JSON shape and its read-back helper (`readCommitCalls`) stay a single definition instead of N near-identical inline `JSON.parse` casts. */
+interface CommitCall {
+  readonly anchor: SteeringAnchor
+  readonly opts: { readonly checked?: boolean; readonly text?: string }
+}
+
+/** Reads `data-testid="commit-calls"`'s JSON back off the DOM — the recorder pattern every commit-recording harness below uses, mirroring `Review.stories.tsx#SetValueCallRecorder`'s identical reasoning: a plain closure-captured array goes stale across `Question`'s own re-renders, so `waitFor` must always re-read the CURRENT DOM state instead. */
+const readCommitCalls = (canvas: ReturnType<typeof within>): readonly CommitCall[] =>
+  JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as CommitCall[]
+
 /**
  * `onCommitAnswer` recorded into the DOM (`data-testid="commit-calls"`) as
- * JSON, mirroring `Review.stories.tsx#SetValueCallRecorder`'s identical
- * pattern — a plain closure-captured array goes stale across `Question`'s
- * own re-renders (the bug the previous version of these two stories had:
- * `calls` never actually populated, so both asserted nothing). Reading calls
- * back off the DOM instead means `waitFor` always sees the CURRENT state.
+ * JSON — see `readCommitCalls`'s own doc comment for why (the bug the
+ * previous version of these two stories had: `calls` never actually
+ * populated, so both asserted nothing).
  */
 const CommitCallRecordingHarness = ({ node }: { readonly node: SteeringViewNode }) => {
   const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
-  const [calls, setCalls] = useState<
-    ReadonlyArray<{
-      readonly anchor: SteeringAnchor
-      readonly opts: { readonly checked?: boolean; readonly text?: string }
-    }>
-  >([])
+  const [calls, setCalls] = useState<readonly CommitCall[]>([])
   const onCommitAnswer = (
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
@@ -315,14 +318,11 @@ export const TypingThenBlurringCommitsOnceWithCheckedAndTextTogether: StoryObj<t
     const textarea = canvas.getByTestId("free-text-input")
     await fireEvent.change(textarea, { target: { value: "the third way, typed" } })
     await fireEvent.blur(textarea)
-    await waitFor(() => {
-      const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as unknown[]
-      expect(calls).toHaveLength(1)
+    await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
+    expect(readCommitCalls(canvas)[0]?.opts).toEqual({
+      checked: true,
+      text: "the third way, typed",
     })
-    const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as Array<{
-      readonly opts: { readonly checked?: boolean; readonly text?: string }
-    }>
-    expect(calls[0]?.opts).toEqual({ checked: true, text: "the third way, typed" })
   },
 }
 
@@ -346,19 +346,11 @@ export const TypedTextCommitsOnItsOwnAfterTheDebounceWithNoBlur: StoryObj<typeof
     // fake timers installed in the OUTER test realm never reach — advancing
     // a fake clock here just leaves the real 800ms timer never actually
     // firing.
-    await waitFor(
-      () => {
-        const calls = JSON.parse(
-          canvas.getByTestId("commit-calls").textContent ?? "[]",
-        ) as unknown[]
-        expect(calls).toHaveLength(1)
-      },
-      { timeout: 2_000 },
-    )
-    const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as Array<{
-      readonly opts: { readonly checked?: boolean; readonly text?: string }
-    }>
-    expect(calls[0]?.opts).toEqual({ checked: true, text: "typed but never blurred" })
+    await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1), { timeout: 2_000 })
+    expect(readCommitCalls(canvas)[0]?.opts).toEqual({
+      checked: true,
+      text: "typed but never blurred",
+    })
   },
 }
 
@@ -399,14 +391,8 @@ export const DeletingAPreviouslyWrittenAnswerAndBlurringErasesIt: StoryObj<typeo
     await expect(textarea).toHaveValue("an existing typed answer")
     await fireEvent.change(textarea, { target: { value: "" } })
     await fireEvent.blur(textarea)
-    await waitFor(() => {
-      const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as unknown[]
-      expect(calls).toHaveLength(1)
-    })
-    const calls = JSON.parse(canvas.getByTestId("commit-calls").textContent ?? "[]") as Array<{
-      readonly opts: { readonly checked?: boolean; readonly text?: string }
-    }>
-    expect(calls[0]?.opts).toEqual({ checked: false, text: "" })
+    await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
+    expect(readCommitCalls(canvas)[0]?.opts).toEqual({ checked: false, text: "" })
   },
 }
 
@@ -597,5 +583,82 @@ export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeo
         "Someone else committed a change underneath you",
       ),
     )
+  },
+}
+
+/**
+ * `onCommitAnswer` recorded into the DOM (like `CommitCallRecordingHarness`)
+ * AND the refusal banner (like `RefusalHarness`), combined — needed to prove
+ * BOTH that the refusal shows AND that a retry with the SAME text actually
+ * fires a second write, not a silent no-op. Rejects only the write at
+ * `rejectCallIndex` (0 by default: the first).
+ */
+const RefusalRetryHarness = ({ node }: { readonly node: SteeringViewNode }) => {
+  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
+  const { refusal, saveStatus, showRefusal, dismiss } = useRefusal()
+  const [calls, setCalls] = useState<
+    ReadonlyArray<{
+      readonly anchor: SteeringAnchor
+      readonly opts: { readonly checked?: boolean; readonly text?: string }
+    }>
+  >([])
+  const onCommitAnswer = (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<unknown> => {
+    const callIndex = calls.length
+    setCalls((prev) => [...prev, { anchor, opts }])
+    return callIndex === 0
+      ? Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "sha" } } })
+      : Promise.resolve({ ok: true })
+  }
+  return (
+    <>
+      <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
+      <div data-testid="commit-calls">{JSON.stringify(calls)}</div>
+      <Question
+        node={node}
+        answer={answer}
+        onAnswerChange={setAnswer}
+        onCommitAnswer={onCommitAnswer}
+        onRefusal={showRefusal}
+      />
+    </>
+  )
+}
+
+/**
+ * Spec feedback on package 03: a refused free-text write must not poison its
+ * own retry. Type "hello", blur — `setValue` rejects with `stale-token`, the
+ * banner shows. Without rolling `lastCommittedFreeTextRef` back to its
+ * pre-write value (empty, here), Task 6's changed-since-last-commit guard
+ * would then compare a RETYPED "hello" against the never-written "hello" the
+ * ref still (wrongly) held, see no change, and silently skip the write —
+ * the exact silent divergence Task 6 exists to eliminate, just moved one
+ * refusal downstream. Retyping "hello" and blurring again must fire a
+ * SECOND write.
+ */
+export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<typeof Question> = {
+  args: { node: questionNode() },
+  render: (args) => <RefusalRetryHarness node={args.node} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const textarea = canvas.getByTestId("free-text-input")
+    await fireEvent.change(textarea, { target: { value: "hello" } })
+    await fireEvent.blur(textarea)
+    await waitFor(() =>
+      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+        "Someone else committed a change underneath you",
+      ),
+    )
+    await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
+
+    // Retype the SAME text and blur again — must fire a second write, not
+    // silently no-op against a "last committed" value that was never
+    // actually written.
+    await fireEvent.change(textarea, { target: { value: "" } })
+    await fireEvent.change(textarea, { target: { value: "hello" } })
+    await fireEvent.blur(textarea)
+    await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(2))
   },
 }
