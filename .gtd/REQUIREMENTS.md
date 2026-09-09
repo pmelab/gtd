@@ -1,28 +1,5 @@
 # Requirements
 
-## Open Questions
-
-### Which theme should the phone client paint — dark, light, or a `prefers-color-scheme` pair?
-
-- [x] Dark only — matches every color already hardcoded in the components
-      (`#111`, `#3a2a00`, and `Highlight.ts`'s dark-editor token set), so no
-      component changes, only a page shell to sit under them
-- [ ] A `prefers-color-scheme` pair — respects the phone's own setting, but
-      every hardcoded chip and the whole syntax palette needs a light variant
-      too, roughly doubling the concern
-- [ ] _your answer_
-
-### Does the Tailscale work stop at the emitted URL, or also obtain a real certificate?
-
-- [ ] Stop at the URL and QR code — the printed address becomes the tailnet
-      hostname; `--self-signed` and `ui.cert`/`ui.key` stay exactly as they are,
-      so the browser warning on every load stays too
-- [x] Also obtain a real cert via `tailscale cert` for the hostname in
-      `Self.CertDomains` — removes the warning entirely and becomes the new
-      default when Tailscale is present, but adds a third branch to
-      `resolveCertPair` and a dependency on the tailnet having HTTPS enabled
-- [ ] _your answer_
-
 ## The served page carries no styling at all
 
 PRODUCT. The human's note on `.gtd/REVIEW.md`: "styles are not loaded (at least
@@ -60,6 +37,17 @@ extending both inline paths.** The shapes that need no build change: an inline
 itself. Note the inline-script step already throws a named error when its tag
 goes missing — any new seam should fail as loudly rather than silently serve an
 unstyled page.
+
+**The theme is dark only** — the human's answer. That makes this concern a page
+shell and nothing more: a `body` background, a text color, a font stack, and
+`color-scheme: dark` so form controls and scrollbars follow. **Every hardcoded
+color already in the components stays exactly as it is** — `#111`, `#3a2a00`,
+`#333`, and `Highlight.ts`'s `#6a9955`/`#ce9178`/`#569cd6` are already a
+dark-surface set, so no component and no syntax palette is touched.
+
+`color-scheme: dark` is the one line that must not be dropped for brevity:
+without it a phone in light mode still paints white form controls and a white
+scrollbar over the dark page.
 
 Acceptance: a check that the served HTML carries a page background and text
 color — failing today against both `generated.html` and the `--dev` template.
@@ -112,9 +100,38 @@ creates: `host` for the SAN's `DNS:` entry and an optional `ip` for its `IP:`
 entry, so a hostname URL over an IP bind needs both filled in — a shape it
 already supports, not a change.
 
-**A hostname URL is also the only URL a real Tailscale-issued certificate can
-ever match; a self-signed cert for a CGNAT IP is a browser warning on every
-load.**
+**The concern extends to obtaining the real certificate — the human's answer —
+so it now covers the hostname URL and a `tailscale cert` branch together.** A
+hostname URL is the only URL a real Tailscale-issued certificate can ever match,
+and a self-signed cert for a CGNAT IP is a browser warning on every load; the
+two halves have no separate acceptance, so they stay one concern.
+
+`tailscale cert <domain>` is the command. **Its `--cert-file -` / `--key-file -`
+stdout mode cannot be used for both at once — two PEM blocks would interleave on
+one stream.** Write them to a temp dir instead, the same `mkdtempSync` shape
+`generateSelfSignedCert` already uses in `Tls.ts`, then read both back as PEM
+strings so the result is a plain `CertPair` and nothing downstream re-reads the
+filesystem.
+
+**`Self.CertDomains` being non-empty is the probe for whether this branch is
+even available** — the field is populated only when the tailnet has HTTPS certs
+enabled. Empty means `tailscale cert` would fail, and the branch must be skipped
+rather than attempted.
+
+**This makes `resolveCertPair`'s fourth branch, and it falsifies that function's
+own doc comment.** The comment currently reads that neither `--self-signed` nor
+a configured pair present "is a refusal, not a silent default to self-signed —
+that would mean an unexpected `openssl` invocation on every plain `gtd ui`". A
+plain `gtd ui` on an HTTPS-enabled tailnet now succeeds instead of refusing.
+Rewrite the comment; the reasoning it records still holds for the `openssl`
+path, which is exactly why the new branch shells out to `tailscale`, not
+`openssl`.
+
+Precedence, all four branches: `--self-signed` still wins outright, then a
+configured `ui.cert`/`ui.key` pair, then the new `tailscale cert` path, then the
+existing refusal. **The refusal's two hint lines must gain a third naming the
+Tailscale path**, or a user on a tailnet with HTTPS disabled reads a message
+that omits the reason they landed there.
 
 `docs/cli.md` lines 81–83 and 149 describe the `--host` default and are PINNED
 equal to the rendered help output — changing that default's wording means
@@ -125,6 +142,16 @@ the printed URL and QR code carry the tailnet hostname; with the probe empty,
 they carry the IP exactly as today.
 
 ## Answered Questions
+
+### Which theme should the phone client paint — dark, light, or a `prefers-color-scheme` pair?
+
+Dark only. It matches every color already hardcoded in the components, so the
+concern is a page shell with no component changes and no light-variant palette.
+
+### Does the Tailscale work stop at the emitted URL, or also obtain a real certificate?
+
+It also obtains a real certificate via `tailscale cert`, which becomes the
+default when Tailscale is present and the tailnet has HTTPS enabled.
 
 ### Should the tailnet hostname also become the socket bind address?
 
