@@ -373,6 +373,31 @@ describe("resolveClientHtml", () => {
   })
 })
 
+describe("the dark page shell", () => {
+  // Package 01-dark-page-shell: components hardcode dark-surface colors and
+  // expect a dark page under them — without a body background/text color the
+  // page renders as broken paint (dark chips on white) rather than a theme.
+  it("the production bundle's generated.html carries a body background and text color", async () => {
+    const explodingFs = FileSystem.makeNoop({
+      readFileString: () => Effect.die(new Error("unexpectedly read from disk in production")),
+    })
+    const runner = { bash: () => Effect.fail(new Error("unexpectedly shelled out in production")) }
+
+    const html = await Effect.runPromise(
+      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, GtdError>,
+    )
+    expect(html).toMatch(/body\s*{[^}]*background/)
+    expect(html).toMatch(/body\s*{[^}]*color(?!-scheme)/)
+  })
+
+  it("the --dev template read straight from src/web/index.html carries the same shell", () => {
+    const template = readFileSync(join(import.meta.dirname, "../web/index.html"), "utf8")
+    expect(template).toMatch(/body\s*{[^}]*background/)
+    expect(template).toMatch(/body\s*{[^}]*color(?!-scheme)/)
+    expect(template).toContain("color-scheme: dark")
+  })
+})
+
 describe("runUiCommand", () => {
   const fakeOut = () => {
     const written: string[] = []
