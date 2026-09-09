@@ -1,27 +1,5 @@
 # Requirements
 
-## Open Questions
-
-### What is `gtd ui`'s security boundary — a tightened bind guard, or a token?
-
-There is no authentication of any kind, and none was removed: no token, no
-header, no cookie, no `Origin` check, no rate limit. The comment above
-`resolveBindHost` (`src/ui/Server.ts#69`) says the refusal exists because "a
-server that reads and writes working trees without authentication must never
-silently appear on the LAN" — and that is untrue as written, because the guard
-fires only when `--host`, `ui.host` and the Tailscale scan all come up empty. A
-supplied host is never validated, so `--host 0.0.0.0` or `ui.host: "0.0.0.0"`
-binds every interface unauthenticated. The two answers below diverge in what a
-user must do to reach the phone at all, so this cannot be settled downstream.
-
-- [ ] the bind guard becomes the whole boundary — refuse any host that is not
-      loopback or a CGNAT (100.64.0.0/10) tailnet address, which makes the
-      existing comment true and keeps the URL in the QR code plain
-- [ ] keep honouring any explicit `--host`/`ui.host` as the user's consent, and
-      add a single-use token to the URL the QR encodes, checked on every tRPC
-      call and on `/close`
-- [x] nothing. it is only available within the tailnet. thats the boundary.
-
 ## 1. Gate `gtd ui` on a human rest, not on the beat's content kind
 
 PRODUCT. `gtd ui` refuses to start on both steps it exists for, and starts only
@@ -159,8 +137,11 @@ it moves behind something a story can drive.
 
 ## 4. Shell safety and confinement inside the served worktree
 
-TECHNICAL. Four holes, all reachable without authentication, all in code this
-branch shipped or left standing.
+TECHNICAL. Four holes in code this branch shipped or left standing. **The
+tailnet is the whole security boundary and nothing is added to it** — so none of
+these is an authentication problem. Each one's attacker is the repository's own
+content or the worktree's own files, which reach the process however the port is
+bound.
 
 **A cloned repo's own `.gtdrc` executes shell on first run.** `src/ui/Tls.ts#52`
 interpolates `host` into `-subj "/CN=${request.host}"` and the `subjectAltName`
@@ -194,19 +175,26 @@ to the served step's file.
 request**, so one unauthenticated request triggers a build in the gtd source
 checkout.
 
-**Risk, blunt**: deleting `BeatCache` removed the only throttle that ever
-existed. Every `step` and every `writeNote` now spawns a fresh `gtd next --json`
-— a ~0.5s bundle parse — with no cache and no concurrency cap, where the old
-cache capped it at 8 live spawns. Request flooding is subprocess amplification.
-One worktree makes that survivable, not correct, and this concern does not fix
-it; whichever answer the open question takes decides whether it needs fixing.
-`src/ui/Beat.ts#18`'s comment still points at the deleted cache and comes out
-here.
+`resolveBindHost`'s comment (`src/ui/Server.ts#69`) claims the refusal exists
+because an unauthenticated server "must never silently appear on the LAN". That
+is untrue as written and the code is right: an explicit `--host` or `ui.host` is
+the user's consent and stays honoured, `--host 0.0.0.0` included. **The comment
+comes out, not the behaviour** — rewrite it to say the tailnet binding is the
+boundary and an explicit host overrides it deliberately.
+
+**Risk, blunt, accepted**: deleting `BeatCache` removed the only throttle that
+ever existed. Every `step` and every `writeNote` now spawns a fresh
+`gtd next --json` — a ~0.5s bundle parse — with no cache and no concurrency cap,
+where the old cache capped it at 8 live spawns. Request flooding is subprocess
+amplification, reachable by anything on the tailnet, and this concern does not
+fix it. `src/ui/Beat.ts#18`'s comment still points at the deleted cache and
+comes out here.
 
 **Acceptance**: a unit test with `ui.host` set to a command-substitution string
 asserts no shell execution and a failed certificate request, and one with a
 symlink inside the root pointing outside it asserts the read and the write both
-refuse. Both pass a malicious value today.
+refuse. Both pass a malicious value today. No test asserts a refused bind host,
+because there is none to refuse.
 
 ## 5. Take the graft agent tooling off this branch
 
@@ -258,3 +246,10 @@ there can offer nothing but a read-only view nobody asked for.
 It ends its own life, the same way `done` does. The branch's settled doctrine is
 one step, one exit, with the outer loop reacting to the exit — so a rest that no
 longer exists is the end of this server's job, not a screen to re-render.
+
+### What is `gtd ui`'s security boundary — a tightened bind guard, or a token?
+
+Neither. Nothing is added: the server is reachable only inside the tailnet, and
+that is the boundary. No token, no bind-host validation, no `Origin` check, no
+rate limit — an explicit `--host` stays the user's own consent, and only the
+untrue comment above `resolveBindHost` is corrected.
