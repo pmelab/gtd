@@ -2,6 +2,8 @@
 
 <!-- base: 1688f2c68861d72536bc6f06e482189004319e17 -->
 
+- properly design the ui for thumb usage. make it prettier
+
 ## Fix: `CertDomains` is top-level in `tailscale status --json`, not under `Self`
 
 The parser read `Self.CertDomains`, a key that does not exist. Result:
