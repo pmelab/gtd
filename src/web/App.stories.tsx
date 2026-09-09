@@ -97,6 +97,29 @@ export const StepWithNoSteeringFileRendersAMessage: Story = {
   },
 }
 
+/** `query.isError` — the `step` procedure itself throws (a network failure, a dead server) — is the fifth of `App.tsx`'s five text-only states through `Notice`; nothing exercised it before this story. */
+export const QueryErrorShowsTheUnderlyingMessage: Story = {
+  decorators: [
+    (Story) => (
+      <TrpcTestProvider
+        resolvers={{
+          step: () => {
+            throw new Error("connection refused")
+          },
+        }}
+      >
+        <Story />
+      </TrpcTestProvider>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByTestId("app-query-error")).toHaveTextContent("connection refused"),
+    )
+  },
+}
+
 /** `status: "broken"` shows the server-reported `detail` verbatim — never a blank screen for a worktree that can't be read. */
 export const BrokenStepShowsItsDetail: Story = {
   decorators: [

@@ -145,6 +145,29 @@ export const ControlsRenderBelowContentNeverOverlaying: Story = {
   },
 }
 
+/** package 02 Task 6: Back/Next were bare, unsized buttons — this pins each at the 44px thumb floor, the one control pair the earlier geometry stories never actually measured. */
+export const BackAndNextMeetThe44pxFloor: Story = {
+  args: {
+    items: ["one"],
+    renderItem: (item) => <p data-testid="deck-item-content">{item}</p>,
+    onExit: fn(),
+  },
+  render: (args) => (
+    <Shell>
+      <Deck {...args} />
+    </Shell>
+  ),
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    for (const testId of ["deck-prev", "deck-next"]) {
+      const rect = canvas.getByTestId(testId).getBoundingClientRect()
+      expect(rect.height).toBeGreaterThanOrEqual(44)
+      expect(rect.width).toBeGreaterThanOrEqual(44)
+    }
+  },
+}
+
 /**
  * The stand-in for a keyboard-open layout (`NoteSheet.stories.tsx#141`
  * already established the same `390x500` short viewport for exactly this
@@ -198,9 +221,20 @@ export const ControlBarStaysPutWhileLongContentScrolls: Story = {
     const canvas = within(canvasElement)
     const content = canvas.getByTestId("deck-content")
     const controls = canvas.getByTestId("deck-next")
+    const bar = controls.parentElement ?? controls
+    const barRectBefore = bar.getBoundingClientRect()
+
     content.scrollTop = 1500
-    const barRectBefore = (controls.parentElement ?? controls).getBoundingClientRect()
-    expect(barRectBefore.bottom).toBeLessThanOrEqual(844)
+    // The content actually scrolled — otherwise this story would still pass
+    // if `overflow-auto`/`min-h-0` were dropped from `deck-content` (the
+    // exact regression Task 4 exists to prevent), since the bar's rect would
+    // trivially stay unchanged for a container that never scrolls at all.
+    expect(content.scrollTop).toBeGreaterThan(0)
+
+    const barRectAfter = bar.getBoundingClientRect()
+    expect(barRectAfter.top).toBe(barRectBefore.top)
+    expect(barRectAfter.bottom).toBe(barRectBefore.bottom)
+    expect(barRectAfter.bottom).toBeLessThanOrEqual(844)
     expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(844)
   },
 }

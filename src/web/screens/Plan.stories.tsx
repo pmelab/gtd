@@ -640,6 +640,80 @@ export const RealContainerTryAgainRerunsTheWriteAndDismissesOnSuccess: StoryObj<
   },
 }
 
+/**
+ * package 02 Task 7's own criterion: "The refusal banner and the `Saved`
+ * label are visually distinct — different tone, asserted on a computed
+ * style, not by eye." `RefusalBanner` renders through `Notice`, whose two
+ * tones differ only in border (`error` adds `border border-accent`,
+ * `info` has none) — this proves that difference on the REAL computed
+ * style, not by reading source. First save succeeds (tone `info`, "Saved"),
+ * second save on the same note is rejected (tone `error`) — same banner
+ * element, two different renders of it.
+ */
+export const RefusalBannerIsVisuallyDistinctFromTheSavedLabel: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let callCount = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
+            },
+          }),
+          writeNote: () => {
+            callCount += 1
+            if (callCount === 1) return { ok: true }
+            throw {
+              error: {
+                message: "gtd ui: write refused (stale-token)",
+                code: -32600,
+                data: {
+                  code: "CONFLICT",
+                  writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                },
+              },
+            }
+          },
+        }}
+      >
+        <Plan {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+
+    await openNoteSeamAndType(canvas, "first note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.getByTestId("refusal-message")).toHaveTextContent("Saved"))
+    const savedBorder = getComputedStyle(canvas.getByTestId("refusal-banner")).borderWidth
+
+    await openNoteSeamAndType(canvas, "second note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+        "The file's content changed underneath you",
+      ),
+    )
+    const refusalBorder = getComputedStyle(canvas.getByTestId("refusal-banner")).borderWidth
+
+    expect(refusalBorder).not.toBe(savedBorder)
+    expect(savedBorder).toBe("0px")
+    expect(refusalBorder).not.toBe("0px")
+  },
+}
+
 /** Pressing `Try again` on a refusal that fails AGAIN must leave the banner up, with the refusal's own message — never silently dismiss on a second failure. */
 export const RealContainerTryAgainOnASecondRefusalLeavesTheBannerUp: StoryObj<typeof Plan> = {
   render: (args) => (
