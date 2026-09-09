@@ -135,11 +135,13 @@ describe("resolveCertPair", () => {
   it("--self-signed generates a certificate even when ui.cert/ui.key are configured — the explicit flag wins", async () => {
     const config: UiConfig = { cert: "/some/cert.pem", key: "/some/key.pem" }
     const thrown = await Effect.runPromise(
-      resolveCertPair({ selfSigned: true, dev: false }, config, "100.90.1.2", undefined).pipe(
-        Effect.provide(noCommandRunner),
-        Effect.provide(NodeContext.layer),
-        Effect.flip,
-      ),
+      resolveCertPair(
+        { selfSigned: true, dev: false },
+        config,
+        "100.90.1.2",
+        "100.90.1.2",
+        undefined,
+      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
     )
     // The fake CommandRunner fails every call — reaching its error proves
     // the self-signed path (not loadCertPair) was taken.
@@ -156,14 +158,45 @@ describe("resolveCertPair", () => {
       return Effect.succeed({ status: 0, output: "" })
     })
     await Effect.runPromiseExit(
-      resolveCertPair({ selfSigned: true, dev: false }, undefined, "localhost", undefined).pipe(
-        Effect.provide(runner),
-        Effect.provide(NodeContext.layer),
-      ),
+      resolveCertPair(
+        { selfSigned: true, dev: false },
+        undefined,
+        "localhost",
+        "localhost",
+        undefined,
+      ).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("DNS:localhost")
     expect(commands[0]).not.toContain("IP:localhost")
+  })
+
+  it("with the probe answering a tailnet hostname and no --host, the SAN carries the DISPLAY hostname as DNS: and the bind IP as IP: — never the bind IP as both", async () => {
+    // Regression: --self-signed used to receive only bindHost, so a
+    // probe-detected hostname URL over an IP bind got a SAN of
+    // IP:<bind-ip>,DNS:<bind-ip> while the printed URL/QR code said
+    // https://<tailnet-hostname>:.../ — a name mismatch on every load.
+    const commands: string[] = []
+    const runner = CommandRunner.layer((command) => {
+      commands.push(command)
+      return Effect.succeed({ status: 0, output: "" })
+    })
+    await Effect.runPromiseExit(
+      resolveCertPair(
+        { selfSigned: true, dev: false },
+        undefined,
+        "100.90.1.2",
+        "host.tailnet.ts.net",
+        {
+          hostname: "host.tailnet.ts.net",
+          certDomains: [],
+        },
+      ).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
+    )
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).toContain("DNS:host.tailnet.ts.net")
+    expect(commands[0]).toContain("IP:100.90.1.2")
+    expect(commands[0]).not.toContain("DNS:100.90.1.2")
   })
 
   it("uses a configured ui.cert/ui.key pair as-is when --self-signed is absent", async () => {
@@ -177,6 +210,7 @@ describe("resolveCertPair", () => {
         { selfSigned: false, dev: false },
         { cert: certPath, key: keyPath },
         "100.90.1.2",
+        "100.90.1.2",
         undefined,
       ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer)),
     )
@@ -186,11 +220,13 @@ describe("resolveCertPair", () => {
 
   it("refuses with a GtdError naming both remedies when neither --self-signed nor a configured pair is given", async () => {
     const thrown = await Effect.runPromise(
-      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", undefined).pipe(
-        Effect.provide(noCommandRunner),
-        Effect.provide(NodeContext.layer),
-        Effect.flip,
-      ),
+      resolveCertPair(
+        { selfSigned: false, dev: false },
+        undefined,
+        "100.90.1.2",
+        "100.90.1.2",
+        undefined,
+      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
     )
     expect(thrown).toBeInstanceOf(GtdError)
     const rendered = thrown.message + thrown.detail.join("\n")
@@ -203,6 +239,7 @@ describe("resolveCertPair", () => {
       resolveCertPair(
         { selfSigned: false, dev: false },
         { cert: "/some/cert.pem" },
+        "100.90.1.2",
         "100.90.1.2",
         undefined,
       ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
@@ -218,6 +255,7 @@ describe("resolveCertPair", () => {
       resolveCertPair(
         { selfSigned: false, dev: false },
         { key: "/some/key.pem" },
+        "100.90.1.2",
         "100.90.1.2",
         undefined,
       ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
@@ -246,7 +284,7 @@ describe("resolveCertPair", () => {
       return Effect.succeed({ status: 0, output: "" })
     })
     const pair = await Effect.runPromise(
-      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", {
+      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: ["host.tailnet.ts.net"],
       }).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
@@ -259,7 +297,7 @@ describe("resolveCertPair", () => {
 
   it("falls through to the refusal, naming the Tailscale path, when the probe answered but certDomains is empty", async () => {
     const thrown = await Effect.runPromise(
-      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", {
+      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: [],
       }).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
@@ -276,7 +314,7 @@ describe("resolveCertPair", () => {
       Effect.succeed({ status: 1, output: "tailscale cert: rate limited\n" }),
     )
     const thrown = await Effect.runPromise(
-      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", {
+      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: ["host.tailnet.ts.net"],
       }).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer), Effect.flip),

@@ -101,16 +101,25 @@ export const resolveBindHost = (
 export const resolveCertPair = (
   options: UiCommandOptions,
   config: UiConfig | undefined,
-  host: string,
+  bindHost: string,
+  displayHost: string,
   tailscaleStatus: TailscaleStatus | undefined,
 ): Effect.Effect<CertPair, GtdError, CommandRunner | FileSystem.FileSystem> => {
-  // openssl's `-addext subjectAltName=IP:...` rejects a non-literal value
-  // outright (confirmed: a hostname `--host` like "localhost" fails with a
-  // raw "Error Loading command line extensions" dump naming neither the
-  // flag nor the cause). The Tailscale-scan default always yields a literal;
-  // only an explicit hostname `--host` can land here as a non-literal.
+  // The SAN must match whatever the browser actually dials: `displayHost`
+  // (the tailnet hostname when the probe answered, otherwise identical to
+  // `bindHost`) goes in as `DNS:`, and `bindHost` goes in as `IP:` only when
+  // it's a literal — openssl's `-addext subjectAltName=IP:...` rejects a
+  // non-literal value outright (confirmed: a hostname `--host` like
+  // "localhost" fails with a raw "Error Loading command line extensions"
+  // dump naming neither the flag nor the cause). Without this split, a
+  // probe-detected hostname URL over an IP bind got a SAN of
+  // `IP:<bind-ip>,DNS:<bind-ip>` while the browser dialed the hostname — a
+  // name mismatch on every load, strictly worse than no detection at all.
   if (options.selfSigned) {
-    return generateSelfSignedCert({ host, ...(isIP(host) !== 0 ? { ip: host } : {}) })
+    return generateSelfSignedCert({
+      host: displayHost,
+      ...(isIP(bindHost) !== 0 ? { ip: bindHost } : {}),
+    })
   }
   if (config?.cert !== undefined && config.key !== undefined) {
     return loadCertPair(config.cert, config.key)
@@ -377,7 +386,7 @@ const resolveHostsAndCert = (
     const explicitHost = options.host ?? config?.host
     const tailscaleStatus = explicitHost !== undefined ? undefined : yield* probeTailscaleStatus()
     const displayHost = tailscaleStatus?.hostname ?? bindHost
-    const certPair = yield* resolveCertPair(options, config, bindHost, tailscaleStatus)
+    const certPair = yield* resolveCertPair(options, config, bindHost, displayHost, tailscaleStatus)
     return { bindHost, displayHost, certPair }
   })
 

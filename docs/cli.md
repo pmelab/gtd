@@ -78,11 +78,12 @@ Commands:
                    API is secure-context-only) exposing gtd's web/phone client
                    for THIS worktree — the invoking directory, never a
                    configured list of roots — and refuses outside a repository
-                   like every other state command. --host <addr> and
-                   --port <n> override the bound address (default: an address
-                   picked automatically, and port 8443); --self-signed
-                   generates a throwaway TLS certificate instead of the
-                   configured ui.cert/ui.key; --dev runs against local
+                   like every other state command. --host <addr> overrides the bound
+                   address and the printed URL (default: an address picked
+                   automatically, using the detected Tailscale hostname when
+                   available); --port <n> overrides the port (default: 8443);
+                   --self-signed generates a throwaway TLS certificate instead of
+                   the configured ui.cert/ui.key; --dev runs against local
                    development sources instead of the packaged build
   check <mode> <file>
                    Read <file> and run the built-in steering format named

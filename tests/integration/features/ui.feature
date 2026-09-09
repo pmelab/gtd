@@ -263,7 +263,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # both driven by a fake `tailscale` on $PATH, never the real binary, and
   # both spawned WITHOUT --host so `resolveBindHost`'s own real-system scan
   # (this machine's actual Tailscale interface) and the new probe both run
-  # for real, exactly like a plain `gtd ui`. ──────────────────────────────
+  # for real, exactly like a plain `gtd ui`. Accepted, not a false negative:
+  # unlike every other `@live` scenario above (which all pass --self-signed
+  # --host to sidestep exactly this), these two depend on the runner's own
+  # network genuinely carrying a 100.64.0.0/10 CGNAT address — a runner not
+  # joined to a tailnet fails these on "gtd ui never printed its bound URL"
+  # after 5s, not on a real regression. ───────────────────────────────────
 
   @live
   Scenario: the printed URL and QR code carry the Tailscale hostname when the probe finds a running backend
