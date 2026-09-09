@@ -10,9 +10,9 @@ export interface TailscaleStatus {
 /** The subset of `tailscale status --json`'s shape this module reads — everything else in that payload is ignored. */
 interface RawTailscaleStatus {
   readonly BackendState?: string
+  readonly CertDomains?: readonly string[]
   readonly Self?: {
     readonly DNSName?: string
-    readonly CertDomains?: readonly string[]
   }
 }
 
@@ -34,7 +34,7 @@ export const parseTailscaleStatus = (json: string): TailscaleStatus | undefined 
   if (parsed.BackendState !== "Running") return undefined
   if (parsed.Self === undefined) return undefined
 
-  const certDomains = parsed.Self.CertDomains ?? []
+  const certDomains = parsed.CertDomains ?? []
   const dnsName = parsed.Self.DNSName
   // `CertDomains[0]` is the safer source (no trailing dot); `DNSName` is a
   // fully-qualified DNS root and must be stripped of its trailing dot before

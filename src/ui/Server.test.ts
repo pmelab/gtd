@@ -26,6 +26,7 @@ import { Cwd } from "../Cwd.js"
 import type { UiConfig } from "../ConfigSchema.js"
 import { pickBindHostFromSystem } from "./BindSystem.js"
 import { renderQrCode } from "./Qr.js"
+import { parseTailscaleStatus } from "./Tailscale.js"
 import { generateSelfSignedCert, type CertPair } from "./Tls.js"
 import {
   HttpsServer,
@@ -292,6 +293,50 @@ describe("resolveCertPair", () => {
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("tailscale cert")
     expect(commands[0]).toContain("'host.tailnet.ts.net'")
+    expect(pair.cert).toContain("BEGIN CERTIFICATE")
+  })
+
+  it("drives the tailscale cert branch from a real `tailscale status --json` shape — proves the branch is reachable, not just the hand-built status object", async () => {
+    // Regression for the top-level-vs-Self.CertDomains bug: this parses a
+    // real-shaped status payload through parseTailscaleStatus (rather than
+    // constructing a TailscaleStatus literal directly, as the other tests in
+    // this describe block do) so the test fails against the pre-fix parser,
+    // which always produced an empty certDomains and fell through to refusal.
+    const realStatus = parseTailscaleStatus(
+      JSON.stringify({
+        BackendState: "Running",
+        CertDomains: ["philipps-macbook-pro-m5.tailb2e719.ts.net"],
+        Self: { DNSName: "philipps-macbook-pro-m5.tailb2e719.ts.net." },
+      }),
+    )
+    const commands: string[] = []
+    const runner = CommandRunner.layer((command) => {
+      commands.push(command)
+      const certMatch = command.match(/--cert-file '([^']+)'/)
+      const keyMatch = command.match(/--key-file '([^']+)'/)
+      if (certMatch?.[1]) {
+        writeFileSync(
+          certMatch[1],
+          "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+        )
+      }
+      if (keyMatch?.[1]) {
+        writeFileSync(keyMatch[1], "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+      }
+      return Effect.succeed({ status: 0, output: "" })
+    })
+    const pair = await Effect.runPromise(
+      resolveCertPair(
+        { selfSigned: false, dev: false },
+        undefined,
+        "100.90.1.2",
+        "100.90.1.2",
+        realStatus,
+      ).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
+    )
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).toContain("tailscale cert")
+    expect(commands[0]).toContain("'philipps-macbook-pro-m5.tailb2e719.ts.net'")
     expect(pair.cert).toContain("BEGIN CERTIFICATE")
   })
 
@@ -576,7 +621,8 @@ describe("runUiCommand", () => {
         status: 0,
         output: JSON.stringify({
           BackendState: "Running",
-          Self: { DNSName: "host.tailnet.ts.net.", CertDomains: ["host.tailnet.ts.net"] },
+          CertDomains: ["host.tailnet.ts.net"],
+          Self: { DNSName: "host.tailnet.ts.net." },
         }),
       }),
     )
