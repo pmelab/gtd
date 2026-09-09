@@ -257,3 +257,77 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # has. A `@live` scenario asserting "no Tailscale interface found" can't
   # make that same guarantee — it would depend on the CI/dev machine's real
   # network shape — so that coverage is not duplicated here.
+
+  # ── Package 02: the printed URL/QR code carry the tailnet hostname when
+  # detection answers, and the CGNAT IP exactly as before when it doesn't —
+  # both driven by a fake `tailscale` on $PATH, never the real binary, and
+  # both spawned WITHOUT --host so `resolveBindHost`'s own real-system scan
+  # (this machine's actual Tailscale interface) and the new probe both run
+  # for real, exactly like a plain `gtd ui`. ──────────────────────────────
+
+  @live
+  Scenario: the printed URL and QR code carry the Tailscale hostname when the probe finds a running backend
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": awaiting-review
+              awaiting-review:
+                actor: human
+                file: "REVIEW.md"
+                mode: qa
+                message: "awaiting your review"
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a fake tailscale binary on PATH reporting a running backend with hostname "phone.tailnet.ts.net"
+    When I spawn gtd ui without --host and capture its printed URL
+    Then stdout contains "https://phone.tailnet.ts.net:"
+
+  @live
+  Scenario: the printed URL and QR code carry the CGNAT IP, exactly as before, when the probe finds no backend
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": awaiting-review
+              awaiting-review:
+                actor: human
+                file: "REVIEW.md"
+                mode: qa
+                message: "awaiting your review"
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a fake tailscale binary on PATH reporting no backend
+    When I spawn gtd ui without --host and capture its printed URL
+    Then stdout does not contain "tailnet"
+    And stdout matches "https:\/\/\d+\.\d+\.\d+\.\d+:"

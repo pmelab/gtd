@@ -8,7 +8,7 @@ import { Effect, Exit } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
 import { Cwd } from "../Cwd.js"
 import { GtdError } from "../Commentary.js"
-import { generateSelfSignedCert, loadCertPair } from "./Tls.js"
+import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert } from "./Tls.js"
 
 let tmpDir: string
 
@@ -152,6 +152,87 @@ describe("generateSelfSignedCert", () => {
     )
     expect(Exit.isFailure(exit)).toBe(true)
     expect(gtdTlsDirs()).toEqual(before)
+  })
+})
+
+describe("obtainTailscaleCert", () => {
+  /** Extracts the `--cert-file`/`--key-file` paths a real `tailscale cert` would be given, and fakes writing PEM content there — mirrors the `--cert-file -`/`--key-file -` constraint the doc comment names: two files, never one interleaved stream. */
+  const fakeCertFile = (command: string, flag: "--cert-file" | "--key-file"): string => {
+    const match = command.match(new RegExp(`${flag} '([^']+)'`))
+    if (!match?.[1]) throw new Error(`fake tailscale cert: no ${flag} in command: ${command}`)
+    return match[1]
+  }
+
+  it("shells out to `tailscale cert <domain>`, writing both PEMs to a temp dir and reading them back as a CertPair", async () => {
+    const commands: string[] = []
+    const runner = CommandRunner.layer((command) => {
+      commands.push(command)
+      writeFileSync(
+        fakeCertFile(command, "--cert-file"),
+        "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+      )
+      writeFileSync(
+        fakeCertFile(command, "--key-file"),
+        "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
+      )
+      return Effect.succeed({ status: 0, output: "" })
+    })
+    const pair = await Effect.runPromise(
+      obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner)),
+    )
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).toContain("tailscale cert")
+    expect(commands[0]).toContain("'host.tailnet.ts.net'")
+    expect(pair.cert).toContain("BEGIN CERTIFICATE")
+    expect(pair.key).toContain("BEGIN PRIVATE KEY")
+  })
+
+  it("fails naming tailscale cert's own output on a non-zero exit — no fallback", async () => {
+    const runner = CommandRunner.layer(() =>
+      Effect.succeed({ status: 1, output: "tailscale cert: access denied\n" }),
+    )
+    const thrown = await Effect.runPromise(
+      obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner), Effect.flip),
+    )
+    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown.message).toContain("tailscale cert")
+    expect(thrown.detail.join("\n")).toContain("access denied")
+  })
+
+  const gtdTlsDirs = (): string[] =>
+    readdirSync(tmpdir()).filter((name) => name.startsWith("gtd-tls-"))
+
+  it("removes its private-key tmpdir even after a non-zero exit", async () => {
+    const before = gtdTlsDirs()
+    const runner = CommandRunner.layer(() => Effect.succeed({ status: 1, output: "denied" }))
+    await Effect.runPromiseExit(
+      obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner)),
+    )
+    expect(gtdTlsDirs()).toEqual(before)
+  })
+
+  it("removes its private-key tmpdir even when reading back the issued cert/key fails", async () => {
+    const before = gtdTlsDirs()
+    const liesAboutSuccess = CommandRunner.layer(() => Effect.succeed({ status: 0, output: "" }))
+    const exit = await Effect.runPromiseExit(
+      obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(liesAboutSuccess)),
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(gtdTlsDirs()).toEqual(before)
+  })
+
+  it("fails naming tailscale on a spawn failure (binary absent)", async () => {
+    const missingTailscale = CommandRunner.layer(() =>
+      Effect.fail(new Error("spawn tailscale ENOENT")),
+    )
+    const thrown = await Effect.runPromise(
+      obtainTailscaleCert("host.tailnet.ts.net").pipe(
+        Effect.provide(missingTailscale),
+        Effect.flip,
+      ),
+    )
+    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown.message).toContain("tailscale")
   })
 })
 

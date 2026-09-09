@@ -200,8 +200,9 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: "gtd: --host is only valid for `gtd ui`",
     valueHint: "<addr>",
     help: [
-      "(gtd ui only) address to bind the server to (default:",
-      "an address picked automatically)",
+      "(gtd ui only) address to bind the server to and show in the",
+      "printed URL (default: an address picked automatically, using",
+      "the detected Tailscale hostname when available)",
     ],
   },
   {

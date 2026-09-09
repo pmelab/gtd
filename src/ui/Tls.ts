@@ -95,6 +95,61 @@ export const generateSelfSignedCert = (
   })
 
 /**
+ * Obtains a real Tailscale-issued certificate for `domain` via `tailscale
+ * cert`, the only URL a real cert can ever match. `--cert-file -`/
+ * `--key-file -` cannot be used for both PEMs at once (they'd interleave on
+ * one stdout stream), so this writes to a temp dir — the same `mkdtempSync`
+ * shape `generateSelfSignedCert` uses above — and reads both back as plain
+ * strings so the result is a `CertPair` and nothing downstream re-reads the
+ * filesystem. The temp dir (it holds a private key) is removed on every exit
+ * path via `Effect.ensuring`, mirroring `generateSelfSignedCert`.
+ */
+export const obtainTailscaleCert = (
+  domain: string,
+): Effect.Effect<CertPair, GtdError, CommandRunner> =>
+  Effect.gen(function* () {
+    const runner = yield* CommandRunner
+    const dir = mkdtempSync(join(tmpdir(), "gtd-tls-"))
+    const keyPath = join(dir, "key.pem")
+    const certPath = join(dir, "cert.pem")
+    const command = [
+      "tailscale cert",
+      `--cert-file ${singleQuoted(certPath)}`,
+      `--key-file ${singleQuoted(keyPath)}`,
+      singleQuoted(domain),
+    ].join(" ")
+
+    return yield* runner.bash(command).pipe(
+      Effect.mapError(
+        (e) =>
+          new GtdError(`gtd ui: could not run tailscale cert to issue a certificate: ${e.message}`),
+      ),
+      Effect.flatMap((outcome) =>
+        outcome.status !== 0
+          ? Effect.fail(
+              new GtdError("gtd ui: tailscale cert exited without issuing a certificate", [
+                `exit status: ${outcome.status ?? "signal"}`,
+                ...outcome.output.trim().split("\n").filter(Boolean),
+              ]),
+            )
+          : Effect.try({
+              try: (): CertPair => ({
+                cert: readFileSync(certPath, "utf8"),
+                key: readFileSync(keyPath, "utf8"),
+              }),
+              catch: (e) =>
+                new GtdError(
+                  `gtd ui: tailscale cert reported success but its output could not be read: ${
+                    e instanceof Error ? e.message : String(e)
+                  }`,
+                ),
+            }),
+      ),
+      Effect.ensuring(Effect.sync(() => rmSync(dir, { recursive: true, force: true }))),
+    )
+  })
+
+/**
  * Loads a certificate/key pair a config already names, used as-is — this
  * never shells out to `openssl`, structurally: it takes no `CommandRunner`.
  * A missing or unreadable path is an Effect failure, not a synchronous

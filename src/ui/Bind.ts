@@ -2,8 +2,9 @@ import type * as os from "node:os"
 
 /**
  * Tailscale's CGNAT range: first octet 100, second octet 64-127
- * (100.64.0.0/10). Scanning for this avoids shelling out to a `tailscale`
- * binary, which is not installed on this machine and not worth acquiring.
+ * (100.64.0.0/10). This is the BIND address only — `Tailscale.ts` shells out
+ * to the `tailscale` binary separately to resolve the DISPLAYED hostname and
+ * certificate, a job this scan cannot do.
  */
 const isTailscaleIPv4 = (address: string): boolean => {
   const parts = address.split(".")

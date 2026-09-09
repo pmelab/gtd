@@ -18,12 +18,13 @@ import { contentHashOf } from "./Write.js"
 // `os.networkInterfaces()` — mocked so the "calls through to the real system
 // scan by default" test below is deterministic on any machine, tailnet or
 // not, rather than depending on this runner having no Tailscale interface.
-vi.mock("./BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
+vi.mock("./BindSystem.js", () => ({ pickBindHostFromSystem: vi.fn(() => undefined) }))
 
 import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import { Cwd } from "../Cwd.js"
 import type { UiConfig } from "../ConfigSchema.js"
+import { pickBindHostFromSystem } from "./BindSystem.js"
 import { renderQrCode } from "./Qr.js"
 import { generateSelfSignedCert, type CertPair } from "./Tls.js"
 import {
@@ -134,7 +135,7 @@ describe("resolveCertPair", () => {
   it("--self-signed generates a certificate even when ui.cert/ui.key are configured — the explicit flag wins", async () => {
     const config: UiConfig = { cert: "/some/cert.pem", key: "/some/key.pem" }
     const thrown = await Effect.runPromise(
-      resolveCertPair({ selfSigned: true, dev: false }, config, "100.90.1.2").pipe(
+      resolveCertPair({ selfSigned: true, dev: false }, config, "100.90.1.2", undefined).pipe(
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
         Effect.flip,
@@ -155,7 +156,7 @@ describe("resolveCertPair", () => {
       return Effect.succeed({ status: 0, output: "" })
     })
     await Effect.runPromiseExit(
-      resolveCertPair({ selfSigned: true, dev: false }, undefined, "localhost").pipe(
+      resolveCertPair({ selfSigned: true, dev: false }, undefined, "localhost", undefined).pipe(
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
       ),
@@ -176,6 +177,7 @@ describe("resolveCertPair", () => {
         { selfSigned: false, dev: false },
         { cert: certPath, key: keyPath },
         "100.90.1.2",
+        undefined,
       ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer)),
     )
     expect(pair.cert).toContain("BEGIN CERTIFICATE")
@@ -184,7 +186,7 @@ describe("resolveCertPair", () => {
 
   it("refuses with a GtdError naming both remedies when neither --self-signed nor a configured pair is given", async () => {
     const thrown = await Effect.runPromise(
-      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2").pipe(
+      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", undefined).pipe(
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
         Effect.flip,
@@ -202,6 +204,7 @@ describe("resolveCertPair", () => {
         { selfSigned: false, dev: false },
         { cert: "/some/cert.pem" },
         "100.90.1.2",
+        undefined,
       ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
     )
     expect(thrown).toBeInstanceOf(GtdError)
@@ -216,12 +219,72 @@ describe("resolveCertPair", () => {
         { selfSigned: false, dev: false },
         { key: "/some/key.pem" },
         "100.90.1.2",
+        undefined,
       ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
     )
     expect(thrown).toBeInstanceOf(GtdError)
     const rendered = thrown.message + thrown.detail.join("\n")
     expect(rendered).toContain("ui.cert")
     expect(rendered).not.toContain("no certificate is configured")
+  })
+
+  it("obtains a real tailscale cert for the probed hostname when neither --self-signed nor a configured pair is given, and certDomains is non-empty", async () => {
+    const commands: string[] = []
+    const runner = CommandRunner.layer((command) => {
+      commands.push(command)
+      const certMatch = command.match(/--cert-file '([^']+)'/)
+      const keyMatch = command.match(/--key-file '([^']+)'/)
+      if (certMatch?.[1]) {
+        writeFileSync(
+          certMatch[1],
+          "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+        )
+      }
+      if (keyMatch?.[1]) {
+        writeFileSync(keyMatch[1], "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+      }
+      return Effect.succeed({ status: 0, output: "" })
+    })
+    const pair = await Effect.runPromise(
+      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", {
+        hostname: "host.tailnet.ts.net",
+        certDomains: ["host.tailnet.ts.net"],
+      }).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
+    )
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).toContain("tailscale cert")
+    expect(commands[0]).toContain("'host.tailnet.ts.net'")
+    expect(pair.cert).toContain("BEGIN CERTIFICATE")
+  })
+
+  it("falls through to the refusal, naming the Tailscale path, when the probe answered but certDomains is empty", async () => {
+    const thrown = await Effect.runPromise(
+      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", {
+        hostname: "host.tailnet.ts.net",
+        certDomains: [],
+      }).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
+    )
+    expect(thrown).toBeInstanceOf(GtdError)
+    const rendered = thrown.message + thrown.detail.join("\n")
+    expect(rendered).toContain("--self-signed")
+    expect(rendered).toMatch(/ui\.cert/)
+    expect(rendered).toMatch(/tailnet|Tailscale/)
+  })
+
+  it("fails outright on a non-zero tailscale cert exit — no fallback to the refusal, no fallback to self-signed", async () => {
+    const runner = CommandRunner.layer(() =>
+      Effect.succeed({ status: 1, output: "tailscale cert: rate limited\n" }),
+    )
+    const thrown = await Effect.runPromise(
+      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", {
+        hostname: "host.tailnet.ts.net",
+        certDomains: ["host.tailnet.ts.net"],
+      }).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer), Effect.flip),
+    )
+    expect(thrown).toBeInstanceOf(GtdError)
+    const rendered = thrown.message + thrown.detail.join("\n")
+    expect(rendered).not.toContain("no certificate is configured")
+    expect(rendered).toContain("rate limited")
   })
 })
 
@@ -451,6 +514,82 @@ describe("runUiCommand", () => {
 
     await Effect.runPromise(Fiber.interrupt(fiber))
     expect(closed).toBe(true)
+  })
+
+  it("prints the probed Tailscale hostname as the displayed URL while binding the CGNAT IP the system scan found — no --host/ui.host given", async () => {
+    initGitRepo(tmpDir)
+    installFakeGtd(tmpDir, renderablePromptJson)
+    const { out, written } = fakeOut()
+    const certPath = join(tmpDir, "cert.pem")
+    const keyPath = join(tmpDir, "key.pem")
+    writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+    writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+
+    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    let boundHost: string | undefined
+    const fakeHttpsServer = Layer.succeed(HttpsServer, {
+      listen: (_certPair, host) => {
+        boundHost = host
+        return Effect.succeed({ port: 4443, close: () => {} })
+      },
+    })
+    const runner = CommandRunner.layer(() =>
+      Effect.succeed({
+        status: 0,
+        output: JSON.stringify({
+          BackendState: "Running",
+          Self: { DNSName: "host.tailnet.ts.net.", CertDomains: ["host.tailnet.ts.net"] },
+        }),
+      }),
+    )
+
+    const fiber = Effect.runFork(
+      runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+        Effect.provide(fakeHttpsServer),
+        Effect.provide(runner),
+        Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.layer(tmpDir)),
+      ),
+    )
+
+    await waitForWrites(written, 2)
+
+    expect(written[0]).toBe("https://host.tailnet.ts.net:4443/\n")
+    expect(boundHost).toBe("100.90.1.2")
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
+  it("skips the Tailscale probe entirely when --host is given explicitly — CommandRunner is never invoked", async () => {
+    initGitRepo(tmpDir)
+    installFakeGtd(tmpDir, renderablePromptJson)
+    const { out, written } = fakeOut()
+    const certPath = join(tmpDir, "cert.pem")
+    const keyPath = join(tmpDir, "key.pem")
+    writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+    writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+
+    const fakeHttpsServer = Layer.succeed(HttpsServer, {
+      listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+    })
+
+    const fiber = Effect.runFork(
+      runUiCommand(
+        { selfSigned: false, dev: false, host: "1.2.3.4" },
+        { cert: certPath, key: keyPath },
+        out,
+      ).pipe(
+        Effect.provide(fakeHttpsServer),
+        Effect.provide(noCommandRunner),
+        Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.layer(tmpDir)),
+      ),
+    )
+
+    await waitForWrites(written, 2)
+    expect(written[0]).toBe("https://1.2.3.4:4443/\n")
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
   it("T5: under --dev, rebuilds the client exactly once at startup — no HTTP request triggers a rebuild", async () => {

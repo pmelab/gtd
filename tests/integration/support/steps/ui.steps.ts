@@ -1,4 +1,8 @@
+import { Given, When } from "quickpickle"
+import { chmodSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { vi } from "vitest"
+import type { GtdWorld } from "../world.js"
 
 // `tests/integration/features/ui.feature`'s `@inmem` scenarios run
 // `gtd ui` IN-PROCESS (`world.ts`'s `runGtdInMem` calls the real `runCli`
@@ -19,3 +23,37 @@ import { vi } from "vitest"
 // list) never takes effect — the mock must be registered before ANYTHING
 // else in the setup chain imports this module transitively.
 vi.mock("../../../../src/ui/BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
+
+/**
+ * `@live` only — installs a fake `tailscale` on `world.pathShimDir`, ahead
+ * of the real `/opt/homebrew/bin/tailscale` in `$PATH` (`spawnEnv` prepends
+ * the shim dir), so `Tailscale.ts#probeTailscaleStatus`'s `tailscale status
+ * --json` call answers deterministically — never the real binary's actual
+ * tailnet state, which the test runner can't control.
+ */
+Given(
+  "a fake tailscale binary on PATH reporting a running backend with hostname {string}",
+  (world: GtdWorld, hostname: string) => {
+    if (!world.pathShimDir) throw new Error("no PATH shim dir — this step is @live only")
+    const shim = join(world.pathShimDir, "tailscale")
+    const status = JSON.stringify({
+      BackendState: "Running",
+      Self: { DNSName: `${hostname}.`, CertDomains: [hostname] },
+    })
+    writeFileSync(shim, `#!/bin/sh\ncat <<'EOF'\n${status}\nEOF\n`, { mode: 0o755 })
+    chmodSync(shim, 0o755)
+  },
+)
+
+/** The empty-probe case: a fake `tailscale` that reports a backend that isn't `"Running"` — one of the three ways `Tailscale.ts#parseTailscaleStatus` falls back to `undefined`. */
+Given("a fake tailscale binary on PATH reporting no backend", (world: GtdWorld) => {
+  if (!world.pathShimDir) throw new Error("no PATH shim dir — this step is @live only")
+  const shim = join(world.pathShimDir, "tailscale")
+  writeFileSync(shim, `#!/bin/sh\necho '{"BackendState":"Stopped"}'\n`, { mode: 0o755 })
+  chmodSync(shim, 0o755)
+})
+
+/** Spawns a real `gtd ui --self-signed --port 0` with NO `--host` — the shape that lets `resolveBindHost` reach the real system scan and `runUiCommand` reach the Tailscale probe (`world.ts#spawnGtdUiPrintingUrl`'s own doc comment) — then kills it, leaving its printed URL in `lastResult.stdout` for the shared "stdout contains" step. */
+When("I spawn gtd ui without --host and capture its printed URL", async (world: GtdWorld) => {
+  await world.spawnGtdUiPrintingUrl()
+})

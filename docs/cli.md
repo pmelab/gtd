@@ -146,8 +146,9 @@ Options:
   --port=<n>       (gtd visualize/gtd ui only) port to serve on (default:
                    a free port for visualize, 8443 for ui)
   --no-open        (gtd visualize only) do not open the browser
-  --host=<addr>    (gtd ui only) address to bind the server to (default:
-                   an address picked automatically)
+  --host=<addr>    (gtd ui only) address to bind the server to and show in the
+                   printed URL (default: an address picked automatically, using
+                   the detected Tailscale hostname when available)
   --self-signed    (gtd ui only) generate a throwaway self-signed TLS
                    certificate instead of the configured ui.cert/ui.key
   --dev            (gtd ui only) run against local development sources

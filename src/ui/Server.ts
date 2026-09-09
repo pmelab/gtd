@@ -28,7 +28,8 @@ import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.
 import { renderQrCode } from "./Qr.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript } from "./scriptTag.mjs"
-import { generateSelfSignedCert, loadCertPair, type CertPair } from "./Tls.js"
+import { probeTailscaleStatus, type TailscaleStatus } from "./Tailscale.js"
+import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert, type CertPair } from "./Tls.js"
 import {
   liveActorAt,
   liveReadFile,
@@ -84,16 +85,24 @@ export const resolveBindHost = (
 }
 
 /**
- * Determines the certificate/key pair: `--self-signed` always wins (an
- * explicit ask, honored even if `ui.cert`/`ui.key` are also
- * configured), then a configured pair. Neither present is a refusal, not a
- * silent default to self-signed — that would mean an unexpected `openssl`
- * invocation on every plain `gtd ui`.
+ * Determines the certificate/key pair, four branches in order: `--self-
+ * signed` always wins (an explicit ask, honored even if `ui.cert`/`ui.key`
+ * are also configured), then a configured pair, then a real `tailscale cert`
+ * for `tailscaleStatus`'s hostname when its `certDomains` is non-empty (the
+ * probe for whether the tailnet has HTTPS certs enabled at all), then
+ * refusal. Neither a configured pair nor an available Tailscale cert is a
+ * refusal, not a silent default to self-signed — that would mean an
+ * unexpected `openssl` invocation on every plain `gtd ui`. The Tailscale
+ * branch is exactly why this shells out to `tailscale`, not `openssl`, when
+ * it's available: only a Tailscale-issued cert can ever match a tailnet
+ * hostname URL, and a self-signed cert for a CGNAT IP is a browser warning
+ * on every load.
  */
 export const resolveCertPair = (
   options: UiCommandOptions,
   config: UiConfig | undefined,
   host: string,
+  tailscaleStatus: TailscaleStatus | undefined,
 ): Effect.Effect<CertPair, GtdError, CommandRunner | FileSystem.FileSystem> => {
   // openssl's `-addext subjectAltName=IP:...` rejects a non-literal value
   // outright (confirmed: a hostname `--host` like "localhost" fails with a
@@ -115,10 +124,20 @@ export const resolveCertPair = (
       ]),
     )
   }
+  const certDomain = tailscaleStatus?.certDomains[0]
+  if (certDomain !== undefined) {
+    // Chosen because CertDomains said it was available: a rate limit, an ACL
+    // change, or HTTPS switched off between the two calls is a broken
+    // tailnet, not "no certificate is configured" — so a non-zero exit here
+    // fails outright, no fallback to the refusal, no fallback to
+    // self-signed. `--self-signed` remains the escape.
+    return obtainTailscaleCert(certDomain)
+  }
   return Effect.fail(
     new GtdError("gtd ui: HTTPS is mandatory and no certificate is configured", [
       "pass --self-signed for a throwaway certificate",
       "or configure ui.cert and ui.key",
+      "or join a tailnet with HTTPS certs enabled for an automatic one",
     ]),
   )
 }
@@ -337,6 +356,32 @@ const refusalFor = (step: StepRead): GtdUsageError => {
 }
 
 /**
+ * Bundles bind/display host resolution with certificate resolution — pulled
+ * out of `runUiCommand`'s own generator so that function's own cyclomatic/
+ * cognitive complexity stays flat as this package adds the probe/branch
+ * logic, rather than growing inline. An explicit `--host`/`ui.host` is the
+ * user's own deliberate consent (`resolveBindHost`'s own doc comment):
+ * detection never overrides it, so the probe only runs when neither was
+ * given, and `displayHost` falls back to `bindHost` whenever it doesn't.
+ */
+const resolveHostsAndCert = (
+  options: UiCommandOptions,
+  config: UiConfig | undefined,
+): Effect.Effect<
+  { readonly bindHost: string; readonly displayHost: string; readonly certPair: CertPair },
+  GtdError,
+  CommandRunner | FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const bindHost = yield* resolveBindHost(options.host, config)
+    const explicitHost = options.host ?? config?.host
+    const tailscaleStatus = explicitHost !== undefined ? undefined : yield* probeTailscaleStatus()
+    const displayHost = tailscaleStatus?.hostname ?? bindHost
+    const certPair = yield* resolveCertPair(options, config, bindHost, tailscaleStatus)
+    return { bindHost, displayHost, certPair }
+  })
+
+/**
  * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
  * worktree `Cwd` names — never a fleet, never a spawned loop. The server
  * lives for exactly one step: it starts, shows that step, takes the human's
@@ -366,14 +411,13 @@ export const runUiCommand = (
     const servedState = step.state
     const servedLabel = step.label
 
-    const host = yield* resolveBindHost(options.host, config)
-    const certPair = yield* resolveCertPair(options, config, host)
-    const port = options.port ?? config?.port ?? DEFAULT_PORT
-
     const runner = yield* CommandRunner
     const fs = yield* FileSystem.FileSystem
     const httpsServer = yield* HttpsServer
     const runtime = yield* Effect.runtime<UiRequirements>()
+
+    const { bindHost, displayHost, certPair } = yield* resolveHostsAndCert(options, config)
+    const port = options.port ?? config?.port ?? DEFAULT_PORT
 
     // T5: resolved ONCE, here, ahead of `httpsServer.listen` — never inside
     // the request handler. The server lives for exactly one step, so a
@@ -483,8 +527,8 @@ export const runUiCommand = (
       res.end(clientHtml)
     }
 
-    const bound = yield* httpsServer.listen(certPair, host, port, handler)
-    const url = `https://${host}:${bound.port}/`
+    const bound = yield* httpsServer.listen(certPair, bindHost, port, handler)
+    const url = `https://${displayHost}:${bound.port}/`
     out.write(`${url}\n`)
     out.write(`${renderQrCode(url)}\n`)
     out.flush()
