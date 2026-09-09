@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { page } from "@vitest/browser/context"
 import { useState } from "react"
 import { expect, fireEvent, within } from "storybook/test"
 import type { DiffResult } from "../../ui/Diff.js"
@@ -147,6 +148,43 @@ export const NoteAffordanceOpensTheNoteSheet: StoryObj<typeof TickableHunk> = {
     await expect(canvas.getByTestId("hunk-note-affordance")).toHaveTextContent("Add note")
     await fireEvent.click(canvas.getByTestId("hunk-note-affordance"))
     await expect(canvas.getByTestId("hunk-note-affordance")).toHaveTextContent("Edit note")
+  },
+}
+
+/** Package 02 Task 6: the note affordance switched from a bare `<button>` to `Button`'s `ghost` variant, which guarantees the 44px thumb floor — pinned on real geometry, not just a class name, mirroring `NoteSheet.stories.tsx#FooterControlsMeetThe44pxFloor`. */
+export const NoteAffordanceMeetsThe44pxFloorInItsDefaultState: StoryObj<typeof TickableHunk> = {
+  render: () => <TickableHunk diff={RESOLVED_DIFF} />,
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    const button = canvas.getByTestId("hunk-note-affordance")
+    const rect = button.getBoundingClientRect()
+    expect(rect.height).toBeGreaterThanOrEqual(44)
+    expect(rect.width).toBeGreaterThanOrEqual(44)
+  },
+}
+
+/**
+ * The `ghost` variant's pressed state lives entirely behind a real CSS
+ * `:active` pseudo-class (`Button.tsx`'s `active:bg-surface`) — Chromium only
+ * ever applies `:active` to a trusted, OS-level mouse press, so a
+ * script-dispatched `mousedown` (the only kind reachable from this test
+ * runner) never triggers it, and there is no reliable way to assert the
+ * pressed PAINT here without a real pointer. What IS reliably assertable:
+ * the ghost variant's class actually lands on the rendered button, so a
+ * regression that dropped `variant="ghost"` (falling back to the default
+ * `secondary` variant, which paints a border and surface background even at
+ * rest) would fail this. `Hunk`'s own interface never wires a `disabled`
+ * state to this button either (`onOpenNote` always fires) — there is no
+ * disabled story to add here.
+ */
+export const NoteAffordanceUsesTheGhostVariantAtRest: StoryObj<typeof TickableHunk> = {
+  render: () => <TickableHunk diff={RESOLVED_DIFF} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const button = canvas.getByTestId("hunk-note-affordance") as HTMLButtonElement
+    expect(button.className).toMatch(/\bactive:bg-surface\b/)
+    expect(getComputedStyle(button).backgroundColor).toBe("rgba(0, 0, 0, 0)")
   },
 }
 

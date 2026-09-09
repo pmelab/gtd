@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Button } from "./Button.js"
 
 export interface DeckProps<T> {
   readonly items: readonly T[]
@@ -10,7 +11,14 @@ export interface DeckProps<T> {
   readonly onIndexChange?: (index: number) => void
 }
 
-/** The in-flow back/progress/next row below the deck's content — never absolutely positioned, so it can never overlay `renderItem`'s output. */
+/**
+ * The in-flow back/progress/next row — the `flex flex-col`/`h-dvh` shell's
+ * `shrink-0` sibling of the scrollable content (package 02 Task 4). Never
+ * `position: fixed`/`sticky`: it stays in normal flow, so it can never
+ * overlay content, and it ends up inside the viewport with zero page scroll
+ * because the column itself is exactly viewport-tall, not because of
+ * anything this row does on its own.
+ */
 const DeckControls = ({
   current,
   total,
@@ -20,24 +28,27 @@ const DeckControls = ({
   readonly total: number
   readonly onAdvance: (delta: number) => void
 }) => (
-  <div style={{ display: "flex", justifyContent: "space-between", padding: "12px" }}>
-    <button type="button" data-testid="deck-prev" onClick={() => onAdvance(-1)}>
+  <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3">
+    <Button variant="secondary" data-testid="deck-prev" onClick={() => onAdvance(-1)}>
       Back
-    </button>
-    <span data-testid="deck-progress" style={{ opacity: 0.7, fontSize: 12 }}>
+    </Button>
+    <span data-testid="deck-progress" className="text-small text-muted">
       {current + 1} / {total}
     </span>
-    <button type="button" data-testid="deck-next" onClick={() => onAdvance(1)}>
+    <Button variant="primary" data-testid="deck-next" onClick={() => onAdvance(1)}>
       {current + 1 === total ? "Done" : "Next"}
-    </button>
+    </Button>
   </div>
 )
 
 /**
  * A format-agnostic "one item per screen" deck: no review/question domain
- * knowledge, just an array and a render-prop. Controls are plain flow
- * content below `renderItem`'s output, never absolutely positioned, so they
- * can never overlay it.
+ * knowledge, just an array and a render-prop. `flex-1 min-h-0 overflow-auto`
+ * is the deck's OWN scroll container (Task 4) — `min-h-0` is mandatory: a
+ * flex child's default `min-height: auto` refuses to shrink below its
+ * content, which is exactly what pushed the control bar off-screen before.
+ * Controls are the container's `shrink-0` sibling, never absolutely
+ * positioned, so they can never overlay it.
  */
 // fallow-ignore-next-line complexity
 export const Deck = <T,>({ items, renderItem, onExit, index, onIndexChange }: DeckProps<T>) => {
@@ -58,8 +69,10 @@ export const Deck = <T,>({ items, renderItem, onExit, index, onIndexChange }: De
   const item = items[current]
 
   return (
-    <div data-testid="deck">
-      <div data-testid="deck-content">{item !== undefined && renderItem(item, current)}</div>
+    <div data-testid="deck" className="flex h-full min-h-0 flex-1 flex-col">
+      <div data-testid="deck-content" className="min-h-0 flex-1 overflow-auto">
+        {item !== undefined && renderItem(item, current)}
+      </div>
       <DeckControls current={current} total={items.length} onAdvance={advance} />
     </div>
   )

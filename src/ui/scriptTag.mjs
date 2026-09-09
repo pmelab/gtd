@@ -21,3 +21,19 @@ export const inlineScript = (template, script) =>
     SCRIPT_TAG_PATTERN,
     () => `<script type="module">\n${script.replaceAll("</script>", "<\\/script>")}\n</script>`,
   )
+
+/** The Tailwind CLI's own output link — `src/web/index.html`'s `<link rel="stylesheet" href="./main.css" />`, the CSS sibling of `SCRIPT_TAG_PATTERN` above. */
+export const STYLE_TAG_PATTERN = /<link rel="stylesheet" href="\.\/main\.css" \/>/
+
+/**
+ * Inlines `css` into `template` in place of the `<link rel="stylesheet">`
+ * tag — same replacement-FUNCTION requirement as `inlineScript` (a `$&` in
+ * the css would otherwise be treated as a backreference by `.replace`'s
+ * string form), and the same `</style>`-escaping guard a literal closing tag
+ * inside the compiled CSS would need to not terminate early.
+ */
+export const inlineStyles = (template, css) =>
+  template.replace(
+    STYLE_TAG_PATTERN,
+    () => `<style>\n${css.replaceAll("</style>", "<\\/style>")}\n</style>`,
+  )

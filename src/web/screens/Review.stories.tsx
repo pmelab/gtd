@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { page } from "@vitest/browser/context"
 import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import type { SteeringAnchor, SteeringView } from "../../SteeringFormat.js"
@@ -105,6 +106,40 @@ const SINGLE_HUNK_CHUNK: SteeringView["nodes"][number] = {
 const SAMPLE_VIEW: SteeringView = {
   header: "sample123",
   nodes: [NESTED_CHUNK, FOOTNOTE_CHUNK, SINGLE_HUNK_CHUNK],
+}
+
+/** Package 02 Task 6: both of a chunk row's own controls (the open button and the note button) meet the 44×44 thumb floor via `Button`'s own `min-h-11 min-w-11`. */
+export const BothChunkControlsMeetThe44pxFloor: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    const openRect = canvas.getByTestId("chunk-open-0").getBoundingClientRect()
+    expect(openRect.width).toBeGreaterThanOrEqual(44)
+    expect(openRect.height).toBeGreaterThanOrEqual(44)
+    const noteRect = canvas.getByTestId("chunk-note-0").getBoundingClientRect()
+    expect(noteRect.width).toBeGreaterThanOrEqual(44)
+    expect(noteRect.height).toBeGreaterThanOrEqual(44)
+  },
+}
+
+/** Package 02 Task 6: the chunk-open button's disabled state (zero hunks) is visually distinct — `Button`'s `disabled:` utilities apply, not a hand-rolled opacity/cursor pair. */
+export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
+  args: {
+    view: {
+      nodes: [
+        {
+          title: "No pointers here",
+          anchor: { kind: "chunk", index: 0 },
+        },
+      ],
+    } satisfies SteeringView,
+    isLoading: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("chunk-open-0")).toBeDisabled()
+  },
 }
 
 export const ChunkCardShowsProseCheckAllAndNoteAffordance: Story = {
@@ -266,26 +301,51 @@ export const ApprovingTheLastHunkInAChunkReturnsToTheChunkList: Story = {
   },
 }
 
-/** T1's own acceptance bullet, proven on the REAL screen (not just `Card.stories.tsx`'s generic shell demo): opening a chunk's deck and backing out of it restores the chunk list's scroll position, via the SAME `useScrollRestoration` hook `Card.stories.tsx`'s demo dogfoods. The spacer decorator (not part of `ReviewView` itself) exists purely so the page is tall enough to scroll in the first place. */
+/**
+ * A dozen extra chunks with no hunks of their own — appended so the chunk
+ * list actually overflows the bounded viewport height below, which a
+ * `scrollTop` write needs (a browser clamps `scrollTop` to `0` when there's
+ * nothing to scroll). Only used by the scroll-restoration story below.
+ */
+const SCROLL_PADDING_CHUNKS: SteeringView["nodes"] = Array.from({ length: 12 }, (_, i) => ({
+  title: `Padding chunk ${i}`,
+  detail: "Padding so the chunk list is tall enough to actually scroll.",
+  anchor: { kind: "chunk", index: 10 + i },
+}))
+
+const SCROLL_VIEW: SteeringView = {
+  nodes: [NESTED_CHUNK, FOOTNOTE_CHUNK, SINGLE_HUNK_CHUNK, ...SCROLL_PADDING_CHUNKS],
+}
+
+/**
+ * T1's own acceptance bullet, proven on the REAL screen (not just
+ * `Card.stories.tsx`'s generic shell demo): opening a chunk's deck and
+ * backing out of it restores the chunk list's OWN scroll container's
+ * `scrollTop` (package 02 Task 5 moved this off `window` entirely — the page
+ * itself no longer scrolls). The decorator mirrors `App.tsx`'s own
+ * viewport-tall flex column, since `ReviewView` in isolation (no `App`
+ * wrapper) otherwise has no bounded height to scroll within.
+ */
 export const BackFromAChunksDeckRestoresScrollPosition: Story = {
-  args: { view: SAMPLE_VIEW, isLoading: false },
+  args: { view: SCROLL_VIEW, isLoading: false },
   decorators: [
     (Story) => (
-      <div>
+      <div className="mx-auto flex h-dvh max-w-[390px] flex-col">
         <Story />
-        <div style={{ height: 2000 }} />
       </div>
     ),
   ],
   play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
     const canvas = within(canvasElement)
-    window.scrollTo(0, 500)
+    const container = canvas.getByTestId("review-scroll-container")
+    container.scrollTop = 500
     await fireEvent.click(canvas.getByTestId("chunk-open-0"))
     await expect(canvas.getByTestId("hunk-screen")).toBeInTheDocument()
     await fireEvent.click(canvas.getByTestId("deck-prev"))
     await expect(canvas.getByTestId("review-screen")).toBeInTheDocument()
     await new Promise((resolve) => requestAnimationFrame(resolve))
-    expect(window.scrollY).toBe(500)
+    expect(canvas.getByTestId("review-scroll-container").scrollTop).toBe(500)
   },
 }
 

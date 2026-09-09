@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+/**
+ * Dark-only palette (Requirement b): one set of tokens, one set of contrast
+ * ratios — `src/web/tokens.test.ts` parses this exact block and asserts
+ * every pair against WCAG AA. Changing a value here without re-checking that
+ * test is the failure mode the test exists to catch.
+ */
+@theme {
+  --color-page: #111111;
+  --color-surface: #1c1c1e;
+  --color-border: #6b6b70;
+  --color-text: #f0f0f0;
+  --color-muted: #a8a8ad;
+  --color-accent: #5b9dff;
+  --color-accent-pressed: #3f7fe0;
+  --color-disabled: #5a5a5e;
+
+  --text-body: 15px;
+  --text-body--line-height: 1.4;
+  --text-large: 20px;
+  --text-large--line-height: 1.3;
+  --text-small: 12px;
+  --text-small--line-height: 1.3;
+}
+
+@source "./";
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}

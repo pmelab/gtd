@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../SteeringFormat.js"
+import { Button } from "../Button.js"
 import { Card, CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
+import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
@@ -73,19 +75,16 @@ const QuestionCard = ({
 }) => {
   const content = (
     <>
-      <div style={{ fontWeight: 600 }}>{node.title}</div>
+      <div className="font-semibold">{node.title}</div>
       {node.detail !== undefined && node.detail.length > 0 && (
-        <div style={{ fontSize: 12, opacity: 0.7 }}>{node.detail}</div>
+        <div className="text-small text-muted">{node.detail}</div>
       )}
     </>
   )
   const testId = `question-card-${node.anchor.kind === "question" ? node.anchor.index : 0}`
   if (onOpen === undefined) {
     return (
-      <div
-        data-testid={testId}
-        style={{ padding: "10px 12px", borderBottom: "1px solid #333", opacity: 0.85 }}
-      >
+      <div data-testid={testId} className="border-b border-border p-3 opacity-[0.85]">
         {content}
       </div>
     )
@@ -115,12 +114,9 @@ const ProseParagraph = ({
   const hasNote = noteText !== undefined && noteText.length > 0
   return (
     <div>
-      <p style={{ padding: "8px 12px", margin: 0 }}>{node.title}</p>
+      <p className="m-0 px-3 py-2">{node.title}</p>
       {hasNote && (
-        <div
-          data-testid={`paragraph-note-${index}`}
-          style={{ fontSize: 12, opacity: 0.7, padding: "0 12px 8px" }}
-        >
+        <div data-testid={`paragraph-note-${index}`} className="px-3 pb-2 text-small text-muted">
           {noteText}
         </div>
       )}
@@ -132,27 +128,14 @@ const ProseParagraph = ({
        * minimum height (Apple's/Android's own minimum recommended touch
        * target) makes it reliably tappable on a phone.
        */}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         data-testid={`note-seam-${index}`}
         onClick={() => onOpenNote(node)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          width: "100%",
-          minHeight: 44,
-          border: "none",
-          borderTop: "1px solid #333",
-          background: "none",
-          padding: "0 12px",
-          color: "#8a93a8",
-          fontSize: 12,
-          textAlign: "left",
-          cursor: "pointer",
-        }}
+        className="w-full rounded-none border-t border-border px-3 text-left text-small text-muted"
       >
         {hasNote ? "Edit note" : "+ Add note"}
-      </button>
+      </Button>
     </div>
   )
 }
@@ -246,7 +229,7 @@ const QuestionSection = ({
   if (nodes.length === 0) return null
   return (
     <section>
-      <h2 style={{ fontSize: 13, opacity: 0.7, margin: "12px" }}>{title}</h2>
+      <h2 className="m-3 text-small text-muted">{title}</h2>
       {nodes.map((node) => (
         <QuestionCard
           key={allNodes.indexOf(node)}
@@ -333,17 +316,18 @@ export const PlanView = ({
   // index, which would otherwise discard whatever was just answered.
   const [answers, setAnswers] = useState<Record<number, QuestionAnswer>>({})
   const scroll = useScrollRestoration()
+  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   if (view === undefined) {
     const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
     return (
-      <div style={{ padding: 16 }}>
+      <Notice tone={isLoading ? "info" : "error"}>
         {isLoading
           ? "Loading the plan…"
           : refusal !== undefined
             ? messageForReadRefusal(refusal)
             : "Could not load the plan."}
-      </div>
+      </Notice>
     )
   }
 
@@ -428,7 +412,7 @@ export const PlanView = ({
         onIndexChange={setDeckIndex}
         onExit={() => {
           setDeckIndex(undefined)
-          scroll.restore()
+          scroll.restore(scrollRef)
         }}
         renderItem={(node, index) => (
           <Question
@@ -451,21 +435,23 @@ export const PlanView = ({
   }
 
   return (
-    <div data-testid="plan-screen" style={{ maxWidth: 390, margin: "0 auto" }}>
-      <CardList>
-        <Card testId="read-plan-row" onOpen={confirm}>
-          Read the plan{confirmed ? " ✓" : ""}
-        </Card>
-        <PlanBody
-          view={view}
-          noteOverrides={noteOverrides}
-          onOpenQuestion={(index) => {
-            scroll.capture()
-            setDeckIndex(index)
-          }}
-          onOpenNote={(node) => setNoteSheetAnchor(node.anchor)}
-        />
-      </CardList>
+    <div data-testid="plan-screen" className="flex h-full min-h-0 flex-1 flex-col">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+        <CardList>
+          <Card testId="read-plan-row" onOpen={confirm}>
+            Read the plan{confirmed ? " ✓" : ""}
+          </Card>
+          <PlanBody
+            view={view}
+            noteOverrides={noteOverrides}
+            onOpenQuestion={(index) => {
+              scroll.capture(scrollRef)
+              setDeckIndex(index)
+            }}
+            onOpenNote={(node) => setNoteSheetAnchor(node.anchor)}
+          />
+        </CardList>
+      </div>
     </div>
   )
 }
@@ -479,9 +465,9 @@ export const PlanView = ({
  * than a shared import.
  */
 const HandedBackPanel = () => (
-  <div data-testid="handed-back-panel" role="status" aria-live="polite" style={{ padding: 16 }}>
+  <Notice data-testid="handed-back-panel" role="status" aria-live="polite">
     Handed back — this turn is done.
-  </div>
+  </Notice>
 )
 
 export interface PlanProps {

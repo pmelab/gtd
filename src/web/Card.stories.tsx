@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { page } from "@vitest/browser/context"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { expect, fireEvent, within } from "storybook/test"
 import { Card, CardList } from "./Card.js"
 import { Deck } from "./Deck.js"
@@ -57,9 +57,10 @@ const LONG_DETAIL =
 const TwoLevelShellDemo = ({ items = ITEMS }: { readonly items?: readonly string[] }) => {
   const [open, setOpen] = useState<string | null>(null)
   const { capture, restore } = useScrollRestoration()
+  const listRef = useRef<HTMLDivElement | null>(null)
 
   return (
-    <div style={{ maxWidth: 390 }} data-testid="shell-container">
+    <div className="mx-auto flex h-dvh max-w-[390px] flex-col" data-testid="shell-container">
       {open !== null ? (
         <Deck
           items={[open]}
@@ -70,24 +71,24 @@ const TwoLevelShellDemo = ({ items = ITEMS }: { readonly items?: readonly string
           )}
           onExit={() => {
             setOpen(null)
-            restore()
+            restore(listRef)
           }}
         />
       ) : (
-        <div data-testid="shell-list">
+        <div ref={listRef} data-testid="shell-list" className="min-h-0 flex-1 overflow-auto">
           {items.map((item) => (
             <Card
               key={item}
               testId={`card-${item}`}
               onOpen={() => {
-                capture()
+                capture(listRef)
                 setOpen(item)
               }}
             >
               {item}
             </Card>
           ))}
-          <div style={{ height: 2000 }} />
+          <div className="h-[2000px]" />
         </div>
       )}
     </div>
@@ -104,6 +105,19 @@ export const ListOfCards: Story = {
   },
 }
 
+/** package 02 Task 6: a one-line Card row lands near 38px tall today — this pins it at the 44px thumb floor instead. */
+export const OneLineRowMeetsThe44pxFloor: Story = {
+  render: () => <TwoLevelShellDemo />,
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    const row = canvas.getByTestId("card-alpha")
+    const rect = row.getBoundingClientRect()
+    expect(rect.height).toBeGreaterThanOrEqual(44)
+    expect(rect.width).toBeGreaterThanOrEqual(44)
+  },
+}
+
 export const OpeningACardsDeck: Story = {
   render: () => <TwoLevelShellDemo />,
   play: async ({ canvasElement }) => {
@@ -117,14 +131,17 @@ export const OpeningACardsDeck: Story = {
 export const BackFromFirstItemReturnsToListWithoutLosingScroll: Story = {
   render: () => <TwoLevelShellDemo />,
   play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
     const canvas = within(canvasElement)
-    window.scrollTo(0, 500)
+    const list = canvas.getByTestId("shell-list")
+    list.scrollTop = 500
     await fireEvent.click(canvas.getByTestId("card-gamma"))
     await expect(canvas.getByText("gamma detail")).toBeInTheDocument()
     await fireEvent.click(canvas.getByTestId("deck-prev"))
-    await expect(canvas.getByTestId("shell-list")).toBeInTheDocument()
+    const restoredList = canvas.getByTestId("shell-list")
+    await expect(restoredList).toBeInTheDocument()
     await new Promise((resolve) => requestAnimationFrame(resolve))
-    expect(window.scrollY).toBe(500)
+    expect(restoredList.scrollTop).toBe(500)
   },
 }
 

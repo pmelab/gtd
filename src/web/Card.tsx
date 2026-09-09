@@ -14,20 +14,7 @@ export const Card = ({ onOpen, children, testId }: CardProps) => (
     type="button"
     data-testid={testId}
     onClick={onOpen}
-    style={{
-      display: "block",
-      width: "100%",
-      textAlign: "left",
-      padding: "10px 12px",
-      borderBottom: "1px solid #333",
-      background: "none",
-      border: "none",
-      borderBottomWidth: 1,
-      borderBottomStyle: "solid",
-      borderBottomColor: "#333",
-      font: "inherit",
-      color: "inherit",
-    }}
+    className="block min-h-11 w-full border-b border-border px-3 py-2.5 text-left text-body text-text active:bg-surface"
   >
     {children}
   </button>

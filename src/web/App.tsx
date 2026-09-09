@@ -1,4 +1,5 @@
 import type { StepRead } from "../ui/Beat.js"
+import { Notice } from "./Notice.js"
 import { Plan } from "./screens/Plan.js"
 import { Review } from "./screens/Review.js"
 import { trpc } from "./api.js"
@@ -30,54 +31,50 @@ export const App = () => {
 
   if (query.isLoading) {
     return (
-      <div data-testid="app-loading" aria-busy="true" style={{ padding: 16 }}>
+      <Notice data-testid="app-loading" aria-busy="true">
         Loading…
-      </div>
+      </Notice>
     )
   }
 
   if (query.isError) {
     return (
-      <div data-testid="app-query-error" style={{ padding: 16 }}>
+      <Notice tone="error" data-testid="app-query-error">
         Could not reach the server: {query.error.message}
-      </div>
+      </Notice>
     )
   }
 
   if (step === undefined) {
     return (
-      <div data-testid="app-query-error" style={{ padding: 16 }}>
+      <Notice tone="error" data-testid="app-query-error">
         Could not reach the server: no step was reported.
-      </div>
+      </Notice>
     )
   }
 
   if (step.status === "broken") {
     return (
-      <div data-testid="app-broken" style={{ padding: 16 }}>
+      <Notice tone="error" data-testid="app-broken">
         {step.detail}
-      </div>
+      </Notice>
     )
   }
 
   if (step.status === "moved-on") {
-    return (
-      <div data-testid="app-moved-on" style={{ padding: 16 }}>
-        This turn is over — the server is exiting.
-      </div>
-    )
+    return <Notice data-testid="app-moved-on">This turn is over — the server is exiting.</Notice>
   }
 
   if (!openable(step)) {
     return (
-      <div data-testid="app-unrenderable" style={{ padding: 16 }}>
+      <Notice tone="error" data-testid="app-unrenderable">
         {`"${step.label}" has nothing this screen can render.`}
-      </div>
+      </Notice>
     )
   }
 
   return (
-    <div style={{ maxWidth: 390, margin: "0 auto" }}>
+    <div className="mx-auto max-w-[390px] h-dvh flex flex-col">
       {step.mode === "review" ? (
         <Review filePath={step.file} />
       ) : (

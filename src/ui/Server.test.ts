@@ -517,6 +517,36 @@ describe("resolveClientHtml", () => {
     expect(html).toContain("console.log('dev build')")
     expect(html).not.toContain('src="./main.js"')
   })
+
+  it("under --dev, also rebuilds the stylesheet via the Tailwind CLI and inlines it into a non-empty <style> block", async () => {
+    const devFs = FileSystem.makeNoop({
+      readFileString: (path: string) => {
+        if (path.endsWith("index.html")) {
+          return Effect.succeed(
+            '<!doctype html><head><link rel="stylesheet" href="./main.css" /></head>' +
+              '<body><script type="module" src="./main.js"></script></body>',
+          )
+        }
+        if (path.endsWith("main.css")) return Effect.succeed("body{color:red}")
+        return Effect.succeed("console.log('dev build')")
+      },
+    })
+    const bashCalls: string[] = []
+    const runner = {
+      bash: (command: string) => {
+        bashCalls.push(command)
+        return Effect.succeed({ status: 0, output: "" })
+      },
+    }
+
+    const html = await Effect.runPromise(
+      resolveClientHtml(true, runner, devFs) as Effect.Effect<string, GtdError>,
+    )
+    expect(bashCalls.some((c) => c.includes("tailwindcss"))).toBe(true)
+    expect(html).not.toContain('href="./main.css"')
+    const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/)
+    expect(styleMatch?.[1]?.trim()).toBe("body{color:red}")
+  })
 })
 
 describe("the dark page shell", () => {
@@ -536,11 +566,14 @@ describe("the dark page shell", () => {
     expect(html).toMatch(/body\s*{[^}]*color(?!-scheme)/)
   })
 
-  it("the --dev template read straight from src/web/index.html carries the same shell", () => {
+  it("the --dev template read straight from src/web/index.html keeps color-scheme: dark, and styles.css (the source both prod and --dev compile through the same Tailwind CLI) carries the body background/text color", () => {
     const template = readFileSync(join(import.meta.dirname, "../web/index.html"), "utf8")
-    expect(template).toMatch(/body\s*{[^}]*background/)
-    expect(template).toMatch(/body\s*{[^}]*color(?!-scheme)/)
     expect(template).toContain("color-scheme: dark")
+    expect(template).toMatch(/<link rel="stylesheet" href="\.\/main\.css" \/>/)
+
+    const styles = readFileSync(join(import.meta.dirname, "../web/styles.css"), "utf8")
+    expect(styles).toMatch(/body\s*{[^}]*background/)
+    expect(styles).toMatch(/body\s*{[^}]*color(?!-scheme)/)
   })
 })
 

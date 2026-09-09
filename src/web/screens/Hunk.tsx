@@ -1,6 +1,8 @@
 import type { DiffResult, FileDiff } from "../../ui/Diff.js"
 import type { SteeringViewNode } from "../../SteeringFormat.js"
+import { Button } from "../Button.js"
 import { highlightDiffLine } from "../Highlight.js"
+import { Notice } from "../Notice.js"
 
 export interface HunkProps {
   /** The `review`-view hunk node this screen renders — `title`/`path`/`line` for the header, `checked` seeds nothing here (the caller passes the live `checked` prop below instead, since a chunk-level check-all can move it out from under this node). */
@@ -24,34 +26,33 @@ export interface HunkProps {
 }
 
 const LINE_BACKGROUND: Readonly<Record<string, string>> = {
-  add: "#0d2818",
-  del: "#2b1113",
-  context: "transparent",
-  header: "#1a1a1a",
+  add: "bg-[#0d2818]",
+  del: "bg-[#2b1113]",
+  context: "bg-transparent",
+  header: "bg-[#1a1a1a]",
   // Git's own `\ No newline at end of file` marker — visually distinct from
   // `context` (T8: added/removed/context lines must be distinguishable, and
   // this is deliberately none of the three), never painted as one.
-  marker: "#1a1a1a",
+  marker: "bg-[#1a1a1a]",
 }
 
 /**
- * Token color per `Highlight.ts#classNameOf`'s five class names — there is no
- * `.css` file anywhere in `src/web` (this repo renders everything via inline
- * `style`, never a stylesheet or a `<style>` tag), so a `className` alone
- * paints every token identically. This is the actual paint step: each
- * token's `className` (when present) looks up its color here and renders as
- * an inline `style`, never a bare `className` with nothing to match it.
+ * Token color per `Highlight.ts#classNameOf`'s five class names — none of
+ * these map onto the shared palette in `styles.css`, so each is an
+ * arbitrary-value Tailwind class (package 02 Task 1: one styling mechanism,
+ * no `style={{` literal anywhere under `src/web/`, even for one-off colors
+ * outside the shared token set).
  */
 const TOKEN_COLOR: Readonly<Record<string, string>> = {
-  com: "#6a9955",
-  str: "#ce9178",
-  kw: "#569cd6",
-  num: "#b5cea8",
-  typ: "#4ec9b0",
+  com: "text-[#6a9955]",
+  str: "text-[#ce9178]",
+  kw: "text-[#569cd6]",
+  num: "text-[#b5cea8]",
+  typ: "text-[#4ec9b0]",
 }
 
 const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
-  <div style={{ fontFamily: "monospace", fontSize: 12, overflowX: "auto" }}>
+  <div className="font-mono text-small overflow-x-auto">
     {lines.map((line, i) => {
       const { kind, tokens } = highlightDiffLine(line)
       return (
@@ -59,15 +60,13 @@ const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
           key={i}
           data-testid={`diff-line-${i}`}
           data-kind={kind}
-          style={{ background: LINE_BACKGROUND[kind], whiteSpace: "pre", padding: "0 8px" }}
+          className={`${LINE_BACKGROUND[kind]} whitespace-pre px-2`}
         >
           {tokens.map((token, j) => (
             <span
               key={j}
               data-token-kind={token.className}
-              style={
-                token.className !== undefined ? { color: TOKEN_COLOR[token.className] } : undefined
-              }
+              className={token.className !== undefined ? TOKEN_COLOR[token.className] : undefined}
             >
               {token.text}
             </span>
@@ -87,38 +86,38 @@ const flattenLines = (diff: FileDiff): readonly string[] =>
 const DiffBody = ({ diff }: { readonly diff: DiffResult | undefined }) => {
   if (diff === undefined) {
     return (
-      <div data-testid="hunk-diff-loading" style={{ padding: 12 }}>
+      <Notice tone="info" data-testid="hunk-diff-loading">
         Loading diff…
-      </div>
+      </Notice>
     )
   }
   if (diff.kind === "binary") {
     return (
-      <div data-testid="hunk-diff-binary" style={{ padding: 12 }}>
+      <Notice tone="info" data-testid="hunk-diff-binary">
         Binary file — no diff to show.
-      </div>
+      </Notice>
     )
   }
   if (diff.kind === "no-changes") {
     return (
-      <div data-testid="hunk-diff-no-changes" style={{ padding: 12 }}>
+      <Notice tone="info" data-testid="hunk-diff-no-changes">
         This path has no changes in the review range.
-      </div>
+      </Notice>
     )
   }
   if (diff.kind === "refused") {
     return (
-      <div data-testid="hunk-diff-banner" style={{ padding: 12, background: "#3a2a00" }}>
+      <Notice tone="error" data-testid="hunk-diff-banner">
         Could not resolve a diff: {diff.detail}
-      </div>
+      </Notice>
     )
   }
   if (diff.kind === "whole-file") {
     return (
       <>
-        <div data-testid="hunk-diff-banner" style={{ padding: 12, background: "#3a2a00" }}>
+        <Notice tone="error" data-testid="hunk-diff-banner">
           This pointer did not resolve to a specific hunk — showing the whole file's diff instead.
-        </div>
+        </Notice>
         <DiffLines lines={flattenLines(diff.diff)} />
       </>
     )
@@ -146,15 +145,15 @@ export const Hunk = ({
 }: HunkProps) => (
   <div data-testid="hunk-screen">
     {/* Same "N / M" slash notation `Deck.tsx`'s own progress control uses below the content — one notation across the screen, not two ("of" here, "/" there) for what is otherwise the identical count. */}
-    <div data-testid="hunk-progress" style={{ fontSize: 12, opacity: 0.7, padding: "8px 12px 0" }}>
+    <div data-testid="hunk-progress" className="text-small text-muted px-3 pt-2">
       Hunk {index + 1} / {total}
     </div>
-    <div style={{ padding: "4px 12px", fontWeight: 600 }}>{node.title}</div>
+    <div className="px-3 py-1 font-semibold">{node.title}</div>
 
     <DiffBody diff={diff} />
 
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12 }}>
-      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div className="flex flex-col gap-2 p-3">
+      <label className="flex items-center gap-2">
         <input
           type="checkbox"
           data-testid="hunk-tick"
@@ -167,9 +166,9 @@ export const Hunk = ({
         />
         Approve this hunk
       </label>
-      <button type="button" data-testid="hunk-note-affordance" onClick={onOpenNote}>
+      <Button variant="ghost" data-testid="hunk-note-affordance" onClick={onOpenNote}>
         {hasNote ? "Edit note" : "Add note"}
-      </button>
+      </Button>
     </div>
   </div>
 )

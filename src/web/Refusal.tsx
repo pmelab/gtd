@@ -1,5 +1,7 @@
 import { useState } from "react"
 import { writeRefusalFrom, type ReadRefusalInfo, type WriteRefusalInfo } from "./api.js"
+import { Button } from "./Button.js"
+import { Notice } from "./Notice.js"
 
 /** Every shape `useRefusal.show` can hold — `WriteRefusalInfo`'s six named reasons, plus `"unknown"` for an error `writeRefusalFrom` can't read at all (a network failure, a dead server) — package 03's own seventh, generic sentence. */
 export type RefusalState = WriteRefusalInfo | { readonly reason: "unknown" }
@@ -165,33 +167,26 @@ export const RefusalBanner = ({ refusal, saveStatus, onDismiss, onRetry }: Refus
           : undefined
   if (message === undefined) return null
   return (
-    <div
+    <Notice
       data-testid="refusal-banner"
       role="status"
       aria-live="polite"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 8,
-        padding: "8px 12px",
-        background: refusal !== undefined ? "#3a2a00" : "#111",
-        borderBottom: "1px solid #333",
-      }}
+      tone={refusal !== undefined ? "error" : "info"}
+      className="flex items-center justify-between gap-2"
     >
       <span data-testid="refusal-message">{message}</span>
       {refusal !== undefined && (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="flex gap-2">
           {onRetry !== undefined && (
-            <button type="button" data-testid="refusal-retry" onClick={onRetry}>
+            <Button variant="secondary" data-testid="refusal-retry" onClick={onRetry}>
               Try again
-            </button>
+            </Button>
           )}
-          <button type="button" data-testid="refusal-dismiss" onClick={onDismiss}>
+          <Button variant="ghost" data-testid="refusal-dismiss" onClick={onDismiss}>
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
-    </div>
+    </Notice>
   )
 }

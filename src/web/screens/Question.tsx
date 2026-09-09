@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react"
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../OpenQuestions.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
+import { Button } from "../Button.js"
 import { Mic } from "../Mic.js"
 
 /** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */
@@ -110,8 +111,8 @@ const FreeTextOption = ({
 }) => {
   const textareaId = useId()
   return (
-    <div style={{ marginTop: 8 }}>
-      <label htmlFor={textareaId} style={{ fontSize: 12, opacity: 0.7, display: "block" }}>
+    <div className="mt-2">
+      <label htmlFor={textareaId} className="block text-small text-muted">
         Your answer
       </label>
       <textarea
@@ -125,7 +126,7 @@ const FreeTextOption = ({
           onFocus()
         }}
         onBlur={onCommit}
-        style={{ width: "100%", minHeight: 60 }}
+        className="min-h-[60px] w-full"
       />
       <Mic
         onAttach={(text) => {
@@ -136,19 +137,16 @@ const FreeTextOption = ({
         {(state) => (
           <>
             {state.available ? (
-              <button type="button" data-testid="mic-toggle" onClick={state.toggle}>
+              <Button variant="secondary" data-testid="mic-toggle" onClick={state.toggle}>
                 {state.recording ? "Stop" : "Dictate"}
-              </button>
+              </Button>
             ) : (
-              <p data-testid="mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
+              <p data-testid="mic-hint" className="text-small text-muted">
                 Use your keyboard's mic key to dictate
               </p>
             )}
             {state.interim.length > 0 && (
-              <p
-                data-testid="mic-interim"
-                style={{ fontSize: 12, opacity: 0.6, fontStyle: "italic" }}
-              >
+              <p data-testid="mic-interim" className="text-small italic text-muted">
                 {state.interim}
               </p>
             )}
@@ -187,8 +185,8 @@ const OptionRow = ({
   readonly onDictate: (text: string) => void
   readonly onCommitFreeText: () => void
 }) => (
-  <div data-testid={`option-${index}`} style={{ padding: "8px 0", borderBottom: "1px solid #333" }}>
-    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+  <div data-testid={`option-${index}`} className="border-b border-border py-2">
+    <label className="flex items-center gap-2">
       <input
         type="radio"
         name={`question-${questionTitle}`}
@@ -474,8 +472,8 @@ export const Question = ({
 
   return (
     <div data-testid="question-screen">
-      <h2 style={{ fontSize: 16, margin: "0 0 12px" }}>{node.title}</h2>
-      <div data-testid="question-status" style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+      <h2 className="m-0 mb-3 text-large font-semibold">{node.title}</h2>
+      <div data-testid="question-status" className="mb-2 text-small text-muted">
         {answered ? "answered" : "unanswered"}
       </div>
       {options.map((option, index) => (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { SteeringAnchor } from "../SteeringFormat.js"
+import { Button } from "./Button.js"
 import { Mic } from "./Mic.js"
 
 const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {
@@ -131,22 +132,9 @@ export const NoteSheet = ({
   }, [])
 
   return (
-    <div
-      data-testid="note-sheet"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100dvh",
-        maxWidth: 390,
-        margin: "0 auto",
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      <h2 style={{ fontSize: 15, padding: "12px 12px 0" }}>{ANCHOR_TITLE[anchor.kind]}</h2>
-      <label
-        htmlFor="note-sheet-textarea"
-        style={{ fontSize: 12, opacity: 0.7, padding: "0 12px", display: "block" }}
-      >
+    <div data-testid="note-sheet" className="mx-auto flex h-dvh max-w-[390px] flex-col font-sans">
+      <h2 className="p-3 pb-0 text-body">{ANCHOR_TITLE[anchor.kind]}</h2>
+      <label htmlFor="note-sheet-textarea" className="block px-3 text-small text-muted">
         Note text
       </label>
       <textarea
@@ -161,13 +149,7 @@ export const NoteSheet = ({
           clearDebounceTimer()
           runAutoSave()
         }}
-        style={{
-          flex: 1,
-          margin: 12,
-          padding: 8,
-          fontSize: 16,
-          resize: "none",
-        }}
+        className="m-3 flex-1 resize-none rounded border border-border bg-surface p-2 text-[16px] text-text"
       />
       {/*
        * Footer is a NORMAL FLOW last child of the sheet's own `100dvh` flex
@@ -190,15 +172,7 @@ export const NoteSheet = ({
        */}
       <div
         data-testid="note-sheet-footer"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          padding: 12,
-          background: "#111",
-          borderTop: "1px solid #333",
-        }}
+        className="flex items-center justify-between gap-2 border-t border-border bg-page p-3"
       >
         <Mic
           onAttach={(dictated) => {
@@ -209,31 +183,28 @@ export const NoteSheet = ({
           {(state) => (
             <>
               {state.available ? (
-                <button type="button" data-testid="note-sheet-mic" onClick={state.toggle}>
+                <Button variant="secondary" data-testid="note-sheet-mic" onClick={state.toggle}>
                   {state.recording ? "Stop" : "Dictate"}
-                </button>
+                </Button>
               ) : (
-                <span data-testid="note-sheet-mic-hint" style={{ fontSize: 12, opacity: 0.7 }}>
+                <span data-testid="note-sheet-mic-hint" className="text-small text-muted">
                   Use your keyboard's mic key to dictate
                 </span>
               )}
               {state.interim.length > 0 && (
-                <span
-                  data-testid="note-sheet-mic-interim"
-                  style={{ fontSize: 12, opacity: 0.6, fontStyle: "italic" }}
-                >
+                <span data-testid="note-sheet-mic-interim" className="text-small italic text-muted">
                   {state.interim}
                 </span>
               )}
             </>
           )}
         </Mic>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" data-testid="note-sheet-dismiss" onClick={onDismiss}>
+        <div className="flex gap-2">
+          <Button variant="ghost" data-testid="note-sheet-dismiss" onClick={onDismiss}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
             data-testid="note-sheet-save"
             onClick={() => {
               clearDebounceTimer()
@@ -242,10 +213,10 @@ export const NoteSheet = ({
             }}
           >
             Save
-          </button>
+          </Button>
           {onDone !== undefined && (
-            <button
-              type="button"
+            <Button
+              variant="primary"
               data-testid="note-sheet-done"
               onClick={() => {
                 clearDebounceTimer()
@@ -254,7 +225,7 @@ export const NoteSheet = ({
               }}
             >
               Save &amp; Done
-            </button>
+            </Button>
           )}
         </div>
       </div>

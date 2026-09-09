@@ -378,3 +378,26 @@ export const InterimResultsDisplayInTheNoteSheetButNeverWriteThrough: Story = {
     expect(textarea.value).toBe("")
   },
 }
+
+/** package 02 Task 6: dismiss/save/mic were bare, unsized buttons — this pins each at the 44px thumb floor. */
+export const FooterControlsMeetThe44pxFloor: Story = {
+  args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
+  beforeEach: () => {
+    withApi()
+    return withoutApi
+  },
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    for (const testId of [
+      "note-sheet-mic",
+      "note-sheet-dismiss",
+      "note-sheet-save",
+      "note-sheet-done",
+    ]) {
+      const rect = canvas.getByTestId(testId).getBoundingClientRect()
+      expect(rect.height).toBeGreaterThanOrEqual(44)
+      expect(rect.width).toBeGreaterThanOrEqual(44)
+    }
+  },
+}

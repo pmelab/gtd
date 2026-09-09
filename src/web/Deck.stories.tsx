@@ -1,6 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { page } from "@vitest/browser/context"
 import { expect, fireEvent, fn, within } from "storybook/test"
 import { Deck } from "./Deck.js"
+
+/**
+ * The real ancestor shape `App.tsx` gives every screen — a viewport-tall
+ * flex column (`h-dvh flex flex-col`) with the deck as its `flex-1 min-h-0`
+ * child — so `Deck`'s own `h-full`/`flex-1` classes have something to
+ * actually size against. Mounting `Deck` bare (no such ancestor) would make
+ * every geometry assertion below meaningless.
+ */
+const Shell = ({ children }: { readonly children: React.ReactNode }) => (
+  <div className="flex h-dvh flex-col" data-testid="shell">
+    {children}
+  </div>
+)
 
 const meta: Meta<typeof Deck<string>> = {
   component: Deck,
@@ -90,13 +104,27 @@ export const BackFromTheFirstItemReturnsToTheList: Story = {
   },
 }
 
+/**
+ * The old contract ("position: static") is dropped as of package 02 Task 4:
+ * the bar is now IN FLOW as the viewport-tall column's `shrink-0` sibling,
+ * so `position` is whatever the browser defaults to (still `static`, but
+ * that's no longer the guarantee under test) — the guarantee is geometric:
+ * the bar's box lies entirely inside the viewport, the document doesn't
+ * page-scroll, and it never starts above where the content box ends.
+ */
 export const ControlsRenderBelowContentNeverOverlaying: Story = {
   args: {
     items: ["one"],
     renderItem: (item) => <p data-testid="deck-item-content">{item}</p>,
     onExit: fn(),
   },
+  render: (args) => (
+    <Shell>
+      <Deck {...args} />
+    </Shell>
+  ),
   play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
     const canvas = within(canvasElement)
     const content = canvas.getByTestId("deck-content")
     const controls = canvas.getByTestId("deck-next")
@@ -104,20 +132,75 @@ export const ControlsRenderBelowContentNeverOverlaying: Story = {
     expect(
       content.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    const contentStyle = getComputedStyle(content)
-    const controlsStyle = getComputedStyle(controls.parentElement ?? controls)
-    // `position: static` specifically — NOT merely "not absolute": `fixed`
-    // and `sticky` both pass an `!== "absolute"` check yet can still overlay
-    // or detach from flow exactly like `absolute` does (the precise
-    // regression `NoteSheet.tsx`'s own footer once had).
-    expect(contentStyle.position).toBe("static")
-    expect(controlsStyle.position).toBe("static")
-    // The geometric guarantee an "overlay" check should actually make: the
-    // controls' own box starts at or below where the content's box ends —
-    // never overlapping it, regardless of what `position` value produced
-    // the layout.
     const contentRect = content.getBoundingClientRect()
     const controlsRect = (controls.parentElement ?? controls).getBoundingClientRect()
     expect(controlsRect.top).toBeGreaterThanOrEqual(contentRect.bottom)
+
+    // The bar lies entirely inside the 390x844 viewport, and the document
+    // itself never page-scrolls to reach it.
+    const barRect = (controls.parentElement ?? controls).getBoundingClientRect()
+    expect(barRect.top).toBeGreaterThanOrEqual(0)
+    expect(barRect.bottom).toBeLessThanOrEqual(844)
+    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(844)
+  },
+}
+
+/**
+ * The stand-in for a keyboard-open layout (`NoteSheet.stories.tsx#141`
+ * already established the same `390x500` short viewport for exactly this
+ * reason): `interactive-widget=resizes-content` shrinks the layout viewport
+ * when the keyboard opens, and `h-dvh` shrinks along with it — the bar must
+ * stay reachable at this height too, not just at 844.
+ */
+export const ControlBarStaysReachableAtAShortKeyboardOpenViewport: Story = {
+  args: {
+    items: ["one"],
+    renderItem: (item) => <p data-testid="deck-item-content">{item}</p>,
+    onExit: fn(),
+  },
+  render: (args) => (
+    <Shell>
+      <Deck {...args} />
+    </Shell>
+  ),
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 500)
+    const canvas = within(canvasElement)
+    const content = canvas.getByTestId("deck-content")
+    const controls = canvas.getByTestId("deck-next")
+    const contentRect = content.getBoundingClientRect()
+    const barRect = (controls.parentElement ?? controls).getBoundingClientRect()
+    expect(barRect.top).toBeGreaterThanOrEqual(contentRect.bottom)
+    expect(barRect.top).toBeGreaterThanOrEqual(0)
+    expect(barRect.bottom).toBeLessThanOrEqual(500)
+    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(500)
+  },
+}
+
+/** Proves the bar stays put (in the viewport, not scrolled away) while a long item's own content scrolls underneath it. */
+export const ControlBarStaysPutWhileLongContentScrolls: Story = {
+  args: {
+    items: ["one"],
+    renderItem: () => (
+      <div data-testid="deck-item-content" className="h-[3000px]">
+        long content
+      </div>
+    ),
+    onExit: fn(),
+  },
+  render: (args) => (
+    <Shell>
+      <Deck {...args} />
+    </Shell>
+  ),
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    const content = canvas.getByTestId("deck-content")
+    const controls = canvas.getByTestId("deck-next")
+    content.scrollTop = 1500
+    const barRectBefore = (controls.parentElement ?? controls).getBoundingClientRect()
+    expect(barRectBefore.bottom).toBeLessThanOrEqual(844)
+    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(844)
   },
 }

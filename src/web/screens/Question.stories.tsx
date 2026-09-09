@@ -275,6 +275,48 @@ export const NoSpeechApiShowsAHintInsteadOfAMicButton: Story = {
   },
 }
 
+/** Package 02 Task 6: the mic-toggle button was a bare, unsized `<button>` — this pins it at the 44px thumb floor in its default (not-recording) state. */
+export const MicToggleMeetsThe44pxFloor: Story = {
+  args: { node: questionNode() },
+  beforeEach: () => {
+    FakeSpeechRecognition.instances = []
+    window.SpeechRecognition = FakeSpeechRecognition as unknown as NonNullable<
+      typeof window.SpeechRecognition
+    >
+    return () => {
+      delete window.SpeechRecognition
+    }
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const button = canvas.getByTestId("mic-toggle")
+    await expect(button).toHaveTextContent("Dictate")
+    const rect = button.getBoundingClientRect()
+    expect(rect.height).toBeGreaterThanOrEqual(44)
+    expect(rect.width).toBeGreaterThanOrEqual(44)
+  },
+}
+
+/** The mic-toggle's own pressed/active state: tapping it while recording flips its label to "Stop" — the visual "pressed" counterpart to the default story above. */
+export const MicToggleShowsStopLabelWhileRecording: Story = {
+  args: { node: questionNode() },
+  beforeEach: () => {
+    FakeSpeechRecognition.instances = []
+    window.SpeechRecognition = FakeSpeechRecognition as unknown as NonNullable<
+      typeof window.SpeechRecognition
+    >
+    return () => {
+      delete window.SpeechRecognition
+    }
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const button = canvas.getByTestId("mic-toggle")
+    await fireEvent.click(button)
+    await expect(button).toHaveTextContent("Stop")
+  },
+}
+
 /**
  * Reproduces the exact bug: dictation is tapped on an EMPTY free-text field,
  * the human types "hello" WHILE the session is still recording, then stops —

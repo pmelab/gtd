@@ -27,7 +27,7 @@ import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { renderQrCode } from "./Qr.js"
 import { appRouter, type RouterContext } from "./Router.js"
-import { inlineScript } from "./scriptTag.mjs"
+import { inlineScript, inlineStyles } from "./scriptTag.mjs"
 import { probeTailscaleStatus, type TailscaleStatus } from "./Tailscale.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert, type CertPair } from "./Tls.js"
 import {
@@ -284,7 +284,45 @@ const rebuildDevClientScript = (
       )
   })
 
-/** The one piece of content this server ever serves: the client HTML, with its JS inlined — a build-time constant in production, resolved ONCE at startup under `--dev` too (T5) and held for the process's whole lifetime, never re-read or rebuilt per request. */
+/**
+ * `--dev`'s CSS sibling of `rebuildDevClientScript` — the packaged build's
+ * own `npm run build` runs the Tailwind CLI as a step separate from tsdown
+ * (see package.json), so `--dev` shells out to that same CLI rather than
+ * teaching tsdown about CSS at all.
+ */
+const rebuildDevClientCss = (
+  runner: Context.Tag.Service<typeof CommandRunner>,
+  fs: FileSystem.FileSystem,
+  root: string,
+): Effect.Effect<string, GtdError> =>
+  Effect.gen(function* () {
+    const outcome = yield* runner
+      .bash(
+        `cd ${JSON.stringify(root)} && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css`,
+      )
+      .pipe(
+        Effect.mapError(
+          (e) => new GtdError(`gtd ui --dev: could not rebuild the stylesheet: ${e.message}`),
+        ),
+      )
+    if (outcome.status !== 0) {
+      return yield* Effect.fail(
+        new GtdError(
+          "gtd ui --dev: rebuilding the stylesheet failed",
+          outcome.output.trim().split("\n").filter(Boolean),
+        ),
+      )
+    }
+    return yield* fs
+      .readFileString(join(root, "dist/web/main.css"))
+      .pipe(
+        Effect.mapError(
+          (e) => new GtdError(`gtd ui --dev: could not read the rebuilt stylesheet: ${e.message}`),
+        ),
+      )
+  })
+
+/** The one piece of content this server ever serves: the client HTML, with its JS AND CSS inlined — a build-time constant in production, resolved ONCE at startup under `--dev` too (T5) and held for the process's whole lifetime, never re-read or rebuilt per request. */
 export const resolveClientHtml = (
   dev: boolean,
   runner: Context.Tag.Service<typeof CommandRunner>,
@@ -293,9 +331,13 @@ export const resolveClientHtml = (
   dev
     ? findPackageRoot().pipe(
         Effect.flatMap((root) =>
-          Effect.all([readDevTemplate(fs, root), rebuildDevClientScript(runner, fs, root)]),
+          Effect.all([
+            readDevTemplate(fs, root),
+            rebuildDevClientScript(runner, fs, root),
+            rebuildDevClientCss(runner, fs, root),
+          ]),
         ),
-        Effect.map(([template, script]) => inlineScript(template, script)),
+        Effect.map(([template, script, css]) => inlineStyles(inlineScript(template, script), css)),
       )
     : Effect.succeed(generatedClientHtml)
 

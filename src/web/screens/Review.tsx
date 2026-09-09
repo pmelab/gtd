@@ -1,7 +1,9 @@
-import { useRef, useState } from "react"
+import { useRef, useState, type RefObject } from "react"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../SteeringFormat.js"
+import { Button } from "../Button.js"
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
+import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
@@ -109,6 +111,7 @@ interface NoteSheetState {
  * `writeValue`'s compare-and-swap the same way `annotate` does for a note.
  */
 const useReviewState = (
+  scrollRef: RefObject<HTMLDivElement | null>,
   onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
   onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
   onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>,
@@ -254,7 +257,7 @@ const useReviewState = (
   }
 
   const openChunk = (index: number) => {
-    scroll.capture()
+    scroll.capture(scrollRef)
     setOpenChunkIndex(index)
     setDeckIndex(0)
   }
@@ -262,7 +265,7 @@ const useReviewState = (
   /** Both the chunk-deck's own `onExit` (back from the first hunk) and the last-hunk-approved path below route through this, so scroll position is restored on either exit, not just an explicit back tap. */
   const exitToChunkList = () => {
     setOpenChunkIndex(undefined)
-    scroll.restore()
+    scroll.restore(scrollRef)
   }
 
   const approveAndAdvance = (hunks: readonly SteeringViewNode[]) => {
@@ -368,10 +371,7 @@ const ChunkRow = ({
   const allChecked = hunks.length > 0 && hunks.every(state.isChecked)
   const footnoteKeepsRoundOpen = state.hasNoteText(chunk)
   return (
-    <div
-      data-testid={`chunk-card-${chunkIndex}`}
-      style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px" }}
-    >
+    <div data-testid={`chunk-card-${chunkIndex}`} className="flex items-start gap-2 px-3 py-2.5">
       <input
         type="checkbox"
         data-testid={`chunk-check-all-${chunkIndex}`}
@@ -379,46 +379,34 @@ const ChunkRow = ({
         disabled={hunks.length === 0}
         onChange={() => state.toggleChunk(chunk)}
       />
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         data-testid={`chunk-open-${chunkIndex}`}
         onClick={() => state.openChunk(chunkIndex)}
         disabled={hunks.length === 0}
-        style={{
-          flex: 1,
-          textAlign: "left",
-          background: "none",
-          border: "none",
-          color: "inherit",
-          font: "inherit",
-          padding: 0,
-          cursor: hunks.length === 0 ? "default" : "pointer",
-          opacity: hunks.length === 0 ? 0.6 : 1,
-        }}
+        className="flex-1 text-left disabled:opacity-60"
       >
-        <div style={{ fontWeight: 600 }}>{chunk.title}</div>
+        <div className="font-semibold">{chunk.title}</div>
         {chunk.detail !== undefined && chunk.detail.length > 0 && (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>{chunk.detail}</div>
+          <div className="text-small text-muted">{chunk.detail}</div>
         )}
-        {hunks.length === 0 && (
-          <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>No file pointers</div>
-        )}
+        {hunks.length === 0 && <div className="mt-0.5 text-small text-muted">No file pointers</div>}
         {footnoteKeepsRoundOpen && (
           <div
             data-testid={`chunk-footnote-badge-${chunkIndex}`}
-            style={{ fontSize: 11, color: "#e0a030", marginTop: 4 }}
+            className="mt-1 text-small text-[#e0a030]"
           >
             Note keeps this round open
           </div>
         )}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="secondary"
         data-testid={`chunk-note-${chunkIndex}`}
         onClick={() => state.openNoteSheet(chunk)}
       >
         {state.hasNoteText(chunk) ? "Edit note" : "Note"}
-      </button>
+      </Button>
     </div>
   )
 }
@@ -427,16 +415,24 @@ const ChunkRow = ({
 const ChunkList = ({
   nodes,
   state,
+  scrollRef,
 }: {
   readonly nodes: SteeringView["nodes"]
   readonly state: ReviewState
+  readonly scrollRef: RefObject<HTMLDivElement | null>
 }) => (
-  <div data-testid="review-screen" style={{ maxWidth: 390, margin: "0 auto" }}>
-    <CardList>
-      {nodes.map((chunk, chunkIndex) => (
-        <ChunkRow key={chunkIndex} chunk={chunk} chunkIndex={chunkIndex} state={state} />
-      ))}
-    </CardList>
+  <div data-testid="review-screen" className="flex h-full min-h-0 flex-1 flex-col">
+    <div
+      ref={scrollRef}
+      data-testid="review-scroll-container"
+      className="min-h-0 flex-1 overflow-auto"
+    >
+      <CardList>
+        {nodes.map((chunk, chunkIndex) => (
+          <ChunkRow key={chunkIndex} chunk={chunk} chunkIndex={chunkIndex} state={state} />
+        ))}
+      </CardList>
+    </div>
   </div>
 )
 
@@ -459,18 +455,19 @@ export const ReviewView = ({
   onSetValue,
   onRefusal,
 }: ReviewViewProps) => {
-  const state = useReviewState(onSaveNote, onDoneNote, onSetValue, onRefusal)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const state = useReviewState(scrollRef, onSaveNote, onDoneNote, onSetValue, onRefusal)
 
   if (view === undefined) {
     const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
     return (
-      <div style={{ padding: 16 }}>
+      <Notice tone={isLoading ? "info" : "error"}>
         {isLoading
           ? "Loading the review…"
           : refusal !== undefined
             ? messageForReadRefusal(refusal)
             : "Could not load the review."}
-      </div>
+      </Notice>
     )
   }
 
@@ -500,7 +497,7 @@ export const ReviewView = ({
     return <HunkDeck chunk={openChunk} live={live === true} state={state} />
   }
 
-  return <ChunkList nodes={view.nodes} state={state} />
+  return <ChunkList nodes={view.nodes} state={state} scrollRef={scrollRef} />
 }
 
 /**
@@ -512,9 +509,9 @@ export const ReviewView = ({
  * file per this package's declared scope.
  */
 const HandedBackPanel = () => (
-  <div data-testid="handed-back-panel" role="status" aria-live="polite" style={{ padding: 16 }}>
+  <Notice data-testid="handed-back-panel" role="status" aria-live="polite">
     Handed back — this turn is done.
-  </div>
+  </Notice>
 )
 
 export interface ReviewProps {
