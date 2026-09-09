@@ -2,6 +2,9 @@
 
 <!-- base: 7ccc037cebf83dc04ce5bdb04b1eb49893ef8438 -->
 
+- styles are not loaded (at least in development mode)
+- if available, it should detect tailscale and emit the tailscale url
+
 ## The start gate moves from content kind to actor
 
 `gtd ui` used to bind only on `kind === "prompt"`. It now binds on any non-idle
