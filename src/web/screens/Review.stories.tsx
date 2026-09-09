@@ -451,7 +451,7 @@ export const RealContainerRendersHeadUnresolvedWithNoRetry: StoryObj<typeof Revi
     await waitFor(() =>
       expect(canvas.getByText(/Can't read this repository's current commit/)).toBeInTheDocument(),
     )
-    expect(canvas.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument()
+    expect(canvas.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument()
   },
 }
 
