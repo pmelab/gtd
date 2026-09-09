@@ -372,13 +372,18 @@ const ChunkRow = ({
   const footnoteKeepsRoundOpen = state.hasNoteText(chunk)
   return (
     <div data-testid={`chunk-card-${chunkIndex}`} className="flex items-start gap-2 px-3 py-2.5">
-      <input
-        type="checkbox"
-        data-testid={`chunk-check-all-${chunkIndex}`}
-        checked={allChecked}
-        disabled={hunks.length === 0}
-        onChange={() => state.toggleChunk(chunk)}
-      />
+      <label
+        data-testid={`chunk-check-all-label-${chunkIndex}`}
+        className="flex min-h-11 min-w-11 shrink-0 items-center justify-center"
+      >
+        <input
+          type="checkbox"
+          data-testid={`chunk-check-all-${chunkIndex}`}
+          checked={allChecked}
+          disabled={hunks.length === 0}
+          onChange={() => state.toggleChunk(chunk)}
+        />
+      </label>
       <Button
         variant="ghost"
         data-testid={`chunk-open-${chunkIndex}`}

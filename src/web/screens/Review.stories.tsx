@@ -123,6 +123,18 @@ export const BothChunkControlsMeetThe44pxFloor: Story = {
   },
 }
 
+/** Spec feedback: `chunk-check-all-<i>` is a bare native `<input type="checkbox">` with no class of its own — its wrapping label is what's sized to the 44px floor instead, since the browser's own checkbox chrome can't be resized directly. */
+export const ChunkCheckAllMeetsThe44pxFloor: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    const rect = canvas.getByTestId("chunk-check-all-label-0").getBoundingClientRect()
+    expect(rect.width).toBeGreaterThanOrEqual(44)
+    expect(rect.height).toBeGreaterThanOrEqual(44)
+  },
+}
+
 /** Package 02 Task 6: the chunk-open button's disabled state (zero hunks) is visually distinct — `Button`'s `disabled:` utilities apply, not a hand-rolled opacity/cursor pair. */
 export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
   args: {

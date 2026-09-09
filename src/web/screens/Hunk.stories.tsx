@@ -164,6 +164,21 @@ export const NoteAffordanceMeetsThe44pxFloorInItsDefaultState: StoryObj<typeof T
   },
 }
 
+/** Spec feedback: `hunk-tick`'s native `<input type="checkbox">` sits inside a `<label>` sized to the 44px floor — the label (the actual tap target), not the raw input, is what's measured. */
+export const HunkTickRowMeetsThe44pxFloor: StoryObj<typeof TickableHunk> = {
+  render: () => <TickableHunk diff={RESOLVED_DIFF} />,
+  play: async ({ canvasElement }) => {
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    const input = canvas.getByTestId("hunk-tick")
+    const label = input.closest("label")
+    expect(label).not.toBeNull()
+    const rect = label!.getBoundingClientRect()
+    expect(rect.height).toBeGreaterThanOrEqual(44)
+    expect(rect.width).toBeGreaterThanOrEqual(44)
+  },
+}
+
 /**
  * The `ghost` variant's pressed state lives entirely behind a real CSS
  * `:active` pseudo-class (`Button.tsx`'s `active:bg-surface`) — Chromium only

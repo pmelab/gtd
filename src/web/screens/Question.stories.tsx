@@ -297,6 +297,20 @@ export const MicToggleMeetsThe44pxFloor: Story = {
   },
 }
 
+/** Spec feedback: `option-radio-<i>`'s native `<input type="radio">` sits inside a `<label>` sized to the 44px floor — the label (the actual tap target), not the raw input, is what's measured. */
+export const OptionRadioRowMeetsThe44pxFloor: Story = {
+  args: { node: questionNode() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const input = canvas.getByTestId("option-radio-0")
+    const label = input.closest("label")
+    expect(label).not.toBeNull()
+    const rect = label!.getBoundingClientRect()
+    expect(rect.height).toBeGreaterThanOrEqual(44)
+    expect(rect.width).toBeGreaterThanOrEqual(44)
+  },
+}
+
 /** The mic-toggle's own pressed/active state: tapping it while recording flips its label to "Stop" — the visual "pressed" counterpart to the default story above. */
 export const MicToggleShowsStopLabelWhileRecording: Story = {
   args: { node: questionNode() },

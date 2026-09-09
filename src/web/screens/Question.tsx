@@ -186,7 +186,7 @@ const OptionRow = ({
   readonly onCommitFreeText: () => void
 }) => (
   <div data-testid={`option-${index}`} className="border-b border-border py-2">
-    <label className="flex items-center gap-2">
+    <label className="flex min-h-11 items-center gap-2">
       <input
         type="radio"
         name={`question-${questionTitle}`}

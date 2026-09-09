@@ -153,7 +153,7 @@ export const Hunk = ({
     <DiffBody diff={diff} />
 
     <div className="flex flex-col gap-2 p-3">
-      <label className="flex items-center gap-2">
+      <label className="flex min-h-11 items-center gap-2">
         <input
           type="checkbox"
           data-testid="hunk-tick"
