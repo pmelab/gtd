@@ -20,7 +20,7 @@ user must do to reach the phone at all, so this cannot be settled downstream.
 - [ ] keep honouring any explicit `--host`/`ui.host` as the user's consent, and
       add a single-use token to the URL the QR encodes, checked on every tRPC
       call and on `/close`
-- [ ] _your answer_
+- [x] nothing. it is only available within the tailnet. thats the boundary.
 
 ## 1. Gate `gtd ui` on a human rest, not on the beat's content kind
 
