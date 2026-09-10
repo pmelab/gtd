@@ -25,7 +25,6 @@ import { CommandRunner } from "../CommandRunner.js"
 import { Cwd } from "../Cwd.js"
 import type { UiConfig } from "../ConfigSchema.js"
 import { pickBindHostFromSystem } from "./BindSystem.js"
-import { renderQrCode } from "./Qr.js"
 import { parseTailscaleStatus } from "./Tailscale.js"
 import { generateSelfSignedCert, type CertPair } from "./Tls.js"
 import {
@@ -619,14 +618,10 @@ describe("runUiCommand", () => {
       ),
     )
 
-    await waitForWrites(written, 2)
+    await waitForWrites(written, 1)
 
     expect(written[0]).toBe("https://100.90.1.2:4443/\n")
-    // Pinned against the renderer's own output for the SAME URL just
-    // printed above — deterministic, and it fails the moment the URL handed
-    // to `renderQrCode` stops matching the one printed on the prior line.
-    expect(written[1]).toBe(`${renderQrCode("https://100.90.1.2:4443/")}\n`)
-    expect(written.length).toBe(2)
+    expect(written.length).toBe(1)
 
     await Effect.runPromise(Fiber.interrupt(fiber))
     expect(closed).toBe(true)
@@ -669,14 +664,9 @@ describe("runUiCommand", () => {
       ),
     )
 
-    await waitForWrites(written, 2)
+    await waitForWrites(written, 1)
 
     expect(written[0]).toBe("https://host.tailnet.ts.net:4443/\n")
-    // Pinned against the renderer's own output for the SAME URL just
-    // printed above, same as the plain-IP URL-printing test above —
-    // proof the QR code carries the tailnet hostname too, not just stdout's
-    // first line.
-    expect(written[1]).toBe(`${renderQrCode("https://host.tailnet.ts.net:4443/")}\n`)
     expect(boundHost).toBe("100.90.1.2")
 
     await Effect.runPromise(Fiber.interrupt(fiber))
@@ -714,10 +704,9 @@ describe("runUiCommand", () => {
       ),
     )
 
-    await waitForWrites(written, 2)
+    await waitForWrites(written, 1)
 
     expect(written[0]).toBe("https://100.90.1.2:4443/\n")
-    expect(written[1]).toBe(`${renderQrCode("https://100.90.1.2:4443/")}\n`)
     expect(boundHost).toBe("100.90.1.2")
 
     await Effect.runPromise(Fiber.interrupt(fiber))
@@ -749,7 +738,7 @@ describe("runUiCommand", () => {
       ),
     )
 
-    await waitForWrites(written, 2)
+    await waitForWrites(written, 1)
     expect(written[0]).toBe("https://1.2.3.4:4443/\n")
 
     await Effect.runPromise(Fiber.interrupt(fiber))

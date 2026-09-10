@@ -25,7 +25,6 @@ import {
 import { pickBindHostFromSystem } from "./BindSystem.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
-import { renderQrCode } from "./Qr.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript, inlineStyles } from "./scriptTag.mjs"
 import { probeTailscaleStatus, type TailscaleStatus } from "./Tailscale.js"
@@ -581,7 +580,6 @@ export const runUiCommand = (
     const bound = yield* httpsServer.listen(certPair, bindHost, port, handler)
     const url = `https://${displayHost}:${bound.port}/`
     out.write(`${url}\n`)
-    out.write(`${renderQrCode(url)}\n`)
     out.flush()
     yield* Deferred.await(handoffDeferred).pipe(Effect.ensuring(Effect.sync(() => bound.close())))
   })
