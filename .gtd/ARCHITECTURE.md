@@ -253,7 +253,7 @@ the process exits the same way the existing handoff scenario does.
 
 ### How does a note attach to a fenced code block, whose first line is the fence itself?
 
-- [ ] A code block renders but carries no note seam — every other kind gets one.
+- [x] A code block renders but carries no note seam — every other kind gets one.
       Nothing new to build, the document can never be corrupted, and the
       server-side anchor stays honest because the client simply offers no
       affordance for that one kind.
@@ -265,7 +265,7 @@ the process exits the same way the existing handoff scenario does.
 
 ### Does `gtd ui` gain a `ui.serve:` config key to force the direct bind off, or is `--host`/`ui.host` the only opt-out?
 
-- [ ] No new key. `--host`/`ui.host` already means "bind here, skip serve", so a
+- [x] No new key. `--host`/`ui.host` already means "bind here, skip serve", so a
       second switch is a second way to say the same thing — and every new
       `.gtdrc` key costs a `schema.json` regeneration and a docs surface.
 - [ ] Add `ui.serve: false`. The two things are genuinely different asks —
