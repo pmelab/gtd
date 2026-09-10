@@ -11,7 +11,7 @@ the refusal-revert sequence) fires AFTER an awaited write, so it needs the
 deferred read of "current answer" for the same reason `Mic` did. Deleting the
 overload rewrites that path against a closure captured before the write.
 
-- [ ] Keep the overload; delete only `onDictate` and the `Mic`-specific
+- [x] Keep the overload; delete only `onDictate` and the `Mic`-specific
       comments, and re-point `Question.tsx#65`'s doc comment at the async revert
       path as the surviving reason
 - [ ] Delete the overload as written; rewrite `#235`, `#288`, `#361`, `#441` to
