@@ -692,9 +692,11 @@ describe("runUiCommand", () => {
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
       let boundHost: string | undefined
+      let boundPort: number | undefined
       const fakeUiListener = Layer.succeed(UiListener, {
-        listen: ({ host }) => {
+        listen: ({ host, port }) => {
           boundHost = host
+          boundPort = port
           return Effect.succeed({ port: 4443, close: () => {} })
         },
       })
@@ -737,7 +739,15 @@ describe("runUiCommand", () => {
       // Never a 100.64.0.0/10 CGNAT address — the loopback listener binds
       // 127.0.0.1, letting `tailscaled` proxy in over the tailnet instead.
       expect(boundHost).toBe("127.0.0.1")
+      // The loopback listener is asked for port 0 (OS-picked) — nothing
+      // outside the machine dials it directly, so it must never be the
+      // fixed serve port `tailscaled` itself terminates TLS on.
+      expect(boundPort).toBe(0)
       expect(commands.some((c) => c.startsWith("tailscale serve --bg"))).toBe(true)
+      // `attemptServe`'s own readback: the record it writes names the
+      // ACTUAL port the (fake) listener bound (4443 here), not the `0` it
+      // asked for.
+      expect(readServeRecord(happyPathPort)?.targetPort).toBe(4443)
 
       await Effect.runPromise(Fiber.interrupt(fiber))
     })
