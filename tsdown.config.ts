@@ -23,7 +23,7 @@ export default defineConfig([
     // map (see scripts/inline-web-client.mjs) — a bare `import … from
     // "react"` left external has nothing to resolve against in a browser.
     // Bundle every dependency (react, @trpc/*, @tanstack/react-query, …), no
-    // exceptions.
+    // exceptions, mirroring the `gtd` config's own `deps.alwaysBundle` below.
     deps: { alwaysBundle: [/.*/] },
     outputOptions: { codeSplitting: false },
   },
@@ -42,6 +42,7 @@ import { createRequire as __createRequire } from 'module';
 const require = __createRequire(import.meta.url);`,
     },
     clean: true,
+    deps: { alwaysBundle: [/.*/] },
     dts: false,
     outputOptions: { codeSplitting: false },
   },
