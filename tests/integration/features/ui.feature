@@ -258,7 +258,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # make that same guarantee — it would depend on the CI/dev machine's real
   # network shape — so that coverage is not duplicated here.
 
-  # Package 02's own printed-URL/QR-code-carries-the-tailnet-hostname
+  # Package 02's own printed-URL-carries-the-tailnet-hostname
   # coverage (both the probe-answers and probe-empty paths, `CommandRunner`-
   # doubled) lives at the unit tier instead of here, in
   # `src/ui/Server.test.ts`'s own `describe("runUiCommand")` block: unlike
