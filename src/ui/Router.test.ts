@@ -42,7 +42,7 @@ const contextFor = (
   handOff,
 })
 
-const doneRequest = {
+const doneNote = {
   filePath: "TODO.md",
   expectedHeadSha: "sha",
   expectedContentHash: "hash",
@@ -50,6 +50,8 @@ const doneRequest = {
   anchor: { kind: "paragraph" as const, line: 3 },
   text: "a note",
 }
+
+const doneRequest = { note: doneNote }
 
 describe("appRouter.step", () => {
   it("delegates straight to the context's readStep", async () => {
@@ -317,7 +319,7 @@ describe("appRouter.readSteeringFile", () => {
 })
 
 describe("appRouter.done", () => {
-  it("writes the steering file then hands off, in that order", async () => {
+  it("with a note: writes it then hands off, in that order — today's exact behaviour, unchanged", async () => {
     const calls: string[] = []
     const caller = appRouter.createCaller(
       contextFor(
@@ -338,7 +340,7 @@ describe("appRouter.done", () => {
     expect(calls).toEqual(["write", "handoff"])
   })
 
-  it("aborts before handing off when the write fails", async () => {
+  it("with a note: a failed write refuses with the same WriteNoteRefusal-carrying CONFLICT error, and aborts before handing off", async () => {
     const handOff = vi.fn()
     const caller = appRouter.createCaller(
       contextFor(
@@ -352,6 +354,52 @@ describe("appRouter.done", () => {
     const error = await caller.done(doneRequest).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(Error)
     expect((error as { cause?: unknown }).cause).toBeInstanceOf(WriteNoteRefusal)
+    expect((error as { code?: string }).code).toBe("CONFLICT")
+    expect(handOff).not.toHaveBeenCalled()
+  })
+
+  it("with no note: performs no write at all and still hands off", async () => {
+    const calls: string[] = []
+    const caller = appRouter.createCaller(
+      contextFor(
+        undefined,
+        () => {
+          calls.push("write")
+          return Promise.resolve({ ok: true })
+        },
+        undefined,
+        undefined,
+        () => {
+          calls.push("handoff")
+        },
+      ),
+    )
+    const result = await caller.done({})
+    expect(result).toEqual({ ok: true })
+    expect(calls).toEqual(["handoff"])
+  })
+
+  it("with a malformed note (a missing string field) throws before anything is written and before handOff is scheduled", async () => {
+    const write = vi.fn(() => Promise.resolve({ ok: true as const }))
+    const handOff = vi.fn()
+    const caller = appRouter.createCaller(
+      contextFor(undefined, write, undefined, undefined, handOff),
+    )
+    await expect(caller.done({ note: { ...doneNote, text: undefined } } as never)).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
+    expect(handOff).not.toHaveBeenCalled()
+  })
+
+  it("with a malformed note (a bad anchor) throws before anything is written and before handOff is scheduled", async () => {
+    const write = vi.fn(() => Promise.resolve({ ok: true as const }))
+    const handOff = vi.fn()
+    const caller = appRouter.createCaller(
+      contextFor(undefined, write, undefined, undefined, handOff),
+    )
+    await expect(
+      caller.done({ note: { ...doneNote, anchor: { kind: "unknown" } } } as never),
+    ).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
     expect(handOff).not.toHaveBeenCalled()
   })
 })
@@ -407,7 +455,7 @@ describe("no procedure input carries a filesystem path from the client", () => {
       ),
     )
 
-    await caller.writeNote({ ...doneRequest, worktreePath: "/etc/passwd" } as never)
+    await caller.writeNote({ ...doneNote, worktreePath: "/etc/passwd" } as never)
     // The fake context's readSteeringFile answers `file-vanished`, which the
     // router turns into a thrown TRPCError — irrelevant here, the point is
     // only what request shape reached `ctx.readSteeringFile` before it did.

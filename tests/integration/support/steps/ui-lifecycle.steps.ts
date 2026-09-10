@@ -85,6 +85,12 @@ When(
   },
 )
 
+// ── package 04's Done control — a real done mutation with no note, against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndHandOffNoNote) ──
+
+When("I hand off with no note to a spawned gtd ui", async (world: GtdWorld) => {
+  await world.spawnGtdUiAndHandOffNoNote()
+})
+
 // ── gtd ui's setValue write-through — a real checkbox mutation against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndSetValue) ──
 
 When(

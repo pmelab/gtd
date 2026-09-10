@@ -844,12 +844,14 @@ export const RealContainerSaveAndDoneCallsTrpcDone: StoryObj<typeof Review> = {
     )
     await expect(canvas.getByTestId("done-calls")).toHaveTextContent(
       JSON.stringify({
-        filePath: ".gtd/REVIEW.md",
-        expectedHeadSha: "abc123",
-        expectedContentHash: "deadbeef",
-        mode: "review",
-        anchor: { kind: "chunk", index: 0 },
-        text: "handing back now",
+        note: {
+          filePath: ".gtd/REVIEW.md",
+          expectedHeadSha: "abc123",
+          expectedContentHash: "deadbeef",
+          mode: "review",
+          anchor: { kind: "chunk", index: 0 },
+          text: "handing back now",
+        },
       }).slice(1, -1),
     )
   },

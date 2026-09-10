@@ -272,3 +272,69 @@ export const ControlBarStaysPutWhileLongContentScrolls: Story = {
     expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(844)
   },
 }
+
+/**
+ * Package 04 Task 2's default (no `onDone` prop given): exactly one control
+ * row, the advance button's own last-item label stays "Done", and no
+ * `deck-done` button exists at all — `Review.tsx`'s hunk deck passes
+ * neither `onDone` nor `doneLabel`, so this is the shape that screen must
+ * stay entirely unchanged under.
+ */
+export const NoOnDoneRendersOneControlRowAndNoSecondDoneButton: Story = {
+  args: {
+    items: ["one"],
+    renderItem: (item) => <p>{item}</p>,
+    onExit: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(canvas.getAllByTestId("deck-controls")).toHaveLength(1)
+    await expect(canvas.getByTestId("deck-next")).toHaveTextContent("Done")
+    expect(canvas.queryByTestId("deck-done")).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * Package 04 Task 2: with `onDone`/`doneLabel` given, the last item's
+ * advance button reverts from "Done" to "Back to list" and a SEPARATE
+ * "Done" button appears — two buttons both reading "Done" on one screen is
+ * the collision this avoids. Tapping "Back to list" still just exits the
+ * deck (`onExit`), never `onDone`.
+ */
+export const OnDoneAddsASeparateButtonAndRevertsTheAdvanceLabel: Story = {
+  args: {
+    items: ["one", "two"],
+    renderItem: (item) => <p>{item}</p>,
+    onExit: fn(),
+    onDone: fn(),
+    doneLabel: "Done",
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("deck-next"))
+    await expect(canvas.getByText("two")).toBeInTheDocument()
+    await expect(canvas.getByTestId("deck-next")).toHaveTextContent("Back to list")
+    await expect(canvas.getByTestId("deck-done")).toHaveTextContent("Done")
+
+    await fireEvent.click(canvas.getByTestId("deck-next"))
+    await expect(args.onExit).toHaveBeenCalledTimes(1)
+    expect(args.onDone).not.toHaveBeenCalled()
+  },
+}
+
+/** Tapping the separate "Done" button calls `onDone`, never `onExit` — the deck itself never advances/exits on its account. */
+export const TappingDoneCallsOnDoneNotOnExit: Story = {
+  args: {
+    items: ["one"],
+    renderItem: (item) => <p>{item}</p>,
+    onExit: fn(),
+    onDone: fn(),
+    doneLabel: "Done",
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("deck-done"))
+    await expect(args.onDone).toHaveBeenCalledTimes(1)
+    expect(args.onExit).not.toHaveBeenCalled()
+  },
+}

@@ -35,6 +35,31 @@ export const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 export type Tier = "live" | "inmem"
 
 /**
+ * The `done` mutation's own note-carrying request (package 04 Task 1's
+ * nested `{ note: {...} }` shape) — every real `spawnGtdUi*AndHandOff`
+ * helper below builds the exact same shape off its own `filePath`/`headSha`/
+ * `content`/`mode`/`text`, at a fixed paragraph-0 anchor (the phone's own
+ * "Save & Done" always attaches to the anchor the human was looking at,
+ * which every one of these scenarios sets up as paragraph 0).
+ */
+const doneNoteRequest = (
+  filePath: string,
+  headSha: string,
+  contentHash: string,
+  mode: string,
+  text: string,
+) => ({
+  note: {
+    filePath,
+    expectedHeadSha: headSha,
+    expectedContentHash: contentHash,
+    mode,
+    anchor: { kind: "paragraph" as const, line: 0 },
+    text,
+  },
+})
+
+/**
  * Commands that print a `required`/`optional` script for a driver to run
  * instead of performing their git effect directly (`land`, `abandon`,
  * `restore`, bare `gtd --entry <state>`). Everything else is a read command
@@ -541,6 +566,20 @@ export class GtdWorld extends QuickPickleWorld {
     this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
   }
 
+  /** Restores `NODE_TLS_REJECT_UNAUTHORIZED` to its own pre-spawn value — every real `done`/`setValue` mutation below toggles it insecure for exactly one request, then puts it back in a `finally`, regardless of whether the request itself succeeded. */
+  private restoreTlsReject(previousTlsReject: string | undefined): void {
+    if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+  }
+
+  /** Waits for a spawned `gtd ui` to exit ON ITS OWN and records the same `(code, signal, status)` triple `spawnGtdUiAndSignal` records for a SIGNALLED exit — the shared tail every `spawnGtdUi*AndHandOff` helper below ends on. */
+  private async recordSpawnedExit(
+    exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>,
+  ): Promise<void> {
+    const { code, signal } = await exited
+    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+  }
+
   /**
    * Spawns a real `gtd ui` over the same `--host 127.0.0.1 --self-signed
    * --port 0` shape `spawnGtdUiAndSignal` uses, polls for its printed
@@ -701,14 +740,7 @@ export class GtdWorld extends QuickPickleWorld {
     const client = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `http://127.0.0.1:${record!.targetPort}/trpc` })],
     })
-    await client.done.mutate({
-      filePath,
-      expectedHeadSha: headSha,
-      expectedContentHash: contentHashOf(content),
-      mode,
-      anchor: { kind: "paragraph", line: 0 },
-      text,
-    })
+    await client.done.mutate(doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text))
 
     const { code, signal } = await exited
     this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
@@ -789,21 +821,14 @@ export class GtdWorld extends QuickPickleWorld {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `https://${bindHost}:${servePort}/trpc` })],
       })
-      await client.done.mutate({
-        filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
-        mode,
-        anchor: { kind: "paragraph", line: 0 },
-        text,
-      })
+      await client.done.mutate(
+        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
+      )
     } finally {
-      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+      this.restoreTlsReject(previousTlsReject)
     }
 
-    const { code, signal } = await exited
-    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+    await this.recordSpawnedExit(exited)
   }
 
   /**
@@ -835,21 +860,41 @@ export class GtdWorld extends QuickPickleWorld {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
       })
-      await client.done.mutate({
-        filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
-        mode,
-        anchor: { kind: "paragraph", line: 0 },
-        text,
-      })
+      await client.done.mutate(
+        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
+      )
     } finally {
-      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+      this.restoreTlsReject(previousTlsReject)
     }
 
-    const { code, signal } = await exited
-    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+    await this.recordSpawnedExit(exited)
+  }
+
+  /**
+   * Package 04's own real acceptance of the Q&A deck's Done control: a REAL
+   * `gtd ui` subprocess, a REAL `done` mutation carrying NO `note` at all —
+   * the exact request the phone's own "Done" tap sends when there's nothing
+   * to leave behind — then the process observed exiting ON ITS OWN, the
+   * same way `spawnGtdUiAndHandOff`'s own note-carrying `done` call does.
+   * No `filePath`/token/content is read here at all: with no note, `done`
+   * has nothing to compare-and-swap.
+   */
+  async spawnGtdUiAndHandOffNoNote(): Promise<void> {
+    const { boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.done.mutate({})
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    await this.recordSpawnedExit(exited)
   }
 
   /**
@@ -930,21 +975,14 @@ export class GtdWorld extends QuickPickleWorld {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
       })
-      await client.done.mutate({
-        filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
-        mode,
-        anchor: { kind: "paragraph", line: 0 },
-        text,
-      })
+      await client.done.mutate(
+        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
+      )
     } finally {
-      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+      this.restoreTlsReject(previousTlsReject)
     }
 
-    const { code, signal } = await exited
-    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+    await this.recordSpawnedExit(exited)
   }
 
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */

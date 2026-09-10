@@ -9,6 +9,23 @@ export interface DeckProps<T> {
   /** Uncontrolled by default (the deck owns its own index); pass both to drive it from outside. */
   readonly index?: number
   readonly onIndexChange?: (index: number) => void
+  /**
+   * Package 04 Task 2's Done control: an optional extra button next to the
+   * advance button, rendered ONLY when given — `Review.tsx`'s hunk deck
+   * passes neither prop and is entirely unchanged, its last-item advance
+   * button still reading "Done". When given, the advance button's own
+   * last-item label reverts from "Done" to "Back to list" instead — two
+   * buttons both reading "Done" on one screen is the collision this avoids.
+   */
+  readonly onDone?: () => void
+  /** `onDone`'s own button label — required alongside `onDone`, since `Deck` itself carries no domain knowledge of what "done" means for a given caller. */
+  readonly doneLabel?: string
+}
+
+/** The advance button's own label — "Next" mid-deck; at the last item, "Done" with no separate Done control, else "Back to list" — the collision `DeckControls`'s own doc comment names. Split out so `DeckControls` itself doesn't carry the nested ternary inline. */
+const advanceLabel = (isLastItem: boolean, hasDoneControl: boolean): string => {
+  if (!isLastItem) return "Next"
+  return hasDoneControl ? "Back to list" : "Done"
 }
 
 /**
@@ -23,23 +40,40 @@ const DeckControls = ({
   current,
   total,
   onAdvance,
+  onDone,
+  doneLabel,
 }: {
   readonly current: number
   readonly total: number
   readonly onAdvance: (delta: number) => void
-}) => (
-  <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3">
-    <Button variant="secondary" data-testid="deck-prev" onClick={() => onAdvance(-1)}>
-      Back
-    </Button>
-    <span data-testid="deck-progress" className="text-small text-muted">
-      {current + 1} / {total}
-    </span>
-    <Button variant="primary" data-testid="deck-next" onClick={() => onAdvance(1)}>
-      {current + 1 === total ? "Done" : "Next"}
-    </Button>
-  </div>
-)
+  readonly onDone?: () => void
+  readonly doneLabel?: string
+}) => {
+  const isLastItem = current + 1 === total
+  return (
+    <div
+      data-testid="deck-controls"
+      className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3"
+    >
+      <Button variant="secondary" data-testid="deck-prev" onClick={() => onAdvance(-1)}>
+        Back
+      </Button>
+      <span data-testid="deck-progress" className="text-small text-muted">
+        {current + 1} / {total}
+      </span>
+      <div className="flex gap-2">
+        <Button variant="primary" data-testid="deck-next" onClick={() => onAdvance(1)}>
+          {advanceLabel(isLastItem, onDone !== undefined)}
+        </Button>
+        {onDone !== undefined && (
+          <Button variant="primary" data-testid="deck-done" onClick={onDone}>
+            {doneLabel ?? "Done"}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 /**
  * A format-agnostic "one item per screen" deck: no review/question domain
@@ -51,7 +85,15 @@ const DeckControls = ({
  * positioned, so they can never overlay it.
  */
 // fallow-ignore-next-line complexity
-export const Deck = <T,>({ items, renderItem, onExit, index, onIndexChange }: DeckProps<T>) => {
+export const Deck = <T,>({
+  items,
+  renderItem,
+  onExit,
+  index,
+  onIndexChange,
+  onDone,
+  doneLabel,
+}: DeckProps<T>) => {
   const [uncontrolledIndex, setUncontrolledIndex] = useState(0)
   const current = index ?? uncontrolledIndex
   const setCurrent = onIndexChange ?? setUncontrolledIndex
@@ -73,7 +115,12 @@ export const Deck = <T,>({ items, renderItem, onExit, index, onIndexChange }: De
       <div data-testid="deck-content" className="min-h-0 flex-1 overflow-auto">
         {item !== undefined && renderItem(item, current)}
       </div>
-      <DeckControls current={current} total={items.length} onAdvance={advance} />
+      <DeckControls
+        current={current}
+        total={items.length}
+        onAdvance={advance}
+        {...(onDone !== undefined ? { onDone, doneLabel } : {})}
+      />
     </div>
   )
 }

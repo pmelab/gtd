@@ -564,7 +564,7 @@ export const Review = ({ filePath }: ReviewProps) => {
     const tokens = casTokensFor()
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
-      (cas) => done.mutateAsync({ filePath, ...cas, mode: "review", anchor, text }),
+      (cas) => done.mutateAsync({ note: { filePath, ...cas, mode: "review", anchor, text } }),
       tokens,
       refetchTokens,
     ).catch((error: unknown) => {

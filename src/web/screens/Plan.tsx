@@ -132,6 +132,18 @@ export interface PlanViewProps {
     opts: { readonly checked?: boolean; readonly text?: string },
   ) => Promise<unknown>
   /**
+   * The Done control on the Q&A deck (package 04 Task 2): ends the turn with
+   * no note, the same `done` round trip `onDoneNote` drives minus the write
+   * — the real `Plan` container wires this to `trpc.done.mutateAsync({})`.
+   * Passed straight to `Deck`'s own `onDone`, which is what actually renders
+   * the button; its mere presence is also what flips the deck's last-item
+   * advance label from "Done" to "Back to list" (`Deck.tsx`'s own doc
+   * comment — two buttons reading "Done" on one screen is the collision
+   * that avoids). Absent in `Plan.stories.tsx`'s pure-data stories, exactly
+   * like `onSaveNote`/`onDoneNote`.
+   */
+  readonly onDone?: () => Promise<unknown>
+  /**
    * Every write refusal this screen's mutations surface (package 03 Task 1)
    * — passed straight to `Question.tsx`'s own `onRefusal`, and to
    * `onSaveNote`/`onDoneNote`'s own `.catch`, so the same `RefusalBanner` the
@@ -219,6 +231,31 @@ const PlanBody = ({
   )
 }
 
+/** The "no view yet" branch's own message — loading, a named read refusal, or the generic fallback — split out so `PlanView` itself doesn't carry the nested ternary inline. */
+const planLoadingMessage = (isLoading: boolean, readError: unknown): string => {
+  if (isLoading) return "Loading the plan…"
+  const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
+  return refusal !== undefined ? messageForReadRefusal(refusal) : "Could not load the plan."
+}
+
+/**
+ * `Deck`'s own `onDone`/`doneLabel` prop pair (package 04 Task 2) — `{}`
+ * when the Q&A deck's Done control isn't wired up at all (`Plan.stories.tsx`'s
+ * pure-data stories, exactly like `onSaveNote`/`onDoneNote`), split out so
+ * `PlanView` itself doesn't carry this conditional inline.
+ */
+const deckDoneProps = (
+  onDone: (() => Promise<unknown>) | undefined,
+): { readonly onDone?: () => void; readonly doneLabel?: string } =>
+  onDone === undefined
+    ? {}
+    : {
+        onDone: () => {
+          onDone()
+        },
+        doneLabel: "Done",
+      }
+
 /**
  * Presentational plan-and-answer screen — takes its `view`/`contentHash` as
  * props so `Plan.stories.tsx` can drive every shape with plain data, no
@@ -234,6 +271,7 @@ export const PlanView = ({
   readError,
   onSaveNote,
   onDoneNote,
+  onDone,
   onCommitAnswer,
   onRefusal,
 }: PlanViewProps) => {
@@ -250,14 +288,9 @@ export const PlanView = ({
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   if (view === undefined) {
-    const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
     return (
       <Notice tone={isLoading ? "info" : "error"}>
-        {isLoading
-          ? "Loading the plan…"
-          : refusal !== undefined
-            ? messageForReadRefusal(refusal)
-            : "Could not load the plan."}
+        {planLoadingMessage(isLoading, readError)}
       </Notice>
     )
   }
@@ -318,6 +351,7 @@ export const PlanView = ({
           setDeckIndex(undefined)
           scroll.restore(scrollRef)
         }}
+        {...deckDoneProps(onDone)}
         renderItem={(node, index) => (
           <Question
             key={index}
@@ -448,7 +482,7 @@ const usePlanMutations = (
     const tokens = casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
-      (cas) => done.mutateAsync({ filePath, ...cas, mode, anchor, text }),
+      (cas) => done.mutateAsync({ note: { filePath, ...cas, mode, anchor, text } }),
       tokens,
       refetchTokens,
     ).catch((error: unknown) => {
@@ -460,7 +494,18 @@ const usePlanMutations = (
     })
   }
 
-  return { onCommitAnswer, onSaveNote, onDoneNote, isDone: done.isSuccess }
+  /**
+   * The Done control's own trigger (T2) — no anchor/text, no tokens: there
+   * is nothing to compare-and-swap when there's nothing to write, mirroring
+   * `Router.ts#done`'s own `note` absent branch. Fire-and-forget, caught
+   * never rethrown, for the exact reason `onDoneNote`'s own `.catch` is.
+   */
+  const onDone = (): Promise<unknown> =>
+    done.mutateAsync({}).catch((error: unknown) => {
+      onRefusal(error)
+    })
+
+  return { onCommitAnswer, onSaveNote, onDoneNote, onDone, isDone: done.isSuccess }
 }
 
 /** `PlanView`'s own two data props, both `undefined`-safe over an in-flight `readSteeringFile` read — split out so `Plan` itself doesn't carry the two optional-chaining branches inline. */
@@ -479,7 +524,7 @@ const planViewDataProps = (
 export const Plan = ({ filePath, mode }: PlanProps) => {
   const query = trpc.readSteeringFile.useQuery({ filePath, mode })
   const { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry } = useRefusal()
-  const { onCommitAnswer, onSaveNote, onDoneNote, isDone } = usePlanMutations(
+  const { onCommitAnswer, onSaveNote, onDoneNote, onDone, isDone } = usePlanMutations(
     filePath,
     mode,
     query.data,
@@ -517,6 +562,7 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
           readError={query.error}
           onSaveNote={onSaveNoteTracked}
           onDoneNote={onDoneNote}
+          onDone={onDone}
           onCommitAnswer={onCommitAnswerTracked}
           onRefusal={showRefusal}
         />

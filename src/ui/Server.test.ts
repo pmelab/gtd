@@ -1824,12 +1824,14 @@ describe("handoff exits the process", () => {
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
       })
       const result = await client.done.mutate({
-        filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
-        mode: "qa",
-        anchor: { kind: "paragraph", line: 0 },
-        text: "handed back",
+        note: {
+          filePath,
+          expectedHeadSha: headSha,
+          expectedContentHash: contentHashOf(content),
+          mode: "qa",
+          anchor: { kind: "paragraph", line: 0 },
+          text: "handed back",
+        },
       })
       expect(result).toEqual({ ok: true })
     })
@@ -1864,12 +1866,14 @@ describe("handoff exits the process", () => {
       })
       const error = await client.done
         .mutate({
-          filePath: "NOTES.md",
-          expectedHeadSha: "not-the-real-sha",
-          expectedContentHash: "not-the-real-hash",
-          mode: "qa",
-          anchor: { kind: "paragraph", line: 0 },
-          text: "should not land",
+          note: {
+            filePath: "NOTES.md",
+            expectedHeadSha: "not-the-real-sha",
+            expectedContentHash: "not-the-real-hash",
+            mode: "qa",
+            anchor: { kind: "paragraph", line: 0 },
+            text: "should not land",
+          },
         })
         .catch((e: unknown) => e)
       expect(error).toBeInstanceOf(TRPCClientError)
@@ -1934,12 +1938,14 @@ describe("handoff exits the process", () => {
     })
     vanishingClient.done
       .mutate({
-        filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
-        mode: "qa",
-        anchor: { kind: "paragraph", line: 0 },
-        text: "vanishing client",
+        note: {
+          filePath,
+          expectedHeadSha: headSha,
+          expectedContentHash: contentHashOf(content),
+          mode: "qa",
+          anchor: { kind: "paragraph", line: 0 },
+          text: "vanishing client",
+        },
       })
       .catch(() => {})
 

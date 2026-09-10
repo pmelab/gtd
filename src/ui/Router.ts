@@ -195,6 +195,25 @@ const setValueInput = (
   }
 }
 
+/**
+ * `done`'s own input validator — `{ note?: <writeNoteInput fields> }`, one
+ * optional nested object rather than `writeNoteInput`'s own six
+ * independently-optional flat fields (which could arrive in half-valid
+ * combinations). `note` present is validated by `writeNoteInput` itself, so
+ * a malformed note throws here, before `done`'s resolver ever runs — never
+ * reaching `ctx.writeNote`/`ctx.handOff`. `note` absent needs no tokens:
+ * there is nothing to compare-and-swap when nothing is written.
+ */
+const doneInput = (
+  value: unknown,
+): {
+  readonly note?: ReturnType<typeof writeNoteInput>
+} => {
+  if (!isRecord(value)) throw new Error("expected a done request")
+  if (value.note === undefined) return {}
+  return { note: writeNoteInput(value.note) }
+}
+
 /** `steeringView`'s own input validator — a `{ content: string, mode: string }`, no `worktreePath`. */
 const viewInput = (value: unknown): { readonly content: string; readonly mode: string } => {
   if (!isRecord(value) || typeof value.content !== "string" || typeof value.mode !== "string") {
@@ -270,23 +289,28 @@ export const appRouter = t.router({
   }),
 
   /**
-   * The done action: writes the steering file exactly as `writeNote` does,
-   * then hands the turn back — `ctx.handOff()` schedules the process exit
-   * that follows this response actually reaching the client, never spawning
-   * a child process or waiting for one. A write failure aborts before
+   * The done action: writes the steering file exactly as `writeNote` does
+   * WHEN `note` is present, then hands the turn back — `ctx.handOff()`
+   * schedules the process exit that follows this response actually reaching
+   * the client, never spawning a child process or waiting for one. `note`
+   * absent skips the write entirely (nothing to compare-and-swap) and goes
+   * straight to `ctx.handOff()` — a human who has nothing to leave behind
+   * still needs a way to end the turn. A write failure aborts before
    * anything is scheduled, surfaced identically to `writeNote`'s own
    * `WriteNoteRefusal`. The server itself emits no beat, lands no turn, and
    * creates no session — the outer loop that started `gtd ui` re-reads gtd
    * state after the process exits and drives the next turn itself.
    */
-  done: t.procedure.input(writeNoteInput).mutation(async ({ input, ctx }) => {
-    const write = await ctx.writeNote(input)
-    if (!write.ok) {
-      throw new TRPCError({
-        code: "CONFLICT",
-        message: `gtd ui: write refused (${write.reason})`,
-        cause: new WriteNoteRefusal(write.reason, write.moved),
-      })
+  done: t.procedure.input(doneInput).mutation(async ({ input, ctx }) => {
+    if (input.note !== undefined) {
+      const write = await ctx.writeNote(input.note)
+      if (!write.ok) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `gtd ui: write refused (${write.reason})`,
+          cause: new WriteNoteRefusal(write.reason, write.moved),
+        })
+      }
     }
     ctx.handOff()
     return { ok: true as const }

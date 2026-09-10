@@ -16,6 +16,15 @@ type Story = StoryObj<typeof PlanView>
 /** The real `Plan` container's args shared by every "real container" story below — one file/mode pair, reused rather than repeated at each call site. */
 const REAL_PLAN_ARGS = { filePath: ".gtd/PLAN.md", mode: "qa" }
 
+/** A single-open-question plan's own `readSteeringFile` resolver — the shape every "real container" story that just needs one question to drill into shares (a document with one open "Which option?" question, no lead prose). */
+const sampleOpenQuestionRead = () => ({
+  ok: true,
+  content: "Sample plan.\n\n## Open Questions\n\n### Which option?\n",
+  headSha: "abc123",
+  contentHash: "deadbeef",
+  view: { nodes: [openQuestion(0, "Which option?")] },
+})
+
 /** Opens paragraph 0's note seam and types `text` into the sheet — the setup every "real container" story below shares before diverging into Save vs Save & Done. */
 const openNoteSeamAndType = async (
   canvas: ReturnType<typeof within>,
@@ -24,6 +33,12 @@ const openNoteSeamAndType = async (
   await waitFor(() => expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument())
   await fireEvent.click(canvas.getByTestId("note-seam-0"))
   await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), { target: { value: text } })
+}
+
+/** Waits for the first open question's card, then taps it open — the setup every "real container" story that drills into the Q&A deck shares. */
+const openFirstQuestionCard = async (canvas: ReturnType<typeof within>): Promise<void> => {
+  await waitFor(() => expect(canvas.getByTestId("question-card-0")).toBeInTheDocument())
+  await fireEvent.click(canvas.getByTestId("question-card-0"))
 }
 
 const openQuestion = (index: number, title: string): SteeringViewNode => ({
@@ -1027,12 +1042,14 @@ export const RealContainerSaveAndDoneCallsTrpcDone: StoryObj<typeof Plan> = {
     )
     await expect(canvas.getByTestId("done-calls")).toHaveTextContent(
       JSON.stringify({
-        filePath: ".gtd/PLAN.md",
-        expectedHeadSha: "abc123",
-        expectedContentHash: "deadbeef",
-        mode: "qa",
-        anchor: { kind: "paragraph", line: 0 },
-        text: "handing back now",
+        note: {
+          filePath: ".gtd/PLAN.md",
+          expectedHeadSha: "abc123",
+          expectedContentHash: "deadbeef",
+          mode: "qa",
+          anchor: { kind: "paragraph", line: 0 },
+          text: "handing back now",
+        },
       }).slice(1, -1),
     )
   },
@@ -1113,13 +1130,7 @@ export const RealContainerRevertsTheOptimisticAnswerOnARefusedWrite: StoryObj<ty
   render: (args) => (
     <TrpcTestProvider
       resolvers={{
-        readSteeringFile: () => ({
-          ok: true,
-          content: "Sample plan.\n\n## Open Questions\n\n### Which option?\n",
-          headSha: "abc123",
-          contentHash: "deadbeef",
-          view: { nodes: [openQuestion(0, "Which option?")] },
-        }),
+        readSteeringFile: sampleOpenQuestionRead,
         setValue: () => {
           throw new Error("stale token")
         },
@@ -1131,8 +1142,7 @@ export const RealContainerRevertsTheOptimisticAnswerOnARefusedWrite: StoryObj<ty
   args: REAL_PLAN_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("question-card-0")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await openFirstQuestionCard(canvas)
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
     // Immediately after the tap, the optimistic radio shows checked (before
     // the refusal resolves) — then the refusal reverts it.
@@ -1225,6 +1235,111 @@ export const RealContainerRendersHandedBackPanelAfterDone: StoryObj<typeof Plan>
     await fireEvent.click(canvas.getByTestId("note-sheet-done"))
     await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
     await expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * Package 04 Task 2: the Q&A deck's own "Done" control ends the turn with
+ * NO note at all, straight from the question deck — no note sheet ever
+ * opens. `done` resolves with an empty request (`{}` — no `note` key), and
+ * the SAME `HandedBackPanel` `RealContainerRendersHandedBackPanelAfterDone`
+ * exercises for the note-carrying path renders here too.
+ */
+export const RealContainerTapsDoneFromTheDeckWithNoNoteRendersHandedBackPanel: StoryObj<
+  typeof Plan
+> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: sampleOpenQuestionRead,
+          done: (input) => {
+            record(input)
+            return { ok: true }
+          },
+          writeNote: () => {
+            throw new Error("writeNote must never be called by a note-less Done")
+          },
+        }}
+      >
+        <PlanDoneCallRecorder args={args} onRegisterDone={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openFirstQuestionCard(canvas)
+    await expect(canvas.getByTestId("deck-next")).toHaveTextContent("Back to list")
+    await fireEvent.click(canvas.getByTestId("deck-done"))
+    await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
+    // The request itself carried no `note` — proves the client sent `{}`,
+    // never a synthesized empty-string note.
+    await expect(canvas.getByTestId("done-calls")).toHaveTextContent(JSON.stringify({}))
+  },
+}
+
+/**
+ * Tapping "Back to list" (the deck's own advance button past the last open
+ * question, package 04 Task 2) returns to the question list and writes
+ * nothing at all — neither `writeNote` nor `done` is ever called.
+ */
+export const BackToListFromTheDeckReturnsToTheListAndWritesNothing: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
+    onDone: () => {
+      throw new Error("onDone must never be called by Back to list")
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("deck-next")).toHaveTextContent("Back to list")
+    await expect(canvas.getByTestId("deck-done")).toHaveTextContent("Done")
+    await fireEvent.click(canvas.getByTestId("deck-next"))
+    await expect(canvas.getByTestId("question-card-0")).toBeInTheDocument()
+  },
+}
+
+/**
+ * A refused `done` (the same `CONFLICT`/`WriteNoteRefusal` shape every other
+ * write refusal takes) must show the refusal banner and must NOT render
+ * `HandedBackPanel` — the deck's own Done control fails no differently than
+ * `Save & Done` does.
+ */
+export const RealContainerRefusedDoneFromTheDeckShowsRefusalBannerNotHandedBack: StoryObj<
+  typeof Plan
+> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: sampleOpenQuestionRead,
+        done: () => {
+          throw {
+            error: {
+              message: "gtd ui: write refused (stale-token)",
+              code: -32600,
+              data: { code: "CONFLICT", writeRefusal: { reason: "stale-token", moved: "sha" } },
+            },
+          }
+        },
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openFirstQuestionCard(canvas)
+    await fireEvent.click(canvas.getByTestId("deck-done"))
+    await waitFor(() =>
+      expect(canvas.getByText(/committed a change underneath you/)).toBeInTheDocument(),
+    )
+    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
   },
 }
 
