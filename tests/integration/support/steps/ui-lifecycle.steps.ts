@@ -4,6 +4,33 @@ import { join } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
+// ── gtd ui's tailscale-serve front door (package 01, `@live` only — see world.ts#spawnGtdUiServeAndHandOff and hooks.ts's fake `tailscale` CLI) ──
+
+When(
+  "I hand off {string} in mode {string} with the text {string} to a spawned gtd ui using tailscale serve on port {int}",
+  async (world: GtdWorld, filePath: string, mode: string, text: string, servePort: number) => {
+    await world.spawnGtdUiServeAndHandOff(servePort, filePath, mode, text)
+  },
+)
+
+Then(
+  "no tailscale serve mapping or ownership record survives on port {int}",
+  async (world: GtdWorld, servePort: number) => {
+    const { readServeRecord } = await import("../../../../src/ui/Serve.js")
+    assert.strictEqual(
+      readServeRecord(servePort),
+      undefined,
+      `expected no ownership record left at ~/.gtd/serve/${servePort}.json`,
+    )
+    assert.ok(world.tailscaleStateDir !== undefined, "no fake tailscale state dir on this world")
+    const mappingPath = join(world.tailscaleStateDir!, `${servePort}.mapping`)
+    assert.ok(
+      !existsSync(mappingPath),
+      `expected the fake tailscale mapping at ${mappingPath} to be gone`,
+    )
+  },
+)
+
 // ── gtd ui's handoff — a real done mutation against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndHandOff) ──
 
 When(

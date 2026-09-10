@@ -145,6 +145,59 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And the file ".gtd/PLAN.md" contains "handed back"
 
   @live
+  Scenario: no --host given, gtd ui publishes through tailscale serve and tears the mapping down on handoff
+    # Package 01's serve-first front door: no --host/--self-signed given, so
+    # `runUiCommand` probes and publishes through `tailscale serve` instead of
+    # binding the tailnet IP directly. Neither a real tailnet nor even the
+    # `tailscale` binary is guaranteed on a CI runner, so this drives a fake
+    # `tailscale` CLI (`hooks.ts`'s `FAKE_TAILSCALE_SCRIPT`, installed on
+    # every @live scenario's `$PATH` shim) that speaks the real command
+    # shapes `src/ui/Serve.ts` issues. `spawnGtdUiServeAndHandOff` reads the
+    # real ownership record `attemptServe` writes to
+    # `~/.gtd/serve/<port>.json` to dial the loopback target directly (the
+    # fake hostname resolves nowhere real) — proving both the publish AND
+    # the teardown side of Task 4's ownership guarantee.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": working
+              working:
+                actor: human
+                file: "PLAN.md"
+                mode: qa
+                prompt: "answer the plan"
+                on:
+                  "* **": idle
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file ".gtd/PLAN.md" with:
+      """
+      Paragraph zero here.
+
+      Paragraph two here.
+      """
+    When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on port 18443
+    Then the reported exit status is 0
+    And the file ".gtd/PLAN.md" contains "handed back"
+    And no tailscale serve mapping or ownership record survives on port 18443
+
+  @live
   Scenario: picking a question option writes the tick through to disk over a real setValue round trip
     Given a test project
     And a gtd config file at ".gtdrc" with:

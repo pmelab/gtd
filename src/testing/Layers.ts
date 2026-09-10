@@ -26,7 +26,7 @@ import { Cwd } from "../Cwd.js"
 import { EnvVars } from "../EnvVars.js"
 import { RepoFiles } from "../RepoFiles.js"
 import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
-import { HttpsServer } from "../ui/Server.js"
+import { UiListener } from "../ui/Server.js"
 import type { CommandRequirements } from "../program.js"
 
 const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileSystem => {
@@ -317,10 +317,10 @@ export function testLayers(
     Narrator.layer(opts.narrate ?? (() => {}), opts.verbose ?? true),
     // No `@inmem`/direct-Effect test binds a real socket — `gtd ui`
     // itself is unit-tested in `src/ui/Server.test.ts` with its own fake
-    // `HttpsServer`. A call reaching this one is a test gap, not silence.
-    Layer.succeed(HttpsServer, {
+    // `UiListener`. A call reaching this one is a test gap, not silence.
+    Layer.succeed(UiListener, {
       listen: () =>
-        Effect.fail(new GtdError("gtd ui: HttpsServer has no test double wired into testLayers()")),
+        Effect.fail(new GtdError("gtd ui: UiListener has no test double wired into testLayers()")),
     }),
   )
 }

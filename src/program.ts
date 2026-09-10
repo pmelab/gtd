@@ -40,7 +40,7 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
-import { HttpsServer, runUiCommand } from "./ui/Server.js"
+import { UiListener, runUiCommand } from "./ui/Server.js"
 import { enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
 import { clearFilePointerTicks } from "./ReviewDoc.js"
@@ -136,7 +136,7 @@ export type CommandRequirements =
   | CommandRunner
   | EnvVars
   | Narrator
-  | HttpsServer
+  | UiListener
 
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()

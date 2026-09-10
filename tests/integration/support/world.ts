@@ -148,6 +148,10 @@ const fingerprintFiles = (root: string): FileFingerprint[] =>
 const signalExitStatus = (code: number | null, signal: NodeJS.Signals | null): number =>
   signal !== null ? 128 + (osConstants.signals[signal] ?? 0) : (code ?? 0)
 
+/** `{ [key]: value }` when `value` is set, `{}` when it's `undefined` — `spawnEnv`'s own building block for each of its several optional overrides, so adding one more never adds another branch there. */
+const optionalEnv = (key: string, value: string | undefined): NodeJS.ProcessEnv =>
+  value !== undefined ? { [key]: value } : {}
+
 /** How a driver reports `gtd validate`'s emitted script once it has run: `<file>: valid`, or the script's own output as findings. */
 const validateVerdict = (
   file: string,
@@ -219,6 +223,8 @@ export class GtdWorld extends QuickPickleWorld {
   gtdTestCommandOverride: string | undefined = undefined
   /** A scenario-scoped temp dir holding a `gtd` shim so a bare `gtd` invoked by name resolves to this build, not a globally-installed one. Live tier only. */
   pathShimDir: string | undefined = undefined
+  /** State dir for the fake `tailscale` CLI `pathShimDir` also carries (`hooks.ts#FAKE_TAILSCALE_SCRIPT`) — one `<port>.mapping` file per published serve port. Live tier only. */
+  tailscaleStateDir: string | undefined = undefined
   /** A temp dir OUTSIDE the repo holding docs/driver.md's extracted driver script — proves the paste needs nothing inside the project. */
   driverDocDir: string | undefined = undefined
   /** Absolute path to the extracted driver script inside `driverDocDir`, chmod'd executable. */
@@ -375,14 +381,11 @@ export class GtdWorld extends QuickPickleWorld {
     const pathEnv = this.pathShimDir
       ? { PATH: `${this.pathShimDir}:${process.env["PATH"] ?? ""}` }
       : {}
-    const testCommandEnv =
-      this.gtdTestCommandOverride !== undefined
-        ? { GTD_TESTCOMMAND: this.gtdTestCommandOverride }
-        : {}
     return {
       ...process.env,
       ...pathEnv,
-      ...testCommandEnv,
+      ...optionalEnv("GTD_TESTCOMMAND", this.gtdTestCommandOverride),
+      ...optionalEnv("GTD_TEST_TAILSCALE_DIR", this.tailscaleStateDir),
       ...this.liveEnvOverrides,
       NODE_OPTIONS: undefined,
     }
@@ -561,6 +564,72 @@ export class GtdWorld extends QuickPickleWorld {
     assert.ok(stdout.includes("https://"), `gtd ui never printed its bound URL: ${stdout}`)
     const boundUrl = stdout.split("\n")[0]!.trim()
     return { child, boundUrl, exited }
+  }
+
+  /**
+   * Package 01's own serve-path counterpart of `spawnGtdUiAndHandOff`: no
+   * `--host`/`--self-signed`, so `runUiCommand` takes the SERVE branch —
+   * against the fake `tailscale` CLI `hooks.ts#FAKE_TAILSCALE_SCRIPT`
+   * installs on `$PATH` (neither a real tailnet nor even the `tailscale`
+   * binary is guaranteed on a CI runner). The printed URL names the fake
+   * tailnet hostname, which resolves nowhere real, so the tRPC round trip
+   * dials the loopback TARGET port directly instead — read out of the real
+   * ownership record `attemptServe` writes to `~/.gtd/serve/<servePort>.json`
+   * (`src/ui/Serve.ts#writeServeRecord`), over PLAIN http (no TLS: the
+   * loopback listener never terminates TLS, `tailscaled` would). Returns
+   * once the process has exited on its own, so the caller can assert the
+   * mapping/record are both gone (Task 4's own teardown guarantee).
+   */
+  async spawnGtdUiServeAndHandOff(
+    servePort: number,
+    filePath: string,
+    mode: string,
+    text: string,
+  ): Promise<void> {
+    const child = spawn(process.execPath, [GTD_BIN, "ui", "--port", String(servePort)], {
+      cwd: this.repoDir,
+      env: this.spawnEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stdout = ""
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8")
+    })
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => {
+        child.once("exit", (code, sig) => resolve({ code, signal: sig }))
+      },
+    )
+    await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
+    for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
+      await delay(50)
+    }
+    assert.ok(stdout.includes("https://"), `gtd ui never printed its serve URL: ${stdout}`)
+
+    const { readServeRecord } = await import("../../../src/ui/Serve.js")
+    const record = readServeRecord(servePort)
+    assert.ok(record !== undefined, `no ownership record found at ~/.gtd/serve/${servePort}.json`)
+
+    const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+      import("../../../src/ui/Write.js"),
+      import("@trpc/client"),
+    ])
+    const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+    const content = readFileSync(join(this.repoDir, filePath), "utf8")
+    const client = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url: `http://127.0.0.1:${record!.targetPort}/trpc` })],
+    })
+    await client.done.mutate({
+      filePath,
+      expectedHeadSha: headSha,
+      expectedContentHash: contentHashOf(content),
+      mode,
+      anchor: { kind: "paragraph", line: 0 },
+      text,
+    })
+
+    const { code, signal } = await exited
+    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
   }
 
   /**

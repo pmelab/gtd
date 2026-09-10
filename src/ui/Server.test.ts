@@ -1,7 +1,7 @@
 import * as https from "node:https"
 import * as http from "node:http"
 import * as net from "node:net"
-import { execFileSync } from "node:child_process"
+import { execFileSync, execSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -25,10 +25,11 @@ import { CommandRunner } from "../CommandRunner.js"
 import { Cwd } from "../Cwd.js"
 import type { UiConfig } from "../ConfigSchema.js"
 import { pickBindHostFromSystem } from "./BindSystem.js"
+import { deleteServeRecord, readServeRecord, writeServeRecord } from "./Serve.js"
 import { parseTailscaleStatus } from "./Tailscale.js"
 import { generateSelfSignedCert, type CertPair } from "./Tls.js"
 import {
-  HttpsServer,
+  UiListener,
   resolveBindHost,
   resolveCertPair,
   resolveClientHtml,
@@ -370,7 +371,7 @@ describe("resolveCertPair", () => {
   })
 })
 
-describe("HttpsServer.Live", () => {
+describe("UiListener.Live", () => {
   let cert: CertPair
 
   beforeEach(async () => {
@@ -383,17 +384,22 @@ describe("HttpsServer.Live", () => {
     )
   })
 
-  it("binds unconditionally as HTTPS — a plain http request to the same port fails, a TLS request succeeds", async () => {
+  it("with tls, behaves exactly as today — a plain http request to the same port fails, a TLS request succeeds", async () => {
     const service = await Effect.runPromise(
       Effect.gen(function* () {
-        return yield* HttpsServer
-      }).pipe(Effect.provide(HttpsServer.Live)),
+        return yield* UiListener
+      }).pipe(Effect.provide(UiListener.Live)),
     )
 
     const bound = await Effect.runPromise(
-      service.listen(cert, "127.0.0.1", 0, (_req, res) => {
-        res.writeHead(200)
-        res.end("ok")
+      service.listen({
+        tls: cert,
+        host: "127.0.0.1",
+        port: 0,
+        handler: (_req, res) => {
+          res.writeHead(200)
+          res.end("ok")
+        },
       }),
     )
 
@@ -425,6 +431,40 @@ describe("HttpsServer.Live", () => {
     }
   })
 
+  it("with no tls, binds a plain http:// listener that answers a real loopback request", async () => {
+    const service = await Effect.runPromise(
+      Effect.gen(function* () {
+        return yield* UiListener
+      }).pipe(Effect.provide(UiListener.Live)),
+    )
+
+    const bound = await Effect.runPromise(
+      service.listen({
+        host: "127.0.0.1",
+        port: 0,
+        handler: (_req, res) => {
+          res.writeHead(200)
+          res.end("plain ok")
+        },
+      }),
+    )
+
+    try {
+      const result = await new Promise<string>((resolve, reject) => {
+        http
+          .get({ host: "127.0.0.1", port: bound.port }, (res) => {
+            let body = ""
+            res.on("data", (chunk) => (body += chunk))
+            res.on("end", () => resolve(body))
+          })
+          .on("error", reject)
+      })
+      expect(result).toBe("plain ok")
+    } finally {
+      bound.close()
+    }
+  })
+
   it("refuses with a GtdError naming EADDRINUSE when the port is already bound", async () => {
     const occupied = net.createServer()
     await new Promise<void>((resolve) => occupied.listen(0, "127.0.0.1", resolve))
@@ -433,12 +473,12 @@ describe("HttpsServer.Live", () => {
 
     const service = await Effect.runPromise(
       Effect.gen(function* () {
-        return yield* HttpsServer
-      }).pipe(Effect.provide(HttpsServer.Live)),
+        return yield* UiListener
+      }).pipe(Effect.provide(UiListener.Live)),
     )
 
     const thrown = await Effect.runPromise(
-      service.listen(cert, "127.0.0.1", port, () => {}).pipe(Effect.flip),
+      service.listen({ tls: cert, host: "127.0.0.1", port, handler: () => {} }).pipe(Effect.flip),
     )
     occupied.close()
 
@@ -601,7 +641,7 @@ describe("runUiCommand", () => {
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
     let closed = false
-    const fakeHttpsServer = Layer.succeed(HttpsServer, {
+    const fakeUiListener = Layer.succeed(UiListener, {
       listen: () => Effect.succeed({ port: 4443, close: () => (closed = true) }),
     })
 
@@ -611,7 +651,7 @@ describe("runUiCommand", () => {
         { host: "100.90.1.2", cert: certPath, key: keyPath },
         out,
       ).pipe(
-        Effect.provide(fakeHttpsServer),
+        Effect.provide(fakeUiListener),
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
         Effect.provide(Cwd.layer(tmpDir)),
@@ -627,7 +667,7 @@ describe("runUiCommand", () => {
     expect(closed).toBe(true)
   })
 
-  it("prints the probed Tailscale hostname as the displayed URL while binding the CGNAT IP the system scan found — no --host/ui.host given, CommandRunner-doubled `tailscale status --json`", async () => {
+  it("no --host/ui.host given: attempts tailscale serve first, binding an ephemeral loopback port and printing the probed tailnet hostname as the serve URL", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out, written } = fakeOut()
@@ -636,28 +676,36 @@ describe("runUiCommand", () => {
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
-    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
     let boundHost: string | undefined
-    const fakeHttpsServer = Layer.succeed(HttpsServer, {
-      listen: (_certPair, host) => {
+    const fakeUiListener = Layer.succeed(UiListener, {
+      listen: ({ host }) => {
         boundHost = host
         return Effect.succeed({ port: 4443, close: () => {} })
       },
     })
-    const runner = CommandRunner.layer(() =>
-      Effect.succeed({
-        status: 0,
-        output: JSON.stringify({
-          BackendState: "Running",
-          CertDomains: ["host.tailnet.ts.net"],
-          Self: { DNSName: "host.tailnet.ts.net." },
-        }),
-      }),
-    )
+    const commands: string[] = []
+    const runner = CommandRunner.layer((command) => {
+      commands.push(command)
+      if (command === "tailscale status --json") {
+        return Effect.succeed({
+          status: 0,
+          output: JSON.stringify({
+            BackendState: "Running",
+            CertDomains: ["host.tailnet.ts.net"],
+            Self: { DNSName: "host.tailnet.ts.net." },
+          }),
+        })
+      }
+      // "tailscale serve status --json" (the orphan check/live-mapping probe,
+      // run twice — once before publishing, once at teardown) and "tailscale
+      // serve --bg ..." (the publish itself) all succeed with no prior
+      // mapping on this port.
+      return Effect.succeed({ status: 0, output: "{}" })
+    })
 
     const fiber = Effect.runFork(
       runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
-        Effect.provide(fakeHttpsServer),
+        Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
         Effect.provide(Cwd.layer(tmpDir)),
@@ -666,13 +714,16 @@ describe("runUiCommand", () => {
 
     await waitForWrites(written, 1)
 
-    expect(written[0]).toBe("https://host.tailnet.ts.net:4443/\n")
-    expect(boundHost).toBe("100.90.1.2")
+    expect(written[0]).toBe("https://host.tailnet.ts.net:8443/\n")
+    // Never a 100.64.0.0/10 CGNAT address — the loopback listener binds
+    // 127.0.0.1, letting `tailscaled` proxy in over the tailnet instead.
+    expect(boundHost).toBe("127.0.0.1")
+    expect(commands.some((c) => c.startsWith("tailscale serve --bg"))).toBe(true)
 
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
-  it("prints the CGNAT IP, exactly as before, as the displayed URL when the probe finds no backend", async () => {
+  it("no --host/ui.host given, no Tailscale backend detected: falls back to the direct CGNAT bind, printing the fallback reason above the URL", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out, written } = fakeOut()
@@ -683,30 +734,32 @@ describe("runUiCommand", () => {
 
     vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
     let boundHost: string | undefined
-    const fakeHttpsServer = Layer.succeed(HttpsServer, {
-      listen: (_certPair, host) => {
+    const fakeUiListener = Layer.succeed(UiListener, {
+      listen: ({ host }) => {
         boundHost = host
         return Effect.succeed({ port: 4443, close: () => {} })
       },
     })
     // The empty-probe case: BackendState isn't "Running", one of the three
-    // ways `Tailscale.ts#parseTailscaleStatus` falls back to `undefined`.
+    // ways `Tailscale.ts#parseTailscaleStatus` falls back to `undefined` —
+    // `attemptServe` bails before ever touching a socket or a record file.
     const runner = CommandRunner.layer(() =>
       Effect.succeed({ status: 0, output: JSON.stringify({ BackendState: "Stopped" }) }),
     )
 
     const fiber = Effect.runFork(
       runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
-        Effect.provide(fakeHttpsServer),
+        Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
         Effect.provide(Cwd.layer(tmpDir)),
       ),
     )
 
-    await waitForWrites(written, 1)
+    await waitForWrites(written, 2)
 
-    expect(written[0]).toBe("https://100.90.1.2:4443/\n")
+    expect(written[0]).toContain("not using tailscale serve")
+    expect(written[1]).toBe("https://100.90.1.2:4443/\n")
     expect(boundHost).toBe("100.90.1.2")
 
     await Effect.runPromise(Fiber.interrupt(fiber))
@@ -721,7 +774,7 @@ describe("runUiCommand", () => {
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
-    const fakeHttpsServer = Layer.succeed(HttpsServer, {
+    const fakeUiListener = Layer.succeed(UiListener, {
       listen: () => Effect.succeed({ port: 4443, close: () => {} }),
     })
 
@@ -731,7 +784,7 @@ describe("runUiCommand", () => {
         { cert: certPath, key: keyPath },
         out,
       ).pipe(
-        Effect.provide(fakeHttpsServer),
+        Effect.provide(fakeUiListener),
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
         Effect.provide(Cwd.layer(tmpDir)),
@@ -742,6 +795,307 @@ describe("runUiCommand", () => {
     expect(written[0]).toBe("https://1.2.3.4:4443/\n")
 
     await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
+  it("--self-signed skips the serve attempt entirely, even with no --host given — no `tailscale serve` invocation at all", async () => {
+    initGitRepo(tmpDir)
+    installFakeGtd(tmpDir, renderablePromptJson)
+    const { out, written } = fakeOut()
+
+    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    const fakeUiListener = Layer.succeed(UiListener, {
+      listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+    })
+    // `resolveHostsAndCert`'s own pre-existing Tailscale STATUS probe (for a
+    // display hostname in the self-signed cert's SAN) still runs, and
+    // `--self-signed` itself shells out to real `openssl` — only the serve
+    // ATTEMPT (`tailscale serve status`/`tailscale serve --bg`) is what
+    // --self-signed skips, so `openssl` commands are run for real here
+    // (mirroring `CommandRunner.Live`) rather than faked, letting
+    // `generateSelfSignedCert` read back real PEM files afterward.
+    const commands: string[] = []
+    const runner = CommandRunner.layer((command) => {
+      commands.push(command)
+      if (command.startsWith("openssl")) {
+        try {
+          const output = execSync(command, { shell: "/bin/bash" }).toString()
+          return Effect.succeed({ status: 0, output })
+        } catch (e) {
+          return Effect.succeed({ status: 1, output: e instanceof Error ? e.message : String(e) })
+        }
+      }
+      return Effect.succeed({ status: 0, output: JSON.stringify({ BackendState: "Stopped" }) })
+    })
+
+    const fiber = Effect.runFork(
+      runUiCommand({ selfSigned: true, dev: false }, undefined, out).pipe(
+        Effect.provide(fakeUiListener),
+        Effect.provide(runner),
+        Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.layer(tmpDir)),
+      ),
+    )
+
+    await waitForWrites(written, 1)
+    expect(written[0]).toBe("https://100.90.1.2:4443/\n")
+    expect(commands.some((c) => c.includes("tailscale serve"))).toBe(false)
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
+  it("no --host given, tailscale serve itself fails to publish: falls back to the direct CGNAT bind — never a refusal", async () => {
+    initGitRepo(tmpDir)
+    installFakeGtd(tmpDir, renderablePromptJson)
+    const { out, written } = fakeOut()
+    const certPath = join(tmpDir, "cert.pem")
+    const keyPath = join(tmpDir, "key.pem")
+    writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+    writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+
+    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    const fakeUiListener = Layer.succeed(UiListener, {
+      listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+    })
+    // A configured ui.cert/ui.key so the FALLBACK's own certificate
+    // resolution needs no further CommandRunner call of its own — isolating
+    // this test to the one thing under test, the publish failure itself.
+    const runner = CommandRunner.layer((command) => {
+      if (command === "tailscale status --json") {
+        return Effect.succeed({
+          status: 0,
+          output: JSON.stringify({
+            BackendState: "Running",
+            CertDomains: ["host.tailnet.ts.net"],
+            Self: { DNSName: "host.tailnet.ts.net." },
+          }),
+        })
+      }
+      if (command === "tailscale serve status --json") {
+        return Effect.succeed({ status: 0, output: "{}" })
+      }
+      // The publish call itself: a non-zero exit, never a failed Effect.
+      return Effect.succeed({ status: 1, output: "", stderr: "tailscale: needs operator access" })
+    })
+
+    const fiber = Effect.runFork(
+      runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+        Effect.provide(fakeUiListener),
+        Effect.provide(runner),
+        Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.layer(tmpDir)),
+      ),
+    )
+
+    await waitForWrites(written, 2)
+    expect(written[0]).toContain("not using tailscale serve")
+    // The fallback's own `resolveHostsAndCert` still probes Tailscale status
+    // for a DISPLAY hostname (pre-existing behavior, unrelated to serve) —
+    // it binds the CGNAT IP but displays the probed tailnet hostname, same
+    // as the "probed Tailscale hostname" scenario above.
+    expect(written[1]).toBe("https://host.tailnet.ts.net:4443/\n")
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
+  describe("Task 4's ownership guarantees, exercised through the real ~/.gtd/serve/<port>.json record", () => {
+    // A port dedicated to these three tests — distinct from the "no --host"
+    // happy-path test above (default 8443) and from
+    // `ui-lifecycle.feature`'s own real-tailscale-shim `@live` scenario
+    // (18443) — so a concurrently-running project never races the same
+    // real record file.
+    const orphanPort = 18444
+
+    afterEach(() => {
+      deleteServeRecord(orphanPort)
+    })
+
+    it("a foreign live mapping with no record of ours is left untouched — falls back to the direct bind, never publishes", async () => {
+      initGitRepo(tmpDir)
+      installFakeGtd(tmpDir, renderablePromptJson)
+      const { out, written } = fakeOut()
+      const certPath = join(tmpDir, "cert.pem")
+      const keyPath = join(tmpDir, "key.pem")
+      writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+      writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+
+      const commands: string[] = []
+      const runner = CommandRunner.layer((command) => {
+        commands.push(command)
+        if (command === "tailscale status --json") {
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              BackendState: "Running",
+              CertDomains: ["host.tailnet.ts.net"],
+              Self: { DNSName: "host.tailnet.ts.net." },
+            }),
+          })
+        }
+        if (command === "tailscale serve status --json") {
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              Web: {
+                [`some-other-node.tailnet.ts.net:${orphanPort}`]: {
+                  Handlers: { "/": { Proxy: "http://127.0.0.1:9999" } },
+                },
+              },
+            }),
+          })
+        }
+        throw new Error(`unexpected command: ${command}`)
+      })
+      const fakeUiListener = Layer.succeed(UiListener, {
+        listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+      })
+
+      const fiber = Effect.runFork(
+        runUiCommand(
+          { selfSigned: false, dev: false, port: orphanPort },
+          { cert: certPath, key: keyPath },
+          out,
+        ).pipe(
+          Effect.provide(fakeUiListener),
+          Effect.provide(runner),
+          Effect.provide(NodeContext.layer),
+          Effect.provide(Cwd.layer(tmpDir)),
+        ),
+      )
+
+      await waitForWrites(written, 2)
+      expect(written[0]).toContain("not using tailscale serve")
+      expect(written[1]).toBe("https://host.tailnet.ts.net:4443/\n")
+      expect(commands.some((c) => c.startsWith("tailscale serve --bg"))).toBe(false)
+      expect(readServeRecord(orphanPort)).toBeUndefined()
+
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    })
+
+    it("a record naming a dead pid is cleared before publishing — unpublished, deleted, then a fresh mapping published", async () => {
+      initGitRepo(tmpDir)
+      installFakeGtd(tmpDir, renderablePromptJson)
+      const { out, written } = fakeOut()
+
+      writeServeRecord(orphanPort, {
+        pid: 999_999_999, // never a real pid on any machine running this test
+        servePort: orphanPort,
+        targetPort: 1,
+        target: "http://127.0.0.1:1",
+        worktree: "/repo/stale-worktree",
+      })
+
+      const commands: string[] = []
+      const runner = CommandRunner.layer((command) => {
+        commands.push(command)
+        if (command === "tailscale status --json") {
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              BackendState: "Running",
+              CertDomains: ["host.tailnet.ts.net"],
+              Self: { DNSName: "host.tailnet.ts.net." },
+            }),
+          })
+        }
+        // Both the orphan-check's own status probe and the publish/unpublish
+        // calls succeed unconditionally — this test is only about ORDER
+        // (unpublish-then-publish) and the record's own final state.
+        return Effect.succeed({ status: 0, output: "{}" })
+      })
+      const fakeUiListener = Layer.succeed(UiListener, {
+        listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+      })
+
+      const fiber = Effect.runFork(
+        runUiCommand({ selfSigned: false, dev: false, port: orphanPort }, undefined, out).pipe(
+          Effect.provide(fakeUiListener),
+          Effect.provide(runner),
+          Effect.provide(NodeContext.layer),
+          Effect.provide(Cwd.layer(tmpDir)),
+        ),
+      )
+
+      await waitForWrites(written, 1)
+      expect(written[0]).toBe(`https://host.tailnet.ts.net:${orphanPort}/\n`)
+
+      const offIndex = commands.findIndex((c) => c.includes(`--https=${orphanPort} off`))
+      const publishIndex = commands.findIndex((c) => c.startsWith("tailscale serve --bg"))
+      expect(offIndex).toBeGreaterThanOrEqual(0)
+      expect(publishIndex).toBeGreaterThan(offIndex)
+
+      const freshRecord = readServeRecord(orphanPort)
+      expect(freshRecord?.pid).toBe(process.pid)
+      expect(freshRecord?.targetPort).toBe(4443)
+
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    })
+
+    it("teardown: a record whose target no longer matches the live mapping is deleted WITHOUT unpublishing it", async () => {
+      initGitRepo(tmpDir)
+      installFakeGtd(tmpDir, renderablePromptJson)
+      const { out, written } = fakeOut()
+
+      const commands: string[] = []
+      // The FIRST "tailscale serve status --json" is the orphan check ahead
+      // of publishing — empty, so this run's own publish proceeds normally.
+      // Every call AFTER that is teardown's own re-read: the live mapping
+      // now points somewhere else, as if another process took the port over
+      // while this one was up.
+      let serveStatusCalls = 0
+      const runner = CommandRunner.layer((command) => {
+        commands.push(command)
+        if (command === "tailscale status --json") {
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              BackendState: "Running",
+              CertDomains: ["host.tailnet.ts.net"],
+              Self: { DNSName: "host.tailnet.ts.net." },
+            }),
+          })
+        }
+        if (command === "tailscale serve status --json") {
+          serveStatusCalls += 1
+          if (serveStatusCalls === 1) return Effect.succeed({ status: 0, output: "{}" })
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              Web: {
+                [`someone-else.tailnet.ts.net:${orphanPort}`]: {
+                  Handlers: { "/": { Proxy: "http://127.0.0.1:55555" } },
+                },
+              },
+            }),
+          })
+        }
+        return Effect.succeed({ status: 0, output: "{}" })
+      })
+      const fakeUiListener = Layer.succeed(UiListener, {
+        listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+      })
+
+      const fiber = Effect.runFork(
+        runUiCommand({ selfSigned: false, dev: false, port: orphanPort }, undefined, out).pipe(
+          Effect.provide(fakeUiListener),
+          Effect.provide(runner),
+          Effect.provide(NodeContext.layer),
+          Effect.provide(Cwd.layer(tmpDir)),
+        ),
+      )
+
+      await waitForWrites(written, 1)
+      // A record now exists (this run's own publish, since no record existed
+      // beforehand and no foreign mapping was reported — the scripted
+      // "tailscale serve status --json" above is only consulted for the
+      // orphan check BEFORE the record below is written by this same run).
+      expect(readServeRecord(orphanPort)).toBeDefined()
+
+      await Effect.runPromise(Fiber.interrupt(fiber))
+
+      expect(readServeRecord(orphanPort)).toBeUndefined()
+      expect(commands.some((c) => c.includes(`--https=${orphanPort} off`))).toBe(false)
+    })
   })
 
   it("T5: under --dev, rebuilds the client exactly once at startup — no HTTP request triggers a rebuild", async () => {
@@ -768,8 +1122,8 @@ describe("runUiCommand", () => {
     })
 
     let handler: ((req: http.IncomingMessage, res: http.ServerResponse) => void) | undefined
-    const fakeHttpsServer = Layer.succeed(HttpsServer, {
-      listen: (_certPair, _host, _port, h) => {
+    const fakeUiListener = Layer.succeed(UiListener, {
+      listen: ({ handler: h }) => {
         handler = h
         return Effect.succeed({ port: 4443, close: () => {} })
       },
@@ -781,7 +1135,7 @@ describe("runUiCommand", () => {
         { host: "100.90.1.2", cert: certPath, key: keyPath },
         out,
       ).pipe(
-        Effect.provide(fakeHttpsServer),
+        Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provideService(FileSystem.FileSystem, devFs),
         Effect.provide(Cwd.layer(tmpDir)),
@@ -816,12 +1170,12 @@ describe("runUiCommand", () => {
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
-  it("refuses before ever reaching HttpsServer when no host resolves", async () => {
+  it("refuses before ever reaching UiListener when no host resolves", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out } = fakeOut()
     let listenCalled = false
-    const fakeHttpsServer = Layer.succeed(HttpsServer, {
+    const fakeUiListener = Layer.succeed(UiListener, {
       listen: () => {
         listenCalled = true
         return Effect.succeed({ port: 1, close: () => {} })
@@ -830,7 +1184,7 @@ describe("runUiCommand", () => {
 
     const exit = await Effect.runPromiseExit(
       runUiCommand({ selfSigned: false, dev: false }, undefined, out).pipe(
-        Effect.provide(fakeHttpsServer),
+        Effect.provide(fakeUiListener),
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
         Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({} as never)),
@@ -843,7 +1197,7 @@ describe("runUiCommand", () => {
   })
 
   describe("refusing to start on a step the UI cannot render", () => {
-    /** Runs `runUiCommand` over `beatJson` and returns whether it ever reached `HttpsServer.listen` plus the thrown error, if any — every case here must refuse before binding, at exit-usage severity (`GtdUsageError`). Pre-written cert/key files (mirroring the URL-printing test above), so `noCommandRunner` (unreachable — `loadCertPair` only reads files) proves a refusal happens before certificate resolution could ever shell out. */
+    /** Runs `runUiCommand` over `beatJson` and returns whether it ever reached `UiListener.listen` plus the thrown error, if any — every case here must refuse before binding, at exit-usage severity (`GtdUsageError`). Pre-written cert/key files (mirroring the URL-printing test above), so `noCommandRunner` (unreachable — `loadCertPair` only reads files) proves a refusal happens before certificate resolution could ever shell out. */
     const attemptStart = async (
       beatJson: string,
     ): Promise<{ readonly listenCalled: boolean; readonly error: unknown }> => {
@@ -855,7 +1209,7 @@ describe("runUiCommand", () => {
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
       const { out } = fakeOut()
       let listenCalled = false
-      const fakeHttpsServer = Layer.succeed(HttpsServer, {
+      const fakeUiListener = Layer.succeed(UiListener, {
         listen: () => {
           listenCalled = true
           return Effect.succeed({ port: 1, close: () => {} })
@@ -875,7 +1229,7 @@ describe("runUiCommand", () => {
           { host: "100.90.1.2", cert: certPath, key: keyPath },
           out,
         ).pipe(
-          Effect.provide(fakeHttpsServer),
+          Effect.provide(fakeUiListener),
           Effect.provide(noCommandRunner),
           Effect.provide(NodeContext.layer),
           Effect.provide(Cwd.layer(tmpDir)),
@@ -1009,7 +1363,7 @@ const refusalDataFrom = async <T>(promise: Promise<unknown>): Promise<T | undefi
  * renderable prompt step (`renderablePromptJson`, actor "human" so the
  * write path never refuses `not-resting`), and starts a real `runUiCommand`
  * over `dir` as the served worktree — polling for the bound URL `out.write`
- * prints once `HttpsServer.Live` actually binds the ephemeral port.
+ * prints once `UiListener.Live` actually binds the ephemeral port.
  */
 const startRealServer = async (
   dir: string,
@@ -1038,7 +1392,7 @@ const startRealServer = async (
       { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0 },
       out,
     ).pipe(
-      Effect.provide(HttpsServer.Live),
+      Effect.provide(UiListener.Live),
       Effect.provide(noCommandRunner),
       Effect.provide(NodeContext.layer),
       Effect.provide(Cwd.layer(dir)),

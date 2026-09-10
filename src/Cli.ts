@@ -13,7 +13,7 @@ import { GitService } from "./Git.js"
 import { runCommand, SelectorUsageError, type CommandRequirements } from "./program.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
-import { HttpsServer } from "./ui/Server.js"
+import { UiListener } from "./ui/Server.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
 
 export type { CommandRequirements }
@@ -1119,7 +1119,7 @@ export const nodeCliIo: CliIo = {
       CommandRunner.Live,
       EnvVars.Live,
       Narrator.layer(writeStderr, verbose),
-      HttpsServer.Live,
+      UiListener.Live,
     ).pipe(
       Layer.provideMerge(GitService.Live),
       Layer.provideMerge(Cwd.Live),

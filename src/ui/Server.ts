@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
+import * as http from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import * as https from "node:https"
 import { isIP } from "node:net"
@@ -27,6 +28,14 @@ import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript, inlineStyles } from "./scriptTag.mjs"
+import {
+  deleteServeRecord,
+  parseServeStatus,
+  publishServe,
+  readServeRecord,
+  unpublishServe,
+  writeServeRecord,
+} from "./Serve.js"
 import { probeTailscaleStatus, type TailscaleStatus } from "./Tailscale.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert, type CertPair } from "./Tls.js"
 import {
@@ -150,30 +159,35 @@ export const resolveCertPair = (
   )
 }
 
+/** `UiListener.listen`'s options: `tls` present means terminate TLS here (today's exact behavior); `tls` absent means a plain loopback listener for a `tailscale serve` reverse proxy to dial (Task 3). */
+interface UiListenOptions {
+  readonly tls?: CertPair
+  readonly host: string
+  readonly port: number
+  readonly handler: RequestHandler
+}
+
 /**
- * The subprocess/socket port for the actual TLS listen — isolated behind a
+ * The subprocess/socket port for the actual listen — isolated behind a
  * service tag (mirroring `CommandRunner`) so tests can swap in a fake
- * without a real socket bind or a real certificate.
+ * without a real socket bind or a real certificate. One method, not two:
+ * `tls` present picks `https.createServer`, absent picks a plain
+ * `http.createServer` — the fake in `Server.test.ts` stays a single
+ * function either way.
  */
-export class HttpsServer extends Context.Tag("HttpsServer")<
-  HttpsServer,
+export class UiListener extends Context.Tag("UiListener")<
+  UiListener,
   {
-    readonly listen: (
-      certPair: CertPair,
-      host: string,
-      port: number,
-      handler: RequestHandler,
-    ) => Effect.Effect<BoundServer, GtdError>
+    readonly listen: (options: UiListenOptions) => Effect.Effect<BoundServer, GtdError>
   }
 >() {
-  static readonly Live = Layer.succeed(HttpsServer, {
-    listen: (certPair, host, port, handler) =>
+  static readonly Live = Layer.succeed(UiListener, {
+    listen: ({ tls, host, port, handler }) =>
       Effect.async<BoundServer, GtdError>((resume) => {
-        // Unconditionally `https.createServer` — no code path in this module
-        // ever constructs a plain `http.createServer`: a phone client
-        // reachable over a tailnet gets TLS on its own merits, a deliberate
-        // policy rather than a technical requirement.
-        const server = https.createServer({ cert: certPair.cert, key: certPair.key }, handler)
+        const server =
+          tls !== undefined
+            ? https.createServer({ cert: tls.cert, key: tls.key }, handler)
+            : http.createServer(handler)
         server.once("error", (err: NodeJS.ErrnoException) => {
           resume(
             Effect.fail(
@@ -248,7 +262,7 @@ const readDevTemplate = (
  * package's OWN directory, never the invoking cwd) as its working directory —
  * a plain `npx tsdown` in the invoking directory would have no tsdown.config.ts
  * to select against, since `ui` deliberately runs outside any repo. Called
- * exactly ONCE, ahead of `httpsServer.listen` (T5) — an HTTP request can no
+ * exactly ONCE, ahead of `uiListener.listen` (T5) — an HTTP request can no
  * longer trigger this build: the server lives for exactly one step, so a
  * mid-step rebuild would have nothing left to reflect, and a build per
  * unauthenticated request was subprocess amplification for free.
@@ -340,7 +354,7 @@ export const resolveClientHtml = (
       )
     : Effect.succeed(generatedClientHtml)
 
-export type UiRequirements = CommandRunner | FileSystem.FileSystem | HttpsServer | Cwd
+export type UiRequirements = CommandRunner | FileSystem.FileSystem | UiListener | Cwd
 
 /** Every dependency `readStep` needs, wired to the real subprocess/filesystem reads — `gtd ui` never injects a fake here, unlike its own test suite. */
 const liveBeatDeps = {
@@ -431,6 +445,189 @@ const resolveHostsAndCert = (
     return { bindHost, displayHost, certPair }
   })
 
+/** `process.kill(pid, 0)` sends no signal, just probes liveness — throws (ESRCH/EPERM) for a dead or unreachable pid. */
+const isPidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Re-reads `tailscale serve status --json` fresh — used both by the orphan check (Task 4, before publishing) and by teardown (after) — a non-zero exit or spawn failure reads as "nothing published", the same empty-is-not-a-failure rule `Serve.ts#parseServeStatus` already sets. */
+const readLiveServeMapping = (
+  servePort: number,
+): Effect.Effect<ReturnType<typeof parseServeStatus>, never, CommandRunner> =>
+  Effect.gen(function* () {
+    const runner = yield* CommandRunner
+    const outcome = yield* runner
+      .bash("tailscale serve status --json")
+      .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+    if (outcome === undefined || outcome.status !== 0) return undefined
+    return parseServeStatus(outcome.output, servePort)
+  })
+
+/**
+ * Task 4's ownership guarantees, run before ever publishing: a foreign live
+ * mapping with no record of ours is left untouched (the caller falls back to
+ * a direct bind rather than overwriting it); a record naming a dead pid (or,
+ * degenerate but cheap to check, our own) is stale — cleared via
+ * `unpublishServe` before a fresh publish; a record naming another LIVE gtd
+ * ui is left alone too, since two instances racing the same port is exactly
+ * the case ownership exists to prevent. Returns `true` when it's safe to
+ * proceed to `publishServe`, `false` when the caller should fall back
+ * without ever calling it.
+ */
+const clearOrphanForPublish = (servePort: number): Effect.Effect<boolean, never, CommandRunner> =>
+  Effect.gen(function* () {
+    const record = readServeRecord(servePort)
+    if (record === undefined) {
+      const live = yield* readLiveServeMapping(servePort)
+      return live === undefined
+    }
+    if (isPidAlive(record.pid) && record.pid !== process.pid) return false
+    yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+    deleteServeRecord(servePort)
+    return true
+  })
+
+/** What a serve attempt yields the caller: either a bound loopback listener plus the printable tailnet URL, or a one-line reason to fall back on — never a failed Effect (Task 3's own "never refuses" rule). */
+type ServeAttempt =
+  | { readonly ok: true; readonly bound: BoundServer; readonly url: string }
+  | { readonly ok: false; readonly reason: string }
+
+/**
+ * Task 3's serve-first path: probe for a tailnet hostname, run the Task 4
+ * orphan check, bind an EPHEMERAL loopback listener (nothing outside the
+ * machine dials it directly — `tailscaled` terminates TLS and proxies in),
+ * then `publishServe` on `servePort`. Every failure — no tailnet, an
+ * unclearable foreign mapping, a non-zero `tailscale serve` exit — closes
+ * whatever it bound and returns `ok: false` with one human-readable reason;
+ * it never fails the Effect, so `runUiCommand` always has a direct-bind
+ * fallback available.
+ */
+const attemptServe = (
+  servePort: number,
+  worktree: string,
+  uiListener: Context.Tag.Service<typeof UiListener>,
+  handler: RequestHandler,
+): Effect.Effect<ServeAttempt, GtdError, CommandRunner> =>
+  Effect.gen(function* () {
+    const tailscaleStatus = yield* probeTailscaleStatus()
+    if (tailscaleStatus === undefined) {
+      return { ok: false, reason: "no Tailscale backend detected" } as const
+    }
+
+    const clearedForPublish = yield* clearOrphanForPublish(servePort)
+    if (!clearedForPublish) {
+      return {
+        ok: false,
+        reason: `port ${servePort} already carries a tailscale serve mapping this instance does not own`,
+      } as const
+    }
+
+    const bound = yield* uiListener.listen({ host: "127.0.0.1", port: 0, handler })
+    const publishResult = yield* publishServe({ servePort, targetPort: bound.port }).pipe(
+      Effect.catchAll((e) => Effect.succeed({ ok: false as const, reason: e.message, output: "" })),
+    )
+    if (!publishResult.ok) {
+      yield* Effect.sync(() => bound.close())
+      return { ok: false, reason: `tailscale serve failed: ${publishResult.reason}` } as const
+    }
+
+    writeServeRecord(servePort, {
+      pid: process.pid,
+      servePort,
+      targetPort: bound.port,
+      target: `http://127.0.0.1:${bound.port}`,
+      worktree,
+    })
+
+    const url =
+      servePort === 443
+        ? `https://${tailscaleStatus.hostname}/`
+        : `https://${tailscaleStatus.hostname}:${servePort}/`
+    return { ok: true, bound, url } as const
+  })
+
+/**
+ * Task 4's teardown half of `attemptServe`: removes only a mapping THIS
+ * instance published. No record at all (serve was never attempted, or the
+ * direct-bind fallback ran instead) is a silent no-op. A record whose live
+ * mapping still points at our own `target` is unpublished, then deleted; a
+ * record whose target has since diverged means another process took the
+ * port over already — deleted without touching that mapping. Never fails:
+ * this runs inside `Effect.ensuring`, which requires it.
+ */
+const teardownServe = (servePort: number): Effect.Effect<void, never, CommandRunner> =>
+  Effect.gen(function* () {
+    const record = readServeRecord(servePort)
+    if (record === undefined) return
+    const live = yield* readLiveServeMapping(servePort)
+    if (live !== undefined && live.targetUrl === record.target) {
+      yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+    }
+    deleteServeRecord(servePort)
+  })
+
+/**
+ * Task 3's full control flow, factored out of `runUiCommand`'s own generator
+ * so that function's own cyclomatic/cognitive complexity stays flat (mirrors
+ * why `resolveHostsAndCert` was pulled out for Package 02): an explicit
+ * `--host`/`ui.host` or `--self-signed` skips serve entirely (step 1);
+ * otherwise `attemptServe` is tried first, its own failure reason printed
+ * above the URL before falling back (step 3) — never a refusal either way.
+ */
+const resolveListener = (args: {
+  readonly options: UiCommandOptions
+  readonly config: UiConfig | undefined
+  readonly port: number
+  readonly explicitHost: string | undefined
+  readonly worktree: string
+  readonly uiListener: Context.Tag.Service<typeof UiListener>
+  readonly handler: RequestHandler
+  readonly out: ArtifactOut
+}): Effect.Effect<
+  {
+    readonly bound: BoundServer
+    readonly url: string
+    readonly teardown: Effect.Effect<void, never, CommandRunner>
+  },
+  GtdError,
+  CommandRunner | FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const { options, config, port, explicitHost, worktree, uiListener, handler, out } = args
+
+    const directBind = (): Effect.Effect<
+      { readonly bound: BoundServer; readonly url: string },
+      GtdError,
+      CommandRunner | FileSystem.FileSystem
+    > =>
+      Effect.gen(function* () {
+        const { bindHost, displayHost, certPair } = yield* resolveHostsAndCert(options, config)
+        const bound = yield* uiListener.listen({ tls: certPair, host: bindHost, port, handler })
+        return { bound, url: `https://${displayHost}:${bound.port}/` }
+      })
+
+    if (explicitHost !== undefined || options.selfSigned) {
+      const { bound, url } = yield* directBind()
+      // The direct bind never touches `tailscale serve` — its teardown is a no-op.
+      return { bound, url, teardown: Effect.void }
+    }
+
+    const attempt = yield* attemptServe(port, worktree, uiListener, handler)
+    if (attempt.ok) {
+      return { bound: attempt.bound, url: attempt.url, teardown: teardownServe(port) }
+    }
+    // Never a refusal — one line naming why, above the printed URL, then
+    // today's direct bind exactly as if serve had never been attempted.
+    out.write(`gtd ui: not using tailscale serve — ${attempt.reason}\n`)
+    const { bound, url } = yield* directBind()
+    return { bound, url, teardown: Effect.void }
+  })
+
 /**
  * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
  * worktree `Cwd` names — never a fleet, never a spawned loop. The server
@@ -463,13 +660,13 @@ export const runUiCommand = (
 
     const runner = yield* CommandRunner
     const fs = yield* FileSystem.FileSystem
-    const httpsServer = yield* HttpsServer
+    const uiListener = yield* UiListener
     const runtime = yield* Effect.runtime<UiRequirements>()
 
-    const { bindHost, displayHost, certPair } = yield* resolveHostsAndCert(options, config)
     const port = options.port ?? config?.port ?? DEFAULT_PORT
+    const explicitHost = options.host ?? config?.host
 
-    // T5: resolved ONCE, here, ahead of `httpsServer.listen` — never inside
+    // T5: resolved ONCE, here, ahead of `uiListener.listen` — never inside
     // the request handler. The server lives for exactly one step, so a
     // mid-step `--dev` rebuild would have nothing left to reflect, and a
     // build per unauthenticated HTTP request was subprocess amplification
@@ -577,9 +774,20 @@ export const runUiCommand = (
       res.end(clientHtml)
     }
 
-    const bound = yield* httpsServer.listen(certPair, bindHost, port, handler)
-    const url = `https://${displayHost}:${bound.port}/`
+    const { bound, url, teardown } = yield* resolveListener({
+      options,
+      config,
+      port,
+      explicitHost,
+      worktree: cwd.root,
+      uiListener,
+      handler,
+      out,
+    })
+
     out.write(`${url}\n`)
     out.flush()
-    yield* Deferred.await(handoffDeferred).pipe(Effect.ensuring(Effect.sync(() => bound.close())))
+    yield* Deferred.await(handoffDeferred).pipe(
+      Effect.ensuring(Effect.sync(() => bound.close()).pipe(Effect.andThen(teardown))),
+    )
   })
