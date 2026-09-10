@@ -1,36 +1,5 @@
 # Requirements
 
-## Open Questions
-
-### With dictation gone, does `gtd ui` stay HTTPS-only?
-
-`src/Cli.ts#492` justifies the no-plain-http rule with one reason and only one:
-"the Web Speech API is secure-context-only". Removing dictation removes that
-reason. The rule can stay on other grounds, but the stated reason becomes false
-either way, and `docs/cli.md`'s `## Commands` block is PINNED to the rendered
-help — so the help text has to change in the same commit regardless.
-
-- [x] HTTPS-only stays, reason reworded — a phone client over a tailnet wants
-      TLS on its own merits; the cert/`--self-signed` machinery is untouched
-- [ ] Allow plain http too — nothing left in the client needs a secure context,
-      so drop the constraint and the cert requirement with it
-- [ ] _your answer_
-
-### What replaces the "Use your keyboard's mic key to dictate" hint?
-
-That string is not decoration next to the button — it is the
-`state.available === false` BRANCH of the same `Mic` render prop
-(`src/web/NoteSheet.tsx#190`, `src/web/screens/Question.tsx#143`). Removing
-`Mic` removes the thing that decides which of the two shows, so the hint's fate
-is a separate call from the button's. Note that with in-page dictation gone the
-hint is now true for EVERY browser, not just the unsupported ones.
-
-- [x] Drop it — the on-screen keyboard's mic key needs no signpost, and an empty
-      note-sheet footer is one less thing on a small screen
-- [ ] Keep it as static text, shown unconditionally — it is now universally
-      accurate, and it is the only cue that dictation is still possible at all
-- [ ] _your answer_
-
 ## PRODUCT — Remove the QR code
 
 The QR code printed on server start has no purpose. Remove it, its module, and
@@ -64,13 +33,27 @@ Remove the control and everything that exists only to serve it.
   lines), including its hand-written `SpeechRecognition` type shims.
 - `src/web/Mic.stories.tsx` — its stories (250 lines).
 - `src/web/NoteSheet.tsx#177` — the `Mic` wrapper, the `note-sheet-mic` button,
-  `note-sheet-mic-hint`, and `note-sheet-mic-interim`.
+  `note-sheet-mic-interim`, AND `note-sheet-mic-hint`. The hint string goes too:
+  it is the `state.available === false` branch of the same render prop, and the
+  answer is to drop it, not to keep it as static text. The note-sheet footer
+  keeps only its Save/Dismiss controls.
 - `src/web/screens/Question.tsx#131` — the `Mic` wrapper, `mic-toggle`,
-  `mic-hint`, and `mic-interim` on the free-text answer.
+  `mic-interim`, and `mic-hint`, on the same rule.
 - `src/web/NoteSheet.stories.tsx`, `src/web/screens/Question.stories.tsx` — the
   stories that install `window.SpeechRecognition` and assert those test ids.
-- `src/Cli.ts#492` and `docs/cli.md#77` — the `ui` help text, per the first open
-  question above. These two are pinned equal to each other.
+  Anything asserting the hint is deleted, not repointed at a surviving element.
+- `src/Cli.ts#492` and `docs/cli.md#77` — the `ui` help text. These two are
+  pinned equal to each other, so both change or the gate reds.
+
+`gtd ui` stays HTTPS-only, and the help text says so for a new reason. The old
+one — "the Web Speech API is secure-context-only" — is the only reason given,
+and it is false the moment `Mic` is deleted. Nothing else in the client needs a
+secure context: `src/web/` has no `navigator.clipboard`, no `serviceWorker`, no
+`crypto.subtle`, no `getUserMedia`. So the constraint is now a deliberate
+policy, not a technical requirement, and the replacement wording must say that
+straight — a phone client reachable over a tailnet gets TLS on its own merits.
+Do not swap in another invented technical justification. The
+cert/`--self-signed`/`ui.cert`/`ui.key` machinery is untouched.
 
 Also dead once `Mic` is gone, and easy to leave behind because nothing
 type-errors: `Question.tsx`'s `onDictate` prop, and the FUNCTIONAL-updater shape
@@ -182,3 +165,15 @@ string, so a render-side filter fixes one surface and leaves the rest wrong.
 Yes, and they already can — they occupy separate storage in the file (pointer
 text versus a footnote definition), so separating them in the view needs no
 format change at all.
+
+### With dictation gone, does `gtd ui` stay HTTPS-only?
+
+Yes. HTTPS-only stays and the stated reason is reworded — a phone client over a
+tailnet wants TLS on its own merits. Plain http was rejected. The cert and
+`--self-signed` machinery is untouched.
+
+### What replaces the "Use your keyboard's mic key to dictate" hint?
+
+Nothing. The hint is deleted with the button. The on-screen keyboard's mic key
+needs no signpost, and an empty note-sheet footer is one less thing on a small
+screen.
