@@ -84,9 +84,9 @@ export interface ReviewViewProps {
    * this view shows a named reason instead of the write silently reverting.
    * The optional second argument (task 01) mirrors
    * `Plan.tsx#PlanViewProps.onRefusal`'s identical doc comment — see that
-   * for why `saveNote`/`autoSaveNote`/`toggleChunk`/`setHunkChecked` below
-   * each supply one and `doneNote` doesn't. Absent in `Review.stories.tsx`'s
-   * pure-data stories.
+   * for why `saveNote`/`toggleChunk`/`setHunkChecked` below each supply one
+   * and `doneNote` doesn't. Absent in `Review.stories.tsx`'s pure-data
+   * stories.
    */
   readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
 }
@@ -173,28 +173,6 @@ const useReviewState = (
         return next
       })
     })
-  }
-
-  /** Debounced/unmount write-through (package 03 Task 5) — same optimistic update and revert-on-rejection as `saveNote`, but never dismisses the sheet: `NoteSheet`'s own `onAutoSave`, not a second `onSave`. */
-  const autoSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    setNotes((prev) => ({ ...prev, [noteKey(anchor)]: text }))
-    return (
-      onSaveNote?.(anchor, text)?.catch((error: unknown) => {
-        onRefusal?.(error, () => onSaveNote(anchor, text))
-        setNotes((prev) => {
-          const next = { ...prev }
-          delete next[noteKey(anchor)]
-          return next
-        })
-        // Rethrown, unlike `saveNote`'s own identical wrapper — the caller
-        // is `NoteSheet.tsx`'s own `runAutoSave`, which rolls its
-        // `lastAutoSavedRef` back to retry ONLY on a rejection; swallowing
-        // it here would leave that ref pointing at text that was never
-        // actually written, permanently skipping every later debounce/
-        // blur/unmount commit for this same text.
-        throw error
-      }) ?? Promise.resolve()
-    )
   }
 
   /** The done action's own trigger — same optimistic-note update `saveNote` does, then `onDoneNote` (never both: this is `NoteSheet`'s "Save & Done", not a second save). */
@@ -288,7 +266,6 @@ const useReviewState = (
     hasNoteText,
     openNoteSheet,
     saveNote,
-    autoSaveNote,
     doneNote,
     toggleChunk,
     setHunkChecked,
@@ -484,7 +461,6 @@ export const ReviewView = ({
           ? { note: state.noteSheet.initialNote }
           : {})}
         onSave={state.saveNote}
-        onAutoSave={state.autoSaveNote}
         onDismiss={() => state.setNoteSheet(undefined)}
         {...(onDoneNote !== undefined ? { onDone: state.doneNote } : {})}
       />

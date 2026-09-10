@@ -293,33 +293,6 @@ export const PlanView = ({
           })
         }}
         onDismiss={() => setNoteSheetAnchor(undefined)}
-        {...(onSaveNote !== undefined
-          ? {
-              onAutoSave: (anchor: SteeringAnchor, text: string) => {
-                if (anchor.kind === "paragraph") {
-                  setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
-                }
-                return onSaveNote(anchor, text).catch((error: unknown) => {
-                  onRefusal?.(error, () => onSaveNote(anchor, text))
-                  if (anchor.kind === "paragraph") {
-                    setNoteOverrides((prev) => {
-                      const next = { ...prev }
-                      delete next[anchor.line]
-                      return next
-                    })
-                  }
-                  // Rethrown, unlike every other wrapped mutation here — the
-                  // caller is `NoteSheet.tsx`'s own `runAutoSave`, which
-                  // rolls its `lastAutoSavedRef` back to retry ONLY on a
-                  // rejection; swallowing it here (like `onSave`'s wrapper
-                  // does) would leave that ref pointing at text that was
-                  // never actually written, permanently skipping every later
-                  // debounce/blur/unmount commit for this same text.
-                  throw error
-                })
-              },
-            }
-          : {})}
         {...(onDoneNote !== undefined
           ? {
               onDone: (anchor: SteeringAnchor, text: string) => {

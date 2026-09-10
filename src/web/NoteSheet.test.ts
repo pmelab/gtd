@@ -37,3 +37,37 @@ describe("NoteSheet.tsx and its callers use no selection gesture", () => {
     }
   })
 })
+
+/**
+ * Package 03's own checklist item, enforced as a real grep rather than left
+ * to review: the autosave/debounce machinery this package deletes must leave
+ * no trace in source — not a renamed variant, not a stray reference in a
+ * caller that forgot to update.
+ */
+describe("no autosave/debounce machinery remains anywhere textboxes save explicitly", () => {
+  const FILES = [
+    "./NoteSheet.tsx",
+    "./screens/Plan.tsx",
+    "./screens/Review.tsx",
+    "./screens/Question.tsx",
+  ]
+  const FORBIDDEN = [
+    "onAutoSave",
+    "autoSaveNote",
+    "NOTE_DEBOUNCE_MS",
+    "lastAutoSavedRef",
+    "FREE_TEXT_DEBOUNCE_MS",
+    "runCommitFreeText",
+    "commitFreeTextOnBlur",
+    "lastCommittedFreeTextRef",
+  ]
+
+  it("references none of the removed identifiers", () => {
+    for (const relativePath of FILES) {
+      const source = readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8")
+      for (const identifier of FORBIDDEN) {
+        expect(source, `${relativePath} must not reference ${identifier}`).not.toContain(identifier)
+      }
+    }
+  })
+})

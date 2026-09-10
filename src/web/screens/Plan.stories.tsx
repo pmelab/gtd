@@ -202,6 +202,62 @@ export const AnAnswerSurvivesPagingNextThenBackThroughTheDeck: Story = {
   },
 }
 
+/**
+ * Package 03 Task 3's own inversion, verbatim: an UNSAVED free-text draft
+ * dies with the component — `selected` survives paging (the story above),
+ * but a typed-and-never-saved free-text box comes back EMPTY, because the
+ * draft lives in `Question`'s own local `useState`, seeded fresh from
+ * `defaultAnswerFor` every time `Deck` remounts a new `Question` for this
+ * index.
+ */
+export const AnUnsavedFreeTextDraftDoesNotSurvivePagingAwayAndBack: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [openQuestion(0, "First?"), openQuestion(1, "Second?")],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
+    await fireEvent.change(canvas.getByTestId("free-text-input"), {
+      target: { value: "typed but never saved" },
+    })
+    await expect(canvas.getByTestId("free-text-input")).toHaveValue("typed but never saved")
+
+    await fireEvent.click(canvas.getByTestId("deck-next"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("Second?")
+
+    await fireEvent.click(canvas.getByTestId("deck-prev"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
+    await expect(canvas.getByTestId("free-text-input")).toHaveValue("")
+  },
+}
+
+/** Package 03 Task 3: tapping the free-text Save button does not navigate — ending a view is Done's job, not Save's. */
+export const TappingFreeTextSaveStaysOnTheQuestionScreen: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [openQuestion(0, "First?")],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
+    await fireEvent.change(canvas.getByTestId("free-text-input"), {
+      target: { value: "an answer worth saving" },
+    })
+    await fireEvent.click(canvas.getByTestId("free-text-save"))
+    await expect(canvas.getByTestId("question-screen")).toBeInTheDocument()
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
+  },
+}
+
 export const AnAnsweredCardIsNotDrillable: Story = {
   args: {
     contentHash: "qa-sample-hash",

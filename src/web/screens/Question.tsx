@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef } from "react"
+import { useId, useRef, useState } from "react"
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../OpenQuestions.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
+import { Button } from "../Button.js"
 
 /** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */
 const normalizeAnswerText = (text: string): string => {
@@ -8,10 +9,9 @@ const normalizeAnswerText = (text: string): string => {
   return trimmed.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : trimmed
 }
 
-/** One question's own in-progress radio/free-text state — never derived fresh from `node.children` after the first touch (see `defaultAnswerFor`'s own doc comment for why that matters). */
+/** One question's own in-progress radio selection — never derived fresh from `node.children` after the first touch (see `defaultAnswerFor`'s own doc comment for why that matters). The free-text draft is NOT part of this (package 03 Task 3): it lives in `Question`'s own local `useState`, so it dies with the component instead of surviving in the parent's `answers` map. */
 export interface QuestionAnswer {
   readonly selected: number | undefined
-  readonly freeText: string
 }
 
 /**
@@ -30,8 +30,10 @@ const singleCheckedIndex = (options: readonly SteeringViewNode[]): number | unde
   return checkedIndices.length === 1 ? checkedIndices[0] : undefined
 }
 
-/** The answer a question STARTS at, read off `node.children`'s own `checked`/`title` fields — used ONLY to seed state the first time a question is ever shown; a caller must persist edits itself from then on (`Plan.tsx`'s own `answers` map), never re-derive this on every render, or an in-progress edit would reset the moment the node prop happens to re-render. */
-export const defaultAnswerFor = (node: SteeringViewNode): QuestionAnswer => {
+/** The answer a question STARTS at, read off `node.children`'s own `checked`/`title` fields — used ONLY to seed state the first time a question is ever shown; a caller must persist `selected` edits itself from then on (`Plan.tsx`'s own `answers` map), never re-derive this on every render, or an in-progress edit would reset the moment the node prop happens to re-render. Returns `freeText` too (beyond `QuestionAnswer`'s own shape) — `Question`'s own local draft state (package 03 Task 3) seeds from it directly. */
+export const defaultAnswerFor = (
+  node: SteeringViewNode,
+): { readonly selected: number | undefined; readonly freeText: string } => {
   const options = node.children ?? []
   const lastOption = options[options.length - 1]
   const freeText = lastOption?.checked === true ? lastOption.title : ""
@@ -85,13 +87,13 @@ const FreeTextOption = ({
   freeText,
   onFocus,
   onFreeTextChange,
-  onCommit,
+  onSave,
 }: {
   readonly freeText: string
   readonly onFocus: () => void
   readonly onFreeTextChange: (text: string) => void
-  /** Fires on blur — the natural "the human is done typing" moment for a textarea — carrying the CURRENT `freeText` prop, never a stale closure: a blur event always fires on a later render than the keystroke that produced the text it commits. */
-  readonly onCommit: () => void
+  /** The addition (package 03 Task 3): a deliberate tap is the ONLY way this slot writes through — never on type, blur, or unmount. Does not navigate; ending a view is Done's job. */
+  readonly onSave: () => void
 }) => {
   const textareaId = useId()
   return (
@@ -109,9 +111,11 @@ const FreeTextOption = ({
           onFreeTextChange(event.target.value)
           onFocus()
         }}
-        onBlur={onCommit}
         className="min-h-[60px] w-full"
       />
+      <Button variant="secondary" data-testid="free-text-save" onClick={onSave}>
+        Save
+      </Button>
     </div>
   )
 }
@@ -127,7 +131,7 @@ const OptionRow = ({
   onSelect,
   onFocusFreeText,
   onFreeTextChange,
-  onCommitFreeText,
+  onSaveFreeText,
 }: {
   readonly option: SteeringViewNode
   readonly index: number
@@ -140,7 +144,7 @@ const OptionRow = ({
   /** The free-text slot's focus/keystroke tracking — LOCAL selection only, never a write; see `Question.tsx#Question`'s `selectLocally` doc comment for why. */
   readonly onFocusFreeText: () => void
   readonly onFreeTextChange: (text: string) => void
-  readonly onCommitFreeText: () => void
+  readonly onSaveFreeText: () => void
 }) => (
   <div data-testid={`option-${index}`} className="border-b border-border py-2">
     <label className="flex min-h-11 items-center gap-2">
@@ -158,14 +162,11 @@ const OptionRow = ({
         freeText={freeText}
         onFocus={onFocusFreeText}
         onFreeTextChange={onFreeTextChange}
-        onCommit={onCommitFreeText}
+        onSave={onSaveFreeText}
       />
     )}
   </div>
 )
-
-/** Debounce delay for the free-text slot's own write-through-without-a-blur (Task 5) — long enough that a fast typist produces one write per pause, not one per keystroke. */
-const FREE_TEXT_DEBOUNCE_MS = 800
 
 /**
  * One question, one screen — `Plan.tsx`'s `Deck` `renderItem`. Radio
@@ -185,9 +186,20 @@ export const Question = ({
 }: QuestionProps) => {
   const options = node.children ?? []
   const lastIndex = options.length - 1
-  const { selected, freeText } = answer
+  const { selected } = answer
 
-  /** Updates `selected` LOCALLY only — never a write. Used for the free-text slot's own focus/keystroke tracking (`onFocusFreeText` below), so merely tapping into (or typing in) the textarea never itself reaches the network: a stray focus-then-blur with nothing typed must change nothing, neither on disk nor in this local state (see `commitFreeText`'s own guard for the write half of that same guarantee). */
+  /**
+   * The free-text draft (package 03 Task 3) — NOT in the caller's `answer`
+   * map: seeded once from this question's own starting text and otherwise
+   * untouched by any prop, so it dies the moment `Deck` remounts a fresh
+   * `Question` for a different index, rather than surviving navigation like
+   * `selected` does. This inverts the fully-controlled design `QuestionAnswer`
+   * otherwise keeps — deliberately, since "types, navigates away, returns,
+   * box is empty" is only true if the draft dies with the component.
+   */
+  const [freeText, setFreeTextState] = useState(() => defaultAnswerFor(node).freeText)
+
+  /** Updates `selected` LOCALLY only — never a write. Used for the free-text slot's own focus/keystroke tracking (`onFocusFreeText` below), so merely tapping into (or typing in) the textarea never itself reaches the network: a stray focus-then-blur with nothing typed must change nothing, neither on disk nor in this local state. */
   const selectLocally = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
 
   /**
@@ -207,52 +219,39 @@ export const Question = ({
   const bumpSelectedSeq = (): number => ++selectedSeqRef.current
   const bumpFreeTextSeq = (): number => ++freeTextSeqRef.current
 
-  /** What `commitFreeText` last actually wrote (package 03's Task 6) — seeded from the answer this question STARTS at, so a bare focus-then-blur (nothing typed) still compares equal and writes nothing. Updated to the JUST-COMMITTED text the moment a commit fires (optimistically, like the local state update alongside it), never re-derived from a fresh read. Rolled BACK to its OWN prior value by `commitAnchor`'s own rejection handler (see its doc comment) whenever the `freeText` field's write is refused — otherwise a refused write leaves this ref pointing at text that was never actually written, poisoning the very next retry: Task 6's changed-since-last-commit guard would then compare the retyped text against that never-written value, see no change, and silently skip the write. */
-  const lastCommittedFreeTextRef = useRef(freeText)
-
   /**
    * The one write-through both `setSelected` and `commitFreeText` fire —
-   * split out so neither caller's own branching (an out-of-range index, an
-   * empty-text guard) also carries the anchor-resolved / anchor-missing
-   * split here. Fire-and-forget from the CALLER's perspective, but returns
-   * the promise so `commitFreeText`'s own debounce/unmount serialization can
-   * track completion. A rejection (a `CONFLICT` refusal, a network failure,
-   * …) surfaces via `onRefusal` AND reverts ONLY the fields `reverts` names —
-   * each gated by ITS OWN field-level seq, so a stale rejection can never
-   * clobber a field a newer write (to any anchor) already changed. Each
-   * revert entry's own optional `onReverted` fires in the SAME seq-gated
-   * branch as its state update — `commitFreeText` uses it to roll
-   * `lastCommittedFreeTextRef` back to its OWN prior value (never the same
-   * value as the state field's own revert target, which is the just-typed
-   * text itself — see that call site's doc comment). A no-op when `anchor`
-   * is `undefined` (an out-of-range index).
+   * split out so neither caller's own branching (an out-of-range index) also
+   * carries the anchor-resolved / anchor-missing split here. A rejection (a
+   * `CONFLICT` refusal, a network failure, …) surfaces via `onRefusal` AND
+   * reverts ONLY the fields `reverts` names — each gated by ITS OWN
+   * field-level seq, so a stale rejection can never clobber a field a newer
+   * write (to any anchor) already changed. `selected` reverts through the
+   * caller-owned `answer` map; `freeText` reverts through this component's
+   * own local state (package 03 Task 3 moved it out of `answer`). A no-op
+   * when `anchor` is `undefined` (an out-of-range index).
    */
   const commitAnchor = (
     anchor: SteeringAnchor | undefined,
     opts: { readonly checked?: boolean; readonly text?: string },
-    reverts: ReadonlyArray<{
-      readonly field: "selected" | "freeText"
-      readonly seq: number
-      readonly value: number | string | undefined
-      readonly onReverted?: () => void
-    }>,
+    reverts: ReadonlyArray<
+      | { readonly field: "selected"; readonly seq: number; readonly value: number | undefined }
+      | { readonly field: "freeText"; readonly seq: number; readonly value: string }
+    >,
   ): Promise<unknown> | undefined => {
     if (anchor === undefined) return undefined
+    // fallow-ignore-next-line complexity
     return onCommitAnswer?.(anchor, opts)?.catch((error: unknown) => {
       onRefusal?.(error)
-      // fallow-ignore-next-line complexity
-      onAnswerChange((prev) => {
-        let next = prev
-        for (const revert of reverts) {
-          const currentSeq =
-            revert.field === "selected" ? selectedSeqRef.current : freeTextSeqRef.current
-          if (currentSeq === revert.seq) {
-            next = { ...next, [revert.field]: revert.value }
-            revert.onReverted?.()
-          }
+      for (const revert of reverts) {
+        if (revert.field === "selected") {
+          if (selectedSeqRef.current !== revert.seq) continue
+          onAnswerChange((prev) => ({ ...prev, selected: revert.value }))
+        } else {
+          if (freeTextSeqRef.current !== revert.seq) continue
+          setFreeTextState(revert.value)
         }
-        return next
-      })
+      }
     })
   }
 
@@ -271,46 +270,25 @@ export const Question = ({
     lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
 
   /**
-   * The free-text slot's own commit point — fired on blur AND, since Task 5,
-   * on its own 800ms after the last keystroke with no blur at all. Writes
-   * the CURRENT `freeText` prop in one call, never split into a separate
-   * tick-then-text pair (T3's "both fields together" bullet). The guard
-   * moved off "is the text empty" onto "did the text change from what was
-   * last committed" (Task 6): a bare focus-then-blur still writes nothing,
-   * but DELETING a previously-written answer and blurring now writes the
-   * erase (`checked: false, text: ""`) rather than silently leaving stale
-   * text on disk while the UI shows empty. Touches BOTH `selected` and
-   * `freeText`, each reverted only against its OWN field-level seq — a plain
-   * option tap landing/failing independently in between can never be undone
-   * by this write's own rejection, and vice versa.
+   * The free-text slot's own commit point — fired ONLY by a deliberate tap
+   * on the Save button (package 03 Task 3), never on type, blur, or unmount.
+   * Writes the CURRENT `freeText` state in one call, never split into a
+   * separate tick-then-text pair (T3's "both fields together" bullet). An
+   * explicit tap always writes — there is no changed-since-last-commit guard
+   * to skip a no-op save. Touches BOTH `selected` and `freeText`, each
+   * reverted only against its OWN field-level seq — a plain option tap
+   * landing/failing independently in between can never be undone by this
+   * write's own rejection, and vice versa.
    */
   const commitFreeText = (): Promise<unknown> | undefined => {
     const current = normalizeAnswerText(freeText)
-    const lastCommitted = normalizeAnswerText(lastCommittedFreeTextRef.current)
-    if (current === lastCommitted) return undefined
     const previousSelected = selected
     const previousFreeText = freeText
-    // The ref's own PRIOR value — distinct from `previousFreeText` above
-    // (the just-typed text this commit is about to send): on rejection the
-    // FIELD reverts to what's already on screen (a no-op, so the human never
-    // loses what they typed), but the REF must roll back to what it held
-    // before this attempt, or a retry compares against text that was never
-    // actually written and silently skips the write (see this ref's own
-    // doc comment).
-    const previousLastCommitted = lastCommittedFreeTextRef.current
     const anchor = freeTextAnchor()
-    lastCommittedFreeTextRef.current = freeText
     const freeTextSeq = bumpFreeTextSeq()
     const selectedSeq = bumpSelectedSeq()
     const reverts = [
-      {
-        field: "freeText" as const,
-        seq: freeTextSeq,
-        value: previousFreeText,
-        onReverted: () => {
-          lastCommittedFreeTextRef.current = previousLastCommitted
-        },
-      },
+      { field: "freeText" as const, seq: freeTextSeq, value: previousFreeText },
       { field: "selected" as const, seq: selectedSeq, value: previousSelected },
     ]
     if (current.length === 0) {
@@ -320,74 +298,6 @@ export const Question = ({
     selectLocally(lastIndex)
     return commitAnchor(anchor, { checked: true, text: freeText }, reverts)
   }
-
-  /**
-   * Serializes `commitFreeText` calls so never more than one of its writes is
-   * in flight at once (Task 5's "never two writes in flight for one anchor")
-   * — a call arriving while one is pending is dropped (not queued with its
-   * own stale text): the NEXT trigger (another keystroke's debounce, or
-   * blur) always re-reads the CURRENT `freeText` via `commitFreeTextRef`
-   * itself, so nothing typed in between is ever lost, just coalesced into
-   * one write per pause rather than one per keystroke.
-   */
-  const commitFreeTextRef = useRef(commitFreeText)
-  commitFreeTextRef.current = commitFreeText
-  const commitInFlightRef = useRef(false)
-  const commitPendingRef = useRef(false)
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  const runCommitFreeText = (): void => {
-    if (commitInFlightRef.current) {
-      commitPendingRef.current = true
-      return
-    }
-    commitInFlightRef.current = true
-    Promise.resolve(commitFreeTextRef.current()).finally(() => {
-      commitInFlightRef.current = false
-      if (commitPendingRef.current) {
-        commitPendingRef.current = false
-        runCommitFreeText()
-      }
-    })
-  }
-
-  const clearDebounceTimer = (): void => {
-    if (debounceTimerRef.current !== undefined) {
-      clearTimeout(debounceTimerRef.current)
-      debounceTimerRef.current = undefined
-    }
-  }
-
-  /** Blur's own trigger: commits immediately, cancelling any pending debounce (there is nothing left to wait for). */
-  const commitFreeTextOnBlur = (): void => {
-    clearDebounceTimer()
-    runCommitFreeText()
-  }
-
-  /** Every keystroke's own trigger (Task 5): (re)schedules a commit 800ms out, replacing whatever was previously scheduled — a fast typist's intermediate keystrokes never each fire their own write. */
-  const scheduleDebouncedCommit = (): void => {
-    clearDebounceTimer()
-    debounceTimerRef.current = setTimeout(() => {
-      debounceTimerRef.current = undefined
-      runCommitFreeText()
-    }, FREE_TEXT_DEBOUNCE_MS)
-  }
-
-  /** Typing itself: updates local state immediately (instant feedback) and (re)schedules the debounced write-through (Task 5) — never fires the write itself. */
-  const setFreeText = (text: string) => {
-    onAnswerChange((prev) => ({ ...prev, freeText: text }))
-    scheduleDebouncedCommit()
-  }
-
-  /** Unmount commits (Task 5): a pending debounced write flushes immediately rather than being discarded — mirrors `NoteSheet.tsx`'s identical unmount-commit. */
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current !== undefined) {
-        clearDebounceTimer()
-        runCommitFreeText()
-      }
-    }
-  }, [])
 
   /**
    * The SAME `isAnswered` predicate the server enforces (`OpenQuestions.ts`),
@@ -424,8 +334,8 @@ export const Question = ({
           freeText={freeText}
           onSelect={() => setSelected(index)}
           onFocusFreeText={() => selectLocally(index)}
-          onFreeTextChange={setFreeText}
-          onCommitFreeText={commitFreeTextOnBlur}
+          onFreeTextChange={setFreeTextState}
+          onSaveFreeText={() => commitFreeText()}
         />
       ))}
     </div>

@@ -169,106 +169,104 @@ export const UsableOneHandedAt390pxWithKeyboardUp: Story = {
 }
 
 /**
- * A hand-built `onAutoSave` recorded into the DOM (mirroring
- * `Question.stories.tsx#CommitCallRecordingHarness`'s identical reasoning —
- * a closure-captured array goes stale across `NoteSheet`'s own re-renders).
- * `shouldReject` lets ONE story drive both the happy debounce and its
- * refused-then-retried counterpart from the same harness.
+ * Package 03's own requirement, verbatim: "Text left unsaved is discarded."
+ * Typing into the note body must never write through on its own — not after
+ * any elapsed time (there is no debounce left to fire) and not on blur
+ * (there is no blur handler left either) — ONLY an explicit tap on Save (or
+ * Save & Done) ever calls `onSave`.
  */
-const AutoSaveCallRecordingHarness = ({
-  anchor,
-  shouldReject,
-}: {
-  readonly anchor: SteeringAnchor
-  readonly shouldReject: (callIndex: number) => boolean
-}) => {
-  const [calls, setCalls] = useState<ReadonlyArray<{ readonly text: string }>>([])
-  const onAutoSave = (writtenAnchor: SteeringAnchor, text: string): Promise<unknown> => {
-    void writtenAnchor
-    const callIndex = calls.length
-    setCalls((prev) => [...prev, { text }])
-    return shouldReject(callIndex)
-      ? Promise.reject(new Error("stale token"))
-      : Promise.resolve({ ok: true })
-  }
-  return (
-    <>
-      <div data-testid="autosave-calls">{JSON.stringify(calls)}</div>
-      <NoteSheet anchor={anchor} onSave={() => {}} onDismiss={() => {}} onAutoSave={onAutoSave} />
-    </>
-  )
-}
-
-/** Package 03's Task 5: 800ms after the last keystroke with no blur/dismiss at all, the note body commits on its own — the SAME debounced write-through `Question.tsx`'s free-text slot gets, extended here to `NoteSheet`'s note body. */
-export const NoteBodyCommitsOnItsOwnAfterTheDebounceWithNoBlur: Story = {
-  render: (args) => (
-    <AutoSaveCallRecordingHarness anchor={args.anchor} shouldReject={() => false} />
-  ),
-  args: { anchor: paragraphAnchor },
-  play: async ({ canvasElement }) => {
+export const TypingIntoTheNoteBodyFiresNoWriteEverNotAfterAnyElapsedTimeNorOnBlur: Story = {
+  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn() },
+  play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
-      target: { value: "typed but never blurred" },
-    })
-    expect(canvas.getByTestId("autosave-calls")).toHaveTextContent("[]")
-    await waitFor(
-      () => {
-        const calls = JSON.parse(
-          canvas.getByTestId("autosave-calls").textContent ?? "[]",
-        ) as unknown[]
-        expect(calls).toHaveLength(1)
-      },
-      { timeout: 2_000 },
-    )
-    expect(canvas.getByTestId("autosave-calls")).toHaveTextContent("typed but never blurred")
+    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
+    textarea.focus()
+    await fireEvent.change(textarea, { target: { value: "typed but never saved" } })
+    // A real wait past the OLD 800ms debounce window — proves no timer fires
+    // a write, not just that none has fired yet.
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    expect(args.onSave).not.toHaveBeenCalled()
+    // A genuine focus transition, not a bare `fireEvent.blur` — this runs
+    // against a real browser (vitest-browser), so only an element that was
+    // actually focused first emits a real blur when focus moves away.
+    ;(canvas.getByTestId("note-sheet-dismiss") as HTMLButtonElement).focus()
+    expect(args.onSave).not.toHaveBeenCalled()
   },
 }
 
 /**
- * A refused autosave must not poison its own retry (spec feedback on
- * package 03): the FIRST debounced write rejects; without rolling
- * `lastAutoSavedRef` back to its pre-write value, the unchanged-since-last-
- * commit guard would then compare the SAME text against itself and silently
- * skip every later debounce/blur/unmount commit — exactly the "nothing
- * typed is silently lost" failure this package exists to close. Blurring
- * after the refusal must fire a SECOND write with the same text.
- *
- * A genuine focus transition (`.focus()` on a DIFFERENT element), not a bare
- * `fireEvent.blur` — this runs against a REAL browser (vitest-browser), and
- * an element that was never actually focused never emits a real blur event
- * no matter what's dispatched at it; `Question.stories.tsx`'s own blur
- * stories get away with the bare form only because their textarea already
- * has synthetic focus tracking from an earlier `fireEvent.focus`-triggering
- * interaction in the same flow.
+ * Same requirement, the unmount half: typing then tearing the sheet down
+ * (tab close, screen lock, navigating away) with no Save tap must discard
+ * the text — never flush it on the way out. The note sheet no longer has an
+ * unmount-commit effect at all.
  */
-export const ARefusedAutosaveRetriesOnTheNextBlurRatherThanSilentlySkipping: Story = {
-  render: (args) => (
-    <AutoSaveCallRecordingHarness anchor={args.anchor} shouldReject={(i) => i === 0} />
-  ),
-  args: { anchor: paragraphAnchor },
-  play: async ({ canvasElement }) => {
+const UnmountDiscardsHarness = (args: {
+  readonly anchor: SteeringAnchor
+  readonly onSave: (anchor: SteeringAnchor, text: string) => void
+}) => {
+  const [mounted, setMounted] = useState(true)
+  if (!mounted) return <div data-testid="unmounted" />
+  return (
+    <>
+      <button type="button" data-testid="unmount" onClick={() => setMounted(false)}>
+        unmount
+      </button>
+      <NoteSheet anchor={args.anchor} onSave={args.onSave} onDismiss={() => {}} />
+    </>
+  )
+}
+
+export const UnmountingWithoutSavingDiscardsTheText: Story = {
+  render: (args) => <UnmountDiscardsHarness anchor={args.anchor} onSave={args.onSave} />,
+  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn() },
+  play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
-    textarea.focus()
-    await fireEvent.change(textarea, { target: { value: "needs work" } })
-    await waitFor(
-      () => {
-        const calls = JSON.parse(
-          canvas.getByTestId("autosave-calls").textContent ?? "[]",
-        ) as unknown[]
-        expect(calls).toHaveLength(1)
-      },
-      { timeout: 2_000 },
-    )
-    // The debounced write above rejected — moving focus away with the SAME,
-    // unchanged text must still fire a retry, not silently no-op.
-    ;(canvas.getByTestId("note-sheet-dismiss") as HTMLButtonElement).focus()
-    await waitFor(() => {
-      const calls = JSON.parse(
-        canvas.getByTestId("autosave-calls").textContent ?? "[]",
-      ) as unknown[]
-      expect(calls).toHaveLength(2)
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "typed then torn down" },
     })
+    await fireEvent.click(canvas.getByTestId("unmount"))
+    await waitFor(() => expect(canvas.getByTestId("unmounted")).toBeInTheDocument())
+    expect(args.onSave).not.toHaveBeenCalled()
+  },
+}
+
+/**
+ * A harness mirroring the real callers (`Plan.tsx`/`Review.tsx`): `onSave`
+ * dismisses the sheet, exactly like their own `saveNote`/`onSave` wrappers do
+ * — needed to prove "the sheet dismissed" half of the acceptance, not just
+ * the write count.
+ */
+const SaveDismissesHarness = (args: {
+  readonly anchor: SteeringAnchor
+  readonly onSave: (anchor: SteeringAnchor, text: string) => void
+}) => {
+  const [open, setOpen] = useState(true)
+  if (!open) return <div data-testid="dismissed" />
+  return (
+    <NoteSheet
+      anchor={args.anchor}
+      onSave={(anchor, text) => {
+        setOpen(false)
+        args.onSave(anchor, text)
+      }}
+      onDismiss={() => setOpen(false)}
+    />
+  )
+}
+
+/** The only write path left: a deliberate tap on Save fires exactly one call carrying the typed text, and dismisses the sheet. */
+export const TappingSaveFiresExactlyOneWriteWithTheTypedText: Story = {
+  render: (args) => <SaveDismissesHarness anchor={args.anchor} onSave={args.onSave} />,
+  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "final text on save" },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    expect(args.onSave).toHaveBeenCalledTimes(1)
+    expect(args.onSave).toHaveBeenCalledWith(paragraphAnchor, "final text on save")
+    await waitFor(() => expect(canvas.getByTestId("dismissed")).toBeInTheDocument())
   },
 }
 

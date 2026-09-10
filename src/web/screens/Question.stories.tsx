@@ -233,60 +233,109 @@ export const OptionRadioRowMeetsThe44pxFloor: Story = {
   },
 }
 
-/** Package 03's Task 10: `Question.stories.tsx`'s first commit-path coverage — type, blur, exactly one `setValue`-shaped call carrying `checked` and `text` together, never two separate writes. Never taps the radio directly: `FreeTextOption`'s own focus/change handlers stay LOCAL-only (`selectLocally`), so the blur is the ONLY write this produces — a radio tap would fire its own separate `{checked:true}`-only write first. */
-export const TypingThenBlurringCommitsOnceWithCheckedAndTextTogether: StoryObj<typeof Question> = {
+/** Package 03's Task 10: `Question.stories.tsx`'s first commit-path coverage — type, tap the free-text Save button, exactly one `setValue`-shaped call carrying `checked` and `text` together, never two separate writes. Never taps the radio directly: `FreeTextOption`'s own focus/change handlers stay LOCAL-only (`selectLocally`), so the Save tap is the ONLY write this produces — a radio tap would fire its own separate `{checked:true}`-only write first. */
+export const TypingThenTappingSaveCommitsOnceWithCheckedAndTextTogether: StoryObj<typeof Question> =
+  {
+    args: { node: questionNode() },
+    render: (args) => <CommitCallRecordingHarness node={args.node} />,
+    play: async ({ canvasElement }) => {
+      const canvas = within(canvasElement)
+      const textarea = canvas.getByTestId("free-text-input")
+      await fireEvent.change(textarea, { target: { value: "the third way, typed" } })
+      await fireEvent.click(canvas.getByTestId("free-text-save"))
+      await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
+      expect(readCommitCalls(canvas)[0]?.opts).toEqual({
+        checked: true,
+        text: "the third way, typed",
+      })
+    },
+  }
+
+/**
+ * Package 03's own requirement, verbatim: "Text left unsaved is discarded."
+ * Typing into the free-text slot must never write through on its own — not
+ * after any elapsed time (there is no debounce left to fire) and not on
+ * blur (there is no blur handler left either) — ONLY a deliberate tap on
+ * the free-text Save button ever calls `onCommitAnswer`.
+ */
+export const TypingWithoutTappingSaveFiresNoWriteEverNotAfterAnyElapsedTimeNorOnBlur: StoryObj<
+  typeof Question
+> = {
   args: { node: questionNode() },
   render: (args) => <CommitCallRecordingHarness node={args.node} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const textarea = canvas.getByTestId("free-text-input")
-    await fireEvent.change(textarea, { target: { value: "the third way, typed" } })
-    await fireEvent.blur(textarea)
-    await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
-    expect(readCommitCalls(canvas)[0]?.opts).toEqual({
-      checked: true,
-      text: "the third way, typed",
-    })
+    const textarea = canvas.getByTestId("free-text-input") as HTMLTextAreaElement
+    await fireEvent.change(textarea, { target: { value: "typed but never saved" } })
+    // A real wait past the OLD 800ms debounce window — proves no timer fires
+    // a write, not just that none has fired yet.
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
+    // A genuine focus transition, not a bare `fireEvent.blur` — this runs
+    // against a real browser (vitest-browser), so only an element that was
+    // actually focused first emits a real blur when focus moves away.
+    ;(canvas.getByTestId("free-text-save") as HTMLButtonElement).focus()
+    expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
   },
 }
 
 /**
- * Package 03's Task 5: 800ms after the last keystroke with NO blur at all,
- * the free-text slot commits on its own — a typed-but-never-blurred answer
- * must still land, or a tab close/screen lock before any blur silently
- * discards it (`Question.tsx#118`'s own package doc comment).
+ * The unmount half of the same requirement: typing then navigating away
+ * (`Deck` remounting a fresh `Question`) with no Save tap must discard the
+ * text — never flush it on the way out. `Question` no longer has an
+ * unmount-commit effect at all.
  */
-export const TypedTextCommitsOnItsOwnAfterTheDebounceWithNoBlur: StoryObj<typeof Question> = {
+const UnmountDiscardsFreeTextHarness = ({ node }: { readonly node: SteeringViewNode }) => {
+  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
+  const [calls, setCalls] = useState<readonly CommitCall[]>([])
+  const [mounted, setMounted] = useState(true)
+  const onCommitAnswer = (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ) => {
+    setCalls((prev) => [...prev, { anchor, opts }])
+    return Promise.resolve({ ok: true })
+  }
+  return (
+    <>
+      <div data-testid="commit-calls">{JSON.stringify(calls)}</div>
+      <button type="button" data-testid="unmount" onClick={() => setMounted(false)}>
+        unmount
+      </button>
+      {mounted && (
+        <Question
+          node={node}
+          answer={answer}
+          onAnswerChange={setAnswer}
+          onCommitAnswer={onCommitAnswer}
+        />
+      )}
+    </>
+  )
+}
+
+export const TypingThenUnmountingWithoutSavingFiresNoWrite: StoryObj<typeof Question> = {
   args: { node: questionNode() },
-  render: (args) => <CommitCallRecordingHarness node={args.node} />,
+  render: (args) => <UnmountDiscardsFreeTextHarness node={args.node} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await fireEvent.change(canvas.getByTestId("free-text-input"), {
-      target: { value: "typed but never blurred" },
+      target: { value: "typed then torn down" },
     })
+    await fireEvent.click(canvas.getByTestId("unmount"))
+    await waitFor(() => expect(canvas.queryByTestId("question-screen")).not.toBeInTheDocument())
     expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
-    // A real wait, not `vi.useFakeTimers()`: this Storybook interaction test
-    // runs the component in a real browser iframe, whose own `setTimeout`
-    // fake timers installed in the OUTER test realm never reach — advancing
-    // a fake clock here just leaves the real 800ms timer never actually
-    // firing.
-    await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1), { timeout: 2_000 })
-    expect(readCommitCalls(canvas)[0]?.opts).toEqual({
-      checked: true,
-      text: "typed but never blurred",
-    })
   },
 }
 
 /**
- * Package 03's Task 6: deleting a previously-written free-text answer and
- * blurring must write the ERASE (`checked: false, text: ""`), not silently
- * leave the stale text on disk while the UI shows empty — the guard moved
- * off "is the text empty" onto "did the text change from what was last
- * committed", so a bare focus-then-blur (covered elsewhere) still writes
- * nothing, but THIS, an actual edit back to empty, must write through.
+ * Package 03's Task 6 (now Task 2): deleting a previously-written free-text
+ * answer and tapping Save must write the ERASE (`checked: false, text: ""`),
+ * not silently leave the stale text on disk while the UI shows empty. An
+ * explicit tap always writes — there's no changed-since-last-commit guard
+ * left to skip it.
  */
-export const DeletingAPreviouslyWrittenAnswerAndBlurringErasesIt: StoryObj<typeof Question> = {
+export const DeletingAPreviouslyWrittenAnswerAndSavingErasesIt: StoryObj<typeof Question> = {
   args: {
     node: questionNode({
       children: [
@@ -314,7 +363,7 @@ export const DeletingAPreviouslyWrittenAnswerAndBlurringErasesIt: StoryObj<typeo
     const textarea = canvas.getByTestId("free-text-input")
     await expect(textarea).toHaveValue("an existing typed answer")
     await fireEvent.change(textarea, { target: { value: "" } })
-    await fireEvent.blur(textarea)
+    await fireEvent.click(canvas.getByTestId("free-text-save"))
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
     expect(readCommitCalls(canvas)[0]?.opts).toEqual({ checked: false, text: "" })
   },
@@ -429,11 +478,11 @@ const FreeTextRevertScopeHarness = ({ node }: { readonly node: SteeringViewNode 
 
 /**
  * The free-text half of Task 7's same defect: typing into the free-text
- * slot and blurring fires a write that never resolves yet; a plain option
- * tick made WHILE it's still pending resolves immediately and must still
- * stand once the free-text write rejects — a whole-`answer` snapshot revert
- * would instead restore `previous.selected` too, discarding the radio tick
- * made in the interim.
+ * slot and tapping Save fires a write that never resolves yet; a plain
+ * option tick made WHILE it's still pending resolves immediately and must
+ * still stand once the free-text write rejects — a whole-`answer` snapshot
+ * revert would instead restore `previous.selected` too, discarding the radio
+ * tick made in the interim.
  */
 export const ARejectedFreeTextWriteLeavesALaterRadioTickStanding: StoryObj<typeof Question> = {
   args: { node: questionNode() },
@@ -442,7 +491,7 @@ export const ARejectedFreeTextWriteLeavesALaterRadioTickStanding: StoryObj<typeo
     const canvas = within(canvasElement)
     const textarea = canvas.getByTestId("free-text-input")
     await fireEvent.change(textarea, { target: { value: "typed while in flight" } })
-    await fireEvent.blur(textarea) // write never resolves yet
+    await fireEvent.click(canvas.getByTestId("free-text-save")) // write never resolves yet
 
     await fireEvent.click(canvas.getByTestId("option-radio-0")) // resolves immediately
     await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
@@ -606,14 +655,10 @@ const RefusalRetryHarness = ({ node }: { readonly node: SteeringViewNode }) => {
 
 /**
  * Spec feedback on package 03: a refused free-text write must not poison its
- * own retry. Type "hello", blur — `setValue` rejects with `stale-token`, the
- * banner shows. Without rolling `lastCommittedFreeTextRef` back to its
- * pre-write value (empty, here), Task 6's changed-since-last-commit guard
- * would then compare a RETYPED "hello" against the never-written "hello" the
- * ref still (wrongly) held, see no change, and silently skip the write —
- * the exact silent divergence Task 6 exists to eliminate, just moved one
- * refusal downstream. Retyping "hello" and blurring again must fire a
- * SECOND write.
+ * own retry. Type "hello", tap Save — `setValue` rejects with `stale-token`,
+ * the banner shows. An explicit tap always writes (package 03 Task 3 removed
+ * the changed-since-last-commit guard entirely), so tapping Save again with
+ * the SAME retyped text must still fire a second write, not silently no-op.
  */
 export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<typeof Question> = {
   args: { node: questionNode() },
@@ -622,7 +667,7 @@ export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<ty
     const canvas = within(canvasElement)
     const textarea = canvas.getByTestId("free-text-input")
     await fireEvent.change(textarea, { target: { value: "hello" } })
-    await fireEvent.blur(textarea)
+    await fireEvent.click(canvas.getByTestId("free-text-save"))
     await waitFor(() =>
       expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
         "The file's content changed underneath you",
@@ -631,12 +676,10 @@ export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<ty
     expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
 
-    // Retype the SAME text and blur again — must fire a second write, not
-    // silently no-op against a "last committed" value that was never
-    // actually written.
+    // Retype the SAME text and tap Save again — must fire a second write.
     await fireEvent.change(textarea, { target: { value: "" } })
     await fireEvent.change(textarea, { target: { value: "hello" } })
-    await fireEvent.blur(textarea)
+    await fireEvent.click(canvas.getByTestId("free-text-save"))
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(2))
   },
 }
