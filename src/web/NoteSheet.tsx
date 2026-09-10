@@ -7,7 +7,7 @@ const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {
   hunk: "Note on this hunk",
   question: "Note",
   option: "Note",
-  paragraph: "Note on this paragraph",
+  paragraph: "Note on this block",
 }
 
 /** Mirrors `Question.tsx`'s identical `FREE_TEXT_DEBOUNCE_MS` (package 03 Task 5) — one sheet edits exactly one anchor at a time, so there's no per-anchor map to key by, just this sheet's own single in-flight/pending pair. */

@@ -39,7 +39,7 @@ export const OpensFromAHunkAnchor: Story = {
 
 export const OpensFromAParagraphAnchor: Story = {
   args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn() },
-  play: expectOpensWithTitle("Note on this paragraph"),
+  play: expectOpensWithTitle("Note on this block"),
 }
 
 export const ExistingNotePrefillsForEditingNotADuplicate: Story = {

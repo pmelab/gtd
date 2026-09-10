@@ -115,6 +115,20 @@ export type SteeringAnnotateResult =
   | { readonly ok: false; readonly reason: "anchor-not-found" | "id-collision" }
 
 /**
+ * One item of a `list` block's own `items` tree (`SteeringViewNode.block`) —
+ * recursive, so a nested list under an item is just another `items` array on
+ * that item, at whatever depth the source markdown actually nests it.
+ */
+export interface BlockListItem {
+  /** This item's own text, EXCLUDING any nested list under it (that's `items`, below). */
+  readonly text: string
+  /** Set only for a task-list item (`- [ ]`/`- [x]`) — absent for a plain list item. */
+  readonly checked?: boolean
+  /** A nested list directly under this item, recursively. Absent when this item has none. */
+  readonly items?: readonly BlockListItem[]
+}
+
+/**
  * One node of a format's `view` — a generic container/item tree, the SAME
  * shape for every format, built-in or user-declared. Deliberately never a
  * closed per-format union (an earlier draft of this type was exactly that —
@@ -150,6 +164,27 @@ export interface SteeringViewNode {
   /** Where `annotate` attaches a NEW note to this node. */
   readonly anchor: SteeringAnchor
   readonly children?: readonly SteeringViewNode[]
+  /**
+   * The document structure a prose block carries (`OpenQuestions.ts#blockOf`)
+   * — NO new anchor kind: every block, whatever `kind` it names here, still
+   * anchors as `{kind: "paragraph", line}` (`SteeringAnchor` gains no member).
+   * Absent for a non-`qa`/`review` node (a chunk, a hunk, a question, an
+   * option) and for a malformed block with no real position — a client that
+   * ignores this field entirely still has `title` to render.
+   */
+  readonly block?: {
+    readonly kind: "paragraph" | "heading" | "list" | "code" | "blockquote"
+    /** Heading level, 1–6. Set only for `kind: "heading"`. */
+    readonly depth?: number
+    /** Set only for `kind: "list"`. */
+    readonly ordered?: boolean
+    /** This list's own top-level items, recursive. Set only for `kind: "list"`. */
+    readonly items?: readonly BlockListItem[]
+    /** The fenced code block's info-string language, when it has one. Set only for `kind: "code"`. */
+    readonly language?: string
+    /** The code block's body, or the blockquote's own text, verbatim. Set only for `kind: "code"`/`"blockquote"`. */
+    readonly text?: string
+  }
 }
 
 /**

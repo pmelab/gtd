@@ -220,7 +220,7 @@ export const AnAnsweredCardIsNotDrillable: Story = {
   },
 }
 
-/** A prose-only `view` — every node `paragraph`-anchored at its real, server-computed start line (`OpenQuestions.ts#paragraphNodesOf`), no `status` at all — the exact shape `PlanBody` uses to decide "no question-shaped nodes, render prose". */
+/** A prose-only `view` — every node `paragraph`-anchored at its real, server-computed start line (`OpenQuestions.ts#blockNodesOf`), no `status` at all — the exact shape `PlanBody` uses to decide "no question-shaped nodes, render prose". */
 const paragraphNode = (line: number, title: string, note?: string): SteeringViewNode => ({
   title,
   anchor: { kind: "paragraph", line },
@@ -267,6 +267,112 @@ export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
   },
 }
 
+/**
+ * package 02, T4's own criterion: a heading, a nested list, a fenced code
+ * block and a paragraph AFTER the questions section, all on screen — proving
+ * `ProseBlock`'s switch renders every `block.kind`, not just `paragraph`.
+ */
+export const PlanRendersEveryBlockKindWithStructureIntact: Story = {
+  args: {
+    contentHash: "structured-plan-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          title: "A heading",
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "heading", depth: 3 },
+        },
+        {
+          title: "Top item Nested item",
+          anchor: { kind: "paragraph", line: 2 },
+          block: {
+            kind: "list",
+            ordered: false,
+            items: [{ text: "Top item", items: [{ text: "Nested item" }] }],
+          },
+        },
+        {
+          title: "const x = 1",
+          anchor: { kind: "paragraph", line: 6 },
+          block: { kind: "code", language: "ts", text: "  const x = 1\nconst y = 2" },
+        },
+        openQuestion(0, "Which option?"),
+        planNode(20, "Paragraph after the questions section."),
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const heading = canvas.getByText("A heading")
+    expect(heading.tagName).toBe("H3")
+    await expect(canvas.getByText("Top item")).toBeInTheDocument()
+    await expect(canvas.getByText("Nested item")).toBeInTheDocument()
+    const code = canvas.getByText((_, element) => element?.tagName === "CODE")
+    expect(code.textContent).toBe("  const x = 1\nconst y = 2")
+    await expect(canvas.getByText("Paragraph after the questions section.")).toBeInTheDocument()
+  },
+}
+
+/** A note attaches to a heading and lands on that heading's own line — its note seam behaves exactly like a paragraph's. */
+export const NoteAttachesToAHeadingOnItsOwnLine: Story = {
+  args: {
+    contentHash: "heading-note-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          title: "A heading",
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "heading", depth: 2 },
+        },
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("note-seam-0"))
+    await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
+    await expect(canvas.getByText("Note on this block")).toBeInTheDocument()
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "note on the heading" },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("note on the heading")
+  },
+}
+
+/** Every block kind except `code` shows a note seam; the code block shows neither a seam nor an inline note row (T3/T4's own reason: a marker there would corrupt the fence). */
+export const CodeBlockShowsNoNoteSeamEveryOtherKindDoes: Story = {
+  args: {
+    contentHash: "code-seam-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          title: "A heading",
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "heading", depth: 2 },
+        },
+        {
+          title: "code",
+          anchor: { kind: "paragraph", line: 2 },
+          block: { kind: "code", text: "code" },
+          note: "should never show",
+        },
+        paragraphNode(5, "A trailing paragraph."),
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("note-seam-1")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("paragraph-note-1")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("note-seam-2")).toBeInTheDocument()
+  },
+}
+
 export const ParagraphNoteSeamOpensTheNoteSheetOnTheRealAnchor: Story = {
   args: {
     contentHash: "prose-hash-2",
@@ -277,7 +383,7 @@ export const ParagraphNoteSeamOpensTheNoteSheetOnTheRealAnchor: Story = {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("note-seam-0"))
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
-    await expect(canvas.getByText("Note on this paragraph")).toBeInTheDocument()
+    await expect(canvas.getByText("Note on this block")).toBeInTheDocument()
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "worth flagging" },
     })
