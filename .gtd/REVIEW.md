@@ -2,6 +2,25 @@
 
 <!-- base: e1d28c768b5c9faf11b7600c2ab6b54cbc22fe1c -->
 
+- **the CGNAT bind is the wrong model — replace it with a managed
+  `tailscale serve` front door.** Binding a raw socket to the tailnet IP is
+  reachable on a direct LAN path but not over a DERP relay, so `gtd ui` works
+  from home and fails from outside. Collie solves this: loopback listener, and
+  `tailscale serve --bg --https=<port> --set-path=/ <target>` so tailscaled
+  terminates TLS. Serve accepts any port (the 443/8443/10000 limit is Funnel
+  only), so one mapping per instance works. Three things to copy: an ownership
+  record, so teardown removes only a mapping this instance published (serve
+  config is node-global — otherwise one instance rips out another's, or collie's
+  443 door); teardown on every exit path plus an orphan check, since a crash
+  leaves a mapping pointing at a dead port while the URL still looks valid; and
+  a fallback when serve fails (operator not set, or no tailnet HTTPS certs) to
+  today's direct bind rather than refusing to start. Payoff: the CGNAT scan,
+  `tailscale cert`, `obtainTailscaleCert` and the self-signed branch all become
+  dead code.
+- textboxes should not store on type, but when the user clicks "save"
+- the q&a view of a design document is lacking a "done" button that terminates
+  the process and "Read the plan" has to actually display the plan
+
 ## Remove dictation from the phone UI
 
 The `Mic` component and every consumer are gone. Both the note sheet and the
