@@ -17,10 +17,15 @@ Then(
   "no tailscale serve mapping or ownership record survives on port {int}",
   async (world: GtdWorld, servePort: number) => {
     const { readServeRecord } = await import("../../../../src/ui/Serve.js")
+    // Read through the same sandboxed `$HOME` the spawned child's own
+    // teardown wrote/deleted against — `readServeRecord` resolves
+    // `~/.gtd/serve/` via node:os `homedir()`, which reads this process's
+    // own `$HOME`, not the child's.
+    const record = await world.withServeHome(() => readServeRecord(servePort))
     assert.strictEqual(
-      readServeRecord(servePort),
+      record,
       undefined,
-      `expected no ownership record left at ~/.gtd/serve/${servePort}.json`,
+      `expected no ownership record left at $HOME/.gtd/serve/${servePort}.json`,
     )
     assert.ok(world.tailscaleStateDir !== undefined, "no fake tailscale state dir on this world")
     const mappingPath = join(world.tailscaleStateDir!, `${servePort}.mapping`)

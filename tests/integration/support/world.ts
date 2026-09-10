@@ -225,6 +225,8 @@ export class GtdWorld extends QuickPickleWorld {
   pathShimDir: string | undefined = undefined
   /** State dir for the fake `tailscale` CLI `pathShimDir` also carries (`hooks.ts#FAKE_TAILSCALE_SCRIPT`) — one `<port>.mapping` file per published serve port. Live tier only. */
   tailscaleStateDir: string | undefined = undefined
+  /** Sandboxes `src/ui/Serve.ts#serveDir`'s `~/.gtd/serve/<port>.json` ownership record for the serve-path spawn helpers only (`spawnBoundGtdUiServe`/`withServeHome`) — never the general `spawnEnv()`, so every OTHER live spawn keeps the real `$HOME` and its config-discovery walk. Live tier only. */
+  serveHomeDir: string | undefined = undefined
   /** A temp dir OUTSIDE the repo holding docs/driver.md's extracted driver script — proves the paste needs nothing inside the project. */
   driverDocDir: string | undefined = undefined
   /** Absolute path to the extracted driver script inside `driverDocDir`, chmod'd executable. */
@@ -576,13 +578,41 @@ export class GtdWorld extends QuickPickleWorld {
    * and `spawnGtdUiServeAndSignal` (Task 4's own SIGINT/SIGTERM teardown
    * coverage) share the one spawn/poll dance.
    */
+  /**
+   * Runs `fn` with the TEST PROCESS's own `$HOME` temporarily pointed at
+   * `serveHomeDir` — the sandbox the spawned `gtd ui` child's own env already
+   * uses (`spawnBoundGtdUiServe`) — so a direct in-process
+   * `readServeRecord`/`deleteServeRecord` call (node:os `homedir()` reads
+   * `$HOME`) agrees with the child on where `~/.gtd/serve/<port>.json`
+   * lives, rather than reading the real developer's home directory. Scoped
+   * to the one call it wraps and always restored, never a standing mutation
+   * of this process's own env.
+   */
+  async withServeHome<T>(fn: () => T): Promise<T> {
+    const previous = process.env["HOME"]
+    process.env["HOME"] = this.serveHomeDir
+    try {
+      return fn()
+    } finally {
+      if (previous === undefined) delete process.env["HOME"]
+      else process.env["HOME"] = previous
+    }
+  }
+
   private async spawnBoundGtdUiServe(servePort: number): Promise<{
     readonly child: ReturnType<typeof spawn>
     readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
   }> {
+    // `$HOME` sandboxed to `serveHomeDir` — the spawned `gtd ui`'s own
+    // `attemptServe`/`teardownServe` write/read `~/.gtd/serve/<port>.json`
+    // (`src/ui/Serve.ts#serveDir`, via node:os `homedir()`), which is NOT
+    // otherwise sandboxed the way the fake tailscale CLI's own state is
+    // (`GTD_TEST_TAILSCALE_DIR`). Scoped to THIS spawn only, not
+    // `spawnEnv()`'s general env, per `withServeHome`'s own doc comment.
+    assert.ok(this.serveHomeDir !== undefined, "no serveHomeDir on this world (not @live?)")
     const child = spawn(process.execPath, [GTD_BIN, "ui", "--port", String(servePort)], {
       cwd: this.repoDir,
-      env: this.spawnEnv(),
+      env: { ...this.spawnEnv(), HOME: this.serveHomeDir },
       stdio: ["ignore", "pipe", "pipe"],
     })
     let stdout = ""
@@ -639,8 +669,11 @@ export class GtdWorld extends QuickPickleWorld {
     const { exited } = await this.spawnBoundGtdUiServe(servePort)
 
     const { readServeRecord } = await import("../../../src/ui/Serve.js")
-    const record = readServeRecord(servePort)
-    assert.ok(record !== undefined, `no ownership record found at ~/.gtd/serve/${servePort}.json`)
+    const record = await this.withServeHome(() => readServeRecord(servePort))
+    assert.ok(
+      record !== undefined,
+      `no ownership record found at $HOME/.gtd/serve/${servePort}.json (sandboxed $HOME: ${this.serveHomeDir})`,
+    )
 
     const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
       import("../../../src/ui/Write.js"),

@@ -1208,6 +1208,63 @@ describe("runUiCommand", () => {
       expect(readServeRecord(orphanPort)).toBeUndefined()
       expect(commands.some((c) => c.includes(`--https=${orphanPort} off`))).toBe(false)
     })
+
+    it("teardown: a `tailscale serve status` probe that fails to run leaves the record in place — never deletes evidence it can't confirm is stale", async () => {
+      initGitRepo(tmpDir)
+      installFakeGtd(tmpDir, renderablePromptJson)
+      const { out, written } = fakeOut()
+
+      const commands: string[] = []
+      // The FIRST "tailscale serve status --json" is the orphan check ahead
+      // of publishing — empty, so this run's own publish proceeds normally.
+      // The SECOND is teardown's own re-read: a non-zero exit, as if
+      // tailscaled was mid-restart or the operator permission had lapsed —
+      // proves nothing about whether the mapping is still ours, so teardown
+      // must not delete the record on the strength of it.
+      let serveStatusCalls = 0
+      const runner = CommandRunner.layer((command) => {
+        commands.push(command)
+        if (command === "tailscale status --json") {
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              BackendState: "Running",
+              CertDomains: ["host.tailnet.ts.net"],
+              Self: { DNSName: "host.tailnet.ts.net." },
+            }),
+          })
+        }
+        if (command === "tailscale serve status --json") {
+          serveStatusCalls += 1
+          if (serveStatusCalls === 1) return Effect.succeed({ status: 0, output: "{}" })
+          return Effect.succeed({ status: 1, output: "", stderr: "tailscaled not running" })
+        }
+        return Effect.succeed({ status: 0, output: "{}" })
+      })
+      const fakeUiListener = Layer.succeed(UiListener, {
+        listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+      })
+
+      const fiber = Effect.runFork(
+        runUiCommand({ selfSigned: false, dev: false, port: orphanPort }, undefined, out).pipe(
+          Effect.provide(fakeUiListener),
+          Effect.provide(runner),
+          Effect.provide(NodeContext.layer),
+          Effect.provide(Cwd.layer(tmpDir)),
+        ),
+      )
+
+      await waitForWrites(written, 1)
+      const publishedRecord = readServeRecord(orphanPort)
+      expect(publishedRecord).toBeDefined()
+
+      await Effect.runPromise(Fiber.interrupt(fiber))
+
+      // Left exactly as published — neither deleted nor unpublished. The
+      // describe block's own `afterEach` cleans it up.
+      expect(readServeRecord(orphanPort)).toEqual(publishedRecord)
+      expect(commands.some((c) => c.includes(`--https=${orphanPort} off`))).toBe(false)
+    })
   })
 
   it("T5: under --dev, rebuilds the client exactly once at startup — no HTTP request triggers a rebuild", async () => {

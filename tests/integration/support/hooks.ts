@@ -154,6 +154,14 @@ Before(async (world: GtdWorld) => {
     world.repo = undefined
     world.pathShimDir = createPathShim()
     world.tailscaleStateDir = mkdtempSync(join(tmpdir(), "gtd-fake-tailscale-"))
+    // Sandboxes `src/ui/Serve.ts#serveDir`'s `~/.gtd/serve/` — the one piece
+    // of the serve-path scenarios' state that isn't already scoped like the
+    // fake tailscale CLI's own `tailscaleStateDir` above. Only the SERVE
+    // spawn helper (`world.ts#spawnBoundGtdUiServe`/`withServeHome`) points
+    // `$HOME` here — every other live spawn keeps the real `$HOME`, so
+    // config-discovery's own home-directory walk (`Config.ts#walkUp`) stays
+    // exactly as every other `@live` scenario already exercises it.
+    world.serveHomeDir = mkdtempSync(join(tmpdir(), "gtd-serve-home-"))
   } else {
     world.tier = "inmem"
     world.repo = new InMemRepo()
@@ -176,9 +184,10 @@ function cleanupLiveTier(world: GtdWorld): void {
     if (keep) process.stderr.write(`Test repo preserved at: ${dir}\n`)
     else rmSync(dir, { recursive: true, force: true })
   }
-  removeScaffolding(world.pathShimDir, world.tailscaleStateDir)
+  removeScaffolding(world.pathShimDir, world.tailscaleStateDir, world.serveHomeDir)
   world.pathShimDir = undefined
   world.tailscaleStateDir = undefined
+  world.serveHomeDir = undefined
 }
 
 After(async (world: GtdWorld) => {

@@ -587,15 +587,21 @@ const attemptServe = (
  * direct-bind fallback ran instead) is a silent no-op. A record whose live
  * mapping still points at our own `target` is unpublished, then deleted; a
  * record whose target has since diverged means another process took the
- * port over already — deleted without touching that mapping. Never fails:
- * this runs inside `Effect.ensuring`, which requires it.
+ * port over already — deleted without touching that mapping. A probe that
+ * FAILED to run (mirroring `clearOrphanForPublish`'s own publish-side rule)
+ * proves nothing either way — the record is left exactly as it is, never
+ * deleted, so this instance's own dead pid (once the process actually exits)
+ * lets the NEXT `gtd ui`'s orphan check clear it properly instead of leaving
+ * a live mapping permanently unreachable behind a deleted record. Never
+ * fails: this runs inside `Effect.ensuring`, which requires it.
  */
 const teardownServe = (servePort: number): Effect.Effect<void, never, CommandRunner> =>
   Effect.gen(function* () {
     const record = readServeRecord(servePort)
     if (record === undefined) return
     const probe = yield* probeLiveServeMapping(servePort)
-    if (probe.ok && probe.mapping !== undefined && probe.mapping.targetUrl === record.target) {
+    if (!probe.ok) return
+    if (probe.mapping !== undefined && probe.mapping.targetUrl === record.target) {
       yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
     }
     deleteServeRecord(servePort)
