@@ -1,24 +1,5 @@
 # Architecture
 
-## Open Questions
-
-### Does `onAnswerChange`'s functional-updater overload get deleted with `Mic`, or kept for the async refusal-revert path?
-
-The settled concern says the overload exists for exactly one reason — `Mic`'s
-tap-time closure — and goes with it. The code says otherwise: four call sites
-inside `src/web/screens/Question.tsx` pass an updater, and one of them (`#288`,
-the refusal-revert sequence) fires AFTER an awaited write, so it needs the
-deferred read of "current answer" for the same reason `Mic` did. Deleting the
-overload rewrites that path against a closure captured before the write.
-
-- [x] Keep the overload; delete only `onDictate` and the `Mic`-specific
-      comments, and re-point `Question.tsx#65`'s doc comment at the async revert
-      path as the surviving reason
-- [ ] Delete the overload as written; rewrite `#235`, `#288`, `#361`, `#441` to
-      plain values computed from the `answer` prop, accepting a stale-read
-      clobber when a refusal-revert lands after further typing
-- [ ] _your answer_
-
 ## Remove the QR code
 
 A pure deletion, one commit, no new structure. `renderQrCode` is a leaf: one
@@ -76,6 +57,16 @@ Primary paths:
   (`#131`–`#150`), `mic-toggle`, `mic-interim`, `mic-hint`, the `onDictate` prop
   and its handler (`#432`), and the closure-hazard doc comments at `#54`, `#87`,
   `#422`.
+
+`onAnswerChange`'s functional-updater overload (`#65`) STAYS. It has a second,
+surviving reason the deleted comments never named: the refusal-revert sequence
+at `#288` fires after an awaited write, so it needs the same deferred read of
+"current answer" `Mic` needed. `#235`, `#361`, and `#441` keep passing updaters
+too, and `Plan.tsx#422`'s `typeof update === "function"` branch is untouched.
+Re-point `#65`'s doc comment at the async revert path and drop only its `Mic`
+sentences. Delete the overload instead and a refusal-revert landing after
+further typing silently clobbers what was typed meanwhile.
+
 - `src/web/NoteSheet.stories.tsx`, `src/web/screens/Question.stories.tsx` — the
   `FakeSpeechRecognition` classes and every story built on them, including
   `NoSpeechApiShowsAHintInsteadOfAMicButton`, `MicToggleMeetsThe44pxFloor`, and
@@ -316,3 +307,9 @@ deleting them for green silently drops that coverage.
 That HTTPS-only is deliberate policy — a phone client reachable over a tailnet
 gets TLS on its own merits. No invented replacement technical constraint, and
 both pinned copies change together.
+
+### Does `onAnswerChange`'s functional-updater overload get deleted with `Mic`, or kept for the async refusal-revert path?
+
+Kept. Only `onDictate` and the `Mic`-specific comments go; `Question.tsx#65`'s
+doc comment is re-pointed at the async refusal-revert path at `#288`, which is
+the surviving reason the overload exists.
