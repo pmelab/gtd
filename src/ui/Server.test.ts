@@ -897,6 +897,60 @@ describe("runUiCommand", () => {
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
+  it("no --host given, the loopback listener itself refuses (EADDRINUSE et al): falls back to the direct CGNAT bind — never a refusal", async () => {
+    initGitRepo(tmpDir)
+    installFakeGtd(tmpDir, renderablePromptJson)
+    const { out, written } = fakeOut()
+    const certPath = join(tmpDir, "cert.pem")
+    const keyPath = join(tmpDir, "key.pem")
+    writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+    writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+
+    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    // The serve attempt's own loopback bind (no `tls`) fails outright; the
+    // fallback's direct TLS bind (`tls` present) still succeeds — proving
+    // `attemptServe` catches the listen failure into `ok: false` rather than
+    // letting it propagate out of the Effect.
+    const fakeUiListener = Layer.succeed(UiListener, {
+      listen: ({ tls }) =>
+        tls === undefined
+          ? Effect.fail(new GtdError("gtd ui: port 0 is already in use"))
+          : Effect.succeed({ port: 4443, close: () => {} }),
+    })
+    const runner = CommandRunner.layer((command) => {
+      if (command === "tailscale status --json") {
+        return Effect.succeed({
+          status: 0,
+          output: JSON.stringify({
+            BackendState: "Running",
+            CertDomains: ["host.tailnet.ts.net"],
+            Self: { DNSName: "host.tailnet.ts.net." },
+          }),
+        })
+      }
+      if (command === "tailscale serve status --json") {
+        return Effect.succeed({ status: 0, output: "{}" })
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    const fiber = Effect.runFork(
+      runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+        Effect.provide(fakeUiListener),
+        Effect.provide(runner),
+        Effect.provide(NodeContext.layer),
+        Effect.provide(Cwd.layer(tmpDir)),
+      ),
+    )
+
+    await waitForWrites(written, 2)
+    expect(written[0]).toContain("not using tailscale serve")
+    expect(written[0]).toContain("could not bind the loopback listener")
+    expect(written[1]).toBe("https://host.tailnet.ts.net:4443/\n")
+
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  })
+
   describe("Task 4's ownership guarantees, exercised through the real ~/.gtd/serve/<port>.json record", () => {
     // A port dedicated to these three tests — distinct from the "no --host"
     // happy-path test above (default 8443) and from

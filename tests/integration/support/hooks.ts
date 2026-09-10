@@ -57,8 +57,8 @@ function createPathShim(): string {
 }
 
 /**
- * A stateful fake `tailscale` CLI, package 01's own `ui-serve.feature`
- * scenarios' only way to exercise `src/ui/Serve.ts`'s real command shapes
+ * A stateful fake `tailscale` CLI, package 01's own `ui-lifecycle.feature`
+ * serve scenarios' only way to exercise `src/ui/Serve.ts`'s real command shapes
  * (`serve --bg`/`serve status --json`/`serve ... off`) deterministically —
  * neither a real tailnet nor even the `tailscale` binary itself is
  * guaranteed present on a CI runner (`ubuntu-latest` carries neither), the

@@ -519,17 +519,19 @@ type ServeAttempt =
  * orphan check, bind an EPHEMERAL loopback listener (nothing outside the
  * machine dials it directly — `tailscaled` terminates TLS and proxies in),
  * then `publishServe` on `servePort`. Every failure — no tailnet, an
- * unclearable foreign mapping, a non-zero `tailscale serve` exit — closes
- * whatever it bound and returns `ok: false` with one human-readable reason;
- * it never fails the Effect, so `runUiCommand` always has a direct-bind
- * fallback available.
+ * unclearable foreign mapping, the loopback bind itself refusing (EADDRINUSE,
+ * EMFILE, a sandbox that denies it), a non-zero `tailscale serve` exit —
+ * closes whatever it bound and returns `ok: false` with one human-readable
+ * reason. The `never` error channel makes "it never fails the Effect, so
+ * `runUiCommand` always has a direct-bind fallback available" a type-checked
+ * invariant rather than a claim only the doc comment made.
  */
 const attemptServe = (
   servePort: number,
   worktree: string,
   uiListener: Context.Tag.Service<typeof UiListener>,
   handler: RequestHandler,
-): Effect.Effect<ServeAttempt, GtdError, CommandRunner> =>
+): Effect.Effect<ServeAttempt, never, CommandRunner> =>
   Effect.gen(function* () {
     const tailscaleStatus = yield* probeTailscaleStatus()
     if (tailscaleStatus === undefined) {
@@ -544,7 +546,18 @@ const attemptServe = (
       } as const
     }
 
-    const bound = yield* uiListener.listen({ host: "127.0.0.1", port: 0, handler })
+    const boundAttempt = yield* uiListener.listen({ host: "127.0.0.1", port: 0, handler }).pipe(
+      Effect.map((bound) => ({ ok: true as const, bound })),
+      Effect.catchAll((e) => Effect.succeed({ ok: false as const, reason: e.message })),
+    )
+    if (!boundAttempt.ok) {
+      return {
+        ok: false,
+        reason: `could not bind the loopback listener: ${boundAttempt.reason}`,
+      } as const
+    }
+    const bound = boundAttempt.bound
+
     const publishResult = yield* publishServe({ servePort, targetPort: bound.port }).pipe(
       Effect.catchAll((e) => Effect.succeed({ ok: false as const, reason: e.message, output: "" })),
     )
