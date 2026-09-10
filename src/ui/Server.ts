@@ -480,7 +480,13 @@ const probeLiveServeMapping = (
       .bash("tailscale serve status --json")
       .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
     if (outcome === undefined || outcome.status !== 0) return { ok: false }
-    return { ok: true, mapping: parseServeStatus(outcome.output, servePort) }
+    // `outcome.output` is stdout+stderr MERGED (`CommandRunner.ts`'s own
+    // doc comment) — a version-mismatch warning or any other exit-0 stderr
+    // chatter appended there would make otherwise-valid JSON unparseable,
+    // and an unparseable probe must never read as "nothing published here"
+    // (this function's own `ok: true, mapping: undefined` case). `stdout`
+    // alone is the actual JSON `tailscale serve status --json` prints.
+    return { ok: true, mapping: parseServeStatus(outcome.stdout ?? outcome.output, servePort) }
   })
 
 /**

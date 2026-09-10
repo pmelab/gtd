@@ -120,12 +120,17 @@ export interface ServeRecord {
 
 // `~/.gtd/serve/` is the one gtd state directory outside a worktree — there is
 // no other, so it's created on demand rather than assumed to pre-exist.
-const serveDir = (): string => join(homedir(), ".gtd", "serve")
-const serveRecordPath = (servePort: number): string => join(serveDir(), `${servePort}.json`)
+// `base` defaults to the real `homedir()` for every production call site;
+// it's a parameter (never read from an env var) purely so a test can point
+// it at a `mkdtemp` directory instead of touching the real home directory —
+// the same seam `resolveBindHost`'s `pickHost` gives `Bind.ts`'s own default.
+const serveDir = (base: string = homedir()): string => join(base, ".gtd", "serve")
+const serveRecordPath = (servePort: number, base?: string): string =>
+  join(serveDir(base), `${servePort}.json`)
 
 /** `undefined` for a missing or unparseable record file — never thrown — matching this package's "empty is not a failure" rule elsewhere. */
-export const readServeRecord = (servePort: number): ServeRecord | undefined => {
-  const path = serveRecordPath(servePort)
+export const readServeRecord = (servePort: number, base?: string): ServeRecord | undefined => {
+  const path = serveRecordPath(servePort, base)
   if (!existsSync(path)) return undefined
   try {
     return JSON.parse(readFileSync(path, "utf8")) as ServeRecord
@@ -134,12 +139,12 @@ export const readServeRecord = (servePort: number): ServeRecord | undefined => {
   }
 }
 
-export const writeServeRecord = (servePort: number, record: ServeRecord): void => {
-  mkdirSync(serveDir(), { recursive: true })
-  writeFileSync(serveRecordPath(servePort), JSON.stringify(record))
+export const writeServeRecord = (servePort: number, record: ServeRecord, base?: string): void => {
+  mkdirSync(serveDir(base), { recursive: true })
+  writeFileSync(serveRecordPath(servePort, base), JSON.stringify(record))
 }
 
-export const deleteServeRecord = (servePort: number): void => {
-  const path = serveRecordPath(servePort)
+export const deleteServeRecord = (servePort: number, base?: string): void => {
+  const path = serveRecordPath(servePort, base)
   if (existsSync(path)) unlinkSync(path)
 }

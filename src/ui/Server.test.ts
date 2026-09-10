@@ -1026,6 +1026,73 @@ describe("runUiCommand", () => {
       await Effect.runPromise(Fiber.interrupt(fiber))
     })
 
+    it("a stderr warning merged into an exit-0 probe's output does not mask a foreign live mapping — reads stdout alone, never publishes over it", async () => {
+      initGitRepo(tmpDir)
+      installFakeGtd(tmpDir, renderablePromptJson)
+      const { out, written } = fakeOut()
+      const certPath = join(tmpDir, "cert.pem")
+      const keyPath = join(tmpDir, "key.pem")
+      writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+      writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+
+      const commands: string[] = []
+      const runner = CommandRunner.layer((command) => {
+        commands.push(command)
+        if (command === "tailscale status --json") {
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              BackendState: "Running",
+              CertDomains: ["host.tailnet.ts.net"],
+              Self: { DNSName: "host.tailnet.ts.net." },
+            }),
+          })
+        }
+        if (command === "tailscale serve status --json") {
+          // A real `tailscale` prints a client/daemon version-mismatch
+          // warning to stderr even on a successful exit-0 run —
+          // `CommandRunner.Live`'s `output` MERGES stdout+stderr, so the
+          // warning text lands right after the JSON and breaks the parse
+          // unless the probe reads `stdout` alone.
+          const stdout = JSON.stringify({
+            Web: {
+              [`some-other-node.tailnet.ts.net:${orphanPort}`]: {
+                Handlers: { "/": { Proxy: "http://127.0.0.1:9999" } },
+              },
+            },
+          })
+          const stderr = "Warning: client version 1.99.0 != tailscaled server version 1.98.0\n"
+          return Effect.succeed({ status: 0, output: stdout + stderr, stdout, stderr })
+        }
+        throw new Error(`unexpected command: ${command}`)
+      })
+      const fakeUiListener = Layer.succeed(UiListener, {
+        listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+      })
+
+      const fiber = Effect.runFork(
+        runUiCommand(
+          { selfSigned: false, dev: false, port: orphanPort },
+          { cert: certPath, key: keyPath },
+          out,
+        ).pipe(
+          Effect.provide(fakeUiListener),
+          Effect.provide(runner),
+          Effect.provide(NodeContext.layer),
+          Effect.provide(Cwd.layer(tmpDir)),
+        ),
+      )
+
+      await waitForWrites(written, 2)
+      expect(written[0]).toContain("not using tailscale serve")
+      expect(written[1]).toBe("https://host.tailnet.ts.net:4443/\n")
+      expect(commands.some((c) => c.startsWith("tailscale serve --bg"))).toBe(false)
+      expect(readServeRecord(orphanPort)).toBeUndefined()
+
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    })
+
     it("a `tailscale serve status` probe that fails to run can't prove the port is free — falls back, never publishes over an unseen mapping", async () => {
       initGitRepo(tmpDir)
       installFakeGtd(tmpDir, renderablePromptJson)

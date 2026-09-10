@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs"
-import { homedir } from "node:os"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
@@ -164,7 +164,36 @@ describe("serve record", () => {
     expect(readServeRecord(testPort)).toBeUndefined()
   })
 
-  it("writes the record under ~/.gtd/serve/<servePort>.json, creating the parent directory on demand", () => {
+  it("writes the record under <base>/.gtd/serve/<servePort>.json, actually creating the parent directory when it's genuinely absent", () => {
+    // A fresh mkdtemp dir has no `.gtd/` at all yet — unlike the real
+    // `homedir()` these other tests share (already created by an earlier
+    // `writeServeRecord` call in the same suite run), so this is the one
+    // case that can't pass by coincidence without `mkdirSync`'s own
+    // `{ recursive: true }`.
+    const base = mkdtempSync(join(tmpdir(), "gtd-serve-base-"))
+    try {
+      const serveDirPath = join(base, ".gtd", "serve")
+      expect(existsSync(serveDirPath)).toBe(false)
+
+      writeServeRecord(
+        testPort,
+        {
+          pid: 1,
+          servePort: testPort,
+          targetPort: 2,
+          target: "http://127.0.0.1:2",
+          worktree: "/repo/w",
+        },
+        base,
+      )
+
+      expect(existsSync(join(serveDirPath, `${testPort}.json`))).toBe(true)
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it("the injected base is a test-only seam — omitting it still resolves against the real homedir()", () => {
     writeServeRecord(testPort, {
       pid: 1,
       servePort: testPort,
