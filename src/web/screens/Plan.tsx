@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type {
-  BlockListItem,
-  SteeringAnchor,
-  SteeringView,
-  SteeringViewNode,
-} from "../../SteeringFormat.js"
-import { Button } from "../Button.js"
+import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../SteeringFormat.js"
 import { Card, CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { Notice } from "../Notice.js"
@@ -14,6 +8,7 @@ import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
 import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
+import { ProseBlocks } from "./ProseBlock.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 const readPlanStorageKey = (contentHash: string): string => `gtd:plan-read:${contentHash}`
@@ -100,145 +95,6 @@ const QuestionCard = ({
     </Card>
   )
 }
-
-/** The heading tag a `block.heading`'s own `depth` renders as — three buckets covering all six markdown levels, never a literal `h1`..`h6` (this screen's own `h2` already labels "Open Questions"/"Already answered"). */
-const headingTagFor = (depth: number): "h2" | "h3" | "h4" => {
-  if (depth <= 2) return "h2"
-  if (depth === 3) return "h3"
-  return "h4"
-}
-
-/** One `list` block's own items, recursively — a nested `items` array renders as a nested `ul`/`ol` inside its parent's `li`. */
-const BlockList = ({
-  items,
-  ordered,
-}: {
-  readonly items: readonly BlockListItem[]
-  readonly ordered: boolean
-}) => {
-  const ListTag = ordered ? "ol" : "ul"
-  return (
-    <ListTag className="m-0 pl-5">
-      {items.map((item, index) => (
-        <li key={index}>
-          {item.checked !== undefined && (
-            <input type="checkbox" checked={item.checked} readOnly className="mr-2 align-middle" />
-          )}
-          {item.text}
-          {item.items !== undefined && <BlockList items={item.items} ordered={ordered} />}
-        </li>
-      ))}
-    </ListTag>
-  )
-}
-
-/** The structural element `block` renders as — a plain `p` when `block` is absent or its `kind` isn't (yet) one this switches on, exactly the fallback Task 4 requires so a client that ignores `block` still renders `title`. */
-const BlockBody = ({ node }: { readonly node: SteeringViewNode }) => {
-  switch (node.block?.kind) {
-    case "heading": {
-      const HeadingTag = headingTagFor(node.block.depth ?? 2)
-      return <HeadingTag className="m-0 px-3 py-2 font-semibold">{node.title}</HeadingTag>
-    }
-    case "list":
-      return (
-        <div className="px-3 py-2">
-          <BlockList items={node.block.items ?? []} ordered={node.block.ordered === true} />
-        </div>
-      )
-    case "code":
-      return (
-        <pre className="m-0 overflow-auto bg-muted px-3 py-2">
-          <code>{node.block.text ?? ""}</code>
-        </pre>
-      )
-    case "blockquote":
-      return (
-        <blockquote className="m-0 border-l-2 border-border px-3 py-2 italic text-muted">
-          {node.block.text ?? node.title}
-        </blockquote>
-      )
-    default:
-      return <p className="m-0 px-3 py-2">{node.title}</p>
-  }
-}
-
-/**
- * One block plus its inline note (if any) and its note seam — `line` is the
- * block's real, server-computed anchor line when it has one (every
- * prose-only node does), falling back to array `index` only for a malformed
- * node so the row still renders and keys uniquely. A fenced CODE block gets
- * neither the seam nor the inline note row (Task 3's own reason: a marker on
- * its anchor line would land in the opening fence and corrupt it) — every
- * other kind gets both.
- */
-// fallow-ignore-next-line complexity
-const ProseBlock = ({
-  node,
-  index,
-  noteOverrides,
-  onOpenNote,
-}: {
-  readonly node: SteeringViewNode
-  readonly index: number
-  readonly noteOverrides: Readonly<Record<number, string>>
-  readonly onOpenNote: (node: SteeringViewNode) => void
-}) => {
-  const line = node.anchor.kind === "paragraph" ? node.anchor.line : index
-  const noteText = noteOverrides[line] ?? node.note
-  const hasNote = noteText !== undefined && noteText.length > 0
-  const isCode = node.block?.kind === "code"
-  return (
-    <div>
-      <BlockBody node={node} />
-      {!isCode && hasNote && (
-        <div data-testid={`paragraph-note-${index}`} className="px-3 pb-2 text-small text-muted">
-          {noteText}
-        </div>
-      )}
-      {/*
-       * A real, visible affordance below the block — full-width and thin
-       * relative to the block's own text (a single small line, not a
-       * card), but never a 0-visible-pixels strip: a 1px top border draws
-       * the seam itself, the label makes its purpose legible, and a 44px
-       * minimum height (Apple's/Android's own minimum recommended touch
-       * target) makes it reliably tappable on a phone.
-       */}
-      {!isCode && (
-        <Button
-          variant="ghost"
-          data-testid={`note-seam-${index}`}
-          onClick={() => onOpenNote(node)}
-          className="w-full rounded-none border-t border-border px-3 text-left text-small text-muted"
-        >
-          {hasNote ? "Edit note" : "+ Add note"}
-        </Button>
-      )}
-    </div>
-  )
-}
-
-/** Prose-only rendering: one `ProseBlock` per `view.nodes` entry (each carrying a real, server-computed `paragraph` anchor — `OpenQuestions.ts#blockNodesOf`). A block already carrying a note (`node.note`, or a locally-saved override) shows it inline and offers editing via the same seam, never a second note. */
-const ProseBlocks = ({
-  nodes,
-  noteOverrides,
-  onOpenNote,
-}: {
-  readonly nodes: readonly SteeringViewNode[]
-  readonly noteOverrides: Readonly<Record<number, string>>
-  readonly onOpenNote: (node: SteeringViewNode) => void
-}) => (
-  <div data-testid="prose-paragraphs">
-    {nodes.map((node, index) => (
-      <ProseBlock
-        key={node.anchor.kind === "paragraph" ? node.anchor.line : index}
-        node={node}
-        index={index}
-        noteOverrides={noteOverrides}
-        onOpenNote={onOpenNote}
-      />
-    ))}
-  </div>
-)
 
 export interface PlanViewProps {
   readonly view: SteeringView | undefined
