@@ -1,45 +1,3 @@
-## Open Questions
-
-### What does "Read the plan" have to change — the row's behaviour, or what the plan renderer keeps?
-
-The plan is already on screen: the row itself only writes a
-`gtd:plan-read:<contentHash>` localStorage flag and shows a `✓`, while the plan
-body renders below it. But it renders through `paragraphNodesOf`, which keeps
-top-level `paragraph` nodes only and is scoped to everything before
-`## Open Questions`. Every heading, list, code block and blockquote is dropped
-silently, and so is anything after the questions section. A heading-and-list
-plan therefore arrives as a handful of orphan sentences — which reads exactly
-like "the plan is not displayed".
-
-- [x] The renderer is the bug. Keep the row as the read-confirmation it is, and
-      render the whole document with its structure intact — headings, lists,
-      code, blockquotes — including the part after `## Open Questions`.
-- [ ] The row is the bug. Tapping it should open the plan as its own full-screen
-      readable view, rather than acting as a checkbox over prose already
-      scrolled past.
-- [ ] _your answer_
-
-### What does the design-document view's Done button end — this turn, or the whole process?
-
-Today the only done affordance is inside the note sheet: `Save & Done`, which
-requires a note, calls `trpc.done` and hands back to the driver — ending the
-TURN, not the process. There is no note-less "I am finished" anywhere.
-
-- [x] End the turn. The same handoff `Save & Done` already performs, minus the
-      mandatory note, reachable straight from the Q&A deck. The driver decides
-      what happens next.
-- [ ] End the process. `gtd abandon` semantics — rewind to the process start and
-      keep the work uncommitted. An escape hatch, not a completion.
-- [ ] _your answer_
-
-### What happens to text typed into a textbox and then left without tapping Save?
-
-- [x] Discard it. Save is the only write, and leaving the view loses the text —
-      the "never store on type" rule taken literally.
-- [ ] Keep it as a local draft that survives navigation and reload, and let only
-      a Save write it through. Nothing typed is ever lost.
-- [ ] _your answer_
-
 ## TECHNICAL: replace the CGNAT bind with a managed `tailscale serve` front door
 
 Binding a raw socket to the tailnet IP is the wrong reachability model. It works
@@ -80,6 +38,34 @@ mapping and leaves a foreign one untouched; a crash-then-restart finds and
 clears its own orphan; a failing serve still yields a reachable direct bind
 instead of a refusal.
 
+## PRODUCT: the plan renders as the whole document, structure intact
+
+"Read the plan" shows a plan nobody can read. The row itself is fine — it writes
+a `gtd:plan-read:<contentHash>` flag and shows a `✓`, and it stays exactly as it
+is. The renderer is the bug: `paragraphNodesOf` keeps top-level `paragraph`
+nodes only, and is scoped to everything before `## Open Questions`. Every
+heading, list, code block and blockquote is dropped silently, and so is
+everything after the questions section. A heading-and-list plan arrives as a
+handful of orphan sentences.
+
+Render the whole document with its structure: headings, lists, code blocks,
+blockquotes, and the content after `## Open Questions` too.
+
+Every node the view emits carries a real, server-computed anchor, and the client
+hands that anchor straight back to `annotate` to attach a footnote. Paragraphs
+have one today; headings, lists and code blocks do not. Extending the node set
+without extending anchors breaks note attachment on the new kinds — the anchor
+work is inside this concern, not after it.
+
+This is the first product concern to build. It changes the shape of
+`view.nodes`, which both later concerns render against; doing it first means
+their stories are written once against the final shape.
+
+Acceptance: a storybook story renders a plan containing a heading, a nested
+list, a fenced code block and a paragraph after `## Open Questions`, and asserts
+all four are on screen; a second attaches a note to a heading and asserts it
+lands on that heading's own line.
+
 ## PRODUCT: textboxes store on an explicit Save, never on type
 
 Both textareas debounce writes at 800 ms and flush on blur and on unmount. All
@@ -92,12 +78,17 @@ all, so the free-text slot needs one added — this concern is an addition, not
 just a deletion. Its answer state is controlled by the parent's `answers` map,
 so the draft has to live somewhere that a keystroke can touch without a write.
 
+Text left unsaved is discarded. Leaving the view loses it — no draft that
+survives navigation, no restore on reload. Save is the only write, taken
+literally, so there is no persistence layer to build here.
+
 Radio option selection keeps writing through immediately. The rule is about
 textboxes; do not slow the radios down.
 
 Acceptance: storybook stories — the phone UI's test tier — that type into each
 textbox and assert no mutation fired, blur and unmount and assert still nothing,
-then tap Save and assert the write landed.
+then tap Save and assert the write landed; plus one that types, navigates away,
+returns, and asserts the box is empty.
 
 ## PRODUCT: the design-document Q&A view can end the turn without a note
 
@@ -105,9 +96,13 @@ Ending currently requires opening the note sheet and writing something, because
 `Save & Done` is the only affordance wired to `trpc.done`. A human who has
 answered every question and has no note to leave has no way out of the deck.
 
-Add that exit to the Q&A view itself, with the semantics the open question
-settles. Reuse the existing `done` round trip and the `HandedBackPanel` that
-follows it rather than inventing a second path.
+The button ends the TURN, not the process: the same handoff `Save & Done`
+already performs, minus the mandatory note, reachable straight from the Q&A
+deck. The driver decides what happens next. Nothing here rewinds or abandons
+anything.
+
+Reuse the existing `done` round trip and the `HandedBackPanel` that follows it
+rather than inventing a second path.
 
 Acceptance: a storybook story taps Done from the question deck with no note
 written and asserts the handed-back panel renders; a cucumber scenario asserts
@@ -115,10 +110,27 @@ the process exits the same way the existing handoff scenario does.
 
 ## Answered Questions
 
+### What does "Read the plan" have to change — the row's behaviour, or what the plan renderer keeps?
+
+The renderer. The row stays the read-confirmation it is, and the plan renders as
+the whole document with headings, lists, code and blockquotes intact, including
+the part after `## Open Questions`.
+
+### What does the design-document view's Done button end — this turn, or the whole process?
+
+The turn. It is the handoff `Save & Done` already performs, minus the mandatory
+note, reachable from the Q&A deck; the driver decides what follows. Not
+`gtd abandon`.
+
+### What happens to text typed into a textbox and then left without tapping Save?
+
+Discarded. Leaving the view loses it — no local draft, no survival across
+navigation or reload.
+
 ### Do the plan-rendering fix and the Done button ship as one concern or two?
 
-Two. They looked like one view, but they are not: the renderer question touches
-the server-side view builder and every screen that reads `view.nodes`, while the
+Two. They looked like one view, but they are not: the renderer touches the
+server-side view builder and every screen that reads `view.nodes`, while the
 Done button is a client affordance over an existing round trip. Each has its own
 failing check, and the plan fix does not gate the Done button.
 
@@ -128,6 +140,5 @@ No. Save writes and the human stays; ending a view is Done's job, not Save's.
 
 ### Does the read-confirmation `✓` and its localStorage key survive?
 
-Yes, under either answer to the renderer question. It is per-`contentHash`, so
-an edited plan correctly reverts to unconfirmed — that behaviour is working and
-nobody asked for it back.
+Yes. It is per-`contentHash`, so an edited plan correctly reverts to unconfirmed
+— that behaviour is working and nobody asked for it back.
