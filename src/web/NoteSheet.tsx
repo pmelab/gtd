@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { SteeringAnchor } from "../SteeringFormat.js"
 import { Button } from "./Button.js"
-import { Mic } from "./Mic.js"
 
 const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {
   chunk: "Note on this chunk",
@@ -52,11 +51,6 @@ export interface NoteSheetProps {
  * selection, so there is deliberately no `window.getSelection()` or
  * selection-range code anywhere in this file — no selection gesture is ever
  * required to place a note.
- *
- * Dictated text (via `Mic`) only ever writes into this component's own
- * `text` state; it never calls `onSave` itself — an explicit tap on Save is
- * still required, so dismissing after dictating discards it same as typed
- * text.
  */
 export const NoteSheet = ({
   anchor,
@@ -172,33 +166,8 @@ export const NoteSheet = ({
        */}
       <div
         data-testid="note-sheet-footer"
-        className="flex items-center justify-between gap-2 border-t border-border bg-page p-3"
+        className="flex items-center justify-end gap-2 border-t border-border bg-page p-3"
       >
-        <Mic
-          onAttach={(dictated) => {
-            setText((prev) => (prev.length > 0 ? `${prev} ${dictated}` : dictated))
-            scheduleAutoSave()
-          }}
-        >
-          {(state) => (
-            <>
-              {state.available ? (
-                <Button variant="secondary" data-testid="note-sheet-mic" onClick={state.toggle}>
-                  {state.recording ? "Stop" : "Dictate"}
-                </Button>
-              ) : (
-                <span data-testid="note-sheet-mic-hint" className="text-small text-muted">
-                  Use your keyboard's mic key to dictate
-                </span>
-              )}
-              {state.interim.length > 0 && (
-                <span data-testid="note-sheet-mic-interim" className="text-small italic text-muted">
-                  {state.interim}
-                </span>
-              )}
-            </>
-          )}
-        </Mic>
         <div className="flex gap-2">
           <Button variant="ghost" data-testid="note-sheet-dismiss" onClick={onDismiss}>
             Cancel

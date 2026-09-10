@@ -160,99 +160,11 @@ export const UsableOneHandedAt390pxWithKeyboardUp: Story = {
     const textarea = canvas.getByTestId("note-sheet-textarea")
     expect(textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await expect(canvas.getByTestId("note-sheet-save")).toBeInTheDocument()
-    await expect(canvas.getByTestId("note-sheet-mic")).toBeInTheDocument()
     // The footer stays within the sheet's own `maxWidth: 390` box — never a
     // `left/right: 0` span across the full (wider, in a real deployment)
     // device viewport.
     expect(footerRect.width).toBeLessThanOrEqual(sheet.getBoundingClientRect().width)
     expect(sheet.getBoundingClientRect().width).toBeLessThanOrEqual(390)
-  },
-}
-
-/** Mirrors `Mic.stories.tsx`'s fake — this file exercises the mic wired through `NoteSheet`, not `Mic` standalone. */
-interface FakeResult {
-  readonly isFinal: boolean
-  readonly 0: { readonly transcript: string }
-}
-const fakeResult = (transcript: string, isFinal: boolean): FakeResult => ({
-  isFinal,
-  0: { transcript },
-})
-
-class FakeSpeechRecognition extends EventTarget {
-  static instances: FakeSpeechRecognition[] = []
-  continuous = false
-  interimResults = false
-  onresult: ((event: { resultIndex: number; results: FakeResult[] }) => void) | null = null
-  onerror: ((event: { error: string }) => void) | null = null
-  onend: (() => void) | null = null
-  started = false
-
-  constructor() {
-    super()
-    FakeSpeechRecognition.instances.push(this)
-  }
-
-  start() {
-    this.started = true
-  }
-
-  stop() {
-    this.onend?.()
-  }
-
-  emitResult(results: FakeResult[], resultIndex = 0) {
-    this.onresult?.({ resultIndex, results })
-  }
-}
-
-const withApi = () => {
-  FakeSpeechRecognition.instances = []
-  window.SpeechRecognition = FakeSpeechRecognition as unknown as NonNullable<
-    typeof window.SpeechRecognition
-  >
-}
-const withoutApi = () => {
-  delete window.SpeechRecognition
-  delete window.webkitSpeechRecognition
-}
-
-export const DictationWritesToTheTextareaOnAttachNotToOnSave: Story = {
-  args: { anchor: hunkAnchor, onSave: fn(), onDismiss: fn() },
-  beforeEach: () => {
-    withApi()
-    return withoutApi
-  },
-  play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("note-sheet-mic"))
-    const recognition = FakeSpeechRecognition.instances.at(-1)
-    recognition?.emitResult([fakeResult("looks good to me", true)])
-    await fireEvent.click(canvas.getByTestId("note-sheet-mic")) // stop -> onend -> write-through on attach
-    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
-    await waitFor(() => expect(textarea.value).toBe("looks good to me"))
-    // Dictation only ever lands in local textarea state; the sheet's own
-    // save action is still required before `onSave` fires.
-    expect(args.onSave).not.toHaveBeenCalled()
-    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    await expect(args.onSave).toHaveBeenCalledWith(hunkAnchor, "looks good to me")
-  },
-}
-
-/** T7's OTHER mandated mic mount point — its own fallback branch (no speech API → hidden mic, one-line hint, textarea kept) was untested; only the happy-path mic worked. */
-export const NoSpeechApiShowsAHintAndKeepsTheTextarea: Story = {
-  args: { anchor: hunkAnchor, onSave: fn(), onDismiss: fn() },
-  beforeEach: () => {
-    withoutApi()
-    return () => {}
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(canvas.queryByTestId("note-sheet-mic")).not.toBeInTheDocument()
-    await expect(canvas.getByTestId("note-sheet-mic-hint")).toBeInTheDocument()
-    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
-    await fireEvent.change(textarea, { target: { value: "typed by hand instead" } })
-    expect(textarea.value).toBe("typed by hand instead")
   },
 }
 
@@ -360,42 +272,13 @@ export const ARefusedAutosaveRetriesOnTheNextBlurRatherThanSilentlySkipping: Sto
   },
 }
 
-/** The note sheet's own interim display — displayed but never written through, mirroring `Question.stories.tsx`'s identical proof at the free-text-option layer. */
-export const InterimResultsDisplayInTheNoteSheetButNeverWriteThrough: Story = {
-  args: { anchor: hunkAnchor, onSave: fn(), onDismiss: fn() },
-  beforeEach: () => {
-    withApi()
-    return withoutApi
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("note-sheet-mic"))
-    const recognition = FakeSpeechRecognition.instances.at(-1)
-    recognition?.emitResult([fakeResult("still speaking", false)])
-    await waitFor(() =>
-      expect(canvas.getByTestId("note-sheet-mic-interim")).toHaveTextContent("still speaking"),
-    )
-    const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
-    expect(textarea.value).toBe("")
-  },
-}
-
-/** package 02 Task 6: dismiss/save/mic were bare, unsized buttons — this pins each at the 44px thumb floor. */
+/** package 02 Task 6: dismiss/save were bare, unsized buttons — this pins each at the 44px thumb floor. */
 export const FooterControlsMeetThe44pxFloor: Story = {
   args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
-  beforeEach: () => {
-    withApi()
-    return withoutApi
-  },
   play: async ({ canvasElement }) => {
     await page.viewport(390, 844)
     const canvas = within(canvasElement)
-    for (const testId of [
-      "note-sheet-mic",
-      "note-sheet-dismiss",
-      "note-sheet-save",
-      "note-sheet-done",
-    ]) {
+    for (const testId of ["note-sheet-dismiss", "note-sheet-save", "note-sheet-done"]) {
       const rect = canvas.getByTestId(testId).getBoundingClientRect()
       expect(rect.height).toBeGreaterThanOrEqual(44)
       expect(rect.width).toBeGreaterThanOrEqual(44)
@@ -403,22 +286,11 @@ export const FooterControlsMeetThe44pxFloor: Story = {
   },
 }
 
-/** package 02 Task 6: no pressed story existed for any of the footer's four controls — pinned here against each one's real, trusted-press `active:` colour (mic/save are `secondary`, dismiss is `ghost`, done is `primary`). */
+/** package 02 Task 6: no pressed story existed for any of the footer's controls — pinned here against each one's real, trusted-press `active:` colour (save is `secondary`, dismiss is `ghost`, done is `primary`). */
 export const FooterControlsPressedStatesDifferFromRest: Story = {
   args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
-  beforeEach: () => {
-    withApi()
-    return withoutApi
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-
-    const mic = canvas.getByTestId("note-sheet-mic")
-    const micRest = getComputedStyle(mic).backgroundColor
-    await withRealMousePress(mic, () => {
-      expect(getComputedStyle(mic).backgroundColor).not.toBe(micRest)
-      expect(getComputedStyle(mic).backgroundColor).toBe("rgb(107, 107, 112)")
-    })
 
     const dismiss = canvas.getByTestId("note-sheet-dismiss")
     const dismissRest = getComputedStyle(dismiss).backgroundColor

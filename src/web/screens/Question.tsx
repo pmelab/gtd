@@ -1,8 +1,6 @@
 import { useEffect, useId, useRef } from "react"
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../OpenQuestions.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
-import { Button } from "../Button.js"
-import { Mic } from "../Mic.js"
 
 /** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */
 const normalizeAnswerText = (text: string): string => {
@@ -52,14 +50,14 @@ export interface QuestionProps {
    * `Deck`'s `renderItem` remounts a fresh `Question` per index.
    *
    * Accepts a FUNCTIONAL updater as well as a plain value — the same shape
-   * React's own `setState` offers, and for the same reason: `Mic` binds its
-   * `onAttach` handler once, inside `start()`, so a dictation session ending
-   * later calls back into a closure captured at tap-time. A plain value
-   * computed from that stale closure's own `answer.freeText` would silently
-   * drop anything typed meanwhile; a functional updater instead defers the
-   * read of "current text" to WHEN the caller's own `setState` applies it,
-   * which sees the true latest state no matter how old the closure calling
-   * it is.
+   * React's own `setState` offers, and for the same reason: the
+   * refusal-revert sequence (`commitAnchor`'s `.catch`, below) fires after an
+   * awaited write, so it must read "current answer" no earlier than the
+   * moment it actually applies — a plain value computed at commit time would
+   * silently clobber whatever was typed while that write was in flight. A
+   * functional updater instead defers the read of "current text" to WHEN the
+   * caller's own `setState` applies it, which sees the true latest state no
+   * matter how old the closure calling it is.
    */
   readonly answer: QuestionAnswer
   readonly onAnswerChange: (
@@ -83,29 +81,15 @@ export interface QuestionProps {
   readonly onRefusal?: (error: unknown) => void
 }
 
-/**
- * The free-text slot's own textarea plus its embedded `Mic` — dictation
- * writes through to `onDictate` only on a final result, never on interim.
- * `onDictate` (not a `freeText`-closing concatenation here) is what makes
- * this safe against typing DURING an active dictation session: `Mic` binds
- * `onAttach` once, inside `start()`, capturing whatever this component's
- * props were AT THAT RENDER — reading the `freeText` prop directly in the
- * handler below would still see the value from when Dictate was tapped, not
- * whatever was typed since. `onDictate` instead defers the read of "current
- * text" to the PARENT's own functional `setState` updater (`Question.tsx`'s
- * `onDictate`), which always sees the latest state no matter when it fires.
- */
 const FreeTextOption = ({
   freeText,
   onFocus,
   onFreeTextChange,
-  onDictate,
   onCommit,
 }: {
   readonly freeText: string
   readonly onFocus: () => void
   readonly onFreeTextChange: (text: string) => void
-  readonly onDictate: (text: string) => void
   /** Fires on blur — the natural "the human is done typing" moment for a textarea — carrying the CURRENT `freeText` prop, never a stale closure: a blur event always fires on a later render than the keystroke that produced the text it commits. */
   readonly onCommit: () => void
 }) => {
@@ -128,31 +112,6 @@ const FreeTextOption = ({
         onBlur={onCommit}
         className="min-h-[60px] w-full"
       />
-      <Mic
-        onAttach={(text) => {
-          onFocus()
-          onDictate(text)
-        }}
-      >
-        {(state) => (
-          <>
-            {state.available ? (
-              <Button variant="secondary" data-testid="mic-toggle" onClick={state.toggle}>
-                {state.recording ? "Stop" : "Dictate"}
-              </Button>
-            ) : (
-              <p data-testid="mic-hint" className="text-small text-muted">
-                Use your keyboard's mic key to dictate
-              </p>
-            )}
-            {state.interim.length > 0 && (
-              <p data-testid="mic-interim" className="text-small italic text-muted">
-                {state.interim}
-              </p>
-            )}
-          </>
-        )}
-      </Mic>
     </div>
   )
 }
@@ -168,7 +127,6 @@ const OptionRow = ({
   onSelect,
   onFocusFreeText,
   onFreeTextChange,
-  onDictate,
   onCommitFreeText,
 }: {
   readonly option: SteeringViewNode
@@ -182,7 +140,6 @@ const OptionRow = ({
   /** The free-text slot's focus/keystroke tracking — LOCAL selection only, never a write; see `Question.tsx#Question`'s `selectLocally` doc comment for why. */
   readonly onFocusFreeText: () => void
   readonly onFreeTextChange: (text: string) => void
-  readonly onDictate: (text: string) => void
   readonly onCommitFreeText: () => void
 }) => (
   <div data-testid={`option-${index}`} className="border-b border-border py-2">
@@ -201,7 +158,6 @@ const OptionRow = ({
         freeText={freeText}
         onFocus={onFocusFreeText}
         onFreeTextChange={onFreeTextChange}
-        onDictate={onDictate}
         onCommit={onCommitFreeText}
       />
     )}
@@ -417,25 +373,6 @@ export const Question = ({
     }, FREE_TEXT_DEBOUNCE_MS)
   }
 
-  /**
-   * Appends dictated `text` to whatever `freeText` is AT ATTACH TIME —
-   * via `onAnswerChange`'s own functional-updater form, never the `answer`
-   * prop closed over here. `Mic` binds `onAttach` once, inside `start()`,
-   * capturing THIS closure as it existed when Dictate was tapped; if this
-   * read `freeText` directly, text typed during an active session would be
-   * silently clobbered the moment the session ends (`FreeTextOption`'s own
-   * doc comment). The functional updater instead defers that read to
-   * whenever the caller's `setState` actually applies it, which always sees
-   * the true latest text.
-   */
-  const onDictate = (text: string) => {
-    onAnswerChange((prev) => ({
-      ...prev,
-      freeText: prev.freeText.length > 0 ? `${prev.freeText} ${text}` : text,
-    }))
-    scheduleDebouncedCommit()
-  }
-
   /** Typing itself: updates local state immediately (instant feedback) and (re)schedules the debounced write-through (Task 5) — never fires the write itself. */
   const setFreeText = (text: string) => {
     onAnswerChange((prev) => ({ ...prev, freeText: text }))
@@ -488,7 +425,6 @@ export const Question = ({
           onSelect={() => setSelected(index)}
           onFocusFreeText={() => selectLocally(index)}
           onFreeTextChange={setFreeText}
-          onDictate={onDictate}
           onCommitFreeText={commitFreeTextOnBlur}
         />
       ))}

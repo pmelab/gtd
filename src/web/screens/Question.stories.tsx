@@ -7,41 +7,6 @@ import { RefusalBanner, useRefusal } from "../Refusal.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 /**
- * Stands in for the browser's `SpeechRecognition` — mirrors
- * `Mic.stories.tsx#FakeSpeechRecognition` exactly (that one isn't exported;
- * this is the smallest local copy needed to reproduce the "typed during an
- * active dictation session" scenario at this component's own layer, since
- * `Mic.stories.tsx` alone can't prove `Question.tsx`'s consuming side wires
- * the functional-updater fix correctly).
- */
-class FakeSpeechRecognition extends EventTarget {
-  static instances: FakeSpeechRecognition[] = []
-  continuous = false
-  interimResults = false
-  onresult:
-    | ((event: {
-        resultIndex: number
-        results: { isFinal: boolean; 0: { transcript: string } }[]
-      }) => void)
-    | null = null
-  onerror: ((event: { error: string }) => void) | null = null
-  onend: (() => void) | null = null
-
-  constructor() {
-    super()
-    FakeSpeechRecognition.instances.push(this)
-  }
-
-  start() {}
-  stop() {
-    this.onend?.()
-  }
-  emitFinal(transcript: string) {
-    this.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript } }] })
-  }
-}
-
-/**
  * `Question` is fully controlled (no internal `useState` of its own — see
  * its own doc comment for why: state must survive `Deck` remounting it per
  * navigation, which only a caller-owned answer can do). Every story below
@@ -254,49 +219,6 @@ export const AnOrdinaryOptionAnswersImmediatelyOnceTicked: Story = {
   },
 }
 
-export const NoSpeechApiShowsAHintInsteadOfAMicButton: Story = {
-  args: { node: questionNode() },
-  beforeEach: () => {
-    delete window.SpeechRecognition
-    delete window.webkitSpeechRecognition
-    return () => {}
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(canvas.queryByTestId("mic-toggle")).not.toBeInTheDocument()
-    await expect(canvas.getByTestId("mic-hint")).toBeInTheDocument()
-    // T7: "hides the mic, KEEPS THE TEXTAREA, and shows a one-line hint" —
-    // the textarea itself must still be there and still usable, never
-    // removed alongside the mic.
-    const textarea = canvas.getByTestId("free-text-input") as HTMLTextAreaElement
-    expect(textarea).toBeInTheDocument()
-    await fireEvent.change(textarea, { target: { value: "typed by hand instead" } })
-    expect(textarea.value).toBe("typed by hand instead")
-  },
-}
-
-/** Package 02 Task 6: the mic-toggle button was a bare, unsized `<button>` — this pins it at the 44px thumb floor in its default (not-recording) state. */
-export const MicToggleMeetsThe44pxFloor: Story = {
-  args: { node: questionNode() },
-  beforeEach: () => {
-    FakeSpeechRecognition.instances = []
-    window.SpeechRecognition = FakeSpeechRecognition as unknown as NonNullable<
-      typeof window.SpeechRecognition
-    >
-    return () => {
-      delete window.SpeechRecognition
-    }
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const button = canvas.getByTestId("mic-toggle")
-    await expect(button).toHaveTextContent("Dictate")
-    const rect = button.getBoundingClientRect()
-    expect(rect.height).toBeGreaterThanOrEqual(44)
-    expect(rect.width).toBeGreaterThanOrEqual(44)
-  },
-}
-
 /** Spec feedback: `option-radio-<i>`'s native `<input type="radio">` sits inside a `<label>` sized to the 44px floor — the label (the actual tap target), not the raw input, is what's measured. */
 export const OptionRadioRowMeetsThe44pxFloor: Story = {
   args: { node: questionNode() },
@@ -308,60 +230,6 @@ export const OptionRadioRowMeetsThe44pxFloor: Story = {
     const rect = label!.getBoundingClientRect()
     expect(rect.height).toBeGreaterThanOrEqual(44)
     expect(rect.width).toBeGreaterThanOrEqual(44)
-  },
-}
-
-/** The mic-toggle's own pressed/active state: tapping it while recording flips its label to "Stop" — the visual "pressed" counterpart to the default story above. */
-export const MicToggleShowsStopLabelWhileRecording: Story = {
-  args: { node: questionNode() },
-  beforeEach: () => {
-    FakeSpeechRecognition.instances = []
-    window.SpeechRecognition = FakeSpeechRecognition as unknown as NonNullable<
-      typeof window.SpeechRecognition
-    >
-    return () => {
-      delete window.SpeechRecognition
-    }
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const button = canvas.getByTestId("mic-toggle")
-    await fireEvent.click(button)
-    await expect(button).toHaveTextContent("Stop")
-  },
-}
-
-/**
- * Reproduces the exact bug: dictation is tapped on an EMPTY free-text field,
- * the human types "hello" WHILE the session is still recording, then stops —
- * the final dictated text must be APPENDED to what was typed meanwhile, never
- * silently replace it. This closes over `freeText` via the `onDictate`
- * functional-updater path (`Question.tsx`), not a stale value read from the
- * render where Dictate was tapped.
- */
-export const TypingDuringAnActiveDictationSessionIsNeverClobbered: Story = {
-  args: { node: questionNode() },
-  beforeEach: () => {
-    FakeSpeechRecognition.instances = []
-    window.SpeechRecognition = FakeSpeechRecognition as unknown as NonNullable<
-      typeof window.SpeechRecognition
-    >
-    return () => {
-      delete window.SpeechRecognition
-    }
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("mic-toggle"))
-    // Type WHILE the (fake) session is still "recording" — before any final
-    // result arrives.
-    await fireEvent.change(canvas.getByTestId("free-text-input"), {
-      target: { value: "hello" },
-    })
-    const recognition = FakeSpeechRecognition.instances.at(-1)
-    recognition?.emitFinal("world")
-    recognition?.stop()
-    await waitFor(() => expect(canvas.getByTestId("free-text-input")).toHaveValue("hello world"))
   },
 }
 
