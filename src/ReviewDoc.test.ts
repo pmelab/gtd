@@ -347,6 +347,87 @@ describe("parseReviewDoc", () => {
   })
 })
 
+describe("parseReviewDoc — a chunk's description is its own prose, never a node containing a hunk pointer", () => {
+  it("yields an empty description when the only pointers sit inside a blockquote (no top-level `list`)", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "> - [ ] ./src/a.ts#1 — thing",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("")
+    expect(result.changesets[0]?.files[0]?.path).toBe("./src/a.ts")
+  })
+
+  it("yields an empty description when the pointers are indented four spaces (a code block, not a list)", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "    - [ ] ./src/a.ts#1",
+      "",
+      "- [ ] ./src/b.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("")
+  })
+
+  it("yields an empty description for a `###` sub-heading before the pointers", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "### Sub",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("")
+  })
+
+  it("yields an empty description for an HTML comment before the pointers", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "<!-- x -->",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("")
+  })
+
+  it("still yields real leading prose as the description", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "Real prose about this chunk.",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("Real prose about this chunk.")
+  })
+})
+
 describe("parseReviewDoc — a same-line note (trailing the pointer on its own line)", () => {
   it("parses as a pointer, with path, #line, and checked state intact, and the trailing text as its note", () => {
     const content = [
@@ -2041,7 +2122,13 @@ describe("REVIEW_FORMAT.view — chunk-level footnote projection", () => {
     expect(chunk?.note).toBe(
       "Attached via the phone UI, this note demonstrates a chunk-level comment with a `multi word code span` that exceeds eighty characters in total length here.",
     )
-    expect(chunk?.children?.[0]?.note).toBe("what this hunk does")
+    // The hunk's own prose is `detail` (read-only context above the diff),
+    // never `note` (the human reviewer's own attached footnote) — see the
+    // "hunk detail/note channels" describe block below for the full split.
+    expect(chunk?.children?.[0]?.detail).toBe("what this hunk does")
+    expect(chunk?.children?.[0]?.note).toBe(
+      "This note explains why the hunk exists in more detail than fits on one line for a reviewer.",
+    )
   })
 
   it("a chunk with no heading-line footnote has no `note` on its view node, even when its hunks carry their own", () => {
@@ -2058,7 +2145,8 @@ describe("REVIEW_FORMAT.view — chunk-level footnote projection", () => {
     ].join("\n")
     const view = REVIEW_FORMAT.view(content)
     expect(view.nodes[0]?.note).toBeUndefined()
-    expect(view.nodes[0]?.children?.[0]?.note).toBe("a hunk-level note")
+    expect(view.nodes[0]?.children?.[0]?.detail).toBe("a hunk-level note")
+    expect(view.nodes[0]?.children?.[0]?.note).toBe("explains the hunk")
   })
 
   it("a chunk carrying only its own footnote (every hunk ticked) still projects `note` — the badge-worthy shape T4 asks for", () => {
@@ -2076,5 +2164,42 @@ describe("REVIEW_FORMAT.view — chunk-level footnote projection", () => {
     const view = REVIEW_FORMAT.view(content)
     expect(view.nodes[0]?.note).toBe("please double-check the retry logic before landing")
     expect(view.nodes[0]?.children?.every((h) => h.checked)).toBe(true)
+  })
+
+  it("a hunk with two footnotes attached at its pointer line joins their bodies with a single space, matching the chunk path", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 does the thing[^fn1][^fn2]",
+      "",
+      "[^fn1]: first reason",
+      "[^fn2]: second reason",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    expect(view.nodes[0]?.children?.[0]?.detail).toBe("does the thing")
+    expect(view.nodes[0]?.children?.[0]?.note).toBe("first reason second reason")
+  })
+
+  it("drops a hunk footnote marker whose definition is missing, rather than emitting undefined text", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 does the thing[^missing]",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    // An orphan marker (no matching definition anywhere) never parses as a
+    // real `footnoteReference` node, so `sourceText` has nothing to excise
+    // from `detail` — that part of the text is unaffected by this package.
+    // What's under test is `note`: `hunkNoteOf`'s definition lookup drops
+    // the marker rather than emitting `undefined` as text.
+    expect(view.nodes[0]?.children?.[0]?.note).toBeUndefined()
   })
 })

@@ -253,6 +253,74 @@ export const WholeFileFallbackShowsAHeaderBetweenNonContiguousHunks: Story = {
   },
 }
 
+/** T4: a hunk's own description (the author's prose, carried on `node.detail`) renders as read-only context between the title and the diff — never in the note textbox, which starts empty unless a human actually attached one. */
+export const DescriptionRendersBetweenTitleAndDiff: Story = {
+  args: {
+    node: hunkNode({ detail: "adds the retry loop" }),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const title = canvas.getByText("src/x.ts#3")
+    const description = canvas.getByTestId("hunk-description")
+    const diff = canvas.getByTestId("diff-line-0")
+    await expect(description).toHaveTextContent("adds the retry loop")
+    // Between title and diff: title's DOM position precedes the
+    // description's, which in turn precedes the diff's.
+    expect(
+      title.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      description.compareDocumentPosition(diff) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  },
+}
+
+/** No description at all renders nothing in that slot — no placeholder element, one rule with the chunk level (`Review.tsx`'s `chunk.detail` guard). */
+export const NoDescriptionRendersNoPlaceholder: Story = {
+  args: {
+    node: hunkNode(),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByTestId("hunk-description")).not.toBeInTheDocument()
+  },
+}
+
+/** A hunk carrying only a description (no attached note) shows "Add note" — the note affordance reads `hasNote`, which the description must never seed. */
+export const DescriptionOnlyHunkStillReadsAddNote: Story = {
+  args: {
+    node: hunkNode({ detail: "adds the retry loop" }),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("hunk-note-affordance")).toHaveTextContent("Add note")
+  },
+}
+
 export const RefusedDiffShowsItsDetail: Story = {
   args: {
     node: hunkNode(),

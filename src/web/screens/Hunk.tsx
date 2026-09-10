@@ -149,6 +149,11 @@ export const Hunk = ({
       Hunk {index + 1} / {total}
     </div>
     <div className="px-3 py-1 font-semibold">{node.title}</div>
+    {node.detail !== undefined && node.detail.length > 0 && (
+      <div data-testid="hunk-description" className="px-3 pb-1 text-small text-muted">
+        {node.detail}
+      </div>
+    )}
 
     <DiffBody diff={diff} />
 

@@ -299,6 +299,21 @@ const hunkSecondPointerFinding = (
   return secondPointerError(range, title, file, secondToken)
 }
 
+/** The first word of `item`'s first paragraph, whichever comes first. `undefined` when `item` has no paragraph, or an empty one. */
+const firstParagraphToken = (content: string, item: ListItem): string | undefined => {
+  const paragraph = item.children.find((c) => c.type === "paragraph")
+  if (!paragraph) return undefined
+  return sourceText(content, paragraph)
+    .split(/\s+/)
+    .find((w) => w.length > 0)
+}
+
+/** True when `item`'s first paragraph's first word is a pointer token — the single "is this list item a hunk pointer" test, shared by `parseHunk` and `parseChunkBody` so the parse and the description can never disagree about what counts as a pointer. */
+const hasPointerToken = (content: string, item: ListItem): boolean => {
+  const token = firstParagraphToken(content, item)
+  return token !== undefined && isPointerToken(token)
+}
+
 /** One pointer's parse result: its `ReviewFile`, plus the second-pointer finding when its inline (same-line) segment itself opens with a pointer token. `undefined` when `item`'s first paragraph's first word isn't a pointer token at all — a real task-list item whose content isn't a hunk pointer. */
 const parseHunk = (
   content: string,
@@ -308,19 +323,19 @@ const parseHunk = (
 ): { readonly file: ReviewFile; readonly error?: SteeringFinding } | undefined => {
   const paragraph = item.children.find((c) => c.type === "paragraph")
   if (!paragraph || !item.position) return undefined
+  if (!hasPointerToken(content, item)) return undefined
 
-  const token = sourceText(content, paragraph)
-    .split(/\s+/)
-    .find((w) => w.length > 0)
-  if (!token || !isPointerToken(token)) return undefined
-
+  const token = firstParagraphToken(content, item)!
   const sourceLine = toLspPosition(item.position.start).line
   const file = buildHunkFile(content, item, paragraph, token, sourceLine)
   const error = hunkSecondPointerFinding(content, lines, item, token, sourceLine, title, file)
   return { file, ...(error ? { error } : {}) }
 }
 
-/** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose (only the nodes before the chunk's first `list`). */
+/** Prose node kinds a chunk's leading run may contribute to `description` — everything else (`heading`, `html`, `code`, `thematicBreak`, `footnoteDefinition`, …) is dropped even when it precedes the first pointer-bearing node. */
+const PROSE_NODE_KINDS = new Set(["paragraph", "blockquote", "list"])
+
+/** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own PROSE and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would), then keeps only prose-shaped nodes from what's left before that point. */
 const parseChunkBody = (
   content: string,
   lines: readonly string[],
@@ -331,10 +346,11 @@ const parseChunkBody = (
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
 } => {
-  const firstListIndex = body.findIndex((n) => n.type === "list")
-  const descriptionNodes = (firstListIndex === -1 ? body : body.slice(0, firstListIndex)).filter(
-    (n) => n.type !== "footnoteDefinition",
+  const firstPointerIndex = body.findIndex((n) =>
+    taskItems(n).some((item) => hasPointerToken(content, item)),
   )
+  const leadingRun = firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)
+  const descriptionNodes = leadingRun.filter((n) => PROSE_NODE_KINDS.has(n.type))
   const description = descriptionNodes
     .map((n) => sourceText(content, n))
     .join(" ")
@@ -798,6 +814,19 @@ const chunkNoteOf = (
   return bodies.length > 0 ? bodies.join(" ") : undefined
 }
 
+/** A hunk's own attached footnote text, mirroring `chunkNoteOf` exactly: `resolveHunkAnchor` attaches a hunk footnote at `file.sourceLine`, so the lookup key here is markers whose `line === sourceLine` — never `headingLine`, which is a chunk's own key and can never collide with a hunk's source line. Multiple hunk-level footnotes join with a space, matching `chunkNoteOf`'s own join convention. */
+const hunkNoteOf = (
+  definitionByName: ReadonlyMap<string, string>,
+  markers: readonly FootnoteMarker[],
+  sourceLine: number,
+): string | undefined => {
+  const bodies = markers
+    .filter((marker) => marker.line === sourceLine)
+    .map((marker) => definitionByName.get(marker.name))
+    .filter((body): body is string => body !== undefined)
+  return bodies.length > 0 ? bodies.join(" ") : undefined
+}
+
 const reviewView = (content: string): SteeringView => {
   const { shortHash, changesets } = parseReviewDoc(content)
   const { markers, definitions } = parseFootnotes(content)
@@ -811,14 +840,18 @@ const reviewView = (content: string): SteeringView => {
         detail: chunk.description,
         anchor: { kind: "chunk", index: chunkIndex },
         ...(chunkNote !== undefined ? { note: chunkNote } : {}),
-        children: chunk.files.map((file, index) => ({
-          title: file.line !== undefined ? `${file.path}#${file.line}` : file.path,
-          path: file.path,
-          ...(file.line !== undefined ? { line: file.line } : {}),
-          checked: file.checked,
-          ...(file.note !== undefined ? { note: file.note } : {}),
-          anchor: { kind: "hunk", chunkIndex, index },
-        })),
+        children: chunk.files.map((file, index) => {
+          const hunkNote = hunkNoteOf(definitionByName, markers, file.sourceLine)
+          return {
+            title: file.line !== undefined ? `${file.path}#${file.line}` : file.path,
+            path: file.path,
+            ...(file.line !== undefined ? { line: file.line } : {}),
+            checked: file.checked,
+            ...(file.note !== undefined ? { detail: file.note } : {}),
+            ...(hunkNote !== undefined ? { note: hunkNote } : {}),
+            anchor: { kind: "hunk", chunkIndex, index },
+          }
+        }),
       }
     }),
   }
