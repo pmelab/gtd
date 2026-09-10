@@ -667,60 +667,80 @@ describe("runUiCommand", () => {
     expect(closed).toBe(true)
   })
 
-  it("no --host/ui.host given: attempts tailscale serve first, binding an ephemeral loopback port and printing the probed tailnet hostname as the serve URL", async () => {
-    initGitRepo(tmpDir)
-    installFakeGtd(tmpDir, renderablePromptJson)
-    const { out, written } = fakeOut()
-    const certPath = join(tmpDir, "cert.pem")
-    const keyPath = join(tmpDir, "key.pem")
-    writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
-    writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+  describe("no --host/ui.host given: attempts tailscale serve first", () => {
+    // A dedicated port, never the DEFAULT_PORT 8443 this test would otherwise
+    // resolve to (`runUiCommand`'s own default when no `port` option is
+    // given) — Task 4's own ownership record lives at the REAL
+    // `~/.gtd/serve/<port>.json` (`homedir()`, not a sandbox), so a real
+    // `gtd ui` up on 8443 while this suite runs would make this test flaky
+    // (a live foreign record) or, worse, have its teardown erase a real
+    // orphaned mapping's only record (see `orphanPort` below and
+    // `Serve.test.ts`'s own `testPort` for the same hazard/convention).
+    const happyPathPort = 18442
 
-    let boundHost: string | undefined
-    const fakeUiListener = Layer.succeed(UiListener, {
-      listen: ({ host }) => {
-        boundHost = host
-        return Effect.succeed({ port: 4443, close: () => {} })
-      },
-    })
-    const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
-      commands.push(command)
-      if (command === "tailscale status --json") {
-        return Effect.succeed({
-          status: 0,
-          output: JSON.stringify({
-            BackendState: "Running",
-            CertDomains: ["host.tailnet.ts.net"],
-            Self: { DNSName: "host.tailnet.ts.net." },
-          }),
-        })
-      }
-      // "tailscale serve status --json" (the orphan check/live-mapping probe,
-      // run twice — once before publishing, once at teardown) and "tailscale
-      // serve --bg ..." (the publish itself) all succeed with no prior
-      // mapping on this port.
-      return Effect.succeed({ status: 0, output: "{}" })
+    afterEach(() => {
+      deleteServeRecord(happyPathPort)
     })
 
-    const fiber = Effect.runFork(
-      runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
-        Effect.provide(fakeUiListener),
-        Effect.provide(runner),
-        Effect.provide(NodeContext.layer),
-        Effect.provide(Cwd.layer(tmpDir)),
-      ),
-    )
+    it("binds an ephemeral loopback port and prints the probed tailnet hostname as the serve URL", async () => {
+      initGitRepo(tmpDir)
+      installFakeGtd(tmpDir, renderablePromptJson)
+      const { out, written } = fakeOut()
+      const certPath = join(tmpDir, "cert.pem")
+      const keyPath = join(tmpDir, "key.pem")
+      writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+      writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
-    await waitForWrites(written, 1)
+      let boundHost: string | undefined
+      const fakeUiListener = Layer.succeed(UiListener, {
+        listen: ({ host }) => {
+          boundHost = host
+          return Effect.succeed({ port: 4443, close: () => {} })
+        },
+      })
+      const commands: string[] = []
+      const runner = CommandRunner.layer((command) => {
+        commands.push(command)
+        if (command === "tailscale status --json") {
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              BackendState: "Running",
+              CertDomains: ["host.tailnet.ts.net"],
+              Self: { DNSName: "host.tailnet.ts.net." },
+            }),
+          })
+        }
+        // "tailscale serve status --json" (the orphan check/live-mapping
+        // probe, run twice — once before publishing, once at teardown) and
+        // "tailscale serve --bg ..." (the publish itself) all succeed with
+        // no prior mapping on this port.
+        return Effect.succeed({ status: 0, output: "{}" })
+      })
 
-    expect(written[0]).toBe("https://host.tailnet.ts.net:8443/\n")
-    // Never a 100.64.0.0/10 CGNAT address — the loopback listener binds
-    // 127.0.0.1, letting `tailscaled` proxy in over the tailnet instead.
-    expect(boundHost).toBe("127.0.0.1")
-    expect(commands.some((c) => c.startsWith("tailscale serve --bg"))).toBe(true)
+      const fiber = Effect.runFork(
+        runUiCommand(
+          { selfSigned: false, dev: false, port: happyPathPort },
+          { cert: certPath, key: keyPath },
+          out,
+        ).pipe(
+          Effect.provide(fakeUiListener),
+          Effect.provide(runner),
+          Effect.provide(NodeContext.layer),
+          Effect.provide(Cwd.layer(tmpDir)),
+        ),
+      )
 
-    await Effect.runPromise(Fiber.interrupt(fiber))
+      await waitForWrites(written, 1)
+
+      expect(written[0]).toBe(`https://host.tailnet.ts.net:${happyPathPort}/\n`)
+      // Never a 100.64.0.0/10 CGNAT address — the loopback listener binds
+      // 127.0.0.1, letting `tailscaled` proxy in over the tailnet instead.
+      expect(boundHost).toBe("127.0.0.1")
+      expect(commands.some((c) => c.startsWith("tailscale serve --bg"))).toBe(true)
+
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    })
   })
 
   it("no --host/ui.host given, no Tailscale backend detected: falls back to the direct CGNAT bind, printing the fallback reason above the URL", async () => {
