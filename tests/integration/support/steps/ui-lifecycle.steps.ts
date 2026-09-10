@@ -1,4 +1,5 @@
-import { Then, When } from "quickpickle"
+import { Given, Then, When } from "quickpickle"
+import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import assert from "node:assert"
@@ -10,6 +11,45 @@ When(
   "I hand off {string} in mode {string} with the text {string} to a spawned gtd ui using tailscale serve on port {int}",
   async (world: GtdWorld, filePath: string, mode: string, text: string, servePort: number) => {
     await world.spawnGtdUiServeAndHandOff(servePort, filePath, mode, text)
+  },
+)
+
+// ── Task 3's publish-failure fallback (package 01, `@live` only — see world.ts#armFailPublish/#spawnGtdUiServePublishFailAndHandOff) ──
+
+Given("the fake tailscale CLI's next serve publish fails", (world: GtdWorld) => {
+  world.armFailPublish()
+})
+
+// A composable, generic Given — any scenario needing a real cert/key pair on
+// disk can reach for this, not just the publish-failure fallback: a real
+// `openssl` invocation (mirroring `src/ui/Tls.ts#generateSelfSignedCert`'s own
+// shape), never a static "-----BEGIN CERTIFICATE-----\nfake\n..." placeholder
+// — `UiListener.Live`'s real `https.createServer` would reject that outright.
+Given(
+  "a self-signed TLS cert and key at {string} and {string}",
+  (world: GtdWorld, certPath: string, keyPath: string) => {
+    execFileSync("openssl", [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-days",
+      "825",
+      "-keyout",
+      join(world.repoDir, keyPath),
+      "-out",
+      join(world.repoDir, certPath),
+      "-subj",
+      "/CN=localhost",
+    ])
+  },
+)
+
+When(
+  "I hand off {string} in mode {string} with the text {string} to a spawned gtd ui using tailscale serve on port {int}, falling back after the failed publish",
+  async (world: GtdWorld, filePath: string, mode: string, text: string, servePort: number) => {
+    await world.spawnGtdUiServePublishFailAndHandOff(servePort, filePath, mode, text)
   },
 )
 

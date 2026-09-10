@@ -7,8 +7,16 @@ import { execSync, execFile as execFileCb, spawn } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFile = promisify(execFileCb)
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs"
-import { constants as osConstants, tmpdir } from "node:os"
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
+import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli } from "../../../src/Cli.js"
@@ -602,6 +610,8 @@ export class GtdWorld extends QuickPickleWorld {
   private async spawnBoundGtdUiServe(servePort: number): Promise<{
     readonly child: ReturnType<typeof spawn>
     readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+    /** Everything printed so far, once polling below observes the bound URL — the publish-failure fallback's own reason line prints just above it, so a caller that armed `fail-publish` can assert on this without a second poll. */
+    readonly stdout: () => string
   }> {
     // `$HOME` sandboxed to `serveHomeDir` — the spawned `gtd ui`'s own
     // `attemptServe`/`teardownServe` write/read `~/.gtd/serve/<port>.json`
@@ -616,8 +626,12 @@ export class GtdWorld extends QuickPickleWorld {
       stdio: ["ignore", "pipe", "pipe"],
     })
     let stdout = ""
+    let stderr = ""
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8")
+    })
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8")
     })
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (resolve) => {
@@ -628,8 +642,11 @@ export class GtdWorld extends QuickPickleWorld {
     for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
       await delay(50)
     }
-    assert.ok(stdout.includes("https://"), `gtd ui never printed its serve URL: ${stdout}`)
-    return { child, exited }
+    assert.ok(
+      stdout.includes("https://"),
+      `gtd ui never printed its serve URL: stdout=${stdout} stderr=${stderr}`,
+    )
+    return { child, exited, stdout: () => stdout }
   }
 
   /**
@@ -692,6 +709,98 @@ export class GtdWorld extends QuickPickleWorld {
       anchor: { kind: "paragraph", line: 0 },
       text,
     })
+
+    const { code, signal } = await exited
+    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+  }
+
+  /**
+   * Arms `hooks.ts`'s fake `tailscale` CLI to fail its NEXT `serve --bg` —
+   * `FAKE_TAILSCALE_SCRIPT`'s own `fail-publish` marker, otherwise unused —
+   * the one seam Task 3's "publish fails, falls back to a reachable direct
+   * bind, exit 0 on handoff" bullet needs a real spawned process to
+   * exercise. A `Given` step (composable, generic) rather than folded into
+   * the spawn itself.
+   */
+  armFailPublish(): void {
+    assert.ok(
+      this.tailscaleStateDir !== undefined,
+      "no fake tailscale state dir on this world (not @live?)",
+    )
+    writeFileSync(join(this.tailscaleStateDir, "fail-publish"), "")
+  }
+
+  /**
+   * Task 3's publish-failure twin of `spawnGtdUiServeAndHandOff`: still no
+   * `--host`/`--self-signed` (serve is still ATTEMPTED), but the fake
+   * `tailscale serve --bg` fails (`armFailPublish`, called by the scenario's
+   * own `Given` step first) — so `runUiCommand` falls back to today's direct
+   * bind. That fallback's own host resolution has no `--host`/`ui.host`
+   * either (giving one would skip the serve ATTEMPT entirely, defeating the
+   * point), so it resolves the SAME real Tailscale CGNAT interface
+   * `pickBindHostFromSystem` would — read here via the identical production
+   * seam, not re-implemented, to know which address to actually dial (the
+   * printed URL names the fake tailnet hostname, which resolves nowhere
+   * real, exactly like the serve-success path). `ui.cert`/`ui.key` must be
+   * configured (the scenario's own `Given` step provides a real cert/key
+   * pair) — the fake tailscale CLI has no `cert` subcommand, so the
+   * tailscale-cert branch `resolveCertPair` would otherwise take fails
+   * outright rather than falling back.
+   */
+  async spawnGtdUiServePublishFailAndHandOff(
+    servePort: number,
+    filePath: string,
+    mode: string,
+    text: string,
+  ): Promise<void> {
+    const { exited, stdout } = await this.spawnBoundGtdUiServe(servePort)
+    assert.ok(
+      stdout().includes("not using tailscale serve"),
+      `expected the fallback reason line before the bound URL, got:\n${stdout()}`,
+    )
+
+    // `pickBindHost` (the PURE scan), never `pickBindHostFromSystem` —
+    // `ui.steps.ts`'s own `vi.mock("../../../../src/ui/BindSystem.js", ...)`
+    // is a SUITE-WIDE mock (`setup-files.ts`'s own comment: it must load
+    // first, before anything else's real import caches the module) that
+    // always returns `undefined`, so calling the wrapper here would read
+    // that mock, not this machine's real interfaces.
+    const { pickBindHost } = await import("../../../src/ui/Bind.js")
+    const bindHost = pickBindHost(networkInterfaces())
+    assert.ok(
+      bindHost !== undefined,
+      "no real Tailscale CGNAT interface found on this machine — the direct-bind fallback this scenario exercises needs one",
+    )
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/Write.js"),
+        import("@trpc/client"),
+      ])
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      // Dials the REAL bind address/port directly — same reason
+      // `spawnGtdUiServeAndHandOff` dials the loopback target directly
+      // instead of the printed (fake-hostname) URL: this proves the
+      // fallback bind is actually REACHABLE, not just that a listener object
+      // exists somewhere.
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `https://${bindHost}:${servePort}/trpc` })],
+      })
+      await client.done.mutate({
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(content),
+        mode,
+        anchor: { kind: "paragraph", line: 0 },
+        text,
+      })
+    } finally {
+      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+    }
 
     const { code, signal } = await exited
     this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }

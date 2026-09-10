@@ -290,6 +290,63 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And no tailscale serve mapping or ownership record survives on port 18443
 
   @live
+  Scenario: no --host given, tailscale serve's publish fails, gtd ui falls back to a reachable direct bind and still exits 0 on handoff
+    # Task 3's own "never refuses" guarantee (bullet 3): the serve ATTEMPT
+    # still runs first (no --host/--self-signed — giving either would skip
+    # the attempt entirely, defeating the point), but the fake `tailscale
+    # serve --bg` is armed to fail, so `runUiCommand` falls back to today's
+    # direct bind instead. `ui.cert`/`ui.key` name a REAL cert/key pair (the
+    # fake tailscale CLI has no `cert` subcommand, so the tailscale-cert
+    # branch `resolveCertPair` would otherwise take fails outright rather
+    # than falling back) — the fallback's own host resolution still needs a
+    # real Tailscale CGNAT interface on the machine running this scenario,
+    # the same as `resolveBindHost`'s production behavior with neither
+    # --host nor ui.host given.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      ui:
+        cert: cert.pem
+        key: key.pem
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": working
+              working:
+                actor: human
+                file: "PLAN.md"
+                mode: qa
+                prompt: "answer the plan"
+                on:
+                  "* **": idle
+      """
+    And a self-signed TLS cert and key at "cert.pem" and "key.pem"
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file ".gtd/PLAN.md" with:
+      """
+      Paragraph zero here.
+
+      Paragraph two here.
+      """
+    And the fake tailscale CLI's next serve publish fails
+    When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on port 18447, falling back after the failed publish
+    Then the reported exit status is 0
+    And the file ".gtd/PLAN.md" contains "handed back"
+
+  @live
   Scenario: picking a question option writes the tick through to disk over a real setValue round trip
     Given a test project
     And a gtd config file at ".gtdrc" with:
