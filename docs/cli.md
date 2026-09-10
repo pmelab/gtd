@@ -74,17 +74,18 @@ Commands:
                    local web server (--port <n>, --no-open). Prints the
                    chosen port on its own line — with --port 0, this is the
                    only way to learn which port was picked
-  ui               Start a local HTTPS server (never plain http — a phone client
-                   reachable over a tailnet gets TLS on its own merits) exposing gtd's
-                   web/phone client for THIS worktree — the invoking directory, never a
-                   configured list of roots — and refuses outside a repository like
-                   every other state command. --host <addr> overrides the bound address
-                   and the printed URL (default: an address picked automatically, using
-                   the detected Tailscale hostname when available); --port <n>
-                   overrides the port (default: 8443); --self-signed generates a
-                   throwaway TLS certificate instead of the configured ui.cert/ui.key;
-                   --dev runs against local development sources instead of the packaged
-                   build
+  ui               Start a local HTTPS server (never plain http — a phone
+                   client reachable over a tailnet gets TLS on its own merits)
+                   exposing gtd's web/phone client for THIS worktree — the
+                   invoking directory, never a configured list of roots — and
+                   refuses outside a repository like every other state command.
+                   --host <addr> overrides the bound address and the printed
+                   URL (default: an address picked automatically, using the
+                   detected Tailscale hostname when available); --port <n>
+                   overrides the port (default: 8443); --self-signed generates
+                   a throwaway TLS certificate instead of the configured
+                   ui.cert/ui.key; --dev runs against local development sources
+                   instead of the packaged build
   check <mode> <file>
                    Read <file> and run the built-in steering format named
                    <mode> (see `gtd validate`'s modes: qa, review) over its
