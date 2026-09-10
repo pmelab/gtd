@@ -1767,6 +1767,16 @@ describe("QA_FORMAT.view — block nodes (package 02, T1/T2)", () => {
     expect(view.nodes[0]?.block).toMatchObject({ kind: "list", ordered: true })
   })
 
+  it("a list item with a nested list AND a trailing paragraph of its own yields text containing neither the nested item's text nor its '-' marker, with that item present exactly once in the items tree", () => {
+    const content = ["- Top", "", "  - Nested", "", "  Tail para.", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    const topItem = view.nodes[0]?.block?.items?.[0]
+    expect(topItem?.text).toBe("Top Tail para.")
+    expect(topItem?.text).not.toContain("Nested")
+    expect(topItem?.text).not.toContain("-")
+    expect(topItem?.items).toEqual([{ text: "Nested" }])
+  })
+
   it("a task-list item carries its checked state on the item", () => {
     const content = ["- [ ] Not done", "- [x] Done", ""].join("\n")
     const view = QA_FORMAT.view(content)
@@ -1792,10 +1802,24 @@ describe("QA_FORMAT.view — block nodes (package 02, T1/T2)", () => {
     expect(view.nodes[0]?.block?.language).toBeUndefined()
   })
 
+  it("a fenced code block with an empty body still carries a non-empty title", () => {
+    const content = ["```", "```", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block).toMatchObject({ kind: "code", text: "" })
+    expect(view.nodes[0]?.title.length).toBeGreaterThan(0)
+  })
+
   it("a blockquote carries block.kind 'blockquote' and its text", () => {
     const content = ["> Quoted wisdom.", ""].join("\n")
     const view = QA_FORMAT.view(content)
     expect(view.nodes[0]?.block).toMatchObject({ kind: "blockquote", text: "Quoted wisdom." })
+  })
+
+  it("a blockquote spanning two paragraphs carries text with no '>' character in it", () => {
+    const content = ["> First line.", ">", "> Second para.", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block?.text).not.toContain(">")
+    expect(view.nodes[0]?.block?.text).toBe("First line. Second para.")
   })
 
   it("every node still carries a non-empty title", () => {

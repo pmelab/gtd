@@ -315,30 +315,70 @@ export const PlanRendersEveryBlockKindWithStructureIntact: Story = {
 }
 
 /** A note attaches to a heading and lands on that heading's own line — its note seam behaves exactly like a paragraph's. */
-export const NoteAttachesToAHeadingOnItsOwnLine: Story = {
-  args: {
-    contentHash: "heading-note-hash",
-    isLoading: false,
-    view: {
-      nodes: [
-        {
-          title: "A heading",
-          anchor: { kind: "paragraph", line: 0 },
-          block: { kind: "heading", depth: 2 },
-        },
-      ],
-    } satisfies SteeringView,
+/**
+ * A note attaches to a heading and lands on that heading's own ANCHOR LINE —
+ * asserted on the real `writeNote` call's `anchor`, the way
+ * `RealContainerWriteThroughsAParagraphNoteViaWriteNote` does, never on the
+ * `paragraph-note-N`/`note-seam-N` testid alone: those are keyed by ARRAY
+ * index, so a heading sitting at array index 1 but a stale/wrong anchor line
+ * would still render under the SAME testid and pass a testid-only assertion.
+ * The heading sits behind a preceding paragraph and at a non-zero line
+ * (`line: 4`, distinct from both its own array index `1` and from `0`), so a
+ * regression that anchors the note at the array index or at line 0 instead of
+ * the heading's real line fails this test.
+ */
+export const NoteAttachesToAHeadingOnItsOwnLine: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "Intro paragraph.\n\n\n\n## A heading\n",
+            headSha: "abc123",
+            contentHash: "heading-note-hash",
+            view: {
+              nodes: [
+                { title: "Intro paragraph.", anchor: { kind: "paragraph", line: 0 } },
+                {
+                  title: "A heading",
+                  anchor: { kind: "paragraph", line: 4 },
+                  block: { kind: "heading", depth: 2 },
+                },
+              ],
+            },
+          }),
+          writeNote: (input) => {
+            record(input)
+            return { ok: true }
+          },
+        }}
+      >
+        <PlanWriteCallRecorder args={args} onRegisterWriteNote={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
   },
+  args: REAL_PLAN_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("note-seam-0"))
+    await waitFor(() => expect(canvas.getByTestId("note-seam-1")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("note-seam-1"))
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
     await expect(canvas.getByText("Note on this block")).toBeInTheDocument()
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "note on the heading" },
     })
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("note on the heading")
+    await waitFor(() =>
+      expect(canvas.getByTestId("write-calls")).toHaveTextContent("note on the heading"),
+    )
+    // The real anchor sent to `writeNote` is the heading's own LINE (4) —
+    // neither its array index (1) nor the preceding paragraph's line (0).
+    await expect(canvas.getByTestId("write-calls")).toHaveTextContent(
+      JSON.stringify({ anchor: { kind: "paragraph", line: 4 } }).slice(1, -1),
+    )
+    await expect(canvas.getByTestId("paragraph-note-1")).toHaveTextContent("note on the heading")
   },
 }
 

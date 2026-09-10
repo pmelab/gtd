@@ -1052,26 +1052,25 @@ const isInsideQuestionSpan = (spans: ReadonlyMap<number, number>, line: number):
 /**
  * The flattened, marker-stripped, whitespace-collapsed text of a run of
  * sibling BLOCK nodes (a blockquote's own children, a list item's own
- * non-list children) — built the same way `headingText` builds a heading's
- * own text: a synthetic node spanning the first child's start to the last
- * child's end, so `sourceText` excises a real footnote reference by its
- * OWN position rather than merely regex-stripping its literal `[^name]`
- * shape, and — critically — never includes the CONTAINER's own leading
- * syntax (`> ` for a blockquote, the container's own position starts at
- * that marker, not at its children).
+ * non-list children) — built by taking EACH child's own `sourceText`
+ * individually and joining the results, never by slicing one span from the
+ * first child's start to the last child's end. A single shared span would
+ * include every byte BETWEEN the children verbatim — a nested `list`
+ * filtered out of a list item's own children (see `listItemText`) still
+ * sits, raw markdown and all, between its neighbors' offsets; a blockquote's
+ * OWN `> ` continuation markers between two paragraphs sit there too (each
+ * child's own position starts right after its line's `> `, but the raw text
+ * BETWEEN two children's positions still crosses that marker). Per-child
+ * `sourceText` also excises each child's own real footnote reference by its
+ * OWN position, never merely regex-stripping the literal `[^name]` shape.
  */
-const childrenText = (content: string, children: readonly RootContent[]): string => {
-  if (children.length === 0) return ""
-  const first = children[0]!
-  const last = children[children.length - 1]!
-  if (!first.position || !last.position) return ""
-  const synthetic = {
-    type: "paragraph" as const,
-    children,
-    position: { start: first.position.start, end: last.position.end },
-  }
-  return stripMarkerText(sourceText(content, synthetic)).replace(/\s+/g, " ").trim()
-}
+const childrenText = (content: string, children: readonly RootContent[]): string =>
+  children
+    .map((child) => stripMarkerText(sourceText(content, child)))
+    .filter((text) => text.length > 0)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
 
 /**
  * One list item's own text, EXCLUDING any nested `list` child (that's a
@@ -1098,6 +1097,9 @@ const blockListItemOf = (content: string, item: ListItem): BlockListItem => {
 const blockListItemsOf = (content: string, items: readonly ListItem[]): readonly BlockListItem[] =>
   items.map((item) => blockListItemOf(content, item))
 
+/** The `title` an empty fenced code block (a `` ``` ``/`` ``` `` pair with nothing between them) falls back to — its real body is `""`, and Task 2's "every node still carries a non-empty title" allows no exception for it. */
+const EMPTY_CODE_BLOCK_TITLE = "(empty code block)"
+
 /**
  * A top-level node's own one-line, marker-stripped, whitespace-collapsed
  * text — every block kind's `title` (Task 2's "every node still carries a
@@ -1105,13 +1107,17 @@ const blockListItemsOf = (content: string, items: readonly ListItem[]): readonly
  * `heading`/`blockquote` use `childrenText` (their own CHILDREN span — the
  * NODE's own position starts at the `#` run / the `>` marker, which
  * `sourceText` would otherwise pull in); `code` uses its `value` directly
- * (never `sourceText`, which would pull in the fence lines); everything else
- * uses `sourceText` over the node's own span.
+ * (never `sourceText`, which would pull in the fence lines), falling back to
+ * `EMPTY_CODE_BLOCK_TITLE` when that value is blank; everything else uses
+ * `sourceText` over the node's own span.
  */
 const blockTitle = (content: string, node: RootContent): string => {
   if (node.type === "heading") return headingText(content, node)
   if (node.type === "blockquote") return childrenText(content, node.children)
-  if (node.type === "code") return stripMarkerText(node.value).replace(/\s+/g, " ").trim()
+  if (node.type === "code") {
+    const text = stripMarkerText(node.value).replace(/\s+/g, " ").trim()
+    return text.length > 0 ? text : EMPTY_CODE_BLOCK_TITLE
+  }
   return stripMarkerText(sourceText(content, node)).replace(/\s+/g, " ").trim()
 }
 
