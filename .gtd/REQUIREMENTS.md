@@ -10,7 +10,7 @@ reason. The rule can stay on other grounds, but the stated reason becomes false
 either way, and `docs/cli.md`'s `## Commands` block is PINNED to the rendered
 help — so the help text has to change in the same commit regardless.
 
-- [ ] HTTPS-only stays, reason reworded — a phone client over a tailnet wants
+- [x] HTTPS-only stays, reason reworded — a phone client over a tailnet wants
       TLS on its own merits; the cert/`--self-signed` machinery is untouched
 - [ ] Allow plain http too — nothing left in the client needs a secure context,
       so drop the constraint and the cert requirement with it
@@ -25,7 +25,7 @@ That string is not decoration next to the button — it is the
 is a separate call from the button's. Note that with in-page dictation gone the
 hint is now true for EVERY browser, not just the unsupported ones.
 
-- [ ] Drop it — the on-screen keyboard's mic key needs no signpost, and an empty
+- [x] Drop it — the on-screen keyboard's mic key needs no signpost, and an empty
       note-sheet footer is one less thing on a small screen
 - [ ] Keep it as static text, shown unconditionally — it is now universally
       accurate, and it is the only cue that dictation is still possible at all
