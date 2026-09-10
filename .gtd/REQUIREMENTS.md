@@ -11,7 +11,7 @@ silently, and so is anything after the questions section. A heading-and-list
 plan therefore arrives as a handful of orphan sentences — which reads exactly
 like "the plan is not displayed".
 
-- [ ] The renderer is the bug. Keep the row as the read-confirmation it is, and
+- [x] The renderer is the bug. Keep the row as the read-confirmation it is, and
       render the whole document with its structure intact — headings, lists,
       code, blockquotes — including the part after `## Open Questions`.
 - [ ] The row is the bug. Tapping it should open the plan as its own full-screen
@@ -25,7 +25,7 @@ Today the only done affordance is inside the note sheet: `Save & Done`, which
 requires a note, calls `trpc.done` and hands back to the driver — ending the
 TURN, not the process. There is no note-less "I am finished" anywhere.
 
-- [ ] End the turn. The same handoff `Save & Done` already performs, minus the
+- [x] End the turn. The same handoff `Save & Done` already performs, minus the
       mandatory note, reachable straight from the Q&A deck. The driver decides
       what happens next.
 - [ ] End the process. `gtd abandon` semantics — rewind to the process start and
@@ -34,7 +34,7 @@ TURN, not the process. There is no note-less "I am finished" anywhere.
 
 ### What happens to text typed into a textbox and then left without tapping Save?
 
-- [ ] Discard it. Save is the only write, and leaving the view loses the text —
+- [x] Discard it. Save is the only write, and leaving the view loses the text —
       the "never store on type" rule taken literally.
 - [ ] Keep it as a local draft that survives navigation and reload, and let only
       a Save write it through. Nothing typed is ever lost.
