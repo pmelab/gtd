@@ -33,6 +33,7 @@ import {
   parseServeStatus,
   publishServe,
   readServeRecord,
+  type ServeMapping,
   unpublishServe,
   writeServeRecord,
 } from "./Serve.js"
@@ -455,36 +456,52 @@ const isPidAlive = (pid: number): boolean => {
   }
 }
 
-/** Re-reads `tailscale serve status --json` fresh — used both by the orphan check (Task 4, before publishing) and by teardown (after) — a non-zero exit or spawn failure reads as "nothing published", the same empty-is-not-a-failure rule `Serve.ts#parseServeStatus` already sets. */
-const readLiveServeMapping = (
+/**
+ * Re-reads `tailscale serve status --json` fresh — used both by the orphan
+ * check (Task 4, before publishing) and by teardown (after). `ok: false`
+ * (a spawn failure or a non-zero exit) is distinct from `ok: true, mapping:
+ * undefined` (the probe RAN and found nothing on `servePort`): the
+ * `undefined`-is-never-a-failure rule `Serve.ts#parseServeStatus` sets is
+ * about the JSON PARSE, not about a probe that never produced JSON to parse
+ * at all — collapsing the two let the orphan check publish over a mapping it
+ * simply couldn't see (a foreign holder, an operator-permission error, a
+ * `tailscaled` restart mid-probe).
+ */
+const probeLiveServeMapping = (
   servePort: number,
-): Effect.Effect<ReturnType<typeof parseServeStatus>, never, CommandRunner> =>
+): Effect.Effect<
+  { readonly ok: true; readonly mapping: ServeMapping | undefined } | { readonly ok: false },
+  never,
+  CommandRunner
+> =>
   Effect.gen(function* () {
     const runner = yield* CommandRunner
     const outcome = yield* runner
       .bash("tailscale serve status --json")
       .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-    if (outcome === undefined || outcome.status !== 0) return undefined
-    return parseServeStatus(outcome.output, servePort)
+    if (outcome === undefined || outcome.status !== 0) return { ok: false }
+    return { ok: true, mapping: parseServeStatus(outcome.output, servePort) }
   })
 
 /**
  * Task 4's ownership guarantees, run before ever publishing: a foreign live
  * mapping with no record of ours is left untouched (the caller falls back to
- * a direct bind rather than overwriting it); a record naming a dead pid (or,
- * degenerate but cheap to check, our own) is stale — cleared via
- * `unpublishServe` before a fresh publish; a record naming another LIVE gtd
- * ui is left alone too, since two instances racing the same port is exactly
- * the case ownership exists to prevent. Returns `true` when it's safe to
- * proceed to `publishServe`, `false` when the caller should fall back
- * without ever calling it.
+ * a direct bind rather than overwriting it) — and so is a probe that FAILED
+ * to answer at all, since an unreadable status proves nothing about whether
+ * the port is free; a record naming a dead pid (or, degenerate but cheap to
+ * check, our own) is stale — cleared via `unpublishServe` before a fresh
+ * publish; a record naming another LIVE gtd ui is left alone too, since two
+ * instances racing the same port is exactly the case ownership exists to
+ * prevent. Returns `true` when it's safe to proceed to `publishServe`,
+ * `false` when the caller should fall back without ever calling it.
  */
 const clearOrphanForPublish = (servePort: number): Effect.Effect<boolean, never, CommandRunner> =>
   Effect.gen(function* () {
     const record = readServeRecord(servePort)
     if (record === undefined) {
-      const live = yield* readLiveServeMapping(servePort)
-      return live === undefined
+      const probe = yield* probeLiveServeMapping(servePort)
+      if (!probe.ok) return false
+      return probe.mapping === undefined
     }
     if (isPidAlive(record.pid) && record.pid !== process.pid) return false
     yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
@@ -564,8 +581,8 @@ const teardownServe = (servePort: number): Effect.Effect<void, never, CommandRun
   Effect.gen(function* () {
     const record = readServeRecord(servePort)
     if (record === undefined) return
-    const live = yield* readLiveServeMapping(servePort)
-    if (live !== undefined && live.targetUrl === record.target) {
+    const probe = yield* probeLiveServeMapping(servePort)
+    if (probe.ok && probe.mapping !== undefined && probe.mapping.targetUrl === record.target) {
       yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
     }
     deleteServeRecord(servePort)

@@ -56,11 +56,15 @@ rejected the same way any other unknown config key is. `gtd ui` serves exactly
 the ONE worktree it is invoked in — there is no roots/discovery setting, because
 there is no fleet to discover:
 
-- **`port`** (integer, optional) — the port to bind. Default: `8443`.
-- **`host`** (string, optional) — the address to bind. Default: a Tailscale
-  interface (a CGNAT `100.64.0.0/10` address), auto-detected; with neither this
-  key nor `--host` given and no such interface present, `gtd ui` refuses rather
-  than silently binding to every interface on the LAN.
+- **`port`** (integer, optional) — with neither this key nor `host` given, the
+  port `gtd ui` publishes through `tailscale serve`. Default: `8443`. When
+  `host` (or `--host`) opts out of serve, this is the bind port instead.
+- **`host`** (string, optional) — opts out of the default `tailscale serve`
+  front door and binds this address directly instead, showing it in the printed
+  URL — the same effect as `--host`. With neither this key nor `--host` given,
+  `gtd ui` publishes through `tailscale serve` and falls back to binding a
+  Tailscale interface (a CGNAT `100.64.0.0/10` address, auto-detected) directly
+  whenever serve isn't available — it never refuses.
 - **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
   and private key, used as-is. `--self-signed` always overrides these with a
   freshly generated throwaway pair, even when both are configured.

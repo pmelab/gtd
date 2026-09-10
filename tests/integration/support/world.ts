@@ -567,25 +567,19 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * Package 01's own serve-path counterpart of `spawnGtdUiAndHandOff`: no
+   * Package 01's own serve-path counterpart of `spawnBoundGtdUi`: no
    * `--host`/`--self-signed`, so `runUiCommand` takes the SERVE branch —
    * against the fake `tailscale` CLI `hooks.ts#FAKE_TAILSCALE_SCRIPT`
    * installs on `$PATH` (neither a real tailnet nor even the `tailscale`
-   * binary is guaranteed on a CI runner). The printed URL names the fake
-   * tailnet hostname, which resolves nowhere real, so the tRPC round trip
-   * dials the loopback TARGET port directly instead — read out of the real
-   * ownership record `attemptServe` writes to `~/.gtd/serve/<servePort>.json`
-   * (`src/ui/Serve.ts#writeServeRecord`), over PLAIN http (no TLS: the
-   * loopback listener never terminates TLS, `tailscaled` would). Returns
-   * once the process has exited on its own, so the caller can assert the
-   * mapping/record are both gone (Task 4's own teardown guarantee).
+   * binary is guaranteed on a CI runner). Factored out so both
+   * `spawnGtdUiServeAndHandOff` (needs to talk tRPC to the real listener)
+   * and `spawnGtdUiServeAndSignal` (Task 4's own SIGINT/SIGTERM teardown
+   * coverage) share the one spawn/poll dance.
    */
-  async spawnGtdUiServeAndHandOff(
-    servePort: number,
-    filePath: string,
-    mode: string,
-    text: string,
-  ): Promise<void> {
+  private async spawnBoundGtdUiServe(servePort: number): Promise<{
+    readonly child: ReturnType<typeof spawn>
+    readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+  }> {
     const child = spawn(process.execPath, [GTD_BIN, "ui", "--port", String(servePort)], {
       cwd: this.repoDir,
       env: this.spawnEnv(),
@@ -605,6 +599,44 @@ export class GtdWorld extends QuickPickleWorld {
       await delay(50)
     }
     assert.ok(stdout.includes("https://"), `gtd ui never printed its serve URL: ${stdout}`)
+    return { child, exited }
+  }
+
+  /**
+   * Task 4's own SIGINT/SIGTERM teardown coverage: a real `gtd ui` spawned
+   * over the SERVE path (unlike `spawnGtdUiAndSignal`'s `--host 127.0.0.1
+   * --self-signed`, which skips serve entirely per Task 3 step 1 and so
+   * could only assert the mapping/record are absent VACUOUSLY), killed with
+   * `signal`, same re-raise contract as `spawnGtdUiAndSignal`. Exercises the
+   * spec's own flagged claim — `runMain` interrupts the fiber and `ensuring`
+   * finalizers run on a REAL signal, not just on `Fiber.interrupt` in a unit
+   * test.
+   */
+  async spawnGtdUiServeAndSignal(servePort: number, signal: NodeJS.Signals): Promise<void> {
+    const { child, exited } = await this.spawnBoundGtdUiServe(servePort)
+    child.kill(signal)
+    const { code, signal: died } = await exited
+    this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+  }
+
+  /**
+   * Package 01's own serve-path counterpart of `spawnGtdUiAndHandOff`. The
+   * printed URL names the fake tailnet hostname, which resolves nowhere
+   * real, so the tRPC round trip dials the loopback TARGET port directly
+   * instead — read out of the real ownership record `attemptServe` writes to
+   * `~/.gtd/serve/<servePort>.json` (`src/ui/Serve.ts#writeServeRecord`),
+   * over PLAIN http (no TLS: the loopback listener never terminates TLS,
+   * `tailscaled` would). Returns once the process has exited on its own, so
+   * the caller can assert the mapping/record are both gone (Task 4's own
+   * teardown guarantee).
+   */
+  async spawnGtdUiServeAndHandOff(
+    servePort: number,
+    filePath: string,
+    mode: string,
+    text: string,
+  ): Promise<void> {
+    const { exited } = await this.spawnBoundGtdUiServe(servePort)
 
     const { readServeRecord } = await import("../../../src/ui/Serve.js")
     const record = readServeRecord(servePort)

@@ -972,6 +972,64 @@ describe("runUiCommand", () => {
       await Effect.runPromise(Fiber.interrupt(fiber))
     })
 
+    it("a `tailscale serve status` probe that fails to run can't prove the port is free — falls back, never publishes over an unseen mapping", async () => {
+      initGitRepo(tmpDir)
+      installFakeGtd(tmpDir, renderablePromptJson)
+      const { out, written } = fakeOut()
+      const certPath = join(tmpDir, "cert.pem")
+      const keyPath = join(tmpDir, "key.pem")
+      writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
+      writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
+      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+
+      const commands: string[] = []
+      const runner = CommandRunner.layer((command) => {
+        commands.push(command)
+        if (command === "tailscale status --json") {
+          return Effect.succeed({
+            status: 0,
+            output: JSON.stringify({
+              BackendState: "Running",
+              CertDomains: ["host.tailnet.ts.net"],
+              Self: { DNSName: "host.tailnet.ts.net." },
+            }),
+          })
+        }
+        if (command === "tailscale serve status --json") {
+          // A non-zero exit — an operator-permission error, a tailscaled
+          // restart mid-probe — never JSON to parse at all. Distinct from
+          // an empty `{}`: unreadable status proves nothing about whether
+          // the port is free.
+          return Effect.succeed({ status: 1, output: "", stderr: "tailscaled not running" })
+        }
+        throw new Error(`unexpected command: ${command}`)
+      })
+      const fakeUiListener = Layer.succeed(UiListener, {
+        listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+      })
+
+      const fiber = Effect.runFork(
+        runUiCommand(
+          { selfSigned: false, dev: false, port: orphanPort },
+          { cert: certPath, key: keyPath },
+          out,
+        ).pipe(
+          Effect.provide(fakeUiListener),
+          Effect.provide(runner),
+          Effect.provide(NodeContext.layer),
+          Effect.provide(Cwd.layer(tmpDir)),
+        ),
+      )
+
+      await waitForWrites(written, 2)
+      expect(written[0]).toContain("not using tailscale serve")
+      expect(written[1]).toBe("https://host.tailnet.ts.net:4443/\n")
+      expect(commands.some((c) => c.startsWith("tailscale serve --bg"))).toBe(false)
+      expect(readServeRecord(orphanPort)).toBeUndefined()
+
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    })
+
     it("a record naming a dead pid is cleared before publishing — unpublished, deleted, then a fresh mapping published", async () => {
       initGitRepo(tmpDir)
       installFakeGtd(tmpDir, renderablePromptJson)

@@ -74,16 +74,18 @@ Commands:
                    local web server (--port <n>, --no-open). Prints the
                    chosen port on its own line — with --port 0, this is the
                    only way to learn which port was picked
-  ui               Start a local HTTPS server (never plain http — a phone
-                   client reachable over a tailnet gets TLS on its own merits)
-                   exposing gtd's web/phone client for THIS worktree — the
+  ui               Expose gtd's web/phone client for THIS worktree — the
                    invoking directory, never a configured list of roots — and
                    refuses outside a repository like every other state command.
-                   --host <addr> overrides the bound address and the printed
-                   URL (default: an address picked automatically, using the
-                   detected Tailscale hostname when available); --port <n>
-                   overrides the port (default: 8443); --self-signed generates
-                   a throwaway TLS certificate instead of the configured
+                   By default, publishes through `tailscale serve` (reachable
+                   from anywhere on the tailnet, including over a DERP relay)
+                   with tailscaled terminating TLS; falls back to binding a
+                   local HTTPS server directly, never refusing, when serve
+                   isn't available. --host <addr> opts out of serve and binds
+                   that address directly instead; --port <n> overrides the
+                   serve port (default: 8443), or the bind port when --host is
+                   given; --self-signed also opts out of serve, generating a
+                   throwaway TLS certificate instead of the configured
                    ui.cert/ui.key; --dev runs against local development sources
                    instead of the packaged build
   check <mode> <file>
@@ -145,12 +147,13 @@ Options:
                    itself absent/null (e.g. session.id at a non-prompt rest),
                    which never counts as unknown; an unknown path is a usage
                    error (exit 2).
-  --port=<n>       (gtd visualize/gtd ui only) port to serve on (default:
-                   a free port for visualize, 8443 for ui)
+  --port=<n>       (gtd visualize/gtd ui only) port to serve on: a free port
+                   for visualize; for ui, the tailscale serve port (default:
+                   8443), or the bind port when --host opts out of serve
   --no-open        (gtd visualize only) do not open the browser
-  --host=<addr>    (gtd ui only) address to bind the server to and show in the
-                   printed URL (default: an address picked automatically, using
-                   the detected Tailscale hostname when available)
+  --host=<addr>    (gtd ui only) opt out of the default tailscale serve front
+                   door and bind this address directly instead, showing it in
+                   the printed URL
   --self-signed    (gtd ui only) generate a throwaway self-signed TLS
                    certificate instead of the configured ui.cert/ui.key
   --dev            (gtd ui only) run against local development sources

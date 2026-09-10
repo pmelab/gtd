@@ -93,6 +93,98 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     When I send SIGTERM to a spawned gtd ui
     Then the reported exit status is 143
 
+  # Package 01's Task 4: the two scenarios above spawn over `--host 127.0.0.1
+  # --self-signed`, which takes Task 3 step 1 and skips `tailscale serve`
+  # entirely — asserting no mapping/record survives THAT spawn would pass
+  # vacuously, since neither was ever created. The two scenarios below spawn
+  # over the SERVE path instead (`spawnGtdUiServeAndSignal`, no
+  # --host/--self-signed) for that specific proof — Task 4's own flagged
+  # claim that `runMain` interrupting the fiber on a REAL OS signal actually
+  # runs the `Effect.ensuring` finalizer that unpublishes, not just on
+  # `Fiber.interrupt` in a unit test (`Server.test.ts`).
+
+  @live
+  Scenario: gtd ui binds for real over tailscale serve and exits 130 on SIGINT, tearing down its mapping
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": working
+              working:
+                actor: human
+                file: "PLAN.md"
+                mode: qa
+                prompt: "answer the plan"
+                on:
+                  "* **": idle
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file "PLAN.md" with:
+      """
+      Paragraph zero here.
+
+      Paragraph two here.
+      """
+    When I send SIGINT to a spawned gtd ui using tailscale serve on port 18445
+    Then the reported exit status is 130
+    And no tailscale serve mapping or ownership record survives on port 18445
+
+  @live
+  Scenario: gtd ui binds for real over tailscale serve and exits 143 on SIGTERM, tearing down its mapping
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": working
+              working:
+                actor: human
+                file: "PLAN.md"
+                mode: qa
+                prompt: "answer the plan"
+                on:
+                  "* **": idle
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file "PLAN.md" with:
+      """
+      Paragraph zero here.
+
+      Paragraph two here.
+      """
+    When I send SIGTERM to a spawned gtd ui using tailscale serve on port 18446
+    Then the reported exit status is 143
+    And no tailscale serve mapping or ownership record survives on port 18446
+
   @live
   Scenario: handing off exits 0, with the human's note durably on disk and no child process spawned
     Given a test project
