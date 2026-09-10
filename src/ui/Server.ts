@@ -170,9 +170,9 @@ export class HttpsServer extends Context.Tag("HttpsServer")<
     listen: (certPair, host, port, handler) =>
       Effect.async<BoundServer, GtdError>((resume) => {
         // Unconditionally `https.createServer` — no code path in this module
-        // ever constructs a plain `http.createServer`, because the Web
-        // Speech API is secure-context-only and would lose dictation
-        // silently over plain http.
+        // ever constructs a plain `http.createServer`: a phone client
+        // reachable over a tailnet gets TLS on its own merits, a deliberate
+        // policy rather than a technical requirement.
         const server = https.createServer({ cert: certPair.cert, key: certPair.key }, handler)
         server.once("error", (err: NodeJS.ErrnoException) => {
           resume(

@@ -32,9 +32,9 @@ export interface SelfSignedCertRequest {
  * `node:crypto`'s `X509Certificate` parses certificates and cannot issue one,
  * so this shells out to `openssl`. 825 days is the longest validity iOS
  * accepts for a leaf certificate; the three `-addext` flags are each load-
- * bearing for iOS's Web Speech API secure-context check: SAN carrying the
- * bind IP (not just the CN, which iOS ignores), `serverAuth` extended key
- * usage, and a critical non-CA basic constraint.
+ * bearing for iOS to trust the leaf at all: SAN carrying the bind IP (not
+ * just the CN, which iOS ignores), `serverAuth` extended key usage, and a
+ * critical non-CA basic constraint.
  */
 export const generateSelfSignedCert = (
   request: SelfSignedCertRequest,

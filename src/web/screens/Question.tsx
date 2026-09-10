@@ -116,7 +116,7 @@ const FreeTextOption = ({
   )
 }
 
-/** One option row — a radio, its label, and (only for the free-text slot) the textarea+mic. */
+/** One option row — a radio, its label, and (only for the free-text slot) the textarea. */
 const OptionRow = ({
   option,
   index,
