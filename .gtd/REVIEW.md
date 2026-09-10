@@ -7,6 +7,14 @@ under `src/web/` with a Tailwind design system (tokens, `Button`, `Notice`, a
 viewport-tall non-scrolling shell), and **task 01** adds in-place recovery for a
 stale-sha write refusal plus a real `head-unresolved` read refusal.
 
+- a hunks description is currently loaded into its "note" textbox, which is
+  wrong. it should be displayed above the diff
+- remove the dictate button. it is unnecessary and freezes the ui. users can
+  dicate from the onscreen keyboard
+- chunk summaries sometimes show the first hunks checkbox. if there is no
+  description, it should show nothing
+- remove the qr code. it has no purpose
+
 ## Tailwind build pipeline
 
 A second build artifact — `dist/web/main.css` — now has to be produced and
