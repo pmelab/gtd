@@ -64,7 +64,8 @@ assumption: the SIGINT-exit-130 and SIGTERM-exit-143 scenarios in
 
 1. An explicit `--host` or `ui.host` means the operator chose a bind address —
    skip serve entirely, take today's direct-bind path unchanged. Same for
-   `--self-signed`.
+   `--self-signed`. **This is the only opt-out: no `ui.serve:` key is added, so
+   `.gtdrc`'s four `ui:` keys and `schema.json` are untouched by this package.**
 2. Otherwise resolve the serve path: probe `tailscale serve status`, run the
    orphan check, `listen({ host: "127.0.0.1", port: 0 })` — an ephemeral target
    port, since nothing outside the machine dials it — then `publishServe` on
@@ -144,18 +145,22 @@ carries `{ kind: "paragraph", line }` at its own start line. `NoteSheet`'s
 `ANCHOR_TITLE.paragraph` label changes to "Note on this block", since it is no
 longer always a paragraph.
 
-**The one anchor that does not work as-is is a fenced code block** — see the
-open question. `footnoteAttachEdits` puts the marker at the end of
-`anchor.line`, which for a fenced block is the opening fence: `[^n]` lands in
-the info string, corrupts the fence, and never parses as a footnote reference.
+**A fenced code block renders but carries no note seam — every other kind gets
+one.** `footnoteAttachEdits` puts the marker at the end of `anchor.line`, which
+for a fenced block is the opening fence: a marker there would land in the info
+string, corrupt the fence, and never parse as a footnote reference. So
+`annotate` gains no code-block branch and the document can never be corrupted.
+The server still emits the block's `{ kind: "paragraph", line }` anchor like
+every other node — withholding the affordance is the client's job, one branch in
+`ProseBlock`, not a hole in the view.
 
 **Client side, `src/web/screens/Plan.tsx`:** `ProseParagraph` becomes
 `ProseBlock`, switching on `node.block?.kind` — `heading` → an `h2`/`h3`/`h4` by
 `depth`, `list` → a recursive `ul`/`ol`, `code` → `pre > code`, `blockquote` →
 `blockquote`, and anything else (including `block` absent) → the `p` it renders
-today. The note seam and the inline note row are unchanged and render below
-every kind. `ProseParagraphs` → `ProseBlocks`, keyed on the anchor line exactly
-as now.
+today. The note seam and the inline note row render below every kind EXCEPT
+`code`, which renders neither. `ProseParagraphs` → `ProseBlocks`, keyed on the
+anchor line exactly as now.
 
 **Files:** `src/SteeringFormat.ts`, `src/OpenQuestions.ts`,
 `src/OpenQuestions.test.ts`, `src/web/screens/Plan.tsx`,
@@ -249,31 +254,6 @@ drives `HandedBackPanel`, so the terminal screen needs no new wiring.
 written and asserts the handed-back panel renders; a cucumber scenario asserts
 the process exits the same way the existing handoff scenario does.
 
-## Open Questions
-
-### How does a note attach to a fenced code block, whose first line is the fence itself?
-
-- [x] A code block renders but carries no note seam — every other kind gets one.
-      Nothing new to build, the document can never be corrupted, and the
-      server-side anchor stays honest because the client simply offers no
-      affordance for that one kind.
-- [ ] `annotate` special-cases a code-block anchor: the marker goes on its own
-      new line immediately after the closing fence, the definition after that.
-      Notes work on every kind, at the cost of one invented line of markdown per
-      note and a new branch in `resolveQuestionsAnchor`.
-- [ ] _your answer_
-
-### Does `gtd ui` gain a `ui.serve:` config key to force the direct bind off, or is `--host`/`ui.host` the only opt-out?
-
-- [x] No new key. `--host`/`ui.host` already means "bind here, skip serve", so a
-      second switch is a second way to say the same thing — and every new
-      `.gtdrc` key costs a `schema.json` regeneration and a docs surface.
-- [ ] Add `ui.serve: false`. The two things are genuinely different asks —
-      "publish nothing through tailscaled" versus "bind this address" — and an
-      operator who wants the old behaviour on the tailnet IP currently has to
-      look one up by hand to pass it.
-- [ ] _your answer_
-
 ## Merged Concerns
 
 None. All four footprints have distinct centres: concern 1 is `src/ui/`'s
@@ -344,3 +324,16 @@ cleared before publishing.
 No. One tag with one method, `listen({ tls?, host, port, handler })` — `tls`
 absent selects `http.createServer`. Two methods would mean two fakes in
 `Server.test.ts` for one socket.
+
+### How does a note attach to a fenced code block, whose first line is the fence itself?
+
+It does not. A code block renders but carries no note seam; every other kind
+gets one. `footnoteAttachEdits` puts the marker at the end of the anchor line,
+which for a fenced block is the opening fence, so a marker there corrupts the
+fence and never parses. `annotate` gains no code-block branch.
+
+### Does `gtd ui` gain a `ui.serve:` config key to force the direct bind off, or is `--host`/`ui.host` the only opt-out?
+
+`--host`/`ui.host` is the only opt-out. It already means "bind here, skip
+serve", so a second switch says the same thing at the cost of a `schema.json`
+regeneration and a docs surface.
