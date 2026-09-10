@@ -23,7 +23,7 @@ export default defineConfig([
     // map (see scripts/inline-web-client.mjs) — a bare `import … from
     // "react"` left external has nothing to resolve against in a browser.
     // Bundle every dependency (react, @trpc/*, @tanstack/react-query, …), no
-    // exceptions, mirroring the `gtd` config's own `deps.alwaysBundle` below.
+    // exceptions.
     deps: { alwaysBundle: [/.*/] },
     outputOptions: { codeSplitting: false },
   },
@@ -42,14 +42,6 @@ import { createRequire as __createRequire } from 'module';
 const require = __createRequire(import.meta.url);`,
     },
     clean: true,
-    deps: {
-      // Bundle everything except `qrcode-terminal`: its vendored `lib/main.js`
-      // still uses legacy octal escapes ("\033[...m"), which rolldown's
-      // strict-mode parser rejects outright — kept external (it's already an
-      // npm `dependencies` entry, so `npm install` still provides it) rather
-      // than patching a dependency's source.
-      alwaysBundle: (id) => !id.includes("qrcode-terminal"),
-    },
     dts: false,
     outputOptions: { codeSplitting: false },
   },

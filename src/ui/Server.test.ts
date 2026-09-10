@@ -174,7 +174,7 @@ describe("resolveCertPair", () => {
   it("with the probe answering a tailnet hostname and no --host, the SAN carries the DISPLAY hostname as DNS: and the bind IP as IP: — never the bind IP as both", async () => {
     // Regression: --self-signed used to receive only bindHost, so a
     // probe-detected hostname URL over an IP bind got a SAN of
-    // IP:<bind-ip>,DNS:<bind-ip> while the printed URL/QR code said
+    // IP:<bind-ip>,DNS:<bind-ip> while the printed URL said
     // https://<tailnet-hostname>:.../ — a name mismatch on every load.
     const commands: string[] = []
     const runner = CommandRunner.layer((command) => {
@@ -591,7 +591,7 @@ describe("runUiCommand", () => {
     throw new Error(`server never wrote ${count} lines (got ${written.length})`)
   }
 
-  it("prints the https:// URL on its own line, then a QR code encoding that exact URL, before blocking", async () => {
+  it("prints the https:// URL on its own line before blocking", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out, written } = fakeOut()
@@ -627,7 +627,7 @@ describe("runUiCommand", () => {
     expect(closed).toBe(true)
   })
 
-  it("prints the probed Tailscale hostname as the displayed URL, and the QR code encoding that same URL, while binding the CGNAT IP the system scan found — no --host/ui.host given, CommandRunner-doubled `tailscale status --json`", async () => {
+  it("prints the probed Tailscale hostname as the displayed URL while binding the CGNAT IP the system scan found — no --host/ui.host given, CommandRunner-doubled `tailscale status --json`", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out, written } = fakeOut()
@@ -672,7 +672,7 @@ describe("runUiCommand", () => {
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
-  it("prints the CGNAT IP, exactly as before, as both the displayed URL and the QR code when the probe finds no backend", async () => {
+  it("prints the CGNAT IP, exactly as before, as the displayed URL when the probe finds no backend", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out, written } = fakeOut()

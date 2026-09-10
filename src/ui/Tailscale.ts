@@ -38,7 +38,7 @@ export const parseTailscaleStatus = (json: string): TailscaleStatus | undefined 
   const dnsName = parsed.Self.DNSName
   // `CertDomains[0]` is the safer source (no trailing dot); `DNSName` is a
   // fully-qualified DNS root and must be stripped of its trailing dot before
-  // it lands in a URL or a QR code.
+  // it lands in a URL.
   const hostname =
     certDomains[0] ?? (dnsName === undefined ? undefined : dnsName.replace(/\.$/, ""))
   if (hostname === undefined || hostname === "") return undefined
