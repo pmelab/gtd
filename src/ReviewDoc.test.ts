@@ -2202,4 +2202,19 @@ describe("REVIEW_FORMAT.view — chunk-level footnote projection", () => {
     // the marker rather than emitting `undefined` as text.
     expect(view.nodes[0]?.children?.[0]?.note).toBeUndefined()
   })
+
+  it("a hunk with only a description and no attached footnote carries it in `detail` with no `note` — the note textbox must open empty", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 what this hunk does",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    expect(view.nodes[0]?.children?.[0]?.detail).toBe("what this hunk does")
+    expect(view.nodes[0]?.children?.[0]?.note).toBeUndefined()
+  })
 })
