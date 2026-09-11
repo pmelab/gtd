@@ -133,15 +133,16 @@ export interface PlanViewProps {
     opts: { readonly checked?: boolean; readonly text?: string },
   ) => Promise<unknown>
   /**
-   * The Done control on the Q&A deck (package 04 Task 2): ends the turn with
-   * no note, the same `done` round trip `onDoneNote` drives minus the write
-   * — the real `Plan` container wires this to `trpc.done.mutateAsync({})`.
-   * Passed straight to `Deck`'s own `onDone`, which is what actually renders
-   * the button; its mere presence is also what flips the deck's last-item
-   * advance label from "Done" to "Back to list" (`Deck.tsx`'s own doc
-   * comment — two buttons reading "Done" on one screen is the collision
-   * that avoids). Absent in `Plan.stories.tsx`'s pure-data stories, exactly
-   * like `onSaveNote`/`onDoneNote`.
+   * Ends the turn with no note, the same `done` round trip `onDoneNote`
+   * drives minus the write — the real `Plan` container wires this to
+   * `trpc.done.mutateAsync({})`. Drives TWO controls: passed to `Deck`'s own
+   * `onDone` (package 04 Task 2), where its mere presence also flips the
+   * deck's last-item advance label from "Done" to "Back to list" (`Deck.tsx`'s
+   * own doc comment — two buttons reading "Done" on one screen is the
+   * collision that avoids); and gates/drives the list screen's own
+   * `plan-done` footer row (package 05 Task 1), present whether or not the
+   * document carries questions. Absent in `Plan.stories.tsx`'s pure-data
+   * stories, exactly like `onSaveNote`/`onDoneNote`.
    */
   readonly onDone?: () => Promise<unknown>
   /**

@@ -986,26 +986,32 @@ export const RealContainerTryAgainOnASecondRefusalLeavesTheBannerUp: StoryObj<ty
  * empty-input `done` the deck's own Done control fires — the ONLY way this
  * shape of document could otherwise hand the turn back at all.
  */
-export const TappingPlanDoneOnAProseOnlyPlanEndsTheTurnWithNoNote: Story = {
-  render: () => {
-    let calls = 0
-    const view: SteeringView = { nodes: [paragraphNode(0, "A prose-only plan.")] }
-    return (
+/** Records `onDone` calls as `PlanDoneCallRecorder` records `trpc.done` calls — a `useState`-backed array so the tap actually re-renders, keeping `plan-done` PlanView stories consistent with the real-container ones below. */
+const PlanDoneCallCounter = ({ view }: { readonly view: SteeringView }) => {
+  const [calls, setCalls] = useState<readonly Record<string, never>[]>([])
+  return (
+    <>
+      <div data-testid="on-done-calls">{JSON.stringify(calls)}</div>
       <PlanView
         contentHash="prose-hash-done"
         isLoading={false}
         view={view}
         onDone={() => {
-          calls += 1
+          setCalls((prev) => [...prev, {}])
           return Promise.resolve()
         }}
       />
-    )
-  },
+    </>
+  )
+}
+
+export const TappingPlanDoneOnAProseOnlyPlanEndsTheTurnWithNoNote: Story = {
+  render: () => <PlanDoneCallCounter view={{ nodes: [paragraphNode(0, "A prose-only plan.")] }} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("plan-done")).toBeInTheDocument()
     await fireEvent.click(canvas.getByTestId("plan-done"))
+    await waitFor(() => expect(canvas.getByTestId("on-done-calls")).toHaveTextContent("[{}]"))
   },
 }
 
@@ -1013,18 +1019,15 @@ export const TappingPlanDoneOnAProseOnlyPlanEndsTheTurnWithNoNote: Story = {
  * Same control, on a document carrying an unticked open question — the
  * requirement's own "unguarded" clause: one tap ends the turn with no
  * confirmation element rendered in between, whether or not questions are
- * still open.
+ * still open. Asserts the empty-input `done` actually fires exactly once,
+ * not just that no dialog appears.
  */
 export const TappingPlanDoneWithAnUnansweredOpenQuestionEndsTheTurnOnOneTap: Story = {
-  args: {
-    contentHash: "qa-sample-hash",
-    isLoading: false,
-    view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
-    onDone: () => Promise.resolve(),
-  },
+  render: () => <PlanDoneCallCounter view={{ nodes: [openQuestion(0, "Which option?")] }} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("plan-done"))
+    await waitFor(() => expect(canvas.getByTestId("on-done-calls")).toHaveTextContent("[{}]"))
     // No confirmation dialog/element renders in between.
     await expect(canvas.queryByRole("dialog")).not.toBeInTheDocument()
   },
@@ -1069,6 +1072,7 @@ export const NoOnDonePropRendersNoPlanDoneControl: Story = {
 export const RealContainerTapsPlanDoneFromTheListRendersHandedBackPanel: StoryObj<typeof Plan> = {
   render: (args) => {
     let record: (input: unknown) => void = () => {}
+    let recordWriteOrSet: (input: unknown) => void = () => {}
     return (
       <TrpcTestProvider
         resolvers={{
@@ -1085,12 +1089,26 @@ export const RealContainerTapsPlanDoneFromTheListRendersHandedBackPanel: StoryOb
             record(input)
             return { ok: true }
           },
-          writeNote: () => {
-            throw new Error("writeNote must never be called by plan-done")
+          // `plan-done` writes no note and answers no question, so neither
+          // of these mutations should ever fire — recorded (never thrown)
+          // so a stray call is asserted `0`, not just swallowed by
+          // `PlanView`'s own `.catch` into an unrelated refusal banner
+          // (criterion 3 in the spec review).
+          writeNote: (input) => {
+            recordWriteOrSet(input)
+            return { ok: true }
+          },
+          setValue: (input) => {
+            recordWriteOrSet(input)
+            return { ok: true }
           },
         }}
       >
-        <PlanDoneCallRecorder args={args} onRegisterDone={(fn) => (record = fn)} />
+        <PlanDoneCallRecorder
+          args={args}
+          onRegisterDone={(fn) => (record = fn)}
+          onRegisterWriteOrSet={(fn) => (recordWriteOrSet = fn)}
+        />
       </TrpcTestProvider>
     )
   },
@@ -1098,9 +1116,12 @@ export const RealContainerTapsPlanDoneFromTheListRendersHandedBackPanel: StoryOb
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
+    expect(canvas.queryByTestId("refusal-banner")).not.toBeInTheDocument()
     await fireEvent.click(canvas.getByTestId("plan-done"))
     await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
     await expect(canvas.getByTestId("done-calls")).toHaveTextContent(JSON.stringify({}))
+    expect(canvas.getByTestId("write-or-set-calls")).toHaveTextContent("[]")
+    expect(canvas.queryByTestId("refusal-banner")).not.toBeInTheDocument()
   },
 }
 
@@ -1150,19 +1171,32 @@ export const RealContainerRefusedPlanDoneShowsRefusalBannerNotHandedBack: StoryO
   },
 }
 
-/** A `useState`-backed recorder for the `done` mutation's input — mirrors `PlanWriteCallRecorder`'s identical reasoning. */
+/**
+ * A `useState`-backed recorder for the `done` mutation's input — mirrors
+ * `PlanWriteCallRecorder`'s identical reasoning. `onRegisterWriteOrSet` is
+ * optional: only the plan-done "must never write" story (criterion 3, spec
+ * review) needs a second recorder proving `writeNote`/`setValue` fired zero
+ * times — every other call site leaves it unset.
+ */
 const PlanDoneCallRecorder = ({
   args,
   onRegisterDone,
+  onRegisterWriteOrSet,
 }: {
   readonly args: { readonly filePath: string; readonly mode: string }
   readonly onRegisterDone: (record: (input: unknown) => void) => void
+  readonly onRegisterWriteOrSet?: (record: (input: unknown) => void) => void
 }) => {
   const [calls, setCalls] = useState<readonly unknown[]>([])
+  const [writeOrSetCalls, setWriteOrSetCalls] = useState<readonly unknown[]>([])
   onRegisterDone((input) => setCalls((prev) => [...prev, input]))
+  onRegisterWriteOrSet?.((input) => setWriteOrSetCalls((prev) => [...prev, input]))
   return (
     <>
       <div data-testid="done-calls">{JSON.stringify(calls)}</div>
+      {onRegisterWriteOrSet !== undefined && (
+        <div data-testid="write-or-set-calls">{JSON.stringify(writeOrSetCalls)}</div>
+      )}
       <Plan {...args} />
     </>
   )
