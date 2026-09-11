@@ -7,14 +7,25 @@ export interface CardProps {
   readonly onOpen: () => void
   readonly children: React.ReactNode
   readonly testId?: string
+  /**
+   * Marks this row as the thing to act on (an open question) with a left
+   * accent rule plus the `surface` background — absent (every other card:
+   * review, fleet, answered rows below their own inert path), the rendered
+   * classes are byte-identical to before this prop existed.
+   */
+  readonly accent?: boolean
 }
 
-export const Card = ({ onOpen, children, testId }: CardProps) => (
+export const Card = ({ onOpen, children, testId, accent }: CardProps) => (
   <button
     type="button"
     data-testid={testId}
     onClick={onOpen}
-    className="block min-h-11 w-full border-b border-border px-3 py-2.5 text-left text-body text-text active:bg-surface"
+    className={
+      accent === true
+        ? "block min-h-11 w-full border-b border-l-4 border-border border-l-accent bg-surface px-3 py-2.5 text-left text-body text-text active:bg-surface"
+        : "block min-h-11 w-full border-b border-border px-3 py-2.5 text-left text-body text-text active:bg-surface"
+    }
   >
     {children}
   </button>

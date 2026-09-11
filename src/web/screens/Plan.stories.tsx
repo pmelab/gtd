@@ -114,6 +114,53 @@ export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
   },
 }
 
+/**
+ * package 02, T1/T4: a plan carrying a heading, prose before the questions
+ * section, one open question, one answered question and a trailing
+ * paragraph — the open question renders ABOVE the prose (it's the task),
+ * the answered one stays BELOW the prose (it's history), and the trailing
+ * paragraph — which sits AFTER both question sections in document order —
+ * renders after the preceding prose within the single prose block, never
+ * hoisted before it.
+ */
+export const OpenQuestionRendersAboveProseAnsweredBelowTrailingParagraphInOrder: Story = {
+  args: {
+    contentHash: "layout-order-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          title: "A heading",
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "heading", depth: 2 },
+        },
+        planNode(2, "Prose before the questions section."),
+        openQuestion(0, "Which option?"),
+        answeredQuestion(1, "Already settled"),
+        planNode(10, "A trailing paragraph after both sections."),
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const openHeading = canvas.getByText("Open Questions")
+    const prose = canvas.getByText("Prose before the questions section.")
+    const answeredHeading = canvas.getByText("Already answered")
+    const trailing = canvas.getByText("A trailing paragraph after both sections.")
+
+    // Open question section above the prose.
+    expect(
+      openHeading.compareDocumentPosition(prose) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    // Answered section below the prose.
+    expect(
+      prose.compareDocumentPosition(answeredHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    // The trailing paragraph stays after the preceding prose, not hoisted before it.
+    expect(prose.compareDocumentPosition(trailing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  },
+}
+
 export const DocumentWithNoOpenQuestionsRendersNoEmptyHeading: Story = {
   args: {
     contentHash: "qa-sample-hash",
@@ -270,6 +317,37 @@ export const TappingFreeTextSaveStaysOnTheQuestionScreen: Story = {
     await fireEvent.click(canvas.getByTestId("free-text-save"))
     await expect(canvas.getByTestId("question-screen")).toBeInTheDocument()
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
+  },
+}
+
+/**
+ * package 02, T2: the card-index invariant holds through the layout move —
+ * a card's start index must stay its position in the SAME open-question
+ * list `Deck` is fed (`openQuestionNodesOf`), regardless of where an
+ * answered question sorts among the questions or where the section itself
+ * now renders on screen. Tapping the LAST open card on a plan that also
+ * carries an answered question must open the deck on THAT question, not
+ * another — and the deck's own progress indicator counts only the two open
+ * questions, never the answered one sitting alongside them.
+ */
+export const TappingTheLastOpenQuestionCardOpensTheDeckOnThatQuestion: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        openQuestion(0, "First open"),
+        answeredQuestion(1, "Settled"),
+        openQuestion(2, "Second open"),
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-2"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("Second open")
+    // Only the two open questions counted — never the answered one.
+    await expect(canvas.getByTestId("deck-progress")).toHaveTextContent("2 / 2")
   },
 }
 

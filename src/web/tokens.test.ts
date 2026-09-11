@@ -81,4 +81,8 @@ describe("styles.css contrast", () => {
   it("the accent-pressed colour on page clears the 3:1 AA large-text/control threshold", () => {
     expect(contrastRatio(tokens["accent-pressed"]!, tokens.page!)).toBeGreaterThanOrEqual(3)
   })
+
+  it("body text on surface clears the 4.5:1 AA body-text threshold", () => {
+    expect(contrastRatio(tokens.text!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
+  })
 })

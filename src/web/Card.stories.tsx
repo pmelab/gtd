@@ -134,6 +134,40 @@ export const RowPressedStateDiffersFromRest: Story = {
   },
 }
 
+/** package 02 Task 3: `accent` absent produces the exact class list a `Card` renders today — no new class appears just from the prop existing on the type. */
+export const CardWithoutAccentPropIsUnchanged: Story = {
+  render: () => (
+    <Card testId="plain-card" onOpen={() => {}}>
+      plain
+    </Card>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const card = canvas.getByTestId("plain-card")
+    expect(card.className).toBe(
+      "block min-h-11 w-full border-b border-border px-3 py-2.5 text-left text-body text-text active:bg-surface",
+    )
+  },
+}
+
+/** package 02 Task 3: `accent` renders a left accent rule and the `surface` background — asserted on computed style, not by reading any heading/label text. */
+export const CardWithAccentPropRendersTheAccentTreatment: Story = {
+  render: () => (
+    <Card testId="accent-card" onOpen={() => {}} accent>
+      accented
+    </Card>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const card = canvas.getByTestId("accent-card")
+    const style = getComputedStyle(card)
+    expect(style.borderLeftWidth).toBe("4px")
+    // `--color-surface`, the SAME rgb `RowPressedStateDiffersFromRest` above
+    // pins as the pressed-state background — here it's the RESTING background.
+    expect(style.backgroundColor).toBe("rgb(28, 28, 30)")
+  },
+}
+
 export const OpeningACardsDeck: Story = {
   render: () => <TwoLevelShellDemo />,
   play: async ({ canvasElement }) => {

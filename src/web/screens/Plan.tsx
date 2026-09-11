@@ -91,7 +91,7 @@ const QuestionCard = ({
     )
   }
   return (
-    <Card testId={testId} onOpen={onOpen}>
+    <Card testId={testId} onOpen={onOpen} accent>
       {content}
     </Card>
   )
@@ -204,23 +204,24 @@ const PlanBody = ({
   if (questionNodes.length === 0) {
     return <ProseBlocks nodes={view.nodes} noteOverrides={noteOverrides} onOpenNote={onOpenNote} />
   }
-  // `OpenQuestions.ts#questionsView` prepends the plan's own lead prose
-  // (everything before `## Open Questions`) as plain paragraph nodes ahead
-  // of the question nodes — render it here too, or the "Read the plan" row
-  // above confirms a plan that's nowhere on screen (requirement 4/T5).
+  // `questionsView` (`OpenQuestions.ts`) builds `nodes` as every
+  // `blockNodesOf` node in document order — before, between, and after the
+  // question sections alike — followed by every question node. Filtering
+  // the non-question nodes into one list here preserves their relative
+  // document order; it is NOT "everything before `## Open Questions`".
   const planNodes = view.nodes.filter((node) => !isQuestionNode(node))
   const openNodes = questionNodes.filter((node) => node.status === "open")
   const answeredNodes = questionNodes.filter((node) => node.status === "answered")
   return (
     <>
-      {planNodes.length > 0 && (
-        <ProseBlocks nodes={planNodes} noteOverrides={noteOverrides} onOpenNote={onOpenNote} />
-      )}
       {/*
        * `allNodes={openNodes}`, NOT `questionNodes` — a card's start index
        * must be its position in the SAME list `PlanView` feeds `Deck`
        * (`openQuestionNodesOf`), or tapping a card would open the deck at
        * the wrong item the moment any answered question sorts before it.
+       * Open questions render FIRST — they're the task; the prose below is
+       * reference material — but this list, and the index it hands out,
+       * stays untouched by that reordering.
        */}
       <QuestionSection
         title="Open Questions"
@@ -228,6 +229,9 @@ const PlanBody = ({
         allNodes={openNodes}
         onOpen={onOpenQuestion}
       />
+      {planNodes.length > 0 && (
+        <ProseBlocks nodes={planNodes} noteOverrides={noteOverrides} onOpenNote={onOpenNote} />
+      )}
       <QuestionSection title="Already answered" nodes={answeredNodes} allNodes={answeredNodes} />
     </>
   )
