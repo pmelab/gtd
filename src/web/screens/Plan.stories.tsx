@@ -115,6 +115,32 @@ export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
 }
 
 /**
+ * package 02, T3: `QuestionCard` wires `accent` on the open path only — an
+ * open card gets the left accent rule plus the `surface` background, an
+ * answered one (the inert `opacity-[0.85]` row) does not. Asserted on
+ * computed style alone, reading no heading text, so a regression that drops
+ * `accent` from `Plan.tsx`'s open-question `<Card>` call — leaving
+ * `Card.stories.tsx`'s own prop-level stories green — still fails here.
+ */
+export const OpenQuestionCardRendersTheAccentTreatmentAnsweredDoesNot: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: {
+      nodes: [openQuestion(0, "Open one"), answeredQuestion(1, "Answered one")],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const openCard = getComputedStyle(canvas.getByTestId("question-card-0"))
+    const answeredCard = getComputedStyle(canvas.getByTestId("question-card-1"))
+    expect(openCard.borderLeftWidth).toBe("4px")
+    expect(openCard.backgroundColor).toBe("rgb(28, 28, 30)")
+    expect(answeredCard.borderLeftWidth).not.toBe("4px")
+  },
+}
+
+/**
  * package 02, T1/T4: a plan carrying a heading, prose before the questions
  * section, one open question, one answered question and a trailing
  * paragraph — the open question renders ABOVE the prose (it's the task),
