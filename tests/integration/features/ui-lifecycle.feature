@@ -347,7 +347,8 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     # than falling back) — the fallback's own host resolution still needs a
     # real Tailscale CGNAT interface on the machine running this scenario,
     # the same as `resolveBindHost`'s production behavior with neither
-    # --host nor ui.host given.
+    # --host nor ui.host given. On CI that address is a loopback alias the
+    # workflow adds (.github/workflows/test.yml), not a joined tailnet.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """

@@ -801,7 +801,7 @@ export class GtdWorld extends QuickPickleWorld {
     const bindHost = pickBindHost(networkInterfaces())
     assert.ok(
       bindHost !== undefined,
-      "no real Tailscale CGNAT interface found on this machine — the direct-bind fallback this scenario exercises needs one",
+      "no 100.64.0.0/10 interface found on this machine — the direct-bind fallback this scenario exercises needs one (CI supplies a loopback alias; see .github/workflows/test.yml)",
     )
 
     const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
