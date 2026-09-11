@@ -207,7 +207,11 @@ describe("shellQuote", () => {
           expect(out).toBe(s)
         },
       ),
-      { numRuns: 500 },
+      // 100 runs, not more: every run spawns a real bash, and the whole suite
+      // runs in parallel with the e2e projects — 500 spawns times out the
+      // 30s default under that load, flaking the gate rather than finding
+      // more bugs (the six named cases above cover the interesting shapes).
+      { numRuns: 100 },
     )
   })
 })

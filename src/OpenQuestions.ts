@@ -1,7 +1,8 @@
 import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
-import type { FootnoteMarker } from "./Footnotes.js"
+import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
+  footnoteAttachEdits,
   footnotePointerAt,
   isOnExistingFootnote,
   parseFootnotes,
@@ -15,10 +16,15 @@ import {
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
 import type {
+  BlockListItem,
+  SteeringAnchor,
+  SteeringAnnotateResult,
   SteeringEdit,
   SteeringFinding,
   SteeringFormat,
   SteeringOutlineNode,
+  SteeringView,
+  SteeringViewNode,
 } from "./SteeringFormat.js"
 
 export type OpenQuestionStatus = "open" | "answered"
@@ -48,8 +54,14 @@ export const FREE_TEXT_PLACEHOLDER = "_your answer_"
 
 /**
  * `QA_FORMAT`'s canonical sample: one open question with two options plus the
- * unfilled free-text slot, and one anchored footnote on an option with a body
- * over 80 characters — pinned already in oxfmt's own wrapped four-space form
+ * unfilled free-text slot, one hand-authored footnote on Option A with a body
+ * over 80 characters, and a SECOND footnote on Option B, attached exactly the
+ * way the server attaches one (`questionsAnnotate` →
+ * `Footnotes.ts#footnoteAttachEdits`, hence its `na`-prefixed id, distinct
+ * from the hand-authored `fn` one) — its body also over 80 characters and
+ * carrying a multi-word inline code span, so `ModeContradiction.ts`'s
+ * formatter round-trip covers a server-written note reflowing, not just a
+ * hand-authored one. Pinned already in oxfmt's own wrapped four-space form
  * (see `src/SteeringFormats.test.ts`'s formatter round-trip). Not authored to
  * survive any particular formatter.
  */
@@ -60,7 +72,13 @@ const QA_SAMPLE = `Sample plan. Add a thing.
 ### Which option?
 
 - [ ] Option A[^fn1]
-- [ ] Option B
+- [ ] Option B[^na17v2bjb]
+
+[^na17v2bjb]:
+    Attached via the phone UI on Option B, this note carries a
+    \`multi word code span\` and exceeds eighty characters in length so it gets
+    wrapped.
+
 - [ ] ${FREE_TEXT_PLACEHOLDER}
 
 [^fn1]:
@@ -259,7 +277,12 @@ const parseOptions = (
   return items.map((item, i) => {
     const freeText = i === lastIndex
     const rawText = optionText(content, lines, item)
-    const text = freeText && rawText.toLowerCase() === FREE_TEXT_PLACEHOLDER ? "" : rawText
+    // `.toLowerCase()` on BOTH sides — never assume `FREE_TEXT_PLACEHOLDER`
+    // itself is already lowercase, mirroring `Question.tsx`'s identical
+    // client-side comparison exactly, so the two can never silently diverge
+    // if the constant's own casing ever changes.
+    const text =
+      freeText && rawText.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : rawText
     return {
       checked: item.checked === true,
       text,
@@ -271,12 +294,28 @@ const parseOptions = (
 }
 
 /**
+ * The exact three fields `isAnswered` reads — deliberately narrower than the
+ * full `QuestionOption` (which also carries `sourceLine`/`endLine`, meaningless
+ * off the server), so a CLIENT can build this shape from its own local radio
+ * state (`Question.tsx`) and call the identical predicate, rather than
+ * re-deriving a second, divergent rule. `QuestionOption` itself already
+ * satisfies this structurally.
+ */
+export interface AnsweredOption {
+  readonly checked: boolean
+  readonly text: string
+  readonly freeText: boolean
+}
+
+/**
  * An OPEN question is answered iff EXACTLY ONE option is ticked and — when that
  * option is the free-text slot — its (placeholder-normalized) text is non-empty.
  * Zero ticks (unanswered), two+ ticks (ambiguous), or a ticked-but-empty
- * free-text slot all read as not answered.
+ * free-text slot all read as not answered. T5's own "already exists and is
+ * the single one enforced" acceptance bullet: `Question.tsx` calls this SAME
+ * function (via `AnsweredOption`) rather than recomputing the rule.
  */
-const isAnswered = (options: readonly QuestionOption[]): boolean => {
+export const isAnswered = (options: readonly AnsweredOption[]): boolean => {
   const ticked = options.filter((o) => o.checked)
   if (ticked.length !== 1) return false
   const chosen = ticked[0]!
@@ -347,7 +386,10 @@ const checkSectionOrder = (tree: Root, content: string): readonly SteeringFindin
   const answeredIndex = h2.findIndex((h) => headingText(content, h) === "Answered Questions")
 
   const findings: SteeringFinding[] = []
-  if (openIndex !== -1 && h2.some((_h, i) => i !== openIndex && i < openIndex)) {
+  // `openIndex > 0` — a section exists BEFORE it — is the whole condition;
+  // `i !== openIndex` was always true whenever `i < openIndex` already held,
+  // so it added nothing (a guaranteed-surviving mutant on the dead clause).
+  if (openIndex > 0) {
     const offender = h2[0]!
     findings.push({
       message: "A '##' section appears before '## Open Questions', which must come first",
@@ -355,7 +397,9 @@ const checkSectionOrder = (tree: Root, content: string): readonly SteeringFindin
       range: headingRange(offender),
     })
   }
-  if (answeredIndex !== -1 && h2.some((_h, i) => i !== answeredIndex && i > answeredIndex)) {
+  // Same simplification: `answeredIndex < h2.length - 1` — a section exists
+  // AFTER it — is the whole condition.
+  if (answeredIndex !== -1 && answeredIndex < h2.length - 1) {
     const offender = h2[h2.length - 1]!
     findings.push({
       message: "A '##' section appears after '## Answered Questions', which must come last",
@@ -792,6 +836,123 @@ const pickOptionEdits = (
   return edits
 }
 
+/**
+ * The `apply`-callable counterpart to `pickOptionEdits`: sets `option` to an
+ * explicit `checked` STATE rather than assuming (as `pickOptionEdits`'s own
+ * caller, `optionAction`, does) that the target isn't already ticked.
+ * `checked: true` is radio semantics — ticks the target (only if not already
+ * ticked) and unticks every OTHER already-ticked sibling; `checked: false`
+ * only unticks the target itself, leaving siblings untouched.
+ */
+const setOptionCheckedEdits = (
+  content: string,
+  question: OpenQuestion,
+  option: QuestionOption,
+  checked: boolean,
+): SteeringEdit[] => {
+  if (!checked) {
+    if (!option.checked) return []
+    const edit = toggleCheckbox(content, option.sourceLine)
+    return edit ? [edit] : []
+  }
+  const edits: SteeringEdit[] = []
+  for (const sibling of question.options) {
+    const isTarget = sibling.sourceLine === option.sourceLine
+    if (isTarget ? sibling.checked : !sibling.checked) continue
+    const edit = toggleCheckbox(content, sibling.sourceLine)
+    if (edit) edits.push(edit)
+  }
+  return edits
+}
+
+/**
+ * The edit that replaces `option`'s own label text — everything after the
+ * checkbox marker, on its source line only — with `text` verbatim: used only
+ * for the free-text slot, whose placeholder (or prior answer) the human's
+ * typed answer replaces in place. `undefined` when the option's content
+ * doesn't start on its own source line (mirrors `optionText`'s identical
+ * guard) — there is no single-line span left to replace.
+ */
+const replaceOptionTextEdit = (
+  content: string,
+  lines: readonly string[],
+  item: ListItem,
+  option: QuestionOption,
+  text: string,
+): SteeringEdit | undefined => {
+  const offset = optionContentOffset(item)
+  if (offset === undefined) return undefined
+  const position = toLspPositionFromOffset(content, offset)
+  if (position.line !== option.sourceLine) return undefined
+  const lineLength = (lines[option.sourceLine] ?? "").length
+  return {
+    range: { start: position, end: { line: option.sourceLine, character: lineLength } },
+    newText: text,
+  }
+}
+
+/**
+ * Collapses a human-typed free-text answer to the single-line,
+ * whitespace-trimmed shape a list-item's own label must be — a raw textarea
+ * value can carry interior newlines or trailing whitespace, either of which
+ * would leave `.gtd/`'s own oxfmt fixed point broken the moment it's spliced
+ * onto a `- [x] ` line (AGENTS.md's "`.gtd/` is formatted, not ignored" rule
+ * — every steering file, including a server-written one, is covered by
+ * `format:check`). Interior whitespace, a real newline included, collapses
+ * to a single space — mirrors `headingText`'s identical normalization
+ * elsewhere in this file, applied here to a WRITE rather than a read.
+ */
+/**
+ * Empty normalizes to `FREE_TEXT_PLACEHOLDER`, never to `""` — an empty
+ * label leaves `- [ ] ` with nothing after the marker, which
+ * `optionContentOffset` can't find a content offset for (its own guard
+ * requires content ON the marker's line), permanently breaking this
+ * anchor's own `apply` from then on (`anchor-not-found`, forever). Package
+ * 03's Task 6 erase path relies on this: writing the placeholder instead
+ * keeps the option re-editable, and `parseOptions` already normalizes the
+ * placeholder back to `""` on read, so an erase still reads back as
+ * unanswered.
+ */
+const normalizeFreeTextAnswer = (text: string): string => {
+  const normalized = text.replace(/\s+/g, " ").trim()
+  return normalized.length === 0 ? FREE_TEXT_PLACEHOLDER : normalized
+}
+
+/**
+ * `qa`-mode's `apply`: only the `option` anchor resolves here — a
+ * `chunk`/`hunk` anchor (not this format's own kind) refuses
+ * `anchor-not-found`, mirroring `resolveQuestionsAnchor`'s own discipline.
+ * `opts.checked` defaults to `true` (picking an option always ticks it; there
+ * is no "leave it as found" case). `opts.text`, when given, is normalized
+ * (`normalizeFreeTextAnswer`) and replaces the option's own label in the SAME
+ * edit set as the tick — never a second `apply` call, and never the raw
+ * textarea value verbatim.
+ */
+const questionsApply: SteeringFormat["apply"] = (content, anchor, opts) => {
+  if (anchor.kind !== "option") return { ok: false, reason: "anchor-not-found" }
+  const { questions } = parseOpenQuestions(content)
+  const question = questions[anchor.questionIndex]
+  const option = question?.options[anchor.index]
+  if (!question || !option) return { ok: false, reason: "anchor-not-found" }
+
+  const checked = opts.checked ?? true
+  const edits = setOptionCheckedEdits(content, question, option, checked)
+
+  if (opts.text !== undefined) {
+    const tree = parseMarkdown(content)
+    const lines = content.split(/\r?\n/)
+    const item = taskItems(tree).find(
+      (it) => toLspPosition(it.position!.start).line === option.sourceLine,
+    )
+    const textEdit = item
+      ? replaceOptionTextEdit(content, lines, item, option, normalizeFreeTextAnswer(opts.text))
+      : undefined
+    if (textEdit) edits.push(textEdit)
+  }
+
+  return { ok: true, edits }
+}
+
 /** The single action for the option line the cursor sits on: uncheck it if ticked, else pick it (radio). `undefined` when there is no edit to make. */
 const optionAction = (
   content: string,
@@ -864,6 +1025,313 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
 const questionsPointerAt: SteeringFormat["pointerAt"] = (content, position) =>
   footnotePointerAt(content, position)?.pointer
 
+/**
+ * `true` when top-level node `n` is the `## Open Questions`/`## Answered
+ * Questions` heading itself — the client renders those as its own section
+ * headers, so `blockNodesOf` never emits a block node for either.
+ */
+const isQuestionsSectionHeading = (content: string, n: RootContent): n is Heading =>
+  n.type === "heading" &&
+  n.depth === 2 &&
+  (headingText(content, n) === "Open Questions" || headingText(content, n) === "Answered Questions")
+
+/**
+ * Every `[headingLine, endLine]` span a real question block owns, across
+ * both sections (`questionEndLines`, already computed for the outline) —
+ * `blockNodesOf` skips any top-level node whose OWN start line falls inside
+ * one of these, since that content is already projected as the question's
+ * `question`/`option` node pair, never a second, competing block node.
+ */
+const isInsideQuestionSpan = (spans: ReadonlyMap<number, number>, line: number): boolean => {
+  for (const [start, end] of spans) {
+    if (line >= start && line <= end) return true
+  }
+  return false
+}
+
+/**
+ * The flattened, marker-stripped, whitespace-collapsed text of a run of
+ * sibling BLOCK nodes (a blockquote's own children, a list item's own
+ * non-list children) — built by taking EACH child's own `sourceText`
+ * individually and joining the results, never by slicing one span from the
+ * first child's start to the last child's end. A single shared span would
+ * include every byte BETWEEN the children verbatim — a nested `list`
+ * filtered out of a list item's own children (see `listItemText`) still
+ * sits, raw markdown and all, between its neighbors' offsets; a blockquote's
+ * OWN `> ` continuation markers between two paragraphs sit there too (each
+ * child's own position starts right after its line's `> `, but the raw text
+ * BETWEEN two children's positions still crosses that marker). Per-child
+ * `sourceText` also excises each child's own real footnote reference by its
+ * OWN position, never merely regex-stripping the literal `[^name]` shape.
+ */
+const childrenText = (content: string, children: readonly RootContent[]): string =>
+  children
+    .map((child) => stripMarkerText(sourceText(content, child)))
+    .filter((text) => text.length > 0)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+/**
+ * One list item's own text, EXCLUDING any nested `list` child (that's a
+ * separate, recursive `items` entry — see `blockListItemOf`).
+ */
+const listItemText = (content: string, item: ListItem): string =>
+  childrenText(
+    content,
+    item.children.filter((c) => c.type !== "list"),
+  )
+
+/** One list item as a `BlockListItem`, recursing into a nested `list` child (there is at most one, CommonMark's own shape) as its own `items`. */
+const blockListItemOf = (content: string, item: ListItem): BlockListItem => {
+  const nested = item.children.filter((c): c is List => c.type === "list")
+  const items = nested.flatMap((list) => blockListItemsOf(content, list.children))
+  return {
+    text: listItemText(content, item),
+    ...(item.checked === true || item.checked === false ? { checked: item.checked } : {}),
+    ...(items.length > 0 ? { items } : {}),
+  }
+}
+
+/** Every item of a `list` node's own `children`, as `BlockListItem`s, in document order. */
+const blockListItemsOf = (content: string, items: readonly ListItem[]): readonly BlockListItem[] =>
+  items.map((item) => blockListItemOf(content, item))
+
+/** The `title` an empty fenced code block (a `` ``` ``/`` ``` `` pair with nothing between them) falls back to — its real body is `""`, and Task 2's "every node still carries a non-empty title" allows no exception for it. */
+const EMPTY_CODE_BLOCK_TITLE = "(empty code block)"
+
+/**
+ * A top-level node's own one-line, marker-stripped, whitespace-collapsed
+ * text — every block kind's `title` (Task 2's "every node still carries a
+ * non-empty title"), and reused verbatim as a `blockquote`'s own `text`.
+ * `heading`/`blockquote` use `childrenText` (their own CHILDREN span — the
+ * NODE's own position starts at the `#` run / the `>` marker, which
+ * `sourceText` would otherwise pull in); `code` uses its `value` directly
+ * (never `sourceText`, which would pull in the fence lines), falling back to
+ * `EMPTY_CODE_BLOCK_TITLE` when that value is blank; everything else uses
+ * `sourceText` over the node's own span.
+ */
+const blockTitle = (content: string, node: RootContent): string => {
+  if (node.type === "heading") return headingText(content, node)
+  if (node.type === "blockquote") return childrenText(content, node.children)
+  if (node.type === "code") {
+    const text = stripMarkerText(node.value).replace(/\s+/g, " ").trim()
+    return text.length > 0 ? text : EMPTY_CODE_BLOCK_TITLE
+  }
+  return stripMarkerText(sourceText(content, node)).replace(/\s+/g, " ").trim()
+}
+
+/**
+ * `SteeringViewNode.block` for one top-level node — `undefined` for a kind
+ * `blockNodesOf` doesn't project structure for (a `thematicBreak`, an `html`
+ * node, …), which still renders via `title` alone (Task 4's `ProseBlock`
+ * default branch). `code`'s `text` is `node.value` VERBATIM — leading
+ * whitespace intact, never whitespace-collapsed like every other kind's
+ * `title` — and its `language` is the fence's own info string, omitted
+ * entirely when there is none (`node.lang` is `null`/`undefined`).
+ */
+const blockOf = (content: string, node: RootContent): SteeringViewNode["block"] | undefined => {
+  switch (node.type) {
+    case "heading":
+      return { kind: "heading", depth: node.depth }
+    case "list":
+      return {
+        kind: "list",
+        ordered: node.ordered === true,
+        items: blockListItemsOf(content, node.children),
+      }
+    case "code":
+      return {
+        kind: "code",
+        text: node.value,
+        ...(node.lang !== null && node.lang !== undefined ? { language: node.lang } : {}),
+      }
+    case "blockquote":
+      return { kind: "blockquote", text: blockTitle(content, node) }
+    case "paragraph":
+      return { kind: "paragraph" }
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Every top-level block of the document becomes a view node, in document
+ * order — headings, lists, code blocks, blockquotes and paragraphs alike,
+ * before the questions section, between two question sections, and after
+ * them too. Skips exactly two things: the `## Open Questions`/`## Answered
+ * Questions` heading NODEs themselves (`isQuestionsSectionHeading` — the
+ * client renders those as its own section headers), and any node whose own
+ * start line falls inside a real question's span (`isInsideQuestionSpan` —
+ * already projected as that question's own `question`/`option` node pair).
+ * A `footnoteDefinition` is skipped unconditionally: it is the note ITSELF,
+ * surfaced below as a node's own `note`, never new document content in its
+ * own right. Every node still carries a real, server-computed
+ * `{kind:"paragraph", line}` anchor at its own start line — `SteeringAnchor`
+ * gains no new member for the new `block` kinds (Task 3) — and an existing
+ * footnote marker anchored at that same line surfaces as the node's own
+ * `note` (mirrors `ReviewDoc.ts#chunkNoteOf`'s exact-line-match convention),
+ * so a block already carrying a note offers editing it, not a second one.
+ */
+const blockNodesOf = (content: string, tree: Root): readonly SteeringView["nodes"][number][] => {
+  const { markers, definitions } = parseFootnotes(content)
+  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
+  const spans = questionEndLines(content)
+  return tree.children
+    .filter((node) => node.position !== undefined)
+    .filter((node) => node.type !== "footnoteDefinition")
+    .filter((node) => !isQuestionsSectionHeading(content, node))
+    .filter((node) => !isInsideQuestionSpan(spans, toLspPosition(node.position!.start).line))
+    .map((node) => {
+      const startLine = toLspPosition(node.position!.start).line
+      const noteBodies = markers
+        .filter((marker) => marker.line === startLine)
+        .map((marker) => definitionByName.get(marker.name))
+        .filter((body): body is string => body !== undefined)
+      const block = blockOf(content, node)
+      return {
+        title: blockTitle(content, node),
+        anchor: { kind: "paragraph" as const, line: startLine },
+        ...(block !== undefined ? { block } : {}),
+        ...(noteBodies.length > 0 ? { note: noteBodies.join(" ") } : {}),
+      }
+    })
+}
+
+/**
+ * `qa`-mode's `view`: every top-level block of the document (`blockNodesOf`
+ * — prose, headings, lists, code, blockquotes; a prose-only document with no
+ * `## Open Questions`/`## Answered Questions` section at all yields these
+ * and nothing else) FIRST — requirement 4/T5's "Read the plan" row needs an
+ * actual plan to read; without this, a `qa` document with any open/answered
+ * question would drop its own intro prose entirely — followed by every
+ * question as a container node: `title` the question's own heading TEXT
+ * (`OpenQuestion.question`, never `OpenQuestion.text`, which is only the
+ * first body line, a summary carried separately as `detail`), plus
+ * status/answered flag and own `question` anchor — with every one of its
+ * options as a child item node (checked, text as `title`, own `option`
+ * anchor). Built from ONE `parseOpenQuestions` call plus one `blockNodesOf`
+ * walk, never one parse per question/option. Uses `SteeringViewNode`'s
+ * generic shape, never a `qa`-only type — see that type's own doc comment.
+ */
+const questionsView = (content: string): SteeringView => {
+  const tree = parseMarkdown(content)
+  const blockNodes = blockNodesOf(content, tree)
+  const { questions } = parseOpenQuestions(content)
+  return {
+    nodes: [
+      ...blockNodes,
+      ...questions.map((question, questionIndex) => ({
+        title: question.question,
+        detail: question.text,
+        status: question.status,
+        answered: question.answered,
+        anchor: { kind: "question" as const, index: questionIndex },
+        children: question.options.map((option, index) => ({
+          title: option.text,
+          checked: option.checked,
+          anchor: { kind: "option" as const, questionIndex, index },
+        })),
+      })),
+    ],
+  }
+}
+
+/** Resolves a `question` anchor: attaches at the end of the question's own heading line, the definition landing after the question's whole block (`questionEndLines`). `undefined` for a stale `index`. */
+const resolveQuestionAnchor = (
+  content: string,
+  lines: readonly string[],
+  questions: readonly OpenQuestion[],
+  index: number,
+): FootnoteAnchor | undefined => {
+  const question = questions[index]
+  if (!question) return undefined
+  const end = Math.max(
+    question.headingLine,
+    questionEndLines(content).get(question.headingLine) ?? question.headingLine,
+  )
+  return {
+    line: question.headingLine,
+    endCharacter: (lines[question.headingLine] ?? "").length,
+    blockEndLine: end,
+    key: `question:${question.headingLine}`,
+  }
+}
+
+/** Resolves an `option` anchor: attaches at the end of the option's own source line, the definition landing after the option's whole span (`option.endLine`). `undefined` for a stale `questionIndex`/`index`. */
+const resolveOptionAnchor = (
+  lines: readonly string[],
+  questions: readonly OpenQuestion[],
+  questionIndex: number,
+  index: number,
+): FootnoteAnchor | undefined => {
+  const option = questions[questionIndex]?.options[index]
+  if (!option) return undefined
+  return {
+    line: option.sourceLine,
+    endCharacter: (lines[option.sourceLine] ?? "").length,
+    blockEndLine: option.endLine,
+    key: `option:${option.sourceLine}`,
+  }
+}
+
+/** Resolves a `paragraph` anchor: attaches at the end of `line`'s own text, the definition landing after that line's containing top-level block node. `undefined` when `line` isn't inside a real block. */
+const resolveQuestionsParagraphAnchor = (
+  tree: Root,
+  lines: readonly string[],
+  line: number,
+): FootnoteAnchor | undefined => {
+  const block = blockNodeAt(tree, line)
+  if (!block?.position) return undefined
+  return {
+    line,
+    endCharacter: (lines[line] ?? "").length,
+    blockEndLine: toLspPosition(block.position.end).line,
+    key: `paragraph:${line}`,
+  }
+}
+
+/**
+ * Resolves a `question`/`option`/`paragraph` `SteeringAnchor` against
+ * `content` into the low-level `FootnoteAnchor` `Footnotes.ts#footnoteAttachEdits`
+ * wants — `undefined` for a `chunk`/`hunk` anchor (not this format's own
+ * kind) or an index/line that no longer resolves.
+ */
+const resolveQuestionsAnchor = (
+  content: string,
+  tree: Root,
+  lines: readonly string[],
+  questions: readonly OpenQuestion[],
+  anchor: SteeringAnchor,
+): FootnoteAnchor | undefined => {
+  switch (anchor.kind) {
+    case "question":
+      return resolveQuestionAnchor(content, lines, questions, anchor.index)
+    case "option":
+      return resolveOptionAnchor(lines, questions, anchor.questionIndex, anchor.index)
+    case "paragraph":
+      return resolveQuestionsParagraphAnchor(tree, lines, anchor.line)
+    default:
+      return undefined
+  }
+}
+
+/** `qa`-mode's `annotate`: resolves `anchor` then delegates the two-edit mechanics (`text` carried through verbatim as the new definition's body) to `Footnotes.ts#footnoteAttachEdits`. */
+const questionsAnnotate = (
+  content: string,
+  anchor: SteeringAnchor,
+  text: string,
+): SteeringAnnotateResult => {
+  const { questions } = parseOpenQuestions(content)
+  const tree = parseMarkdown(content)
+  const lines = content.split(/\r?\n/)
+  const resolved = resolveQuestionsAnchor(content, tree, lines, questions, anchor)
+  if (!resolved) return { ok: false, reason: "anchor-not-found" }
+  const result = footnoteAttachEdits(content, resolved, text)
+  if (!result.ok) return result
+  return { ok: true, edits: result.edits }
+}
+
 /** The `qa` steering format: gtd's own in-process open-questions checkbox format — validation, outline, code actions, and a footnote-only `pointerAt`. Every structural finding carries a line and a range spanning the node it's about. */
 export const QA_FORMAT: SteeringFormat = {
   sample: QA_SAMPLE,
@@ -874,4 +1342,7 @@ export const QA_FORMAT: SteeringFormat = {
   outline: questionsOutline,
   actions: questionActions,
   pointerAt: questionsPointerAt,
+  view: questionsView,
+  annotate: questionsAnnotate,
+  apply: questionsApply,
 }

@@ -40,6 +40,7 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
+import { UiListener, runUiCommand } from "./ui/Server.js"
 import { enforceStepGuards } from "./StepGuards.js"
 import { unansweredQuestions } from "./OpenQuestions.js"
 import { clearFilePointerTicks } from "./ReviewDoc.js"
@@ -135,6 +136,7 @@ export type CommandRequirements =
   | CommandRunner
   | EnvVars
   | Narrator
+  | UiListener
 
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
@@ -1047,6 +1049,32 @@ const runVisualizeCommand = (
   })
 
 /**
+ * `gtd ui`: loads `ui:` config and hands it, alongside the parsed flags, to
+ * `src/ui/Server.ts`'s `runUiCommand` — the module owning the bind/TLS/HTTP(S)
+ * logic. `needs: "state"` (see `needsOf` above) means this shares the
+ * repo-root/at-least-one-commit guard with every other workflow-state
+ * command — unlike `gtd visualize`, `gtd ui` operates on the invoking
+ * directory's own worktree, never a configured list of roots.
+ */
+const runUiCliCommand = (
+  command: Extract<Command, { kind: "ui" }>,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    yield* runUiCommand(
+      {
+        ...(command.host !== undefined ? { host: command.host } : {}),
+        ...(command.port !== undefined ? { port: command.port } : {}),
+        selfSigned: command.selfSigned,
+        dev: command.dev,
+      },
+      config.ui,
+      out,
+    )
+  })
+
+/**
  * Everything gtd derives is resolved against the process cwd, so running
  * from anywhere but the repository root would silently mis-derive state.
  * Refuses with a clear error instead. Real paths are compared so symlinked
@@ -1166,6 +1194,8 @@ const dispatchVoidCommand = (
       return runInitCommand(out)
     case "visualize":
       return runVisualizeCommand(command.port, command.open, out)
+    case "ui":
+      return runUiCliCommand(command, out)
     case "land":
       return runLandCommand(
         {

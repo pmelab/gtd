@@ -36,9 +36,10 @@ export class Narrator extends Context.Tag("Narrator")<
 /**
  * An error carrying REMEDIATION alongside its message — the offending config
  * key and the layer it came from, a corrupted ref's name, a missing binary's
- * resolved `$PATH`. Only three families construct one (see `Config.ts`,
- * `Git.ts`, `SteeringMode.ts`) — every other `Error` site stays a plain
- * `Error` and renders as the single `gtd: `-prefixed line it always has.
+ * resolved `$PATH`. Only four families construct one (see `Config.ts`,
+ * `Git.ts`, `SteeringMode.ts`, `ui/Tls.ts`) — every other `Error` site
+ * stays a plain `Error` and renders as the single `gtd: `-prefixed line it
+ * always has.
  */
 export class GtdError extends Error {
   readonly detail: readonly string[]
@@ -47,6 +48,20 @@ export class GtdError extends Error {
     super(message)
     this.name = "GtdError"
     this.detail = detail
+  }
+}
+
+/**
+ * A `GtdError` that names how gtd was INVOKED, not what it did — `Cli.ts`'s
+ * `report` maps this to `EXIT_USAGE_ERROR` alongside `SelectorUsageError`,
+ * rather than the `EXIT_RUNTIME_ERROR` every plain `GtdError` gets. `gtd ui`
+ * refusing to start on a step it cannot render is the one constructor today
+ * (see `ui/Server.ts`).
+ */
+export class GtdUsageError extends GtdError {
+  constructor(message: string, detail: readonly string[] = []) {
+    super(message, detail)
+    this.name = "GtdUsageError"
   }
 }
 

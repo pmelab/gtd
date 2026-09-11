@@ -76,6 +76,15 @@ describe("seededValidateCommand / isSeededValidateCommand", () => {
   })
 })
 
+describe("every registry entry declares apply", () => {
+  it("has a function-typed apply member, not just annotate", () => {
+    for (const mode of builtInModeNames()) {
+      const format = steeringFormatFor(mode)!
+      expect(typeof format.apply).toBe("function")
+    }
+  })
+})
+
 describe("every registry entry's sample", () => {
   // Load-bearing, not a nicety (see the package's own doc comment on this
   // acceptance criterion): `src/ModeContradiction.ts` round-trips this exact
@@ -87,6 +96,58 @@ describe("every registry entry's sample", () => {
     for (const mode of builtInModeNames()) {
       const format = steeringFormatFor(mode)!
       expect(format.validate(format.sample)).toEqual([])
+    }
+  })
+})
+
+/** Every `SteeringAnchor` embedded anywhere in `view` — walks whatever shape `view` returns without switching on `kind`, mirroring the server's own "never switch on the mode name" discipline. */
+const anchorsIn = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) return value.flatMap(anchorsIn)
+  if (value === null || typeof value !== "object") return []
+  const record = value as Record<string, unknown>
+  const found: unknown[] = []
+  for (const [key, val] of Object.entries(record)) {
+    if (key === "anchor") found.push(val)
+    else found.push(...anchorsIn(val))
+  }
+  return found
+}
+
+describe("every registry entry's view", () => {
+  it("parses `format.sample` without throwing", () => {
+    for (const mode of builtInModeNames()) {
+      const format = steeringFormatFor(mode)!
+      expect(() => format.view(format.sample)).not.toThrow()
+    }
+  })
+
+  // `format.sample` itself, derived from the registry entry alone — never a
+  // per-mode fixture table (a third registry entry with no matching key
+  // there would fail on a confusing `undefined`, not on the property under
+  // test). `format.sample` already carries a note attached at ONE of its own
+  // anchors (T7 requires a server-written note in the sample) — annotating
+  // that SAME anchor again now EDITS the existing note in place
+  // (`Footnotes.ts#footnoteAttachEdits`'s same-anchor update path, T6: "offers
+  // editing it, not a second note"), which this treats as a PASS (`ok: true`)
+  // same as any other anchor; a genuine `id-collision` (an unrelated anchor's
+  // derived id colliding with existing content) remains an acceptable refusal
+  // too. Only `anchor-not-found` — the anchor itself failing to resolve — is
+  // the failure this property actually guards against.
+  it("every anchor `view` reports is one `annotate` accepts (or correctly refuses only as an id-collision, never as anchor-not-found)", () => {
+    for (const mode of builtInModeNames()) {
+      const format = steeringFormatFor(mode)!
+      const content = format.sample
+      const view = format.view(content)
+      const anchors = anchorsIn(view)
+      expect(anchors.length).toBeGreaterThan(0)
+      for (const anchor of anchors) {
+        const result = format.annotate(content, anchor as never, "a note a human typed")
+        const acceptable = result.ok || (!result.ok && result.reason === "id-collision")
+        expect(
+          acceptable,
+          `${mode}: ${JSON.stringify(anchor)} was refused: ${JSON.stringify(result)}`,
+        ).toBe(true)
+      }
     }
   })
 })
@@ -231,7 +292,10 @@ describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", 
   })
 
   it("qa: a cursor inside the LAST word of the block's last line does not corrupt the marker (regression: the two edits used to share a start position)", () => {
-    const cursor = { line: 8, character: 18 } // inside "_your answer_", the last option — blockEndLine itself
+    const lastOptionLine = QA_FORMAT.sample
+      .split("\n")
+      .findIndex((l) => l.includes("_your answer_"))
+    const cursor = { line: lastOptionLine, character: "- [ ] _your answer_".length } // end of "_your answer_", the last option — blockEndLine itself
     const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
       (a) => a.title === "gtd: add a footnote",
     )!

@@ -9,7 +9,7 @@
 import { FileSystem } from "@effect/platform"
 import { SystemError, type PlatformError } from "@effect/platform/Error"
 import { Effect, Layer, Option } from "effect"
-import { Narrator } from "../Commentary.js"
+import { GtdError, Narrator } from "../Commentary.js"
 import { GitService } from "../Git.js"
 import {
   ConfigService,
@@ -20,12 +20,13 @@ import {
   type ConfigSource,
 } from "../Config.js"
 import type { FileRefReader } from "../PatternConfig.js"
-import { fakeGitOperations } from "./GitDoubles.js"
+import { fakeGitOperations } from "./FakeGitOperations.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { Cwd } from "../Cwd.js"
 import { EnvVars } from "../EnvVars.js"
 import { RepoFiles } from "../RepoFiles.js"
 import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
+import { UiListener } from "../ui/Server.js"
 import type { CommandRequirements } from "../program.js"
 
 const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileSystem => {
@@ -314,5 +315,12 @@ export function testLayers(
     makeScriptedCommandRunner(repo, opts.commands ?? new Map()),
     EnvVars.layer(opts.env ?? {}),
     Narrator.layer(opts.narrate ?? (() => {}), opts.verbose ?? true),
+    // No `@inmem`/direct-Effect test binds a real socket — `gtd ui`
+    // itself is unit-tested in `src/ui/Server.test.ts` with its own fake
+    // `UiListener`. A call reaching this one is a test gap, not silence.
+    Layer.succeed(UiListener, {
+      listen: () =>
+        Effect.fail(new GtdError("gtd ui: UiListener has no test double wired into testLayers()")),
+    }),
   )
 }

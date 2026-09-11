@@ -28,12 +28,14 @@ import {
 } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
-import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
+import { ConfigSchema, type DecodedConfig, type UiConfig } from "./ConfigSchema.js"
 
 interface ConfigOperations {
   readonly workflow: WorkflowDefinition
   readonly workflowVars: Record<string, string>
   readonly rcVars: Record<string, string>
+  /** The top-level `ui:` key, decoded as-is (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
+  readonly ui?: UiConfig
   /**
    * The active workflow's machine-instance tree (`flattenMachines`'s output,
    * `src/Machines.ts`), or the built-in default's tree when unconfigured.
@@ -278,6 +280,7 @@ const toOperations = (
         modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
       workflowVars: defaultWorkflowVars,
       rcVars,
+      ...(decoded.ui !== undefined ? { ui: decoded.ui } : {}),
       machineTree: defaultMachineTree,
       stateScopes: defaultStateScopes,
       // Derived from the same validator a custom `workflow:` goes through
@@ -299,11 +302,27 @@ const toOperations = (
     workflow: definition,
     workflowVars,
     rcVars,
+    ...(decoded.ui !== undefined ? { ui: decoded.ui } : {}),
     machineTree: tree,
     stateScopes: scopes,
     warnings,
   }
 }
+
+/**
+ * `Schema.optional(SomeStruct)`'s other union branch also fails on a
+ * genuinely-present-but-invalid `ui:`, with a redundant "Expected
+ * undefined, actual …" — a decode-mechanics artifact, not a fact about the
+ * user's file. Dropped below whenever a more specific issue exists at the
+ * same-or-deeper path.
+ */
+const isOptionalUndefinedArtifact = (issue: { readonly message: string }): boolean =>
+  issue.message.startsWith("Expected undefined, actual")
+
+const samePathOrDeeper = (
+  outer: ReadonlyArray<PropertyKey>,
+  inner: ReadonlyArray<PropertyKey>,
+): boolean => inner.length >= outer.length && outer.every((seg, i) => inner[i] === seg)
 
 /**
  * The offending top-level key(s) plus which config LAYER last set each one.
@@ -314,7 +333,12 @@ const formatSchemaError = (
   e: ParseError,
   keyOrigin: Readonly<Record<string, string>>,
 ): GtdError => {
-  const issues = ArrayFormatter.formatErrorSync(e)
+  const allIssues = ArrayFormatter.formatErrorSync(e)
+  const issues = allIssues.filter(
+    (issue) =>
+      !isOptionalUndefinedArtifact(issue) ||
+      !allIssues.some((other) => other !== issue && samePathOrDeeper(issue.path, other.path)),
+  )
   const summary = issues
     .map((i) => (i.path.length > 0 ? i.path.join(".") + ": " : "") + i.message)
     .join("; ")

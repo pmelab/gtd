@@ -6,6 +6,7 @@ import {
   REVIEW_FORMAT,
 } from "./ReviewDoc.js"
 import { parseFootnotes } from "./Footnotes.js"
+import { getParseCount } from "./MarkdownTree.js"
 
 describe("parseReviewDoc", () => {
   it("parses a well-formed review with one chunk, no explanations", () => {
@@ -343,6 +344,87 @@ describe("parseReviewDoc", () => {
     ].join("\n")
     const result = parseReviewDoc(content)
     expect(result.changesets[0]?.files).toEqual([])
+  })
+})
+
+describe("parseReviewDoc — a chunk's description is its own prose, never a node containing a hunk pointer", () => {
+  it("yields an empty description when the only pointers sit inside a blockquote (no top-level `list`)", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "> - [ ] ./src/a.ts#1 — thing",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("")
+    expect(result.changesets[0]?.files[0]?.path).toBe("./src/a.ts")
+  })
+
+  it("yields an empty description when the pointers are indented four spaces (a code block, not a list)", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "    - [ ] ./src/a.ts#1",
+      "",
+      "- [ ] ./src/b.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("")
+  })
+
+  it("yields an empty description for a `###` sub-heading before the pointers", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "### Sub",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("")
+  })
+
+  it("yields an empty description for an HTML comment before the pointers", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "<!-- x -->",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("")
+  })
+
+  it("still yields real leading prose as the description", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "Real prose about this chunk.",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("Real prose about this chunk.")
   })
 })
 
@@ -1777,5 +1859,362 @@ describe("ReviewDoc — chunk ticking as an edit per list item", () => {
     expect(checkAll.edits).toHaveLength(1) // only the real hunk, never the fenced line
     const cleared = clearFilePointerTicks(content)
     expect(cleared).toContain("- [x] ./src/fenced.ts#1") // fenced content is never a tick at all
+  })
+})
+
+describe("REVIEW_FORMAT.view", () => {
+  const NESTED_CONTENT = [
+    "# Review: abc1234",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Chunk one",
+    "",
+    "Some description.",
+    "",
+    "- [ ] ./a.ts#1 outer hunk",
+    "  - [x] ./b.ts#2 nested hunk",
+    "",
+    "## Chunk two",
+    "",
+    "- [ ] ./c.ts#3",
+    "",
+  ].join("\n")
+
+  it("exposes every chunk and every file pointer, including pointers nested at any depth", () => {
+    const view = REVIEW_FORMAT.view(NESTED_CONTENT)
+    expect(view.nodes.map((c) => c.title)).toEqual(["Chunk one", "Chunk two"])
+    expect(view.nodes[0]!.children!.map((f) => f.path)).toEqual(["./a.ts", "./b.ts"])
+    expect(view.nodes[1]!.children!.map((f) => f.path)).toEqual(["./c.ts"])
+  })
+
+  it("carries each chunk's own prose as `detail`, empty for a chunk with none", () => {
+    const view = REVIEW_FORMAT.view(NESTED_CONTENT)
+    expect(view.nodes[0]!.detail).toBe("Some description.")
+    expect(view.nodes[1]!.detail).toBe("")
+  })
+
+  it("is built from one parse of the document, not one per element", () => {
+    const uniqueContent = [
+      "# Review: def4567",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Solo chunk",
+      "",
+      "- [ ] ./z.ts#9 solo hunk",
+      "",
+    ].join("\n")
+    const before = getParseCount()
+    REVIEW_FORMAT.view(uniqueContent)
+    expect(getParseCount()).toBe(before + 1)
+  })
+
+  it("carries the header hash", () => {
+    const view = REVIEW_FORMAT.view(NESTED_CONTENT)
+    expect(view.header).toBe("abc1234")
+  })
+})
+
+describe("REVIEW_FORMAT.annotate", () => {
+  const CONTENT = [
+    "# Review: abc1234",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Chunk one",
+    "",
+    "- [ ] ./a.ts#1 outer hunk",
+    "",
+  ].join("\n")
+
+  it("accepts a chunk-level anchor", () => {
+    const result = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 }, "a real note")
+    expect(result.ok).toBe(true)
+  })
+
+  it("accepts a hunk-level anchor", () => {
+    const result = REVIEW_FORMAT.annotate(
+      CONTENT,
+      { kind: "hunk", chunkIndex: 0, index: 0 },
+      "a real note",
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it("accepts a paragraph anchor in a prose-only document", () => {
+    const result = REVIEW_FORMAT.annotate(
+      "Just some prose.\n",
+      { kind: "paragraph", line: 0 },
+      "a real note",
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it("rejects an anchor that no longer resolves, rather than silently dropping it", () => {
+    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 5 }, "note")).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+    expect(
+      REVIEW_FORMAT.annotate(CONTENT, { kind: "hunk", chunkIndex: 0, index: 5 }, "note"),
+    ).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+    expect(REVIEW_FORMAT.annotate(CONTENT, { kind: "question", index: 0 }, "note")).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+  })
+
+  it("attaches the given text verbatim, and the resulting document passes its own format's validator (T2's last criterion)", () => {
+    const result = REVIEW_FORMAT.annotate(
+      CONTENT,
+      { kind: "hunk", chunkIndex: 0, index: 0 },
+      "a real reason a human actually typed",
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const lines = CONTENT.split("\n")
+    const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
+      let offset = 0
+      for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+      return offset + pos.character
+    }
+    const sorted = [...result.edits].sort(
+      (a, b) => toOffset(b.range.start) - toOffset(a.range.start),
+    )
+    let applied = CONTENT
+    for (const edit of sorted) {
+      applied =
+        applied.slice(0, toOffset(edit.range.start)) +
+        edit.newText +
+        applied.slice(toOffset(edit.range.end))
+    }
+    expect(applied).toContain("a real reason a human actually typed")
+    expect(applied).not.toContain("your comment")
+    expect(REVIEW_FORMAT.validate(applied)).toEqual([])
+  })
+})
+
+/** Applies edits back-to-front (as `ui/Write.ts#applySteeringEdits` does) — local to this test file, mirroring `REVIEW_FORMAT.annotate`'s own describe block's inline splice pattern above. */
+const applyEdits = (
+  content: string,
+  edits: readonly {
+    readonly range: {
+      readonly start: { readonly line: number; readonly character: number }
+      readonly end: { readonly line: number; readonly character: number }
+    }
+    readonly newText: string
+  }[],
+): string => {
+  const lines = content.split("\n")
+  const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+    return offset + pos.character
+  }
+  const sorted = [...edits].sort((a, b) => toOffset(b.range.start) - toOffset(a.range.start))
+  let result = content
+  for (const edit of sorted) {
+    result =
+      result.slice(0, toOffset(edit.range.start)) +
+      edit.newText +
+      result.slice(toOffset(edit.range.end))
+  }
+  return result
+}
+
+describe("REVIEW_FORMAT.apply", () => {
+  const NESTED_CONTENT = [
+    "# Review: abc1234",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Chunk one",
+    "",
+    "Some description.",
+    "",
+    "- [ ] ./a.ts#1 outer hunk",
+    "  - [x] ./b.ts#2 nested hunk",
+    "",
+    "## Chunk two",
+    "",
+    "- [ ] ./c.ts#3",
+    "",
+  ].join("\n")
+
+  it("a hunk anchor sets just that hunk's tick", () => {
+    const result = REVIEW_FORMAT.apply(
+      NESTED_CONTENT,
+      { kind: "hunk", chunkIndex: 0, index: 0 },
+      {
+        checked: true,
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(NESTED_CONTENT, result.edits)
+    const { changesets } = parseReviewDoc(applied)
+    expect(changesets[0]!.files.map((f) => f.checked)).toEqual([true, true])
+  })
+
+  it("a chunk anchor sets the tick on every hunk beneath it, at any nesting depth, to the exact target state — not a majority-flip", () => {
+    const result = REVIEW_FORMAT.apply(
+      NESTED_CONTENT,
+      { kind: "chunk", index: 0 },
+      {
+        checked: true,
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(NESTED_CONTENT, result.edits)
+    const { changesets } = parseReviewDoc(applied)
+    // The outer hunk was unchecked, the nested one already checked — a
+    // majority-flip heuristic (`chunkToggleTarget`) would uncheck both since
+    // one of two was already checked; `apply` instead drives both to the
+    // caller's own exact target, `true`.
+    expect(changesets[0]!.files.map((f) => f.checked)).toEqual([true, true])
+    // Chunk two, untouched, keeps its own state.
+    expect(changesets[1]!.files.map((f) => f.checked)).toEqual([false])
+  })
+
+  it("a chunk anchor can also drive every hunk beneath it to unchecked", () => {
+    const result = REVIEW_FORMAT.apply(
+      NESTED_CONTENT,
+      { kind: "chunk", index: 0 },
+      {
+        checked: false,
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(NESTED_CONTENT, result.edits)
+    const { changesets } = parseReviewDoc(applied)
+    expect(changesets[0]!.files.map((f) => f.checked)).toEqual([false, false])
+  })
+
+  it("a stale chunk/hunk index refuses anchor-not-found", () => {
+    expect(
+      REVIEW_FORMAT.apply(NESTED_CONTENT, { kind: "chunk", index: 5 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+    expect(
+      REVIEW_FORMAT.apply(
+        NESTED_CONTENT,
+        { kind: "hunk", chunkIndex: 0, index: 5 },
+        { checked: true },
+      ),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+  })
+
+  it("a question/option anchor — not this format's own kind — refuses anchor-not-found", () => {
+    expect(
+      REVIEW_FORMAT.apply(NESTED_CONTENT, { kind: "question", index: 0 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+  })
+})
+
+describe("REVIEW_FORMAT.view — chunk-level footnote projection", () => {
+  it("projects a footnote marker on the chunk's own heading line as that chunk node's own `note`, distinct from a hunk's own note", () => {
+    // REVIEW_FORMAT.sample carries exactly this shape: `## Sample chunk[^naduiqc4]`
+    // (a chunk-level footnote) plus `- [ ] ./sample.ts#1 what this hunk does[^fn1]`
+    // (an ordinary hunk-level note) — see the sample's own doc comment.
+    const view = REVIEW_FORMAT.view(REVIEW_FORMAT.sample)
+    const chunk = view.nodes[0]
+    expect(chunk?.note).toBe(
+      "Attached via the phone UI, this note demonstrates a chunk-level comment with a `multi word code span` that exceeds eighty characters in total length here.",
+    )
+    // The hunk's own prose is `detail` (read-only context above the diff),
+    // never `note` (the human reviewer's own attached footnote) — see the
+    // "hunk detail/note channels" describe block below for the full split.
+    expect(chunk?.children?.[0]?.detail).toBe("what this hunk does")
+    expect(chunk?.children?.[0]?.note).toBe(
+      "This note explains why the hunk exists in more detail than fits on one line for a reviewer.",
+    )
+  })
+
+  it("a chunk with no heading-line footnote has no `note` on its view node, even when its hunks carry their own", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 a hunk-level note[^fn1]",
+      "",
+      "[^fn1]: explains the hunk",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    expect(view.nodes[0]?.note).toBeUndefined()
+    expect(view.nodes[0]?.children?.[0]?.detail).toBe("a hunk-level note")
+    expect(view.nodes[0]?.children?.[0]?.note).toBe("explains the hunk")
+  })
+
+  it("a chunk carrying only its own footnote (every hunk ticked) still projects `note` — the badge-worthy shape T4 asks for", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Fully reviewed[^chunknote]",
+      "",
+      "- [x] ./src/done.ts#1",
+      "",
+      "[^chunknote]: please double-check the retry logic before landing",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    expect(view.nodes[0]?.note).toBe("please double-check the retry logic before landing")
+    expect(view.nodes[0]?.children?.every((h) => h.checked)).toBe(true)
+  })
+
+  it("a hunk with two footnotes attached at its pointer line joins their bodies with a single space, matching the chunk path", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 does the thing[^fn1][^fn2]",
+      "",
+      "[^fn1]: first reason",
+      "[^fn2]: second reason",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    expect(view.nodes[0]?.children?.[0]?.detail).toBe("does the thing")
+    expect(view.nodes[0]?.children?.[0]?.note).toBe("first reason second reason")
+  })
+
+  it("drops a hunk footnote marker whose definition is missing, rather than emitting undefined text", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 does the thing[^missing]",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    // An orphan marker (no matching definition anywhere) never parses as a
+    // real `footnoteReference` node, so `sourceText` has nothing to excise
+    // from `detail` — that part of the text is unaffected by this package.
+    // What's under test is `note`: `hunkNoteOf`'s definition lookup drops
+    // the marker rather than emitting `undefined` as text.
+    expect(view.nodes[0]?.children?.[0]?.note).toBeUndefined()
+  })
+
+  it("a hunk with only a description and no attached footnote carries it in `detail` with no `note` — the note textbox must open empty", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Add calculator",
+      "",
+      "- [ ] ./src/calc.ts#1 what this hunk does",
+      "",
+    ].join("\n")
+    const view = REVIEW_FORMAT.view(content)
+    expect(view.nodes[0]?.children?.[0]?.detail).toBe("what this hunk does")
+    expect(view.nodes[0]?.children?.[0]?.note).toBeUndefined()
   })
 })

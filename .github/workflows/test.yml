@@ -22,11 +22,26 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Configure git for e2e tests
         run: |
           git config --global user.email "ci@gtd.test"
           git config --global user.name "CI"
           git config --global init.defaultBranch main
+
+      # `ui-lifecycle.feature`'s direct-bind fallback scenario spawns a real
+      # `gtd ui` with neither --host nor ui.host, so `pickBindHost`'s scan of
+      # this machine's own interfaces must find a real 100.64.0.0/10 address
+      # to bind to — and the test then dials that address for real. GitHub
+      # runners join no tailnet, so a loopback alias in that range supplies
+      # one: a genuinely bindable, genuinely reachable address, with nothing
+      # faked inside gtd itself. The suite's "no Tailscale interface found"
+      # assertions are unaffected — they mock `pickBindHostFromSystem` rather
+      # than depending on the runner's network shape.
+      - name: Add a CGNAT loopback alias for gtd ui's direct-bind fallback
+        run: sudo ip addr add 100.64.0.1/32 dev lo
 
       - name: Run all tests
         run: npm test

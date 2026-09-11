@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
   FREE_TEXT_PLACEHOLDER,
+  isAnswered,
   parseOpenQuestions,
   unansweredQuestions,
   toggleCheckbox,
   QA_FORMAT,
 } from "./OpenQuestions.js"
+import { getParseCount } from "./MarkdownTree.js"
 
 describe("parseOpenQuestions", () => {
   it("returns zero questions and zero errors when there is no questions section", () => {
@@ -213,6 +215,15 @@ describe("parseOpenQuestions", () => {
         sourceLine: 6,
         endLine: 6,
       })
+    })
+
+    it("normalizes the placeholder case-insensitively, regardless of the constant's OWN casing — never assumes FREE_TEXT_PLACEHOLDER itself is already lowercase", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST", "- [ ] GraphQL", `- [x] ${FREE_TEXT_PLACEHOLDER.toUpperCase()}`]),
+      )
+      const question = result.questions[0]!
+      expect(question.answered).toBe(false)
+      expect(question.options[2]!.text).toBe("")
     })
 
     it("accepts `* [X]` bullet/upper-case tick syntax", () => {
@@ -1484,5 +1495,687 @@ describe("toggleCheckbox's exact box offset", () => {
       edit.newText +
       line.slice(edit.range.end.character)
     expect(applied).toBe("- [x] REST option")
+  })
+})
+
+describe("isAnswered — the ONE predicate exported for a client to reuse, never re-derive (T5)", () => {
+  it("is answered when exactly one option is ticked and it isn't the free-text slot", () => {
+    expect(
+      isAnswered([
+        { checked: true, text: "Option A", freeText: false },
+        { checked: false, text: "Option B", freeText: false },
+      ]),
+    ).toBe(true)
+  })
+
+  it("is unanswered when zero options are ticked", () => {
+    expect(
+      isAnswered([
+        { checked: false, text: "Option A", freeText: false },
+        { checked: false, text: "Option B", freeText: false },
+      ]),
+    ).toBe(false)
+  })
+
+  it("is unanswered when two or more options are ticked at once — the exact divergence a client re-deriving 'take the first checked option' would miss", () => {
+    expect(
+      isAnswered([
+        { checked: true, text: "Option A", freeText: false },
+        { checked: true, text: "Option B", freeText: false },
+      ]),
+    ).toBe(false)
+  })
+
+  it("is unanswered when the ticked option is the free-text slot with empty text", () => {
+    expect(isAnswered([{ checked: true, text: "", freeText: true }])).toBe(false)
+  })
+
+  it("is answered when the ticked option is the free-text slot WITH text", () => {
+    expect(isAnswered([{ checked: true, text: "a real answer", freeText: true }])).toBe(true)
+  })
+})
+
+describe("QA_FORMAT.view", () => {
+  const CONTENT = [
+    "Plan.",
+    "",
+    "## Open Questions",
+    "",
+    "### First?",
+    "",
+    "- [ ] Option A",
+    "- [ ] Option B",
+    "",
+    "## Answered Questions",
+    "",
+    "### Second?",
+    "",
+    "Already decided.",
+    "",
+  ].join("\n")
+
+  it("exposes both open and answered questions, in document order — title carries the actual question, detail the body summary", () => {
+    const view = QA_FORMAT.view(CONTENT)
+    const questionNodes = view.nodes.filter((n) => n.status !== undefined)
+    expect(questionNodes.map((q) => [q.status, q.title, q.detail])).toEqual([
+      ["open", "First?", "- [ ] Option A"],
+      ["answered", "Second?", "Already decided."],
+    ])
+    expect(questionNodes[0]!.children!.map((o) => o.title)).toEqual(["Option A", "Option B"])
+  })
+
+  it("prepends the plan's own lead prose (before '## Open Questions') as a paragraph node, ahead of every question (requirement 4/T5's 'Read the plan' row needs an actual plan to read)", () => {
+    const view = QA_FORMAT.view(CONTENT)
+    expect(view.nodes[0]).toMatchObject({ title: "Plan.", anchor: { kind: "paragraph", line: 0 } })
+    expect(view.nodes[0]!.status).toBeUndefined()
+    expect(view.nodes.slice(1).every((n) => n.status !== undefined)).toBe(true)
+  })
+
+  it("is built from one parse of the document, not one per element", () => {
+    const uniqueContent = [
+      "Plan two.",
+      "",
+      "## Open Questions",
+      "",
+      "### Solo?",
+      "",
+      "- [ ] Only option",
+      "",
+    ].join("\n")
+    const before = getParseCount()
+    QA_FORMAT.view(uniqueContent)
+    expect(getParseCount()).toBe(before + 1)
+  })
+})
+
+describe("QA_FORMAT.view — prose-only projection (T2, no Open/Answered Questions section at all)", () => {
+  it("yields one paragraph node per paragraph, and no questions", () => {
+    const content = ["First paragraph of the plan.", "", "Second paragraph, more detail.", ""].join(
+      "\n",
+    )
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.every((n) => n.status === undefined)).toBe(true)
+    expect(view.nodes.map((n) => n.title)).toEqual([
+      "First paragraph of the plan.",
+      "Second paragraph, more detail.",
+    ])
+  })
+
+  it("each paragraph node's anchor is a real, server-computed {kind:'paragraph', line} at the paragraph's own start line", () => {
+    const content = ["Line zero paragraph.", "", "Line two paragraph.", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.map((n) => n.anchor)).toEqual([
+      { kind: "paragraph", line: 0 },
+      { kind: "paragraph", line: 2 },
+    ])
+  })
+
+  it("a paragraph anchor round-trips through annotate/resolve — attaching a note at the projected line actually lands", () => {
+    const content = ["A paragraph worth commenting on.", ""].join("\n")
+    const result = QA_FORMAT.annotate(content, { kind: "paragraph", line: 0 }, "a real comment")
+    expect(result.ok).toBe(true)
+  })
+
+  it("a paragraph already carrying a footnote at its own start line surfaces it as that node's own note, for editing rather than a second note", () => {
+    const content = [
+      "A paragraph with a note attached.[^fn1]",
+      "",
+      "[^fn1]: the reviewer's own comment",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.note).toBe("the reviewer's own comment")
+  })
+
+  it("a document with an Open Questions section is NOT treated as prose-only, even with prose before it", () => {
+    const content = [
+      "Some intro prose.",
+      "",
+      "## Open Questions",
+      "",
+      "### First?",
+      "",
+      "- [ ] Option A",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    // NOT prose-only: the real question node is still there — but its own
+    // intro prose is now ALSO a node (a separate, `undefined`-status
+    // paragraph node), never dropped.
+    expect(view.nodes.map((n) => n.status)).toEqual([undefined, "open"])
+    expect(view.nodes[0]).toMatchObject({
+      title: "Some intro prose.",
+      anchor: { kind: "paragraph", line: 0 },
+    })
+  })
+})
+
+describe("QA_FORMAT.view — block nodes (package 02, T1/T2)", () => {
+  it("a heading, a nested list, a fenced code block, a blockquote and two paragraphs yield six block nodes, in document order", () => {
+    const content = [
+      "# Heading",
+      "",
+      "- Item one",
+      "  - Nested item",
+      "",
+      "```",
+      "line one",
+      "line two",
+      "```",
+      "",
+      "> A blockquote.",
+      "",
+      "Paragraph one.",
+      "",
+      "Paragraph two.",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.map((n) => n.block?.kind)).toEqual([
+      "heading",
+      "list",
+      "code",
+      "blockquote",
+      "paragraph",
+      "paragraph",
+    ])
+  })
+
+  it("yields block nodes for the prose BEFORE the questions section and for every block AFTER it, and none for any block inside a question's own span", () => {
+    // A question's own body span runs up to the NEXT heading of any depth
+    // (`questionEndLines`/`splitQuestionBlocks`'s existing rule) — so genuine
+    // trailing content past the LAST question needs a heading of its own
+    // (here a `####`, neither a section heading nor a question heading) to
+    // stop that span; without one it reads as part of the last question's own
+    // body, which is exactly what this test's OWN "none inside a question's
+    // span" half already covers via "Already decided."/"Option A".
+    const content = [
+      "Lead prose.",
+      "",
+      "## Open Questions",
+      "",
+      "### First?",
+      "",
+      "- [ ] Option A",
+      "",
+      "## Answered Questions",
+      "",
+      "### Second?",
+      "",
+      "Already decided.",
+      "",
+      "#### Note",
+      "",
+      "Trailing prose.",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    const proseTitles = view.nodes.filter((n) => n.status === undefined).map((n) => n.title)
+    expect(proseTitles).toEqual(["Lead prose.", "Note", "Trailing prose."])
+    // "Already decided." is the ANSWERED question's own body text — never a
+    // second, competing block node alongside that question's own node.
+    expect(proseTitles).not.toContain("Already decided.")
+    expect(proseTitles).not.toContain("Option A")
+  })
+
+  it("neither the '## Open Questions' nor the '## Answered Questions' heading is ever itself a block node", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### First?",
+      "",
+      "- [ ] Option A",
+      "",
+      "## Answered Questions",
+      "",
+      "### Second?",
+      "",
+      "Already decided.",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.map((n) => n.title)).not.toContain("Open Questions")
+    expect(view.nodes.map((n) => n.title)).not.toContain("Answered Questions")
+  })
+
+  it("a prose-only document yields the same block nodes and zero question nodes", () => {
+    const content = ["# Heading", "", "Paragraph.", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.every((n) => n.status === undefined)).toBe(true)
+    expect(view.nodes.map((n) => n.block?.kind)).toEqual(["heading", "paragraph"])
+  })
+
+  it("a heading node carries block.kind 'heading' and its real depth", () => {
+    const content = ["### A level-3 heading", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block).toMatchObject({ kind: "heading", depth: 3 })
+  })
+
+  it("a list node carries block.kind 'list', its ordered flag, and an items tree whose nesting matches the source — two levels deep for a list nested two deep", () => {
+    const content = ["- Top item", "  - Nested item", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block).toMatchObject({
+      kind: "list",
+      ordered: false,
+      items: [{ text: "Top item", items: [{ text: "Nested item" }] }],
+    })
+  })
+
+  it("an ordered list node carries ordered: true", () => {
+    const content = ["1. First", "2. Second", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block).toMatchObject({ kind: "list", ordered: true })
+  })
+
+  it("a list item with a nested list AND a trailing paragraph of its own yields text containing neither the nested item's text nor its '-' marker, with that item present exactly once in the items tree", () => {
+    const content = ["- Top", "", "  - Nested", "", "  Tail para.", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    const topItem = view.nodes[0]?.block?.items?.[0]
+    expect(topItem?.text).toBe("Top Tail para.")
+    expect(topItem?.text).not.toContain("Nested")
+    expect(topItem?.text).not.toContain("-")
+    expect(topItem?.items).toEqual([{ text: "Nested" }])
+  })
+
+  it("a task-list item carries its checked state on the item", () => {
+    const content = ["- [ ] Not done", "- [x] Done", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block?.items).toEqual([
+      { text: "Not done", checked: false },
+      { text: "Done", checked: true },
+    ])
+  })
+
+  it("a fenced code block carries block.kind 'code', its language from the info string, and its body verbatim — leading whitespace intact", () => {
+    const content = ["```ts", "  const x = 1", "const y = 2", "```", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block).toMatchObject({
+      kind: "code",
+      language: "ts",
+      text: "  const x = 1\nconst y = 2",
+    })
+  })
+
+  it("a fenced code block with no info string carries no language field", () => {
+    const content = ["```", "plain", "```", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block?.language).toBeUndefined()
+  })
+
+  it("a fenced code block with an empty body still carries a non-empty title", () => {
+    const content = ["```", "```", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block).toMatchObject({ kind: "code", text: "" })
+    expect(view.nodes[0]?.title.length).toBeGreaterThan(0)
+  })
+
+  it("a blockquote carries block.kind 'blockquote' and its text", () => {
+    const content = ["> Quoted wisdom.", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block).toMatchObject({ kind: "blockquote", text: "Quoted wisdom." })
+  })
+
+  it("a blockquote spanning two paragraphs carries text with no '>' character in it", () => {
+    const content = ["> First line.", ">", "> Second para.", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block?.text).not.toContain(">")
+    expect(view.nodes[0]?.block?.text).toBe("First line. Second para.")
+  })
+
+  it("every node still carries a non-empty title", () => {
+    const content = [
+      "# Heading",
+      "",
+      "- Item",
+      "",
+      "```",
+      "code",
+      "```",
+      "",
+      "> Quote.",
+      "",
+      "Paragraph.",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes.every((n) => n.title.length > 0)).toBe(true)
+  })
+})
+
+/** Applies edits back-to-front — a local copy of the file's own `applyEdits` (defined further down, after `QA_FORMAT.apply`'s own describe block) so this earlier suite can assert on the resulting document text too. */
+const applyEditsLocal = (
+  content: string,
+  edits: readonly {
+    readonly range: {
+      readonly start: { readonly line: number; readonly character: number }
+      readonly end: { readonly line: number; readonly character: number }
+    }
+    readonly newText: string
+  }[],
+): string => {
+  const lines = content.split("\n")
+  const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+    return offset + pos.character
+  }
+  const sorted = [...edits].sort((a, b) => toOffset(b.range.start) - toOffset(a.range.start))
+  let result = content
+  for (const edit of sorted) {
+    result =
+      result.slice(0, toOffset(edit.range.start)) +
+      edit.newText +
+      result.slice(toOffset(edit.range.end))
+  }
+  return result
+}
+
+describe("QA_FORMAT.annotate/note — block anchors carry structure beyond paragraphs (package 02, T3)", () => {
+  it("annotate with a paragraph anchor at a heading's start line attaches the marker at the end of that heading's own line and the definition after the heading's own block", () => {
+    const content = ["# Heading", "", "Body text.", ""].join("\n")
+    const result = QA_FORMAT.annotate(
+      content,
+      { kind: "paragraph", line: 0 },
+      "a note on the heading",
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const markerEdit = result.edits.find((e) => e.range.start.line === 0)
+    expect(markerEdit?.newText).toContain("[^")
+    const applied = applyEditsLocal(content, result.edits)
+    expect(applied.split("\n")[0]).toBe(`# Heading${markerEdit?.newText}`)
+    expect(QA_FORMAT.validate(applied).length).toBe(0)
+  })
+
+  it("annotate with a paragraph anchor at a list's start line and at a blockquote's start line each succeed, and the resulting document still passes validate with zero findings", () => {
+    const listContent = ["- Item one", "- Item two", ""].join("\n")
+    const listResult = QA_FORMAT.annotate(
+      listContent,
+      { kind: "paragraph", line: 0 },
+      "note on list",
+    )
+    expect(listResult.ok).toBe(true)
+    if (listResult.ok) {
+      expect(QA_FORMAT.validate(applyEditsLocal(listContent, listResult.edits)).length).toBe(0)
+    }
+
+    const quoteContent = ["> A quote.", ""].join("\n")
+    const quoteResult = QA_FORMAT.annotate(
+      quoteContent,
+      { kind: "paragraph", line: 0 },
+      "note on quote",
+    )
+    expect(quoteResult.ok).toBe(true)
+    if (quoteResult.ok) {
+      expect(QA_FORMAT.validate(applyEditsLocal(quoteContent, quoteResult.edits)).length).toBe(0)
+    }
+  })
+
+  it("a block node that already carries a footnote marker on its start line surfaces that note as `note`, for every block kind — not just paragraphs", () => {
+    const content = [
+      "# Heading with a note[^fn1]",
+      "",
+      "[^fn1]: the reviewer's own comment",
+      "",
+    ].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]?.block?.kind).toBe("heading")
+    expect(view.nodes[0]?.note).toBe("the reviewer's own comment")
+  })
+
+  // `annotate` deliberately keeps no code-block branch (Task 3's own point):
+  // `footnoteAttachEdits` puts a marker at the end of the anchor line, which
+  // for a code block IS the opening fence — attaching there WOULD corrupt
+  // it. Nothing here prevents that call from succeeding; the server still
+  // emits the code block's own `{kind:"paragraph", line}` anchor like every
+  // other node (below), and it is the CLIENT's job (`ProseBlock`, Task 4)
+  // to never offer the seam that would produce this call in the first place.
+  it("a code block still carries a real {kind:'paragraph', line} anchor — the same kind every other block carries, no separate anchor kind for code", () => {
+    const content = ["```", "line one", "```", ""].join("\n")
+    const view = QA_FORMAT.view(content)
+    expect(view.nodes[0]).toMatchObject({
+      block: { kind: "code" },
+      anchor: { kind: "paragraph", line: 0 },
+    })
+  })
+})
+
+describe("QA_FORMAT.annotate", () => {
+  const CONTENT = ["## Open Questions", "", "### First?", "", "- [ ] Option A", ""].join("\n")
+
+  it("accepts a question anchor", () => {
+    expect(QA_FORMAT.annotate(CONTENT, { kind: "question", index: 0 }, "a real note").ok).toBe(true)
+  })
+
+  it("accepts an option anchor", () => {
+    expect(
+      QA_FORMAT.annotate(CONTENT, { kind: "option", questionIndex: 0, index: 0 }, "a real note").ok,
+    ).toBe(true)
+  })
+
+  it("accepts a paragraph anchor in a prose-only document", () => {
+    expect(
+      QA_FORMAT.annotate("Just some prose.\n", { kind: "paragraph", line: 0 }, "a real note").ok,
+    ).toBe(true)
+  })
+
+  it("rejects an anchor that no longer resolves, rather than silently dropping it", () => {
+    expect(QA_FORMAT.annotate(CONTENT, { kind: "question", index: 5 }, "note")).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+    expect(QA_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 }, "note")).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+  })
+
+  it("attaches the given text verbatim, and the resulting document passes its own format's validator (T2's last criterion)", () => {
+    const result = QA_FORMAT.annotate(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 0 },
+      "a real reason a human actually typed",
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const lines = CONTENT.split("\n")
+    const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
+      let offset = 0
+      for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+      return offset + pos.character
+    }
+    const sorted = [...result.edits].sort(
+      (a, b) => toOffset(b.range.start) - toOffset(a.range.start),
+    )
+    let applied = CONTENT
+    for (const edit of sorted) {
+      applied =
+        applied.slice(0, toOffset(edit.range.start)) +
+        edit.newText +
+        applied.slice(toOffset(edit.range.end))
+    }
+    expect(applied).toContain("a real reason a human actually typed")
+    expect(applied).not.toContain("your comment")
+    expect(QA_FORMAT.validate(applied)).toEqual([])
+  })
+})
+
+/** Applies edits back-to-front (as `ui/Write.ts#applySteeringEdits` does) — local to this test file so `apply` tests can assert on the resulting document text, mirroring the `annotate` describe block above's own inline `toOffset`/splice pattern. */
+const applyEdits = (
+  content: string,
+  edits: readonly {
+    readonly range: {
+      readonly start: { readonly line: number; readonly character: number }
+      readonly end: { readonly line: number; readonly character: number }
+    }
+    readonly newText: string
+  }[],
+): string => {
+  const lines = content.split("\n")
+  const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+    return offset + pos.character
+  }
+  const sorted = [...edits].sort((a, b) => toOffset(b.range.start) - toOffset(a.range.start))
+  let result = content
+  for (const edit of sorted) {
+    result =
+      result.slice(0, toOffset(edit.range.start)) +
+      edit.newText +
+      result.slice(toOffset(edit.range.end))
+  }
+  return result
+}
+
+describe("QA_FORMAT.apply", () => {
+  const CONTENT = [
+    "## Open Questions",
+    "",
+    "### First?",
+    "",
+    "- [x] Option A",
+    "- [ ] Option B",
+    `- [ ] ${FREE_TEXT_PLACEHOLDER}`,
+    "",
+  ].join("\n")
+
+  it("radio: ticking one option unticks an already-ticked sibling", () => {
+    const result = QA_FORMAT.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 1 },
+      {
+        checked: true,
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(CONTENT, result.edits)
+    const { questions } = parseOpenQuestions(applied)
+    expect(questions[0]!.options.map((o) => o.checked)).toEqual([false, true, false])
+  })
+
+  it("ticking the free-text slot with text sets both the tick and the label in one edit set", () => {
+    const result = QA_FORMAT.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 2 },
+      {
+        checked: true,
+        text: "my real answer",
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(CONTENT, result.edits)
+    const { questions } = parseOpenQuestions(applied)
+    expect(questions[0]!.options[2]).toMatchObject({ checked: true, text: "my real answer" })
+    // radio semantics fired too: Option A (already ticked) is now unticked
+    expect(questions[0]!.options[0]!.checked).toBe(false)
+  })
+
+  it("trims trailing whitespace off a typed free-text answer, so the written label stays an oxfmt fixed point", () => {
+    const result = QA_FORMAT.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 2 },
+      {
+        checked: true,
+        text: "my real answer   ",
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(CONTENT, result.edits)
+    const { questions } = parseOpenQuestions(applied)
+    expect(questions[0]!.options[2]).toMatchObject({ checked: true, text: "my real answer" })
+    expect(applied).not.toMatch(/ +\n/)
+  })
+
+  it("collapses interior newlines in a typed free-text answer to a single line, so the written label stays an oxfmt fixed point", () => {
+    const result = QA_FORMAT.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 2 },
+      {
+        checked: true,
+        text: "line one\nline two",
+      },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(CONTENT, result.edits)
+    const { questions } = parseOpenQuestions(applied)
+    expect(questions[0]!.options[2]).toMatchObject({ checked: true, text: "line one line two" })
+    // The option's own line count must stay exactly one — a real newline
+    // spliced into the label would split it into two markdown lines, one of
+    // them unindented free-floating text no longer inside the list item.
+    expect(applied.split("\n").filter((line) => line.includes("line one"))).toHaveLength(1)
+  })
+
+  it("erasing a free-text answer ({checked: false, text: \"\"}) restores the placeholder, and the option is still writable afterward — never a dead 'anchor-not-found' anchor", () => {
+    // Seed a question whose free-text slot already carries a real typed
+    // answer — mirrors what `ticking the free-text slot with text` above
+    // just wrote.
+    const answered = applyEdits(
+      CONTENT,
+      (() => {
+        const first = QA_FORMAT.apply(
+          CONTENT,
+          { kind: "option", questionIndex: 0, index: 2 },
+          { checked: true, text: "my typed answer" },
+        )
+        if (!first.ok) throw new Error("setup apply failed")
+        return first.edits
+      })(),
+    )
+    expect(parseOpenQuestions(answered).questions[0]!.options[2]).toMatchObject({
+      checked: true,
+      text: "my typed answer",
+    })
+
+    const erase = QA_FORMAT.apply(
+      answered,
+      { kind: "option", questionIndex: 0, index: 2 },
+      { checked: false, text: "" },
+    )
+    expect(erase.ok).toBe(true)
+    if (!erase.ok) return
+    const erased = applyEdits(answered, erase.edits)
+    // Package 03's own bug: an empty label ("- [ ] ") leaves nothing for
+    // `optionContentOffset` to find, so this must NOT literally write "".
+    expect(erased).toContain(`- [ ] ${FREE_TEXT_PLACEHOLDER}`)
+    expect(parseOpenQuestions(erased).questions[0]!.options[2]).toMatchObject({
+      checked: false,
+      text: "",
+    })
+
+    // The anchor must still resolve — a real retype after an erase, the
+    // round trip a human erasing-then-retyping on the phone depends on.
+    const retype = QA_FORMAT.apply(
+      erased,
+      { kind: "option", questionIndex: 0, index: 2 },
+      { checked: true, text: "a new answer" },
+    )
+    expect(retype.ok).toBe(true)
+    if (!retype.ok) return
+    const retyped = applyEdits(erased, retype.edits)
+    expect(parseOpenQuestions(retyped).questions[0]!.options[2]).toMatchObject({
+      checked: true,
+      text: "a new answer",
+    })
+  })
+
+  it("a stale option index refuses anchor-not-found", () => {
+    expect(
+      QA_FORMAT.apply(CONTENT, { kind: "option", questionIndex: 0, index: 99 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+  })
+
+  it("a hunk/chunk anchor — not this format's own kind — refuses anchor-not-found", () => {
+    expect(QA_FORMAT.apply(CONTENT, { kind: "chunk", index: 0 }, { checked: true })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+    expect(
+      QA_FORMAT.apply(CONTENT, { kind: "hunk", chunkIndex: 0, index: 0 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
   })
 })

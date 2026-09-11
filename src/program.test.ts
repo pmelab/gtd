@@ -13,6 +13,15 @@
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { PassThrough } from "node:stream"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+// `resolveBindHost`'s default `pickHost` parameter reaches the real
+// `os.networkInterfaces()` in production — a machine or CI runner that HAS
+// joined a tailnet would make `gtd ui`'s "no Tailscale interface found"
+// dispatch test below succeed instead of refusing. Mocked so this test
+// exercises the dispatch wiring deterministically, independent of the host's
+// actual network.
+vi.mock("./ui/BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
+
 import { runCli, type Command } from "./Cli.js"
 import { stallDiagnosis } from "./Beat.js"
 import {
@@ -2256,6 +2265,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     lsp: { kind: "lsp" },
     init: { kind: "init" },
     visualize: { kind: "visualize", port: 4000, open: false },
+    ui: { kind: "ui", selfSigned: false, dev: false },
     land: { kind: "land" },
     entry: { kind: "entry", actor: "human", state: "idle", vars: {}, label: "" },
     abandon: { kind: "abandon" },
@@ -2276,9 +2286,9 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the eight non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the nine non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
-      ["abandon", "base", "entry", "land", "next", "restore", "summary", "validate"].sort(),
+      ["abandon", "base", "entry", "land", "next", "restore", "summary", "validate", "ui"].sort(),
     )
   })
 
@@ -2317,6 +2327,31 @@ describe("runCommand — refuses in a repository with no commits", () => {
 
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(written.length).toBeGreaterThan(0)
+  })
+
+  it("gtd ui in a repository WITH commits reaches its own dispatch, past the guard — proving the it.each above tests the guard, not gtd ui's own refusal", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.commitAllWithPrefix("chore: init gtd workflow")
+    const written: string[] = []
+    const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
+
+    const exit = await Effect.runPromiseExit(
+      runCommand({ kind: "ui", selfSigned: false, dev: false }, { kind: "off" }, out).pipe(
+        Effect.provide(testLayers(repo)),
+      ),
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      // `src/ui/Server.ts`'s own refusal — it reads the served worktree's
+      // beat (a REAL subprocess spawn, `InMemRepo`'s fake root has no real
+      // directory behind it) before ever resolving a bind host, so THIS is
+      // its own dispatch's first refusal now, not the repository/commit
+      // guard's and not the host-resolution one downstream of it.
+      expect(String(exit.cause)).not.toContain(NO_COMMITS_MESSAGE)
+      expect(String(exit.cause)).toContain("gtd ui: refuses to start")
+    }
   })
 })
 

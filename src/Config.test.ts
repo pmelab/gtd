@@ -182,6 +182,100 @@ describe("ConfigService", () => {
     expect(cfg.rcVars).toEqual({ greeting: "hi", attempts: "3", strict: "true" })
   })
 
+  it("reads a top-level `ui:` key through as-is", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`ui:`, `  port: 4173`, `  host: 0.0.0.0`, ``].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.ui).toEqual({
+      port: 4173,
+      host: "0.0.0.0",
+    })
+  })
+
+  it("rejects `ui.loop` and `ui.roots` as excess properties", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`ui:`, `  loop: "gtd next --json"`, ``].join("\n"),
+    )
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("merges `ui:` levels low->high: cwd's `port` overlays the ancestor's, cwd wins on overlap", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`ui:`, `  port: 4173`, `  host: ancestor-host`, ``].join("\n"),
+    )
+    writeFileSync(join(child, ".gtdrc.yaml"), [`ui:`, `  port: 5000`, ``].join("\n"))
+
+    const cfg = await getConfig(child)
+
+    expect(cfg.ui).toEqual({ port: 5000, host: "ancestor-host" })
+  })
+
+  it("rejects an unknown sub-key under a top-level `ui:`, aggregated into one error", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), [`ui:`, `  bogus: true`, ``].join("\n"))
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      // Pinned to the WHOLE message, not a loose substring match: a
+      // `Schema.optional(Struct)`'s other union branch also fails with an
+      // "Expected undefined, actual …" artifact that is not a fact about the
+      // user's file (see `Config.ts`'s `formatSchemaError` — dropped exactly
+      // because a loose match here would let that noise silently return).
+      expect(String(exit.cause)).toContain(
+        'Invalid gtd config: ui.bogus: is unexpected, expected: "port" | "host" | "cert" | "key"',
+      )
+      expect(String(exit.cause)).not.toContain("Expected undefined")
+    }
+  })
+
+  it("rejects a wrong-typed `ui:` sub-key with exactly one clause, not the optional-branch's redundant 'Expected undefined' noise", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), [`ui:`, `  port: "nope"`, ``].join("\n"))
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain(
+        'Invalid gtd config: ui.port: Expected number, actual "nope"',
+      )
+      expect(String(exit.cause)).not.toContain("Expected undefined")
+    }
+  })
+
+  it("rejects the old `serve:` key as an unknown top-level key where the same body under `ui:` decodes", async () => {
+    const body = [`  port: 4173`, `  host: 0.0.0.0`, ``].join("\n")
+    const configFile = join(projectDir, ".gtdrc.yaml")
+
+    writeFileSync(configFile, `serve:\n${body}`)
+    const rejected = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+    expect(Exit.isFailure(rejected)).toBe(true)
+    if (Exit.isFailure(rejected)) {
+      expect(String(rejected.cause)).toMatch(/serve/i)
+      const error = Cause.squash(rejected.cause)
+      expect(error).toBeInstanceOf(GtdError)
+      if (error instanceof GtdError) {
+        expect(error.detail).toEqual([`serve: ${configFile}`])
+      }
+    }
+
+    writeFileSync(configFile, `ui:\n${body}`)
+    const cfg = await getConfig()
+    expect(cfg.ui).toEqual({ port: 4173, host: "0.0.0.0" })
+  })
+
   it("merges `vars:` levels low->high: cwd's overlays the ancestor's, cwd wins on overlap", async () => {
     const child = join(projectDir, "a", "b")
     mkdirSync(child, { recursive: true })

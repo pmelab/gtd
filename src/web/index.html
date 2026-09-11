@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      interactive-widget=resizes-content: makes the layout viewport (and so
+      any `100dvh` container, e.g. NoteSheet.tsx's own sheet) shrink to the
+      space actually left by an on-screen keyboard, instead of the keyboard
+      simply overlaying fixed page content. Without this, NoteSheet.tsx's
+      Save control — a normal-flow last child relying on `dvh` to end up
+      above the keyboard — has no way to know the keyboard opened at all.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, interactive-widget=resizes-content"
+    />
+    <title>gtd</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+    </style>
+    <link rel="stylesheet" href="./main.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

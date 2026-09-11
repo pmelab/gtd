@@ -6,7 +6,7 @@
   "tasks": {
     "build": {
       "inputs": ["src/**", "scripts/**", "tsdown.config.ts"],
-      "outputs": ["dist/**", "schema.json"]
+      "outputs": ["dist/**", "schema.json", "src/web/generated.html"]
     },
     "format:check": {
       "outputs": []
@@ -18,6 +18,7 @@
         "scripts/**",
         "dev/**",
         "evals/**",
+        ".storybook/**",
         "*.ts",
         "*.mjs",
         ".oxlintrc.json"
@@ -38,10 +39,11 @@
       "outputs": []
     },
     "deadcode": {
-      "inputs": ["src/**", "tests/**", "evals/**", "*.ts", ".fallowrc.json"],
+      "inputs": ["src/**", "tests/**", "evals/**", ".storybook/**", "*.ts", ".fallowrc.json"],
       "outputs": []
     },
     "test:unit": {
+      "dependsOn": ["build"],
       "inputs": [
         "src/**",
         "tests/tooling/**",
@@ -57,6 +59,7 @@
       "outputs": []
     },
     "test:e2e:inmem": {
+      "dependsOn": ["build"],
       "inputs": [
         "src/**",
         "tests/integration/**",
@@ -75,6 +78,10 @@
         "vitest.config.ts",
         "docs/**"
       ],
+      "outputs": []
+    },
+    "test:web": {
+      "inputs": ["src/**", ".storybook/**", "vitest.config.ts", "!src/web/generated.html"],
       "outputs": []
     }
   }

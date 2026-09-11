@@ -302,6 +302,119 @@ export const isOnExistingFootnote = (
 }
 
 /**
+ * Deterministic short id derived from an anchor's own `key` — FNV-1a over the
+ * UTF-8 bytes of `key`, base36-encoded — never a counter. Two concurrent
+ * attaches at two different anchors (different `key`s) land on two distinct
+ * ids without either seeing the other's write; two attaches at the SAME
+ * anchor (same `key`) always land on the SAME id, which is exactly what lets
+ * the caller reject the second one as a collision rather than double-attach.
+ */
+const anchorId = (key: string): string => {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < key.length; i += 1) {
+    hash ^= key.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return `na${(hash >>> 0).toString(36)}`
+}
+
+/** Where the server's `annotate` identifies the spot to attach a note: `line`/`endCharacter` are the anchor's own end (where the marker lands), `blockEndLine` is where the definition is planted (mirrors `footnoteAdditionEdits`'s `blockEndLine`), and `key` is a string uniquely identifying the anchor itself (never a cursor position) — the input to `anchorId`. */
+export interface FootnoteAnchor {
+  readonly line: number
+  readonly endCharacter: number
+  readonly blockEndLine: number
+  readonly key: string
+}
+
+export type FootnoteAttachResult =
+  | { readonly ok: true; readonly id: string; readonly edits: readonly SteeringEdit[] }
+  | { readonly ok: false; readonly reason: "id-collision" }
+
+/**
+ * Attaches a note at `anchor`'s own end: a marker `[^<id>]` planted right
+ * there, and a definition seeded with `text` — the human's own typed body,
+ * VERBATIM, never `PLACEHOLDER_BODY` (that seed is `footnoteAdditionEdits`'s
+ * own — a human fills it in afterward via the editor; a server-attached note
+ * already has its real text at attach time, so the document validates clean
+ * immediately rather than tripping the placeholder finding) — planted after
+ * `anchor.blockEndLine`. The two-edits-at-once mechanics `T2` asks for,
+ * shared by chunk/hunk/paragraph notes alike (the caller resolves its own
+ * `key` per kind). `id` is derived from `anchor.key` alone (`anchorId`),
+ * never counted, so this is safe to call from two concurrent requests
+ * without a shared counter.
+ *
+ * A SECOND call at the SAME anchor is an EDIT, not a collision: this is
+ * exactly what "a paragraph already carrying a note offers editing it, not a
+ * second note" (T6) requires, and `id` being deterministic in `anchor.key`
+ * is what makes detecting "same anchor" possible at all — a marker whose
+ * folded name already equals `id` AND already sits on `anchor.line` (the
+ * exact spot THIS anchor's own marker edit would land, every time) can only
+ * be this anchor's own earlier attach, never a coincidence. That case
+ * replaces the existing definition's whole body span with the new text —
+ * one edit, no new marker (already there) — rather than the two-edit
+ * attach below. A `foldName(d.name) === foldName(id)` collision with NO
+ * marker on `anchor.line` is the genuine ambiguous case (a hash collision
+ * with an unrelated anchor, or a human-authored id) and still refuses.
+ */
+export const footnoteAttachEdits = (
+  content: string,
+  anchor: FootnoteAnchor,
+  text: string,
+): FootnoteAttachResult => {
+  const { markers, definitions } = parseFootnotes(content)
+  const id = anchorId(anchor.key)
+  const existing = definitions.find((d) => foldName(d.name) === foldName(id))
+  if (existing) {
+    const attachedHere = markers.some(
+      (m) => foldName(m.name) === foldName(id) && m.line === anchor.line,
+    )
+    if (!attachedHere) {
+      return { ok: false, reason: "id-collision" }
+    }
+    const lines = content.split(/\r?\n/)
+    const lastLine = lines[existing.endLine] ?? ""
+    return {
+      ok: true,
+      id,
+      edits: [
+        {
+          range: {
+            start: { line: existing.line, character: 0 },
+            end: { line: existing.endLine, character: lastLine.length },
+          },
+          newText: `[^${id}]: ${text}`,
+        },
+      ],
+    }
+  }
+
+  const lines = content.split(/\r?\n/)
+  // The document's own newline style, preserved in newly-written bytes — a
+  // splice into a CRLF file that inserts bare `\n` would leave a mixed-EOL
+  // file behind, which is exactly the byte-level corruption this whole
+  // package's offset-splice discipline exists to avoid.
+  const eol = content.includes("\r\n") ? "\r\n" : "\n"
+  const markerEdit: SteeringEdit = {
+    range: {
+      start: { line: anchor.line, character: anchor.endCharacter },
+      end: { line: anchor.line, character: anchor.endCharacter },
+    },
+    newText: `[^${id}]`,
+  }
+
+  const insertLine = anchor.blockEndLine + 1
+  const start = { line: insertLine, character: 0 }
+  const nextContentLine = firstNonBlankFrom(lines, insertLine)
+  const atEof = nextContentLine >= lines.length
+  const definitionEdit: SteeringEdit = {
+    range: { start, end: atEof ? start : { line: nextContentLine, character: 0 } },
+    newText: atEof ? `${eol}[^${id}]: ${text}${eol}` : `${eol}[^${id}]: ${text}${eol}${eol}`,
+  }
+
+  return { ok: true, id, edits: [markerEdit, definitionEdit] }
+}
+
+/**
  * The two edits behind "gtd: add a footnote": a marker inserted at the
  * cursor (via `footnoteMarkerColumn`) and a definition seeded with
  * `PLACEHOLDER_BODY`, planted right after `blockEndLine` — the caller's own

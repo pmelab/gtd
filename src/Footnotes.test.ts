@@ -2,12 +2,37 @@ import { describe, expect, it } from "vitest"
 import fc from "fast-check"
 import {
   footnoteAdditionEdits,
+  footnoteAttachEdits,
   footnoteMarkerColumn,
   footnotePointerAt,
   isOnExistingFootnote,
   nextFootnoteName,
   parseFootnotes,
 } from "./Footnotes.js"
+
+/** Applies a list of `SteeringEdit`s to `content`, last-to-first so earlier offsets stay valid — used only by tests to assert the resulting document, never by production code (which always splices via LSP tooling). */
+const applyEdits = (
+  content: string,
+  edits: readonly {
+    range: { start: { line: number; character: number }; end: { line: number; character: number } }
+    newText: string
+  }[],
+): string => {
+  const lines = content.split("\n")
+  const toOffset = (pos: { line: number; character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+    return offset + pos.character
+  }
+  const sorted = [...edits].sort((a, b) => toOffset(b.range.start) - toOffset(a.range.start))
+  let result = content
+  for (const edit of sorted) {
+    const start = toOffset(edit.range.start)
+    const end = toOffset(edit.range.end)
+    result = result.slice(0, start) + edit.newText + result.slice(end)
+  }
+  return result
+}
 
 describe("parseFootnotes", () => {
   it("is total on an empty string", () => {
@@ -308,6 +333,176 @@ describe("footnoteAdditionEdits", () => {
       definitionEdit!.range.start.line === markerEdit!.range.end.line &&
         definitionEdit!.range.start.character === markerEdit!.range.end.character,
     ).toBe(false)
+  })
+})
+
+describe("footnoteAttachEdits", () => {
+  it("produces exactly two edits and every byte outside their ranges is unchanged", () => {
+    const content = ["Some chunk text here", "", "next paragraph"].join("\n")
+    const result = footnoteAttachEdits(
+      content,
+      {
+        line: 0,
+        endCharacter: "Some chunk text here".length,
+        blockEndLine: 0,
+        key: "chunk:0",
+      },
+      "the human's own typed note",
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.edits).toHaveLength(2)
+    const applied = applyEdits(content, result.edits)
+    expect(applied).toBe(
+      `Some chunk text here[^${result.id}]\n\n[^${result.id}]: the human's own typed note\n\nnext paragraph`,
+    )
+  })
+
+  it("lands the marker at the end of the anchor's own text, not on a new line", () => {
+    const content = "Option A here"
+    const result = footnoteAttachEdits(
+      content,
+      {
+        line: 0,
+        endCharacter: 9,
+        blockEndLine: 0,
+        key: "opt:a",
+      },
+      "a note",
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.edits[0]!.range).toEqual({
+      start: { line: 0, character: 9 },
+      end: { line: 0, character: 9 },
+    })
+  })
+
+  it("two attaches at two different anchors in one document produce two distinct ids", () => {
+    const content = ["Chunk A", "", "Chunk B"].join("\n")
+    const first = footnoteAttachEdits(
+      content,
+      {
+        line: 0,
+        endCharacter: 7,
+        blockEndLine: 0,
+        key: "chunk:a",
+      },
+      "note a",
+    )
+    const second = footnoteAttachEdits(
+      content,
+      {
+        line: 2,
+        endCharacter: 7,
+        blockEndLine: 2,
+        key: "chunk:b",
+      },
+      "note b",
+    )
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(first.id).not.toBe(second.id)
+  })
+
+  it("a second attach at the SAME anchor EDITS the existing note in place, rather than rejecting it (T6: 'offers editing it, not a second note')", () => {
+    const content = "Chunk A"
+    const first = footnoteAttachEdits(
+      content,
+      {
+        line: 0,
+        endCharacter: 7,
+        blockEndLine: 0,
+        key: "chunk:a",
+      },
+      "note a",
+    )
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    const applied = applyEdits(content, first.edits)
+    const second = footnoteAttachEdits(
+      applied,
+      {
+        line: 0,
+        endCharacter: 7,
+        blockEndLine: 0,
+        key: "chunk:a",
+      },
+      "note a, again",
+    )
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    // Same id, single replace edit — no second marker, no second definition.
+    expect(second.id).toBe(first.id)
+    expect(second.edits).toHaveLength(1)
+    const reapplied = applyEdits(applied, second.edits)
+    expect(reapplied).toContain(`[^${first.id}]: note a, again`)
+    expect(reapplied).not.toContain("note a, again, again")
+    expect((reapplied.match(new RegExp(`\\[\\^${first.id}\\]`, "g")) ?? []).length).toBe(2) // one marker, one definition
+    expect(parseFootnotes(reapplied).definitions).toHaveLength(1)
+  })
+
+  it("an id colliding with a definition NOT already attached at THIS anchor's own line is still rejected", () => {
+    const key = "chunk:a"
+    const generated = footnoteAttachEdits(
+      "x",
+      { line: 0, endCharacter: 1, blockEndLine: 0, key },
+      "note",
+    )
+    expect(generated.ok).toBe(true)
+    if (!generated.ok) return
+    const upperId = generated.id.toUpperCase()
+    // The existing marker/definition sit on line 5 — a different line than
+    // where THIS anchor's own attach would land (line 0) — so this reads as
+    // a genuine collision with unrelated content, never a re-attach at the
+    // same spot.
+    const content = `text\n\n\n\n\nelsewhere[^${upperId}]\n\n[^${upperId}]: existing reason\n`
+    const result = footnoteAttachEdits(
+      content,
+      {
+        line: 0,
+        endCharacter: 4,
+        blockEndLine: 0,
+        key,
+      },
+      "note",
+    )
+    expect(result).toEqual({ ok: false, reason: "id-collision" })
+  })
+
+  it("keeps CRLF line endings", () => {
+    const content = ["Chunk A", "", "next"].join("\r\n")
+    const result = footnoteAttachEdits(
+      content,
+      {
+        line: 0,
+        endCharacter: 7,
+        blockEndLine: 0,
+        key: "chunk:a",
+      },
+      "note",
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(content, result.edits)
+    expect(applied).not.toContain("\n\n\n")
+    expect(applied.includes("\r\n")).toBe(true)
+  })
+
+  it("seeds the new definition with the given text verbatim, never PLACEHOLDER_BODY — the resulting document never trips the seeded-placeholder finding", () => {
+    const content = "Some chunk text here"
+    const result = footnoteAttachEdits(
+      content,
+      { line: 0, endCharacter: content.length, blockEndLine: 0, key: "chunk:0" },
+      "a real reason a human actually typed",
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(content, result.edits)
+    const { findings } = parseFootnotes(applied)
+    expect(findings.some((f) => f.message.includes("still has its seeded placeholder body"))).toBe(
+      false,
+    )
   })
 })
 

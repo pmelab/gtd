@@ -2,12 +2,21 @@ import { QuickPickleWorld, setWorldConstructor } from "quickpickle"
 import type { TestContext } from "vitest"
 import type { InfoConstructor, QuickPickleWorldInterface } from "quickpickle"
 import { Effect } from "effect"
+import assert from "node:assert"
 import { execSync, execFile as execFileCb, spawn } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFile = promisify(execFileCb)
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs"
-import { constants as osConstants, tmpdir } from "node:os"
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
+import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli } from "../../../src/Cli.js"
@@ -16,12 +25,39 @@ import { type ScriptedCommand } from "../../../src/testing/Layers.js"
 import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 import { applyEmittedScript } from "../../../src/testing/EmittedScriptRecognizer.js"
 import { EXIT_OK } from "../../../src/ExitCodes.js"
+import type { AppRouter } from "../../../src/ui/Router.js"
+import type { SteeringAnchor } from "../../../src/SteeringFormat.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 // Exported so hooks.ts's PATH shim execs this SAME bundle, never a globally-installed gtd.
 export const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 
 export type Tier = "live" | "inmem"
+
+/**
+ * The `done` mutation's own note-carrying request (package 04 Task 1's
+ * nested `{ note: {...} }` shape) — every real `spawnGtdUi*AndHandOff`
+ * helper below builds the exact same shape off its own `filePath`/`headSha`/
+ * `content`/`mode`/`text`, at a fixed paragraph-0 anchor (the phone's own
+ * "Save & Done" always attaches to the anchor the human was looking at,
+ * which every one of these scenarios sets up as paragraph 0).
+ */
+const doneNoteRequest = (
+  filePath: string,
+  headSha: string,
+  contentHash: string,
+  mode: string,
+  text: string,
+) => ({
+  note: {
+    filePath,
+    expectedHeadSha: headSha,
+    expectedContentHash: contentHash,
+    mode,
+    anchor: { kind: "paragraph" as const, line: 0 },
+    text,
+  },
+})
 
 /**
  * Commands that print a `required`/`optional` script for a driver to run
@@ -145,6 +181,10 @@ const fingerprintFiles = (root: string): FileFingerprint[] =>
 const signalExitStatus = (code: number | null, signal: NodeJS.Signals | null): number =>
   signal !== null ? 128 + (osConstants.signals[signal] ?? 0) : (code ?? 0)
 
+/** `{ [key]: value }` when `value` is set, `{}` when it's `undefined` — `spawnEnv`'s own building block for each of its several optional overrides, so adding one more never adds another branch there. */
+const optionalEnv = (key: string, value: string | undefined): NodeJS.ProcessEnv =>
+  value !== undefined ? { [key]: value } : {}
+
 /** How a driver reports `gtd validate`'s emitted script once it has run: `<file>: valid`, or the script's own output as findings. */
 const validateVerdict = (
   file: string,
@@ -216,6 +256,10 @@ export class GtdWorld extends QuickPickleWorld {
   gtdTestCommandOverride: string | undefined = undefined
   /** A scenario-scoped temp dir holding a `gtd` shim so a bare `gtd` invoked by name resolves to this build, not a globally-installed one. Live tier only. */
   pathShimDir: string | undefined = undefined
+  /** State dir for the fake `tailscale` CLI `pathShimDir` also carries (`hooks.ts#FAKE_TAILSCALE_SCRIPT`) — one `<port>.mapping` file per published serve port. Live tier only. */
+  tailscaleStateDir: string | undefined = undefined
+  /** Sandboxes `src/ui/Serve.ts#serveDir`'s `~/.gtd/serve/<port>.json` ownership record for the serve-path spawn helpers only (`spawnBoundGtdUiServe`/`withServeHome`) — never the general `spawnEnv()`, so every OTHER live spawn keeps the real `$HOME` and its config-discovery walk. Live tier only. */
+  serveHomeDir: string | undefined = undefined
   /** A temp dir OUTSIDE the repo holding docs/driver.md's extracted driver script — proves the paste needs nothing inside the project. */
   driverDocDir: string | undefined = undefined
   /** Absolute path to the extracted driver script inside `driverDocDir`, chmod'd executable. */
@@ -372,14 +416,11 @@ export class GtdWorld extends QuickPickleWorld {
     const pathEnv = this.pathShimDir
       ? { PATH: `${this.pathShimDir}:${process.env["PATH"] ?? ""}` }
       : {}
-    const testCommandEnv =
-      this.gtdTestCommandOverride !== undefined
-        ? { GTD_TESTCOMMAND: this.gtdTestCommandOverride }
-        : {}
     return {
       ...process.env,
       ...pathEnv,
-      ...testCommandEnv,
+      ...optionalEnv("GTD_TESTCOMMAND", this.gtdTestCommandOverride),
+      ...optionalEnv("GTD_TEST_TAILSCALE_DIR", this.tailscaleStateDir),
       ...this.liveEnvOverrides,
       NODE_OPTIONS: undefined,
     }
@@ -500,6 +541,448 @@ export class GtdWorld extends QuickPickleWorld {
     child.kill(signal)
     const { code, signal: died } = await exited
     this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+  }
+
+  /**
+   * Package 05's own process-lifecycle contract, exercised as a REAL OS
+   * process — something no `@inmem` scenario can reach at all: `gtd ui`
+   * blocks forever in-process on success (`Effect.never`), so the `@inmem`
+   * tier's own scenarios (`ui.feature`) only ever cover its fast, purely
+   * deterministic REFUSAL paths, never an actual bind. Here, `--host
+   * 127.0.0.1 --self-signed --port 0` sidesteps both things that make a
+   * successful bind non-deterministic in CI (no tailnet needed, no fixed
+   * port to collide on) — genuinely binds, prints its `https://` URL once
+   * ready (polled for, since certificate generation's own subprocess cost
+   * makes a fixed delay flaky the same way `spawnGtdNextAndSignal`'s 300ms
+   * never has to account for a subprocess of its own), then dies exactly
+   * like `spawnGtdNextAndSignal` — same signal, same re-raise contract,
+   * same `lastSignalExit`/"the reported exit status is {int}" step this
+   * reuses verbatim.
+   */
+  async spawnGtdUiAndSignal(signal: NodeJS.Signals): Promise<void> {
+    const { child, exited } = await this.spawnBoundGtdUi()
+    child.kill(signal)
+    const { code, signal: died } = await exited
+    this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+  }
+
+  /** Restores `NODE_TLS_REJECT_UNAUTHORIZED` to its own pre-spawn value — every real `done`/`setValue` mutation below toggles it insecure for exactly one request, then puts it back in a `finally`, regardless of whether the request itself succeeded. */
+  private restoreTlsReject(previousTlsReject: string | undefined): void {
+    if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+  }
+
+  /** Waits for a spawned `gtd ui` to exit ON ITS OWN and records the same `(code, signal, status)` triple `spawnGtdUiAndSignal` records for a SIGNALLED exit — the shared tail every `spawnGtdUi*AndHandOff` helper below ends on. */
+  private async recordSpawnedExit(
+    exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>,
+  ): Promise<void> {
+    const { code, signal } = await exited
+    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+  }
+
+  /**
+   * Spawns a real `gtd ui` over the same `--host 127.0.0.1 --self-signed
+   * --port 0` shape `spawnGtdUiAndSignal` uses, polls for its printed
+   * `https://` URL, and returns once bound — factored out so a scenario that
+   * needs to talk tRPC to the real listener (`spawnGtdUiAndHandOff`) doesn't
+   * duplicate the spawn/poll dance.
+   */
+  private async spawnBoundGtdUi(): Promise<{
+    readonly child: ReturnType<typeof spawn>
+    readonly boundUrl: string
+    readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+  }> {
+    const child = spawn(
+      process.execPath,
+      [GTD_BIN, "ui", "--host", "127.0.0.1", "--self-signed", "--port", "0"],
+      { cwd: this.repoDir, env: this.spawnEnv(), stdio: ["ignore", "pipe", "pipe"] },
+    )
+    let stdout = ""
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8")
+    })
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => {
+        child.once("exit", (code, sig) => resolve({ code, signal: sig }))
+      },
+    )
+    await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
+    for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
+      await delay(50)
+    }
+    assert.ok(stdout.includes("https://"), `gtd ui never printed its bound URL: ${stdout}`)
+    const boundUrl = stdout.split("\n")[0]!.trim()
+    return { child, boundUrl, exited }
+  }
+
+  /**
+   * Package 01's own serve-path counterpart of `spawnBoundGtdUi`: no
+   * `--host`/`--self-signed`, so `runUiCommand` takes the SERVE branch —
+   * against the fake `tailscale` CLI `hooks.ts#FAKE_TAILSCALE_SCRIPT`
+   * installs on `$PATH` (neither a real tailnet nor even the `tailscale`
+   * binary is guaranteed on a CI runner). Factored out so both
+   * `spawnGtdUiServeAndHandOff` (needs to talk tRPC to the real listener)
+   * and `spawnGtdUiServeAndSignal` (Task 4's own SIGINT/SIGTERM teardown
+   * coverage) share the one spawn/poll dance.
+   */
+  /**
+   * Runs `fn` with the TEST PROCESS's own `$HOME` temporarily pointed at
+   * `serveHomeDir` — the sandbox the spawned `gtd ui` child's own env already
+   * uses (`spawnBoundGtdUiServe`) — so a direct in-process
+   * `readServeRecord`/`deleteServeRecord` call (node:os `homedir()` reads
+   * `$HOME`) agrees with the child on where `~/.gtd/serve/<port>.json`
+   * lives, rather than reading the real developer's home directory. Scoped
+   * to the one call it wraps and always restored, never a standing mutation
+   * of this process's own env.
+   */
+  async withServeHome<T>(fn: () => T): Promise<T> {
+    const previous = process.env["HOME"]
+    process.env["HOME"] = this.serveHomeDir
+    try {
+      return fn()
+    } finally {
+      if (previous === undefined) delete process.env["HOME"]
+      else process.env["HOME"] = previous
+    }
+  }
+
+  private async spawnBoundGtdUiServe(servePort: number): Promise<{
+    readonly child: ReturnType<typeof spawn>
+    readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+    /** Everything printed so far, once polling below observes the bound URL — the publish-failure fallback's own reason line prints just above it, so a caller that armed `fail-publish` can assert on this without a second poll. */
+    readonly stdout: () => string
+  }> {
+    // `$HOME` sandboxed to `serveHomeDir` — the spawned `gtd ui`'s own
+    // `attemptServe`/`teardownServe` write/read `~/.gtd/serve/<port>.json`
+    // (`src/ui/Serve.ts#serveDir`, via node:os `homedir()`), which is NOT
+    // otherwise sandboxed the way the fake tailscale CLI's own state is
+    // (`GTD_TEST_TAILSCALE_DIR`). Scoped to THIS spawn only, not
+    // `spawnEnv()`'s general env, per `withServeHome`'s own doc comment.
+    assert.ok(this.serveHomeDir !== undefined, "no serveHomeDir on this world (not @live?)")
+    const child = spawn(process.execPath, [GTD_BIN, "ui", "--port", String(servePort)], {
+      cwd: this.repoDir,
+      env: { ...this.spawnEnv(), HOME: this.serveHomeDir },
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8")
+    })
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8")
+    })
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => {
+        child.once("exit", (code, sig) => resolve({ code, signal: sig }))
+      },
+    )
+    await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
+    for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
+      await delay(50)
+    }
+    assert.ok(
+      stdout.includes("https://"),
+      `gtd ui never printed its serve URL: stdout=${stdout} stderr=${stderr}`,
+    )
+    return { child, exited, stdout: () => stdout }
+  }
+
+  /**
+   * Task 4's own SIGINT/SIGTERM teardown coverage: a real `gtd ui` spawned
+   * over the SERVE path (unlike `spawnGtdUiAndSignal`'s `--host 127.0.0.1
+   * --self-signed`, which skips serve entirely per Task 3 step 1 and so
+   * could only assert the mapping/record are absent VACUOUSLY), killed with
+   * `signal`, same re-raise contract as `spawnGtdUiAndSignal`. Exercises the
+   * spec's own flagged claim — `runMain` interrupts the fiber and `ensuring`
+   * finalizers run on a REAL signal, not just on `Fiber.interrupt` in a unit
+   * test.
+   */
+  async spawnGtdUiServeAndSignal(servePort: number, signal: NodeJS.Signals): Promise<void> {
+    const { child, exited } = await this.spawnBoundGtdUiServe(servePort)
+    child.kill(signal)
+    const { code, signal: died } = await exited
+    this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+  }
+
+  /**
+   * Package 01's own serve-path counterpart of `spawnGtdUiAndHandOff`. The
+   * printed URL names the fake tailnet hostname, which resolves nowhere
+   * real, so the tRPC round trip dials the loopback TARGET port directly
+   * instead — read out of the real ownership record `attemptServe` writes to
+   * `~/.gtd/serve/<servePort>.json` (`src/ui/Serve.ts#writeServeRecord`),
+   * over PLAIN http (no TLS: the loopback listener never terminates TLS,
+   * `tailscaled` would). Returns once the process has exited on its own, so
+   * the caller can assert the mapping/record are both gone (Task 4's own
+   * teardown guarantee).
+   */
+  async spawnGtdUiServeAndHandOff(
+    servePort: number,
+    filePath: string,
+    mode: string,
+    text: string,
+  ): Promise<void> {
+    const { exited } = await this.spawnBoundGtdUiServe(servePort)
+
+    const { readServeRecord } = await import("../../../src/ui/Serve.js")
+    const record = await this.withServeHome(() => readServeRecord(servePort))
+    assert.ok(
+      record !== undefined,
+      `no ownership record found at $HOME/.gtd/serve/${servePort}.json (sandboxed $HOME: ${this.serveHomeDir})`,
+    )
+
+    const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+      import("../../../src/ui/Write.js"),
+      import("@trpc/client"),
+    ])
+    const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+    const content = readFileSync(join(this.repoDir, filePath), "utf8")
+    const client = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url: `http://127.0.0.1:${record!.targetPort}/trpc` })],
+    })
+    await client.done.mutate(doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text))
+
+    const { code, signal } = await exited
+    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+  }
+
+  /**
+   * Arms `hooks.ts`'s fake `tailscale` CLI to fail its NEXT `serve --bg` —
+   * `FAKE_TAILSCALE_SCRIPT`'s own `fail-publish` marker, otherwise unused —
+   * the one seam Task 3's "publish fails, falls back to a reachable direct
+   * bind, exit 0 on handoff" bullet needs a real spawned process to
+   * exercise. A `Given` step (composable, generic) rather than folded into
+   * the spawn itself.
+   */
+  armFailPublish(): void {
+    assert.ok(
+      this.tailscaleStateDir !== undefined,
+      "no fake tailscale state dir on this world (not @live?)",
+    )
+    writeFileSync(join(this.tailscaleStateDir, "fail-publish"), "")
+  }
+
+  /**
+   * Task 3's publish-failure twin of `spawnGtdUiServeAndHandOff`: still no
+   * `--host`/`--self-signed` (serve is still ATTEMPTED), but the fake
+   * `tailscale serve --bg` fails (`armFailPublish`, called by the scenario's
+   * own `Given` step first) — so `runUiCommand` falls back to today's direct
+   * bind. That fallback's own host resolution has no `--host`/`ui.host`
+   * either (giving one would skip the serve ATTEMPT entirely, defeating the
+   * point), so it resolves the SAME real Tailscale CGNAT interface
+   * `pickBindHostFromSystem` would — read here via the identical production
+   * seam, not re-implemented, to know which address to actually dial (the
+   * printed URL names the fake tailnet hostname, which resolves nowhere
+   * real, exactly like the serve-success path). `ui.cert`/`ui.key` must be
+   * configured (the scenario's own `Given` step provides a real cert/key
+   * pair) — the fake tailscale CLI has no `cert` subcommand, so the
+   * tailscale-cert branch `resolveCertPair` would otherwise take fails
+   * outright rather than falling back.
+   */
+  async spawnGtdUiServePublishFailAndHandOff(
+    servePort: number,
+    filePath: string,
+    mode: string,
+    text: string,
+  ): Promise<void> {
+    const { exited, stdout } = await this.spawnBoundGtdUiServe(servePort)
+    assert.ok(
+      stdout().includes("not using tailscale serve"),
+      `expected the fallback reason line before the bound URL, got:\n${stdout()}`,
+    )
+
+    // `pickBindHost` (the PURE scan), never `pickBindHostFromSystem` —
+    // `ui.steps.ts`'s own `vi.mock("../../../../src/ui/BindSystem.js", ...)`
+    // is a SUITE-WIDE mock (`setup-files.ts`'s own comment: it must load
+    // first, before anything else's real import caches the module) that
+    // always returns `undefined`, so calling the wrapper here would read
+    // that mock, not this machine's real interfaces.
+    const { pickBindHost } = await import("../../../src/ui/Bind.js")
+    const bindHost = pickBindHost(networkInterfaces())
+    assert.ok(
+      bindHost !== undefined,
+      "no 100.64.0.0/10 interface found on this machine — the direct-bind fallback this scenario exercises needs one (CI supplies a loopback alias; see .github/workflows/test.yml)",
+    )
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/Write.js"),
+        import("@trpc/client"),
+      ])
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      // Dials the REAL bind address/port directly — same reason
+      // `spawnGtdUiServeAndHandOff` dials the loopback target directly
+      // instead of the printed (fake-hostname) URL: this proves the
+      // fallback bind is actually REACHABLE, not just that a listener object
+      // exists somewhere.
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `https://${bindHost}:${servePort}/trpc` })],
+      })
+      await client.done.mutate(
+        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
+      )
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    await this.recordSpawnedExit(exited)
+  }
+
+  /**
+   * Requirement A end to end: a REAL `gtd ui` subprocess, a REAL HTTPS tRPC
+   * `done` call against it, then the process observed exiting ON ITS OWN
+   * (never signalled) — proving `handOff` actually terminates the server
+   * once the response has flushed, with the note durably on disk first.
+   * `filePath`'s content and the fresh `HEAD` sha are read directly (the
+   * same tokens the phone client would have rendered) so the compare-and-
+   * swap succeeds for real, not against a stale/guessed token.
+   */
+  async spawnGtdUiAndHandOff(filePath: string, mode: string, text: string): Promise<void> {
+    const { boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/Write.js"),
+        import("@trpc/client"),
+      ])
+      // `git rev-parse HEAD` directly, not `liveHeadSha` — `createTestProject`
+      // is a PLAIN `git init` (no `--separate-git-dir`), and `liveHeadSha`'s
+      // own relative-`.git`-path fallback resolves against the CALLING
+      // process's cwd (this test file's), never `this.repoDir`, on a plain
+      // repo shaped that way.
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.done.mutate(
+        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
+      )
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    await this.recordSpawnedExit(exited)
+  }
+
+  /**
+   * Package 04's own real acceptance of the Q&A deck's Done control: a REAL
+   * `gtd ui` subprocess, a REAL `done` mutation carrying NO `note` at all —
+   * the exact request the phone's own "Done" tap sends when there's nothing
+   * to leave behind — then the process observed exiting ON ITS OWN, the
+   * same way `spawnGtdUiAndHandOff`'s own note-carrying `done` call does.
+   * No `filePath`/token/content is read here at all: with no note, `done`
+   * has nothing to compare-and-swap.
+   */
+  async spawnGtdUiAndHandOffNoNote(): Promise<void> {
+    const { boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.done.mutate({})
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    await this.recordSpawnedExit(exited)
+  }
+
+  /**
+   * Package 03's own on-disk round trip: a REAL `gtd ui` subprocess, a REAL
+   * `setValue` tRPC mutation against it, splicing through
+   * `SteeringFormat.apply` server-side (never `annotate`/`done` — this is
+   * the checkbox write-through, not a note or a handoff). Unlike
+   * `spawnGtdUiAndHandOff`/`spawnGtdUiAndClose`, `setValue` never ends the
+   * turn, so the process does NOT exit on its own — this kills it (SIGTERM,
+   * the same re-raise contract `spawnGtdUiAndSignal` uses) once the mutation
+   * has resolved, so the scenario itself is what tears the spawned process
+   * down, not a server-side handoff.
+   */
+  async spawnGtdUiAndSetValue(
+    filePath: string,
+    mode: string,
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<void> {
+    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/Write.js"),
+        import("@trpc/client"),
+      ])
+      // `git rev-parse HEAD` directly — see `spawnGtdUiAndHandOff`'s identical
+      // comment for why, not `liveHeadSha`.
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.setValue.mutate({
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(content),
+        mode,
+        anchor,
+        ...opts,
+      })
+    } finally {
+      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+    }
+
+    child.kill("SIGTERM")
+    await exited
+  }
+
+  /**
+   * Requirement B's real-process acceptance (package 03 Task 9): a REAL `gtd
+   * ui` subprocess, a plain GET against its served origin — a page reload,
+   * the exact request a pull-to-refresh reissues, no `pagehide` beacon exists
+   * any more to mistake it for a close (Task 8) — THEN the same real `done`
+   * handoff `spawnGtdUiAndHandOff` drives. Proves the server is still alive
+   * through the reload and exits 0 through `done`, never through a beacon.
+   */
+  async spawnGtdUiReloadThenHandOff(filePath: string, mode: string, text: string): Promise<void> {
+    const { boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const reload = await fetch(boundUrl)
+      assert.strictEqual(reload.status, 200, "the reload must still be served, not a dead port")
+
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/Write.js"),
+        import("@trpc/client"),
+      ])
+      // `git rev-parse HEAD` directly — see `spawnGtdUiAndHandOff`'s identical
+      // comment for why, not `liveHeadSha`.
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.done.mutate(
+        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
+      )
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    await this.recordSpawnedExit(exited)
   }
 
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */

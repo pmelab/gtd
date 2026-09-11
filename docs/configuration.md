@@ -17,7 +17,7 @@ all. Supported filenames (searched in this order):
 
 ### Schema
 
-`.gtdrc` has exactly three blessed top-level keys:
+`.gtdrc` has exactly four blessed top-level keys:
 
 - **`workflow`** (object, optional) — the whole machine definition (its states,
   plus its own `vars:` defaults and `modes:`). Absent = gtd's built-in default
@@ -29,6 +29,8 @@ all. Supported filenames (searched in this order):
   shell commands), layered over the active workflow's own `modes:` and gtd's
   built-in validators, so a project can plug in its formatter or linter without
   re-declaring that mode on the workflow itself.
+- **`ui`** (object, optional) — `gtd ui`'s own settings (port, host, certificate
+  paths). See [The `ui:` key](#the-ui-key) below.
 - **`$schema`** (string, optional) — stripped before validation, so it never
   counts as an unknown key. Point it at the published schema for editor-backed
   autocompletion (this is what `gtd init` writes):
@@ -45,6 +47,30 @@ all. Supported filenames (searched in this order):
 Any other top-level key is **rejected**. The engine blesses no VARIABLE NAMES
 either — `testCommand` is workflow-authored data like any other `it.vars` entry,
 not a special key gtd interprets.
+
+### The `ui:` key
+
+`gtd ui`'s four settings, all optional — a flat, non-templated struct (unlike
+`vars:`/`modes:`, it needs no Eta compile step), so an unknown sub-key is
+rejected the same way any other unknown config key is. `gtd ui` serves exactly
+the ONE worktree it is invoked in — there is no roots/discovery setting, because
+there is no fleet to discover:
+
+- **`port`** (integer, optional) — with neither this key nor `host` given, the
+  port `gtd ui` publishes through `tailscale serve`. Default: `8443`. When
+  `host` (or `--host`) opts out of serve, this is the bind port instead.
+- **`host`** (string, optional) — opts out of the default `tailscale serve`
+  front door and binds this address directly instead, showing it in the printed
+  URL — the same effect as `--host`. With neither this key nor `--host` given,
+  `gtd ui` publishes through `tailscale serve` and falls back to binding a
+  Tailscale interface (a CGNAT `100.64.0.0/10` address, auto-detected) directly
+  whenever serve isn't available — it never refuses.
+- **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
+  and private key, used as-is. `--self-signed` always overrides these with a
+  freshly generated throwaway pair, even when both are configured.
+
+Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui:`
+value; see `docs/cli.md`'s `ui` row for the full flag list.
 
 ### The `workflow:` key
 

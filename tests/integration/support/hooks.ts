@@ -51,8 +51,84 @@ function createPathShim(): string {
   const shim = join(dir, "gtd")
   writeFileSync(shim, `#!/usr/bin/env bash\nexec node "${GTD_BIN}" "$@"\n`)
   chmodSync(shim, 0o755)
+  writeFileSync(join(dir, "tailscale"), FAKE_TAILSCALE_SCRIPT)
+  chmodSync(join(dir, "tailscale"), 0o755)
   return dir
 }
+
+/**
+ * A stateful fake `tailscale` CLI, package 01's own `ui-lifecycle.feature`
+ * serve scenarios' only way to exercise `src/ui/Serve.ts`'s real command shapes
+ * (`serve --bg`/`serve status --json`/`serve ... off`) deterministically —
+ * neither a real tailnet nor even the `tailscale` binary itself is
+ * guaranteed present on a CI runner (`ubuntu-latest` carries neither), the
+ * same reason `spawnBoundGtdUi` uses `--host 127.0.0.1 --self-signed` for
+ * every OTHER `@live` `gtd ui` scenario rather than a real bind. State is one
+ * file per serve port, `$GTD_TEST_TAILSCALE_DIR/<port>.mapping` holding the
+ * published target URL — `GTD_TEST_TAILSCALE_DIR/fail-publish`, when
+ * present, makes the next `serve --bg` fail, for the "publishServe itself
+ * fails" fallback scenario.
+ */
+const FAKE_TAILSCALE_SCRIPT = `#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="\${GTD_TEST_TAILSCALE_DIR:?GTD_TEST_TAILSCALE_DIR not set}"
+mkdir -p "$STATE_DIR"
+HOSTNAME="test-node.tailnet.ts.net"
+FAIL_MARKER="$STATE_DIR/fail-publish"
+
+if [ "\${1:-}" = "status" ] && [ "\${2:-}" = "--json" ]; then
+  printf '{"BackendState":"Running","CertDomains":["%s"],"Self":{"DNSName":"%s."}}\\n' "$HOSTNAME" "$HOSTNAME"
+  exit 0
+fi
+
+if [ "\${1:-}" = "serve" ] && [ "\${2:-}" = "status" ]; then
+  entries=""
+  for f in "$STATE_DIR"/*.mapping; do
+    [ -e "$f" ] || continue
+    port="$(basename "$f" .mapping)"
+    target="$(cat "$f")"
+    entry="\\"$HOSTNAME:$port\\":{\\"Handlers\\":{\\"/\\":{\\"Proxy\\":\\"$target\\"}}}"
+    if [ -z "$entries" ]; then entries="$entry"; else entries="$entries,$entry"; fi
+  done
+  printf '{"Web":{%s}}\\n' "$entries"
+  exit 0
+fi
+
+if [ "\${1:-}" = "serve" ] && [ "\${2:-}" = "--bg" ]; then
+  port=""
+  target=""
+  for arg in "$@"; do
+    case "$arg" in
+      --https=*) port="\${arg#--https=}" ;;
+      http://*) target="$arg" ;;
+    esac
+  done
+  if [ -e "$FAIL_MARKER" ]; then
+    echo "tailscale: simulated publish failure" >&2
+    exit 1
+  fi
+  echo "$target" > "$STATE_DIR/$port.mapping"
+  exit 0
+fi
+
+if [ "\${1:-}" = "serve" ]; then
+  port=""
+  for arg in "$@"; do
+    case "$arg" in
+      --https=*) port="\${arg#--https=}" ;;
+    esac
+  done
+  for arg in "$@"; do
+    if [ "$arg" = "off" ]; then
+      rm -f "$STATE_DIR/$port.mapping"
+      exit 0
+    fi
+  done
+fi
+
+echo "fake tailscale: unsupported invocation: $*" >&2
+exit 1
+`
 
 /**
  * Detect tier from scenario tags. Exactly one of `@live`/`@inmem` is required
@@ -77,14 +153,28 @@ Before(async (world: GtdWorld) => {
     world.tier = "live"
     world.repo = undefined
     world.pathShimDir = createPathShim()
+    world.tailscaleStateDir = mkdtempSync(join(tmpdir(), "gtd-fake-tailscale-"))
+    // Sandboxes `src/ui/Serve.ts#serveDir`'s `~/.gtd/serve/` — the one piece
+    // of the serve-path scenarios' state that isn't already scoped like the
+    // fake tailscale CLI's own `tailscaleStateDir` above. Only the SERVE
+    // spawn helper (`world.ts#spawnBoundGtdUiServe`/`withServeHome`) points
+    // `$HOME` here — every other live spawn keeps the real `$HOME`, so
+    // config-discovery's own home-directory walk (`Config.ts#walkUp`) stays
+    // exactly as every other `@live` scenario already exercises it.
+    world.serveHomeDir = mkdtempSync(join(tmpdir(), "gtd-serve-home-"))
   } else {
     world.tier = "inmem"
     world.repo = new InMemRepo()
   }
 })
 
-// The PATH shim dir is always removed regardless of KEEP_TEST_REPO — it's
-// harness scaffolding, not part of the test repo the flag preserves.
+/** Unconditionally removed regardless of `KEEP_TEST_REPO` — harness scaffolding, never part of the test repo that flag preserves. */
+function removeScaffolding(...dirs: ReadonlyArray<string | undefined>): void {
+  for (const dir of dirs) {
+    if (dir !== undefined) rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 function cleanupLiveTier(world: GtdWorld): void {
   const keep = process.env["KEEP_TEST_REPO"] === "1"
   const dirs = [world.repoDir, world.extraCleanupDir, world.driverDocDir].filter(
@@ -94,10 +184,10 @@ function cleanupLiveTier(world: GtdWorld): void {
     if (keep) process.stderr.write(`Test repo preserved at: ${dir}\n`)
     else rmSync(dir, { recursive: true, force: true })
   }
-  if (world.pathShimDir !== undefined) {
-    rmSync(world.pathShimDir, { recursive: true, force: true })
-    world.pathShimDir = undefined
-  }
+  removeScaffolding(world.pathShimDir, world.tailscaleStateDir, world.serveHomeDir)
+  world.pathShimDir = undefined
+  world.tailscaleStateDir = undefined
+  world.serveHomeDir = undefined
 }
 
 After(async (world: GtdWorld) => {

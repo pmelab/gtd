@@ -1,0 +1,70 @@
+import { createTRPCReact } from "@trpc/react-query"
+import type { AppRouter } from "../ui/Router.js"
+
+/**
+ * Typed against `AppRouter` only — no hand-written duplicate of a procedure's
+ * input/output shape lives here. A later task calls `trpc.someProcedure.useQuery()`
+ * / `.useMutation()`; this file only wires the transport.
+ */
+export const trpc = createTRPCReact<AppRouter>()
+
+/** Relative to the served origin, so it works regardless of host/port. */
+export const TRPC_URL = "/trpc"
+
+/** `ui/Write.ts#WriteResult`'s refusal half, read back off a `writeNote` mutation's error — mirrors `ui/Router.ts#WriteNoteRefusal`'s two fields exactly, kept as a plain type here (never importing `ui/Router.ts`) so this stays a thin client-side shape. `reason` mirrors `ui/Write.ts#WriteRefusalReason` verbatim, including the two reachable-but-not-among-T8's-four values (`note-collision`, `unsupported-mode`) — see that type's own doc comment for why they're distinct from `anchor-unresolved`. */
+export interface WriteRefusalInfo {
+  readonly reason:
+    | "stale-token"
+    | "not-resting"
+    | "file-vanished"
+    | "anchor-unresolved"
+    | "note-collision"
+    | "unsupported-mode"
+  readonly moved?: "sha" | "content-hash"
+}
+
+/**
+ * Reads the four-way typed refusal off a `writeNote` mutation's thrown error
+ * — `error.data.writeRefusal`, as `Router.ts`'s `errorFormatter` attaches it
+ * — or `undefined` for anything else (a network failure, a malformed-input
+ * rejection). Never reads `error.message`: every gtd refusal's message text
+ * is for a human reading a log, not for a client to switch on.
+ */
+export const writeRefusalFrom = (error: unknown): WriteRefusalInfo | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const data = (error as { data?: unknown }).data
+  if (typeof data !== "object" || data === null) return undefined
+  const refusal = (data as { writeRefusal?: unknown }).writeRefusal
+  if (typeof refusal !== "object" || refusal === null) return undefined
+  const reason = (refusal as { reason?: unknown }).reason
+  if (typeof reason !== "string") return undefined
+  const moved = (refusal as { moved?: unknown }).moved
+  if (moved === "sha" || moved === "content-hash") {
+    return {
+      reason: reason as WriteRefusalInfo["reason"],
+      moved,
+    }
+  }
+  return { reason: reason as WriteRefusalInfo["reason"] }
+}
+
+/** `ui/ReadSteeringFile.ts#ReadSteeringFileResult`'s refusal half, read back off a `readSteeringFile` query's error — mirrors `WriteRefusalInfo`'s own shape and doc comment. `reason` mirrors `ui/ReadSteeringFile.ts`'s own union verbatim. */
+export interface ReadRefusalInfo {
+  readonly reason: "file-vanished" | "unsupported-mode" | "head-unresolved"
+}
+
+/**
+ * Reads the typed refusal off a `readSteeringFile` query's thrown error —
+ * `error.data.readRefusal`, as `Router.ts`'s `errorFormatter` attaches it —
+ * or `undefined` for anything else, exactly mirroring `writeRefusalFrom`.
+ */
+export const readRefusalFrom = (error: unknown): ReadRefusalInfo | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const data = (error as { data?: unknown }).data
+  if (typeof data !== "object" || data === null) return undefined
+  const refusal = (data as { readRefusal?: unknown }).readRefusal
+  if (typeof refusal !== "object" || refusal === null) return undefined
+  const reason = (refusal as { reason?: unknown }).reason
+  if (typeof reason !== "string") return undefined
+  return { reason: reason as ReadRefusalInfo["reason"] }
+}

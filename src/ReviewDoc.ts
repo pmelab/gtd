@@ -1,7 +1,8 @@
 import type { Heading, ListItem, Root, RootContent } from "mdast"
-import type { FootnoteMarker } from "./Footnotes.js"
+import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
+  footnoteAttachEdits,
   footnotePointerAt,
   isOnExistingFootnote,
   parseFootnotes,
@@ -15,11 +16,14 @@ import {
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
 import type {
+  SteeringAnchor,
+  SteeringAnnotateResult,
   SteeringEdit,
   SteeringFinding,
   SteeringFormat,
   SteeringLink,
   SteeringOutlineNode,
+  SteeringView,
 } from "./SteeringFormat.js"
 
 export interface ReviewFile {
@@ -52,22 +56,33 @@ export interface ReviewDoc {
 /**
  * `REVIEW_FORMAT`'s canonical sample — a minimal, valid `review`-mode
  * document: the header, the base comment, one chunk with one file pointer,
- * and one anchored footnote on that hunk's note with a body over 80
- * characters — pinned already in oxfmt's own wrapped four-space form (see
- * `src/SteeringFormats.test.ts`'s formatter round-trip). Deliberately not
- * authored to survive any particular formatter beyond that.
+ * an author-written footnote on the hunk with a body over 80 characters, and
+ * a SECOND footnote on the chunk itself, attached exactly the way the server
+ * attaches one (`reviewAnnotate` → `Footnotes.ts#footnoteAttachEdits`, hence
+ * its `na`-prefixed id, distinct from a hand-authored `fn` one) — its body
+ * also over 80 characters and carrying a multi-word inline code span, so
+ * `ModeContradiction.ts`'s formatter round-trip covers a server-written note
+ * reflowing, not just a hand-authored one. Pinned already in oxfmt's own
+ * wrapped four-space form (see `src/SteeringFormats.test.ts`'s formatter
+ * round-trip). Deliberately not authored to survive any particular formatter
+ * beyond that.
  */
 const REVIEW_SAMPLE = `# Review: sample123
 
 <!-- base: 0000000000000000000000000000000000000000 -->
 
-## Sample chunk
+## Sample chunk[^naduiqc4]
 
 - [ ] ./sample.ts#1 what this hunk does[^fn1]
 
 [^fn1]:
     This note explains why the hunk exists in more detail than fits on one line
     for a reviewer.
+
+[^naduiqc4]:
+    Attached via the phone UI, this note demonstrates a chunk-level comment with
+    a \`multi word code span\` that exceeds eighty characters in total length
+    here.
 `
 
 /** The `# Review: <hash>` header, once a depth-1 heading's own inline text has been extracted. */
@@ -284,6 +299,21 @@ const hunkSecondPointerFinding = (
   return secondPointerError(range, title, file, secondToken)
 }
 
+/** The first word of `item`'s first paragraph, whichever comes first. `undefined` when `item` has no paragraph, or an empty one. */
+const firstParagraphToken = (content: string, item: ListItem): string | undefined => {
+  const paragraph = item.children.find((c) => c.type === "paragraph")
+  if (!paragraph) return undefined
+  return sourceText(content, paragraph)
+    .split(/\s+/)
+    .find((w) => w.length > 0)
+}
+
+/** True when `item`'s first paragraph's first word is a pointer token — the single "is this list item a hunk pointer" test, shared by `parseHunk` and `parseChunkBody` so the parse and the description can never disagree about what counts as a pointer. */
+const hasPointerToken = (content: string, item: ListItem): boolean => {
+  const token = firstParagraphToken(content, item)
+  return token !== undefined && isPointerToken(token)
+}
+
 /** One pointer's parse result: its `ReviewFile`, plus the second-pointer finding when its inline (same-line) segment itself opens with a pointer token. `undefined` when `item`'s first paragraph's first word isn't a pointer token at all — a real task-list item whose content isn't a hunk pointer. */
 const parseHunk = (
   content: string,
@@ -293,19 +323,19 @@ const parseHunk = (
 ): { readonly file: ReviewFile; readonly error?: SteeringFinding } | undefined => {
   const paragraph = item.children.find((c) => c.type === "paragraph")
   if (!paragraph || !item.position) return undefined
+  if (!hasPointerToken(content, item)) return undefined
 
-  const token = sourceText(content, paragraph)
-    .split(/\s+/)
-    .find((w) => w.length > 0)
-  if (!token || !isPointerToken(token)) return undefined
-
+  const token = firstParagraphToken(content, item)!
   const sourceLine = toLspPosition(item.position.start).line
   const file = buildHunkFile(content, item, paragraph, token, sourceLine)
   const error = hunkSecondPointerFinding(content, lines, item, token, sourceLine, title, file)
   return { file, ...(error ? { error } : {}) }
 }
 
-/** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose (only the nodes before the chunk's first `list`). */
+/** Prose node kinds a chunk's leading run may contribute to `description` — everything else (`heading`, `html`, `code`, `thematicBreak`, `footnoteDefinition`, …) is dropped even when it precedes the first pointer-bearing node. */
+const PROSE_NODE_KINDS = new Set(["paragraph", "blockquote", "list"])
+
+/** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own PROSE and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would), then keeps only prose-shaped nodes from what's left before that point. */
 const parseChunkBody = (
   content: string,
   lines: readonly string[],
@@ -316,10 +346,11 @@ const parseChunkBody = (
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
 } => {
-  const firstListIndex = body.findIndex((n) => n.type === "list")
-  const descriptionNodes = (firstListIndex === -1 ? body : body.slice(0, firstListIndex)).filter(
-    (n) => n.type !== "footnoteDefinition",
+  const firstPointerIndex = body.findIndex((n) =>
+    taskItems(n).some((item) => hasPointerToken(content, item)),
   )
+  const leadingRun = firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)
+  const descriptionNodes = leadingRun.filter((n) => PROSE_NODE_KINDS.has(n.type))
   const description = descriptionNodes
     .map((n) => sourceText(content, n))
     .join(" ")
@@ -752,6 +783,217 @@ const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
   return links
 }
 
+/**
+ * `review`-mode's `view`: every chunk as a container node (title, description
+ * as `detail`, own `chunk` anchor) with every one of its file pointers as a
+ * child item node (path, line, ticked state, note, own `hunk` anchor) — built
+ * from ONE `parseReviewDoc` call, never one parse per chunk/file. Pointers
+ * nested at any depth are already flattened into `chunk.files` by
+ * `parseChunkBody`'s own `taskItems` walk, so they need no special handling
+ * here. Uses `SteeringViewNode`'s generic shape, never a `review`-only type —
+ * see that type's own doc comment.
+ */
+/**
+ * A chunk-level footnote's own text, when one is attached — `NoteSheet`'s
+ * `chunk` anchor attaches at the END OF THE HEADING LINE ITSELF
+ * (`resolveChunkAnchor`'s `chunk:${headingLine}` key), so a chunk-owned
+ * footnote is a marker whose OWN line equals `headingLine` exactly — never a
+ * hunk's own line, which already surfaces as that hunk's own `note` above.
+ * Multiple chunk-level footnotes (unusual, but not rejected by the format)
+ * join with a space, matching `footnoteLeaf`'s own join convention.
+ */
+const chunkNoteOf = (
+  definitionByName: ReadonlyMap<string, string>,
+  markers: readonly FootnoteMarker[],
+  headingLine: number,
+): string | undefined => {
+  const bodies = markers
+    .filter((marker) => marker.line === headingLine)
+    .map((marker) => definitionByName.get(marker.name))
+    .filter((body): body is string => body !== undefined)
+  return bodies.length > 0 ? bodies.join(" ") : undefined
+}
+
+/** A hunk's own attached footnote text, mirroring `chunkNoteOf` exactly: `resolveHunkAnchor` attaches a hunk footnote at `file.sourceLine`, so the lookup key here is markers whose `line === sourceLine` — never `headingLine`, which is a chunk's own key and can never collide with a hunk's source line. Multiple hunk-level footnotes join with a space, matching `chunkNoteOf`'s own join convention. */
+const hunkNoteOf = (
+  definitionByName: ReadonlyMap<string, string>,
+  markers: readonly FootnoteMarker[],
+  sourceLine: number,
+): string | undefined => {
+  const bodies = markers
+    .filter((marker) => marker.line === sourceLine)
+    .map((marker) => definitionByName.get(marker.name))
+    .filter((body): body is string => body !== undefined)
+  return bodies.length > 0 ? bodies.join(" ") : undefined
+}
+
+const reviewView = (content: string): SteeringView => {
+  const { shortHash, changesets } = parseReviewDoc(content)
+  const { markers, definitions } = parseFootnotes(content)
+  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
+  return {
+    ...(shortHash ? { header: shortHash } : {}),
+    nodes: changesets.map((chunk, chunkIndex) => {
+      const chunkNote = chunkNoteOf(definitionByName, markers, chunk.headingLine)
+      return {
+        title: chunk.title,
+        detail: chunk.description,
+        anchor: { kind: "chunk", index: chunkIndex },
+        ...(chunkNote !== undefined ? { note: chunkNote } : {}),
+        children: chunk.files.map((file, index) => {
+          const hunkNote = hunkNoteOf(definitionByName, markers, file.sourceLine)
+          return {
+            title: file.line !== undefined ? `${file.path}#${file.line}` : file.path,
+            path: file.path,
+            ...(file.line !== undefined ? { line: file.line } : {}),
+            checked: file.checked,
+            ...(file.note !== undefined ? { detail: file.note } : {}),
+            ...(hunkNote !== undefined ? { note: hunkNote } : {}),
+            anchor: { kind: "hunk", chunkIndex, index },
+          }
+        }),
+      }
+    }),
+  }
+}
+
+/** Resolves a `chunk` anchor: attaches at the end of the chunk's own heading line, the definition landing after the chunk's whole block (`chunkEndLines`). `undefined` for a stale `index`. */
+const resolveChunkAnchor = (
+  content: string,
+  lines: readonly string[],
+  changesets: readonly Changeset[],
+  index: number,
+): FootnoteAnchor | undefined => {
+  const chunk = changesets[index]
+  if (!chunk) return undefined
+  const end = Math.max(
+    chunk.headingLine,
+    chunkEndLines(content).get(chunk.headingLine) ?? chunk.headingLine,
+  )
+  return {
+    line: chunk.headingLine,
+    endCharacter: (lines[chunk.headingLine] ?? "").length,
+    blockEndLine: end,
+    key: `chunk:${chunk.headingLine}`,
+  }
+}
+
+/** Resolves a `hunk` anchor: attaches at the end of the hunk's own source line, the definition landing after the hunk's whole span (`file.endLine`). `undefined` for a stale `chunkIndex`/`index`. */
+const resolveHunkAnchor = (
+  lines: readonly string[],
+  changesets: readonly Changeset[],
+  chunkIndex: number,
+  index: number,
+): FootnoteAnchor | undefined => {
+  const file = changesets[chunkIndex]?.files[index]
+  if (!file) return undefined
+  return {
+    line: file.sourceLine,
+    endCharacter: (lines[file.sourceLine] ?? "").length,
+    blockEndLine: file.endLine,
+    key: `hunk:${file.sourceLine}`,
+  }
+}
+
+/** Resolves a `paragraph` anchor: attaches at the end of `line`'s own text, the definition landing after that line's containing top-level block node. `undefined` when `line` isn't inside a real block. */
+const resolveParagraphAnchor = (
+  tree: Root,
+  lines: readonly string[],
+  line: number,
+): FootnoteAnchor | undefined => {
+  const block = blockNodeAt(tree, line)
+  if (!block?.position) return undefined
+  return {
+    line,
+    endCharacter: (lines[line] ?? "").length,
+    blockEndLine: toLspPosition(block.position.end).line,
+    key: `paragraph:${line}`,
+  }
+}
+
+/**
+ * Resolves a `chunk`/`hunk`/`paragraph` `SteeringAnchor` against `content`
+ * into the low-level `FootnoteAnchor` `Footnotes.ts#footnoteAttachEdits`
+ * wants — `undefined` for a `question`/`option` anchor (not this format's own
+ * kind) or an index/line that no longer resolves, so a stale anchor is
+ * REJECTED rather than silently attaching to the wrong node.
+ */
+const resolveReviewAnchor = (
+  content: string,
+  tree: Root,
+  lines: readonly string[],
+  changesets: readonly Changeset[],
+  anchor: SteeringAnchor,
+): FootnoteAnchor | undefined => {
+  switch (anchor.kind) {
+    case "chunk":
+      return resolveChunkAnchor(content, lines, changesets, anchor.index)
+    case "hunk":
+      return resolveHunkAnchor(lines, changesets, anchor.chunkIndex, anchor.index)
+    case "paragraph":
+      return resolveParagraphAnchor(tree, lines, anchor.line)
+    default:
+      return undefined
+  }
+}
+
+/** `review`-mode's `annotate`: resolves `anchor` then delegates the two-edit mechanics (`text` carried through verbatim as the new definition's body) to `Footnotes.ts#footnoteAttachEdits`. */
+const reviewAnnotate = (
+  content: string,
+  anchor: SteeringAnchor,
+  text: string,
+): SteeringAnnotateResult => {
+  const { changesets } = parseReviewDoc(content)
+  const tree = parseMarkdown(content)
+  const lines = content.split(/\r?\n/)
+  const resolved = resolveReviewAnchor(content, tree, lines, changesets, anchor)
+  if (!resolved) return { ok: false, reason: "anchor-not-found" }
+  const result = footnoteAttachEdits(content, resolved, text)
+  if (!result.ok) return result
+  return { ok: true, edits: result.edits }
+}
+
+/** Edits that set every one of `files`' ticks to `checked` — one edit per file not already at that state, none when the set is already uniform. Shared by `reviewApply`'s `hunk` (single-element) and `chunk` (every hunk beneath it) cases, so the two can never diverge on how a tick is actually set. */
+const setFileTickEdits = (
+  content: string,
+  files: readonly ReviewFile[],
+  checked: boolean,
+): SteeringEdit[] => {
+  const edits: SteeringEdit[] = []
+  for (const file of files) {
+    if (file.checked === checked) continue
+    const edit = toggleFilePointer(content, file.sourceLine)
+    if (edit) edits.push(edit)
+  }
+  return edits
+}
+
+/**
+ * `review`-mode's `apply`: a `hunk` anchor sets that ONE file's tick; a
+ * `chunk` anchor sets EVERY hunk beneath it (already flattened at any depth
+ * into `chunk.files` by `parseChunkBody`) to the SAME target `opts.checked` —
+ * never `toggleChunkEdits`'s own majority-flip heuristic, since the caller
+ * here already knows and sends the exact state it wants. `opts.checked`
+ * defaults to `true` (ticking is the only action either screen offers; there
+ * is no "leave it as found" case). A `question`/`option`/`paragraph` anchor
+ * (not this format's own kind) or a stale index refuses `anchor-not-found`.
+ */
+const reviewApply: SteeringFormat["apply"] = (content, anchor, opts) => {
+  const { changesets } = parseReviewDoc(content)
+  const checked = opts.checked ?? true
+  if (anchor.kind === "hunk") {
+    const file = changesets[anchor.chunkIndex]?.files[anchor.index]
+    if (!file) return { ok: false, reason: "anchor-not-found" }
+    return { ok: true, edits: setFileTickEdits(content, [file], checked) }
+  }
+  if (anchor.kind === "chunk") {
+    const chunk = changesets[anchor.index]
+    if (!chunk) return { ok: false, reason: "anchor-not-found" }
+    return { ok: true, edits: setFileTickEdits(content, chunk.files, checked) }
+  }
+  return { ok: false, reason: "anchor-not-found" }
+}
+
 export const REVIEW_FORMAT: SteeringFormat = {
   sample: REVIEW_SAMPLE,
   validate: (content) => [...parseReviewDoc(content).findings, ...parseFootnotes(content).findings],
@@ -759,4 +1001,7 @@ export const REVIEW_FORMAT: SteeringFormat = {
   actions: reviewActions,
   pointerAt: reviewPointerAt,
   documentLinks: reviewDocumentLinks,
+  view: reviewView,
+  annotate: reviewAnnotate,
+  apply: reviewApply,
 }

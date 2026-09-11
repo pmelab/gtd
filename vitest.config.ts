@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
+import { storybookTest } from "@storybook/addon-vitest/vitest-plugin"
+import react from "@vitejs/plugin-react"
 import { rawMd } from "./tests/vitest.rawMd.js"
+import { ensureWebClient } from "./tests/vitest.ensureWebClient.js"
 import { SETUP_FILES } from "./tests/integration/support/setup-files.js"
 
 // Reuses stryker.config.json's `mutate` array as the coverage `include` list
@@ -18,7 +21,7 @@ export default defineConfig({
     },
     projects: [
       {
-        plugins: [rawMd()],
+        plugins: [rawMd(), ensureWebClient()],
         test: {
           name: "unit",
           include: ["src/**/*.test.ts", "tests/tooling/*.test.ts"],
@@ -28,7 +31,11 @@ export default defineConfig({
         },
       },
       {
-        plugins: [rawMd(), quickpickle({ stepTimeout: 30_000, skipTags: ["@skip", "@live"] })],
+        plugins: [
+          rawMd(),
+          ensureWebClient(),
+          quickpickle({ stepTimeout: 30_000, skipTags: ["@skip", "@live"] }),
+        ],
         test: {
           name: "e2e-inmem",
           pool: "threads",
@@ -47,7 +54,11 @@ export default defineConfig({
         // crossed 60s under `npm test`'s concurrent turbo task load. Keep this
         // and `driver-doc.steps.ts`'s own execFile timeout equal, and both
         // below `testTimeout`, so a slow step fails as a step, not a test.
-        plugins: [rawMd(), quickpickle({ stepTimeout: 120_000, skipTags: ["@skip", "@inmem"] })],
+        plugins: [
+          rawMd(),
+          ensureWebClient(),
+          quickpickle({ stepTimeout: 120_000, skipTags: ["@skip", "@inmem"] }),
+        ],
         test: {
           name: "e2e-live",
           pool: "forks",
@@ -61,6 +72,22 @@ export default defineConfig({
           include: ["tests/integration/features/**/*.feature"],
           setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
+        },
+      },
+      {
+        // Storybook's vitest addon turns each src/web/**/*.stories.tsx file
+        // into vitest test cases, run for real in a headless Chromium via
+        // @vitest/browser — vitest already brings vite, so no second
+        // bundler enters the repo for this.
+        plugins: [react(), storybookTest({ configDir: ".storybook" })],
+        test: {
+          name: "storybook",
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: "playwright",
+            instances: [{ browser: "chromium" }],
+          },
         },
       },
     ],

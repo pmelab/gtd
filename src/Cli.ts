@@ -1,7 +1,7 @@
 import { NodeContext } from "@effect/platform-node"
 import { createRequire } from "node:module"
 import { Cause, Effect, Either, Layer } from "effect"
-import { Narrator, renderFailure } from "./Commentary.js"
+import { GtdUsageError, Narrator, renderFailure } from "./Commentary.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -13,6 +13,7 @@ import { GitService } from "./Git.js"
 import { runCommand, SelectorUsageError, type CommandRequirements } from "./program.js"
 import { RepoFiles } from "./RepoFiles.js"
 import { CommandRunner } from "./CommandRunner.js"
+import { UiListener } from "./ui/Server.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
 
 export type { CommandRequirements }
@@ -24,6 +25,19 @@ export type Command =
   | { readonly kind: "lsp" }
   | { readonly kind: "init" }
   | { readonly kind: "visualize"; readonly port: number; readonly open: boolean }
+  | {
+      readonly kind: "ui"
+      // `host`/`port` stay optional/undefined-when-absent (unlike
+      // `visualize`'s non-optional `port`): a resolved bind address/port is
+      // `ui: { host?, port? }` config-file values merged in downstream
+      // (`src/ui/Server.ts`, a separate task), which this parser never
+      // reads — an absent flag here must not shadow a configured value with
+      // a parser-invented default.
+      readonly host?: string
+      readonly port?: number
+      readonly selfSigned: boolean
+      readonly dev: boolean
+    }
   | {
       readonly kind: "land"
       readonly cost?: number
@@ -150,16 +164,20 @@ const FLAGS: readonly FlagRow[] = [
     name: "--port",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "visualize",
+    scope: (kind) => kind === "visualize" || kind === "ui",
     decode: ([raw]) => {
       const n = Number(raw)
       return raw !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535
         ? Either.right(n)
-        : Either.left(`gtd visualize: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
+        : Either.left(`gtd: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
     },
-    scopeError: "gtd: --port is only valid for `gtd visualize`",
+    scopeError: "gtd: --port is only valid for `gtd visualize`/`gtd ui`",
     valueHint: "<n>",
-    help: ["(gtd visualize only) port to serve on (default: a free port)"],
+    help: [
+      "(gtd visualize/gtd ui only) port to serve on: a free port",
+      "for visualize; for ui, the tailscale serve port (default:",
+      "8443), or the bind port when --host opts out of serve",
+    ],
   },
   {
     name: "--no-open",
@@ -170,6 +188,46 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: "gtd: --port is only valid for `gtd visualize`",
     valueHint: "",
     help: ["(gtd visualize only) do not open the browser"],
+  },
+  {
+    name: "--host",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "ui",
+    decode: ([raw]) =>
+      raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
+        ? Either.left("gtd: --host must be a non-empty, single-line value")
+        : Either.right(raw),
+    scopeError: "gtd: --host is only valid for `gtd ui`",
+    valueHint: "<addr>",
+    help: [
+      "(gtd ui only) opt out of the default tailscale serve front",
+      "door and bind this address directly instead, showing it in",
+      "the printed URL",
+    ],
+  },
+  {
+    name: "--self-signed",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "ui",
+    decode: () => Either.right(true),
+    scopeError: "gtd: --self-signed is only valid for `gtd ui`",
+    valueHint: "",
+    help: [
+      "(gtd ui only) generate a throwaway self-signed TLS",
+      "certificate instead of the configured ui.cert/ui.key",
+    ],
+  },
+  {
+    name: "--dev",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "ui",
+    decode: () => Either.right(true),
+    scopeError: "gtd: --dev is only valid for `gtd ui`",
+    valueHint: "",
+    help: ["(gtd ui only) run against local development sources", "instead of the packaged build"],
   },
   {
     name: "--cost",
@@ -425,6 +483,27 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "local web server (--port <n>, --no-open). Prints the",
       "chosen port on its own line — with --port 0, this is the",
       "only way to learn which port was picked",
+    ],
+  },
+  {
+    token: "ui",
+    kind: "ui",
+    arity: "none",
+    details: [
+      "Expose gtd's web/phone client for THIS worktree — the",
+      "invoking directory, never a configured list of roots — and",
+      "refuses outside a repository like every other state command.",
+      "By default, publishes through `tailscale serve` (reachable",
+      "from anywhere on the tailnet, including over a DERP relay)",
+      "with tailscaled terminating TLS; falls back to binding a",
+      "local HTTPS server directly, never refusing, when serve",
+      "isn't available. --host <addr> opts out of serve and binds",
+      "that address directly instead; --port <n> overrides the",
+      "serve port (default: 8443), or the bind port when --host is",
+      "given; --self-signed also opts out of serve, generating a",
+      "throwaway TLS certificate instead of the configured",
+      "ui.cert/ui.key; --dev runs against local development sources",
+      "instead of the packaged build",
     ],
   },
   {
@@ -888,6 +967,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
     readonly "--open-questions"?: boolean
+    readonly "--host"?: string
+    readonly "--self-signed"?: boolean
+    readonly "--dev"?: boolean
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -924,6 +1006,21 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return {
       kind: "command",
       command: { kind: "visualize", port: bag["--port"] ?? 0, open: !(bag["--no-open"] ?? false) },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "ui") {
+    return {
+      kind: "command",
+      command: {
+        kind: "ui",
+        ...(bag["--host"] !== undefined ? { host: bag["--host"] } : {}),
+        ...(bag["--port"] !== undefined ? { port: bag["--port"] } : {}),
+        selfSigned: bag["--self-signed"] ?? false,
+        dev: bag["--dev"] ?? false,
+      },
       json,
       verbose,
     }
@@ -1025,6 +1122,7 @@ export const nodeCliIo: CliIo = {
       CommandRunner.Live,
       EnvVars.Live,
       Narrator.layer(writeStderr, verbose),
+      UiListener.Live,
     ).pipe(
       Layer.provideMerge(GitService.Live),
       Layer.provideMerge(Cwd.Live),
@@ -1077,10 +1175,12 @@ const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
  * — it must read stderr or the exit code instead. `Effect.sandbox` means this also
  * fires for a DEFECT, not just a typed error. Unreached by an ordinary usage
  * error (an unknown flag, bad arity, a scope violation) — those never build a
- * layer at all. The one exception is `SelectorUsageError`: an unknown
- * `--json=<path>` selector can only be judged after the layer is built and
- * the fields object it's reduced against is fully resolved, so it fails HERE
- * rather than in `parseArgv` — `EXIT_USAGE_ERROR` still applies to it below.
+ * layer at all. Two exceptions map to `EXIT_USAGE_ERROR` instead, below:
+ * `SelectorUsageError` (an unknown `--json=<path>` selector can only be
+ * judged after the layer is built and the fields object it's reduced
+ * against is fully resolved, so it fails HERE rather than in `parseArgv`)
+ * and `GtdUsageError` (`gtd ui` refusing to start on a step it cannot
+ * render — see `Commentary.ts`).
  */
 const report =
   (io: CliIo, json: boolean) =>
@@ -1092,7 +1192,11 @@ const report =
         io.stderr(`${JSON.stringify({ state: "error", prompt: message })}\n`)
       }
       io.stderr(`${renderFailure(error)}\n`)
-      io.exit(error instanceof SelectorUsageError ? EXIT_USAGE_ERROR : EXIT_RUNTIME_ERROR)
+      io.exit(
+        error instanceof SelectorUsageError || error instanceof GtdUsageError
+          ? EXIT_USAGE_ERROR
+          : EXIT_RUNTIME_ERROR,
+      )
     })
 
 export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, Error> => {

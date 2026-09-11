@@ -30,6 +30,9 @@ const FLAG_NAMES = [
   "--json",
   "--port",
   "--no-open",
+  "--host",
+  "--self-signed",
+  "--dev",
   "--cost",
   "--model",
   "--entry",
@@ -148,6 +151,24 @@ describe("parseArgv — scope", () => {
     const plan = parseArgv(["node", "gtd.js", "land", "--port=1234"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd visualize`")
+  })
+
+  it("--port is accepted by both gtd visualize and gtd ui", () => {
+    for (const args of [
+      ["visualize", "--port", "3000"],
+      ["ui", "--port", "3000"],
+    ]) {
+      const plan = parseArgv(["node", "gtd.js", ...args])
+      expect(plan.kind).toBe("command")
+    }
+  })
+
+  it("--host on any other command (e.g. visualize) is a scope violation", () => {
+    const plan = parseArgv(["node", "gtd.js", "visualize", "--host", "x"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toBe("gtd: --host is only valid for `gtd ui`")
+    }
   })
 
   it("--var without --entry is rejected", () => {
@@ -728,6 +749,52 @@ describe("parseArgv — gtd install", () => {
   })
 })
 
+describe("parseArgv — gtd ui", () => {
+  it("parses --host/--port/--self-signed/--dev into one ui command", () => {
+    const plan = parseArgv([
+      "node",
+      "gtd.js",
+      "ui",
+      "--host",
+      "h",
+      "--port",
+      "8443",
+      "--self-signed",
+      "--dev",
+    ])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({
+        kind: "ui",
+        host: "h",
+        port: 8443,
+        selfSigned: true,
+        dev: true,
+      })
+    }
+  })
+
+  it("bare `gtd ui` omits host/port and defaults selfSigned/dev to false", () => {
+    const plan = parseArgv(["node", "gtd.js", "ui"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "ui", selfSigned: false, dev: false })
+    }
+  })
+
+  it("gtd ui --bogus is an unknown-option usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "ui", "--bogus"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("unknown option '--bogus'")
+  })
+
+  it("gtd ui extra is a usage error — ui takes no positional argument", () => {
+    const plan = parseArgv(["node", "gtd.js", "ui", "extra"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+})
+
 describe("standaloneKinds / needsOf", () => {
   it("pins the six standalone kinds", () => {
     expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check", "uncheck", "install"])
@@ -740,7 +807,7 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("init")).toBe("fs")
     expect(needsOf("visualize")).toBe("config")
     expect(needsOf("install")).toBe("none")
-    for (const kind of ["land", "entry", "abandon", "restore", "next", "validate"] as const) {
+    for (const kind of ["land", "entry", "abandon", "restore", "next", "validate", "ui"] as const) {
       expect(needsOf(kind)).toBe("state")
     }
   })
@@ -760,6 +827,7 @@ describe("renderHelp", () => {
     expect(help).toContain("validate")
     expect(help).toContain("lsp")
     expect(help).toContain("visualize")
+    expect(help).toMatch(/^ {2}ui\b/m)
     expect(help).toContain("check <mode> <file>")
     expect(help).toContain("install")
     expect(help).toContain("base ")
@@ -768,6 +836,9 @@ describe("renderHelp", () => {
     expect(help).toContain("--json")
     expect(help).toContain("--port")
     expect(help).toContain("--no-open")
+    expect(help).toContain("--host")
+    expect(help).toContain("--self-signed")
+    expect(help).toContain("--dev")
     expect(help).toContain("--cost")
     expect(help).toContain("--model")
     expect(help).toContain("--open-questions")
@@ -783,6 +854,7 @@ describe("renderHelp", () => {
     expect(help).not.toContain("--if-resting")
     expect(help).not.toContain("step <actor>")
     expect(help).not.toMatch(/^ {2}status\b/m)
+    expect(help).not.toMatch(/^ {2}serve\b/m)
     expect(help).toMatch(/\n$/)
   })
 
@@ -886,6 +958,20 @@ describe("runCli — exit codes", () => {
     const { io, captured } = capturingIo(throwingLayers)
     await Effect.runPromise(runCli(["node", "gtd.js", "bogus"], io))
     expect(captured().exitCode).toBe(EXIT_USAGE_ERROR)
+  })
+
+  it("gtd ui --bogus exits EXIT_USAGE_ERROR (unknown flag)", async () => {
+    const { io, captured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "ui", "--bogus"], io))
+    expect(captured().exitCode).toBe(EXIT_USAGE_ERROR)
+  })
+
+  it("--host on a non-ui command exits EXIT_USAGE_ERROR with a clear scopeError message", async () => {
+    const { io, captured } = capturingIo(throwingLayers)
+    await Effect.runPromise(runCli(["node", "gtd.js", "visualize", "--host", "x"], io))
+    const result = captured()
+    expect(result.exitCode).toBe(EXIT_USAGE_ERROR)
+    expect(result.stderr).toContain("only valid for `gtd ui`")
   })
 
   it("a command failure that is NOT a usage error still exits EXIT_RUNTIME_ERROR", async () => {

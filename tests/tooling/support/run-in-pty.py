@@ -37,9 +37,16 @@ def run_in_pty(argv):
                 break
             chunks.append(data)
         if proc.poll() is not None:
-            # Drain whatever the child already flushed before it exited.
+            # Drain whatever the child already flushed before it exited. A
+            # generous 0.5s (not the original 0.05s): under heavy CPU
+            # contention (e.g. this suite's own full `npm test` running
+            # build/lint/etc. concurrently), the write() that fills the pty
+            # buffer can lag behind the scheduler noticing the child has
+            # already exited — a short timeout here read that gap as "no
+            # more data" and returned empty output, flaky in a way a
+            # standalone run of this test never reproduced.
             while True:
-                ready, _, _ = select.select([master], [], [], 0.05)
+                ready, _, _ = select.select([master], [], [], 0.5)
                 if master not in ready:
                     break
                 try:

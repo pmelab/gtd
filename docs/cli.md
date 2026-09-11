@@ -74,6 +74,20 @@ Commands:
                    local web server (--port <n>, --no-open). Prints the
                    chosen port on its own line — with --port 0, this is the
                    only way to learn which port was picked
+  ui               Expose gtd's web/phone client for THIS worktree — the
+                   invoking directory, never a configured list of roots — and
+                   refuses outside a repository like every other state command.
+                   By default, publishes through `tailscale serve` (reachable
+                   from anywhere on the tailnet, including over a DERP relay)
+                   with tailscaled terminating TLS; falls back to binding a
+                   local HTTPS server directly, never refusing, when serve
+                   isn't available. --host <addr> opts out of serve and binds
+                   that address directly instead; --port <n> overrides the
+                   serve port (default: 8443), or the bind port when --host is
+                   given; --self-signed also opts out of serve, generating a
+                   throwaway TLS certificate instead of the configured
+                   ui.cert/ui.key; --dev runs against local development sources
+                   instead of the packaged build
   check <mode> <file>
                    Read <file> and run the built-in steering format named
                    <mode> (see `gtd validate`'s modes: qa, review) over its
@@ -133,8 +147,17 @@ Options:
                    itself absent/null (e.g. session.id at a non-prompt rest),
                    which never counts as unknown; an unknown path is a usage
                    error (exit 2).
-  --port=<n>       (gtd visualize only) port to serve on (default: a free port)
+  --port=<n>       (gtd visualize/gtd ui only) port to serve on: a free port
+                   for visualize; for ui, the tailscale serve port (default:
+                   8443), or the bind port when --host opts out of serve
   --no-open        (gtd visualize only) do not open the browser
+  --host=<addr>    (gtd ui only) opt out of the default tailscale serve front
+                   door and bind this address directly instead, showing it in
+                   the printed URL
+  --self-signed    (gtd ui only) generate a throwaway self-signed TLS
+                   certificate instead of the configured ui.cert/ui.key
+  --dev            (gtd ui only) run against local development sources
+                   instead of the packaged build
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land only, with --cost) tag that cost's model
   --entry <state>  (with no command at all) start a brand new process at
@@ -209,10 +232,11 @@ driving a loop is a driver's job, not a bundled command (see
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository.
 The state commands (`land`, `--entry`, `abandon`, `restore`, `next`, `status`,
-`validate`, `summary`) must run from the **repository root** — gtd derives the
-workflow, pending changes, and process history relative to cwd, so they refuse
-with a clear error from a subdirectory; `lsp`, `init`, `visualize`, and `check`
-are standalone and run from anywhere (see each command's own help entry).
+`validate`, `summary`, `ui`) must run from the **repository root** — gtd derives
+the workflow, pending changes, and process history relative to cwd, so they
+refuse with a clear error from a subdirectory; `lsp`, `init`, `visualize`,
+`check`, and `uncheck` are standalone and run from anywhere (see each command's
+own help entry).
 
 `install` is described on its own above: it writes nothing and installs
 knowledge into the calling agent's context, not files on disk.
