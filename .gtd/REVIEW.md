@@ -7,6 +7,11 @@ Four independent packages land here: a `tailscale serve` front door for
 autosave/debounce in favour of explicit Save buttons, and a Done control on the
 Q&A deck.
 
+- a "done" button for the design document view is missing. i can't stop the
+  process from the ui.
+- open questions should be surfaced to the top and visually clearly
+  distinguished
+
 ## Tailscale serve front door for `gtd ui`
 
 `gtd ui` no longer binds a tailnet IP itself by default. It publishes a loopback
