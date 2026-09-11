@@ -2,7 +2,7 @@
 
 ### Does the plan screen's Done control stay available while open questions are still unticked?
 
-- [ ] Always available, unguarded — Done means "hand the turn back now"; a human
+- [x] Always available, unguarded — Done means "hand the turn back now"; a human
       who leaves questions open meant to, and the answering agent handles an
       unanswered question the same way it handles one that was never asked
 - [ ] Available, but a tap with unticked open questions asks for confirmation
