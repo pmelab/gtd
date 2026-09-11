@@ -980,6 +980,176 @@ export const RealContainerTryAgainOnASecondRefusalLeavesTheBannerUp: StoryObj<ty
   },
 }
 
+/**
+ * Package 05 Task 1: tapping the `plan-done` footer row on a prose-only plan
+ * (no question nodes at all, so the deck never renders) fires the same
+ * empty-input `done` the deck's own Done control fires — the ONLY way this
+ * shape of document could otherwise hand the turn back at all.
+ */
+export const TappingPlanDoneOnAProseOnlyPlanEndsTheTurnWithNoNote: Story = {
+  render: () => {
+    let calls = 0
+    const view: SteeringView = { nodes: [paragraphNode(0, "A prose-only plan.")] }
+    return (
+      <PlanView
+        contentHash="prose-hash-done"
+        isLoading={false}
+        view={view}
+        onDone={() => {
+          calls += 1
+          return Promise.resolve()
+        }}
+      />
+    )
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("plan-done")).toBeInTheDocument()
+    await fireEvent.click(canvas.getByTestId("plan-done"))
+  },
+}
+
+/**
+ * Same control, on a document carrying an unticked open question — the
+ * requirement's own "unguarded" clause: one tap ends the turn with no
+ * confirmation element rendered in between, whether or not questions are
+ * still open.
+ */
+export const TappingPlanDoneWithAnUnansweredOpenQuestionEndsTheTurnOnOneTap: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
+    onDone: () => Promise.resolve(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("plan-done"))
+    // No confirmation dialog/element renders in between.
+    await expect(canvas.queryByRole("dialog")).not.toBeInTheDocument()
+  },
+}
+
+/** `deck-done` is untouched by this package — still renders inside the deck with its existing label, and the deck's last-item advance button still reads "Back to list". */
+export const DeckDoneStillRendersInsideTheDeckUnaffectedByPlanDone: Story = {
+  args: {
+    contentHash: "qa-sample-hash",
+    isLoading: false,
+    view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
+    onDone: () => Promise.resolve(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("deck-done")).toHaveTextContent("Done")
+    await expect(canvas.getByTestId("deck-next")).toHaveTextContent("Back to list")
+    await expect(canvas.queryByTestId("plan-done")).not.toBeInTheDocument()
+  },
+}
+
+/** A story with no `onDone` prop at all renders no `plan-done` control — matching every other optional callback on `PlanViewProps`. */
+export const NoOnDonePropRendersNoPlanDoneControl: Story = {
+  args: {
+    contentHash: "prose-hash-no-done",
+    isLoading: false,
+    view: { nodes: [paragraphNode(0, "A prose-only plan.")] } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByTestId("plan-done")).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * The real `Plan` container, tapping `plan-done` straight from the plan
+ * screen (never opening the note sheet or the deck): `done` fires with an
+ * empty request body (no `note` key, matching the deck's own no-note path),
+ * and the terminal `HandedBackPanel` renders once it resolves.
+ */
+export const RealContainerTapsPlanDoneFromTheListRendersHandedBackPanel: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A prose-only plan.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [{ title: "A prose-only plan.", anchor: { kind: "paragraph", line: 0 } }],
+            },
+          }),
+          done: (input) => {
+            record(input)
+            return { ok: true }
+          },
+          writeNote: () => {
+            throw new Error("writeNote must never be called by plan-done")
+          },
+        }}
+      >
+        <PlanDoneCallRecorder args={args} onRegisterDone={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("plan-done"))
+    await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
+    await expect(canvas.getByTestId("done-calls")).toHaveTextContent(JSON.stringify({}))
+  },
+}
+
+/**
+ * A refused `done` from the plan screen's own Done control surfaces through
+ * the existing refusal banner, leaves the plan screen rendered and editable,
+ * and never renders `HandedBackPanel` — no different from the deck's own
+ * refused-Done path.
+ */
+export const RealContainerRefusedPlanDoneShowsRefusalBannerNotHandedBack: StoryObj<typeof Plan> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: "A prose-only plan.",
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: {
+            nodes: [{ title: "A prose-only plan.", anchor: { kind: "paragraph", line: 0 } }],
+          },
+        }),
+        done: () => {
+          throw {
+            error: {
+              message: "gtd ui: write refused (stale-token)",
+              code: -32600,
+              data: { code: "CONFLICT", writeRefusal: { reason: "stale-token", moved: "sha" } },
+            },
+          }
+        },
+      }}
+    >
+      <Plan {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("plan-done"))
+    await waitFor(() =>
+      expect(canvas.getByText(/committed a change underneath you/)).toBeInTheDocument(),
+    )
+    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("plan-screen")).toBeInTheDocument()
+  },
+}
+
 /** A `useState`-backed recorder for the `done` mutation's input — mirrors `PlanWriteCallRecorder`'s identical reasoning. */
 const PlanDoneCallRecorder = ({
   args,

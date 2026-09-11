@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../SteeringFormat.js"
+import { Button } from "../Button.js"
 import { Card, CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { Notice } from "../Notice.js"
@@ -390,6 +391,22 @@ export const PlanView = ({
           />
         </CardList>
       </div>
+      {onDone !== undefined && (
+        <div
+          data-testid="plan-done-row"
+          className="flex shrink-0 items-center justify-end border-t border-border p-3"
+        >
+          <Button
+            variant="primary"
+            data-testid="plan-done"
+            onClick={() => {
+              onDone()
+            }}
+          >
+            Done
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
