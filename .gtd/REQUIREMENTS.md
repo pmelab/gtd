@@ -1,15 +1,3 @@
-## Open Questions
-
-### Does the plan screen's Done control stay available while open questions are still unticked?
-
-- [x] Always available, unguarded — Done means "hand the turn back now"; a human
-      who leaves questions open meant to, and the answering agent handles an
-      unanswered question the same way it handles one that was never asked
-- [ ] Available, but a tap with unticked open questions asks for confirmation
-      first ("2 questions unanswered — hand back anyway?") — a mistap on a phone
-      otherwise ends the turn with the work half done
-- [ ] _your answer_
-
 ## PRODUCT: end the turn from the plan screen itself, with or without a note
 
 A design document — a steering file with no questions in it — gives the human no
@@ -26,6 +14,13 @@ deck's Done does — the `done` mutation with no `note`, no compare-and-swap,
 nothing written — and it is present whether or not the document carries
 questions.
 
+It is unguarded. Unticked open questions do not hide it, disable it, or trigger
+a confirmation step — one tap ends the turn. A human who hands back with
+questions still open meant to, and the answering agent treats an unanswered
+question exactly as it treats one that was never asked. The cost of that choice
+is real: a mistap on a phone ends the turn with the plan half answered, and
+there is no undo — the process has already exited.
+
 The no-note `done` path already exists end to end and needs no server work: the
 real `Plan` container builds `onDone` (`done.mutateAsync({})`, caught and never
 rethrown), and passes it down today only to reach the deck's button. This
@@ -40,9 +35,11 @@ the human the process is exiting.
 
 Acceptance: a storybook play test taps the plan screen's Done on a prose-only
 plan and asserts the recorded `done` call carried an empty input — no `note`
-key. A second asserts the deck's own `deck-done` is untouched by the change. The
-existing `ui-lifecycle.feature` no-note handoff scenario already proves the
-server side of the same round trip exits 0.
+key. A second taps it on a plan carrying an unticked open question and asserts
+the same empty-input `done` call fires on that single tap, with no confirmation
+step in between. A third asserts the deck's own `deck-done` is untouched by the
+change. The existing `ui-lifecycle.feature` no-note handoff scenario already
+proves the server side of the same round trip exits 0.
 
 ## PRODUCT: open questions sit at the top of the plan screen and read as the thing to act on
 
@@ -87,6 +84,12 @@ rather than before it. A second play test taps the last open-question card on
 that same plan and asserts the deck opens on that question, not another.
 
 ## Answered Questions
+
+### Does the plan screen's Done control stay available while open questions are still unticked?
+
+Always available, unguarded. Done means "hand the turn back now"; a human who
+leaves questions open meant to, and the answering agent handles an unanswered
+question the same way it handles one that was never asked. No confirmation step.
 
 ### Do the two concerns land in one package or two, and in which order?
 
