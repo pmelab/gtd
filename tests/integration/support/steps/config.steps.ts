@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process"
 import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
-import { renderInitConfig } from "../../../../src/workflows/templates.js"
+import { renderInitConfig } from "../../../../src/workflows/index.js"
 import {
   createPlainDirectory,
   createTestProjectUnderConfiguredAncestor,

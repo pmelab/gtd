@@ -69,7 +69,7 @@ describe('selectPath — a null leaf is absent, never the string "null"', () => 
     expect(selectPath({ subject: null }, "subject")).toEqual({ kind: "absent" })
   })
 
-  it("BeatFields.next is | null on no match — next.target reads as absent, not unknown, so a driver's read is never fatal", () => {
+  it("BeatDocument.next is | null on no match — next.target reads as absent, not unknown, so a driver's read is never fatal", () => {
     expect(selectPath({ next: null }, "next.target")).toEqual({ kind: "absent" })
   })
 })

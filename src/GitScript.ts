@@ -1,3 +1,5 @@
+import type { GitWrite, LandStep, Outcome, Refusal } from "./step/index.js"
+
 // POSIX single-quote escaping for a shell command; every builder below routes its interpolated values through this.
 export const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -49,3 +51,94 @@ export const updateRef = (ref: string, hash: string): string =>
 
 /** `git update-ref -d <ref>` — idempotent: deleting a missing ref is already a no-op in real git. */
 export const deleteRef = (ref: string): string => `git update-ref -d ${shellQuote(ref)}`
+
+// ── ScriptSurface: LandStep[] → shell ────────────────────────────────────────
+//
+// The sole place `src/step/`'s `LandStep` data becomes runnable shell text.
+// Deliberately does NOT import `src/OutcomeScript.ts`/`src/Emit.ts` (both
+// import `shellQuote` from this file already) — a reverse import back into
+// either would be a real cycle, not just a lint nit, so the two `printf`
+// builders below are a small, load-bearing duplication of
+// `OutcomeScript.ts`'s `transitionOutcome`/`commitOutcome`, not shared code.
+// No test asserts the two stay byte-identical; a drift between them is a
+// review-time risk this boundary accepts.
+
+/** Marks an emitted block as print-only — mirrors `OutcomeScript.ts`'s `OUTCOME_MARKER` verbatim, so `src/testing/EmittedScriptRecognizer.ts` recognizes either path's output identically. */
+const OUTCOME_MARKER = "# gtd: outcome (print-only)"
+
+const printfLine = (fmt: string, args: readonly string[]): string =>
+  `${OUTCOME_MARKER}\nprintf ${shellQuote(fmt.replace(/\n/g, "\\n"))} ${args.join(" ")}`
+
+const renderOutcome = (outcome: Outcome): string => {
+  switch (outcome.kind) {
+    case "transition":
+      return printfLine("%s %s → %s\n", ["'->'", shellQuote(outcome.from), shellQuote(outcome.to)])
+    case "commit":
+      return printfLine("%s %s\n", ["'[commit]'", shellQuote(outcome.subject)])
+    case "note":
+      return printfLine("%s\n", [shellQuote(outcome.text)])
+  }
+}
+
+const renderGitWrite = (write: GitWrite): string => {
+  switch (write.kind) {
+    case "commitAll":
+      return commitAll(write.message)
+  }
+}
+
+/**
+ * Wraps `command` so a non-zero exit prints `prompt` plus the command's
+ * captured output before propagating that exit code — mirrors `Emit.ts`'s
+ * `failurePromptWrapper` (same reverse-import concern as `renderOutcome`
+ * above: `Emit.ts` imports `shellQuote` from here already).
+ */
+const failurePromptWrapper = (command: string, prompt: string): string => {
+  const promptQ = shellQuote(prompt)
+  return [
+    `gtd_validate_status=0`,
+    `gtd_validate_out="$( {`,
+    command,
+    `} 2>&1 )" || gtd_validate_status=$?`,
+    `if [ "$gtd_validate_status" -ne 0 ]; then`,
+    `  printf '%s\\n\\n%s\\n' ${promptQ} "$gtd_validate_out"`,
+    `  exit "$gtd_validate_status"`,
+    `fi`,
+  ].join("\n")
+}
+
+const renderLandStep = (step: LandStep): string => {
+  if (step.kind === "gitWrite") return renderGitWrite(step.write)
+  if (step.kind === "outcome") return renderOutcome(step.outcome)
+  if (step.kind === "uncheck") return `gtd uncheck ${shellQuote(step.file)}`
+  return step.onFailure !== undefined
+    ? failurePromptWrapper(step.command, step.onFailure)
+    : step.command
+}
+
+/**
+ * A rendered landing script — a plain `string` at runtime, but constructible
+ * ONLY by `ScriptSurface.render`, below. The brand makes "a guard ran before
+ * this script exists" a type-level fact rather than a call-order convention:
+ * nothing else in the codebase can produce a value typed `RunnableScript`.
+ * `program.ts`'s `landingScript` is the boundary this protects — it takes
+ * `RunnableScript`, not `string`, so a bare unguarded string can no longer
+ * reach `gtd land`/`gtd --entry`'s emitted output by construction.
+ */
+export type RunnableScript = string & { readonly guarded: unique symbol }
+
+/**
+ * The sole constructor of a `RunnableScript`. `guardVerdict` must be the
+ * verdict already computed for this exact decision (`Guards.enforceStepGuards`'s
+ * return, or `undefined` when no guard applies/it's an attempt) — a
+ * `Refusal` string THROWS rather than silently rendering the git write
+ * anyway, since a caller holding a refusal has no business asking for a
+ * script at all.
+ */
+export const ScriptSurface = {
+  render: (steps: readonly LandStep[], guardVerdict: Refusal): RunnableScript => {
+    if (guardVerdict !== undefined) throw new Error(guardVerdict)
+    const rendered = steps.map(renderLandStep)
+    return (rendered.length === 0 ? "" : ["set -eu", ...rendered].join("\n\n")) as RunnableScript
+  },
+}

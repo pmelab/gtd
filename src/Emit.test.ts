@@ -4,9 +4,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  binaryGuard,
   combinedScript,
   DID_NOT_RUN_COMMENT,
   emitScripts,
+  extractLeadingBinary,
   fileExistsGuard,
   type EmitStep,
 } from "./Emit.js"
@@ -154,6 +156,78 @@ describe("fileExistsGuard", () => {
   it("exits 0 (not 1) when the guard trips — a missing steering file is not a failure", () => {
     const result = spawnSync("sh", ["-c", fileExistsGuard("/no/such/file-for-sure")])
     expect(result.status).toBe(0)
+  })
+})
+
+describe("extractLeadingBinary", () => {
+  it("returns the leading word of a plain command", () => {
+    expect(extractLeadingBinary("adr-lint docs/adr.md")).toBe("adr-lint")
+  })
+
+  it("returns the whole command when it is a single bare word", () => {
+    expect(extractLeadingBinary("true")).toBe("true")
+  })
+
+  it("returns undefined for a VAR=x-prefixed command", () => {
+    expect(extractLeadingBinary("FOO=1 some-tool docs/adr.md")).toBeUndefined()
+  })
+
+  it("returns undefined for a pipeline", () => {
+    expect(extractLeadingBinary("cat docs/adr.md | grep -q Decision")).toBeUndefined()
+  })
+
+  it("returns undefined for a subshell", () => {
+    expect(extractLeadingBinary("(cd docs && adr-lint adr.md)")).toBeUndefined()
+  })
+
+  it("returns undefined for a multi-line command", () => {
+    expect(extractLeadingBinary("adr-lint docs/adr.md\necho done")).toBeUndefined()
+  })
+
+  it("returns undefined for a leading word spelled with characters outside [A-Za-z0-9_./-]", () => {
+    expect(extractLeadingBinary("$(which adr-lint) docs/adr.md")).toBeUndefined()
+  })
+})
+
+describe("binaryGuard", () => {
+  it("renders a command -v probe naming the mode, key, and binary, exiting 127", () => {
+    expect(binaryGuard("adr-lint", "adr", "validate")).toBe(
+      [
+        `command -v 'adr-lint' >/dev/null 2>&1 || {`,
+        `  printf '%s\\n%s\\n' 'gtd: mode "adr": "validate" command not found: adr-lint' '$PATH: '"$PATH"`,
+        `  exit 127`,
+        `}`,
+      ].join("\n"),
+    )
+  })
+
+  it("is syntactically valid POSIX sh", () => {
+    expect(runShCheckSyntax(binaryGuard("adr-lint", "adr", "validate"))).toBe(0)
+  })
+
+  it("$PATH is expanded by the driver's shell, never resolved in-process — a literal '$PATH: ' label plus a double-quoted $PATH survive in the rendered text", () => {
+    expect(binaryGuard("adr-lint", "adr", "validate")).toContain(`'$PATH: '"$PATH"`)
+  })
+
+  it("exits 0 (not 127) when the named binary IS on PATH", () => {
+    const result = spawnSync("sh", ["-c", binaryGuard("true", "adr", "validate")])
+    expect(result.status).toBe(0)
+  })
+
+  it("exits 127 and names the binary plus the resolved $PATH when it is NOT on PATH", () => {
+    const result = spawnSync(
+      "/bin/sh",
+      ["-c", binaryGuard("gtd-nonexistent-tool", "adr", "validate")],
+      {
+        encoding: "utf8",
+        env: { ...process.env, PATH: "/no/such/dir" },
+      },
+    )
+    expect(result.status).toBe(127)
+    expect(result.stdout).toContain(
+      'gtd: mode "adr": "validate" command not found: gtd-nonexistent-tool',
+    )
+    expect(result.stdout).toContain("$PATH: /no/such/dir")
   })
 })
 

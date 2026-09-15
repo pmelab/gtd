@@ -1,5 +1,5 @@
 import type { ReactElement } from "react"
-import type { BlockListItem, SteeringViewNode } from "../../SteeringFormat.js"
+import type { BlockListItem, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 
 /** The heading tag a `block.heading`'s own `depth` renders as — three buckets covering all six markdown levels, never a literal `h1`..`h6` (this screen's own `h2` already labels "Open Questions"/"Already answered"). */

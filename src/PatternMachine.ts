@@ -103,12 +103,6 @@ export const entryBaseTemplateOf = (
   return typeof reviewBase === "string" ? reviewBase : undefined
 }
 
-export const isRequireProgressState = (def: WorkflowDefinition, state: StateName): boolean =>
-  def.states[state]?.requireProgress === true
-
-export const isAnswerGateState = (def: WorkflowDefinition, state: StateName): boolean =>
-  def.states[state]?.answerGate === true
-
 export const isRequireRevertState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.requireRevert === true
 
@@ -244,8 +238,7 @@ export const parsePattern = (raw: string): ParsedPattern | undefined => {
 //  - `*` matches within ONE path segment: it never crosses a `/`. So `*`
 //    matches `TODO.md` but NOT `.gtd/FEEDBACK.md`.
 //  - `**` matches across segments, including zero of them: `**` alone
-//    matches any path at any depth. `src/**/*.ts` matches both `src/a.ts`
-//    and `src/sub/dir/a.ts`.
+//    matches any path at any depth. `src/**/*.ts` matches both `src/a.ts` and `src/sub/dir/a.ts` (illustrative, not real files). // gtd-path-exempt
 //  - Dotfiles are NOT special-cased: `*`/`**` match a leading `.` like any
 //    other character (this is a diff-path matcher, not a shell glob).
 //  - `"* *"` is NOT a catch-all for every dirty tree — a workflow that ever

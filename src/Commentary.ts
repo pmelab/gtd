@@ -36,8 +36,8 @@ export class Narrator extends Context.Tag("Narrator")<
 /**
  * An error carrying REMEDIATION alongside its message — the offending config
  * key and the layer it came from, a corrupted ref's name, a missing binary's
- * resolved `$PATH`. Only four families construct one (see `Config.ts`,
- * `Git.ts`, `SteeringMode.ts`, `ui/Tls.ts`) — every other `Error` site
+ * resolved `$PATH`. Only two families construct one (see
+ * `src/workflow/load.ts` and `src/ui/Tls.ts`) — every other `Error` site
  * stays a plain `Error` and renders as the single `gtd: `-prefixed line it
  * always has.
  */
@@ -66,6 +66,20 @@ export class GtdUsageError extends GtdError {
 }
 
 /**
+ * Structurally, not nominally: an error carrying a `detail: readonly
+ * string[]` — `GtdError`'s shape, matched WITHOUT an `instanceof GtdError`
+ * check so `src/platform/Git.ts` (which may not import this root module —
+ * `platform` has no outward target in `.fallowrc.json`'s `boundaries`) can
+ * still render a corrupted ref's remediation lines through its own
+ * equivalently-shaped local error class.
+ */
+const hasDetail = (error: unknown): error is { readonly detail: readonly string[] } =>
+  typeof error === "object" &&
+  error !== null &&
+  "detail" in error &&
+  Array.isArray((error as { detail: unknown }).detail)
+
+/**
  * The stderr text for a CLI failure: a `gtd: ` prefix UNLESS the message
  * already carries one, then one two-space-indented line per `GtdError`
  * detail (none, for a plain `Error`) — unconditional, at every verbosity.
@@ -75,6 +89,6 @@ export class GtdUsageError extends GtdError {
 export const renderFailure = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error)
   const prefixed = /^gtd[: ]/.test(message) ? message : `gtd: ${message}`
-  const detail = error instanceof GtdError ? error.detail : []
+  const detail = hasDetail(error) ? error.detail : []
   return [prefixed, ...detail.map((line) => `  ${line}`)].join("\n")
 }

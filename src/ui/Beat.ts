@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { NodeContext } from "@effect/platform-node"
 import { Effect } from "effect"
-import { Cwd } from "../Cwd.js"
+import { GitService, Host, Workspace } from "../platform/index.js"
 import type { Actor } from "../StateFields.js"
 import { worktreeGitDir } from "../WorktreeState.js"
 
@@ -45,7 +45,7 @@ const findOwnVersion = (): string => {
 }
 
 /**
- * Mirrors `src/Beat.ts`'s (root) `BeatKind` union verbatim, duplicated
+ * Mirrors `src/wire/Demand.ts`'s `BeatKind` union verbatim, duplicated
  * rather than imported: that module pulls in `Edge.ts` → `PatternConfig.ts`
  * → the bundled workflow YAML, a chain the web client's own `tsconfig.json`
  * (scoped to `src/web/`, no visibility into `src/types.d.ts`'s `*.yaml`
@@ -156,7 +156,7 @@ export interface BeatDeps {
 
 /**
  * A version is supported when its major matches this build's own — the beat
- * JSON envelope (`src/Beat.ts`'s `BeatFields`) is only guaranteed stable
+ * JSON envelope (`src/wire/BeatDocument.ts`'s `BeatFields`) is only guaranteed stable
  * within a major. Defaults to this build's own major, resolved lazily via
  * `findOwnVersion` — exported so tests aren't tied to this checkout's own
  * `package.json` version.
@@ -342,7 +342,7 @@ const commonGitDir = async (gitDir: string): Promise<string> => {
 
 /**
  * HEAD's sha, filesystem-only — reuses `WorktreeState.ts`'s `worktreeGitDir`
- * (via a one-off `Cwd` layer bound to `path`) for the `.git` resolution,
+ * (via a one-off `Host` layer bound to `path`) for the `.git` resolution,
  * then follows `HEAD` itself: either a bare 40-hex sha (detached), or a
  * `ref: refs/heads/x` line resolved against the loose ref file or
  * `packed-refs` — both resolved through `commonGitDir`, never against the
@@ -352,7 +352,12 @@ const commonGitDir = async (gitDir: string): Promise<string> => {
 export const liveHeadSha = async (path: string): Promise<string | undefined> => {
   try {
     const gitDir = await Effect.runPromise(
-      worktreeGitDir.pipe(Effect.provide(Cwd.layer(path)), Effect.provide(NodeContext.layer)),
+      worktreeGitDir.pipe(
+        Effect.provide(Workspace.Live),
+        Effect.provide(GitService.Live),
+        Effect.provide(Host.layer({ root: path, home: path, env: process.env })),
+        Effect.provide(NodeContext.layer),
+      ),
     )
     const head = (await readFile(join(gitDir, "HEAD"), "utf8")).trim()
     if (/^[0-9a-f]{40}$/.test(head)) return head

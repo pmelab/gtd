@@ -2,9 +2,11 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { QA_FORMAT } from "../OpenQuestions.js"
+import { steeringFormatFor } from "../steering/index.js"
 import { readSteeringFile } from "./ReadSteeringFile.js"
 import { contentHashOf, liveReadFile } from "./Write.js"
+
+const QA_FORMAT = steeringFormatFor("qa")!
 
 const depsFor = (files: Readonly<Record<string, string>>, headSha: string | undefined) => ({
   headSha: () => Promise.resolve(headSha),

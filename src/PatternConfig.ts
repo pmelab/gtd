@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs"
 import { resolve as resolvePath } from "node:path"
 import {
   STATE_DIR,
@@ -18,7 +17,90 @@ import {
   type FieldKind,
 } from "./StateFields.js"
 import { flattenMachines, type InstancePath, type MachineNode } from "./Machines.js"
-import { builtInModeNames, seededValidateCommand } from "./SteeringFormats.js"
+import { seededValidateCommand } from "./SteeringFormats.js"
+import { builtInModeNames } from "./steering/index.js"
+import type { Diagnostic } from "./workflow/index.js"
+
+/** A finding's `origin` is unknown at this compile-phase level — the `src/workflow/` boundary that assembles config layers fills it in. */
+const UNKNOWN_ORIGIN = ""
+
+const err = (path: readonly (string | number)[], message: string): Diagnostic => ({
+  severity: "error",
+  message,
+  path,
+  origin: UNKNOWN_ORIGIN,
+})
+
+const warn = (path: readonly (string | number)[], message: string): Diagnostic => ({
+  severity: "warning",
+  message,
+  path,
+  origin: UNKNOWN_ORIGIN,
+})
+
+const machinePath = (machineName: string): readonly (string | number)[] => ["machines", machineName]
+
+const statePath = (machineName: string, local: string): readonly (string | number)[] => [
+  ...machinePath(machineName),
+  "states",
+  local,
+]
+
+/**
+ * Qualified state name -> the LOCAL name it was declared under, on the
+ * machine `flattened.tree` (below) already names — `["machines", machine,
+ * "states", local]`, the actual authoring path in the user's `.gtdrc`, not
+ * the flattened `states.<qualified>` namespace the engine itself uses.
+ * `scopes[qualified]` is the owning instance's path prefix (possibly `""`
+ * for the root); stripping it (plus its separating `.`) off `qualified`
+ * leaves exactly the local name that instance's machine declared.
+ */
+const authoringPath = (
+  qualifiedName: string,
+  machineByState: ReadonlyMap<string, string>,
+  scopes: Readonly<Record<string, InstancePath>>,
+): readonly (string | number)[] => {
+  const machineName = machineByState.get(qualifiedName)
+  const scope = scopes[qualifiedName]
+  if (machineName === undefined || scope === undefined) return ["states", qualifiedName]
+  const local = scope === "" ? qualifiedName : qualifiedName.slice(scope.length + 1)
+  return statePath(machineName, local)
+}
+
+/** Every qualified state name -> the machine it was instantiated from — walks `flattened.tree` (`MachineNode.states` are already qualified names owned directly by that instance). */
+const machineNamesByState = (tree: MachineNode | undefined): ReadonlyMap<string, string> => {
+  const map = new Map<string, string>()
+  const walk = (node: MachineNode): void => {
+    for (const state of node.states) map.set(state, node.machine)
+    for (const child of node.children) walk(child)
+  }
+  if (tree !== undefined) walk(tree)
+  return map
+}
+
+/**
+ * `src/PatternMachine.ts`'s `validateDefinition` is out of this package's
+ * scope (see the package's `## Paths`) and still returns plain prose — this
+ * extracts a best-effort structured path from its message text (a `state
+ * "X"`/`mode "X"` mention) rather than leaving the finding path-less. A
+ * mentioned state resolves through `authoringPath` — same real
+ * `machines.<machine>.states.<local>` path `compileState`'s own findings
+ * use, not the flattened `states.<qualified>` namespace — falling back to
+ * the flattened name only when the mentioned state is unknown to the
+ * flattener (shouldn't happen, but a regex scrape over prose has no
+ * stronger guarantee).
+ */
+const bestEffortPath = (
+  message: string,
+  machineByState: ReadonlyMap<string, string>,
+  scopes: Readonly<Record<string, InstancePath>>,
+): readonly (string | number)[] => {
+  const stateMatch = /state "([^"]+)"/.exec(message)
+  if (stateMatch) return authoringPath(stateMatch[1]!, machineByState, scopes)
+  const modeMatch = /mode "([^"]+)"/.exec(message)
+  if (modeMatch) return ["modes", modeMatch[1]!]
+  return []
+}
 
 // ── Small helpers ────────────────────────────────────────────────────────────
 
@@ -40,25 +122,35 @@ const isScalar = (v: unknown): v is string | number | boolean =>
 /**
  * Compile a flat `name -> scalar` map — the `vars:` shape shared by a
  * workflow's own declared defaults and the top-level `.gtdrc` `vars:` key
- * (`src/Config.ts` imports this same function so both layers validate
- * identically). A malformed value pushes a load error onto `errors` and is
+ * (`src/workflow/compile.ts` calls this same function for both layers, so
+ * they validate identically). A malformed value pushes a load error and is
  * dropped; the well-formed keys still compile.
  */
-export const compileVarsMap = (raw: unknown, errors: string[]): Record<string, string> => {
-  if (raw === undefined) return {}
+export const compileVarsMap = (
+  raw: unknown,
+): { readonly vars: Record<string, string>; readonly diagnostics: readonly Diagnostic[] } => {
+  const diagnostics: Diagnostic[] = []
+  if (raw === undefined) return { vars: {}, diagnostics }
   if (!isPlainObject(raw)) {
-    errors.push(`"vars" must be a mapping of name -> scalar value, got ${describeType(raw)}`)
-    return {}
+    diagnostics.push(
+      err(["vars"], `"vars" must be a mapping of name -> scalar value, got ${describeType(raw)}`),
+    )
+    return { vars: {}, diagnostics }
   }
   const vars: Record<string, string> = {}
   for (const [key, value] of Object.entries(raw)) {
     if (!isScalar(value)) {
-      errors.push(`"vars.${key}" must be a string, number, or boolean, got ${describeType(value)}`)
+      diagnostics.push(
+        err(
+          ["vars", key],
+          `"vars.${key}" must be a string, number, or boolean, got ${describeType(value)}`,
+        ),
+      )
       continue
     }
     vars[key] = String(value)
   }
-  return vars
+  return { vars, diagnostics }
 }
 
 const MODE_COMMAND_KEYS = ["format", "validate"] as const
@@ -69,24 +161,37 @@ const MODE_COMMAND_KEYS = ["format", "validate"] as const
  * semantic rules (at least one command per mode) belong to
  * `validateDefinition`. A command is never treated as a `./`-relative file
  * reference the way content strings are: `./scripts/check.sh` is a perfectly
- * good shell command.
+ * good shell command. Exported because `src/workflow/compile.ts` calls this
+ * for both the top-level `.gtdrc` `modes:` layer and the workflow's own — not
+ * exported-for-testability (there is no non-test caller-free export left in
+ * this file; `compileState`'s old non-object guard and
+ * `assertScopesCoverStates` were the ones that were, and both are gone).
  */
 export const compileModesMap = (
   raw: unknown,
-  errors: string[],
-): Record<string, ModeDef> | undefined => {
-  if (raw === undefined) return undefined
+): {
+  readonly modes: Record<string, ModeDef> | undefined
+  readonly diagnostics: readonly Diagnostic[]
+} => {
+  const diagnostics: Diagnostic[] = []
+  if (raw === undefined) return { modes: undefined, diagnostics }
   if (!isPlainObject(raw)) {
-    errors.push(
-      `"modes" must be a mapping of mode name -> { format, validate }, got ${describeType(raw)}`,
+    diagnostics.push(
+      err(
+        ["modes"],
+        `"modes" must be a mapping of mode name -> { format, validate }, got ${describeType(raw)}`,
+      ),
     )
-    return undefined
+    return { modes: undefined, diagnostics }
   }
   const modes: Record<string, ModeDef> = {}
   for (const [name, entry] of Object.entries(raw)) {
     if (!isPlainObject(entry)) {
-      errors.push(
-        `mode "${name}": must be an object with "format" and/or "validate", got ${describeType(entry)}`,
+      diagnostics.push(
+        err(
+          ["modes", name],
+          `mode "${name}": must be an object with "format" and/or "validate", got ${describeType(entry)}`,
+        ),
       )
       continue
     }
@@ -94,28 +199,35 @@ export const compileModesMap = (
       (k) => !(MODE_COMMAND_KEYS as readonly string[]).includes(k),
     )
     if (unknownKeys.length > 0) {
-      errors.push(`mode "${name}": unknown key(s) ${unknownKeys.join(", ")}`)
+      diagnostics.push(
+        err(["modes", name], `mode "${name}": unknown key(s) ${unknownKeys.join(", ")}`),
+      )
     }
     const commands: { format?: string; validate?: string } = {}
     for (const key of MODE_COMMAND_KEYS) {
       const command = entry[key]
       if (command === undefined) continue
       if (typeof command !== "string") {
-        errors.push(`mode "${name}": "${key}" must be a shell command (string)`)
+        diagnostics.push(
+          err(["modes", name, key], `mode "${name}": "${key}" must be a shell command (string)`),
+        )
         continue
       }
       commands[key] = command
     }
     modes[name] = commands
   }
-  return modes
+  return { modes, diagnostics }
 }
 
 /**
  * Layer one `modes:` map over another, per half: an override's `format:`/
  * `validate:` wins, and a half it leaves out keeps the base's. This is how
  * the top-level `.gtdrc` `modes:` key plugs a formatter into a mode gtd
- * already validates without touching its validation.
+ * already validates without touching its validation. Exported because
+ * `src/workflow/compile.ts` calls it directly (layering the top-level
+ * `.gtdrc` `modes:` over the workflow's own, and again over the seeded
+ * built-in mode commands) — a real production caller, not a test seam.
  */
 export const mergeModes = (
   base: Readonly<Record<string, ModeDef>> | undefined,
@@ -178,10 +290,9 @@ const LEGACY_TOP_KEY_MESSAGES: Readonly<Record<string, string>> = {
   use: `top-level "use:" is no longer supported — reference a machine inline via a { machine, with } entry inside a machine's own "states:"`,
 }
 
-const detectLegacyShape = (raw: Record<string, unknown>): void => {
+const detectLegacyShape = (raw: Record<string, unknown>): readonly Diagnostic[] => {
   const found = Object.keys(LEGACY_TOP_KEY_MESSAGES).filter((k) => k in raw)
-  if (found.length === 0) return
-  throw new Error(formatErrors(found.map((k) => LEGACY_TOP_KEY_MESSAGES[k]!)))
+  return found.map((k) => err([k], LEGACY_TOP_KEY_MESSAGES[k]!))
 }
 
 /**
@@ -194,18 +305,17 @@ const LEGACY_ENTRY_KEY_MESSAGES: Readonly<Record<string, string>> = {
   fix: `entry.fix is no longer supported — declare \`entry: true\` on that state and enter it with \`gtd --entry <state>\``,
 }
 
-const detectLegacyEntryKeys = (raw: Record<string, unknown>): void => {
+const detectLegacyEntryKeys = (raw: Record<string, unknown>): readonly Diagnostic[] => {
   const entryRaw = raw["entry"]
-  if (!isPlainObject(entryRaw)) return
+  if (!isPlainObject(entryRaw)) return []
   const found = Object.keys(LEGACY_ENTRY_KEY_MESSAGES).filter((k) => k in entryRaw)
-  if (found.length === 0) return
-  throw new Error(formatErrors(found.map((k) => LEGACY_ENTRY_KEY_MESSAGES[k]!)))
+  return found.map((k) => err(["entry", k], LEGACY_ENTRY_KEY_MESSAGES[k]!))
 }
 
 const validateMachineRefs = (
   machineName: string,
   machineRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): void => {
   const statesRaw = machineRaw["states"]
   if (!isPlainObject(statesRaw)) return
@@ -213,8 +323,11 @@ const validateMachineRefs = (
     if (!isRefRaw(def)) continue
     const unknownRefKeys = Object.keys(def).filter((k) => !KNOWN_REF_KEYS.has(k))
     if (unknownRefKeys.length > 0) {
-      errors.push(
-        `machine "${machineName}": reference "${local}": unknown key(s) ${formatUnknownKeys(unknownRefKeys, LEGACY_REF_KEY_HINTS)}`,
+      diagnostics.push(
+        err(
+          statePath(machineName, local),
+          `machine "${machineName}": reference "${local}": unknown key(s) ${formatUnknownKeys(unknownRefKeys, LEGACY_REF_KEY_HINTS)}`,
+        ),
       )
     }
   }
@@ -238,7 +351,7 @@ const LEGACY_AUTHORED_STATE_KEY_HINTS: Readonly<Record<string, (machineName: str
 const validateMachineStateKeys = (
   machineName: string,
   machineRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): void => {
   const statesRaw = machineRaw["states"]
   if (!isPlainObject(statesRaw)) return
@@ -246,8 +359,11 @@ const validateMachineStateKeys = (
     if (!isPlainObject(def) || isRefRaw(def)) continue
     for (const [key, hint] of Object.entries(LEGACY_AUTHORED_STATE_KEY_HINTS)) {
       if (!(key in def)) continue
-      errors.push(
-        `machine "${machineName}": state "${local}": unknown key(s) ${key} (${hint(machineName)})`,
+      diagnostics.push(
+        err(
+          statePath(machineName, local),
+          `machine "${machineName}": state "${local}": unknown key(s) ${key} (${hint(machineName)})`,
+        ),
       )
     }
   }
@@ -257,13 +373,18 @@ const validateMachineStateKeys = (
 const validateMachineFieldValues = (
   machineName: string,
   machineRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): void => {
   for (const [key, spec] of MACHINE_FIELD_ENTRIES) {
     const value = machineRaw[key]
     if (value === undefined) continue
     if (spec.nonEmpty === true && (typeof value !== "string" || value === "")) {
-      errors.push(`machines.${machineName}: "${key}" must be a non-empty string`)
+      diagnostics.push(
+        err(
+          [...machinePath(machineName), key],
+          `machines.${machineName}: "${key}" must be a non-empty string`,
+        ),
+      )
     }
   }
 }
@@ -281,37 +402,87 @@ const machineHasPromptState = (machineRaw: Record<string, unknown>): boolean => 
 const validateMachineFieldsTakeEffect = (
   machineName: string,
   machineRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): void => {
   for (const [key] of MACHINE_FIELD_ENTRIES) {
     if (machineRaw[key] === undefined) continue
     if (!machineHasPromptState(machineRaw)) {
-      errors.push(
-        `machine "${machineName}": declares "${key}" but has no "prompt" state — this would never take effect`,
+      diagnostics.push(
+        err(
+          [...machinePath(machineName), key],
+          `machine "${machineName}": declares "${key}" but has no "prompt" state — this would never take effect`,
+        ),
       )
     }
   }
 }
 
-const validateMachinesShape = (raw: unknown, errors: string[]): void => {
-  if (raw === undefined) return
-  if (!isPlainObject(raw)) {
-    errors.push(
-      `"machines" must be a mapping of machine name -> { params?, entry, states }, got ${describeType(raw)}`,
+/**
+ * `params:` (advisory-only documentation of which `$name`s a reference's
+ * `with:` may bind) is still an authored array — malformed entries are a
+ * load error like any other, each pointing at its own index
+ * (`machines.<name>.params.<i>`), the one place this compiler's config path
+ * is genuinely array-shaped rather than object-keyed.
+ */
+const validateMachineParams = (
+  machineName: string,
+  machineRaw: Record<string, unknown>,
+  diagnostics: Diagnostic[],
+): void => {
+  const params = machineRaw["params"]
+  if (params === undefined) return
+  const path = [...machinePath(machineName), "params"]
+  if (!Array.isArray(params)) {
+    diagnostics.push(
+      err(
+        path,
+        `machine "${machineName}": "params" must be an array of strings, got ${describeType(params)}`,
+      ),
     )
     return
+  }
+  params.forEach((entry, i) => {
+    if (typeof entry !== "string") {
+      diagnostics.push(
+        err(
+          [...path, i],
+          `machine "${machineName}": "params.${i}" must be a string, got ${describeType(entry)}`,
+        ),
+      )
+    }
+  })
+}
+
+const validateMachinesShape = (raw: unknown): readonly Diagnostic[] => {
+  const diagnostics: Diagnostic[] = []
+  if (raw === undefined) return diagnostics
+  if (!isPlainObject(raw)) {
+    diagnostics.push(
+      err(
+        ["machines"],
+        `"machines" must be a mapping of machine name -> { params?, entry, states }, got ${describeType(raw)}`,
+      ),
+    )
+    return diagnostics
   }
   for (const [machineName, machineRaw] of Object.entries(raw)) {
     if (!isPlainObject(machineRaw)) continue
     const unknownMachineKeys = Object.keys(machineRaw).filter((k) => !KNOWN_MACHINE_KEYS.has(k))
     if (unknownMachineKeys.length > 0) {
-      errors.push(`machine "${machineName}": unknown key(s) ${unknownMachineKeys.join(", ")}`)
+      diagnostics.push(
+        err(
+          machinePath(machineName),
+          `machine "${machineName}": unknown key(s) ${unknownMachineKeys.join(", ")}`,
+        ),
+      )
     }
-    validateMachineRefs(machineName, machineRaw, errors)
-    validateMachineStateKeys(machineName, machineRaw, errors)
-    validateMachineFieldValues(machineName, machineRaw, errors)
-    validateMachineFieldsTakeEffect(machineName, machineRaw, errors)
+    validateMachineRefs(machineName, machineRaw, diagnostics)
+    validateMachineStateKeys(machineName, machineRaw, diagnostics)
+    validateMachineFieldValues(machineName, machineRaw, diagnostics)
+    validateMachineFieldsTakeEffect(machineName, machineRaw, diagnostics)
+    validateMachineParams(machineName, machineRaw, diagnostics)
   }
+  return diagnostics
 }
 
 // ── Compilation result ───────────────────────────────────────────────────────
@@ -320,36 +491,35 @@ export interface CompiledWorkflowConfig {
   readonly definition: WorkflowDefinition
   /** The lowest-precedence layer of the merged `it.vars` (see `src/Edge.ts`'s `resolveVars`). `{}` when absent. */
   readonly vars: Record<string, string>
-  /** The machine-instance tree built while compiling — a compilation output for tooling (`gtd visualize`), never part of the pure `WorkflowDefinition` the engine reads. */
-  readonly tree: MachineNode
-  /** Qualified state name -> the machine-instance path that owns it — the memory-scope lookup `src/Edge.ts` threads through. Asserted (below) to exactly match `definition.states`'s key set. */
+  /** The machine-instance tree built while compiling, or `undefined` when the root machine itself could not be instantiated (`diagnostics` then carries at least one error). A compilation output for tooling (`gtd visualize`), never part of the pure `WorkflowDefinition` the engine reads. */
+  readonly tree: MachineNode | undefined
+  /** Qualified state name -> the machine-instance path that owns it — the memory-scope lookup `src/Edge.ts` threads through. */
   readonly scopes: Record<StateName, InstancePath>
-  /** Non-fatal `validateDefinition` findings (e.g. a state with no `C` row) — never thrown on. */
-  readonly warnings: readonly string[]
+  /**
+   * Every finding from every phase, `origin` unset (`""`) — the `src/workflow/`
+   * boundary that merges config layers fills it in. Never thrown on: an
+   * `"error"`-severity entry means the caller must not use `definition`, but
+   * `compileWorkflowConfig` itself always returns a (possibly empty/partial)
+   * result rather than throwing.
+   */
+  readonly diagnostics: readonly Diagnostic[]
 }
-
-const formatErrors = (errors: readonly string[]): string =>
-  `workflow config:\n${errors.map((e) => `  - ${e}`).join("\n")}`
 
 // ── Content resolution (file-ref auto-inlining) ─────────────────────────────
 
 /**
- * The filesystem seam behind `./`/`../` content file references
- * (`resolveContent`). `nodeFileRefReader` is the production adapter (real
- * `fs`); every threading function below defaults to it. `src/testing/`
- * injects a repo-backed reader instead, so an in-memory `.gtdrc`'s file
- * references resolve against the FAKE worktree rather than the real
- * filesystem.
+ * The synchronous read behind `./`/`../` content file references
+ * (`resolveContent`) — this compiler is plain, non-Effect code (it cannot
+ * `yield*`), so per the seam rule (`src/platform/index.ts`) it takes a SYNC
+ * function rather than injecting `Workspace` as a tag. Required, not
+ * defaulted: the one real caller, `src/workflow/compile.ts`, always injects
+ * `WorkflowFiles.read` (built over `Workspace`, so an in-memory `@inmem`
+ * `.gtdrc`'s file references resolve against the FAKE worktree, a real one
+ * against real disk) — a built-in real-`fs` default here would be a second,
+ * silent way to reach the filesystem that bypasses that port entirely if a
+ * future caller forgot to pass one.
  */
-export interface FileRefReader {
-  readonly exists: (path: string) => boolean
-  readonly read: (path: string) => string
-}
-
-export const nodeFileRefReader: FileRefReader = {
-  exists: (path) => existsSync(path),
-  read: (path) => readFileSync(path, "utf8"),
-}
+export type ReadFile = (path: string) => string | undefined
 
 /**
  * Resolve one content string: inline text passes through verbatim; a file
@@ -362,22 +532,29 @@ const resolveContent = (
   value: string,
   configDir: string,
   where: string,
-  errors: string[],
-  fileRefs: FileRefReader = nodeFileRefReader,
+  path: readonly (string | number)[],
+  diagnostics: Diagnostic[],
+  readFile: ReadFile,
 ): string | undefined => {
   if (!isFileReference(value)) return value
   const filePath = resolvePath(configDir, value)
-  if (!fileRefs.exists(filePath)) {
-    errors.push(`${where}: file reference "${value}" does not exist (resolved to "${filePath}")`)
-    return undefined
-  }
   try {
-    return fileRefs.read(filePath)
+    const content = readFile(filePath)
+    if (content === undefined) {
+      diagnostics.push(
+        err(path, `${where}: file reference "${value}" does not exist (resolved to "${filePath}")`),
+      )
+      return undefined
+    }
+    return content
   } catch (e) {
-    errors.push(
-      `${where}: file reference "${value}" could not be read: ${
-        e instanceof Error ? e.message : String(e)
-      }`,
+    diagnostics.push(
+      err(
+        path,
+        `${where}: file reference "${value}" could not be read: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      ),
     )
     return undefined
   }
@@ -403,8 +580,8 @@ const inlineStateFileRefs = (
   machineName: string,
   local: string,
   configDir: string,
-  errors: string[],
-  fileRefs: FileRefReader = nodeFileRefReader,
+  diagnostics: Diagnostic[],
+  readFile: ReadFile,
 ): Record<string, unknown> => {
   if (typeof def["machine"] === "string") return def
   const next: Record<string, unknown> = { ...def }
@@ -415,8 +592,9 @@ const inlineStateFileRefs = (
       value,
       configDir,
       `machine "${machineName}" state "${local}" (${key})`,
-      errors,
-      fileRefs,
+      [...statePath(machineName, local), key],
+      diagnostics,
+      readFile,
     )
     if (resolved !== undefined) next[key] = resolved
   }
@@ -434,8 +612,8 @@ const inlineMachineFileRefs = (
   machineRaw: unknown,
   machineName: string,
   configDir: string,
-  errors: string[],
-  fileRefs: FileRefReader = nodeFileRefReader,
+  diagnostics: Diagnostic[],
+  readFile: ReadFile,
 ): unknown => {
   if (!isPlainObject(machineRaw)) return machineRaw
   const next: Record<string, unknown> = { ...machineRaw }
@@ -446,8 +624,9 @@ const inlineMachineFileRefs = (
       value,
       configDir,
       `machine "${machineName}" (${key})`,
-      errors,
-      fileRefs,
+      [...machinePath(machineName), key],
+      diagnostics,
+      readFile,
     )
     if (resolved !== undefined) next[key] = resolved
   }
@@ -456,7 +635,7 @@ const inlineMachineFileRefs = (
     const states: Record<string, unknown> = {}
     for (const [local, def] of Object.entries(rawStates)) {
       states[local] = isPlainObject(def)
-        ? inlineStateFileRefs(def, machineName, local, configDir, errors, fileRefs)
+        ? inlineStateFileRefs(def, machineName, local, configDir, diagnostics, readFile)
         : def
     }
     next["states"] = states
@@ -467,40 +646,47 @@ const inlineMachineFileRefs = (
 /**
  * Inline every `./`/`../` content file reference in one raw `workflow:`
  * value against `configDir` (the directory of the `.gtdrc` that declared it).
- * Used by `src/Config.ts`'s `loadMerged` to resolve each config level's
- * references against its OWN directory before the levels are deep-merged —
- * the merge collapses every level into one anonymous object, erasing which
- * file a given path came from, so resolving up front is the only way a
- * parent `.gtdrc`'s reference resolves against the parent, not a child
- * repo's cwd. `compileWorkflowConfig` then runs with `inlineFileRefs: false`
- * on the merged result.
+ * Used by `src/workflow/compile.ts`'s `compileWorkflow` to resolve each
+ * config layer's references against its OWN directory before the layers are
+ * deep-merged — the merge collapses every layer into one anonymous object,
+ * erasing which file a given path came from, so resolving up front is the
+ * only way a parent `.gtdrc`'s reference resolves against the parent, not a
+ * child repo's cwd. `compileWorkflowConfig` never inlines file refs itself —
+ * it always runs on an already-inlined `workflow:` value.
  */
 export const inlineWorkflowFileRefs = (
   rawWorkflow: unknown,
   configDir: string,
-  errors: string[],
-  fileRefs: FileRefReader = nodeFileRefReader,
-): unknown => {
-  if (!isPlainObject(rawWorkflow)) return rawWorkflow
+  readFile: ReadFile,
+): { readonly value: unknown; readonly diagnostics: readonly Diagnostic[] } => {
+  const diagnostics: Diagnostic[] = []
+  if (!isPlainObject(rawWorkflow)) return { value: rawWorkflow, diagnostics }
   const next: Record<string, unknown> = { ...rawWorkflow }
   const rawSummary = rawWorkflow["summary"]
   if (typeof rawSummary === "string" && isFileReference(rawSummary)) {
-    const resolved = resolveContent(rawSummary, configDir, `"summary"`, errors, fileRefs)
+    const resolved = resolveContent(
+      rawSummary,
+      configDir,
+      `"summary"`,
+      ["summary"],
+      diagnostics,
+      readFile,
+    )
     if (resolved !== undefined) next["summary"] = resolved
   }
   const rawMachines = rawWorkflow["machines"]
-  if (!isPlainObject(rawMachines)) return next
+  if (!isPlainObject(rawMachines)) return { value: next, diagnostics }
   const machines: Record<string, unknown> = {}
   for (const [machineName, machineRaw] of Object.entries(rawMachines)) {
     machines[machineName] = inlineMachineFileRefs(
       machineRaw,
       machineName,
       configDir,
-      errors,
-      fileRefs,
+      diagnostics,
+      readFile,
     )
   }
-  return { ...next, machines }
+  return { value: { ...next, machines }, diagnostics }
 }
 
 // ── Per-state field compilers ────────────────────────────────────────────────
@@ -515,11 +701,12 @@ const compileOptionalEdgeField = (
   pattern: string,
   name: string,
   field: "describe" | "action",
-  errors: string[],
+  path: readonly (string | number)[],
+  diagnostics: Diagnostic[],
 ): string | undefined | typeof INVALID => {
   if (value === undefined) return undefined
   if (typeof value !== "string") {
-    errors.push(`state "${name}": "on.${pattern}.${field}" must be a string`)
+    diagnostics.push(err(path, `state "${name}": "on.${pattern}.${field}" must be a string`))
     return INVALID
   }
   return value
@@ -536,29 +723,45 @@ const compileOnEdge = (
   pattern: string,
   value: unknown,
   name: string,
-  errors: string[],
+  path: readonly (string | number)[],
+  diagnostics: Diagnostic[],
 ): OnEdge | undefined => {
   if (typeof value === "string") return [pattern, value]
   if (!isPlainObject(value)) {
-    errors.push(
-      `state "${name}": "on" entry for pattern "${pattern}" must be a target state name (string) or a { to, describe } object`,
+    diagnostics.push(
+      err(
+        path,
+        `state "${name}": "on" entry for pattern "${pattern}" must be a target state name (string) or a { to, describe } object`,
+      ),
     )
     return undefined
   }
   const unknownKeys = Object.keys(value).filter((k) => !KNOWN_EDGE_KEYS.has(k))
   if (unknownKeys.length > 0) {
-    errors.push(
-      `state "${name}": "on" entry for pattern "${pattern}" has unknown key(s) ${unknownKeys.join(", ")}`,
+    diagnostics.push(
+      err(
+        path,
+        `state "${name}": "on" entry for pattern "${pattern}" has unknown key(s) ${unknownKeys.join(", ")}`,
+      ),
     )
   }
   const { to, describe, action } = value
   if (typeof to !== "string") {
-    errors.push(`state "${name}": "on.${pattern}.to" must be a target state name (string)`)
+    diagnostics.push(
+      err(path, `state "${name}": "on.${pattern}.to" must be a target state name (string)`),
+    )
     return undefined
   }
-  const describeField = compileOptionalEdgeField(describe, pattern, name, "describe", errors)
+  const describeField = compileOptionalEdgeField(
+    describe,
+    pattern,
+    name,
+    "describe",
+    path,
+    diagnostics,
+  )
   if (describeField === INVALID) return undefined
-  const actionField = compileOptionalEdgeField(action, pattern, name, "action", errors)
+  const actionField = compileOptionalEdgeField(action, pattern, name, "action", path, diagnostics)
   if (actionField === INVALID) return undefined
   // `describe` may be `undefined` here even though `action` is set (an edge
   // wanting an `action` but no `describe` passes an explicit `undefined`
@@ -567,35 +770,60 @@ const compileOnEdge = (
   return describeField !== undefined ? [pattern, to, describeField] : [pattern, to]
 }
 
-const compileOn = (raw: unknown, name: string, errors: string[]): readonly OnEdge[] | undefined => {
+const compileOn = (
+  raw: unknown,
+  name: string,
+  statePath: readonly (string | number)[],
+  diagnostics: Diagnostic[],
+): readonly OnEdge[] | undefined => {
   if (raw === undefined) return undefined
   if (!isPlainObject(raw)) {
-    errors.push(`state "${name}": "on" must be a mapping of pattern -> target state`)
+    diagnostics.push(
+      err(
+        [...statePath, "on"],
+        `state "${name}": "on" must be a mapping of pattern -> target state`,
+      ),
+    )
     return undefined
   }
   const edges: OnEdge[] = []
   for (const [pattern, value] of Object.entries(raw)) {
-    const edge = compileOnEdge(pattern, value, name, errors)
+    const edge = compileOnEdge(pattern, value, name, [...statePath, "on", pattern], diagnostics)
     if (edge !== undefined) edges.push(edge)
   }
   return edges
 }
 
-const compileRetry = (raw: unknown, name: string, errors: string[]): RetryDef | undefined => {
+const compileRetry = (
+  raw: unknown,
+  name: string,
+  statePath: readonly (string | number)[],
+  diagnostics: Diagnostic[],
+): RetryDef | undefined => {
   if (raw === undefined) return undefined
+  const path = [...statePath, "retry"]
   if (!isPlainObject(raw)) {
-    errors.push(`state "${name}": "retry" must be an object with "max" and "otherwise"`)
+    diagnostics.push(
+      err(path, `state "${name}": "retry" must be an object with "max" and "otherwise"`),
+    )
     return undefined
   }
   const unknownKeys = Object.keys(raw).filter((k) => k !== "max" && k !== "otherwise")
   if (unknownKeys.length > 0) {
-    errors.push(`state "${name}": "retry" has unknown key(s) ${unknownKeys.join(", ")}`)
+    diagnostics.push(
+      err(path, `state "${name}": "retry" has unknown key(s) ${unknownKeys.join(", ")}`),
+    )
   }
   const { max, otherwise } = raw
   const maxOk = typeof max === "number"
   const otherwiseOk = typeof otherwise === "string"
-  if (!maxOk) errors.push(`state "${name}": "retry.max" must be a number`)
-  if (!otherwiseOk) errors.push(`state "${name}": "retry.otherwise" must be a string`)
+  if (!maxOk)
+    diagnostics.push(err([...path, "max"], `state "${name}": "retry.max" must be a number`))
+  if (!otherwiseOk) {
+    diagnostics.push(
+      err([...path, "otherwise"], `state "${name}": "retry.otherwise" must be a string`),
+    )
+  }
   return maxOk && otherwiseOk ? { max, otherwise } : undefined
 }
 
@@ -603,12 +831,13 @@ const compileText = (
   raw: Record<string, unknown>,
   key: string,
   name: string,
-  errors: string[],
+  path: readonly (string | number)[],
+  diagnostics: Diagnostic[],
 ): string | undefined => {
   const value = raw[key]
   if (value === undefined) return undefined
   if (typeof value !== "string") {
-    errors.push(`state "${name}": "${key}" must be a string`)
+    diagnostics.push(err(path, `state "${name}": "${key}" must be a string`))
     return undefined
   }
   return value
@@ -632,21 +861,29 @@ const compileStateFile = (
   name: string,
   ctx: CompileCtx,
 ): string | undefined => {
-  const value = compileText(raw, key, name, ctx.errors)
+  const value = compileText(raw, key, name, ctx.path, ctx.diagnostics)
   if (value === undefined || value === "") return value
   if (value.split("/").includes("..")) {
-    ctx.errors.push(`state "${name}": "${key}" must not contain a ".." segment (got "${value}")`)
+    ctx.diagnostics.push(
+      err(ctx.path, `state "${name}": "${key}" must not contain a ".." segment (got "${value}")`),
+    )
     return undefined
   }
   if (value.startsWith("/")) {
-    ctx.errors.push(
-      `state "${name}": "${key}" must not be an absolute path (a leading "/") (got "${value}")`,
+    ctx.diagnostics.push(
+      err(
+        ctx.path,
+        `state "${name}": "${key}" must not be an absolute path (a leading "/") (got "${value}")`,
+      ),
     )
     return undefined
   }
   if (value === STATE_DIR || value.startsWith(`${STATE_DIR}/`)) {
-    ctx.errors.push(
-      `state "${name}": "${key}" is resolved under "${STATE_DIR}/" automatically — drop the "${STATE_DIR}/" prefix (got "${value}")`,
+    ctx.diagnostics.push(
+      err(
+        ctx.path,
+        `state "${name}": "${key}" is resolved under "${STATE_DIR}/" automatically — drop the "${STATE_DIR}/" prefix (got "${value}")`,
+      ),
     )
     return undefined
   }
@@ -663,12 +900,13 @@ const compileBooleanFlag = (
   raw: Record<string, unknown>,
   key: string,
   name: string,
-  errors: string[],
+  path: readonly (string | number)[],
+  diagnostics: Diagnostic[],
 ): true | undefined => {
   const value = raw[key]
   if (value === undefined) return undefined
   if (value !== true && value !== false) {
-    errors.push(`state "${name}": "${key}" must be a boolean`)
+    diagnostics.push(err(path, `state "${name}": "${key}" must be a boolean`))
     return undefined
   }
   return value === true ? true : undefined
@@ -678,23 +916,25 @@ const compileBooleanOrTemplateFlag = (
   raw: Record<string, unknown>,
   key: string,
   name: string,
-  errors: string[],
+  path: readonly (string | number)[],
+  diagnostics: Diagnostic[],
 ): true | string | undefined => {
   const value = raw[key]
   if (value === undefined) return undefined
   if (value === true) return true
   if (typeof value === "string" && value.trim() !== "") return value
-  errors.push(`state "${name}": "${key}" must be a boolean or a non-blank string`)
+  diagnostics.push(err(path, `state "${name}": "${key}" must be a boolean or a non-blank string`))
   return undefined
 }
 
 /**
- * One content field: a string, file-refs auto-inlined. `ctx.inlineFileRefs`
- * is `false` only when the caller (`src/Config.ts`'s `loadMerged`) has
- * already inlined every reference per declaring file, so the content is then
- * taken verbatim — a `script:` whose inlined text happens to begin with `./`
- * is never mistaken for a second file reference. The "exactly one content
- * kind" rule is the engine's `validateDefinition` concern, not this one's.
+ * One content field: a string, taken verbatim. File-ref inlining happens
+ * ONCE, before this compiler ever runs (`inlineWorkflowFileRefs`, called by
+ * the `src/workflow/` boundary against each config layer's own directory) —
+ * by the time a value reaches here, a `./`/`../` reference has either
+ * already become its file's content or already failed to load. The "exactly
+ * one content kind" rule is the engine's `validateDefinition` concern, not
+ * this one's.
  */
 const compileContentRef = (
   raw: Record<string, unknown>,
@@ -705,19 +945,16 @@ const compileContentRef = (
   const value = raw[key]
   if (value === undefined) return undefined
   if (typeof value !== "string") {
-    ctx.errors.push(`state "${name}": "${key}" must be a string`)
+    ctx.diagnostics.push(err(ctx.path, `state "${name}": "${key}" must be a string`))
     return undefined
   }
-  if (!ctx.inlineFileRefs) return value
-  return resolveContent(value, ctx.configDir, `state "${name}" (${key})`, ctx.errors, ctx.fileRefs)
+  return value
 }
 
 interface CompileCtx {
-  readonly errors: string[]
-  readonly configDir: string
-  readonly inlineFileRefs: boolean
-  /** How a `./file` content reference is read — injected so the compiler has no hard `node:fs` dependency (see `FileRefReader`). */
-  readonly fileRefs: FileRefReader
+  readonly diagnostics: Diagnostic[]
+  /** This field's own config path (`["machines", name, "states", local, key]`). */
+  readonly path: readonly (string | number)[]
 }
 
 type FieldCompiler = (
@@ -733,15 +970,17 @@ type FieldCompiler = (
  * `JSON_TYPE`) until it's given a compiler.
  */
 const COMPILE: Record<FieldKind, FieldCompiler> = {
-  actor: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
-  text: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
+  actor: (raw, key, name, ctx) => compileText(raw, key, name, ctx.path, ctx.diagnostics),
+  text: (raw, key, name, ctx) => compileText(raw, key, name, ctx.path, ctx.diagnostics),
   stateFile: compileStateFile,
-  mode: (raw, key, name, ctx) => compileText(raw, key, name, ctx.errors),
+  mode: (raw, key, name, ctx) => compileText(raw, key, name, ctx.path, ctx.diagnostics),
   content: compileContentRef,
-  flag: (raw, key, name, ctx) => compileBooleanFlag(raw, key, name, ctx.errors),
-  flagOrTemplate: (raw, key, name, ctx) => compileBooleanOrTemplateFlag(raw, key, name, ctx.errors),
-  edges: (raw, key, name, ctx) => compileOn(raw[key], name, ctx.errors),
-  retry: (raw, key, name, ctx) => compileRetry(raw[key], name, ctx.errors),
+  flag: (raw, key, name, ctx) => compileBooleanFlag(raw, key, name, ctx.path, ctx.diagnostics),
+  flagOrTemplate: (raw, key, name, ctx) =>
+    compileBooleanOrTemplateFlag(raw, key, name, ctx.path, ctx.diagnostics),
+  edges: (raw, key, name, ctx) => compileOn(raw[key], name, ctx.path.slice(0, -1), ctx.diagnostics),
+  retry: (raw, key, name, ctx) =>
+    compileRetry(raw[key], name, ctx.path.slice(0, -1), ctx.diagnostics),
 }
 
 /**
@@ -764,156 +1003,153 @@ const assembleStateDef = (compiled: Record<string, unknown>): StateDef => {
  * One state's full shape: every `STATE_FIELDS` entry, compiled through
  * `COMPILE`'s per-kind dispatch. Operates on a QUALIFIED state entry from
  * `FlattenedWorkflow.states` — `$param`s already substituted, every
- * `on`/`retry.otherwise` target already an absolute qualified name.
- *
- * The non-object `raw` guard is unreachable through `compileWorkflowConfig`
- * itself: `src/Machines.ts`'s `emitState` already normalizes every non-object
- * state to `{}` before it lands in `FlattenedWorkflow.states`. It stays as a
- * guard (not a cast) because `raw`'s declared type is `unknown`. Exported so
- * that guard is directly testable, the same reasoning as
- * `assertScopesCoverStates`.
+ * `on`/`retry.otherwise` target already an absolute qualified name. `raw` is
+ * always a plain object here: `src/Machines.ts`'s `emitState` already
+ * normalizes every non-object state to `{}` before it lands in
+ * `FlattenedWorkflow.states`, so there is nothing left to guard against.
  */
-export const compileState = (
-  name: string,
-  raw: unknown,
-  configDir: string,
-  errors: string[],
-  inlineFileRefs: boolean,
-  fileRefs: FileRefReader = nodeFileRefReader,
+const compileState = (
+  qualifiedName: string,
+  raw: Record<string, unknown>,
+  machineByState: ReadonlyMap<string, string>,
+  scopes: Readonly<Record<string, InstancePath>>,
+  diagnostics: Diagnostic[],
 ): StateDef => {
-  if (!isPlainObject(raw)) {
-    errors.push(`state "${name}": must be an object, got ${describeType(raw)}`)
-    return {}
-  }
+  // The REAL authoring path (`machines.<machine>.states.<local>`), not the
+  // flattened `states.<qualified>` namespace the engine itself uses — a
+  // qualified name may descend through several machine references, so
+  // `authoringPath` resolves it against the flattener's own tree/scopes.
+  const path = authoringPath(qualifiedName, machineByState, scopes)
 
   const unknownKeys = Object.keys(raw).filter((k) => !KNOWN_STATE_KEYS.has(k))
   if (unknownKeys.length > 0) {
-    errors.push(
-      `state "${name}": unknown key(s) ${formatUnknownKeys(unknownKeys, LEGACY_STATE_KEY_HINTS)}`,
+    diagnostics.push(
+      err(
+        path,
+        `state "${qualifiedName}": unknown key(s) ${formatUnknownKeys(unknownKeys, LEGACY_STATE_KEY_HINTS)}`,
+      ),
     )
   }
 
-  const ctx: CompileCtx = { errors, configDir, inlineFileRefs, fileRefs }
+  const ctx: CompileCtx = { diagnostics, path }
   const compiled: Record<string, unknown> = {}
   for (const [key, spec] of STATE_FIELD_ENTRIES) {
-    compiled[key] = COMPILE[spec.kind](raw, key, name, ctx)
+    compiled[key] = COMPILE[spec.kind](raw, key, qualifiedName, { ...ctx, path: [...path, key] })
   }
 
   return assembleStateDef(compiled)
 }
 
 /**
- * Compiler invariant, not a workflow-author finding: `flattenMachines`
- * promises a `scopes` entry for every state it emits — a mismatch here means
- * the flattener itself missed a state, which must fail loudly rather than
- * silently produce a memory key that reads as "outside every scope". Exported
- * so this invariant is directly testable against a contrived `scopes` map.
- */
-export const assertScopesCoverStates = (
-  stateNames: readonly string[],
-  scopes: Readonly<Record<string, InstancePath>>,
-  errors: string[],
-): void => {
-  for (const name of stateNames) {
-    if (!(name in scopes)) {
-      errors.push(`internal error: scopes map produced by the flattener is missing state "${name}"`)
-    }
-  }
-}
-
-/**
  * Compile the top-level `summary:` template — the `gtd summary` prompt. An
  * absent value is legal (`gtd summary` refuses at runtime instead); a
- * present-but-blank value (or a blank inlined file) is a load error, the same
- * rule a mode's `format:`/`validate:` follows. File-ref inlining mirrors
- * `compileContentRef`'s `ctx.inlineFileRefs` discipline.
+ * present-but-blank value is a load error, the same rule a mode's
+ * `format:`/`validate:` follows. File-ref inlining already happened once, at
+ * the `src/workflow/` boundary — a value reaching here is either inline
+ * source or a file's already-loaded content.
  */
 const compileSummary = (
   raw: Record<string, unknown>,
-  configDir: string,
-  errors: string[],
-  inlineFileRefs: boolean,
-  fileRefs: FileRefReader,
+  diagnostics: Diagnostic[],
 ): string | undefined => {
   const value = raw["summary"]
   if (value === undefined) return undefined
   if (typeof value !== "string") {
-    errors.push(`"summary" must be a string`)
+    diagnostics.push(err(["summary"], `"summary" must be a string`))
     return undefined
   }
-  const resolved = inlineFileRefs
-    ? resolveContent(value, configDir, `"summary"`, errors, fileRefs)
-    : value
-  if (resolved !== undefined && resolved.trim() === "") {
-    errors.push(`"summary" must not be blank`)
+  if (value.trim() === "") {
+    diagnostics.push(err(["summary"], `"summary" must not be blank`))
     return undefined
   }
-  return resolved
+  return value
 }
 
 // ── Top-level compile ────────────────────────────────────────────────────────
 
 /**
- * Compile the raw, decoded `workflow:` YAML value into a `WorkflowDefinition`
- * plus the workflow's own compiled `vars:` map and its machine tree.
- * `rcModes` (the already-compiled top-level `.gtdrc` `modes:` key) is layered
- * over the workflow's own `modes:` per half before validation. `inlineFileRefs`
- * defaults to `true`; `src/Config.ts`'s `loadMerged` passes `false` because it
- * has already inlined every reference per declaring file across the merge
- * chain. Throws one `Error` (one line per finding) on any config-shape
- * problem or `validateDefinition` finding — never partially succeeds.
+ * Compile the raw `workflow:` value — with every `./`/`../` content file
+ * reference already inlined (`inlineWorkflowFileRefs`, run once by the
+ * caller, against whichever directory/directories the value's own layer(s)
+ * came from) — into a `WorkflowDefinition` plus the workflow's own compiled
+ * `vars:` map and its machine tree. `rcModes` (the already-compiled top-level
+ * `.gtdrc` `modes:` key) is layered over the workflow's own `modes:` per half
+ * before validation. Pure and total: never throws, always returns a
+ * `diagnostics` list instead — an `"error"`-severity entry means the caller
+ * must not use `definition`. Exported because `src/workflow/compile.ts`'s
+ * `compileWorkflow` calls this to compile the merged `workflow:` value — the
+ * ~118 tests below exercise a function with a real production caller, not
+ * one exported only so a test could reach it (that pattern — `compileState`'s
+ * old non-object-`raw` guard, `assertScopesCoverStates` — was deleted, not
+ * rewritten, earlier in this package).
  */
 export const compileWorkflowConfig = (
   raw: unknown,
-  configDir: string,
   rcModes?: Readonly<Record<string, ModeDef>>,
-  inlineFileRefs: boolean = true,
-  fileRefs: FileRefReader = nodeFileRefReader,
 ): CompiledWorkflowConfig => {
-  if (!isPlainObject(raw)) {
-    throw new Error(`workflow config: must be an object, got ${describeType(raw)}`)
+  const empty: CompiledWorkflowConfig = {
+    definition: { states: {}, entries: { default: "", manual: [] }, modes: {} },
+    vars: {},
+    tree: undefined,
+    scopes: {},
+    diagnostics: [],
   }
 
-  detectLegacyShape(raw)
-  detectLegacyEntryKeys(raw)
+  if (!isPlainObject(raw)) {
+    return {
+      ...empty,
+      diagnostics: [err([], `workflow config: must be an object, got ${describeType(raw)}`)],
+    }
+  }
 
-  const errors: string[] = []
+  const legacyShape = detectLegacyShape(raw)
+  const legacyEntryKeys = detectLegacyEntryKeys(raw)
+  if (legacyShape.length > 0 || legacyEntryKeys.length > 0) {
+    // A stale config gets only this migration table, not forty downstream
+    // findings piled on top of it.
+    return { ...empty, diagnostics: [...legacyShape, ...legacyEntryKeys] }
+  }
+
+  const diagnostics: Diagnostic[] = []
 
   const unknownTopKeys = Object.keys(raw).filter((k) => !KNOWN_TOP_KEYS.has(k))
   if (unknownTopKeys.length > 0) {
-    errors.push(`unknown top-level key(s) ${unknownTopKeys.join(", ")}`)
+    diagnostics.push(err([], `unknown top-level key(s) ${unknownTopKeys.join(", ")}`))
   }
 
-  const vars = compileVarsMap(raw.vars, errors)
+  const { vars, diagnostics: varsDiagnostics } = compileVarsMap(raw.vars)
+  diagnostics.push(...varsDiagnostics)
   const seeded = Object.fromEntries(
     builtInModeNames().map((name) => [name, { validate: seededValidateCommand(name) }]),
   )
+  const { modes: rawModes, diagnostics: modesDiagnostics } = compileModesMap(raw.modes)
+  diagnostics.push(...modesDiagnostics)
   // `mergeModes` is `undefined` only when both arguments are; `seeded` never is.
-  const modes = mergeModes(mergeModes(seeded, compileModesMap(raw.modes, errors)), rcModes)!
-  validateMachinesShape(raw.machines, errors)
+  const modes = mergeModes(mergeModes(seeded, rawModes), rcModes)!
+  diagnostics.push(...validateMachinesShape(raw.machines))
 
-  const flattened = flattenMachines(raw, errors)
+  const flattened = flattenMachines(raw)
+  diagnostics.push(...flattened.diagnostics)
   if (flattened.entries === undefined) {
     // Unassemblable: there is no per-state work to even attempt, so there is
-    // nothing `validateDefinition` could add — throw with just the findings
-    // collected so far.
-    throw new Error(formatErrors(errors))
+    // nothing `validateDefinition` could add.
+    return { ...empty, diagnostics }
   }
 
+  const machineByState = machineNamesByState(flattened.tree)
   const states: Record<string, StateDef> = {}
   const manualSet = new Set<string>()
   for (const [name, s] of Object.entries(flattened.states)) {
-    states[name] = compileState(name, s, configDir, errors, inlineFileRefs, fileRefs)
+    states[name] = compileState(name, s, machineByState, flattened.scopes, diagnostics)
     // A state's own `entry: true` is authoring-only — collected off the raw
     // (pre-compile) value into a sorted, deduped `entries.manual`.
-    if (isPlainObject(s) && s["entry"] === true) manualSet.add(name)
+    if (s["entry"] === true) manualSet.add(name)
   }
   const manual = Array.from(manualSet).sort()
 
-  // Run validateDefinition unconditionally and merge its findings with the
-  // shape errors above into one error, rather than stopping at the first
+  // Run validateDefinition unconditionally rather than stopping at the first
   // shape problem and hiding what validateDefinition would otherwise catch.
-  const summary = compileSummary(raw, configDir, errors, inlineFileRefs, fileRefs)
+  const summary = compileSummary(raw, diagnostics)
 
   const entries = { default: flattened.entries.default, manual }
   const definition: WorkflowDefinition = {
@@ -923,19 +1159,24 @@ export const compileWorkflowConfig = (
     ...(summary !== undefined ? { summary } : {}),
   }
 
-  assertScopesCoverStates(Object.keys(states), flattened.scopes, errors)
-
+  // `flattened.scopes` is guaranteed (by construction — both are populated by
+  // the same `emitTree` pass in `src/Machines.ts`) to cover exactly
+  // `Object.keys(states)`; no separate cross-check is needed.
   const definitionResult = validateDefinition(definition)
-  const allErrors = Array.from(new Set([...errors, ...definitionResult.errors]))
-  if (allErrors.length > 0) throw new Error(formatErrors(allErrors))
+  diagnostics.push(
+    ...definitionResult.errors.map((message) =>
+      err(bestEffortPath(message, machineByState, flattened.scopes), message),
+    ),
+    ...definitionResult.warnings.map((message) =>
+      warn(bestEffortPath(message, machineByState, flattened.scopes), message),
+    ),
+  )
 
-  // `flattened.tree` is undefined only when the root machine failed to
-  // instantiate — already ruled out by the `entries === undefined` throw above.
   return {
     definition,
     vars,
-    tree: flattened.tree!,
+    tree: flattened.tree,
     scopes: flattened.scopes,
-    warnings: definitionResult.warnings,
+    diagnostics,
   }
 }

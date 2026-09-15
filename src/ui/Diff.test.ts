@@ -32,7 +32,7 @@ const deps = (diffOutcome: SpawnOutcome, baseOutcome?: SpawnOutcome): DiffDeps =
   return { run }
 }
 
-/** A two-hunk unified diff on `src/a.ts`: hunk 1 is lines 3-5 post-image, hunk 2 is lines 10-11 — the gap (lines 6-9) is unchanged context git elides, so a pointer landing there matches no hunk. */
+/** A two-hunk unified diff on `src/a.ts`: hunk 1 is lines 3-5 post-image, hunk 2 is lines 10-11 — the gap (lines 6-9) is unchanged context git elides, so a pointer landing there matches no hunk. */ // gtd-path-exempt: illustrative fixture path, not a repo file
 const TWO_HUNK_DIFF = [
   "diff --git a/src/a.ts b/src/a.ts",
   "index 1111111..2222222 100644",

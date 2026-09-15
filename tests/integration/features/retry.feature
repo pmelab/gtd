@@ -1,8 +1,8 @@
 @inmem
 Feature: Retry redirection — a state's entry cap redirects at write time
 
-  Pins `PatternMachine.applyRetry` (see docs/design/pattern-machine-plan.md,
-  the `retry` property) through the real CLI: once a `retry`-capped state has
+  Pins `PatternMachine.applyRetry` (the `retry` property) through the real
+  CLI: once a `retry`-capped state has
   already been entered `max` times within the current process, the NEXT
   transition that would enter it again is redirected to `otherwise` instead —
   decided at write time, so the redirected label is what actually lands in

@@ -38,17 +38,29 @@
       "inputs": ["src/**", "tests/**", "evals/**", "*.ts"],
       "outputs": []
     },
-    "deadcode": {
-      "inputs": ["src/**", "tests/**", "evals/**", ".storybook/**", "*.ts", ".fallowrc.json"],
+    "analyze": {
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "scripts/**",
+        "dev/**",
+        "evals/**",
+        ".storybook/**",
+        "*.ts",
+        "*.mjs",
+        ".oxlintrc.json",
+        "package.json",
+        ".fallowrc.json"
+      ],
       "outputs": []
     },
     "test:unit": {
       "dependsOn": ["build"],
       "inputs": [
         "src/**",
-        "tests/tooling/**",
-        "tests/vitest.*.ts",
-        "tests/integration/support/**",
+        "tests/**",
+        "scripts/**",
+        "dev/**",
         "vitest.config.ts",
         "vitest.stryker.config.ts",
         "stryker.config.json",

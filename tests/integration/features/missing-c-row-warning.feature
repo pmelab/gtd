@@ -38,6 +38,7 @@ Feature: gtd warns on a workflow state that declares no "C" row
     When I run gtd with args "next"
     Then it succeeds
     And stderr contains "state \"building\" declares no \"C\" row" exactly 1 times
+    And stderr contains ".gtdrc: workflow.machines.root.states.building: state \"building\" declares no \"C\" row"
     And stdout does not contain "\"C\" row"
 
   Scenario: the bundled unified template prints no warning at all

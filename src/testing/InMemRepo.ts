@@ -188,7 +188,7 @@ export class InMemRepo {
     return filtered.map((c) => {
       const parentTree = c.parent ? (this.getCommit(c.parent)?.files ?? new Map()) : new Map()
       // Legacy root-level ERRORS.md kept so pre-namespaced history still
-      // classifies (mirrors src/Git.ts).
+      // classifies (mirrors src/platform/Git.ts).
       const removedErrors = [".gtd/ERRORS.md", "ERRORS.md"].some(
         (p) => parentTree.has(p) && !c.files.has(p),
       )
@@ -238,20 +238,6 @@ export class InMemRepo {
     return [...this.worktree.keys()]
       .filter((key) => key === prefix || key.startsWith(dirPrefix))
       .sort()
-  }
-
-  /** The immediate child names (files or subdirectories) of `dir` in the worktree, sorted. */
-  childNames(dir: string): ReadonlyArray<string> {
-    const prefix = dir.endsWith("/") ? dir : `${dir}/`
-    const names = new Set<string>()
-    for (const key of this.worktree.keys()) {
-      if (!key.startsWith(prefix)) continue
-      const rest = key.slice(prefix.length)
-      const slash = rest.indexOf("/")
-      const name = slash === -1 ? rest : rest.slice(0, slash)
-      if (name.length > 0) names.add(name)
-    }
-    return [...names].sort()
   }
 
   /** `git add -A` — the index becomes exactly the current worktree. */
@@ -400,7 +386,7 @@ export class InMemRepo {
 }
 
 /**
- * Unlike production's `parseNameStatus` (`src/Git.ts`), this never reports a
+ * Unlike production's `parseNameStatus` (`src/platform/Git.ts`), this never reports a
  * rename/copy (`R`/`C`) — every change is a plain add/delete/modify. A path
  * that git would show as a rename therefore surfaces here as a delete-of-old
  * plus an add-of-new, never as a rename, in either tier's contract tests.

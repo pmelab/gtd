@@ -10,8 +10,7 @@ import {
 } from "./ModeContradiction.js"
 import { shellQuote } from "./GitScript.js"
 import { applySteeringEdits } from "./ui/Write.js"
-import { builtInModeNames, steeringFormatFor } from "./SteeringFormats.js"
-import { parseFootnotes } from "./Footnotes.js"
+import { builtInModeNames, parseFootnotes, steeringFormatFor } from "./steering/index.js"
 
 describe("buildModeContradictionCheck", () => {
   const inputs = {

@@ -1,6 +1,6 @@
 import { readdirSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { compileTemplate } from "../../src/workflows/templates.js"
+import { compileTemplate } from "../../src/workflows/index.js"
 
 // Cross-checks the corpus file names against the COMPILED definition itself
 // (not a hand-maintained list of state names), so a new `script` state added

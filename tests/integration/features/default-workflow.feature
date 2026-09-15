@@ -284,7 +284,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       ## Export a sum alias
 
-      TECHNICAL — the review hand-edited `src/calc.ts` with a
+      TECHNICAL — the review hand-edited `src/calc.ts` with a  # gtd-path-exempt: scenario fixture, not a repo file
       `// TODO: also export a sum() alias` comment; add a `sum` export
       alongside `add`.
       """
@@ -296,7 +296,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
     # re-unwind: simulate the scoped `git apply -R` — @inmem never executes
     # scripts — by reverting the human's hand-edit ourselves. The human's own
-    # commit ADDED src/calc.ts, so a real reverse-apply of it DELETES the
+    # commit ADDED src/calc.ts, so a real reverse-apply of it DELETES the  # gtd-path-exempt: scenario fixture, not a repo file
     # file, not merely rewrites its content. The human's intent survives only
     # in their own "await-review → deciding" commit, for design.triage to
     # read from history.
@@ -345,7 +345,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       ## Export a sum alias
 
-      TECHNICAL — the review hand-edited `src/calc.ts` with a
+      TECHNICAL — the review hand-edited `src/calc.ts` with a  # gtd-path-exempt: scenario fixture, not a repo file
       `// TODO: also export a sum() alias` comment; add a `sum` export
       alongside `add`.
       """
@@ -358,7 +358,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # byte-for-byte the human's hand-edit, the exact shape a failed apply
     # leaves (an @inmem scenario never executes the check script, which makes
     # this the correct way to simulate that failure). The require-revert
-    # guard refuses: `src/calc.ts` still differs from the review base's
+    # guard refuses: `src/calc.ts` still differs from the review base's  # gtd-path-exempt: scenario fixture, not a repo file
     # parent (it didn't exist there at all).
     When I run gtd land
     Then it fails

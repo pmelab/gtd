@@ -1,5 +1,17 @@
 import { MACHINE_FIELD_ENTRIES } from "./StateFields.js"
 import type { StateName } from "./PatternMachine.js"
+import type { Diagnostic } from "./workflow/index.js"
+
+/** A finding's `origin` is unknown to this module (it never sees which config layer a raw value came from) — the boundary that calls `flattenMachines` fills it in. */
+const UNKNOWN_ORIGIN = ""
+
+const machinePath = (machineName: string): readonly (string | number)[] => ["machines", machineName]
+
+const statePath = (machineName: string, local: string): readonly (string | number)[] => [
+  ...machinePath(machineName),
+  "states",
+  local,
+]
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
@@ -54,14 +66,16 @@ export interface MachineNode {
 }
 
 export interface FlattenedWorkflow {
-  /** qualified name -> raw state def, `$param`s substituted, targets absolutized. */
-  readonly states: Record<string, unknown>
+  /** qualified name -> raw state def, `$param`s substituted, targets absolutized. Always a plain object — `emitState` never emits anything else. */
+  readonly states: Record<string, Record<string, unknown>>
   /** Resolved root default entry; `undefined` when `entries.default` itself failed to resolve. */
   readonly entries: { readonly default: string } | undefined
   /** `undefined` only when the root machine itself could not be instantiated. */
   readonly tree: MachineNode | undefined
   /** qualified state name -> the instance path (see `InstancePath`) that owns it. */
   readonly scopes: Record<string, InstancePath>
+  /** Findings collected across both passes — `origin` unset (`""`); the boundary calling `flattenMachines` fills it in. */
+  readonly diagnostics: readonly Diagnostic[]
 }
 
 const qualify = (path: InstancePath, local: string): string =>
@@ -93,12 +107,19 @@ const resolveWithValue = (
   return { value, scope: callerPath }
 }
 
+const err = (path: readonly (string | number)[], message: string): Diagnostic => ({
+  severity: "error",
+  message,
+  path,
+  origin: UNKNOWN_ORIGIN,
+})
+
 /** Pass-1 state threaded through every `instantiate`/`instantiateLocal` call — the parts that never change across the recursion. */
 interface InstantiateCtx {
   readonly machinesRaw: Record<string, unknown>
   readonly referenced: Set<string>
   readonly instancesByPath: Map<InstancePath, Instance>
-  readonly errors: string[]
+  readonly diagnostics: Diagnostic[]
 }
 
 /**
@@ -119,7 +140,12 @@ const instantiateLocal = (
   children: Instance[],
 ): void => {
   if (localName.includes(".")) {
-    ctx.errors.push(`machine "${machineName}": local name "${localName}" must not contain "."`)
+    ctx.diagnostics.push(
+      err(
+        statePath(machineName, localName),
+        `machine "${machineName}": local name "${localName}" must not contain "."`,
+      ),
+    )
     return
   }
   if (!isRef(def)) {
@@ -160,16 +186,25 @@ const instantiate = (
   unknownLocation: string,
 ): Instance | undefined => {
   if (ancestorChain.includes(machineName)) {
-    ctx.errors.push(`machine reference cycle: ${[...ancestorChain, machineName].join(" → ")}`)
+    ctx.diagnostics.push(
+      err(
+        machinePath(machineName),
+        `machine reference cycle: ${[...ancestorChain, machineName].join(" → ")}`,
+      ),
+    )
     return undefined
   }
   const rawMachine = ctx.machinesRaw[machineName]
   if (rawMachine === undefined) {
-    ctx.errors.push(`${unknownLocation}: unknown machine "${machineName}"`)
+    ctx.diagnostics.push(
+      err(machinePath(machineName), `${unknownLocation}: unknown machine "${machineName}"`),
+    )
     return undefined
   }
   if (!isPlainObject(rawMachine) || !isPlainObject(rawMachine["states"])) {
-    ctx.errors.push(`machine "${machineName}": must declare a "states" mapping`)
+    ctx.diagnostics.push(
+      err(machinePath(machineName), `machine "${machineName}": must declare a "states" mapping`),
+    )
     return undefined
   }
 
@@ -287,19 +322,23 @@ const resolveOnTarget = (
   target: string,
   instance: Instance,
   where: string,
+  path: readonly (string | number)[],
   instancesByPath: ReadonlyMap<InstancePath, Instance>,
   machinesRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): string | undefined => {
   const result = resolveCore(target, instance, instancesByPath, machinesRaw)
   const label = formatTrail(where, result.trail)
   if (result.kind === "ok") return result.value
   if (result.kind === "unbound") {
-    errors.push(`${label}: references unbound param "$${result.name}"`)
+    diagnostics.push(err(path, `${label}: references unbound param "$${result.name}"`))
     return undefined
   }
-  errors.push(
-    `${label}: "on" target "${target}" is not a state or reference of machine "${result.machine}" — declare a "params:" entry and bind it at the reference site`,
+  diagnostics.push(
+    err(
+      path,
+      `${label}: "on" target "${target}" is not a state or reference of machine "${result.machine}" — declare a "params:" entry and bind it at the reference site`,
+    ),
   )
   return undefined
 }
@@ -311,15 +350,17 @@ const resolveEntry = (
   instance: Instance,
   instancesByPath: ReadonlyMap<InstancePath, Instance>,
   machinesRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): string | undefined => {
   const result = resolveCore(target, instance, instancesByPath, machinesRaw)
   if (result.kind === "ok") return result.value
   if (result.kind === "unbound") {
-    errors.push(`"${entryKey}" references unbound param "$${result.name}"`)
+    diagnostics.push(err(["entry"], `"${entryKey}" references unbound param "$${result.name}"`))
     return undefined
   }
-  errors.push(`"${entryKey}" names "${target}", which is not a state or machine reference`)
+  diagnostics.push(
+    err(["entry"], `"${entryKey}" names "${target}", which is not a state or machine reference`),
+  )
   return undefined
 }
 
@@ -328,7 +369,8 @@ const substituteScalar = (
   value: unknown,
   instance: Instance,
   where: string,
-  errors: string[],
+  path: readonly (string | number)[],
+  diagnostics: Diagnostic[],
 ): unknown => {
   if (typeof value !== "string") return value
   const m = PARAM_REF.exec(value)
@@ -336,7 +378,7 @@ const substituteScalar = (
   const name = m[1]!
   const binding = instance.bindings[name]
   if (binding === undefined) {
-    errors.push(`${where}: references unbound param "$${name}"`)
+    diagnostics.push(err(path, `${where}: references unbound param "$${name}"`))
     return value
   }
   return binding.value
@@ -347,21 +389,29 @@ const emitOnObjectEdge = (
   value: Record<string, unknown>,
   instance: Instance,
   where: string,
+  path: readonly (string | number)[],
   instancesByPath: ReadonlyMap<InstancePath, Instance>,
   machinesRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): Record<string, unknown> => {
   const next: Record<string, unknown> = { ...value }
   if (typeof value["to"] === "string") {
     next["to"] =
-      resolveOnTarget(value["to"], instance, where, instancesByPath, machinesRaw, errors) ??
-      value["to"]
+      resolveOnTarget(
+        value["to"],
+        instance,
+        where,
+        path,
+        instancesByPath,
+        machinesRaw,
+        diagnostics,
+      ) ?? value["to"]
   }
   if (typeof value["describe"] === "string") {
-    next["describe"] = substituteScalar(value["describe"], instance, where, errors)
+    next["describe"] = substituteScalar(value["describe"], instance, where, path, diagnostics)
   }
   if (typeof value["action"] === "string") {
-    next["action"] = substituteScalar(value["action"], instance, where, errors)
+    next["action"] = substituteScalar(value["action"], instance, where, path, diagnostics)
   }
   return next
 }
@@ -371,18 +421,36 @@ const emitOn = (
   raw: unknown,
   instance: Instance,
   where: string,
+  path: readonly (string | number)[],
   instancesByPath: ReadonlyMap<InstancePath, Instance>,
   machinesRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): unknown => {
   if (!isPlainObject(raw)) return raw
   const out: Record<string, unknown> = {}
   for (const [pattern, value] of Object.entries(raw)) {
+    const edgePath = [...path, "on", pattern]
     if (typeof value === "string") {
       out[pattern] =
-        resolveOnTarget(value, instance, where, instancesByPath, machinesRaw, errors) ?? value
+        resolveOnTarget(
+          value,
+          instance,
+          where,
+          edgePath,
+          instancesByPath,
+          machinesRaw,
+          diagnostics,
+        ) ?? value
     } else if (isPlainObject(value)) {
-      out[pattern] = emitOnObjectEdge(value, instance, where, instancesByPath, machinesRaw, errors)
+      out[pattern] = emitOnObjectEdge(
+        value,
+        instance,
+        where,
+        edgePath,
+        instancesByPath,
+        machinesRaw,
+        diagnostics,
+      )
     } else {
       out[pattern] = value
     }
@@ -394,16 +462,24 @@ const emitRetry = (
   raw: unknown,
   instance: Instance,
   where: string,
+  path: readonly (string | number)[],
   instancesByPath: ReadonlyMap<InstancePath, Instance>,
   machinesRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): unknown => {
   if (!isPlainObject(raw)) return raw
   const next: Record<string, unknown> = { ...raw }
   if (typeof raw["otherwise"] === "string") {
     next["otherwise"] =
-      resolveOnTarget(raw["otherwise"], instance, where, instancesByPath, machinesRaw, errors) ??
-      raw["otherwise"]
+      resolveOnTarget(
+        raw["otherwise"],
+        instance,
+        where,
+        [...path, "retry", "otherwise"],
+        instancesByPath,
+        machinesRaw,
+        diagnostics,
+      ) ?? raw["otherwise"]
   }
   return next
 }
@@ -414,24 +490,25 @@ const emitState = (
   localName: string,
   instancesByPath: ReadonlyMap<InstancePath, Instance>,
   machinesRaw: Record<string, unknown>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): Record<string, unknown> => {
   const where = `machines.${instance.machine}.${localName}`
+  const path = statePath(instance.machine, localName)
   if (!isPlainObject(stateRaw)) {
-    errors.push(`${where}: state must be an object, got ${describeType(stateRaw)}`)
+    diagnostics.push(err(path, `${where}: state must be an object, got ${describeType(stateRaw)}`))
     return {}
   }
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(stateRaw)) {
     if (key === "on") {
-      out[key] = emitOn(value, instance, where, instancesByPath, machinesRaw, errors)
+      out[key] = emitOn(value, instance, where, path, instancesByPath, machinesRaw, diagnostics)
       continue
     }
     if (key === "retry") {
-      out[key] = emitRetry(value, instance, where, instancesByPath, machinesRaw, errors)
+      out[key] = emitRetry(value, instance, where, path, instancesByPath, machinesRaw, diagnostics)
       continue
     }
-    const resolved = substituteScalar(value, instance, where, errors)
+    const resolved = substituteScalar(value, instance, where, [...path, key], diagnostics)
     // A whole-value `$param` that RESOLVES to the empty string compiles away
     // to "field absent" — the normal "not anchored"/"not set" case for an
     // instance that doesn't need this optional flag (e.g. `reviewBase: ""`
@@ -455,13 +532,19 @@ const emitState = (
 const resolveInstanceMachineFields = (
   rawMachine: Record<string, unknown>,
   instance: Instance,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): Record<string, unknown> => {
   const resolved: Record<string, unknown> = {}
   for (const [key] of MACHINE_FIELD_ENTRIES) {
     const raw = rawMachine[key]
     if (raw === undefined) continue
-    const substituted = substituteScalar(raw, instance, `machines.${instance.machine}`, errors)
+    const substituted = substituteScalar(
+      raw,
+      instance,
+      `machines.${instance.machine}`,
+      [...machinePath(instance.machine), key],
+      diagnostics,
+    )
     if (typeof raw === "string" && PARAM_REF.test(raw) && substituted === "") continue
     resolved[key] = substituted
   }
@@ -474,11 +557,11 @@ const emitTree = (
   states: Record<string, unknown>,
   scopes: Record<string, InstancePath>,
   instancesByPath: ReadonlyMap<InstancePath, Instance>,
-  errors: string[],
+  diagnostics: Diagnostic[],
 ): void => {
   const rawMachine = machinesRaw[instance.machine] as Record<string, unknown>
   const statesRaw = rawMachine["states"] as Record<string, unknown>
-  const resolvedFields = resolveInstanceMachineFields(rawMachine, instance, errors)
+  const resolvedFields = resolveInstanceMachineFields(rawMachine, instance, diagnostics)
   for (const [localName, local] of instance.locals) {
     if (local.kind !== "state") continue
     const qualified = qualify(instance.path, localName)
@@ -488,7 +571,7 @@ const emitTree = (
       localName,
       instancesByPath,
       machinesRaw,
-      errors,
+      diagnostics,
     )
     if (typeof emitted["prompt"] === "string") {
       Object.assign(emitted, resolvedFields)
@@ -497,7 +580,7 @@ const emitTree = (
     scopes[qualified] = instance.path
   }
   for (const child of instance.children)
-    emitTree(child, machinesRaw, states, scopes, instancesByPath, errors)
+    emitTree(child, machinesRaw, states, scopes, instancesByPath, diagnostics)
 }
 
 const buildTree = (instance: Instance): MachineNode => ({
@@ -514,19 +597,26 @@ const buildTree = (instance: Instance): MachineNode => ({
  * parameterized "machines" a workflow is authored with — into qualified
  * states, resolved entry points, and a visualization tree, so the rest of the
  * compiler and the pure engine only ever see ordinary qualified states.
- * Findings are pushed onto `errors`; a structurally invalid `raw` (not an
- * object, or missing `entry.default`) yields the all-empty/`undefined` shape
- * without attempting the passes.
+ * Findings are collected into the returned `diagnostics`; a structurally
+ * invalid `raw` (not an object, or missing `entry.default`) yields the
+ * all-empty/`undefined` shape without attempting the passes.
  */
-export const flattenMachines = (raw: unknown, errors: string[]): FlattenedWorkflow => {
-  const empty: FlattenedWorkflow = { states: {}, entries: undefined, tree: undefined, scopes: {} }
+export const flattenMachines = (raw: unknown): FlattenedWorkflow => {
+  const diagnostics: Diagnostic[] = []
+  const empty: FlattenedWorkflow = {
+    states: {},
+    entries: undefined,
+    tree: undefined,
+    scopes: {},
+    diagnostics,
+  }
   if (!isPlainObject(raw)) {
-    errors.push(`workflow must be an object, got ${describeType(raw)}`)
+    diagnostics.push(err([], `workflow must be an object, got ${describeType(raw)}`))
     return empty
   }
   const entryRaw = raw["entry"]
   if (!isPlainObject(entryRaw) || typeof entryRaw["default"] !== "string") {
-    errors.push(`"entry.default" must name a machine`)
+    diagnostics.push(err(["entry", "default"], `"entry.default" must name a machine`))
     return empty
   }
   const machinesRaw: Record<string, unknown> = isPlainObject(raw["machines"])
@@ -537,28 +627,42 @@ export const flattenMachines = (raw: unknown, errors: string[]): FlattenedWorkfl
   const referenced = new Set<string>()
   const rootMachineName = entryRaw["default"]
   referenced.add(rootMachineName)
-  const ctx: InstantiateCtx = { machinesRaw, referenced, instancesByPath, errors }
+  const ctx: InstantiateCtx = { machinesRaw, referenced, instancesByPath, diagnostics }
   const root = instantiate(rootMachineName, "", [], {}, ctx, "entry.default")
 
   for (const name of Object.keys(machinesRaw)) {
-    if (!referenced.has(name)) errors.push(`machine "${name}" is declared but never referenced`)
+    if (!referenced.has(name)) {
+      diagnostics.push(err(machinePath(name), `machine "${name}" is declared but never referenced`))
+    }
   }
 
   if (root === undefined) return empty
 
-  const states: Record<string, unknown> = {}
+  const states: Record<string, Record<string, unknown>> = {}
   const scopes: Record<string, InstancePath> = {}
-  emitTree(root, machinesRaw, states, scopes, instancesByPath, errors)
+  emitTree(root, machinesRaw, states, scopes, instancesByPath, diagnostics)
   const tree = buildTree(root)
 
   const rootMachine = machinesRaw[rootMachineName] as Record<string, unknown>
   const rootEntry = rootMachine["entry"]
-  const defaultResolved =
-    typeof rootEntry === "string"
-      ? resolveEntry("entry.default", rootEntry, root, instancesByPath, machinesRaw, errors)
-      : (errors.push(`machine "${rootMachineName}": "entry" must be a string`), undefined)
+  let defaultResolved: string | undefined
+  if (typeof rootEntry === "string") {
+    defaultResolved = resolveEntry(
+      "entry.default",
+      rootEntry,
+      root,
+      instancesByPath,
+      machinesRaw,
+      diagnostics,
+    )
+  } else {
+    diagnostics.push(
+      err(machinePath(rootMachineName), `machine "${rootMachineName}": "entry" must be a string`),
+    )
+  }
 
-  if (defaultResolved === undefined) return { states, entries: undefined, tree, scopes }
+  if (defaultResolved === undefined)
+    return { states, entries: undefined, tree, scopes, diagnostics }
 
-  return { states, entries: { default: defaultResolved }, tree, scopes }
+  return { states, entries: { default: defaultResolved }, tree, scopes, diagnostics }
 }

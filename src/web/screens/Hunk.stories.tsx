@@ -3,7 +3,7 @@ import { page } from "@vitest/browser/context"
 import { useState } from "react"
 import { expect, fireEvent, within } from "storybook/test"
 import type { DiffResult } from "../../ui/Diff.js"
-import type { SteeringViewNode } from "../../SteeringFormat.js"
+import type { SteeringViewNode } from "../../steering/index.js"
 import { Hunk } from "./Hunk.js"
 
 const meta: Meta<typeof Hunk> = {

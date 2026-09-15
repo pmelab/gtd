@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import type { GitOperations } from "../Git.js"
+import type { GitOperations } from "../platform/index.js"
 import { TEST_DOUBLE_SENTINEL } from "./InMemRepo.js"
 
 /**

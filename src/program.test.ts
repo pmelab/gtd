@@ -4,10 +4,10 @@
  * refusal-classifier functions (`classifyReviewSignoff`,
  * `classifyFeedbackProgress`, `classifyAnswerCompleteness`) and
  * `computeNextMatch`. Argv parsing, flags, help/version, and the envelope
- * shape are `src/Cli.ts`'s job now — pinned in `src/Cli.test.ts` — so this
+ * shape are `src/cli/Cli.ts`'s job now — pinned in `src/cli/Cli.test.ts` — so this
  * file no longer touches any of that; every scenario here runs a resolved
  * command through the real `runCli` shell over an in-memory repo, exactly
- * like the `@inmem` e2e tier (`tests/integration/support/inmem/cliIo.ts`).
+ * like the `@inmem` e2e tier (`src/testing/cliIo.ts`).
  */
 
 import { Cause, Effect, Exit, Fiber } from "effect"
@@ -22,8 +22,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 // actual network.
 vi.mock("./ui/BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
 
-import { runCli, type Command } from "./Cli.js"
-import { stallDiagnosis } from "./Beat.js"
+import { runCli, type Command } from "./cli/index.js"
+import { stallDiagnosis } from "./wire/index.js"
 import {
   computeNextMatch,
   formatFinding,
@@ -32,7 +32,7 @@ import {
   SelectorUsageError,
 } from "./program.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
-import { renderInitConfig } from "./workflows/templates.js"
+import { renderInitConfig } from "./workflows/index.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { makeCapturingCliIo } from "./testing/cliIo.js"
 import { testLayers } from "./testing/Layers.js"
@@ -40,8 +40,8 @@ import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
 import { commitAll } from "./GitScript.js"
 import { HISTORY_REF } from "./RetainedHistory.js"
 import { abandonNoopOutcome, noteOutcome, restoredOutcome } from "./OutcomeScript.js"
-import { noopText } from "./Beat.js"
-import { EXIT_USAGE_ERROR } from "./ExitCodes.js"
+import { noopText } from "./wire/index.js"
+import { EXIT_USAGE_ERROR } from "./cli/index.js"
 
 /** Runs `args` through the real CLI shell (`runCli`) against an in-memory repo, returning the captured stdout/stderr/exit code — the same shape `tests/integration/support/world.ts`'s `@inmem` tier observes. */
 const run = async (
@@ -75,7 +75,7 @@ describe("gtd --entry <state> — a custom workflow declaring `entry: true`", ()
   // workflow's OWN `entries.manual` reachability roots — see
   // `PatternMachine.enterableStates`'s doc comment). Needs a real (in-memory)
   // repo, like the old review/fix guard tests it replaces — mirrors the
-  // InMemRepo + testLayers precedent in src/Git.test.ts.
+  // InMemRepo + testLayers precedent in src/platform/Git.test.ts.
 
   const CUSTOM_WORKFLOW = [
     "workflow:",
@@ -1359,8 +1359,7 @@ describe("gtd check <mode> <file>", () => {
   // Fully standalone (needsOf("check") === "none") — no config, no commit, no
   // git state at all is required; the file just needs to exist in the
   // in-memory worktree. Sample valid/invalid content mirrors
-  // OpenQuestions.test.ts's `questionsDoc`/`malformed` and
-  // ReviewDoc.test.ts's `reviewDoc`.
+  // src/steering/index.test.ts's own qa/review fixtures.
 
   const validQaDoc = [
     "# Plan",
@@ -1489,6 +1488,19 @@ describe("gtd check <mode> <file>", () => {
     expect(stdout).toBe("")
     expect(stderr).toContain("only valid for `gtd next`")
   })
+
+  // Regression pin: `ModeContradiction.ts`'s round-trip renders `gtd check
+  // <mode> <path>` against an ABSOLUTE scratch path under `Host.scratchDir`
+  // (never repo-relative) — `Workspace`'s repo-relative `read` rejects an
+  // absolute argument outright, so this command must read through `atPath`
+  // instead, not `read`.
+  it("reads an ABSOLUTE file path too — atPath, not the repo-relative read", async () => {
+    const repo = bareRepo()
+    repo.writeFile("outside.md", validQaDoc)
+    const { stdout, exitCode } = await run(repo, "check", "qa", "/repo/outside.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+  })
 })
 
 describe("gtd uncheck <file>", () => {
@@ -1536,11 +1548,38 @@ describe("gtd uncheck <file>", () => {
     expect(exitCode).toBe(2)
     expect(stderr).toContain("missing file argument")
   })
+
+  // Regression pin: `gtd uncheck` shares its file-reading shape with `gtd
+  // check`, both of which take an arbitrary CLI-given `<file>` — not
+  // necessarily repo-relative (see the sibling pin below, at `gtd check`'s
+  // own describe block, for the case this actually matters in production:
+  // `ModeContradiction.ts`'s round-trip invokes `gtd check qa <absolute
+  // scratch path>`). `Workspace`'s repo-relative `read`/`write` reject an
+  // absolute path outright — only `atPath`/`writeAtPath` may see one.
+  it("rewrites ticks at an ABSOLUTE file path too — atPath/writeAtPath, not the repo-relative read/write", async () => {
+    const repo = bareRepo()
+    // Seeded/read back by the STRIPPED key: `atPath`'s in-memory adapter
+    // (`testing/Layers.ts`) maps an absolute path rooted under `/repo` (the
+    // default fake root) to its relative key, same as the live adapter maps
+    // it to `join(root, …)` — the CLI argument is absolute, the storage key
+    // isn't.
+    repo.writeFile(
+      "REVIEW.md",
+      ["# Review: abc1234", "", "## Chunk", "", "- [x] ./src/calc.ts#1", ""].join("\n"),
+    )
+    const { stdout, stderr, exitCode } = await run(repo, "uncheck", "/repo/REVIEW.md")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
+    expect(repo.readFile("REVIEW.md")).toBe(
+      ["# Review: abc1234", "", "## Chunk", "", "- [ ] ./src/calc.ts#1", ""].join("\n"),
+    )
+  })
 })
 
 describe("gtd check <mode> <file> --open-questions", () => {
   // Shares the exact `unansweredQuestions` predicate the answer-completeness
-  // step guard (`StepGuards.test.ts`) enforces at land — this is the leaf
+  // step guard (`src/step/Guards.test.ts`) enforces at land — this is the leaf
   // command a workflow's own gate script calls to answer the same question
   // in-process, ahead of time.
 
@@ -2648,14 +2687,15 @@ describe("gtd next/land --json=<path> — the select branch (package 01, task 4)
   it("an absent selector writes zero bytes to stdout and exits EXIT_OK", async () => {
     const repo = seededRepo()
     // The built-in workflow's initial `idle` state declares no `mode:` —
-    // `mode` is a real, present-but-`undefined` field on `BeatFields` there
-    // (see `Beat.ts`'s `beatFields`), not merely an unknown path.
+    // `mode` is a real, present-but-`undefined` field on the beat document
+    // there (see `src/wire/BeatStatus.ts`'s `statusOf`), not merely an
+    // unknown path.
     const { stdout, exitCode } = await run(repo, "next", "--json=mode")
     expect(exitCode).toBe(0)
     expect(stdout).toBe("")
   })
 
-  it('a null-valued leaf (BeatFields.next, on a clean tree matching no on: pattern) reads as absent — zero bytes, exit 0, never the string "null"', async () => {
+  it('a null-valued leaf (the beat document\'s next, on a clean tree matching no on: pattern) reads as absent — zero bytes, exit 0, never the string "null"', async () => {
     const repo = seededRepo()
     const { stdout, exitCode } = await run(repo, "next", "--json=next")
     expect(exitCode).toBe(0)

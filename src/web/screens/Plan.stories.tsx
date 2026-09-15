@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
-import type { SteeringView, SteeringViewNode } from "../../SteeringFormat.js"
+import type { SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { Plan, PlanView } from "./Plan.js"
 

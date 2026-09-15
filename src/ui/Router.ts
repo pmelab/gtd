@@ -1,5 +1,5 @@
 import { TRPCError, initTRPC } from "@trpc/server"
-import type { SteeringAnchor } from "../SteeringFormat.js"
+import type { SteeringAnchor } from "../steering/index.js"
 import type { StepRead } from "./Beat.js"
 import type { DiffResult } from "./Diff.js"
 import type { ReadSteeringFileRequest, ReadSteeringFileResult } from "./ReadSteeringFile.js"

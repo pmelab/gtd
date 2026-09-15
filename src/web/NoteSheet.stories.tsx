@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { page } from "@vitest/browser/context"
 import { useState } from "react"
 import { expect, fireEvent, fn, waitFor, within } from "storybook/test"
-import type { SteeringAnchor } from "../SteeringFormat.js"
+import type { SteeringAnchor } from "../steering/index.js"
 import { NoteSheet } from "./NoteSheet.js"
 import { withRealMousePress } from "./testing/realMousePress.js"
 

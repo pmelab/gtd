@@ -1,15 +1,14 @@
 @live
 Feature: gtd lsp — the steering-file LSP server (stdio)
 
-  Minimal protocol-level smoke for `gtd lsp` (see src/Lsp.ts and
-  docs/design/steering-file-loops.md §5): the server starts over stdio, the
+  Minimal protocol-level smoke for `gtd lsp` (see src/Lsp.ts): the server
+  starts over stdio, the
   `initialize` handshake succeeds and advertises the document-symbol/code-
   action capabilities, and a `textDocument/documentSymbol` request against a
   `.gtd/TODO.md` fixture yields NO symbols (there is no `TODO.md` → qa
   basename fallback — the bundled `idle` names that exact path as its `file:`
   but declares no `mode:`, so nothing dispatches over it). Two further
-  scenarios prove the config-driven half (see
-  docs/design/state-file-association.md §3): documentSymbol served for a
+  scenarios prove the config-driven half: documentSymbol served for a
   CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:` pair, and
   the `gtd.openSteeringFile` executeCommand resolving a
   hand-authored current state and asking the client to show its steering
@@ -20,7 +19,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   hyphens: it must jump to the full file, not a truncated directory prefix.
   One more scenario proves a `qa`-mode code action is offered from a wrapped
   option's continuation line, not just its own `- [ ]` line (see
-  `QuestionOption.endLine` in src/OpenQuestions.ts). Real subprocess I/O
+  `QuestionOption.endLine` in src/steering/qa.ts). Real subprocess I/O
   (spawn + stdio JSON-RPC framing), so this runs @live.
 
   Scenario: the initialize handshake succeeds and advertises symbol/code-action support
@@ -259,8 +258,8 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   Scenario: a modes: qa validate: override suppresses built-in diagnostics for a live notice, while the outline stays live
     # The registry's `qa` format identity (outline/actions) survives a declared
     # `validate:` command that displaces its built-in parser (see
-    # src/SteeringMode.ts's resolveSteeringMode / steeringCapabilities) — the
-    # editor still gets a live outline, but diagnostics become the ONE
+    # src/SteeringMode.ts's resolveMode and its returned `capabilities` field)
+    # — the editor still gets a live outline, but diagnostics become the ONE
     # Information notice pointing at `gtd validate`, never the built-in
     # findings.
     Given a test project
@@ -311,8 +310,8 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     # `validate:` with the literal string `gtd check <mode> '<%= it.file %>'`
     # (src/SteeringFormats.ts's seededValidateCommand) — a shell-out that just
     # calls back into gtd's own parser, changing nothing about how the file is
-    # actually validated. steeringCapabilities must recognize that string
-    # (isSeededValidateCommand) and keep publishing the built-in parser's live
+    # actually validated. `resolveMode`'s `capabilities` field must recognize
+    # that string (isSeededValidateCommand) and keep publishing the built-in parser's live
     # findings, never the "validated by an external command" notice a genuine
     # user override gets (see the scenario above, which uses "exit 1").
     Given a test project
