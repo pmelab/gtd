@@ -2,7 +2,7 @@
 Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Pins the `gtd next --json` contract (`{state, actor, kind, content,
-  edges}`, see docs/design/pattern-machine-plan.md §3) for the `script` and
+  edges}`) for the `script` and
   `prompt` kinds — smoke.feature already pins the `message` kind at `idle` —
   the `edges` list (the resting state's `on` edges as `{pattern, target,
   describe?}`, also what a `message:` template sees as `it.edges`), and gtd's

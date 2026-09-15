@@ -1,16 +1,14 @@
 import { Effect, Exit } from "effect"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   currentRest,
   currentRun,
   memoryResumedFor,
-  planEntry,
-  planStep,
-  renderDecision,
   reviewBaseFor,
   resolveRestFrom,
   renderRest,
   restAt,
+  snapshotFromRest,
   stalledAt,
   summaryRun,
   summaryTemplateContext,
@@ -19,17 +17,8 @@ import {
   type RestRequirements,
 } from "./Edge.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
-import { commitAll } from "./GitScript.js"
-import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { testLayers } from "./testing/Layers.js"
-import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
-
-/** Drive a plan's emitted `required` script into the fake — the same recognizer path `tests/integration/support/world.ts` uses. gtd itself never writes git; this is the driver's half of every landing below. */
-const land = (repo: InMemRepo, scripts: { readonly required: string }): void => {
-  const applied = applyEmittedScript(repo, new Map(), scripts.required)
-  if (!applied.ok) throw new Error(applied.error ?? "emitted script failed")
-}
 
 // A ref name gtd no longer writes or reads at all — kept as a literal here
 // only to pin that `restAt` genuinely ignores a stray ref under this name.
@@ -42,7 +31,8 @@ const REVIEW_HEAD_REF = "refs/worktree/gtd/review-head"
  * `ConfigService`/`WorktreeReader`/`EnvVars` alongside git, so a resolved
  * `Rest` is the natural unit of test. `resolveRestFrom` and `reviewBaseFor`
  * are pure and get their own direct unit tests; everything else is exercised
- * through `currentRest`/`restAt`/`planStep`/`planEntry`.
+ * through `currentRest`/`restAt`. `planStep`/`planEntry`/`snapshotFromRest`
+ * (the pure planning core) have their own coverage in `src/step/*.test.ts`.
  */
 
 const provide = <A>(
@@ -888,662 +878,106 @@ const seededStepRepo = (): InMemRepo => {
   return repo
 }
 
-describe("planStep", () => {
-  it('a no-match refusal\'s message joins ALL declared patterns with ", " — the whole string, not just a substring', async () => {
-    const TWO_PATTERN_WORKFLOW = [
-      "workflow:",
-      "  entry:",
-      "    default: root",
-      "  machines:",
-      "    root:",
-      "      entry: idle",
-      "      states:",
-      "        idle:",
-      "          actor: human",
-      "          message: hi",
-      "          on:",
-      '            "A FOO.md": idle',
-      '            "A BAR.md": idle',
-      "",
-    ].join("\n")
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", TWO_PATTERN_WORKFLOW)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    repo.writeFile("OTHER.md", "unrelated\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toBe(
-      'gtd land: no declared pattern matches the pending changes at "idle" — declared patterns: A FOO.md, A BAR.md',
-    )
-  })
+// ── snapshotFromRest — the one place a Rest becomes a RepoSnapshot ──────────
 
-  it('a no-match refusal at a state declaring no `on` at all names "(none)", the whole string', async () => {
-    const NO_PATTERN_WORKFLOW = [
-      "workflow:",
-      "  entry:",
-      "    default: root",
-      "  machines:",
-      "    root:",
-      "      entry: idle",
-      "      states:",
-      "        idle:",
-      "          actor: human",
-      "          message: hi",
-      "",
-    ].join("\n")
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", NO_PATTERN_WORKFLOW)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    repo.writeFile("OTHER.md", "unrelated\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toBe(
-      'gtd land: no declared pattern matches the pending changes at "idle" — declared patterns: (none)',
-    )
-  })
-
-  it("a refusal (no-match on a dirty tree) names the declared patterns", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(human): working")
-    repo.writeFile("OTHER.md", "unrelated\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("A PLAN.md")
-  })
-
-  it("a clean tree with no declared C row at a prompt rest is now an ATTEMPT commit, not a no-op", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(human): working")
-    const before = repo.resolveRef("HEAD")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("commit")
-    if (plan.kind !== "commit") throw new Error("expected a commit plan")
-    expect(plan.decision).toEqual({
-      kind: "commit",
-      subject: "gtd(agent): working",
-      actor: "agent",
-      from: "working",
-      to: "working",
-      attempt: true,
-    })
-    expect(repo.resolveRef("HEAD")).toBe(before)
-
-    land(repo, plan.scripts)
-    expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
-    expect(repo.resolveRef("HEAD")).not.toBe(before)
-  })
-
-  it("a clean tree with no declared C row at a script rest is settled — the check ran and re-running it can't change that", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(check): probing")
-    const before = repo.resolveRef("HEAD")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    expect(plan).toEqual({ kind: "noop", state: "probing", settled: true })
-    expect(repo.resolveRef("HEAD")).toBe(before)
-  })
-
-  it("a commit decision is inspectable and writes nothing until the driver runs the emitted script", async () => {
-    const repo = seededStepRepo()
-    repo.writeFile("README.md", "edited\n")
-    const before = repo.resolveRef("HEAD")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("commit")
-    expect(plan.kind === "commit" && plan.decision.kind).toBe("commit")
-    expect(repo.resolveRef("HEAD")).toBe(before)
-
-    if (plan.kind !== "commit") throw new Error("expected a commit plan")
-    land(repo, plan.scripts)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): idle → working")
-  })
-
-  it("a matched on-edge to a non-initial target is an ordinary commit, not a collapse", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(human): working")
-    repo.writeFile("PLAN.md", "the plan\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("commit")
-    if (plan.kind !== "commit") throw new Error("expected a commit plan")
-    expect(plan.decision).toMatchObject({ kind: "commit", from: "working", to: "accepted" })
-
-    land(repo, plan.scripts)
-    expect(repo.lastCommitSubject()).toBe("gtd(agent): working → accepted")
-    expect(repo.hasPath("PLAN.md")).toBe(true)
-  })
-
-  it("a green re-entry into the initial state retaining nothing lands an ordinary commit, not a rewind", async () => {
-    const repo = seededStepRepo()
-    const entryRest = await provide(currentRest, repo)
-    const entryPlan = await provide(
-      planEntry(entryRest, "human", { state: "fixing", commandLabel: "gtd test", vars: {} }),
-      repo,
-    )
-    if (entryPlan.kind !== "entry") throw new Error("expected an entry plan")
-    land(repo, entryPlan.scripts)
-    const afterEntry = repo.resolveRef("HEAD")
-
-    // Resting at "fixing" with a clean tree: "C": idle, and the entry commit
-    // above produced no net diff.
-    const rest = await provide(currentRest, repo)
-    expect(rest.state).toBe("fixing")
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("commit")
-    if (plan.kind !== "commit") throw new Error("expected a commit plan")
-
-    land(repo, plan.scripts)
-    // Lands an ordinary commit on top — HEAD never moves backward, and both
-    // the entry commit and this probe commit stay in the log.
-    const after = await provide(currentRest, repo)
-    expect(after.state).toBe("idle")
-    expect(repo.resolveRef("HEAD")).not.toBe(afterEntry)
-    expect(repo.lastCommitSubject()).toBe("gtd(agent): fixing → idle")
-  })
-
-  it("an attempt at a prompt state that IS the initial state lands an ordinary attempt commit", async () => {
-    const ATTEMPT_INITIAL_WORKFLOW = [
-      "workflow:",
-      "  entry:",
-      "    default: root",
-      "  machines:",
-      "    root:",
-      "      entry: working",
-      "      states:",
-      "        working:",
-      "          actor: agent",
-      "          prompt: work-prompt",
-      "          on:",
-      '            "A DONE.md": done',
-      "        done:",
-      "          actor: human",
-      "          message: done-message",
-      "          on:",
-      '            "* **": working',
-      "",
-    ].join("\n")
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", ATTEMPT_INITIAL_WORKFLOW)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    const before = repo.resolveRef("HEAD")
-
-    const rest = await provide(currentRest, repo)
-    expect(rest.state).toBe("working")
-    const plan = await provide(planStep(rest), repo)
-    expect(plan.kind).toBe("commit")
-    if (plan.kind !== "commit") throw new Error("expected a commit plan")
-    expect(plan.decision).toMatchObject({ attempt: true, from: "working", to: "working" })
-
-    land(repo, plan.scripts)
-    expect(repo.resolveRef("HEAD")).not.toBe(before)
-    expect(repo.lastCommitSubject()).toBe("gtd(agent): working")
-  })
-
-  it("an out-of-turn refusal names the awaited actor — unreachable through the real pipeline (`rest.actor` is always the resting state's own declared actor), but `planStep` doesn't assume its caller preserved that invariant", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(human): working")
-    const rest = await provide(currentRest, repo)
-    expect(rest.state).toBe("working")
-    const mismatched = { ...rest, actor: "someone-else" }
-    const plan = await provide(planStep(mismatched), repo)
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toBe(
-      'gtd land: out of turn — "working" awaits agent',
-    )
-  })
-})
-
-// ── planEntry — starting a brand-new process ─────────────────────────────────
-
-describe("planEntry", () => {
-  it("refuses when a process is already underway", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(human): working")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", { state: "fixing", commandLabel: "gtd test", vars: {} }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("already underway")
-  })
-
-  it("refuses an entry naming a state the workflow doesn't declare at all", async () => {
-    const repo = seededStepRepo()
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", { state: "nonexistent", commandLabel: "gtd test", vars: {} }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("not an enterable state")
-  })
-
-  it("refuses an undeclared --var name", async () => {
-    const repo = seededStepRepo()
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", {
-        state: "fixing",
-        commandLabel: "gtd test",
-        vars: { nope: "x" },
-      }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("not declared by this workflow")
-  })
-
-  it('an undeclared --var refusal names ALL declared var names joined by ", " — the whole string', async () => {
-    const TWO_VAR_WORKFLOW = [
-      "workflow:",
-      "  vars:",
-      "    base: ''",
-      "    other: ''",
-      "  entry:",
-      "    default: root",
-      "  machines:",
-      "    root:",
-      "      entry: idle",
-      "      states:",
-      "        idle:",
-      "          actor: human",
-      "          message: hi",
-      "          on:",
-      '            "* **": working',
-      "        working:",
-      "          entry: true",
-      "          actor: agent",
-      "          prompt: work-prompt",
-      "          on:",
-      '            "* **": idle',
-      "",
-    ].join("\n")
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", TWO_VAR_WORKFLOW)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", {
-        state: "working",
-        commandLabel: "gtd test",
-        vars: { nope: "x" },
-      }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toBe(
-      "gtd test: --var name(s) not declared by this workflow: nope — declared: base, other",
-    )
-  })
-
-  it('an undeclared --var refusal at a workflow declaring no vars at all names "(none)", the whole string', async () => {
-    const NO_VAR_WORKFLOW = [
-      "workflow:",
-      "  entry:",
-      "    default: root",
-      "  machines:",
-      "    root:",
-      "      entry: idle",
-      "      states:",
-      "        idle:",
-      "          actor: human",
-      "          message: hi",
-      "          on:",
-      '            "* **": working',
-      "        working:",
-      "          entry: true",
-      "          actor: agent",
-      "          prompt: work-prompt",
-      "          on:",
-      '            "* **": idle',
-      "",
-    ].join("\n")
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", NO_VAR_WORKFLOW)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", {
-        state: "working",
-        commandLabel: "gtd test",
-        vars: { nope: "x" },
-      }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toBe(
-      "gtd test: --var name(s) not declared by this workflow: nope — declared: (none)",
-    )
-  })
-
-  it("refuses a blank-rendering reviewBase template", async () => {
-    const repo = seededStepRepo()
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", { state: "reviewcheck", commandLabel: "gtd test", vars: {} }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("rendered blank")
-  })
-
-  it("a blank reviewBase refusal names every it.vars reference IN FULL (multi-char names round-trip whole, not truncated to one char)", async () => {
-    const REFS_WORKFLOW = [
-      "workflow:",
-      "  vars:",
-      "    myVar: ''",
-      "    otherVar: ''",
-      "  entry:",
-      "    default: root",
-      "  machines:",
-      "    root:",
-      "      entry: idle",
-      "      states:",
-      "        idle:",
-      "          actor: human",
-      "          message: hi",
-      "          on:",
-      '            "* **": working',
-      "        working:",
-      "          actor: agent",
-      "          prompt: work-prompt",
-      "          on:",
-      '            "* **": idle',
-      "        reviewcheck:",
-      "          entry: true",
-      "          actor: human",
-      "          message: reviewcheck-message",
-      '          reviewBase: "<%= it.vars.myVar %><%= it.vars.otherVar %>"',
-      "          on:",
-      '            "* **": idle',
-      "",
-    ].join("\n")
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", REFS_WORKFLOW)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", { state: "reviewcheck", commandLabel: "gtd test", vars: {} }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toBe(
-      `gtd test: "reviewcheck"'s reviewBase template rendered blank — template: ${JSON.stringify(
-        "<%= it.vars.myVar %><%= it.vars.otherVar %>",
-      )}; it.vars references: it.vars.myVar, it.vars.otherVar`,
-    )
-  })
-
-  it('a blank reviewBase refusal with no it.vars reference at all names "(none found)", the whole string', async () => {
-    const NO_REFS_WORKFLOW = [
-      "workflow:",
-      "  entry:",
-      "    default: root",
-      "  machines:",
-      "    root:",
-      "      entry: idle",
-      "      states:",
-      "        idle:",
-      "          actor: human",
-      "          message: hi",
-      "          on:",
-      '            "* **": working',
-      "        working:",
-      "          actor: agent",
-      "          prompt: work-prompt",
-      "          on:",
-      '            "* **": idle',
-      "        reviewcheck:",
-      "          entry: true",
-      "          actor: human",
-      "          message: reviewcheck-message",
-      '          reviewBase: "<% %>"',
-      "          on:",
-      '            "* **": idle',
-      "",
-    ].join("\n")
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", NO_REFS_WORKFLOW)
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", { state: "reviewcheck", commandLabel: "gtd test", vars: {} }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toBe(
-      `gtd test: "reviewcheck"'s reviewBase template rendered blank — template: ${JSON.stringify(
-        "<% %>",
-      )}; it.vars references: (none found)`,
-    )
-  })
-
-  it("refuses a reviewBase that does not resolve to a commit", async () => {
-    const repo = seededStepRepo()
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", {
-        state: "reviewcheck",
-        commandLabel: "gtd test",
-        vars: { base: "not-a-commit" },
-      }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("does not resolve to a commit")
-  })
-
-  it("refuses a reviewBase equal to HEAD", async () => {
-    const repo = seededStepRepo()
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", {
-        state: "reviewcheck",
-        commandLabel: "gtd test",
-        vars: { base: "HEAD" },
-      }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("nothing to review")
-  })
-
-  it("refuses a reviewBase that is not an ancestor of HEAD", async () => {
-    const repo = seededStepRepo()
-    const branchPoint = repo.resolveRef("HEAD")!
-    repo.commitAllWithPrefix("chore: side branch commit")
-    const sideCommit = repo.resolveRef("HEAD")!
-    repo.hardResetTo(branchPoint)
-    repo.commitAllWithPrefix("chore: main branch commit")
-
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", {
-        state: "reviewcheck",
-        commandLabel: "gtd test",
-        vars: { base: sideCommit },
-      }),
-      repo,
-    )
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("is not an ancestor of HEAD")
-  })
-
-  it("the emitted script writes an entry commit carrying Gtd-Var: trailers, capturing whatever the tree carries", async () => {
-    const repo = seededStepRepo()
-    repo.writeFile("NOTES.md", "draft\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", {
-        state: "fixing",
-        commandLabel: "gtd test",
-        vars: { base: "custom" },
-      }),
-      repo,
-    )
-    expect(plan.kind).toBe("entry")
-    if (plan.kind !== "entry") throw new Error("expected an entry plan")
-    expect(plan.subject).toBe("gtd(human): fixing")
-
-    land(repo, plan.scripts)
-    expect(repo.lastCommitMessage()).toBe("gtd(human): fixing\n\nGtd-Var: base=custom")
-    expect(repo.hasPath("NOTES.md")).toBe(true)
-
-    const after = await provide(currentRest, repo)
-    expect(after.state).toBe("fixing")
-    expect(after.vars.base).toBe("custom")
-  })
-})
-
-// ── renderDecision + the plan's `scripts` field ──────────────────────────────
-
-describe("renderDecision + StepPlan/EntryPlan.scripts", () => {
-  it("a commit decision renders to one commitAll(withCostTrailer(...)) line, and the assembled script carries it", async () => {
-    const repo = seededStepRepo()
-    repo.writeFile("README.md", "edited\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest, { cost: 7, model: "haiku" }), repo)
-    if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
-      throw new Error("expected a commit plan")
-    }
-
-    // Direct call — `renderDecision` is pure, no `provide` needed.
-    const steps = renderDecision(rest, plan.decision, 7, "haiku")
-    const expectedMessage = `${plan.decision.subject}\n\nGtd-Cost: 7 haiku`
-    expect(steps).toEqual([
-      { kind: "gitWrite", command: commitAll(expectedMessage) },
-      // idle -> working: a genuine transition, not a self-loop, so the
-      // trailing outcome names both states rather than the bare subject.
-      { kind: "outcome", command: transitionOutcome("idle", "working") },
-    ])
-
-    // The plan's assembled `scripts.required` carries the SAME line, wrapped
-    // in the retry helper — proving Part B's assembly agrees with Part A's
-    // renderer, not just a hand-built comparison.
-    expect(plan.scripts.required).toContain(commitAll(expectedMessage))
-    expect(plan.scripts.required).toContain(transitionOutcome("idle", "working"))
-  })
-
-  it("a self-loop commit (from === to) renders a bare commitOutcome, not a transitionOutcome", async () => {
-    const repo = seededStepRepo()
-    repo.commitAllWithPrefix("gtd(agent): working")
-    const rest = await provide(currentRest, repo)
-    // Hand-built rather than decided by `planStep`: `STEP_WORKFLOW` has no
-    // declared self-loop, but `renderDecision` only reads `decision.from`/
-    // `to`/`subject` — a synthetic `StepCommit` exercises its from === to
-    // branch directly.
-    const decision = {
-      kind: "commit" as const,
-      subject: "gtd(agent): working",
-      actor: "agent",
-      from: "working",
-      to: "working",
-    }
-    const steps = renderDecision(rest, decision, undefined, undefined)
-    expect(steps).toEqual([
-      { kind: "gitWrite", command: commitAll(decision.subject) },
-      { kind: "outcome", command: commitOutcome("gtd(agent): working") },
-    ])
-  })
-
-  it("planEntry's scripts field carries a single commitAll(message) line, and landing it writes the entry commit", async () => {
-    const repo = seededStepRepo()
-    repo.writeFile("NOTES.md", "draft\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(
-      planEntry(rest, "human", {
-        state: "fixing",
-        commandLabel: "gtd test",
-        vars: { base: "custom" },
-      }),
-      repo,
-    )
-    if (plan.kind !== "entry") throw new Error("expected an entry plan")
-
-    const expectedMessage = "gtd(human): fixing\n\nGtd-Var: base=custom"
-    expect(plan.scripts.required).toContain(commitAll(expectedMessage))
-    // The trailing outcome names the BARE subject, never `expectedMessage`
-    // (which carries the `Gtd-Var:` trailer).
-    expect(plan.scripts.required).toContain(commitOutcome("gtd(human): fixing"))
-
-    land(repo, plan.scripts)
-    expect(repo.lastCommitMessage()).toBe(expectedMessage)
-  })
-})
-
-// ── renderDecision — the review-gate uncheck reset ───────────────────────────
-
-const REVIEW_GATE_WORKFLOW = [
+const REVERT_WORKFLOW = [
   "workflow:",
   "  entry:",
   "    default: root",
   "  machines:",
   "    root:",
-  "      entry: awaitreview",
+  "      entry: idle",
   "      states:",
-  "        awaitreview:",
+  "        idle:",
   "          actor: human",
-  "          message: review-message",
-  "          file: REVIEW.md",
-  "          mode: review",
+  "          message: idle-message",
   "          on:",
-  '            "* **": awaitreview',
+  '            "* **": reviewed',
+  "        reviewed:",
+  "          actor: human",
+  "          message: reviewed-message",
+  "          reviewBase: true",
+  "          on:",
+  '            "* **": awaitRevert',
+  "        awaitRevert:",
+  "          actor: agent",
+  "          prompt: work-prompt",
+  "          requireRevert: true",
+  "          file: AWAIT.md",
+  "          on:",
+  '            "* **": idle',
   "",
 ].join("\n")
 
-const reviewGateRepo = (): InMemRepo => {
+/**
+ * Two crafted turn commits landing at `awaitRevert` (`requireRevert: true`)
+ * having passed through `reviewed` (`reviewBase: true`) — the one shape that
+ * makes `reviewBase` genuinely differ from `startCommit`, which is what lets
+ * `requireRevertGuard`'s early "no identifiable review round" exit be told
+ * apart from an actual git-archaeology read in the assertions below.
+ */
+const revertRepo = (): InMemRepo => {
   const repo = new InMemRepo()
-  repo.writeFile(".gtdrc.yaml", REVIEW_GATE_WORKFLOW)
-  repo.writeFile(".gtd/REVIEW.md", "# Review: abc1234\n")
-  repo.commitAllWithPrefix("chore: add review-gate workflow")
+  repo.writeFile(".gtdrc.yaml", REVERT_WORKFLOW)
+  repo.commitAllWithPrefix("chore: add custom workflow")
+  // A real code-path touch on the `reviewed` commit itself — the require-
+  // revert guard's residue check only calls `changedPaths` when the review
+  // round's own commits touched a scoped (non-`.gtd/`) path at all.
+  repo.writeFile("src/reviewed.ts", "reviewed\n")
+  repo.commitAllWithPrefix("gtd(human): idle → reviewed")
+  repo.commitAllWithPrefix("gtd(human): reviewed → awaitRevert")
   return repo
 }
 
-describe("renderDecision — the review-gate uncheck reset", () => {
-  it("prepends a `gtd uncheck '<file>'` command step ahead of the commit, at the human review gate", async () => {
-    const repo = reviewGateRepo()
-    repo.writeFile(".gtd/REVIEW.md", "# Review: abc1234\n\n- [x] ./src/calc.ts#1\n")
-    const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
-      throw new Error("expected a commit plan")
-    }
+describe("snapshotFromRest", () => {
+  it("gates the require-revert probe's git archaeology behind isRequireRevertState AND not-an-attempt", async () => {
+    const repo = revertRepo()
 
-    const steps = renderDecision(rest, plan.decision, undefined, undefined)
-    expect(steps[0]).toEqual({ kind: "command", command: "gtd uncheck '.gtd/REVIEW.md'" })
-    expect(steps).toHaveLength(3)
-    expect(steps[1]).toEqual({ kind: "gitWrite", command: commitAll(plan.decision.subject) })
+    // Clean tree at `awaitRevert` (agent, prompt) invoked by its own actor —
+    // an ATTEMPT by construction. `enforceStepGuards` bypasses every guard
+    // for one, so the probe must not run either. The spies are installed
+    // AFTER `currentRest` resolves — `computeProcessRun` itself always calls
+    // `commitHistory()` (no args) to walk the trace, which is unrelated to
+    // the probe this test isolates.
+    const attemptRest = await provide(currentRest, repo)
+    const attemptHistorySpy = vi.spyOn(repo, "commitHistory")
+    const attemptChangedSpy = vi.spyOn(repo, "changedPathsWorktree")
+    const attemptSnapshot = await provide(snapshotFromRest(attemptRest), repo)
+    expect(attemptSnapshot.revert).toEqual({ checked: false, base: "", residue: [] })
+    expect(attemptHistorySpy).not.toHaveBeenCalled()
+    expect(attemptChangedSpy).not.toHaveBeenCalled()
+
+    // A dirty tree matching `"* **"` is an ordinary (non-attempt) commit —
+    // the probe must run, and the history it finds resolves the residue.
+    repo.writeFile("src/a.ts", "hi\n")
+    const commitRest = await provide(currentRest, repo)
+    const commitHistorySpy = vi.spyOn(repo, "commitHistory")
+    const commitChangedSpy = vi.spyOn(repo, "changedPathsWorktree")
+    const commitSnapshot = await provide(snapshotFromRest(commitRest), repo)
+    expect(commitSnapshot.revert.checked).toBe(true)
+    expect(commitHistorySpy).toHaveBeenCalled()
+    expect(commitChangedSpy).toHaveBeenCalled()
   })
 
-  it("emits no uncheck step at a human state that isn't the review gate", async () => {
+  it("skips the probe entirely at a state that doesn't declare requireRevert", async () => {
     const repo = seededStepRepo()
-    repo.writeFile("README.md", "edited\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
-      throw new Error("expected a commit plan")
-    }
-    const steps = renderDecision(rest, plan.decision, undefined, undefined)
-    expect(steps.some((s) => s.kind === "command")).toBe(false)
+    const historySpy = vi.spyOn(repo, "commitHistory")
+    const snapshot = await provide(snapshotFromRest(rest), repo)
+    expect(snapshot.revert).toEqual({ checked: false, base: "", residue: [] })
+    expect(historySpy).not.toHaveBeenCalled()
   })
 
-  it("emits the uncheck step unconditionally — even on a review round with no ticks to clear", async () => {
-    const repo = reviewGateRepo()
-    // No ticks — REVIEW.md is unchanged from what the gate started with, but
-    // the human still lands (e.g. a code edit elsewhere triggers the commit).
-    repo.writeFile("NOTE.md", "a code edit\n")
+  it("reads headFile/worktreeFile whenever the resting state declares a file", async () => {
+    const repo = revertRepo()
+    // Uncommitted — HEAD's subject must stay `gtd(human): reviewed →
+    // awaitRevert` for `resolveState` to keep resting at `awaitRevert`.
+    repo.writeFile(".gtd/AWAIT.md", "pending content\n")
     const rest = await provide(currentRest, repo)
-    const plan = await provide(planStep(rest), repo)
-    if (plan.kind !== "commit" || plan.decision.kind !== "commit") {
-      throw new Error("expected a commit plan")
-    }
-    const steps = renderDecision(rest, plan.decision, undefined, undefined)
-    expect(steps[0]).toEqual({ kind: "command", command: "gtd uncheck '.gtd/REVIEW.md'" })
+    const snapshot = await provide(snapshotFromRest(rest), repo)
+    expect(snapshot.file).toBe(".gtd/AWAIT.md")
+    expect(snapshot.headFile).toBeUndefined()
+    expect(snapshot.worktreeFile).toBe("pending content\n")
   })
 })
 

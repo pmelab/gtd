@@ -1,7 +1,7 @@
 @inmem
 Feature: gtd next/land --json=<selector> — the dotted-path reduction of the same document
 
-  `--json=<path>` walks the already-built `BeatFields`/`LandFields` object
+  `--json=<path>` walks the already-built `BeatDocument`/`LandFields` object
   (`src/Select.ts`'s `selectPath`) by dotted key path — no second field table,
   no jq dependency. A scalar prints raw and unquoted, one line; a boolean
   prints `true`/`false`; a list prints one JSON-encoded entry per line; an

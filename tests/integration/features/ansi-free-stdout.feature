@@ -2,7 +2,7 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
 
   Package 11's guard rail: "ANSI only when stdout is a tty and `NO_COLOR` is
   unset" holds trivially for gtd itself, because gtd's own CLI/rendering path
-  (`src/Cli.ts`, `src/program.ts`) never inspects `isatty`/`TERM`/`NO_COLOR`
+  (`src/cli/Cli.ts`, `src/program.ts`) never inspects `isatty`/`TERM`/`NO_COLOR`
   for anything IT prints — there is no tty-conditional branch to get wrong.
   Nor do the *scripts it prints* for a driver to run: an outcome statement
   (`src/OutcomeScript.ts`) is a plain `printf` with no colour and no terminal

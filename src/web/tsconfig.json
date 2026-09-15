@@ -3,6 +3,10 @@
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"]
   },
-  "include": ["."],
+  // `../types.d.ts` too: the client's type-only imports now reach
+  // `src/workflow/index.ts`, which re-exports through `src/workflows/`'s
+  // barrel and so pulls in the raw `unified.yaml` import — declared there,
+  // not in any `@types` package.
+  "include": [".", "../types.d.ts"],
   "exclude": []
 }

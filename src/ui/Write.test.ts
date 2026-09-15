@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { REVIEW_FORMAT } from "../ReviewDoc.js"
+import { steeringFormatFor } from "../steering/index.js"
 import {
   applySteeringEdits,
   contentHashOf,
@@ -12,6 +12,8 @@ import {
   writeValue,
   type WriteDeps,
 } from "./Write.js"
+
+const REVIEW_FORMAT = steeringFormatFor("review")!
 
 const WORKTREE = "/repo"
 const FILE = ".gtd/REVIEW.md"

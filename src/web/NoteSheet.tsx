@@ -1,5 +1,5 @@
 import { useState } from "react"
-import type { SteeringAnchor } from "../SteeringFormat.js"
+import type { SteeringAnchor } from "../steering/index.js"
 import { Button } from "./Button.js"
 
 const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {

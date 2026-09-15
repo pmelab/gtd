@@ -1,10 +1,7 @@
 import { shellQuote } from "./GitScript.js"
+import { renderFormat } from "./wire/index.js"
 
-/** The plain-text twin of `printfLine`: substitutes `args` into `fmt`'s `%s` placeholders, in order. */
-export const renderFormat = (fmt: string, ...args: readonly string[]): string => {
-  let i = 0
-  return fmt.replace(/%s/g, () => args[i++] ?? "")
-}
+export { renderFormat }
 
 /**
  * A `printf '<fmt>' <args...>` bash statement — `args` are already-valid bash

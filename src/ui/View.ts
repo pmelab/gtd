@@ -1,5 +1,5 @@
-import type { SteeringView } from "../SteeringFormat.js"
-import { steeringFormatFor } from "../SteeringFormats.js"
+import type { SteeringView } from "../steering/index.js"
+import { steeringFormatFor } from "../steering/index.js"
 
 /**
  * `steeringViewFor`'s typed refusal — `unsupported-mode` only, mirroring

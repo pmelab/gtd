@@ -4,9 +4,9 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   `gtd validate` (see src/program.ts) resolves the current rest exactly like
   `gtd next`, renders that state's `file:`, and evaluates it per its `mode:`.
   For the two BUILT-IN modes that means reading the working-tree contents and
-  running gtd's own parser — `qa` -> src/OpenQuestions.ts, `review` ->
-  src/ReviewDoc.ts (the SAME pure parsers the LSP publishes as diagnostics, so
-  there is one source of truth per format and no bash port). A mode may also
+  running gtd's own parser — `qa` and `review`, both under src/steering/ (the
+  SAME pure parsers the LSP publishes as diagnostics, so there is one source
+  of truth per format and no bash port). A mode may also
   declare shell commands; that is steering-modes.feature's subject.
   It exits non-zero with findings when the file violates its format, and 0
   otherwise — the signal a producing agent (or the driving loop) loops on until
@@ -248,7 +248,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd with args "validate"
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "unknown key"
     And stderr contains "model"
     And stderr contains "machine"

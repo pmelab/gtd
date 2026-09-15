@@ -27,13 +27,18 @@ export const MODES_SUGGESTION = {
 
 const UNIFIED_WORKFLOW = unifiedYaml
 
-// `configDir` is `"."` and never consulted: every template value is already
-// inline (required for the single-file bundle), so none starts with
-// `./`/`../` that would need resolving against it.
-const DEFAULT_WORKFLOW: CompiledWorkflowConfig = compileWorkflowConfig(
-  parseYaml(UNIFIED_WORKFLOW),
-  ".",
-)
+const DEFAULT_WORKFLOW: CompiledWorkflowConfig = compileWorkflowConfig(parseYaml(UNIFIED_WORKFLOW))
+
+// A build-time invariant, not a user-facing config error: the bundled
+// default must compile clean, so a failure here means the bundle itself is
+// broken and must fail loudly at import time, not silently ship a partial
+// default `MachineNode`/`WorkflowDefinition`.
+const fatal = DEFAULT_WORKFLOW.diagnostics.filter((d) => d.severity === "error")
+if (fatal.length > 0 || DEFAULT_WORKFLOW.tree === undefined) {
+  throw new Error(
+    `bundled default workflow failed to compile:\n${fatal.map((d) => `  - ${d.message}`).join("\n")}`,
+  )
+}
 
 export const defaultWorkflowDefinition: WorkflowDefinition = DEFAULT_WORKFLOW.definition
 
@@ -66,4 +71,4 @@ export const renderInitScaffold = (): InitScaffold => {
 }
 
 export const compileTemplate = (): CompiledWorkflowConfig =>
-  compileWorkflowConfig(parseYaml(UNIFIED_WORKFLOW), ".")
+  compileWorkflowConfig(parseYaml(UNIFIED_WORKFLOW))

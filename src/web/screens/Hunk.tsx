@@ -1,5 +1,5 @@
 import type { DiffResult, FileDiff } from "../../ui/Diff.js"
-import type { SteeringViewNode } from "../../SteeringFormat.js"
+import type { SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { highlightDiffLine } from "../Highlight.js"
 import { Notice } from "../Notice.js"

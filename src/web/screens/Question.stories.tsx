@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
-import { FREE_TEXT_PLACEHOLDER } from "../../OpenQuestions.js"
-import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
+import { FREE_TEXT_PLACEHOLDER } from "../../steering/index.js"
+import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { RefusalBanner, useRefusal } from "../Refusal.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 

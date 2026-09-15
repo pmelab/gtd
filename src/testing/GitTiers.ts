@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { Narrator } from "../Commentary.js"
-import { GitService, type GitOperations } from "../Git.js"
+import { GitService, Host, type GitOperations } from "../platform/index.js"
 import {
   commitAll,
   commitAsIs,
@@ -29,14 +29,13 @@ import {
   updateRef,
   deleteRef,
 } from "../GitScript.js"
-import { ConfigService } from "../Config.js"
-import { Cwd } from "../Cwd.js"
+import { ConfigService } from "../workflow/index.js"
 import type { WorkflowDefinition } from "../PatternMachine.js"
 import {
   defaultMachineTree,
   defaultStateScopes,
   defaultWorkflowDefinition,
-} from "../workflows/templates.js"
+} from "../workflows/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { gitTestLayer } from "./Layers.js"
 
@@ -47,7 +46,7 @@ export interface GitTierCapabilities {
   readonly commitHooks: boolean
   /** `git worktree add` — sibling linked worktrees sharing one `.git`; the fake models a single worktree only. */
   readonly linkedWorktrees: boolean
-  /** A real cwd→home directory chain for config discovery — the fake's `ConfigSource` returns at most one level. */
+  /** A cwd→home directory chain for config discovery — both tiers walk it through `Workspace`/`Host` now, so this is `true` for either. */
   readonly directoryChainConfig: boolean
 }
 
@@ -131,7 +130,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       eff.pipe(
         Effect.provide(GitService.Live),
         Effect.provide(configLayerFor(workflow)),
-        Effect.provide(Cwd.layer(root)),
+        Effect.provide(Host.layer({ root, home: root, env: {} })),
         Effect.provide(NodeContext.layer),
         Effect.provide(noopNarratorLayer),
       ),
@@ -145,7 +144,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       eff.pipe(
         Effect.provide(GitService.Live),
         Effect.provide(configLayerFor(workflow)),
-        Effect.provide(Cwd.layer(root)),
+        Effect.provide(Host.layer({ root, home: root, env: {} })),
         Effect.provide(NodeContext.layer),
         Effect.provide(noopNarratorLayer),
       ),
@@ -251,7 +250,7 @@ const makeInMemTier = (initialCommit = true): GitTier => {
       onDiskContent: false,
       commitHooks: false,
       linkedWorktrees: false,
-      directoryChainConfig: false,
+      directoryChainConfig: true,
     },
     provide,
     provideExit,
@@ -341,7 +340,7 @@ const PATHOLOGICAL_PATHS: ReadonlyArray<{ label: string; path: string }> = [
 
 /**
  * Exercise all 19 `GitOperations` methods identically against `makeTier()` —
- * called once per tier by `src/Git.test.ts`. A capability-gated group
+ * called once per tier by `src/platform/Git.test.ts`. A capability-gated group
  * (`t.capabilities.X`) is skipped, not faked, on a tier that can't support it.
  */
 // fallow-ignore-next-line complexity
@@ -736,7 +735,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       ])
     })
 
-    // `requireRevertGuard` (src/StepGuards.ts) calls `changedPaths(reviewBase~1)`
+    // `requireRevertGuard` (src/step/Guards.ts) calls `changedPaths(reviewBase~1)`
     // to check a review-round hand-edit was reverted: `git reset --mixed
     // <base>` drops every path a commit added out of the index, leaving it
     // untracked but present on disk. An index-based answer calls each of
@@ -787,7 +786,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       // `text=auto` the committed blob is normalized to LF while the working
       // tree legitimately holds CRLF, so a RAW byte comparison calls an
       // untouched file modified — and a spurious `M` on the review doc is a
-      // spurious "the human edited something real" (`StepGuards`'s
+      // spurious "the human edited something real" (`Guards.ts`'s
       // `hasCodeChange`), which flips a clean sign-off onto the feedback edge
       // — a full re-plan nobody asked for. The fake has no filters at all, so it answers
       // "unchanged" by construction; this pins real git to the same answer.
@@ -842,7 +841,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
           const siblingGitDir = await Effect.runPromise(
             Effect.flatMap(GitService, (g) => g.gitDir()).pipe(
               Effect.provide(GitService.Live),
-              Effect.provide(Cwd.layer(siblingDir)),
+              Effect.provide(Host.layer({ root: siblingDir, home: siblingDir, env: {} })),
               Effect.provide(NodeContext.layer),
             ),
           )

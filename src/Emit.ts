@@ -38,6 +38,46 @@ export type EmitStep =
 export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file)} ] || exit 0`
 
 /**
+ * The leading word of a rendered `format:`/`validate:` command, when — and
+ * only when — the command has exactly one unambiguous binary to probe: a
+ * plain leading token matching `[A-Za-z0-9_./-]+`, terminated by a space/tab
+ * or the end of the string (never a newline — a multi-line command's first
+ * "word" is not the whole story). `undefined` for anything else a shell
+ * metacharacter could hide a second command behind (`|`, `&`, `;`, `$`, `<`,
+ * `>`, backticks, parens) or a `VAR=x` prefix (the leading-word regex itself
+ * already can't match across the `=`) — a missing guard degrades to today's
+ * raw exit, but a wrong guard would refuse a command that works.
+ */
+const SIMPLE_LEADING_WORD_RE = /^[A-Za-z0-9_./-]+(?=[ \t]|$)/
+const SHELL_METACHARACTER_RE = /[|&;$<>(){}`]/
+
+export const extractLeadingBinary = (command: string): string | undefined => {
+  if (command.includes("\n")) return undefined
+  if (SHELL_METACHARACTER_RE.test(command)) return undefined
+  const match = SIMPLE_LEADING_WORD_RE.exec(command)
+  return match === null ? undefined : match[0]
+}
+
+/**
+ * `fileExistsGuard`'s sibling for a declared mode's `format:`/`validate:`
+ * command: a typo'd or uninstalled binary named itself and its resolved
+ * `$PATH`, the way `CommandRunner` did before it was rendered out
+ * (`src/SteeringMode.test.ts` at base commit `758c0993`). Rendered, never
+ * re-spawned — `$PATH` is a double-quoted shell word the DRIVER's shell
+ * expands at run time, so gtd never resolves it in-process. Exits 127,
+ * matching bash's own "command not found" status.
+ */
+export const binaryGuard = (binary: string, mode: string, key: "format" | "validate"): string => {
+  const messageQ = shellQuote(`gtd: mode "${mode}": "${key}" command not found: ${binary}`)
+  return [
+    `command -v ${shellQuote(binary)} >/dev/null 2>&1 || {`,
+    `  printf '%s\\n%s\\n' ${messageQ} '$PATH: '"$PATH"`,
+    `  exit 127`,
+    `}`,
+  ].join("\n")
+}
+
+/**
  * Wraps `command` so a non-zero exit prints `prompt` plus the command's
  * captured output before propagating that exit code. The `{ … }` group lets
  * a multi-line `command` be inlined verbatim; the assignment sits on the

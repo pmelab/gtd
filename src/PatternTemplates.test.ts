@@ -1,7 +1,11 @@
 import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
+import { Effect, Layer } from "effect"
 import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
-import { compileTemplate } from "./workflows/templates.js"
+import { compileTemplate } from "./workflows/index.js"
+import { Workspace, templateRead } from "./platform/index.js"
+import { InMemRepo } from "./testing/InMemRepo.js"
+import { makeInMemoryWorkspaceOps } from "./testing/Layers.js"
 
 const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext => ({
   startCommit: "aaa111",
@@ -225,4 +229,72 @@ describe("renderStateTemplate — bundled `script` states render to valid bash",
       expect(() => execFileSync("bash", ["-n"], { input: rendered })).not.toThrow()
     })
   }
+})
+
+describe("renderStateTemplate — it.read through a real Workspace", () => {
+  const makeWorkspace = () => {
+    const root = "/repo"
+    const repo = new InMemRepo()
+    const workspaceOps = makeInMemoryWorkspaceOps(repo, root)
+    return {
+      repo,
+      provide: <A>(eff: Effect.Effect<A, Error, Workspace>): Promise<A> =>
+        Effect.runPromise(eff.pipe(Effect.provide(Layer.succeed(Workspace, workspaceOps)))),
+    }
+  }
+
+  it("resolves a computed (non-literal) path the same as a literal one — no pre-scan to miss it", async () => {
+    // Regression pin for the amendment in `.gtd/packages/03-platform-ports.md`:
+    // `Workspace.readSync` is a plain function call at render time, not a
+    // pre-warmed cache keyed off literal template text — so a computed
+    // argument (`it.read(it.vars.file)`) resolves exactly like a literal one.
+    const { repo, provide } = makeWorkspace()
+    repo.writeFile("computed.md", "computed content\n")
+    const rendered = await provide(
+      Effect.gen(function* () {
+        const workspace = yield* Workspace
+        const read = templateRead(workspace)
+        return renderStateTemplate("<%~ it.read(it.vars.file) %>", {
+          startCommit: "",
+          currentCommit: "",
+          previousCommit: "",
+          state: "",
+          actor: "",
+          reviewBase: "",
+          processBase: "",
+          processCost: 0,
+          processCostByModel: [],
+          read,
+          vars: { file: "computed.md" },
+          edges: [],
+        })
+      }),
+    )
+    expect(rendered).toBe("computed content\n")
+  })
+
+  it("a template's it.read of a missing path still throws and refuses the render", async () => {
+    const { provide } = makeWorkspace()
+    const renderResult = provide(
+      Effect.gen(function* () {
+        const workspace = yield* Workspace
+        const read = templateRead(workspace)
+        return renderStateTemplate("<%~ it.read('missing.md') %>", {
+          startCommit: "",
+          currentCommit: "",
+          previousCommit: "",
+          state: "",
+          actor: "",
+          reviewBase: "",
+          processBase: "",
+          processCost: 0,
+          processCostByModel: [],
+          read,
+          vars: {},
+          edges: [],
+        })
+      }),
+    )
+    await expect(renderResult).rejects.toThrow()
+  })
 })

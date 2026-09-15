@@ -6,7 +6,7 @@ import { NodeContext } from "@effect/platform-node"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
-import { Cwd } from "../Cwd.js"
+import { Host } from "../platform/index.js"
 import { GtdError } from "../Commentary.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert } from "./Tls.js"
 
@@ -24,7 +24,7 @@ const runWithLiveOpenssl = <A>(eff: Effect.Effect<A, GtdError, CommandRunner>) =
   Effect.runPromise(
     eff.pipe(
       Effect.provide(CommandRunner.Live),
-      Effect.provide(Cwd.layer(tmpDir)),
+      Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       Effect.provide(NodeContext.layer),
     ),
   )
@@ -85,7 +85,7 @@ describe("generateSelfSignedCert", () => {
     const exit = await Effect.runPromiseExit(
       generateSelfSignedCert({ host: `$(touch ${marker})` }).pipe(
         Effect.provide(CommandRunner.Live),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -106,7 +106,7 @@ describe("generateSelfSignedCert", () => {
     const thrown = await Effect.runPromise(
       generateSelfSignedCert({ host: "exa/mple.local" }).pipe(
         Effect.provide(CommandRunner.Live),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(NodeContext.layer),
         Effect.flip,
       ),

@@ -1,286 +1,159 @@
 // `testLayers` is the ONE layer-set builder every `@inmem` scenario and
 // `src/**/*.test.ts` unit test provides.
 //
-// Subprocess work goes through `CommandRunner`, which `testLayers` provides
-// as a SCRIPTED runner: an `@inmem` scenario declares each command's canned
-// outcome and an unscripted command fails loudly, so nothing shells out to
-// real bash with `cwd: "/repo"` (a path that doesn't exist).
+// gtd itself spawns no subprocess at all any more (`gtd renders; the driver
+// executes`) — a mode's `format:`/`validate:` command is emitted text, never
+// run in-process. `ScriptedCommand` below still exists for the world's own
+// fake-shell interpreter (`src/testing/EmittedScriptRecognizer.ts`), which
+// simulates a driver running gtd's emitted scripts against the in-memory
+// worktree — a wholly separate mechanism from any gtd-internal layer.
 
 import { FileSystem } from "@effect/platform"
-import { SystemError, type PlatformError } from "@effect/platform/Error"
-import { Effect, Layer, Option } from "effect"
+import { Effect, Layer } from "effect"
+import { isAbsolute, join } from "node:path"
+import { parse as parseYaml } from "yaml"
 import { GtdError, Narrator } from "../Commentary.js"
-import { GitService } from "../Git.js"
-import {
-  ConfigService,
-  SEARCH_PLACES,
-  configServiceLayer,
-  parseConfigLevel,
-  type ConfigLevel,
-  type ConfigSource,
-} from "../Config.js"
-import type { FileRefReader } from "../PatternConfig.js"
+import { ConfigDiscovery, ConfigService, SEARCH_PLACES, walkUp } from "../workflow/index.js"
+import { GitService, Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { fakeGitOperations } from "./FakeGitOperations.js"
-import { InMemRepo } from "./InMemRepo.js"
-import { Cwd } from "../Cwd.js"
-import { EnvVars } from "../EnvVars.js"
-import { RepoFiles } from "../RepoFiles.js"
-import { CommandRunner, type CommandOutcome } from "../CommandRunner.js"
+import { CommandRunner } from "../CommandRunner.js"
 import { UiListener } from "../ui/Server.js"
+import { InMemRepo } from "./InMemRepo.js"
 import type { CommandRequirements } from "../program.js"
 
-const makeInMemoryFileSystem = (repo: InMemRepo, root: string): FileSystem.FileSystem => {
-  // `.git/`-rooted paths have no production consumer through this layer —
-  // gtd keeps no driver-scoped files at all (sessions are derived, stall is
-  // history) — so a stray write under the fake git dir must FAIL
-  // rather than silently fall through to the `worktree` store, which would
-  // make it surface as a pending change (real git never reports a `.git/**`
-  // path as one).
-  const gitDirPrefix = `${root}/.git/`
-  const isGitDirPath = (path: string): boolean => path.startsWith(gitDirPrefix)
+const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
 
-  const gitDirNotFound = (method: string, path: string): SystemError =>
-    new SystemError({
-      reason: "NotFound",
-      module: "FileSystem",
-      method,
-      pathOrDescriptor: path,
-      description: `ENOENT: no such file or directory, '${method}' '${path}' — the in-memory fake has no git-dir file store`,
-    })
+/**
+ * Keys UNDER `.git/` (never the bare `.git` FILE itself — `WorktreeState.ts`'s
+ * `worktreeGitDir` legitimately reads that one, a linked worktree's real
+ * gitdir-pointer file) have no production consumer through `Workspace` — gtd
+ * keeps no driver-scoped files inside the git dir (sessions are derived,
+ * stall is history) — so a stray read/write there FAILS/reads-absent rather
+ * than silently falling through to the worktree store, which would make it
+ * surface as a pending change (real git never reports a `.git/**` path as
+ * one). Mirrors the guard the deleted `makeInMemoryFileSystem` carried.
+ */
+const isGitDirKey = (key: string): boolean => key.startsWith(".git/")
 
-  const readFileString = (path: string): Effect.Effect<string, PlatformError> => {
-    if (isGitDirPath(path)) return Effect.fail(gitDirNotFound("readFileString", path))
-    const content = repo.readFile(path)
-    if (content === undefined) {
-      return Effect.fail(
-        new SystemError({
-          reason: "NotFound",
-          module: "FileSystem",
-          method: "readFileString",
-          pathOrDescriptor: path,
-          description: `ENOENT: no such file or directory, open '${path}'`,
-        }),
+/**
+ * `Workspace` for the in-memory tier. `readSync`/`read`/`write`/`committed`
+ * take a repo-relative key ONLY (mirroring the live adapter's
+ * `assertRepoRelative` — `Workspace.ts`'s `makeWorkspaceOps`), matching how
+ * every existing scenario already seeds the fake (`repo.writeFile(".gtdrc.yaml",
+ * …)`, `repo.writeFile("src/a.ts", …)`). // gtd-path-exempt: illustrative fixture key, not a repo file
+ * `atPath` alone accepts an absolute
+ * path: one rooted under `root` maps to its relative key (an already-absolute
+ * content file-ref resolved via `resolvePath`); one OUTSIDE root (an ancestor
+ * `.gtdrc`, exercising `directoryChainConfig`) is used as the literal key
+ * verbatim, so a test seeds it exactly as given:
+ * `repo.writeFile("/home/user/.gtdrc", …)`.
+ */
+export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): WorkspaceOps => {
+  const toKey = (path: string): string => {
+    if (!isAbsolute(path)) return path
+    const prefix = `${root}/`
+    return path === root ? "" : path.startsWith(prefix) ? path.slice(prefix.length) : path
+  }
+  const assertRepoRelative = (path: string): string => {
+    if (isAbsolute(path)) {
+      throw new Error(
+        `Workspace: "${path}" is an absolute path — this member takes repo-relative paths only (use "atPath" to read outside the repo)`,
       )
     }
-    return Effect.succeed(content)
+    return path
   }
+  const readAt = (key: string): string | undefined =>
+    isGitDirKey(key) ? undefined : repo.readFile(key)
 
-  const exists = (path: string): Effect.Effect<boolean, PlatformError> =>
-    isGitDirPath(path) ? Effect.succeed(false) : Effect.succeed(repo.hasPath(path))
+  const readSync = (path: string): string | undefined => readAt(assertRepoRelative(path))
 
-  const writeFileString = (path: string, data: string): Effect.Effect<void, PlatformError> => {
-    if (isGitDirPath(path)) return Effect.fail(gitDirNotFound("writeFileString", path))
-    repo.writeFile(path, data)
-    return Effect.void
-  }
-
-  // fallow-ignore-next-line complexity
-  const remove = (
-    path: string,
-    options?: FileSystem.RemoveOptions,
-  ): Effect.Effect<void, PlatformError> => {
-    if (isGitDirPath(path)) {
-      if (options?.force === true) return Effect.void
-      return Effect.fail(gitDirNotFound("remove", path))
-    }
-    if (options?.recursive === true) {
-      for (const key of repo.pathsUnder(path)) repo.deleteFile(key)
-    } else {
-      if (!repo.hasPath(path)) {
-        if (options?.force === true) return Effect.void
-        return Effect.fail(
-          new SystemError({
-            reason: "NotFound",
-            module: "FileSystem",
-            method: "remove",
-            pathOrDescriptor: path,
-            description: `ENOENT: no such file or directory, unlink '${path}'`,
-          }),
-        )
-      }
-      repo.deleteFile(path)
-    }
-    return Effect.void
-  }
-
-  const makeDirectory = (
-    _path: string,
-    _options?: FileSystem.MakeDirectoryOptions,
-  ): Effect.Effect<void, PlatformError> => Effect.void
-
-  const realPath = (_path: string): Effect.Effect<string, PlatformError> =>
-    // Return the fixed in-memory root — the cwd guard in main.ts checks
-    // topLevel === realPath(cwd), and both resolve to `root` here.
-    Effect.succeed(root)
-
-  const readDirectory = (path: string): Effect.Effect<Array<string>, PlatformError> =>
-    Effect.succeed([...repo.childNames(path)])
-
-  const stat = (path: string): Effect.Effect<FileSystem.File.Info, PlatformError> => {
-    const content = repo.readFile(path)
-    if (content !== undefined) {
-      return Effect.succeed({
-        type: "File" as FileSystem.File.Type,
-        mtime: Option.none<Date>(),
-        atime: Option.none<Date>(),
-        birthtime: Option.none<Date>(),
-        dev: 0,
-        ino: Option.none<number>(),
-        mode: 0o100644,
-        nlink: Option.none<number>(),
-        uid: Option.none<number>(),
-        gid: Option.none<number>(),
-        rdev: Option.none<number>(),
-        size: FileSystem.Size(BigInt(content.length)),
-        blksize: Option.none<FileSystem.Size>(),
-        blocks: Option.none<number>(),
-      })
-    }
-    if (repo.hasPath(path)) {
-      return Effect.succeed({
-        type: "Directory" as FileSystem.File.Type,
-        mtime: Option.none<Date>(),
-        atime: Option.none<Date>(),
-        birthtime: Option.none<Date>(),
-        dev: 0,
-        ino: Option.none<number>(),
-        mode: 0o040755,
-        nlink: Option.none<number>(),
-        uid: Option.none<number>(),
-        gid: Option.none<number>(),
-        rdev: Option.none<number>(),
-        size: FileSystem.Size(0n),
-        blksize: Option.none<FileSystem.Size>(),
-        blocks: Option.none<number>(),
-      })
-    }
-    return Effect.fail(
-      new SystemError({
-        reason: "NotFound",
-        module: "FileSystem",
-        method: "stat",
-        pathOrDescriptor: path,
-        description: `ENOENT: no such file or directory, stat '${path}'`,
-      }),
-    )
-  }
-
-  return FileSystem.makeNoop({
-    readFileString,
-    exists,
-    writeFileString,
-    remove,
-    makeDirectory,
-    realPath,
-    readDirectory,
-    stat,
-  })
-}
-
-// ---------------------------------------------------------------------------
-// 2. In-memory ConfigService layer — a `ConfigSource` + `FileRefReader` pair
-// fed through `Config.ts`'s shared `configServiceLayer`, so an `@inmem`
-// scenario runs the SAME parse/merge/decode/compile pipeline production does
-// (including `ConfigSchema`'s strict decode), never a bespoke copy.
-// ---------------------------------------------------------------------------
-
-/**
- * Scans `SEARCH_PLACES` directly off the fake worktree and returns at most
- * ONE level — a single directory, unlike `nodeConfigSource`'s cwd→home walk
- * (there is no "home directory" concept in the fake). `filepath` is
- * `join(root, name)` so `inlineLevel`'s `dirname(filepath)` lands on `root`,
- * matching production.
- */
-const worktreeConfigSource = (repo: InMemRepo, root: string): ConfigSource => ({
-  levels: () =>
-    Effect.try({
-      try: (): ReadonlyArray<ConfigLevel> => {
-        for (const name of SEARCH_PLACES) {
-          const content = repo.readFile(name)
-          if (content !== undefined) {
-            return [{ filepath: `${root}/${name}`, config: parseConfigLevel(name, content) }]
-          }
-        }
-        return []
-      },
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-    }),
-})
-
-/**
- * Maps the absolute paths `resolveContent` builds (`join(configDir, ref)`)
- * back to a repo-relative worktree key by stripping `${root}/`, and reports
- * not-exists for anything outside `root` — the honest in-memory semantics (a
- * content file reference can't reach outside the fake's one worktree).
- */
-const fileRefReader = (repo: InMemRepo, root: string): FileRefReader => {
-  const prefix = `${root}/`
-  const relative = (path: string): string | undefined =>
-    path.startsWith(prefix) ? path.slice(prefix.length) : undefined
   return {
-    exists: (path) => {
-      const rel = relative(path)
-      return rel !== undefined && repo.hasPath(rel)
-    },
-    read: (path) => {
-      const content = relative(path) !== undefined ? repo.readFile(relative(path)!) : undefined
-      if (content === undefined) {
-        throw new Error(`ENOENT: no such file or directory, open '${path}'`)
-      }
-      return content
-    },
+    readSync,
+    read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
+    write: (path, content) =>
+      Effect.try({
+        try: () => {
+          const key = assertRepoRelative(path)
+          if (isGitDirKey(key)) {
+            throw new Error(`ENOENT: no such file or directory, open '${path}'`)
+          }
+          repo.writeFile(key, content)
+        },
+        catch: toError,
+      }),
+    committed: (path, ref = "HEAD") =>
+      Effect.try({ try: () => assertRepoRelative(path), catch: toError }).pipe(
+        Effect.map((key) =>
+          isGitDirKey(key) ? undefined : (repo.fileAtRef(ref, key) ?? undefined),
+        ),
+      ),
+    atPath: (path) => readAt(toKey(path)),
+    writeAtPath: (path, content) =>
+      Effect.try({
+        try: () => {
+          const key = toKey(path)
+          if (isGitDirKey(key)) {
+            throw new Error(`ENOENT: no such file or directory, open '${path}'`)
+          }
+          repo.writeFile(key, content)
+        },
+        catch: toError,
+      }),
   }
 }
 
-const makeInMemoryConfigService = (repo: InMemRepo, root: string): Layer.Layer<ConfigService> =>
-  configServiceLayer(worktreeConfigSource(repo, root), root, fileRefReader(repo, root))
+/** Deliberately NOT shared with `ConfigDiscovery.Live`: `yaml`/`JSON.parse` here, cosmiconfig's own bundled loaders there — see `Layers.test.ts` for the one pinned divergence this causes. */
+const parseConfigLevel = (filepath: string, content: string): unknown => {
+  const result: unknown = filepath.endsWith(".json") ? JSON.parse(content) : parseYaml(content)
+  if (result === null) {
+    throw new Error(`${filepath}: config must be a plain object, got null`)
+  }
+  return result
+}
 
-/** `RepoFiles` for the in-memory tier: a synchronous worktree lookup (never real `fs`) and `committed` via the repo's own `fileAtRef`. Absence is `undefined` on BOTH members — `templateRead` re-adds the ENOENT throw for the one caller (Eta) that needs it. */
-const makeInMemoryRepoFiles = (repo: InMemRepo): Layer.Layer<RepoFiles> =>
-  Layer.succeed(RepoFiles, {
-    working: (path: string) => repo.readFile(path),
-    committed: (path: string, ref = "HEAD") =>
-      Effect.succeed(repo.fileAtRef(ref, path) ?? undefined),
+/** The in-memory counterpart to `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) — shares its `SEARCH_PLACES`/`walkUp` exactly (see `Layers.test.ts`), reading through the fake `Workspace` instead of real `fs`. */
+const makeInMemoryConfigDiscovery = (
+  repo: InMemRepo,
+  root: string,
+): Layer.Layer<ConfigDiscovery> => {
+  const workspace = makeInMemoryWorkspaceOps(repo, root)
+  const findAt = (
+    dir: string,
+  ): { readonly filepath: string; readonly config: unknown } | undefined => {
+    for (const name of SEARCH_PLACES) {
+      const filepath = join(dir, name)
+      const content = workspace.atPath(filepath)
+      if (content === undefined || content.trim() === "") continue
+      return { filepath, config: parseConfigLevel(filepath, content) }
+    }
+    return undefined
+  }
+  return Layer.succeed(ConfigDiscovery, {
+    // `walkUp` returns innermost→outermost; reversed so merging in order
+    // makes innermost win — same as `ConfigDiscovery.Live`.
+    levels: (levelRoot, levelHome) =>
+      Effect.try({
+        try: () =>
+          [...walkUp(levelRoot, levelHome)]
+            .reverse()
+            .map(findAt)
+            .filter((level): level is { filepath: string; config: unknown } => level !== undefined),
+        catch: toError,
+      }),
+    presentAt: (dir) => Effect.try({ try: () => findAt(dir) !== undefined, catch: toError }),
   })
+}
 
 /** One scripted `bash` command's canned behavior, keyed by the RENDERED command string a scenario's `Given` step declares. */
 export type ScriptedCommand =
   | { readonly kind: "exit"; readonly status: number; readonly output: string }
   | { readonly kind: "rewrite"; readonly file: string; readonly content: string }
 
-/**
- * `CommandRunner` for the in-memory tier: real subprocess execution is
- * unreachable against an in-memory worktree, so every command a scenario
- * needs must be declared with a `Given the shell command "<cmd>" ...` step —
- * keyed by the command string AFTER Eta rendering, exactly as `bash` would
- * receive it. An unscripted command fails LOUDLY (never silently succeeds),
- * so a scenario that forgets to declare one fails with a clear message
- * rather than passing by accident.
- */
-const makeScriptedCommandRunner = (
-  repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
-): Layer.Layer<CommandRunner> =>
-  Layer.succeed(CommandRunner, {
-    bash: (command: string): Effect.Effect<CommandOutcome, Error> => {
-      const scripted = commands.get(command)
-      if (scripted === undefined) {
-        return Effect.fail(
-          new Error(`unscripted command "${command}" — declare it with a Given step`),
-        )
-      }
-      if (scripted.kind === "rewrite") {
-        repo.writeFile(scripted.file, scripted.content)
-        return Effect.succeed({ status: 0, output: "" })
-      }
-      return Effect.succeed({ status: scripted.status, output: scripted.output })
-    },
-  })
-
 export interface TestWorldOptions {
   readonly env?: Readonly<Record<string, string | undefined>>
   readonly root?: string
-  readonly commands?: ReadonlyMap<string, ScriptedCommand>
+  /** Defaults to `root` — a real cwd→home chain has no natural counterpart in the fake, so a test not exercising it sees exactly one config level, same as before. */
+  readonly home?: string
   /**
    * Captures every narrated line — absent (the default) means the
    * `Narrator` this builds is a no-op, exactly like a real invocation with no
@@ -303,17 +176,18 @@ export function testLayers(
   opts: TestWorldOptions = {},
 ): Layer.Layer<CommandRequirements> {
   const root = opts.root ?? "/repo"
-  const fsLayer = Layer.succeed(FileSystem.FileSystem, makeInMemoryFileSystem(repo, root))
-  const configLayer = makeInMemoryConfigService(repo, root)
+  const home = opts.home ?? root
 
   return Layer.mergeAll(
     gitTestLayer(repo, root),
-    fsLayer,
-    configLayer,
-    Cwd.layer(root),
-    makeInMemoryRepoFiles(repo),
-    makeScriptedCommandRunner(repo, opts.commands ?? new Map()),
-    EnvVars.layer(opts.env ?? {}),
+    Layer.succeed(Workspace, makeInMemoryWorkspaceOps(repo, root)),
+    // `realPath` is a no-op here (there is no real filesystem to resolve
+    // symlinks against): both sides of `assertRunningFromRepoRoot`'s
+    // comparison collapse to `root` when given anything, exactly like the
+    // fake's `root` "resolving" to itself before this port existed.
+    Host.layer({ root, home, env: opts.env ?? {}, realPath: () => Effect.succeed(root) }),
+    ConfigService.Live,
+    makeInMemoryConfigDiscovery(repo, root),
     Narrator.layer(opts.narrate ?? (() => {}), opts.verbose ?? true),
     // No `@inmem`/direct-Effect test binds a real socket — `gtd ui`
     // itself is unit-tested in `src/ui/Server.test.ts` with its own fake
@@ -322,5 +196,16 @@ export function testLayers(
       listen: () =>
         Effect.fail(new GtdError("gtd ui: UiListener has no test double wired into testLayers()")),
     }),
+    // `gtd ui`'s two remaining ports, for the same reason and with the same
+    // loudness: the only `@inmem` scenarios that reach `gtd ui` refuse at a
+    // guard BEFORE either is touched (see `tests/integration/features/
+    // ui.feature`), and everything past that guard is unit-tested in
+    // `src/ui/**` against its own doubles. Reaching one of these is a test
+    // gap, not silence — gtd itself spawns no subprocess any more, so there
+    // is deliberately no scripted-command double to fall back on.
+    CommandRunner.layer(() =>
+      Effect.fail(new Error("gtd ui: CommandRunner has no test double wired into testLayers()")),
+    ),
+    Layer.succeed(FileSystem.FileSystem, FileSystem.makeNoop({})),
   )
 }

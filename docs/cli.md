@@ -317,9 +317,12 @@ layers. Without it, none of this is printed; stdout is never touched either way
 A failure's remediation detail is unconditional — it prints at every verbosity,
 on the line(s) right after the `gtd: `-prefixed message, each indented two
 spaces: a bad config key names the offending key and which `.gtdrc` layer it
-came from, a corrupted ref names the ref, and a missing binary in a steering
-mode's `format:`/`validate:` command names the resolved `$PATH` it was looked up
-in.
+came from, and a corrupted ref names the ref. (A steering mode's `format:`/
+`validate:` command naming its own missing binary and the resolved `$PATH` is a
+DIFFERENT thing — that line is printed by the driver's shell to the emitted
+script's own stdout, unindented, not by gtd on stderr; see
+docs/configuration.md's "A missing binary in `format:`/`validate:` fails loudly,
+before it runs".)
 
 ### Non-interactive today
 

@@ -20,8 +20,8 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
   tier's PATH shim (world.ts's `pathShimDir`) makes that bare `gtd` resolve to
   THIS build under test — an `@inmem` twin would have no real subprocess to
   run it in and would have to stub the command with a scripted double, which
-  proves nothing about `OpenQuestions.ts`/`ReviewDoc.ts` actually parsing
-  styled prose. `steering-modes.feature` already covers the scripted-double
+  proves nothing about `src/steering/`'s `qa`/`review` descriptors actually
+  parsing styled prose. `steering-modes.feature` already covers the scripted-double
   shape for a custom mode; this file is only about gtd's own two built-in
   parsers surviving the voice.
 

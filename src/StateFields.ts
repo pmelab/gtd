@@ -1,16 +1,11 @@
 // ── Vocabulary types ─────────────────────────────────────────────────────────
 
-/** No closed vocabulary of "kinds" — any workflow-defined string. */
-export type Actor = string
-
-/** Defined by whatever keys `WorkflowDefinition.states` declares — not a closed vocabulary. */
-export type StateName = string
-
-/** The three content kinds a state can carry — exactly one per state. */
-export type ContentKind = "script" | "prompt" | "message"
-
-/** The name of a steering-file mode. Not a closed vocabulary: the valid set derives from the active definition (`BUILT_IN_MODES` plus whatever `modes:` declares). */
-export type StateMode = string
+// `Actor`/`StateName`/`ContentKind`/`StateMode` live in `src/wire/` (the
+// wire's own vocabulary, `gtd next --json`'s `actor`/`state`/`mode` fields
+// among them) and are re-exported here — see `src/wire/types.ts`'s doc
+// comment for why the declarations moved.
+export type { Actor, ContentKind, StateMode, StateName } from "./wire/index.js"
+import type { Actor, StateMode, StateName } from "./wire/index.js"
 
 /** `{ max, otherwise }` — redirect a transition once its target has been entered `max` times this process. */
 export interface RetryDef {
@@ -240,7 +235,7 @@ const STATE_FIELDS = {
     doc: "true marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. A string is a different shape: an Eta template rendering a commitish that becomes the WHOLE PROCESS's fixed diff base when this state is entered manually via `gtd --entry <state> --base <commitish>` (see the `entry` property below).",
   },
 
-  /** The pure engine never reads this — checked at the edge by the feedback-progress guard in `src/StepGuards.ts`. */
+  /** The pure engine never reads this — checked at the edge by the feedback-progress guard in `src/step/Guards.ts`. */
   requireProgress: {
     kind: "flag",
     surface: "def",
@@ -250,7 +245,7 @@ const STATE_FIELDS = {
     doc: "When true, a step at this state is refused if its only pending change is deleting the state's own `file:` — a work-free turn that discards its input without addressing it. A `NOTHING ACTIONABLE` sentinel file is exempt (a legitimately non-actionable round makes no code change). Requires a `file:`.",
   },
 
-  /** The pure engine never reads this — checked at the edge by the answer-completeness guard in `src/StepGuards.ts`, and only when the state also declares `mode: qa`. */
+  /** The pure engine never reads this — checked at the edge by the answer-completeness guard in `src/step/Guards.ts`, and only when the state also declares `mode: qa`. */
   answerGate: {
     kind: "flag",
     surface: "def",
@@ -262,7 +257,7 @@ const STATE_FIELDS = {
 
   /**
    * The pure engine never reads this — checked at the edge by the
-   * require-revert guard in `src/StepGuards.ts`, which re-establishes the
+   * require-revert guard in `src/step/Guards.ts`, which re-establishes the
    * fact from the tree itself rather than trusting the script's exit code (a
    * `git apply -R` that silently applies nothing must not be mistaken for a
    * real revert).

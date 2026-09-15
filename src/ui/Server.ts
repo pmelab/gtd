@@ -8,12 +8,12 @@ import { fileURLToPath } from "node:url"
 import { createHTTPHandler } from "@trpc/server/adapters/standalone"
 import { FileSystem } from "@effect/platform"
 import { Context, Deferred, Effect, Layer, Runtime } from "effect"
-import type { ArtifactOut } from "../Cli.js"
+import type { ArtifactOut } from "../cli/index.js"
 import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import type { UiConfig } from "../ConfigSchema.js"
-import { Cwd } from "../Cwd.js"
-import { steeringFormatFor } from "../SteeringFormats.js"
+import { Host } from "../platform/index.js"
+import { steeringFormatFor } from "../steering/index.js"
 import generatedClientHtml from "../web/generated.html"
 import {
   liveHeadSha,
@@ -355,7 +355,7 @@ export const resolveClientHtml = (
       )
     : Effect.succeed(generatedClientHtml)
 
-export type UiRequirements = CommandRunner | FileSystem.FileSystem | UiListener | Cwd
+export type UiRequirements = CommandRunner | FileSystem.FileSystem | UiListener | Host
 
 /** Every dependency `readStep` needs, wired to the real subprocess/filesystem reads — `gtd ui` never injects a fake here, unlike its own test suite. */
 const liveBeatDeps = {
@@ -672,7 +672,7 @@ const resolveListener = (args: {
 
 /**
  * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
- * worktree `Cwd` names — never a fleet, never a spawned loop. The server
+ * worktree `Host` names — never a fleet, never a spawned loop. The server
  * lives for exactly one step: it starts, shows that step, takes the human's
  * input, and exits — either because the human handed the turn back (`done`
  * resolves `ctx.handOff()`'s deferred once the response has flushed) or
@@ -685,7 +685,7 @@ export const runUiCommand = (
   out: ArtifactOut,
 ): Effect.Effect<void, GtdError, UiRequirements> =>
   Effect.gen(function* () {
-    const cwd = yield* Cwd
+    const cwd = yield* Host
 
     // Read before resolving the bind host or the certificate, so a refusal
     // never invokes openssl (T1's own acceptance bullet).

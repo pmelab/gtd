@@ -1,34 +1,30 @@
-import { join } from "node:path"
-import { tmpdir } from "node:os"
-import { FileSystem } from "@effect/platform"
 import { Effect, Either, Option, Runtime } from "effect"
-import type { ArtifactOut, Command, JsonMode, Needs } from "./Cli.js"
+import type { ArtifactOut, Command, JsonMode, Needs } from "./cli/index.js"
 import { Narrator } from "./Commentary.js"
-import { configPresentAt, ConfigService } from "./Config.js"
-import { renderInitScaffold } from "./workflows/templates.js"
-import { Cwd } from "./Cwd.js"
-import { EnvVars } from "./EnvVars.js"
-import { RepoFiles } from "./RepoFiles.js"
-import { CommandRunner } from "./CommandRunner.js"
+import {
+  configPresentAt,
+  ConfigDiscovery,
+  ConfigService,
+  formatDiagnostic,
+  renderInitScaffold,
+} from "./workflow/index.js"
+import { GitService, Host, Workspace, type GitOperations, type HostOps } from "./platform/index.js"
+import { runUiCommand, type UiRequirements } from "./ui/Server.js"
 import { resolveSession } from "./Sessions.js"
-import { GitService, type GitOperations } from "./Git.js"
 import {
   currentRest,
   currentRun,
-  planEntry,
-  planStep,
-  renderDecision,
   renderRest,
   restAt,
   reviewBaseFor,
+  snapshotFromRest,
   stalledAt,
   summaryRun,
   summaryTemplateContext,
-  type ExecutableDecision,
-  type Rest,
   type RenderedRest,
   type RestRequirements,
 } from "./Edge.js"
+import { planEntry, planStep as planStepPure } from "./step/index.js"
 import { buildSummary } from "./Summary.js"
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
@@ -40,20 +36,17 @@ import {
   type CurrentStateModel,
   type VizModel,
 } from "./Visualize.js"
-import { UiListener, runUiCommand } from "./ui/Server.js"
-import { enforceStepGuards } from "./StepGuards.js"
-import { unansweredQuestions } from "./OpenQuestions.js"
-import { clearFilePointerTicks } from "./ReviewDoc.js"
-import { builtInModeNames, seededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
-import type { SteeringFinding } from "./SteeringFormat.js"
 import {
-  resolveSteeringMode,
-  renderSteeringCommands,
-  steeringCapabilities,
-  unknownModeMessage,
-  type ResolvedMode,
-} from "./SteeringMode.js"
-import { buildModeContradictionCheck, modeContradictionSkipNotice } from "./ModeContradiction.js"
+  builtInModeNames,
+  checkSteering,
+  clearTicks,
+  steeringFormatFor,
+  unansweredQuestions,
+  type SteeringFinding,
+  type SteeringFormat,
+} from "./steering/index.js"
+import { seededValidateCommand } from "./SteeringFormats.js"
+import { resolveMode, validateScriptFor } from "./SteeringMode.js"
 import {
   contentKindOf,
   initialStateOf,
@@ -67,32 +60,44 @@ import {
   type WorkflowDefinition,
 } from "./PatternMachine.js"
 import {
-  beatFields,
+  beatDocument,
   beatKindOf,
+  demandOf,
   landFields,
   noopText,
   renderBeatJson,
   renderBeatPlain,
   renderLandJson,
   renderLandPlain,
-  type BeatFields,
+  statusOf,
+  type BeatDocument,
   type BeatKind,
   type LandFields,
   type NextMatch,
   type StatusChange,
-} from "./Beat.js"
+} from "./wire/index.js"
 import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
-import { deleteRef, hardResetTo, mixedResetTo, updateRef } from "./GitScript.js"
-import { combinedScript, emitScripts, fileExistsGuard, type EmitStep } from "./Emit.js"
 import {
-  abandonedOutcome,
-  abandonNoopOutcome,
-  noteOutcome,
-  restoredOutcome,
-} from "./OutcomeScript.js"
+  deleteRef,
+  hardResetTo,
+  mixedResetTo,
+  ScriptSurface,
+  updateRef,
+  type RunnableScript,
+} from "./GitScript.js"
+import { combinedScript, emitScripts, type EmitStep } from "./Emit.js"
+import { abandonedOutcome, abandonNoopOutcome, restoredOutcome } from "./OutcomeScript.js"
 import { loopLogPath } from "./WorktreeState.js"
 import { renderBriefing } from "./Install.js"
 import { selectPath } from "./Select.js"
+
+/**
+ * `Edge.ts`'s `Rest` is module-private (`.gtd/packages/05-step-core.md`
+ * Commit 4) — every command here still needs its shape, so this derives the
+ * SAME type structurally off `currentRest`'s own success type rather than
+ * importing the name.
+ */
+type Rest = Effect.Effect.Success<typeof currentRest>
 
 /**
  * A command-level failure that should exit like a CLI usage error (2), not a
@@ -111,7 +116,7 @@ export class SelectorUsageError extends Error {}
  */
 const writeSelection = (
   out: ArtifactOut,
-  fields: BeatFields | LandFields,
+  fields: BeatDocument | LandFields,
   path: string,
 ): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
@@ -129,14 +134,15 @@ const writeSelection = (
 
 export type CommandRequirements =
   | GitService
-  | FileSystem.FileSystem
   | ConfigService
-  | Cwd
-  | RepoFiles
-  | CommandRunner
-  | EnvVars
+  | ConfigDiscovery
+  | Workspace
+  | Host
   | Narrator
-  | UiListener
+  // `gtd ui`'s own ports, folded in whole (`UiRequirements` already names
+  // `UiListener`): a port `src/ui/**` adds fails HERE, and therefore in
+  // `Cli.ts`'s and `testLayers`'s own typechecks, instead of at runtime.
+  | UiRequirements
 
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
@@ -161,22 +167,19 @@ const runInstallCommand = (out: ArtifactOut): Effect.Effect<void> =>
  */
 const runInitCommand = (
   out: ArtifactOut,
-): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | Cwd> =>
+): Effect.Effect<void, Error, GitService | Workspace | Host | ConfigDiscovery> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const fs = yield* FileSystem.FileSystem
-    const inRepo = yield* assertInitLocation(git, fs)
-    const { root } = yield* Cwd
-    if (yield* configPresentAt(root)) {
+    const host = yield* Host
+    const inRepo = yield* assertInitLocation(git, host)
+    if (yield* configPresentAt(host.root)) {
       return yield* Effect.fail(
         new Error("gtd init: a gtd config already exists — remove it before re-initializing"),
       )
     }
-    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
     const scaffold = renderInitScaffold()
-    yield* fs
-      .writeFileString(join(root, ".gtdrc.json"), scaffold.config)
-      .pipe(Effect.mapError(toError))
+    const workspace = yield* Workspace
+    yield* workspace.write(".gtdrc.json", scaffold.config)
     const wrote =
       `Wrote .gtdrc.json seeding the default variables (the test command) and a\n` +
       `Prettier formatting suggestion. gtd runs its built-in workflow by default — add\n` +
@@ -219,31 +222,19 @@ interface LandResult {
 const normalizeScriptNewline = (script: string): string =>
   script.length === 0 ? script : `${script.replace(/\n+$/, "")}\n`
 
+/**
+ * `combinedScript`, narrowed to accept only an already-guarded
+ * `RunnableScript` for `required` — the one boundary `ScriptSurface`'s brand
+ * exists to protect: `gtd land`/`gtd --entry`'s emitted script. Every OTHER
+ * `combinedScript` call (`abandon`/`restore`/steering validate, below) builds
+ * from `emitScripts` directly and keeps the unbranded signature — those
+ * paths land no guard-gated git write for a brand to protect.
+ */
+const landingScript = (required: RunnableScript): string => combinedScript(required, "")
+
 // git's empty-tree object — recognizes a process starting at the repository's
 // very first commit (no earlier commit to rewind to).
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
-/** True for a `"commit"` decision that is an ATTEMPT (`PatternMachine.StepCommit.attempt`) — the one flag `enforceStepGuards` bypasses its own steps for (see its call site). */
-const isAttemptDecision = (decision: ExecutableDecision): boolean =>
-  decision.kind === "commit" && decision.attempt === true
-
-/** The subject the required script will produce. */
-const previewSubject = (decision: ExecutableDecision): Effect.Effect<string | null, never> =>
-  Effect.succeed(decision.subject)
-
-/**
- * The `required` half: the HEAD assertion plus the commit steps, nothing
- * else. The steering-file format/validate pair is no longer part of the
- * landing script — that's a driver contract now (`gtd next --json`'s
- * `validate` field), not a gtd guarantee (see `resolveSelfValidateCommand`).
- */
-const buildRequiredScript = (
-  rest: Rest,
-  decision: ExecutableDecision,
-  cost: number | undefined,
-  model: string | undefined,
-): Effect.Effect<string, Error, CommandRequirements> =>
-  Effect.succeed(emitScripts(renderDecision(rest, decision, cost, model)).required)
 
 /** `gtd land`'s own flags, threaded as one bag rather than growing `planLanding`/`runLandCommand`'s positional list. */
 interface LandOptions {
@@ -252,63 +243,66 @@ interface LandOptions {
 }
 
 /**
- * Decide the one resulting transition (a commit) for `gtd land`
- * without performing it, authenticating as `rest.actor`. Refusals fail the
- * Effect with a formatted message; a no-op returns `subject: null` and empty
+ * Decide the one resulting transition (a commit) for `gtd land` without
+ * performing it, authenticating as `rest.actor`. Refusals fail the Effect
+ * with a formatted message; a no-op returns `subject: null` and empty
  * scripts.
+ *
+ * `snapshotFromRest` + `src/step/`'s pure `planStep` do the actual deciding
+ * (`.gtd/packages/05-step-core.md`) — this wraps that outcome into the
+ * `--json`-shaped `LandResult`, and is the one place a guard's refusal
+ * (`outcome.guardVerdict`) becomes an Effect failure rather than
+ * `ScriptSurface.render`'s thrown error, so `gtd land`'s exit code stays a
+ * normal Effect failure, not an uncaught throw.
  */
 const planLanding = (
   opts: LandOptions = {},
 ): Effect.Effect<LandResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const plan = yield* planStep(rest, opts)
+    const snapshot = yield* snapshotFromRest(rest)
+    const outcome = planStepPure(snapshot, opts)
 
-    if (plan.kind === "refusal") {
-      return yield* Effect.fail(new Error(plan.message))
+    if (outcome.kind === "refusal") {
+      return yield* Effect.fail(new Error(outcome.message))
     }
-    if (plan.kind === "noop") {
-      const required = emitScripts([
-        { kind: "outcome", command: noteOutcome(noopText(plan.state)) },
-      ]).required
+    if (outcome.kind === "noop") {
+      const required = ScriptSurface.render(
+        [{ kind: "outcome", outcome: { kind: "note", text: noopText(outcome.state) } }],
+        undefined,
+      )
       return {
-        state: plan.state,
+        state: outcome.state,
         subject: null,
         cost: null,
         model: null,
-        script: normalizeScriptNewline(combinedScript(required, "")),
-        settled: plan.settled,
-        idle: plan.state === initialStateOf(rest.def),
+        script: normalizeScriptNewline(landingScript(required)),
+        settled: outcome.settled,
+        idle: outcome.state === initialStateOf(rest.def),
       }
     }
 
-    // Always true here since plan.kind is already known to be commit.
-    const decision = plan.decision
+    if (outcome.guardVerdict !== undefined) {
+      return yield* Effect.fail(new Error(outcome.guardVerdict))
+    }
+
+    const decision = outcome.decision
     if (decision.kind !== "commit") {
       return yield* Effect.fail(
         new Error(
-          `gtd: internal error — plan kind "${plan.kind}" but decision kind "${decision.kind}"`,
+          `gtd: internal error — plan kind "${outcome.kind}" but decision kind "${decision.kind}"`,
         ),
       )
     }
 
-    yield* enforceStepGuards({
-      rest,
-      context: rest.context,
-      file: rest.hints.file,
-      changes: rest.changes,
-      kind: decision.kind,
-      attempt: isAttemptDecision(decision),
-    })
-
     const restingState = decision.to
-    const required = yield* buildRequiredScript(rest, decision, opts.cost, opts.model)
+    const required = ScriptSurface.render(outcome.steps, outcome.guardVerdict)
     return {
       state: restingState,
-      subject: yield* previewSubject(decision),
+      subject: decision.subject,
       cost: opts.cost ?? null,
       model: opts.model ?? null,
-      script: normalizeScriptNewline(combinedScript(required, "")),
+      script: normalizeScriptNewline(landingScript(required)),
       settled: false,
       idle: restingState === initialStateOf(rest.def),
     }
@@ -411,7 +405,7 @@ const runEntryCommand = (
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const plan = yield* planEntry(rest, actor, {
+    const plan = yield* planEntry({ def: rest.def, state: rest.state }, actor, {
       state: entryState,
       commandLabel,
       vars: varOverrides,
@@ -419,10 +413,11 @@ const runEntryCommand = (
     if (plan.kind === "refusal") {
       return yield* Effect.fail(new Error(plan.message))
     }
-    // Safe to reuse plan.scripts verbatim here (unlike planLanding): an entry
+    // Safe to reuse plan.steps verbatim here (unlike planLanding): an entry
     // always lands fresh at a brand-new process's first state, which never
-    // has a file:/mode: of its own to validate ahead of the commit.
-    out.write(combinedScript(plan.scripts.required, plan.scripts.optional))
+    // has a file:/mode: of its own to validate ahead of the commit — no guard
+    // applies, so the verdict is always `undefined`.
+    out.write(landingScript(ScriptSurface.render(plan.steps, undefined)))
   })
 
 /**
@@ -537,24 +532,26 @@ const runRestoreCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
 
 /**
  * The mode's own resolved validate command, rendered against `file`: a
- * declared `validate:` command renders as the last command
- * `renderSteeringCommands` would emit (format, if any, comes first); a
- * `"builtin"` validator or no mode at all names the leaf
- * `gtd check <mode> '<file>'` invocation instead, so there's always something
- * concrete to name.
+ * declared `validate:` command renders verbatim; a `"builtin"` validator or
+ * no mode at all names the leaf `gtd check <mode> '<file>'` invocation
+ * instead, so there's always something concrete to name.
  */
 const resolveSelfValidateCommand = (
   def: WorkflowDefinition,
+  state: string,
   mode: StateMode,
   file: string,
   context: TemplateContext,
 ): Effect.Effect<string, Error> =>
   Effect.gen(function* () {
-    const resolved = resolveSteeringMode(def, mode)
-    if (resolved?.validate?.kind === "command") {
-      const rendered = yield* renderSteeringCommands(resolved, file, context)
-      const validateCommand = rendered[rendered.length - 1]
-      if (validateCommand !== undefined) return validateCommand
+    const resolved = resolveMode(def, state, mode)
+    const validate = resolved.kind === "resolved" ? resolved.validate : undefined
+    if (validate?.kind === "command") {
+      const command = validate.command
+      return yield* Effect.try({
+        try: () => renderModeCommand(command, { ...context, file }),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      })
     }
     return yield* Effect.try({
       try: () => renderModeCommand(seededValidateCommand(mode), { ...context, file }),
@@ -562,109 +559,8 @@ const resolveSelfValidateCommand = (
     })
   })
 
-/** The driver-side counterpart of `Beat.ts`'s `selfValidateInstruction` — for a loop that runs the validate script and re-prompts on a non-zero exit, rather than an agent that self-validates before finishing. */
-const fixPromptInstruction = (file: string): string =>
-  `Your last turn does not pass its own validation script. Fix these format violations in ${file}, then finish:`
-
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
-
-/**
- * Render `resolved`'s format:/validate: commands as `EmitStep[]`, wrapping
- * the last one with `onFailure: fixPromptInstruction(file)` when the
- * validator is a command — `resolveValidateScript`'s own helper, split out
- * so its render logic isn't inlined into that function's body.
- */
-const renderSteeringModeCommandSteps = (
-  resolved: ResolvedMode,
-  file: string,
-  context: TemplateContext,
-): Effect.Effect<readonly EmitStep[], Error> =>
-  Effect.gen(function* () {
-    const commands = yield* renderSteeringCommands(resolved, file, context)
-    const lastIndex = commands.length - 1
-    return commands.map(
-      (command, index): EmitStep => ({
-        kind: "command",
-        command,
-        ...(index === lastIndex && resolved.validate?.kind === "command"
-          ? { onFailure: fixPromptInstruction(file) }
-          : {}),
-      }),
-    )
-  })
-
-/**
- * The scratch directory a contradiction round-trip's sample is written
- * under: `EnvVars.all["TMPDIR"]` when set, `node:os`'s `tmpdir()` otherwise —
- * never a `/tmp` literal or `mktemp` (`tests/tooling/no-tmp-assumption.test.ts`
- * scans for both). Reading `EnvVars` first keeps the emitted script
- * deterministic in unit tests, which inject a fixed `TMPDIR`.
- */
-const scratchDir = (envVars: {
-  readonly all: Readonly<Record<string, string | undefined>>
-}): string => {
-  const configured = envVars.all["TMPDIR"]
-  return configured !== undefined && configured.length > 0 ? configured : tmpdir()
-}
-
-/**
- * `<scratchDir>/gtd-mode-sample-<mode>-<pid>.md` — an absolute literal baked
- * in at emit time, never a shell variable (a `format:` template renders
- * `it.file` inside single quotes, which no shell expands). `<pid>` avoids
- * collisions between concurrent `gtd` processes. The `.md` suffix is
- * load-bearing — without it a formatter may refuse the file outright.
- */
-const scratchSamplePath = (
-  envVars: { readonly all: Readonly<Record<string, string | undefined>> },
-  mode: StateMode,
-): string => join(scratchDir(envVars), `gtd-mode-sample-${mode}-${process.pid}.md`)
-
-/**
- * The contradiction round-trip/skip-notice steps for `resolved`'s `mode:`.
- * `formatCommand` absent means nothing to round-trip: empty. Otherwise: a
- * live built-in validator runs the round-trip against that format's own
- * canonical sample; an external validator prints a one-line skip notice
- * instead, since silence there would read as a clean bill of health; a
- * format-only mode with neither has nothing to round-trip either.
- *
- * Emitted before `Emit.ts`'s `fileExistsGuard` — using a bundled sample
- * rather than the real file keeps the check alive at a first-write beat
- * where the real steering file doesn't exist yet.
- */
-const modeContradictionSteps = (
-  resolved: ResolvedMode,
-  mode: StateMode,
-  context: TemplateContext,
-): Effect.Effect<readonly EmitStep[], Error, EnvVars> =>
-  Effect.gen(function* () {
-    if (resolved.formatCommand === undefined) return []
-    const capabilities = steeringCapabilities(resolved)
-    if (capabilities.format !== undefined && capabilities.liveValidate !== undefined) {
-      const envVars = yield* EnvVars
-      const samplePath = scratchSamplePath(envVars, mode)
-      const formatCommand = yield* Effect.try({
-        try: () => renderModeCommand(resolved.formatCommand!, { ...context, file: samplePath }),
-        catch: (e) =>
-          new Error(
-            `mode "${mode}": "format" command failed to render — ${
-              e instanceof Error ? e.message : String(e)
-            }`,
-          ),
-      })
-      const block = buildModeContradictionCheck({
-        mode,
-        samplePath,
-        sample: capabilities.format.sample,
-        formatCommand,
-      })
-      return [{ kind: "command", command: block }]
-    }
-    if (capabilities.externalValidate === true) {
-      return [{ kind: "command", command: modeContradictionSkipNotice(mode) }]
-    }
-    return []
-  })
 
 /**
  * Resolve the resting state's own steering-file validate script — shared by
@@ -678,35 +574,31 @@ const modeContradictionSteps = (
  * (`fileExistsGuard`), not here, since it's only knowable after the turn —
  * so a turn that legitimately wrote nothing exits 0 with nothing to do
  * rather than burning a fix turn. The contradiction round-trip is emitted
- * before that guard, so it still runs at that same first-write beat.
+ * before that guard, so it still runs at that same first-write beat
+ * (`SteeringMode.ts`'s `validateScriptFor`).
  */
 const resolveValidateScript = (
   rest: Rest,
 ): Effect.Effect<
   { readonly file: string; readonly mode: StateMode; readonly script: string } | undefined,
   Error,
-  EnvVars
+  Host
 > =>
   Effect.gen(function* () {
     const file = rest.hints.file
     const mode = rest.stateDef.mode
     if (file === undefined || mode === undefined) return undefined
 
-    const resolved = resolveSteeringMode(rest.def, mode)
-    if (resolved === undefined) {
-      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
+    const resolved = resolveMode(rest.def, rest.state, mode)
+    if (resolved.kind === "unknown") {
+      return yield* Effect.fail(new Error(resolved.message))
     }
 
-    const steps: EmitStep[] = [
-      ...(yield* modeContradictionSteps(resolved, mode, rest.context)),
-      { kind: "command", command: fileExistsGuard(file) },
-      ...(yield* renderSteeringModeCommandSteps(resolved, file, rest.context)),
-    ]
-    const script = emitScripts(steps).required
+    const { script } = yield* validateScriptFor(resolved, file, rest.context)
     return { file, mode, script }
   })
 
-/** The driver-facing `BeatKind` for a currently-resolved rest, the one computation `gatherBeatFields` reads — so a driver's `kind` field can never drift from what it assembled. */
+/** The driver-facing `BeatKind` for a currently-resolved rest, the one computation `gatherBeatDocument` reads — so a driver's `kind` field can never drift from what it assembled. */
 const restBeatKind = (rest: Rest): BeatKind =>
   beatKindOf({
     contentKind: contentKindOf(rest.stateDef) as Exclude<ContentKind, "commit">,
@@ -732,7 +624,7 @@ const runNextCommand = (
   Effect.gen(function* () {
     const rest = yield* currentRest
     const rendered = yield* renderRest(rest)
-    const fields = yield* gatherBeatFields(rest, rendered)
+    const fields = yield* gatherBeatDocument(rest, rendered)
     const narrator = yield* Narrator
     for (const change of fields.changes) {
       yield* narrator.narrate(
@@ -749,6 +641,7 @@ const runNextCommand = (
       const selfValidateCommand = emitsValidatablePrompt(rendered)
         ? yield* resolveSelfValidateCommand(
             rest.def,
+            rest.state,
             rendered.mode!,
             rendered.file!,
             rest.context,
@@ -817,7 +710,7 @@ const runCheckCommand = (
   mode: string,
   file: string,
   openQuestions: boolean,
-): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
     const format = steeringFormatFor(mode)
     if (format === undefined) {
@@ -834,17 +727,15 @@ const runCheckCommand = (
           new Error(`gtd check: --open-questions only applies to mode "qa" — got "${mode}"`),
         )
       }
-      return yield* runOpenQuestionsCheckCommand(file)
+      return yield* runOpenQuestionsCheckCommand(format, file)
     }
 
-    const fs = yield* FileSystem.FileSystem
-    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
-    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
-    const errors = present
-      ? format
-          .validate(yield* fs.readFileString(file).pipe(Effect.mapError(toError)))
-          .map((finding) => formatFinding(file, finding))
-      : []
+    const workspace = yield* Workspace
+    const content = workspace.atPath(file)
+    const errors =
+      content !== undefined
+        ? checkSteering(format, content).map((finding) => formatFinding(file, finding))
+        : []
 
     if (errors.length === 0) return
 
@@ -858,8 +749,8 @@ const runCheckCommand = (
 
 /**
  * `gtd check <mode> <file> --open-questions`: read `<file>` and run
- * `OpenQuestions.ts`'s `unansweredQuestions` — the same predicate
- * `StepGuards.ts`'s answer-completeness guard enforces at land — printing one
+ * `src/steering/index.ts`'s `unansweredQuestions` — the same predicate
+ * `src/step/Guards.ts`'s answer-completeness guard enforces at land — printing one
  * unanswered question per line and exiting non-zero when any remain. Sharing
  * the one function keeps the gate script and the land-time guard in sync.
  *
@@ -867,18 +758,17 @@ const runCheckCommand = (
  * path above, which treats an absent file as "nothing to report".
  */
 const runOpenQuestionsCheckCommand = (
+  format: SteeringFormat,
   file: string,
-): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
-    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
-    if (!present) {
+    const workspace = yield* Workspace
+    const content = workspace.atPath(file)
+    if (content === undefined) {
       return yield* Effect.fail(new Error(`gtd check: ${file} does not exist`))
     }
-    const content = yield* fs.readFileString(file).pipe(Effect.mapError(toError))
 
-    const errors = unansweredQuestions(content).map(
+    const errors = unansweredQuestions(format, content).map(
       (q) => `${file}:${q.headingLine + 1}: ${q.question}`,
     )
     if (errors.length === 0) return
@@ -891,9 +781,10 @@ const runOpenQuestionsCheckCommand = (
   })
 
 /**
- * `gtd uncheck <file>`: read `<file>`, apply `clearFilePointerTicks`, and
- * write the result back only when the bytes actually changed — an untouched
- * file is never rewritten, so its mtime never moves. Resolves no workflow
+ * `gtd uncheck <file>`: read `<file>`, apply `clearTicks` against the
+ * `review` format, and write the result back only when the bytes actually
+ * changed — an untouched file is never rewritten, so its mtime never moves.
+ * Resolves no workflow
  * state and reads no config — standalone, runnable from any directory with
  * `<file>` given explicitly, shaped exactly like `gtd check <mode> <file>`.
  *
@@ -903,18 +794,21 @@ const runOpenQuestionsCheckCommand = (
  * must never touch. A missing file writes nothing and exits 0, mirroring
  * `gtd check`'s absent-file behavior.
  */
-const runUncheckCommand = (file: string): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+const runUncheckCommand = (file: string): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
-    const present = yield* fs.exists(file).pipe(Effect.mapError(toError))
-    if (!present) return
+    // `gtd uncheck` means review-mode file pointers, hardcoded — never the
+    // qa format, whose answer boxes it must never touch.
+    const format = steeringFormatFor("review")
+    if (format === undefined) return
 
-    const content = yield* fs.readFileString(file).pipe(Effect.mapError(toError))
-    const cleared = clearFilePointerTicks(content)
+    const workspace = yield* Workspace
+    const content = workspace.atPath(file)
+    if (content === undefined) return
+
+    const cleared = clearTicks(format, content)
     if (cleared === content) return
 
-    yield* fs.writeFileString(file, cleared).pipe(Effect.mapError(toError))
+    yield* workspace.writeAtPath(file, cleared)
   })
 
 /** Which declared `on` pattern (if any) each pending change matches. `onEdges` must already be rendered against `it.vars`, so the reported pattern is the one a real `gtd land` would match against. */
@@ -949,11 +843,11 @@ export const computeNextMatch = (
   return null
 }
 
-/** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json` can never describe different rests for the same beat. */
-const gatherBeatFields = (
+/** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json` can never describe different rests for the same beat — built as `wire`'s `Demand` (what to do) and `BeatStatus` (what no driver branches on), then flattened by `beatDocument` into the one wire-shaped object plain/`--json` both render from. */
+const gatherBeatDocument = (
   rest: Rest,
   rendered: RenderedRest,
-): Effect.Effect<BeatFields, Error, CommandRequirements> =>
+): Effect.Effect<BeatDocument, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const kind = restBeatKind(rest)
     const session =
@@ -967,20 +861,24 @@ const gatherBeatFields = (
         ? resolvedValidate.script
         : undefined
     const log = yield* loopLogPath
-    return beatFields({
+    const demand = demandOf({
       rendered,
       kind,
-      idle: restIsIdle(rest),
-      log,
       ...(session !== undefined
         ? { session: { id: session.sessionId, resume: session.resume } }
         : {}),
       ...(validate !== undefined ? { validate } : {}),
+    })
+    const status = statusOf({
+      rendered,
+      idle: restIsIdle(rest),
+      log,
       changes: computeStatusChanges(rest.on, rest.changes),
       next: computeNextMatch(rest.on, rest.changes),
       cost: rest.context.processCost,
       costByModel: rest.context.processCostByModel,
     })
+    return beatDocument(demand, status)
   })
 
 /**
@@ -1080,19 +978,16 @@ const runUiCliCommand = (
  * Refuses with a clear error instead. Real paths are compared so symlinked
  * cwds (e.g. macOS /tmp → /private/tmp) match.
  */
-const assertRunningFromRepoRoot = (
-  git: GitOperations,
-  fs: FileSystem.FileSystem,
-): Effect.Effect<void, Error> =>
+const assertRunningFromRepoRoot = (git: GitOperations, host: HostOps): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
     const topLevel = yield* git.topLevel()
-    const topReal = yield* fs.realPath(topLevel)
-    const cwdReal = yield* fs.realPath(process.cwd())
+    const topReal = yield* host.realPath(topLevel)
+    const cwdReal = yield* host.realPath(host.root)
     if (topReal !== cwdReal) {
       return yield* Effect.fail(
         new Error(
           `gtd must be run from the repository root (${topLevel}); ` +
-            `the current directory is ${process.cwd()}`,
+            `the current directory is ${host.root}`,
         ),
       )
     }
@@ -1119,22 +1014,19 @@ const assertRepositoryHasCommits = (git: GitOperations): Effect.Effect<void, Err
  * whether cwd is inside a repository, so the caller can tailor the
  * "commit before starting" guidance.
  */
-const assertInitLocation = (
-  git: GitOperations,
-  fs: FileSystem.FileSystem,
-): Effect.Effect<boolean, Error> =>
+const assertInitLocation = (git: GitOperations, host: HostOps): Effect.Effect<boolean, Error> =>
   Effect.gen(function* () {
     const topLevel = yield* Effect.either(git.topLevel())
     // topLevel fails only outside a git repository — there, init is allowed.
     if (topLevel._tag === "Left") return false
-    const topReal = yield* fs.realPath(topLevel.right)
-    const cwdReal = yield* fs.realPath(process.cwd())
+    const topReal = yield* host.realPath(topLevel.right)
+    const cwdReal = yield* host.realPath(host.root)
     if (topReal !== cwdReal) {
       return yield* Effect.fail(
         new Error(
           `gtd init must be run from the repository root (${topLevel.right}) or from a ` +
             `directory outside any git repository; the current directory is a repository ` +
-            `subdirectory: ${process.cwd()}`,
+            `subdirectory: ${host.root}`,
         ),
       )
     }
@@ -1244,12 +1136,12 @@ export const runCommand = (
   if (needsOf(command.kind) !== "state") return dispatch
   return Effect.gen(function* () {
     const git = yield* GitService
-    const fs = yield* FileSystem.FileSystem
-    yield* assertRunningFromRepoRoot(git, fs)
+    const host = yield* Host
+    yield* assertRunningFromRepoRoot(git, host)
     yield* assertRepositoryHasCommits(git)
     // One extra load here, own to this block, just to read `.warnings` ahead
     // of `dispatch`'s own (unrelated) load(s) — `ConfigService.load` isn't
-    // memoized, and `Config.ts`'s pipeline narrates one "config: layer ..."
+    // memoized, and `load`'s pipeline (`src/workflow/load.ts`) narrates one "config: layer ..."
     // line per level on EVERY call, so a second bare load under --verbose
     // would double that output. Silence narration on this one call only (a
     // scoped Narrator override, never touching the outer context `dispatch`
@@ -1259,7 +1151,9 @@ export const runCommand = (
     const config = yield* (yield* ConfigService).load.pipe(
       Effect.provideService(Narrator, { narrate: () => Effect.void, warn: () => Effect.void }),
     )
-    for (const warning of config.warnings) yield* narrator.warn(`gtd: warning: ${warning}`)
+    for (const warning of config.warnings) {
+      yield* narrator.warn(`gtd: warning: ${formatDiagnostic(warning)}`)
+    }
     yield* dispatch
   })
 }

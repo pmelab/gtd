@@ -1,9 +1,9 @@
 @inmem
 Feature: Refusals — no-match steps commit nothing
 
-  Pins `PatternMachine.step`'s no-match refusal end to end (see
-  docs/design/pattern-machine-plan.md, decision 6): a dirty tree matching none
-  of the awaited state's declared patterns is refused naming those patterns.
+  Pins `PatternMachine.step`'s no-match refusal end to end: a dirty tree
+  matching none of the awaited state's declared patterns is refused naming
+  those patterns.
   `gtd land` derives who acts from the resolved rest itself (see `Edge.ts`'s
   `planStep`), so the pure engine's OTHER refusal shape — out-of-turn — is
   unreachable through it by construction; it stays covered purely at

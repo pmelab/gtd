@@ -11,18 +11,16 @@ import { join } from "node:path"
 import { mkdtempSync, realpathSync } from "node:fs"
 import { execSync } from "node:child_process"
 import { tmpdir } from "node:os"
-import { FileSystem } from "@effect/platform"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { describe, expect, it } from "vitest"
 import { loopLogPath, worktreeGitDir } from "./WorktreeState.js"
-import { Cwd } from "./Cwd.js"
-import { EnvVars } from "./EnvVars.js"
+import { GitService, Host, Workspace } from "./platform/index.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { testLayers } from "./testing/Layers.js"
 
 const provide = <A>(
-  eff: Effect.Effect<A, never, Cwd | EnvVars | FileSystem.FileSystem>,
+  eff: Effect.Effect<A, never, Host | Workspace>,
   repo: InMemRepo,
   opts: {
     readonly root?: string
@@ -39,26 +37,26 @@ describe("worktreeGitDir / loopLogPath [in-memory]", () => {
 
   it("follows an absolute gitdir: pointer (a linked worktree)", async () => {
     const repo = new InMemRepo()
-    repo.writeFile(join("/repo", ".git"), "gitdir: /abs/path\n")
+    repo.writeFile(".git", "gitdir: /abs/path\n")
     expect(await provide(worktreeGitDir, repo)).toBe("/abs/path")
     expect(await provide(loopLogPath, repo)).toBe(join("/abs/path", "gtd-loop.log"))
   })
 
   it("resolves a relative gitdir: pointer against the worktree root", async () => {
     const repo = new InMemRepo()
-    repo.writeFile(join("/repo", ".git"), "gitdir: ../shared/worktrees/x\n")
+    repo.writeFile(".git", "gitdir: ../shared/worktrees/x\n")
     expect(await provide(worktreeGitDir, repo)).toBe(join("/repo", "../shared/worktrees/x"))
   })
 
   it("falls back to .git when the .git file has no gitdir: line", async () => {
     const repo = new InMemRepo()
-    repo.writeFile(join("/repo", ".git"), "not a gitdir pointer\n")
+    repo.writeFile(".git", "not a gitdir pointer\n")
     expect(await provide(worktreeGitDir, repo)).toBe(".git")
   })
 
   it("GTD_LOOP_LOG wins verbatim, even over a gitdir: pointer", async () => {
     const repo = new InMemRepo()
-    repo.writeFile(join("/repo", ".git"), "gitdir: /abs/path\n")
+    repo.writeFile(".git", "gitdir: /abs/path\n")
     expect(
       await provide(loopLogPath, repo, { env: { GTD_LOOP_LOG: "/elsewhere/custom.log" } }),
     ).toBe("/elsewhere/custom.log")
@@ -73,7 +71,7 @@ describe("worktreeGitDir / loopLogPath [in-memory]", () => {
 
   it("an absolute GIT_DIR names the git dir for the log path, even over a gitdir: pointer", async () => {
     const repo = new InMemRepo()
-    repo.writeFile(join("/repo", ".git"), "gitdir: /abs/pointer-path\n")
+    repo.writeFile(".git", "gitdir: /abs/pointer-path\n")
     expect(await provide(loopLogPath, repo, { env: { GIT_DIR: "/elsewhere/gitdir" } })).toBe(
       join("/elsewhere/gitdir", "gtd-loop.log"),
     )
@@ -88,7 +86,7 @@ describe("worktreeGitDir / loopLogPath [in-memory]", () => {
 
   it("treats an empty GIT_DIR as unset, falling through to the pointer read", async () => {
     const repo = new InMemRepo()
-    repo.writeFile(join("/repo", ".git"), "gitdir: /abs/pointer-path\n")
+    repo.writeFile(".git", "gitdir: /abs/pointer-path\n")
     expect(await provide(loopLogPath, repo, { env: { GIT_DIR: "" } })).toBe(
       join("/abs/pointer-path", "gtd-loop.log"),
     )
@@ -113,10 +111,14 @@ describe("worktreeGitDir [real git]", () => {
   const gitExecIn = (dir: string, ...args: string[]): string =>
     execSync(`git ${args.join(" ")}`, { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim()
 
-  const runIn = (root: string) =>
-    Effect.runPromise(
-      worktreeGitDir.pipe(Effect.provide(Cwd.layer(root)), Effect.provide(NodeContext.layer)),
+  const runIn = (root: string) => {
+    const hostLayer = Host.layer({ root, home: root, env: {} })
+    const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeContext.layer)))
+    const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
+    return Effect.runPromise(
+      worktreeGitDir.pipe(Effect.provide(Layer.mergeAll(hostLayer, workspaceLayer))),
     )
+  }
 
   it("matches git rev-parse --git-dir in the main repo and in a linked worktree", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktree-state-")))

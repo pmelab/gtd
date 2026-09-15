@@ -23,34 +23,22 @@ import {
 } from "vscode-languageserver/node"
 import { TextDocument } from "vscode-languageserver-textdocument"
 import { Narrator } from "./Commentary.js"
-import { ConfigService } from "./Config.js"
-import { Cwd } from "./Cwd.js"
-import { EnvVars } from "./EnvVars.js"
-import { GitService } from "./Git.js"
-import { RepoFiles } from "./RepoFiles.js"
+import { ConfigDiscovery, ConfigService } from "./workflow/index.js"
+import { GitService, Host, Workspace } from "./platform/index.js"
 import { currentRest, type RestRequirements } from "./Edge.js"
 import type { StateMode, WorkflowDefinition } from "./PatternMachine.js"
 import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
+import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
 import {
-  resolveBuiltInMode,
-  resolveSteeringMode,
-  steeringCapabilities,
-  type ResolvedMode,
-} from "./SteeringMode.js"
-import type {
-  SteeringAction,
-  SteeringFinding,
-  SteeringLink,
-  SteeringOutlineNode,
-  SteeringPointer,
-} from "./SteeringFormat.js"
+  viewOf,
+  type SteeringAction,
+  type SteeringFinding,
+  type SteeringLink,
+  type SteeringOutlineNode,
+  type SteeringPointer,
+} from "./steering/index.js"
 
 // ── Domain → protocol translation (pure) ────────────────────────────────────
-
-const spanRange = (lines: readonly string[], startLine: number, endLine: number) => ({
-  start: { line: startLine, character: 0 },
-  end: { line: endLine, character: (lines[endLine] ?? "").length },
-})
 
 /** A `SteeringOutlineNode` tree → `DocumentSymbol` tree: `leaf: true` maps to `SymbolKind.Boolean`, a container to `SymbolKind.Package` — an outline icon distinction only, no protocol contract. */
 export const toDocumentSymbol = (node: SteeringOutlineNode): DocumentSymbol => ({
@@ -90,6 +78,19 @@ export const toLocation =
     },
   })
 
+/** A whole-line (or whole-document) span, for a finding with no `range` of its own — the one place left computing a fallback range; every other range (outline, document links) already arrives pre-resolved off `viewOf`. */
+const lineSpan = (
+  lines: readonly string[],
+  startLine: number,
+  endLine: number,
+): {
+  readonly start: { line: number; character: number }
+  readonly end: { line: number; character: number }
+} => ({
+  start: { line: startLine, character: 0 },
+  end: { line: endLine, character: (lines[endLine] ?? "").length },
+})
+
 /** One `SteeringFinding` → a `Diagnostic`: a finding's own `range` hands straight through (it already spans the node the finding is about), a `line` with no `range` falls back to that whole line, and a positionless finding spans the whole document. Not exported on its own — `diagnosticsFor`'s tests cover it in context. */
 const toDiagnostic =
   (lines: readonly string[]) =>
@@ -97,8 +98,8 @@ const toDiagnostic =
     range:
       finding.range ??
       (finding.line !== undefined
-        ? spanRange(lines, finding.line, finding.line)
-        : spanRange(lines, 0, Math.max(0, lines.length - 1))),
+        ? lineSpan(lines, finding.line, finding.line)
+        : lineSpan(lines, 0, Math.max(0, lines.length - 1))),
     message: finding.message,
     severity: DiagnosticSeverity.Warning,
     source: "gtd",
@@ -117,7 +118,7 @@ export const diagnosticsFor = (
   resolved: ResolvedMode | undefined,
   content: string,
 ): Diagnostic[] => {
-  const caps = steeringCapabilities(resolved)
+  const caps = resolved?.capabilities ?? {}
   if (caps.liveValidate !== undefined) {
     const lines = content.split(/\r?\n/)
     return caps.liveValidate(content).map(toDiagnostic(lines))
@@ -142,15 +143,19 @@ export const documentLinksFor = (
   content: string,
   root: string,
 ): DocumentLink[] => {
-  const caps = steeringCapabilities(resolved)
-  return (caps.format?.documentLinks?.(content) ?? []).map(toDocumentLink(root))
+  const format = resolved?.capabilities.format
+  if (format === undefined) return []
+  return viewOf(format, content).documentLinks.map(toDocumentLink(root))
 }
 
 // ── Config-driven path→mode dispatch (pure) ─────────────────────────────────
 
 /** Fallback for any path the workflow's `file:` map doesn't cover. `TODO.md` is intentionally not mapped — the bundled `idle` state declares no `mode:` for it. */
-export const basenameFallbackMode = (name: string): ResolvedMode | undefined =>
-  name === "REVIEW.md" ? resolveBuiltInMode("review") : undefined
+export const basenameFallbackMode = (name: string): ResolvedMode | undefined => {
+  if (name !== "REVIEW.md") return undefined
+  const resolved = resolveMode(undefined, "", "review")
+  return resolved.kind === "resolved" ? resolved : undefined
+}
 
 /** One `buildSteeringMap` finding: a state whose `file:` failed to render, a `mode:` that didn't resolve, or a path two states both declare (first wins). */
 export type FileModeWarning = string
@@ -190,9 +195,9 @@ export const buildSteeringMap = (
       )
       continue
     }
-    const resolved = resolveSteeringMode(def, stateDef.mode)
-    if (resolved === undefined) {
-      warnings.push(`state "${name}": mode "${stateDef.mode}" does not resolve, skipped`)
+    const resolved = resolveMode(def, name, stateDef.mode)
+    if (resolved.kind === "unknown") {
+      warnings.push(`${resolved.message}, skipped`)
       continue
     }
     map.set(absolute, resolved)
@@ -209,7 +214,7 @@ export const resolvedModeForDocument = (
 export const capabilitiesForDocument = (
   uri: string,
   steeringMap: ReadonlyMap<string, ResolvedMode>,
-) => steeringCapabilities(resolvedModeForDocument(uri, steeringMap))
+) => resolvedModeForDocument(uri, steeringMap)?.capabilities ?? {}
 
 export const resolveWorkspaceRoot = (params: {
   readonly workspaceFolders?: ReadonlyArray<{ readonly uri: string }> | null
@@ -336,17 +341,20 @@ export const makeSteeringLanguageService = (
 
     documentSymbol: async (uri, text) => {
       const caps = await capabilitiesFor(uri)
-      return caps.format?.outline(text).map(toDocumentSymbol) ?? []
+      if (caps.format === undefined) return []
+      return viewOf(caps.format, text).outline.map(toDocumentSymbol)
     },
 
     codeAction: async (uri, text, range) => {
       const caps = await capabilitiesFor(uri)
-      return (caps.format?.actions(text, range) ?? []).map(toCodeAction(uri))
+      if (caps.format === undefined) return []
+      return viewOf(caps.format, text).actionsAt(range).map(toCodeAction(uri))
     },
 
     definition: async (uri, text, position) => {
       const caps = await capabilitiesFor(uri)
-      const pointer = caps.format?.pointerAt?.(text, position)
+      const pointer =
+        caps.format !== undefined ? viewOf(caps.format, text).pointerAt(position) : undefined
       if (pointer === undefined) return []
       if (pointer.path === undefined) return [toLocation("", uri)(pointer)]
       const root = (await safeGitTopLevel(dirname(fileURLToPath(uri)))) ?? workspaceRoot
@@ -470,15 +478,21 @@ export const bindSteeringServer = (
 
 // ── The Node adapter: the only place layers are built ───────────────────────
 
-/** `ConfigService.Live` scoped to `root` — the same config-loading code path the CLI uses (`src/Config.ts`), never a second one. */
-const configLayerForRoot = (root: string) => ConfigService.Live.pipe(Layer.provide(Cwd.layer(root)))
+/**
+ * `Host.Live`'s own home/env, resolved ONCE — the only place this module
+ * reaches for the real environment; every per-root layer below overrides just
+ * `root`, never touching `process.cwd()`/`process.env` itself.
+ */
+const liveHost = Effect.runSync(Effect.provide(Host, Host.Live))
+
+const hostLayerForRoot = (root: string) => Host.layer({ ...liveHost, root })
 
 /** `GitService.Live` scoped to `root`, with the Node command executor it needs to shell out to `git`. */
 const gitLayerForRoot = (root: string) =>
-  GitService.Live.pipe(Layer.provide(Layer.merge(Cwd.layer(root), NodeContext.layer)))
+  GitService.Live.pipe(Layer.provide(Layer.merge(hostLayerForRoot(root), NodeContext.layer)))
 
-const repoFilesLayerForRoot = (root: string) =>
-  RepoFiles.Live.pipe(Layer.provide(Layer.merge(Cwd.layer(root), gitLayerForRoot(root))))
+const workspaceLayerForRoot = (root: string) =>
+  Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayerForRoot(root), gitLayerForRoot(root))))
 
 // Mirrors the `GTD_<NAME>` env-override half of `Edge.ts`'s `resolveVars` —
 // this call site has no resolved process, so there's no `entryVars` layer to merge.
@@ -500,14 +514,15 @@ export const mergeStaticVars = (
 const layersForRoot = (root: string) =>
   Layer.mergeAll(
     gitLayerForRoot(root),
-    configLayerForRoot(root),
-    repoFilesLayerForRoot(root),
-    EnvVars.Live,
+    ConfigService.Live,
+    ConfigDiscovery.Live,
+    workspaceLayerForRoot(root),
+    hostLayerForRoot(root),
     Narrator.layer(() => {}, false),
   )
 
 type RootRuntime = ManagedRuntime.ManagedRuntime<
-  GitService | ConfigService | RepoFiles | EnvVars | Narrator,
+  GitService | ConfigService | ConfigDiscovery | Workspace | Host | Narrator,
   never
 >
 
@@ -536,11 +551,15 @@ export const resolveSteeringFile: Effect.Effect<
 
 /** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. `startLspServer` is its production caller; most `Lsp.test.ts` coverage exercises a fake `LspEnv` instead, but this is exported so the real wiring (real git/config/repo-files layers) gets exercised against a real temp repo too. */
 export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => ({
-  cwd: process.cwd(),
+  cwd: liveHost.root,
 
   steeringMapFor: async (root) => {
-    const config = await runtimeFor(root).runPromise(Effect.flatMap(ConfigService, (c) => c.load))
-    const vars = mergeStaticVars(config.workflowVars, config.rcVars, process.env)
+    const { config, env } = await runtimeFor(root).runPromise(
+      Effect.gen(function* () {
+        return { config: yield* (yield* ConfigService).load, env: (yield* Host).env }
+      }),
+    )
+    const vars = mergeStaticVars(config.workflowVars, config.rcVars, env)
     const { map, warnings } = buildSteeringMap(config.workflow, vars, root)
     for (const warning of warnings) warn(warning)
     return map

@@ -53,10 +53,10 @@ const raw = {
   },
 }
 
-const compiled = compileWorkflowConfig(raw, "/dir")
+const compiled = compileWorkflowConfig(raw)
 const model = buildVizModel(
   compiled.definition,
-  compiled.tree,
+  compiled.tree!,
   {
     testCommand: "npm test",
   },
@@ -129,10 +129,10 @@ describe("buildVizModel", () => {
         },
       },
     }
-    const modelCompiled = compileWorkflowConfig(modelRaw, "/dir")
+    const modelCompiled = compileWorkflowConfig(modelRaw)
     const modelModel = buildVizModel(
       modelCompiled.definition,
-      modelCompiled.tree,
+      modelCompiled.tree!,
       {},
       modelCompiled.scopes,
     )
@@ -206,10 +206,10 @@ describe("buildVizModel", () => {
         },
       },
     }
-    const flatCompiled = compileWorkflowConfig(flatRaw, "/dir")
+    const flatCompiled = compileWorkflowConfig(flatRaw)
     const flatModel = buildVizModel(
       flatCompiled.definition,
-      flatCompiled.tree,
+      flatCompiled.tree!,
       {},
       flatCompiled.scopes,
     )
@@ -234,10 +234,10 @@ describe("buildVizModel", () => {
         },
       },
     }
-    const templatedCompiled = compileWorkflowConfig(templatedRaw, "/dir")
+    const templatedCompiled = compileWorkflowConfig(templatedRaw)
     const templatedModel = buildVizModel(
       templatedCompiled.definition,
-      templatedCompiled.tree,
+      templatedCompiled.tree!,
       {
         feedbackFile: ".gtd/FEEDBACK.md",
       },
@@ -274,10 +274,10 @@ describe("buildVizModel", () => {
         },
       },
     }
-    const actionCompiled = compileWorkflowConfig(rawWithAction, "/dir")
+    const actionCompiled = compileWorkflowConfig(rawWithAction)
     const actionModel = buildVizModel(
       actionCompiled.definition,
-      actionCompiled.tree,
+      actionCompiled.tree!,
       {},
       actionCompiled.scopes,
     )
@@ -312,10 +312,10 @@ describe("buildVizModel", () => {
         },
       },
     }
-    const entryCompiled = compileWorkflowConfig(entryRaw, "/dir")
+    const entryCompiled = compileWorkflowConfig(entryRaw)
     const entryModel = buildVizModel(
       entryCompiled.definition,
-      entryCompiled.tree,
+      entryCompiled.tree!,
       {},
       entryCompiled.scopes,
     )
@@ -346,8 +346,13 @@ describe("buildVizModel", () => {
         },
       },
     }
-    const badCompiled = compileWorkflowConfig(badRaw, "/dir")
-    const badModel = buildVizModel(badCompiled.definition, badCompiled.tree, {}, badCompiled.scopes)
+    const badCompiled = compileWorkflowConfig(badRaw)
+    const badModel = buildVizModel(
+      badCompiled.definition,
+      badCompiled.tree!,
+      {},
+      badCompiled.scopes,
+    )
     expect(badModel.states.find((s) => s.name === "a")!.on).toEqual([
       { pattern: "A <%= it.vars.missing.deeper %>", to: "b" },
     ])
@@ -355,7 +360,7 @@ describe("buildVizModel", () => {
 })
 
 describe("buildCurrentStateModel", () => {
-  const definition = compileWorkflowConfig(raw, "/dir").definition
+  const definition = compileWorkflowConfig(raw).definition
   const restAt = (state: string): ResolvedRest => ({
     def: definition,
     state,

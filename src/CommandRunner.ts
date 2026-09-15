@@ -1,9 +1,9 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer, Stream } from "effect"
-import { Cwd } from "./Cwd.js"
+import { Host } from "./platform/index.js"
 
 /** One command run's outcome: its exit status (a signal death reported as `null`, matching `spawnSync`) and its combined output (stdout then stderr). */
-export interface CommandOutcome {
+interface CommandOutcome {
   readonly status: number | null
   readonly output: string
   /** `stdout`/`stderr` captured separately, alongside the merged `output` — additive, for callers (the tRPC router) that need a refusal's three fields distinct rather than flattened into one string. Optional so existing test doubles built from `{ status, output }` alone still satisfy this interface. */
@@ -14,14 +14,14 @@ export interface CommandOutcome {
 /**
  * The subprocess port: run one shell command in the repo root, wait for it to
  * finish, and get its combined output back as one string (a workflow
- * `script:` is run by the DRIVER, never by gtd). Lets a mode's
- * `format:`/`validate:` command be driven by a scripted double in the
- * `@inmem` e2e tier. `gtd ui`'s loop command is spawned by `Loop.ts`'s own
+ * `script:` is run by the DRIVER, never by gtd — and a mode's
+ * `format:`/`validate:` command is RENDERED into the driver's script rather
+ * than spawned here). Its remaining callers are `gtd ui`'s own helpers
+ * (openssl, tailscale). `gtd ui`'s loop command is spawned by `Loop.ts`'s own
  * port instead — it needs a per-worktree cwd, a shim-prepended `PATH`, real
  * OS signal control while the child is still running, and never-combined
  * stdout/stderr, none of which this port's single-shot "run to completion"
- * shape supports — so this is no longer the only place gtd itself spawns a
- * subprocess.
+ * shape supports.
  */
 export class CommandRunner extends Context.Tag("CommandRunner")<
   CommandRunner,
@@ -38,7 +38,7 @@ export class CommandRunner extends Context.Tag("CommandRunner")<
   static Live = Layer.effect(
     CommandRunner,
     Effect.gen(function* () {
-      const { root } = yield* Cwd
+      const { root } = yield* Host
       const executor = yield* CommandExecutor.CommandExecutor
       return {
         bash: (command: string) =>

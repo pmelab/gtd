@@ -19,14 +19,13 @@ import {
 import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
-import { runCli } from "../../../src/Cli.js"
+import { runCli, EXIT_OK } from "../../../src/cli/index.js"
 import { makeCapturingCliIo } from "../../../src/testing/cliIo.js"
 import { type ScriptedCommand } from "../../../src/testing/Layers.js"
 import { InMemRepo } from "../../../src/testing/InMemRepo.js"
 import { applyEmittedScript } from "../../../src/testing/EmittedScriptRecognizer.js"
-import { EXIT_OK } from "../../../src/ExitCodes.js"
 import type { AppRouter } from "../../../src/ui/Router.js"
-import type { SteeringAnchor } from "../../../src/SteeringFormat.js"
+import type { SteeringAnchor } from "../../../src/steering/index.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 // Exported so hooks.ts's PATH shim execs this SAME bundle, never a globally-installed gtd.
@@ -275,7 +274,7 @@ export class GtdWorld extends QuickPickleWorld {
   /** The scratch directory a scenario points `$TMPDIR` at — checked empty afterward to prove nothing writes there. `@live` only. */
   customTmpDir: string | undefined = undefined
 
-  /** Canned `bash` command behaviors for the in-memory tier's `CommandRunner`, since real subprocess execution is unreachable against an in-memory worktree. */
+  /** Canned `bash` command behaviors the in-memory tier's fake shell (`applyEmittedScript`) runs an emitted script against, since real subprocess execution is unreachable against an in-memory worktree. */
   scriptedCommands: Map<string, ScriptedCommand> = new Map()
 
   /**
@@ -988,7 +987,7 @@ export class GtdWorld extends QuickPickleWorld {
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
   async runGtdInMem(...args: string[]): Promise<void> {
     const repo = this.repo!
-    const { io, result } = makeCapturingCliIo(repo, this.envVars, this.scriptedCommands)
+    const { io, result } = makeCapturingCliIo(repo, this.envVars)
 
     const argv = ["node", "gtd.js", ...args]
 
