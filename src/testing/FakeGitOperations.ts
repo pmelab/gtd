@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect"
-import type { GitOperations, GitReaderOperations, GitWriterOperations } from "../Git.js"
+import type { GitOperations, GitReaderOperations, GitWriterOperations } from "../platform/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 
 const tryCatch = <A>(fn: () => A): Effect.Effect<A, Error> =>

@@ -97,7 +97,7 @@ add("combined.with-optional.sh", combinedScript(combinedRequired, combinedOption
 // naming to cross-check corpus coverage.
 
 const unifiedYamlText = readFileSync(UNIFIED_YAML_PATH, "utf8")
-const compiled = compileWorkflowConfig(parseYaml(unifiedYamlText), ".")
+const compiled = compileWorkflowConfig(parseYaml(unifiedYamlText))
 
 for (const [name, state] of Object.entries(compiled.definition.states)) {
   if (state.script === undefined) continue

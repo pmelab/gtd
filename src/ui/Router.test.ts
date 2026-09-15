@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { QA_FORMAT } from "../OpenQuestions.js"
+import { steeringFormatFor } from "../steering/index.js"
 import type { StepRead } from "./Beat.js"
 import {
   appRouter,
@@ -8,6 +8,8 @@ import {
   WriteNoteRefusal,
   type RouterContext,
 } from "./Router.js"
+
+const QA_FORMAT = steeringFormatFor("qa")!
 
 const OK_STEP: StepRead = {
   status: "ok",
@@ -408,7 +410,7 @@ describe("no procedure input carries a filesystem path from the client", () => {
   // Every input validator this router registers, introspected directly:
   // none may accept a `worktreePath` (or any other path-shaped) field. The
   // server always writes/reads through the one worktree it serves, resolved
-  // server-side from `Cwd`, never named by the client.
+  // server-side from `Host`, never named by the client.
   it("done ignores a worktreePath field passed alongside otherwise well-formed input", async () => {
     const caller = appRouter.createCaller(contextFor())
     // Passed as an extra field: proves the validator doesn't merely ignore

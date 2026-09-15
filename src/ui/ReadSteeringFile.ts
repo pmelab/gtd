@@ -1,4 +1,4 @@
-import type { SteeringView } from "../SteeringFormat.js"
+import type { SteeringView } from "../steering/index.js"
 import { resolveWithinRoot } from "./SafePath.js"
 import { steeringViewFor } from "./View.js"
 import { contentHashOf } from "./Write.js"

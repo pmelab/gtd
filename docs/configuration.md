@@ -2,8 +2,9 @@
 
 ## Configuration
 
-gtd reads an optional `.gtdrc` config file via
-[cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). With no `workflow:`
+gtd reads an optional `.gtdrc` config file, discovered by walking up from the
+current directory to your home directory and merging every level found (the
+closest to the current directory wins on overlap). With no `workflow:`
 configured anywhere in the cwd→home config chain, the bundled unified workflow
 is used automatically, so a state command works out of the box with no config at
 all. Supported filenames (searched in this order):
@@ -426,14 +427,17 @@ can still override with its own `.gtdrc`.
 
 Config-shape problems (unknown keys, wrong types, unreadable file references)
 are collected together; if the shape is clean, the assembled definition is
-additionally run through the engine's own validation. A bad config throws
-**one** error listing every finding, at load time — before anything touches the
-repository — never partially, and never deferred to land time:
+additionally run through the engine's own validation. A bad config fails
+**once**, listing every finding, at load time — before anything touches the
+repository — never partially, and never deferred to land time. Each line names
+the config **path** (mirroring your YAML's own nesting) and the config file
+(**origin**) it came from, so with more than one `.gtdrc` layer in play you can
+tell which file to fix:
 
 ```
-workflow config:
-  - state "idle": must declare exactly one of script/prompt/message (found 2)
-  - state "idle": "on" target "nowhere" is not a defined state
+gtd config:
+  - .gtdrc: workflow.machines.root.states.idle: must declare exactly one of script/prompt/message (found 2)
+  - .gtdrc: workflow.machines.root.states.idle.on.* **: "on" target "nowhere" is not a defined state
 ```
 
 Those findings include the **semantic graph checks**: every `on` target and
@@ -453,7 +457,7 @@ clean tree there is a legitimate no-op by design (see "Step capture" in
 AGENTS.md), but usually an oversight worth a nudge:
 
 ```
-gtd: warning: state "checking" declares no "C" row
+gtd: warning: .gtdrc: workflow.machines.root.states.checking: state "checking" declares no "C" row
 ```
 
 Every command that resolves workflow state prints each such warning once per
@@ -504,6 +508,17 @@ guard reads. If you plug in your own `format:` command, the same rule binds it:
 a formatter that also changes meaning — stripping a paragraph a guard reads —
 makes the guard's decision and the file's actual content disagree, and gtd will
 not catch that for you.
+
+### A missing binary in `format:`/`validate:` fails loudly, before it runs
+
+The emitted script checks a mode's `format:`/`validate:` command against `$PATH`
+before running it, whenever that command is a single unambiguous leading word
+(e.g. `adr-lint <%= it.file %>`): a typo'd or uninstalled binary exits 127 with
+a `gtd:`-prefixed message naming the mode, the `format`/ `validate` key, the
+binary, and the resolved `$PATH` it was looked up in, instead of a raw shell
+error. A command gtd can't reduce to one binary — a `VAR=x`-prefixed command, a
+pipeline, anything with a shell metacharacter — gets no such check and fails
+exactly as it always has.
 
 ### Built-in steering formats are ordinary modes
 

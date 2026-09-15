@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from "react"
-import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../OpenQuestions.js"
-import type { SteeringAnchor, SteeringViewNode } from "../../SteeringFormat.js"
+import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../steering/index.js"
+import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 
 /** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */

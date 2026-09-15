@@ -15,6 +15,7 @@ import {
   updateRef,
 } from "../GitScript.js"
 import {
+  binaryGuard,
   DID_NOT_RUN_COMMENT,
   failurePromptWrapper,
   fileExistsGuard,
@@ -27,9 +28,7 @@ import {
   modeContradictionSkipNotice,
 } from "../ModeContradiction.js"
 import { OUTCOME_MARKER } from "../OutcomeScript.js"
-import { clearFilePointerTicks } from "../ReviewDoc.js"
-import { steeringFormatFor } from "../SteeringFormats.js"
-import type { SteeringFormat } from "../SteeringFormat.js"
+import { clearTicks, steeringFormatFor, type SteeringFormat } from "../steering/index.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
 
@@ -234,6 +233,28 @@ const recognizeFileExistsGuard = (repo: InMemRepo, block: string): BlockOutcome 
 }
 
 /**
+ * `src/Emit.ts`'s `binaryGuard`, ahead of every `format:`/`validate:` command
+ * step. The in-memory tier has no real `$PATH` to probe — every scripted
+ * command IS the stand-in for "this binary exists" — so this always reports
+ * a no-op, re-deriving the block from its own message text and comparing
+ * full strings like every other recognizer here; the guard actually
+ * TRIPPING (an uninstalled binary) is `@live`-only coverage
+ * (`tests/integration/features/missing-binary-guard.feature`).
+ */
+const BINARY_GUARD_MESSAGE_RE = /^gtd: mode "([^"]+)": "(format|validate)" command not found: (.+)$/
+
+const recognizeBinaryGuard = (block: string): BlockOutcome | undefined => {
+  const [binary, , message] = extractQuotedTokens(block)
+  if (binary === undefined || message === undefined) return undefined
+  const match = BINARY_GUARD_MESSAGE_RE.exec(message)
+  if (!match) return undefined
+  const [, mode, key, messageBinary] = match
+  if (messageBinary !== binary) return undefined
+  if (binaryGuard(binary, mode!, key as "format" | "validate") !== block) return undefined
+  return { kind: "noop" }
+}
+
+/**
  * `src/OutcomeScript.ts`'s outcome statements, recognized by their own
  * `OUTCOME_MARKER` first line rather than re-derived and string-compared like
  * every git-effecting block above: an outcome only prints (and the
@@ -394,7 +415,7 @@ const parseModeContradictionCheck = (block: string): ParsedModeContradictionChec
  * path with the format's own parser, and cleans the scratch path up on
  * every path out — mirroring the real script's `rm -f` on both the failure
  * and success branches. An unscripted `format:` command fails loudly
- * (mirroring `makeScriptedCommandRunner`'s own "unscripted command" error)
+ * (mirroring `ScriptedCommand`'s own "unscripted command" error, see `Layers.ts`)
  * rather than silently succeeding.
  */
 const simulateModeContradictionCheck = (
@@ -475,8 +496,9 @@ const GTD_UNCHECK_RE = /^gtd uncheck (.+)$/
 /**
  * `gtd uncheck <file>` — the review-gate reset `renderDecision`
  * (`src/Edge.ts`) prepends ahead of the human's own commit, so no tick ever
- * reaches it. Re-runs the real `clearFilePointerTicks` against the repo's
- * current content, writing back only on an actual change, mirroring
+ * reaches it. Re-runs the real `clearTicks` (against the `review` format)
+ * from `src/steering/index.ts` over the repo's current content, writing back
+ * only on an actual change, mirroring
  * `runUncheckCommand`'s own behavior (`src/program.ts`) — an absent file is
  * a no-op, same as a real invocation.
  */
@@ -487,7 +509,8 @@ const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | und
   if (file === undefined) return undefined
   const content = repo.readFile(file)
   if (content === undefined) return { kind: "noop" }
-  const cleared = clearFilePointerTicks(content)
+  const format = steeringFormatFor("review")
+  const cleared = format === undefined ? content : clearTicks(format, content)
   if (cleared !== content) repo.writeFile(file, cleared)
   return { kind: "noop" }
 }
@@ -533,7 +556,7 @@ const recognizePresentationSubshell = (
   return { kind: "noop" }
 }
 
-/** Anything left over must be an EXACT hit in the scripted-command table — mirrors `makeScriptedCommandRunner`'s two `kind`s (`Layers.ts`). */
+/** Anything left over must be an EXACT hit in the scripted-command table — mirrors `ScriptedCommand`'s two `kind`s (`Layers.ts`). */
 const recognizeScriptedCommand = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
@@ -628,6 +651,7 @@ const recognizersFor = (
   (block) => recognizeDidNotRunComment(block),
   (block) => recognizePrecondition(repo, block),
   (block) => recognizeFileExistsGuard(repo, block),
+  (block) => recognizeBinaryGuard(block),
   (block) => recognizeGitBuilders(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block),

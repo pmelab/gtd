@@ -22,7 +22,7 @@ vi.mock("./BindSystem.js", () => ({ pickBindHostFromSystem: vi.fn(() => undefine
 
 import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
-import { Cwd } from "../Cwd.js"
+import { Host } from "../platform/index.js"
 import type { UiConfig } from "../ConfigSchema.js"
 import { pickBindHostFromSystem } from "./BindSystem.js"
 import { deleteServeRecord, readServeRecord, writeServeRecord } from "./Serve.js"
@@ -378,7 +378,7 @@ describe("UiListener.Live", () => {
     cert = await Effect.runPromise(
       generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
         Effect.provide(CommandRunner.Live),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -654,7 +654,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       ),
     )
 
@@ -729,7 +729,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Cwd.layer(tmpDir)),
+          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
 
@@ -782,7 +782,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       ),
     )
 
@@ -817,7 +817,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       ),
     )
 
@@ -862,7 +862,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       ),
     )
 
@@ -912,7 +912,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       ),
     )
 
@@ -969,7 +969,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       ),
     )
 
@@ -1043,7 +1043,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Cwd.layer(tmpDir)),
+          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
 
@@ -1110,7 +1110,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Cwd.layer(tmpDir)),
+          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
 
@@ -1168,7 +1168,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Cwd.layer(tmpDir)),
+          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
 
@@ -1221,7 +1221,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Cwd.layer(tmpDir)),
+          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
 
@@ -1289,7 +1289,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Cwd.layer(tmpDir)),
+          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
 
@@ -1347,7 +1347,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Cwd.layer(tmpDir)),
+          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
 
@@ -1404,7 +1404,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provideService(FileSystem.FileSystem, devFs),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       ),
     )
 
@@ -1454,7 +1454,7 @@ describe("runUiCommand", () => {
         Effect.provide(noCommandRunner),
         Effect.provide(NodeContext.layer),
         Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({} as never)),
-        Effect.provide(Cwd.layer(tmpDir)),
+        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       ),
     )
 
@@ -1498,7 +1498,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(noCommandRunner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Cwd.layer(tmpDir)),
+          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
       for (let i = 0; i < 50; i += 1) {
@@ -1642,7 +1642,7 @@ const startRealServer = async (
   const cert = await Effect.runPromise(
     generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
       Effect.provide(CommandRunner.Live),
-      Effect.provide(Cwd.layer(dir)),
+      Effect.provide(Host.layer({ root: dir, home: dir, env: process.env })),
       Effect.provide(NodeContext.layer),
     ),
   )
@@ -1661,7 +1661,7 @@ const startRealServer = async (
       Effect.provide(UiListener.Live),
       Effect.provide(noCommandRunner),
       Effect.provide(NodeContext.layer),
-      Effect.provide(Cwd.layer(dir)),
+      Effect.provide(Host.layer({ root: dir, home: dir, env: process.env })),
     ),
   )
 

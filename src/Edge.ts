@@ -1,19 +1,19 @@
 import { Effect } from "effect"
 import { Narrator } from "./Commentary.js"
-import { GitService, type GitOperations } from "./Git.js"
-import { ConfigService } from "./Config.js"
-import { RepoFiles, templateRead } from "./RepoFiles.js"
-import { EnvVars } from "./EnvVars.js"
+import { GitService, Host, Workspace, templateRead, type GitOperations } from "./platform/index.js"
+import { UNATTRIBUTED_MODEL } from "./wire/index.js"
+
+export { UNATTRIBUTED_MODEL }
+import { ConfigDiscovery, ConfigService } from "./workflow/index.js"
 import {
   contentKindOf,
-  enterableStates,
-  entryBaseTemplateOf,
   initialStateOf,
+  isRequireRevertState,
   isReviewBaseState,
   memoryScopeAt,
   parseStateSubject,
   resolveState,
-  stateSubject,
+  STATE_DIR,
   step,
   wouldAttempt,
   type ChangeStatus,
@@ -22,8 +22,6 @@ import {
   type PendingChange,
   type StateDef,
   type StateName,
-  type StepDecision,
-  type StepRefusal,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
 import { STATE_FIELD_ENTRIES, type FieldValue, type StateFieldsTable } from "./StateFields.js"
@@ -33,10 +31,7 @@ import {
   type TemplateContext,
   type TemplateEdge,
 } from "./PatternTemplates.js"
-import { commitAll, shellQuote } from "./GitScript.js"
-import { emitScripts, type EmitStep, type EmittedScripts } from "./Emit.js"
-import { commitOutcome, transitionOutcome } from "./OutcomeScript.js"
-import { isHumanReviewGate } from "./StepGuards.js"
+import type { RepoSnapshot, RevertProbe } from "./step/index.js"
 
 // git's empty-tree object — the diff/reset base when a process (or the whole
 // repo) has no earlier commit to compare against.
@@ -49,38 +44,18 @@ const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").tr
 // trailer on the turn commit; `computeProcessRun` sums these into
 // `it.processCost`/`it.processCostByModel`, rendered by `gtd summary`.
 
-const COST_TRAILER_PREFIX = "Gtd-Cost: "
 // The number comes first so a model-less entry (`Gtd-Cost: 1450`) still parses.
 const COST_TRAILER_RE = /^Gtd-Cost:[ \t]*([0-9]+(?:\.[0-9]+)?)(?:[ \t]+(.+?))?[ \t]*$/gm
-
-/** The bucket a cost with no `--model` tag is grouped under, kept distinct so a mixed history still totals correctly. */
-export const UNATTRIBUTED_MODEL = "unspecified"
 
 export interface CostEntry {
   readonly cost: number
   readonly model: string
 }
 
-/** One model's summed token cost — the shape `gtd summary`'s template iterates as `it.processCostByModel`. */
-export interface ModelCost {
-  readonly model: string
-  readonly cost: number
-}
-
-/**
- * Append a `Gtd-Cost: <cost>[ <model>]` trailer to `subject` (unchanged when
- * no cost was supplied) — the subject's first line is never touched, so
- * `parseStateSubject`/`resolveState` still read `gtd(<actor>): <state>` back
- * exactly as before.
- */
-const withCostTrailer = (
-  subject: string,
-  cost: number | undefined,
-  model: string | undefined,
-): string =>
-  cost === undefined
-    ? subject
-    : `${subject}\n\n${COST_TRAILER_PREFIX}${cost}${model !== undefined ? ` ${model}` : ""}`
+// `ModelCost` lives in `src/wire/` (`gtd next --json`'s `costByModel` entries
+// use this exact shape) — see `src/wire/types.ts`. No consumer imports it from
+// here anymore, so this is a plain internal type-only import, not a re-export.
+import type { ModelCost } from "./wire/index.js"
 
 const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
   const entries: CostEntry[] = []
@@ -103,7 +78,6 @@ const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
 // then operates over `<commitish>..HEAD`. The trace/retry boundary
 // (`startParentHash`) is unaffected — only the diff base moves.
 
-const REVIEW_BASE_TRAILER_PREFIX = "Gtd-Review-Base: "
 const REVIEW_BASE_TRAILER_RE = /^Gtd-Review-Base:[ \t]*(\S+)[ \t]*$/m
 
 const parseReviewBaseTrailer = (message: string): string | undefined =>
@@ -113,20 +87,8 @@ const parseReviewBaseTrailer = (message: string): string | undefined =>
 // `it.vars` overrides read (only off the oldest commit) into
 // `ProcessRun.entryVars` and folded into `resolveVars` below the env layer.
 
-const ENTRY_VAR_TRAILER_PREFIX = "Gtd-Var: "
 // The value is everything after the FIRST `=`, so a value containing `=` round-trips.
 const ENTRY_VAR_TRAILER_RE = /^Gtd-Var:[ \t]*([^=\s]+)=(.*)$/gm
-
-const withEntryTrailers = (
-  subject: string,
-  opts: { base?: string; vars: Record<string, string> },
-): string => {
-  const lines: string[] = []
-  if (opts.base !== undefined) lines.push(`${REVIEW_BASE_TRAILER_PREFIX}${opts.base}`)
-  for (const [name, value] of Object.entries(opts.vars))
-    lines.push(`${ENTRY_VAR_TRAILER_PREFIX}${name}=${value}`)
-  return lines.length === 0 ? subject : `${subject}\n\n${lines.join("\n")}`
-}
 
 const parseEntryVarTrailers = (message: string): Record<string, string> => {
   const vars: Record<string, string> = {}
@@ -235,7 +197,7 @@ export interface ProcessRun {
    * normally identical to `startParentHash`, but overridden to a
    * `Gtd-Review-Base: <hash>` trailer's hash when the
    * process's FIRST (oldest) commit carries one (see
-   * `withEntryTrailers`/`parseReviewBaseTrailer` — written by `planEntry`).
+   * `parseReviewBaseTrailer` — written by `src/step/planEntry.ts`'s `planEntry`).
    * The trace/retry boundary itself is untouched by this; only which commit a
    * template/window compares against moves.
    */
@@ -395,12 +357,15 @@ const computeProcessRun = (
  * must still work when HEAD names a state `currentRest` would refuse on,
  * since abandon IS the recovery command for that case.
  */
-export const currentRun: Effect.Effect<ProcessRun, Error, GitService | ConfigService | Narrator> =
-  Effect.gen(function* () {
-    const git = yield* GitService
-    const config = yield* (yield* ConfigService).load
-    return yield* computeProcessRun(git, config.workflow)
-  })
+export const currentRun: Effect.Effect<
+  ProcessRun,
+  Error,
+  GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
+> = Effect.gen(function* () {
+  const git = yield* GitService
+  const config = yield* (yield* ConfigService).load
+  return yield* computeProcessRun(git, config.workflow)
+})
 
 /**
  * The process HEAD closes or sits inside — `gtd summary`'s run resolution.
@@ -409,12 +374,15 @@ export const currentRun: Effect.Effect<ProcessRun, Error, GitService | ConfigSer
  * commit is folded back into the trace and its hash recorded as
  * `closingHash` — see `computeProcessRun`'s `includeClosingBoundary` flag.
  */
-export const summaryRun: Effect.Effect<ProcessRun, Error, GitService | ConfigService | Narrator> =
-  Effect.gen(function* () {
-    const git = yield* GitService
-    const config = yield* (yield* ConfigService).load
-    return yield* computeProcessRun(git, config.workflow, true)
-  })
+export const summaryRun: Effect.Effect<
+  ProcessRun,
+  Error,
+  GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
+> = Effect.gen(function* () {
+  const git = yield* GitService
+  const config = yield* (yield* ConfigService).load
+  return yield* computeProcessRun(git, config.workflow, true)
+})
 
 /**
  * PURE: the most-recent in-process turn commit that entered a `reviewBase`
@@ -644,19 +612,19 @@ export const summaryTemplateContext = (
 ): Effect.Effect<
   TemplateContext,
   Error,
-  GitService | ConfigService | RepoFiles | EnvVars | Narrator
+  GitService | ConfigService | ConfigDiscovery | Workspace | Host | Narrator
 > =>
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const files = yield* RepoFiles
-    const envVars = yield* EnvVars
+    const workspace = yield* Workspace
+    const host = yield* Host
     const def = config.workflow
-    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
+    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env)
     const reviewBase = reviewBaseFor(def, run)
     return yield* buildTemplateContext(
       git,
-      templateRead(files),
+      templateRead(workspace),
       "",
       "",
       run,
@@ -668,7 +636,13 @@ export const summaryTemplateContext = (
 
 // ── The resolved rest, fully assembled ───────────────────────────────────────
 
-export type RestRequirements = GitService | ConfigService | RepoFiles | EnvVars | Narrator
+export type RestRequirements =
+  | GitService
+  | ConfigService
+  | ConfigDiscovery
+  | Workspace
+  | Host
+  | Narrator
 
 /**
  * Every field a resolved rest carries as a hint (`rest: "rendered"` or
@@ -690,8 +664,15 @@ export type RestHints = {
 /**
  * Where the process rests right now, fully resolved. ONE SNAPSHOT, taken
  * before any mutation — see AGENTS.md: never read a `Rest` after a `perform`.
+ *
+ * Module-private (`.gtd/packages/05-step-core.md` Commit 4): the planning
+ * path reads this only long enough to build a `RepoSnapshot`
+ * (`snapshotFromRest`) and hand it to `src/step/`'s pure core. A consumer
+ * outside this file that still needs the shape (`program.ts`,
+ * `Lsp.ts`) gets it structurally, through `currentRest`/`restAt`'s inferred
+ * return type, never by importing this name.
  */
-export interface Rest extends ResolvedRest {
+interface Rest extends ResolvedRest {
   readonly run: ProcessRun
   /** The merged four-layer `it.vars`. */
   readonly vars: Record<string, string>
@@ -721,8 +702,8 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const files = yield* RepoFiles
-    const envVars = yield* EnvVars
+    const workspace = yield* Workspace
+    const host = yield* Host
     const def = config.workflow
 
     const headSubject = yield* git.lastCommitSubject(ref)
@@ -732,14 +713,14 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     yield* (yield* Narrator).narrate(`rest resolved: ${resolved.state} (awaits ${resolved.actor})`)
 
     const run = yield* computeProcessRun(git, def)
-    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, envVars.all)
+    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env)
     const on = yield* renderOnEdgesOrFail(resolved.stateDef.on, vars)
     const stepDef = withRenderedOn(def, resolved.state, on)
     const reviewBase = reviewBaseFor(def, run)
     const changes = yield* pendingChanges(git)
     const context = yield* buildTemplateContext(
       git,
-      templateRead(files),
+      templateRead(workspace),
       resolved.state,
       resolved.actor,
       run,
@@ -877,264 +858,93 @@ export const stalledAt = (rest: Rest): boolean =>
     rest.run.trace.map((entry) => entry.state),
   )
 
-// ── Planning a step ──────────────────────────────────────────────────────────
+// ── RepoSnapshot adapter (src/step/05-step-core) ─────────────────────────────
+//
+// `src/step/`'s `planStep` is pure — it takes a `RepoSnapshot`, not a `Rest`,
+// and touches no Effect service at all. This is the ONE place a `Rest`
+// becomes a `RepoSnapshot`: everything the new pure core needs is read here,
+// once, before the value is frozen. `program.ts` calls this adapter, then
+// the pure `planStep`/`planEntry` from `src/step/index.ts` — not the
+// `Rest`-based ones below, which nothing outside this file's own tests uses
+// any more.
 
-/** A decision whose emitted script writes git — the one kind a guard may run before. Exported for `src/StepGuards.ts`. */
-export type ExecutableDecision = Extract<StepDecision, { kind: "commit" }>
-
-/**
- * The user-facing message for a `land` refusal — out-of-turn names the
- * awaited actor, no-match names every declared pattern. `land` derives its
- * invoker from `rest.actor` itself, so out-of-turn is
- * unreachable by construction there; this branch stays reachable only via
- * `PatternMachine.step`'s own tests (a defensive message beats a lie).
- */
-const formatStepRefusal = (refusal: StepRefusal): string =>
-  refusal.reason === "out-of-turn"
-    ? `gtd land: out of turn — "${refusal.state}" awaits ${refusal.awaits}`
-    : `gtd land: no declared pattern matches the pending changes at "${refusal.state}" — declared patterns: ${
-        refusal.patterns.length > 0 ? refusal.patterns.join(", ") : "(none)"
-      }`
-
-/** The commit branch's own trailing outcome: a bare `commitOutcome` for a self-loop (`from === to`), else a `transitionOutcome` naming both states. */
-const commitDecisionOutcome = (decision: {
-  readonly subject: string
-  readonly from: StateName
-  readonly to: StateName
-}): EmitStep => ({
-  kind: "outcome",
-  command:
-    decision.from === decision.to
-      ? commitOutcome(decision.subject)
-      : transitionOutcome(decision.from, decision.to),
-})
+const isCodePathForRevert = (path: string): boolean =>
+  path !== STATE_DIR && !path.startsWith(`${STATE_DIR}/`)
 
 /**
- * Render a `"commit"` decision as the `EmitStep`s the external driver runs to
- * produce its git effect — the ONE place a decision becomes git commands.
- * Pure: no git read, no failure mode — a commit decision always becomes an
- * ordinary commit plus its outcome report.
- *
- * At the human review gate (`isHumanReviewGate`, the same predicate
- * `StepGuards.ts`'s `reviewDocGuard` applies) an unconditional
- * `gtd uncheck '<file>'` step runs ahead of the commit, resetting every
- * `- [x]`/`- [X]` pointer box in `rest.hints.file` before `git add -A` picks
- * it up — a tick is read-progress, never sign-off, and must never reach a
- * commit (see `src/ReviewDoc.ts#clearFilePointerTicks`). Never wrapped in
- * `fileExistsGuard`: that guard's `[ -f <file> ] || exit 0` would exit the
- * WHOLE script on a missing file, silently skipping the commit — `gtd
- * uncheck` already treats a missing file as a no-op itself.
+ * The require-revert guard's own git archaeology, hoisted out of the guard
+ * (which is now pure) and gated behind `isRequireRevertState` at the call
+ * site below — a `gtd next` whose resting state doesn't declare
+ * `requireRevert` never pays for this.
  */
-export const renderDecision = (
-  rest: Rest,
-  decision: ExecutableDecision,
-  cost: number | undefined,
-  model: string | undefined,
-): readonly EmitStep[] => {
-  const command = commitAll(withCostTrailer(decision.subject, cost, model))
-  const file = rest.hints.file
-  const uncheckStep: readonly EmitStep[] =
-    isHumanReviewGate(rest) && file !== undefined
-      ? [{ kind: "command", command: `gtd uncheck ${shellQuote(file)}` }]
-      : []
-  return [...uncheckStep, { kind: "gitWrite", command }, commitDecisionOutcome(decision)]
-}
-
-/** The `EmittedScripts` a `"commit"` `StepPlan` carries alongside `perform` — built from `renderDecision`'s output. */
-const buildStepScripts = (
-  rest: Rest,
-  decision: ExecutableDecision,
-  cost: number | undefined,
-  model: string | undefined,
-): EmittedScripts => emitScripts(renderDecision(rest, decision, cost, model))
-
-/**
- * Decide a step — WITHOUT performing it. gtd never writes git: the decision
- * becomes the `scripts` field's emitted bash, and only a driver running that
- * script writes anything. The capture guards (`src/StepGuards.ts`) sit
- * between `planStep` and the script's emission by construction.
- */
-export type StepPlan =
-  | { readonly kind: "refusal"; readonly message: string }
-  | { readonly kind: "noop"; readonly state: StateName; readonly settled: boolean }
-  | {
-      readonly kind: "commit"
-      readonly state: StateName
-      /** Inspectable — the pure engine's own verdict. */
-      readonly decision: StepDecision
-      /** The `required`/`optional` bash a driver runs to land this decision — built by `buildStepScripts` from `renderDecision`'s output. */
-      readonly scripts: EmittedScripts
+const buildRevertProbe = (
+  git: GitOperations,
+  reviewBase: string,
+  startCommit: string,
+): Effect.Effect<RevertProbe, Error> =>
+  Effect.gen(function* () {
+    if (reviewBase === "" || reviewBase === startCommit) {
+      return { checked: false, base: "", residue: [] }
     }
-
-/**
- * A no-op is TERMINAL only at a `script` rest: gtd rendered the script, the
- * driver ran it, it left nothing any pattern claims, and re-running it can't
- * change that — the loop should exit rather than spin (`gtd land`'s exit-3
- * `settled` signal). A `prompt` rest can't produce a no-op at all (a clean
- * tree with no `C` row there commits an ATTEMPT instead; `stalledAt` is its
- * own signal for that). A no-op at a `message` rest is a human gate the loop
- * already halts on. This is the ONLY settled shape — `gtd land` never moves
- * HEAD, so a commit decision is never settled, even one re-entering the
- * initial state.
- */
-const noOpSettles = (rest: Rest): boolean => contentKindOf(rest.stateDef) === "script"
-
-/**
- * Decide what landing at `rest` does, authenticated as `rest.actor` (the
- * state's own declared actor, so out-of-turn is unreachable by construction),
- * and — for a `"commit"` decision — assemble the emitted `scripts` a driver
- * runs to land it, against `rest.context`.
- */
-export const planStep = (
-  rest: Rest,
-  opts: { readonly cost?: number; readonly model?: string } = {},
-): Effect.Effect<StepPlan, Error, RestRequirements> =>
-  Effect.sync(() => {
-    const decision = step(rest.stepDef, rest.state, rest.actor, {
-      changes: rest.changes,
-      // The pure engine's retry-entry counting only compares state NAMES,
-      // never commit hashes, so `processTrace` stays `readonly StateName[]`.
-      processTrace: rest.run.trace.map((entry) => entry.state),
-    })
-
-    if (decision.kind === "refusal") {
-      return { kind: "refusal", message: formatStepRefusal(decision) } as const
-    }
-    if (decision.kind === "noop") {
-      return { kind: "noop", state: decision.state, settled: noOpSettles(rest) } as const
-    }
-
-    const { cost, model } = opts
-    const scripts = buildStepScripts(rest, decision, cost, model)
-
-    return { kind: decision.kind, state: rest.state, decision, scripts }
+    const base = `${reviewBase}~1`
+    const touched = (yield* git.commitHistory(base, reviewBase))[0]?.touched ?? []
+    const scoped = touched.filter(isCodePathForRevert)
+    if (scoped.length === 0) return { checked: true, base, residue: [] }
+    const residue = (yield* git.changedPaths(base))
+      .filter((c) => scoped.includes(c.path))
+      .map((c) => c.path)
+    return { checked: true, base, residue }
   })
 
-// ── Planning an entry ────────────────────────────────────────────────────────
-
-/** Decide starting a brand-new process. Same refusal/scripts vocabulary as `StepPlan`, kept as a separate type: an entry has no `StepDecision`, so folding it into `StepPlan` would force every ordinary `planStep` caller to narrow away a variant that can never occur there. */
-export type EntryPlan =
-  | { readonly kind: "refusal"; readonly message: string }
-  | {
-      readonly kind: "entry"
-      readonly state: StateName
-      readonly subject: string
-      /** The `required`/`optional` bash a driver runs to write the entry commit — one `commitAll(message)` line plus its outcome report. */
-      readonly scripts: EmittedScripts
-    }
-
 /**
- * `gtd --entry <state>`: start a brand NEW process at `entry.state` — any
- * declared state — writing an ordinary turn commit carrying zero
- * or more `Gtd-Var:` trailers for each `entry.vars` override, plus — when
- * `entry.state` declares a string `reviewBase:` — a `Gtd-Review-Base:`
- * trailer pinning the new process's diff base. Captures whatever the working
- * tree carries at the moment of entry, exactly like an ordinary land capture,
- * rather than demanding a clean tree first.
- *
- * All validation is a REFUSAL, not an Effect failure.
+ * Build a `RepoSnapshot` from an already-resolved `Rest` — every fact
+ * `planStep`/the pure guards need, read exactly once. `headFile`/
+ * `worktreeFile` are two cheap single reads, fetched whenever the resting
+ * state declares a `file:` at all (matching `src/step/Guards.ts`'s
+ * `enforceStepGuards`, which already paid for them whenever ANY guard
+ * applied — nearly always true at a file-bearing state). The revert probe's
+ * multi-commit `git log` walk is the one read genuinely worth gating: it
+ * runs the SAME pure `step()` decision `planStep` itself will make (cheap,
+ * no IO) to also skip the walk when the decision would be an ATTEMPT —
+ * `enforceStepGuards` bypasses every guard for one anyway, so a `gtd next`
+ * resting at a `requireRevert` state that's about to attempt again pays for
+ * this exactly as often as a guard could ever consult it.
  */
-export const planEntry = (
+export const snapshotFromRest = (
   rest: Rest,
-  actor: string,
-  entry: {
-    readonly state: string
-    readonly commandLabel: string
-    readonly vars: Record<string, string>
-  },
-): Effect.Effect<EntryPlan, Error, RestRequirements> =>
-  // fallow-ignore-next-line complexity
+): Effect.Effect<RepoSnapshot, Error, Workspace | GitService> =>
   Effect.gen(function* () {
-    const { state: entryState, commandLabel, vars: varOverrides } = entry
-
-    if (rest.state !== initialStateOf(rest.def)) {
-      return {
-        kind: "refusal",
-        message: `${commandLabel}: a process is already underway (resting at "${rest.state}") — finish it, or run \`gtd abandon\`, before entering`,
-      }
+    const file = rest.hints.file
+    let headFile: string | undefined
+    let worktreeFile: string | undefined
+    if (file !== undefined) {
+      const workspace = yield* Workspace
+      headFile = yield* workspace.committed(file)
+      worktreeFile = yield* workspace.read(file)
     }
-
-    const enterable = enterableStates(rest.def)
-    if (!enterable.includes(entryState)) {
-      return {
-        kind: "refusal",
-        message: `${commandLabel}: "${entryState}" is not an enterable state — enterable states:\n${enterable
-          .map((s) => `  ${s}`)
-          .join("\n")}`,
-      }
-    }
-
-    const config = yield* (yield* ConfigService).load
-    const declaredNames = Object.keys({ ...config.workflowVars, ...config.rcVars })
-    const undeclared = Object.keys(varOverrides).filter((name) => !declaredNames.includes(name))
-    if (undeclared.length > 0) {
-      return {
-        kind: "refusal",
-        message: `${commandLabel}: --var name(s) not declared by this workflow: ${undeclared.join(
-          ", ",
-        )} — declared: ${declaredNames.length > 0 ? declaredNames.join(", ") : "(none)"}`,
-      }
-    }
-
-    const envVars = yield* EnvVars
-    const vars = resolveVars(config.workflowVars, config.rcVars, varOverrides, envVars.all)
-
-    let base: string | undefined
-    const baseTemplate = entryBaseTemplateOf(rest.def, entryState)
-    if (baseTemplate !== undefined) {
-      const git = yield* GitService
-      const rendered = yield* Effect.try({
-        try: () => renderStateTemplate(baseTemplate, varsOnlyContext(vars, entryState)),
-        catch: (e) => new Error(`${commandLabel}: ${e instanceof Error ? e.message : String(e)}`),
-      })
-      if (rendered.trim() === "") {
-        const refs = Array.from(
-          new Set(Array.from(baseTemplate.matchAll(/it\.vars\.(\w+)/g)).map((m) => m[1]!)),
-        )
-        return {
-          kind: "refusal",
-          message: `${commandLabel}: "${entryState}"'s reviewBase template rendered blank — template: ${JSON.stringify(
-            baseTemplate,
-          )}; it.vars references: ${
-            refs.length > 0 ? refs.map((r) => `it.vars.${r}`).join(", ") : "(none found)"
-          }`,
-        }
-      }
-      const resolvedBase = yield* Effect.either(git.resolveRef(rendered))
-      if (resolvedBase._tag === "Left") {
-        return {
-          kind: "refusal",
-          message: `${commandLabel}: "${rendered}" does not resolve to a commit`,
-        }
-      }
-      const isBaseAncestor = yield* git.isAncestor(resolvedBase.right, "HEAD")
-      if (!isBaseAncestor) {
-        return {
-          kind: "refusal",
-          message: `${commandLabel}: "${rendered}" is not an ancestor of HEAD`,
-        }
-      }
-      const headHash = yield* git.resolveRef("HEAD")
-      if (resolvedBase.right === headHash) {
-        return {
-          kind: "refusal",
-          message: `${commandLabel}: "${rendered}" is HEAD — nothing to review`,
-        }
-      }
-      base = resolvedBase.right
-    }
-
-    const subject = stateSubject(actor, entryState)
-    const message = withEntryTrailers(subject, {
-      ...(base !== undefined ? { base } : {}),
-      vars: varOverrides,
+    const decision = step(rest.stepDef, rest.state, rest.actor, {
+      changes: rest.changes,
+      processTrace: rest.run.trace.map((entry) => entry.state),
     })
-    // The outcome step names the bare subject, never `message` (which may
-    // carry the trailers) — same discipline as `renderDecision`'s commit branch.
-    const scripts = emitScripts([
-      { kind: "gitWrite", command: commitAll(message) },
-      { kind: "outcome", command: commitOutcome(subject) },
-    ])
-
-    return { kind: "entry", state: entryState, subject, scripts }
+    const isAttempt = decision.kind === "commit" && decision.attempt === true
+    let probe: RevertProbe = { checked: false, base: "", residue: [] }
+    if (isRequireRevertState(rest.def, rest.state) && !isAttempt) {
+      const git = yield* GitService
+      probe = yield* buildRevertProbe(git, rest.context.reviewBase, rest.context.startCommit)
+    }
+    return {
+      def: rest.def,
+      stepDef: rest.stepDef,
+      state: rest.state,
+      stateDef: rest.stateDef,
+      actor: rest.actor,
+      changes: rest.changes,
+      processTrace: rest.run.trace.map((entry) => entry.state),
+      file,
+      reviewBase: rest.context.reviewBase,
+      startCommit: rest.context.startCommit,
+      headFile,
+      worktreeFile,
+      revert: probe,
+    }
   })

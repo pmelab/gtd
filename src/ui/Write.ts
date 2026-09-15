@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { readFile as readFileFs, writeFile as writeFileFs } from "node:fs/promises"
-import type { SteeringAnchor, SteeringEdit } from "../SteeringFormat.js"
-import { steeringFormatFor } from "../SteeringFormats.js"
+import type { SteeringAnchor, SteeringEdit } from "../steering/index.js"
+import { steeringFormatFor } from "../steering/index.js"
 import { liveRunInWorktree } from "./Beat.js"
 import { resolveWithinRoot } from "./SafePath.js"
 

@@ -220,7 +220,5 @@ export const ConfigSchema = Schema.Struct({
   ui: Schema.optional(UiSchema),
 })
 
-export type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
-
 /** The decoded `ui:` shape — `gtd ui` and its CLI flags read `port`/`host`/`cert`/`key` off this. */
 export type UiConfig = Schema.Schema.Type<typeof UiSchema>

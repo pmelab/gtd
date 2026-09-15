@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { QA_FORMAT } from "../OpenQuestions.js"
-import { REVIEW_FORMAT } from "../ReviewDoc.js"
-import type { SteeringAnchor, SteeringViewNode } from "../SteeringFormat.js"
+import { steeringFormatFor } from "../steering/index.js"
+import type { SteeringAnchor, SteeringViewNode } from "../steering/index.js"
 import { steeringViewFor } from "./View.js"
+
+const QA_FORMAT = steeringFormatFor("qa")!
+const REVIEW_FORMAT = steeringFormatFor("review")!
 
 const flattenAnchors = (nodes: readonly SteeringViewNode[]): readonly SteeringAnchor[] =>
   nodes.flatMap((node) => [node.anchor, ...flattenAnchors(node.children ?? [])])

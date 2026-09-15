@@ -1,10 +1,9 @@
 @inmem
 Feature: An invalid "workflow:" config fails loudly at load time, naming the state
 
-  Pins `PatternConfig.compileWorkflowConfig` / `PatternMachine.validateDefinition`
-  (see docs/design/pattern-machine-plan.md, "Validation"): a config-shape or
-  definition problem is collected and thrown together, naming the offending
-  state — never a silent fallback, and never deferred to step time.
+  Pins `PatternConfig.compileWorkflowConfig` / `PatternMachine.validateDefinition`:
+  a config-shape or definition problem is collected and thrown together, naming
+  the offending state — never a silent fallback, and never deferred to step time.
 
   Scenario: a state declaring two content kinds fails naming the state
     Given a test project
@@ -28,7 +27,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "idle"
     And stderr contains "exactly one of"
 
@@ -51,9 +50,11 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "idle"
     And stderr contains "nowhere"
+    And stderr contains ".gtdrc: workflow.machines.root.states.idle.on.* **: "
+    And stderr contains ".gtdrc: workflow.machines.root.states.idle: "
 
   Scenario: a state unreachable from the initial state fails naming it
     Given a test project
@@ -81,7 +82,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "orphan"
     And stderr contains "unreachable"
 
@@ -105,7 +106,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "exactly one of"
     And stderr contains "nowhere"
 
@@ -133,7 +134,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "\"mode\" must name a mode this workflow knows"
     And stderr contains "qa, review, adr"
     And stderr contains "got \"adrs\""
@@ -183,7 +184,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "\"mode\" must name a mode this workflow knows (qa, review)"
     And stderr contains "got \"prose\""
 
@@ -210,7 +211,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "mode \"adr\": unknown key(s) lint"
 
   Scenario: a malformed top-level "modes:" key fails the same way as a workflow-level one
@@ -238,7 +239,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "top-level \"states:\" is no longer supported"
     And stderr contains "declare a machine under \"machines:\" and name it in \"entry.default:\""
 
@@ -271,7 +272,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "machine reference cycle: outer → inner → outer"
 
   Scenario: a "machines:" entry declared but never referenced fails naming it
@@ -299,7 +300,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "machine \"unused\" is declared but never referenced"
 
   Scenario: a sideways "on" target names the unbound-param remedy, not just "not a defined state"
@@ -321,7 +322,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "workflow config:"
+    And stderr contains "gtd config:"
     And stderr contains "\"on\" target \"nowhere\" is not a state or reference of machine \"root\""
     And stderr contains "declare a \"params:\" entry and bind it at the reference site"
 
@@ -333,7 +334,6 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       """
     When I run gtd next
     Then it fails
-    And stderr contains "Invalid gtd config:"
-    And stderr contains "testCommand"
-    And stderr contains "  testCommand: "
-    And stderr contains ".gtdrc"
+    And stderr contains "gtd config:"
+    And stderr contains ".gtdrc: testCommand: "
+    And stderr contains "\"testCommand\" is unexpected"

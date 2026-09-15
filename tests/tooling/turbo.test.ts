@@ -44,7 +44,18 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["test:e2e:live"].inputs).toContain("docs/**")
   })
 
-  it("lists evals/** as an input to typecheck, lint, deadcode, and test:unit", () => {
+  it("lists tests/**, scripts/**, and dev/** as inputs to test:unit", () => {
+    // tests/tooling/stale-paths.test.ts scans the whole of src/ and tests/
+    // (feature files included) for backtick-quoted src/tests/docs/scripts/dev
+    // paths, so a stale path anywhere under those five roots must invalidate
+    // this task's cache — a narrower inputs array lets turbo replay a green
+    // run over a tree that would now fail the scan.
+    expect(turbo.tasks["test:unit"].inputs).toContain("tests/**")
+    expect(turbo.tasks["test:unit"].inputs).toContain("scripts/**")
+    expect(turbo.tasks["test:unit"].inputs).toContain("dev/**")
+  })
+
+  it("lists evals/** as an input to typecheck, lint, analyze, and test:unit", () => {
     // tests/tooling/eval-baseline.test.ts imports evals/compare-baseline.mjs,
     // and tsconfig.json's allowJs+include pulls that .mjs into `tsc --noEmit`
     // — a change to evals/**/*.mjs that breaks the type-check must invalidate
@@ -52,11 +63,11 @@ describe("turbo.json / package.json invariants", () => {
     // cached green.
     expect(turbo.tasks["typecheck"].inputs).toContain("evals/**")
     expect(turbo.tasks["lint"].inputs).toContain("evals/**")
-    expect(turbo.tasks["deadcode"].inputs).toContain("evals/**")
+    expect(turbo.tasks["analyze"].inputs).toContain("evals/**")
     expect(turbo.tasks["test:unit"].inputs).toContain("evals/**")
   })
 
-  it("lists .storybook/** as an input to lint and deadcode", () => {
+  it("lists .storybook/** as an input to lint and analyze", () => {
     // `.storybook/main.ts`/`preview.ts` are covered by `oxlint .`'s own glob
     // and by fallow's own `storybook` plugin discovery, but nothing else
     // pinned that turbo's cache actually invalidates on a change there — an
@@ -66,16 +77,16 @@ describe("turbo.json / package.json invariants", () => {
     // just an unpinned coincidence of a tool's own glob matching that
     // directory).
     expect(turbo.tasks["lint"].inputs).toContain(".storybook/**")
-    expect(turbo.tasks["deadcode"].inputs).toContain(".storybook/**")
+    expect(turbo.tasks["analyze"].inputs).toContain(".storybook/**")
   })
 
   it("lists ALL of src/** (not just src/web/**) and .storybook/** as inputs to test:web", () => {
     // T7's own criterion: "that inputs array covers both the client
     // directory and .storybook/". `src/web/**` alone under-declares this:
     // `src/web/screens/Question.tsx` value-imports `isAnswered`/
-    // `FREE_TEXT_PLACEHOLDER` from `src/OpenQuestions.ts`, `Hunk.tsx`/
+    // `FREE_TEXT_PLACEHOLDER` from `src/steering/qa.ts`, `Hunk.tsx`/
     // `Review.tsx` import `src/ui/Diff.ts`, `App.tsx` imports
-    // `src/ui/Beat.ts`, and several files import `src/SteeringFormat.ts` —
+    // `src/ui/Beat.ts`, and several files import `src/steering/SteeringFormat.ts` —
     // none of those live under `src/web/**`, so a change to the
     // answeredness predicate (say) would replay a cached green here instead
     // of re-running the storybook suite that actually exercises it.
@@ -114,6 +125,16 @@ describe("turbo.json / package.json invariants", () => {
       expect(pkg.devDependencies, `"${name}" must be a devDependency`).toHaveProperty(name)
     }
     expect(pkg.dependencies).toHaveProperty("@trpc/server")
+  })
+
+  it("makes analyze's inputs a superset of lint's", () => {
+    // fallow reaches everything oxlint does plus its own .fallowrc.json —
+    // a targeted superset check (not full equality) pins that direction
+    // without requiring analyze's extra entries (package.json) in lint too.
+    const analyzeInputs = new Set(turbo.tasks["analyze"].inputs)
+    for (const input of turbo.tasks["lint"].inputs) {
+      expect(analyzeInputs, `analyze's inputs are missing lint's "${input}"`).toContain(input)
+    }
   })
 
   it("declares an explicit inputs array for every task except format:check", () => {

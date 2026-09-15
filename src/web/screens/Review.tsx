@@ -1,5 +1,5 @@
 import { useRef, useState, type RefObject } from "react"
-import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../SteeringFormat.js"
+import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"

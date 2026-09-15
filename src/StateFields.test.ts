@@ -10,9 +10,12 @@ import {
 } from "./StateFields.js"
 
 describe("StateFields — zero-import leaf", () => {
-  it("declares no import statement", () => {
+  it("declares no import statement other than a type-only import of its own vocabulary back from src/wire/", () => {
     const source = readFileSync(fileURLToPath(new URL("./StateFields.ts", import.meta.url)), "utf8")
-    expect(source).not.toMatch(/^\s*import\b/m)
+    const importLines = source.match(/^\s*import\b.*$/gm) ?? []
+    for (const line of importLines) {
+      expect(line).toMatch(/^import type \{[^}]*\} from "\.\/wire\/index\.js"$/)
+    }
   })
 })
 

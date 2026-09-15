@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect"
-import type { GitOperations } from "./Git.js"
+import type { GitOperations } from "./platform/index.js"
 
 /** Per-worktree (`refs/worktree/gtd/*`) so linked worktrees sharing one `.git` don't clobber each other's retained history. */
 export const HISTORY_REF = "refs/worktree/gtd/history"

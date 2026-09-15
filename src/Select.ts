@@ -1,4 +1,4 @@
-// Zero imports on purpose — the same pure tier `src/Sh.ts` sits in; keep it that way.
+// Zero imports on purpose — a pure, dependency-free vocabulary tier; keep it that way.
 
 export type Selection =
   | { readonly kind: "value"; readonly text: string }
@@ -58,7 +58,7 @@ export const selectPath = (fields: unknown, path: string): Selection => {
       current = resolveSegment(current, segment)
       if (current === NOT_FOUND) return { kind: "unknown", path }
       // `null` is treated exactly like `undefined` here: a `null`-typed field
-      // (e.g. `BeatFields.next`, `LandFields.subject`/`cost`/`model`) is a
+      // (e.g. `BeatDocument.next`, `LandFields.subject`/`cost`/`model`) is a
       // legitimate "nothing here" value, not a value to descend into or print
       // as the literal string "null".
       if (current === undefined || current === null) return { kind: "absent" }

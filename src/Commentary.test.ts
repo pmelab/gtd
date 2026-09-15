@@ -99,6 +99,19 @@ describe("renderFailure", () => {
   it("a plain Error (the ~100 unmigrated sites) still renders as exactly one line", () => {
     expect(renderFailure(new Error("plain failure"))).not.toContain("\n")
   })
+
+  it("prints detail lines for an error shaped like GtdError but not an instance of it — duck-typed, not instanceof-checked, so src/platform/Git.ts's own equivalently-shaped error (which may not import GtdError) still renders its remediation", () => {
+    class LookalikeError extends Error {
+      readonly detail: readonly string[]
+      constructor(message: string, detail: readonly string[]) {
+        super(message)
+        this.detail = detail
+      }
+    }
+    const error = new LookalikeError("gtd: invalid ref", ["ref: some-ref"])
+    expect(error).not.toBeInstanceOf(GtdError)
+    expect(renderFailure(error)).toBe("gtd: invalid ref\n  ref: some-ref")
+  })
 })
 
 describe("the emitted script's own stderr shape stays cross-referenced here", () => {

@@ -44,8 +44,8 @@ for (const key of Object.keys(process.env)) {
 // whatever `gtd.bundle.mjs` happens to be on PATH would silently test the
 // wrong binary. This shim makes `gtd` resolve to THIS build's own bundle for
 // the whole live-tier subprocess tree (the spawned gtd process itself, and
-// anything IT shells out to, e.g. CommandRunner.Live's `bash -c` running a
-// mode's validate: command).
+// anything the WORLD shells out to on its behalf — e.g. `sh -c` running a
+// mode's emitted validate: command, since gtd itself never executes one).
 function createPathShim(): string {
   const dir = mkdtempSync(join(tmpdir(), "gtd-path-shim-"))
   const shim = join(dir, "gtd")

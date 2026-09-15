@@ -1,8 +1,6 @@
 import { isAbsolute, join } from "node:path"
-import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
-import { Cwd } from "./Cwd.js"
-import { EnvVars } from "./EnvVars.js"
+import { Host, Workspace } from "./platform/index.js"
 
 const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
 
@@ -12,12 +10,12 @@ const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
  * read failure or a `.git` file with no `gitdir:` line both fall back to
  * `".git"`, which is also correct for the in-memory test tier.
  */
-export const worktreeGitDir: Effect.Effect<string, never, Cwd | FileSystem.FileSystem> = Effect.gen(
+export const worktreeGitDir: Effect.Effect<string, never, Host | Workspace> = Effect.gen(
   function* () {
-    const { root } = yield* Cwd
-    const fs = yield* FileSystem.FileSystem
-    const content = yield* fs
-      .readFileString(join(root, ".git"))
+    const { root } = yield* Host
+    const workspace = yield* Workspace
+    const content = yield* workspace
+      .read(".git")
       .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
     const pointer = content === undefined ? null : GITDIR_POINTER.exec(content)
     if (pointer === null) return ".git"
@@ -35,19 +33,17 @@ export const worktreeGitDir: Effect.Effect<string, never, Cwd | FileSystem.FileS
  * doesn't want that (e.g. the e2e suite) must scrub it before invoking gtd.
  * Advisory only — gtd neither creates nor truncates the file.
  */
-export const loopLogPath: Effect.Effect<string, never, Cwd | FileSystem.FileSystem | EnvVars> =
-  Effect.gen(function* () {
-    const { all } = yield* EnvVars
-    const override = all.GTD_LOOP_LOG
-    if (override !== undefined && override !== "") return override
+export const loopLogPath: Effect.Effect<string, never, Host | Workspace> = Effect.gen(function* () {
+  const { root, env } = yield* Host
+  const override = env.GTD_LOOP_LOG
+  if (override !== undefined && override !== "") return override
 
-    const gitDirEnv = all.GIT_DIR
-    if (gitDirEnv !== undefined && gitDirEnv !== "") {
-      const { root } = yield* Cwd
-      const gitDir = isAbsolute(gitDirEnv) ? gitDirEnv : join(root, gitDirEnv)
-      return join(gitDir, "gtd-loop.log")
-    }
-
-    const gitDir = yield* worktreeGitDir
+  const gitDirEnv = env.GIT_DIR
+  if (gitDirEnv !== undefined && gitDirEnv !== "") {
+    const gitDir = isAbsolute(gitDirEnv) ? gitDirEnv : join(root, gitDirEnv)
     return join(gitDir, "gtd-loop.log")
-  })
+  }
+
+  const gitDir = yield* worktreeGitDir
+  return join(gitDir, "gtd-loop.log")
+})

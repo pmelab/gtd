@@ -1,8 +1,8 @@
 @inmem
 Feature: Initial-state entry — every unrecognized HEAD lands at the initial state
 
-  Pins `PatternMachine.resolveState` (see docs/design/pattern-machine-plan.md,
-  decision 2/"initial: true") against the bundled default workflow: a
+  Pins `PatternMachine.resolveState` (an `initial: true` state) against the
+  bundled default workflow: a
   non-`gtd(actor): state` HEAD, an old v1/v2-style `gtd: <label>` subject, and
   an actor the workflow doesn't declare all resolve to the initial state
   (`idle`) rather than erroring.

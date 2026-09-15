@@ -1,70 +1,23 @@
+import { join } from "node:path"
 import { Effect } from "effect"
-import { GtdError } from "./Commentary.js"
-import { CommandRunner, type CommandOutcome } from "./CommandRunner.js"
-import { EnvVars } from "./EnvVars.js"
-import { isSeededValidateCommand, steeringFormatFor } from "./SteeringFormats.js"
-import type { SteeringFinding, SteeringFormat } from "./SteeringFormat.js"
+import { Host } from "./platform/index.js"
+import { isSeededValidateCommand } from "./SteeringFormats.js"
+import { steeringFormatFor, type SteeringFinding, type SteeringFormat } from "./steering/index.js"
 import { knownModes, type StateMode, type WorkflowDefinition } from "./PatternMachine.js"
 import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
+import { buildModeContradictionCheck, modeContradictionSkipNotice } from "./ModeContradiction.js"
+import {
+  binaryGuard,
+  emitScripts,
+  extractLeadingBinary,
+  fileExistsGuard,
+  type EmitStep,
+} from "./Emit.js"
 
 /** How a resolved mode validates: a shell command, or a built-in format's own in-process parser. */
 export type ResolvedValidator =
   | { readonly kind: "command"; readonly command: string }
   | { readonly kind: "builtin"; readonly format: SteeringFormat }
-
-/** A state's `mode:` resolved against the active definition: `format`/`validate` each resolve independently, from the first layer that provides them (a declared `modes:` command, else — for `validate` only — a built-in format's own parser). */
-export interface ResolvedMode {
-  readonly mode: StateMode
-  /** The built-in `SteeringFormat` registered under this mode's NAME (`src/SteeringFormats.ts`), independent of who ends up validating — present even when a declared `validate:` command overrides the format's own parser (see `resolveSteeringMode`). Absent when the name is not in the built-in registry at all. */
-  readonly builtIn?: SteeringFormat
-  /** The `format:` shell command, when some `modes:` layer declared one. Absent = this mode formats nothing. */
-  readonly formatCommand?: string
-  /** How to validate, or absent when neither a command nor a built-in parser applies (a declared mode with only a `format:`). */
-  readonly validate?: ResolvedValidator
-}
-
-/**
- * Resolve a `mode:` name against `def.modes` plus the built-in registry
- * (`src/SteeringFormats.ts`) — half by half: a declared `format:`/`validate:`
- * wins, and an undeclared `validate:` falls back to the built-in format's own
- * parser when the name is registered. `builtIn` is set from the registry
- * ALONE, independent of which half of `validate` wins — a declared validator
- * overrides validation, not the format identity. `undefined` for a name
- * neither declared nor built in; `validateDefinition` rejects that at load
- * time, so this is a defensive case.
- */
-export const resolveSteeringMode = (
-  def: WorkflowDefinition,
-  mode: StateMode,
-): ResolvedMode | undefined => {
-  const declared = def.modes?.[mode]
-  const builtIn = steeringFormatFor(mode)
-  if (declared === undefined && builtIn === undefined) return undefined
-  const validate: ResolvedValidator | undefined =
-    declared?.validate !== undefined
-      ? { kind: "command", command: declared.validate }
-      : builtIn !== undefined
-        ? { kind: "builtin", format: builtIn }
-        : undefined
-  return {
-    mode,
-    ...(builtIn !== undefined ? { builtIn } : {}),
-    ...(declared?.format !== undefined ? { formatCommand: declared.format } : {}),
-    ...(validate !== undefined ? { validate } : {}),
-  }
-}
-
-/**
- * Resolve `mode` against the built-in registry ALONE, with no workflow
- * definition in hand — the LSP's basename fallback (e.g. `REVIEW.md` when no
- * config maps it), which has a path but no state to read `def.modes` from.
- * `undefined` when `mode` names no built-in format.
- */
-export const resolveBuiltInMode = (mode: StateMode): ResolvedMode | undefined => {
-  const builtIn = steeringFormatFor(mode)
-  if (builtIn === undefined) return undefined
-  return { mode, builtIn, validate: { kind: "builtin", format: builtIn } }
-}
 
 /**
  * What a resolved mode can DO, for a consumer (the LSP, the sign-off/answer
@@ -84,53 +37,101 @@ export interface SteeringCapabilities {
   readonly externalValidate?: boolean
 }
 
-export const steeringCapabilities = (resolved: ResolvedMode | undefined): SteeringCapabilities => {
-  if (resolved === undefined) return {}
-  const seeded =
-    resolved.builtIn !== undefined &&
-    resolved.validate?.kind === "command" &&
-    isSeededValidateCommand(resolved.mode, resolved.validate.command)
-  const liveValidate =
-    resolved.builtIn !== undefined && (resolved.validate?.kind === "builtin" || seeded)
-      ? resolved.builtIn.validate
-      : undefined
+/** A `mode:` name successfully resolved against a definition (or the built-in registry alone). */
+export interface ResolvedMode {
+  readonly kind: "resolved"
+  readonly mode: StateMode
+  /** The built-in `SteeringFormat` registered under this mode's NAME (`src/SteeringFormats.ts`), independent of who ends up validating — present even when a declared `validate:` command overrides the format's own parser. Absent when the name is not in the built-in registry at all. */
+  readonly format?: SteeringFormat
+  /** The `format:` shell command, when some `modes:` layer declared one. Absent = this mode formats nothing. */
+  readonly formatCommand?: string
+  /** How to validate, or absent when neither a command nor a built-in parser applies (a declared mode with only a `format:`). */
+  readonly validate?: ResolvedValidator
+  readonly capabilities: SteeringCapabilities
+}
+
+/** A `mode:` name that resolved to nothing — the message names what IS known. */
+export interface UnknownMode {
+  readonly kind: "unknown"
+  readonly message: string
+}
+
+/** A state's `mode:` resolved against the active definition, or the reason it couldn't be. */
+export type ModeResolution = ResolvedMode | UnknownMode
+
+/**
+ * `format` alone (no live/external verdict) when there's no validator at
+ * all; a live in-process validator for a `"builtin"` validate OR a command
+ * that is exactly the format's own seeded string; `externalValidate` for any
+ * other command. Each arm returns directly — a flat sequence, not nested
+ * ternaries — so the four outcomes stay each their own case to read, not a
+ * boolean expression to re-derive.
+ */
+const capabilitiesFor = (
+  mode: StateMode,
+  format: SteeringFormat | undefined,
+  validate: ResolvedValidator | undefined,
+): SteeringCapabilities => {
+  if (format === undefined) {
+    return validate?.kind === "command" ? { externalValidate: true } : {}
+  }
+  if (validate?.kind === "builtin") return { format, liveValidate: format.validate }
+  if (validate === undefined) return { format }
+  if (isSeededValidateCommand(mode, validate.command)) {
+    return { format, liveValidate: format.validate }
+  }
+  return { format, externalValidate: true }
+}
+
+/**
+ * Resolve a `mode:` name against `def.modes` plus the built-in registry
+ * (`src/SteeringFormats.ts`) — half by half: a declared `format:`/`validate:`
+ * wins, and an undeclared `validate:` falls back to the built-in format's own
+ * parser when the name is registered. `format` is set from the registry
+ * ALONE, independent of which half of `validate` wins — a declared validator
+ * overrides validation, not the format identity.
+ *
+ * `def: undefined` is the LSP's built-in-only fallback — resolving `mode`
+ * against the registry alone, with no workflow definition in hand (e.g. the
+ * basename dispatch for a `REVIEW.md` no config maps).
+ *
+ * The `"unknown"` arm carries the whole refusal message, naming what IS known
+ * when `def` is given — this is the one place that message is built, so it
+ * can never drift from what actually resolved.
+ */
+export const resolveMode = (
+  def: WorkflowDefinition | undefined,
+  state: string,
+  mode: StateMode,
+): ModeResolution => {
+  const declared = def?.modes?.[mode]
+  const format = steeringFormatFor(mode)
+  if (declared === undefined && format === undefined) {
+    return {
+      kind: "unknown",
+      message:
+        def !== undefined
+          ? `state "${state}": mode "${mode}" is not defined by the active workflow (known modes: ${knownModes(def).join(", ")})`
+          : `mode "${mode}" is not a built-in steering format`,
+    }
+  }
+  const validate: ResolvedValidator | undefined =
+    declared?.validate !== undefined
+      ? { kind: "command", command: declared.validate }
+      : format !== undefined
+        ? { kind: "builtin", format }
+        : undefined
   return {
-    ...(resolved.builtIn !== undefined ? { format: resolved.builtIn } : {}),
-    ...(liveValidate !== undefined ? { liveValidate } : {}),
-    ...(resolved.validate?.kind === "command" && !seeded ? { externalValidate: true } : {}),
+    kind: "resolved",
+    mode,
+    ...(format !== undefined ? { format } : {}),
+    ...(declared?.format !== undefined ? { formatCommand: declared.format } : {}),
+    ...(validate !== undefined ? { validate } : {}),
+    capabilities: capabilitiesFor(mode, format, validate),
   }
 }
 
-/** The error message for a `mode:` that resolves to nothing — lists what the active workflow does know. */
-export const unknownModeMessage = (
-  def: WorkflowDefinition,
-  state: string,
-  mode: StateMode,
-): string =>
-  `state "${state}": mode "${mode}" is not defined by the active workflow (known modes: ${knownModes(def).join(", ")})`
-
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
-
-/** How a non-zero exit reads in a message: a status number, or a signal death. */
-const exitText = (status: number | null): string =>
-  status === null ? "a signal" : `status ${status}`
-
-/**
- * `127` is bash's own convention for "command not found" — the ONE
- * observable "missing binary" site in gtd: a steering mode's `format:`/
- * `validate:` command, the only place gtd itself spawns a subprocess (a
- * workflow `script:` is run by the driver, never by gtd). The resolved
- * `$PATH` bash searched is the remediation detail (`Commentary.ts`'s
- * `GtdError`).
- */
-const MISSING_BINARY_STATUS = 127
-
-const missingBinaryError = (
-  mode: StateMode,
-  key: "format" | "validate",
-  path: string | undefined,
-): GtdError =>
-  new GtdError(`mode "${mode}": "${key}" command not found`, [`$PATH: ${path ?? "(unset)"}`])
 
 /** Render one command template, turning an Eta failure into a named error rather than executing anything. */
 const renderCommand = (
@@ -145,131 +146,137 @@ const renderCommand = (
     catch: (e) => new Error(`mode "${mode}": "${key}" command failed to render — ${errorText(e)}`),
   })
 
-/** The findings a non-zero `validate` exit reports: its output lines, or a synthesized line when it said nothing. A shell command's findings can never carry a line — gtd sees only its stdout/stderr text, so each output line maps to a positionless finding. */
-const findingsFrom = (mode: StateMode, outcome: CommandOutcome): readonly SteeringFinding[] => {
-  const lines = outcome.output
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter((line) => line.length > 0)
-  if (lines.length > 0) return lines.map((message) => ({ message }))
-  return [
-    {
-      message: `mode "${mode}": validate command exited with ${exitText(outcome.status)} and no output`,
-    },
-  ]
+/** `gtd next`'s fix-retry instruction, printed ahead of the failing command's captured output. */
+const fixPromptInstruction = (file: string): string =>
+  `Your last turn does not pass its own validation script. Fix these format violations in ${file}, then finish:`
+
+/**
+ * Pushes a `binaryGuard` step ahead of `command` when its own leading word
+ * is unambiguous — BEFORE, not wrapped around: a guard that fails must stop
+ * the script on its own `exit 127`, without touching `failurePromptWrapper`'s
+ * captured-output path. Each command guards on its OWN leading word — a
+ * guard naming the wrong binary is worse than none.
+ */
+const pushGuardedCommand = (
+  steps: EmitStep[],
+  mode: StateMode,
+  key: "format" | "validate",
+  command: string,
+  onFailure: string | undefined,
+): void => {
+  const binary = extractLeadingBinary(command)
+  if (binary !== undefined) {
+    steps.push({ kind: "command", command: binaryGuard(binary, mode, key) })
+  }
+  steps.push({ kind: "command", command, ...(onFailure !== undefined ? { onFailure } : {}) })
 }
 
 /**
- * Format `file` in place by running the mode's `format:` command. A mode with
- * no formatter (every mode, until a `modes:` layer declares one — gtd ships
- * none) formats nothing. A failing command is a hard error: the file is left
- * exactly as it was and the caller refuses, rather than validating a
- * half-formatted file.
+ * `resolved`'s `format:`/`validate:` rendered as `EmitStep[]` — format first,
+ * validate last, the last one wrapped with `onFailure` when the validator is
+ * a command (a built-in's own in-process parser has no shell step to wrap:
+ * `gtd check`'s seeded command carries that instead). Each command gets its
+ * own `binaryGuard` immediately ahead of it.
  */
-export const formatSteeringFile = (
+const renderModeCommandSteps = (
   resolved: ResolvedMode,
   file: string,
   context: TemplateContext,
-): Effect.Effect<void, Error, CommandRunner | EnvVars> =>
+): Effect.Effect<readonly EmitStep[], Error> =>
   Effect.gen(function* () {
-    const command = resolved.formatCommand
-    if (command === undefined) return
-    const rendered = yield* renderCommand(resolved.mode, "format", command, file, context)
-    const runner = yield* CommandRunner
-    const outcome = yield* runner.bash(rendered)
-    if (outcome.status === MISSING_BINARY_STATUS) {
-      const envVars = yield* EnvVars
-      return yield* Effect.fail(missingBinaryError(resolved.mode, "format", envVars.all["PATH"]))
-    }
-    if (outcome.status !== 0) {
-      return yield* Effect.fail(
-        new Error(
-          `mode "${resolved.mode}": format command exited with ${exitText(outcome.status)}${
-            outcome.output.trim().length > 0 ? `:\n${outcome.output.trimEnd()}` : ""
-          }`,
-        ),
-      )
-    }
-  })
-
-/**
- * Validate `file` per its mode, returning the findings (empty = valid). A
- * built-in validator runs its pure parser over `content` (the caller's already
- * read this — see `src/StepGuards.ts`, which samples the file's bytes AFTER
- * `formatSteeringFile` has run); a declared `validate:` command runs instead
- * and reads nothing itself — the command owns how it inspects the file. A mode
- * with neither reports no findings.
- */
-export const validateSteeringFile = (
-  resolved: ResolvedMode,
-  file: string,
-  content: string,
-  context: TemplateContext,
-): Effect.Effect<readonly SteeringFinding[], Error, CommandRunner | EnvVars> =>
-  Effect.gen(function* () {
-    const validator = resolved.validate
-    if (validator === undefined) return []
-    if (validator.kind === "builtin") {
-      return validator.format.validate(content)
-    }
-    const rendered = yield* renderCommand(
-      resolved.mode,
-      "validate",
-      validator.command,
-      file,
-      context,
-    )
-    const runner = yield* CommandRunner
-    const outcome = yield* runner.bash(rendered)
-    if (outcome.status === MISSING_BINARY_STATUS) {
-      const envVars = yield* EnvVars
-      return yield* Effect.fail(missingBinaryError(resolved.mode, "validate", envVars.all["PATH"]))
-    }
-    return outcome.status === 0 ? [] : findingsFrom(resolved.mode, outcome)
-  })
-
-/**
- * Runs `formatSteeringFile` then `validateSteeringFile` in sequence.
- * `content` is validated VERBATIM: a caller that cares about POST-format
- * bytes (every production caller does) must sample `content` after this
- * function's format half has run. `src/StepGuards.ts` does that itself via
- * its guard `prepare`/`check` split, so this composed helper exists for
- * symmetry and `SteeringMode.test.ts`'s real-bash coverage, not production use.
- */
-export const formatAndValidateSteeringFile = (
-  resolved: ResolvedMode,
-  file: string,
-  content: string,
-  context: TemplateContext,
-): Effect.Effect<readonly SteeringFinding[], Error, CommandRunner | EnvVars> =>
-  Effect.gen(function* () {
-    yield* formatSteeringFile(resolved, file, context)
-    return yield* validateSteeringFile(resolved, file, content, context)
-  })
-
-/**
- * Render a mode's `format:`/`validate:` commands as plain strings, WITHOUT
- * running either — for a caller (an emitter that prints scripts) that wants
- * the commands themselves. Needs no `CommandRunner`. A half the mode doesn't
- * declare, or a `"builtin"` validator (no shell command to render), is
- * OMITTED from the result, not rendered as `""`.
- */
-export const renderSteeringCommands = (
-  resolved: ResolvedMode,
-  file: string,
-  context: TemplateContext,
-): Effect.Effect<readonly string[], Error> =>
-  Effect.gen(function* () {
-    const commands: string[] = []
+    const steps: EmitStep[] = []
     if (resolved.formatCommand !== undefined) {
-      commands.push(
-        yield* renderCommand(resolved.mode, "format", resolved.formatCommand, file, context),
+      const command = yield* renderCommand(
+        resolved.mode,
+        "format",
+        resolved.formatCommand,
+        file,
+        context,
       )
+      pushGuardedCommand(steps, resolved.mode, "format", command, undefined)
     }
     if (resolved.validate?.kind === "command") {
-      commands.push(
-        yield* renderCommand(resolved.mode, "validate", resolved.validate.command, file, context),
+      const command = yield* renderCommand(
+        resolved.mode,
+        "validate",
+        resolved.validate.command,
+        file,
+        context,
       )
+      pushGuardedCommand(steps, resolved.mode, "validate", command, fixPromptInstruction(file))
     }
-    return commands
+    return steps
+  })
+
+/** `<Host.scratchDir>/gtd-mode-sample-<mode>-<pid>.md` — an absolute literal baked in at emit time, never a shell variable. `<pid>` avoids collisions between concurrent `gtd` processes. Never a `/tmp` literal or `mktemp` (`tests/tooling/no-tmp-assumption.test.ts` scans for both). */
+const scratchSamplePath = (scratchDir: string, mode: StateMode): string =>
+  join(scratchDir, `gtd-mode-sample-${mode}-${process.pid}.md`)
+
+/**
+ * The contradiction round-trip/skip-notice steps for `resolved`'s `mode:`.
+ * No `formatCommand` means nothing to round-trip: empty. Otherwise: a live
+ * built-in validator runs the round-trip against that format's own canonical
+ * sample; an external validator prints a one-line skip notice instead, since
+ * silence there would read as a clean bill of health; a format-only mode with
+ * neither has nothing to round-trip either.
+ */
+const modeContradictionSteps = (
+  resolved: ResolvedMode,
+  context: TemplateContext,
+): Effect.Effect<readonly EmitStep[], Error, Host> =>
+  Effect.gen(function* () {
+    if (resolved.formatCommand === undefined) return []
+    const { capabilities } = resolved
+    if (capabilities.format !== undefined && capabilities.liveValidate !== undefined) {
+      const { scratchDir } = yield* Host
+      const samplePath = scratchSamplePath(scratchDir, resolved.mode)
+      const formatCommand = yield* renderCommand(
+        resolved.mode,
+        "format",
+        resolved.formatCommand,
+        samplePath,
+        context,
+      )
+      return [
+        {
+          kind: "command",
+          command: buildModeContradictionCheck({
+            mode: resolved.mode,
+            samplePath,
+            sample: capabilities.format.sample,
+            formatCommand,
+          }),
+        },
+      ]
+    }
+    if (capabilities.externalValidate === true) {
+      return [{ kind: "command", command: modeContradictionSkipNotice(resolved.mode) }]
+    }
+    return []
+  })
+
+/** A resolved mode's full format-then-validate script text — a VALUE, never an execution. Carries the contradiction round-trip, the file-existence guard, and the format/validate commands, exactly as `gtd validate`/`gtd next --json`'s `validate` field emit them. */
+export interface ValidateScript {
+  readonly script: string
+}
+
+/**
+ * Renders `resolved`'s complete validate script for `file`: the mode's
+ * format/validate contradiction check, a guard for a not-yet-written file,
+ * then the format/validate commands themselves (format first). gtd never
+ * runs this script itself — `resolveMode`+`validateScriptFor` only render
+ * text for a driver to execute (`gtd renders; the driver executes`).
+ */
+export const validateScriptFor = (
+  resolved: ResolvedMode,
+  file: string,
+  context: TemplateContext,
+): Effect.Effect<ValidateScript, Error, Host> =>
+  Effect.gen(function* () {
+    const steps: EmitStep[] = [
+      ...(yield* modeContradictionSteps(resolved, context)),
+      { kind: "command", command: fileExistsGuard(file) },
+      ...(yield* renderModeCommandSteps(resolved, file, context)),
+    ]
+    return { script: emitScripts(steps).required }
   })

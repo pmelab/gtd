@@ -36,12 +36,26 @@ import {
   TextDocumentSyncKind,
   type Diagnostic,
 } from "vscode-languageserver/node"
-import { resolveBuiltInMode, resolveSteeringMode } from "./SteeringMode.js"
-import { QA_FORMAT } from "./OpenQuestions.js"
-import { REVIEW_FORMAT } from "./ReviewDoc.js"
+import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
+import { steeringFormatFor } from "./steering/index.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
 import { InMemRepo } from "./testing/InMemRepo.js"
 import { testLayers } from "./testing/Layers.js"
+
+const QA_FORMAT = steeringFormatFor("qa")!
+const REVIEW_FORMAT = steeringFormatFor("review")!
+
+/** Test-local stand-in for the old `resolveBuiltInMode` — resolves `mode` against the built-in registry alone, with no workflow definition. */
+const resolveBuiltInMode = (mode: string): ResolvedMode | undefined => {
+  const resolved = resolveMode(undefined, "", mode)
+  return resolved.kind === "resolved" ? resolved : undefined
+}
+
+/** Test-local stand-in for the old `resolveSteeringMode` — resolves `mode` against a definition, discarding the "unknown" arm. */
+const resolveSteeringMode = (def: WorkflowDefinition, mode: string): ResolvedMode | undefined => {
+  const resolved = resolveMode(def, "state", mode)
+  return resolved.kind === "resolved" ? resolved : undefined
+}
 
 describe("basenameFallbackMode", () => {
   it("maps REVIEW.md to the built-in `review` mode, and anything else (including TODO.md) to undefined", () => {
@@ -82,8 +96,8 @@ describe("buildSteeringMap", () => {
       "/repo",
     )
     expect(warnings).toEqual([])
-    expect(map.get("/repo/.gtd/TODO.md")?.builtIn).toBe(QA_FORMAT)
-    expect(map.get("/repo/.gtd/REVIEW.md")?.builtIn).toBe(REVIEW_FORMAT)
+    expect(map.get("/repo/.gtd/TODO.md")?.format).toBe(QA_FORMAT)
+    expect(map.get("/repo/.gtd/REVIEW.md")?.format).toBe(REVIEW_FORMAT)
     expect(map.size).toBe(2)
   })
 
@@ -96,7 +110,7 @@ describe("buildSteeringMap", () => {
       {},
       "/repo",
     )
-    expect(map.get("/repo/PLAN.md")?.builtIn).toBe(QA_FORMAT)
+    expect(map.get("/repo/PLAN.md")?.format).toBe(QA_FORMAT)
     expect(map.size).toBe(1)
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('state "broken"')
@@ -111,7 +125,7 @@ describe("buildSteeringMap", () => {
       {},
       "/repo",
     )
-    expect(map.get("/repo/SHARED.md")?.builtIn).toBe(QA_FORMAT)
+    expect(map.get("/repo/SHARED.md")?.format).toBe(QA_FORMAT)
     expect(map.size).toBe(1)
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('state "second"')
@@ -138,7 +152,7 @@ describe("buildSteeringMap", () => {
     )
     expect(map.size).toBe(0)
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('mode "adr" does not resolve')
+    expect(warnings[0]).toContain('mode "adr" is not defined by the active workflow')
   })
 })
 
@@ -151,7 +165,7 @@ describe("resolvedModeForDocument", () => {
 
   it("falls back to basename dispatch for a path the map doesn't cover", () => {
     const map = new Map()
-    expect(resolvedModeForDocument("file:///repo/.gtd/REVIEW.md", map)?.builtIn).toBe(REVIEW_FORMAT)
+    expect(resolvedModeForDocument("file:///repo/.gtd/REVIEW.md", map)?.format).toBe(REVIEW_FORMAT)
     expect(resolvedModeForDocument("file:///repo/.gtd/TODO.md", map)).toBeUndefined()
     expect(resolvedModeForDocument("file:///repo/NOTES.md", map)).toBeUndefined()
   })

@@ -14,7 +14,8 @@ import {
   renderInitConfig,
   renderInitScaffold,
   SCHEMA_URL,
-} from "./templates.js"
+  type InitScaffold,
+} from "./index.js"
 import unifiedYaml from "./unified.yaml"
 
 /** State names (sorted) whose script/prompt/message contains `needle`. */
@@ -239,7 +240,8 @@ describe("the bundled unified workflow template", () => {
 
   describe("renderInitScaffold — the minimal config `gtd init` writes", () => {
     it("seeds only the default vars and the Prettier modes suggestion, no workflow", () => {
-      const { config } = renderInitScaffold()
+      const scaffold: InitScaffold = renderInitScaffold()
+      const { config } = scaffold
       const parsed = JSON.parse(config) as {
         $schema: string
         vars: unknown
@@ -789,7 +791,7 @@ describe("the bundled template's machine boundaries line up with conversational 
       machineAt[node.key] = node.machine
       node.children.forEach(walk)
     }
-    walk(tree)
+    walk(tree!)
 
     const identityOf = (instancePath: string): "planner" | "coder" | undefined => {
       const model = raw.machines[machineAt[instancePath]!]?.model
@@ -814,7 +816,7 @@ describe("the bundled template's machine boundaries line up with conversational 
       machineAt[node.key] = node.machine
       node.children.forEach(walk)
     }
-    walk(tree)
+    walk(tree!)
 
     for (const instancePath of [
       "packages",

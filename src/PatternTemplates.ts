@@ -1,16 +1,8 @@
 import { Eta } from "eta"
-
-/**
- * One resolved `on` edge as a `message:`/`prompt:` template sees it in
- * `it.edges`. All fields are literal strings, never Eta-rendered, so a
- * template renders `describe`/`action` verbatim (typically with `<%~ %>`).
- */
-export interface TemplateEdge {
-  readonly pattern: string
-  readonly target: string
-  readonly describe?: string
-  readonly action?: string
-}
+// `TemplateEdge` lives in `src/wire/` (`gtd next --json`'s `edges` entries
+// use this exact shape) and is re-exported here — see `src/wire/types.ts`.
+import type { TemplateEdge } from "./wire/index.js"
+export type { TemplateEdge }
 
 /** The full variable set a `script`/`prompt`/`message` template may reference as `it.<name>`. All fields are caller-supplied. */
 export interface TemplateContext {

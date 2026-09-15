@@ -1,8 +1,7 @@
 @inmem
 Feature: Pattern-matching grammar — statuses, glob depth, declaration order, clean event
 
-  Pins `PatternMachine.matchesPattern`/`parsePattern` (see
-  docs/design/pattern-machine-plan.md, decision 5) through the real CLI: each
+  Pins `PatternMachine.matchesPattern`/`parsePattern` through the real CLI: each
   scenario declares a minimal custom `.gtdrc` `workflow:` isolating one
   grammar concern so the pattern under test is the only thing that could make
   it pass or fail.

@@ -321,6 +321,27 @@ built to be pasted into a context window rather than read. A **CI job** is the
 program case with the `prompt` arm pointed at a headless agent CLI, and
 `kind: "message"`/`kind: "stalled"` mapped onto "stop and report".
 
+### What the minimal driver actually reads
+
+`gtd next --json` emits 19 keys (17 of them outside `kind: "prompt"`, which is
+the only kind that ever carries `session`/`validate`); a real driver reads 8 of
+the 19. The minimal driver below is the reference for exactly which: `kind`,
+`idle`, `content`, `log`, `session` (read as its two sub-paths,
+`session.id`/`session.resume`), `model`, `system`, and `validate` — every
+`--json=<path>` selector its `case` arms touch. The remaining 11 (`state`,
+`actor`, `label`, `memory`, `file`, `mode`, `edges`, `changes`, `next`, `cost`,
+`costByModel`) are read only by a human looking at plain output, or by a driver
+author deciding what to log — no `case` arm branches on them. This is a property
+of what a driver NEEDS, not a smaller wire: every key stays on every
+`gtd next --json` line, unconditionally, so `--json=<path>` keeps resolving the
+same way for a human poking at one field as for the reference driver reading
+eight of them in a loop.
+
+(`gtd land --json` is a separate command with its own seven-key document —
+`script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a `gtd next`
+key; see the driver's landing step below for the two of those, `settled` and
+`idle`, it actually reads before piping `script` to `sh`.)
+
 ### A complete minimal driver
 
 This is the whole protocol described above, compressed into a loop small enough

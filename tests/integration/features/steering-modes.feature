@@ -1,7 +1,7 @@
 Feature: Pluggable steering-file modes — a mode is a format command plus a validate command
 
-  A state's `mode:` names a steering-file MODE (see STATES.md §12 and
-  docs/design/pluggable-steering-modes.md): a `format:` and/or `validate:` shell
+  A state's `mode:` names a steering-file MODE (see STATES.md §12): a
+  `format:` and/or `validate:` shell
   command, declared in a `modes:` map — either inside `workflow:` or as the
   top-level `.gtdrc` `modes:` layer over it. Each command is an Eta template
   with `it.file` bound to the rendered steering-file path, run via bash;
@@ -9,7 +9,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   non-zero with its output as the findings.
 
   The two halves resolve INDEPENDENTLY. Under them sit gtd's two BUILT-IN
-  VALIDATORS, `qa` (src/OpenQuestions.ts) and `review` (src/ReviewDoc.ts) —
+  VALIDATORS, `qa` and `review` (both under src/steering/) —
   available unnamed in every workflow, and kept if a `modes:` entry declares
   only a `format:`. gtd ships NO formatter, so a mode formats nothing until a
   project plugs one in.
@@ -17,10 +17,11 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   Both halves run wherever the gate runs: `gtd validate`, and the `gtd land`
   capture gate that refuses to commit an invalid steering file. The bulk of
   this feature runs `@live` (real subprocess execution over real bash); five
-  scenarios are ALSO covered `@inmem` (tagged "(scripted)") over a scripted
-  `CommandRunner` double, since real bash is unreachable against an in-memory
-  worktree — added, not converted, so a spawn-mechanism difference still has
-  something to fail against.
+  scenarios are ALSO covered `@inmem` (tagged "(scripted)") over the world's
+  own scripted fake-shell double (`tests/integration/support/steps/steering.steps.ts`),
+  since real bash is unreachable against an in-memory worktree — added, not
+  converted, so a spawn-mechanism difference still has something to fail
+  against.
 
   @live
   Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero
@@ -792,8 +793,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
   @inmem
   Scenario: the answer-completeness gate still fires on a qa-mode state even when its validate: command is overridden
-    # The semantic upgrade: the gate asks steeringCapabilities for the FORMAT
-    # (qa's identity, from the name), not for "is this mode's validator gtd's
+    # The semantic upgrade: the gate asks resolveMode's `capabilities` for the
+    # FORMAT (qa's identity, from the name), not for "is this mode's validator gtd's
     # own parser" — so a workflow that plugs a shell command into qa's
     # validate: still gets the open-questions answer gate. The command below
     # always exits 0 (a house rule gtd itself has nothing to say about), yet

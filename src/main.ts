@@ -1,6 +1,6 @@
 import { Runtime } from "@effect/platform"
 import { NodeRuntime } from "@effect/platform-node"
-import { nodeCliIo, runCli } from "./Cli.js"
+import { nodeCliIo, runCli } from "./cli/index.js"
 
 // `runMain`'s own SIGINT/SIGTERM handling interrupts the fiber and exits 0,
 // which reads as a plain exit rather than a signal death to a parent's `wait`

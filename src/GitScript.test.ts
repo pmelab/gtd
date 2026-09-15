@@ -12,10 +12,12 @@ import {
   hardResetTo,
   mixedResetTo,
   pathspec,
+  ScriptSurface,
   shellQuote,
   softResetTo,
   updateRef,
 } from "./GitScript.js"
+import type { LandStep } from "./step/index.js"
 
 const runBashCheckSyntax = (script: string): number => {
   try {
@@ -190,34 +192,73 @@ describe("shellQuote", () => {
     expect(out).toBe(s)
   })
 
+  // 500 samples through 500 bash spawns starved the 30s test timeout whenever
+  // the suite ran under turbo's parallel task load. The property is unchanged;
+  // all samples now round-trip through a SINGLE bash, NUL-delimited on the way
+  // back out (NUL is filtered from the inputs, so it can't collide).
   it("round-trips arbitrary strings — including newlines and non-ASCII — through a real bash printf", () => {
-    fc.assert(
-      fc.property(
-        // `unit: "binary"` covers the full Unicode code-point range (control
-        // chars, newlines, non-ASCII) in one code point per unit, unlike the
-        // default `"grapheme-ascii"` unit fast-check 4.8 otherwise samples,
-        // which never produces a newline or a non-ASCII byte. NUL can't
-        // survive an argv round-trip (bash/exec truncate at the first NUL),
-        // so it's filtered out here deliberately rather than left to chance.
-        fc.string({ unit: "binary" }).filter((s) => !s.includes("\0")),
-        (s) => {
-          const out = execFileSync("bash", ["-c", `printf %s ${shellQuote(s)}`], {
-            encoding: "utf8",
-          })
-          expect(out).toBe(s)
-        },
-      ),
-      // 100 runs, not more: every run spawns a real bash, and the whole suite
-      // runs in parallel with the e2e projects — 500 spawns times out the
-      // 30s default under that load, flaking the gate rather than finding
-      // more bugs (the six named cases above cover the interesting shapes).
-      { numRuns: 100 },
+    const samples = fc.sample(
+      // `unit: "binary"` covers the full Unicode code-point range (control
+      // chars, newlines, non-ASCII) in one code point per unit, unlike the
+      // default `"grapheme-ascii"` unit fast-check 4.8 otherwise samples,
+      // which never produces a newline or a non-ASCII byte. NUL can't
+      // survive an argv round-trip (bash/exec truncate at the first NUL),
+      // so it's filtered out here deliberately rather than left to chance.
+      fc.string({ unit: "binary" }).filter((s) => !s.includes("\0")),
+      500,
     )
+    const script = samples.map((s) => `printf '%s\\0' ${shellQuote(s)}`).join("\n")
+    const out = execFileSync("bash", ["-c", script], { encoding: "utf8" })
+    expect(out.split("\0").slice(0, -1)).toEqual(samples)
   })
 })
 
 describe("every builder's output", () => {
   it.each(allBuilders)("%s is syntactically valid bash", (_name, script) => {
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+})
+
+describe("ScriptSurface.render", () => {
+  const steps: readonly LandStep[] = [
+    { kind: "command", command: `echo hi` },
+    { kind: "gitWrite", write: { kind: "commitAll", message: "gtd(human): building" } },
+    { kind: "outcome", outcome: { kind: "commit", subject: "gtd(human): building" } },
+  ]
+
+  it("throws a guard's refusal rather than rendering a script", () => {
+    expect(() => ScriptSurface.render(steps, "gtd land: refused")).toThrow("gtd land: refused")
+  })
+
+  it("renders every step in order when the guard verdict allows it", () => {
+    const script = ScriptSurface.render(steps, undefined)
+    expect(script).toContain("set -eu")
+    expect(script).toContain("echo hi")
+    expect(script).toContain("git add -A")
+    expect(script).toContain("# gtd: outcome (print-only)")
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+
+  it("renders the empty script for no steps", () => {
+    expect(ScriptSurface.render([], undefined)).toBe("")
+  })
+
+  it("renders a `command` step's onFailure wrapper", () => {
+    const script = ScriptSurface.render(
+      [{ kind: "command", command: "false", onFailure: "custom prompt" }],
+      undefined,
+    )
+    expect(script).toContain("custom prompt")
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+
+  it("renders a transition outcome naming both states", () => {
+    const script = ScriptSurface.render(
+      [{ kind: "outcome", outcome: { kind: "transition", from: "building", to: "done" } }],
+      undefined,
+    )
+    expect(script).toContain("building")
+    expect(script).toContain("done")
     expect(runBashCheckSyntax(script)).toBe(0)
   })
 })
