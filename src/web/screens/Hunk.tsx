@@ -1,4 +1,4 @@
-import type { DiffResult, FileDiff } from "../../ui/Diff.js"
+import type { DiffResult, FileDiff } from "../../ui/index.js"
 import type { SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { highlightDiffLine } from "../Highlight.js"

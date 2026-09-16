@@ -13,8 +13,7 @@ import { combinedScript, emitScripts, fileExistsGuard, type EmitStep } from "../
 import { commitOutcome, noteOutcome, transitionOutcome } from "../OutcomeScript.js"
 import { buildModeContradictionCheck, modeContradictionSkipNotice } from "../ModeContradiction.js"
 import { applyEmittedScript, preconditionHeadEquals } from "./EmittedScriptRecognizer.js"
-import { InMemRepo } from "./InMemRepo.js"
-import type { ScriptedCommand } from "./Layers.js"
+import { InMemRepo, type ScriptedCommand } from "./index.js"
 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 

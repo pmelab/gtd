@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TRPCClientError, type TRPCLink } from "@trpc/client"
 import { observable } from "@trpc/server/observable"
-import type { AppRouter } from "../../ui/Router.js"
+import type { AppRouter } from "../../ui/index.js"
 import { trpc } from "../api.js"
 
 /**

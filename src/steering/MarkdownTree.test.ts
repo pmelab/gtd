@@ -9,7 +9,7 @@ import {
   toLspPosition,
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
-import { qaDescriptor as QA_FORMAT } from "./qa.js"
+import { steeringFormatFor } from "./index.js"
 import type { List, ListItem, Paragraph } from "mdast"
 
 describe("parseMarkdown", () => {
@@ -91,7 +91,7 @@ describe("parseMarkdown", () => {
         "",
       ].join("\n")
       const before = getParseCount()
-      QA_FORMAT.validate(content)
+      steeringFormatFor("qa")!.validate(content)
       expect(getParseCount()).toBe(before + 1)
     })
   })

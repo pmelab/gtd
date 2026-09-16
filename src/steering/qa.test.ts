@@ -7,7 +7,7 @@ import {
   viewOf,
 } from "./index.js"
 import { FREE_TEXT_PLACEHOLDER, isAnswered, parseOpenQuestions } from "./qa.js"
-import { getParseCount } from "./MarkdownTree.js"
+import { getParseCount } from "./index.js"
 
 const qa = steeringFormatFor("qa")!
 

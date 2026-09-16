@@ -65,6 +65,19 @@ tasks' `inputs`, because `tests/integration/features/driver-doc.feature` runs
 `docs/driver.md` as executable code — omitting it would let a broken doc pass on
 a cached result.
 
+### Import rules
+
+`lint:boundaries` runs dependency-cruiser over `src/` and `tests/`. Its rules
+are generic over path shape — they back-reference the boundary directory and
+file name they matched — so a new `src/<boundary>/` needs no config edit, only
+its own `index.ts`. There is no baseline file and no suppression mechanism: the
+check is at zero, and a new violation is a real finding to fix, not to record.
+
+Two conventions the rules read: a `*.fixture.ts` beside an implementation is
+test-support any test in that boundary may import, and a test may reach a
+neighbouring module only through its boundary's `index.ts` — if a symbol is not
+worth publishing there, the test wanting it is testing the wrong thing.
+
 ### `.gtd/` is formatted, not ignored
 
 `.gtd/` carries no `.prettierignore` entry — every file under it, steering files

@@ -17,7 +17,7 @@ import { ConfigDiscovery, ConfigService, SEARCH_PLACES, walkUp } from "../workfl
 import { GitService, Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { fakeGitOperations } from "./FakeGitOperations.js"
 import { CommandRunner } from "../CommandRunner.js"
-import { UiListener } from "../ui/Server.js"
+import { UiListener } from "../ui/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 import type { CommandRequirements } from "../program.js"
 

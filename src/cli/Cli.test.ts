@@ -25,8 +25,7 @@ import {
   type CliPlan,
 } from "./index.js"
 import { type CommandRequirements } from "./Cli.js"
-import { InMemRepo } from "../testing/InMemRepo.js"
-import { testLayers } from "../testing/Layers.js"
+import { InMemRepo, testLayers } from "../testing/index.js"
 import { renderInitConfig } from "../workflows/index.js"
 
 const FLAG_NAMES = [

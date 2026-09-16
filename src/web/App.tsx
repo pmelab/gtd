@@ -1,4 +1,4 @@
-import type { StepRead } from "../ui/Beat.js"
+import type { StepRead } from "../ui/index.js"
 import { Notice } from "./Notice.js"
 import { Plan } from "./screens/Plan.js"
 import { Review } from "./screens/Review.js"

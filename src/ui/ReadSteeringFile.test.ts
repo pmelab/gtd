@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { steeringFormatFor } from "../steering/index.js"
 import { readSteeringFile } from "./ReadSteeringFile.js"
-import { contentHashOf, liveReadFile } from "./Write.js"
+import { contentHashOf, liveReadFile } from "./index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 

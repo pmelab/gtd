@@ -39,8 +39,7 @@ import {
 import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
 import { steeringFormatFor } from "./steering/index.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
-import { InMemRepo } from "./testing/InMemRepo.js"
-import { testLayers } from "./testing/Layers.js"
+import { InMemRepo, testLayers } from "./testing/index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!

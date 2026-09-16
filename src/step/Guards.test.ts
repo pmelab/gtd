@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { enforceStepGuards } from "./Guards.js"
-import { snapshot } from "./testSnapshot.js"
+import { snapshot } from "./snapshot.fixture.js"
 import type { StateDef } from "../PatternMachine.js"
 
 describe("enforceStepGuards — review-doc", () => {

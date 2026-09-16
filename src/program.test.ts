@@ -20,10 +20,13 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 // dispatch test below succeed instead of refusing. Mocked so this test
 // exercises the dispatch wiring deterministically, independent of the host's
 // actual network.
+// `vi.mock` must name the module the loader resolves — a barrel re-export is
+// a different specifier and would not intercept it, so this one seam reaches
+// past `ui/index.ts` by necessity.
 vi.mock("./ui/BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
 
-import { runCli, type Command } from "./cli/index.js"
-import { stallDiagnosis } from "./wire/index.js"
+import { runCli, type Command, EXIT_USAGE_ERROR } from "./cli/index.js"
+import { stallDiagnosis, noopText } from "./wire/index.js"
 import {
   computeNextMatch,
   formatFinding,
@@ -33,15 +36,10 @@ import {
 } from "./program.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { renderInitConfig } from "./workflows/index.js"
-import { InMemRepo } from "./testing/InMemRepo.js"
-import { makeCapturingCliIo } from "./testing/cliIo.js"
-import { testLayers } from "./testing/Layers.js"
-import { applyEmittedScript } from "./testing/EmittedScriptRecognizer.js"
+import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "./testing/index.js"
 import { commitAll } from "./GitScript.js"
 import { HISTORY_REF } from "./RetainedHistory.js"
 import { abandonNoopOutcome, noteOutcome, restoredOutcome } from "./OutcomeScript.js"
-import { noopText } from "./wire/index.js"
-import { EXIT_USAGE_ERROR } from "./cli/index.js"
 
 /** Runs `args` through the real CLI shell (`runCli`) against an in-memory repo, returning the captured stdout/stderr/exit code — the same shape `tests/integration/support/world.ts`'s `@inmem` tier observes. */
 const run = async (

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { builtInModeNames, steeringFormatFor } from "./index.js"
-import { parseFootnotes } from "./Footnotes.js"
+import { parseFootnotes } from "./index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!

@@ -17,8 +17,7 @@ import {
   type RestRequirements,
 } from "./Edge.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
-import { InMemRepo } from "./testing/InMemRepo.js"
-import { testLayers } from "./testing/Layers.js"
+import { InMemRepo, testLayers } from "./testing/index.js"
 
 // A ref name gtd no longer writes or reads at all — kept as a literal here
 // only to pin that `restAt` genuinely ignores a stray ref under this name.

@@ -1,8 +1,7 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { planEntry, type EntryOutcome } from "./planEntry.js"
-import { InMemRepo } from "../testing/InMemRepo.js"
-import { testLayers } from "../testing/Layers.js"
+import { InMemRepo, testLayers } from "../testing/index.js"
 import { ConfigService } from "../workflow/index.js"
 
 const WORKFLOW = [

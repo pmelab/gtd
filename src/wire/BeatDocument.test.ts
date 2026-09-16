@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest"
 import { beatDocument, renderBeatJson } from "./BeatDocument.js"
-import { BEAT_KINDS, demandOf, stallDiagnosis, type BeatKind } from "./Demand.js"
-import { statusOf, type NextMatch, type StatusChange } from "./BeatStatus.js"
-import { DEMAND_BRIEFING, renderBeatPlain } from "./BeatPlain.js"
-import type { ModelCost, RenderedDemandSource } from "./types.js"
+import {
+  BEAT_KINDS,
+  demandOf,
+  stallDiagnosis,
+  type BeatKind,
+  statusOf,
+  type NextMatch,
+  type StatusChange,
+  DEMAND_BRIEFING,
+  renderBeatPlain,
+  type ModelCost,
+  type RenderedDemandSource,
+} from "./index.js"
 
 const rendered = (overrides: Partial<RenderedDemandSource> = {}): RenderedDemandSource => ({
   state: "build.fixing",

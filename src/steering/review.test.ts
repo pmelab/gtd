@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { checkSteering, clearTicks, steeringFormatFor, viewOf } from "./index.js"
 import { parseReviewDoc } from "./review.js"
-import { getParseCount } from "./MarkdownTree.js"
+import { getParseCount } from "./index.js"
 
 describe("parseReviewDoc", () => {
   it("parses a well-formed review with one chunk, no explanations", () => {

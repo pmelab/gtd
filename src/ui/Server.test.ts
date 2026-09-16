@@ -10,9 +10,18 @@ import { NodeContext } from "@effect/platform-node"
 import { createTRPCClient, httpBatchLink, TRPCClientError } from "@trpc/client"
 import { Effect, Exit, Fiber, Layer } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { liveHeadSha } from "./Beat.js"
+import {
+  liveHeadSha,
+  contentHashOf,
+  pickBindHostFromSystem,
+  deleteServeRecord,
+  readServeRecord,
+  writeServeRecord,
+  parseTailscaleStatus,
+  generateSelfSignedCert,
+  type CertPair,
+} from "./index.js"
 import type { AppRouter } from "./Router.js"
-import { contentHashOf } from "./Write.js"
 
 // `resolveBindHost`'s default `pickHost` reaches the real
 // `os.networkInterfaces()` — mocked so the "calls through to the real system
@@ -24,10 +33,6 @@ import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import { Host } from "../platform/index.js"
 import type { UiConfig } from "../ConfigSchema.js"
-import { pickBindHostFromSystem } from "./BindSystem.js"
-import { deleteServeRecord, readServeRecord, writeServeRecord } from "./Serve.js"
-import { parseTailscaleStatus } from "./Tailscale.js"
-import { generateSelfSignedCert, type CertPair } from "./Tls.js"
 import {
   UiListener,
   resolveBindHost,

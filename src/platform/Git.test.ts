@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
 import { InvalidRefError, resolvedRefOrCorrupted } from "./Git.js"
-import { gitTiers, runGitServiceContract, runGitScriptContract } from "../testing/GitTiers.js"
+import { gitTiers, runGitServiceContract, runGitScriptContract } from "../testing/index.js"
 
 /**
  * The `GitOperations` contract, run identically against both the Live and

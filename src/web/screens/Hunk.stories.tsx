@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { page } from "@vitest/browser/context"
 import { useState } from "react"
 import { expect, fireEvent, within } from "storybook/test"
-import type { DiffResult } from "../../ui/Diff.js"
+import type { DiffResult } from "../../ui/index.js"
 import type { SteeringViewNode } from "../../steering/index.js"
 import { Hunk } from "./Hunk.js"
 
