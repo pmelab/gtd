@@ -13,7 +13,7 @@ import { GitService, Host, Workspace } from "../platform/index.js"
 // stays one-directional, not circular.
 import { runCommand, SelectorUsageError, type CommandRequirements } from "../program.js"
 import { CommandRunner } from "../CommandRunner.js"
-import { UiListener } from "../ui/Server.js"
+import { UiListener } from "../ui/index.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
 
 export type { CommandRequirements }

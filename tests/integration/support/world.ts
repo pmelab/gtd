@@ -1,6 +1,10 @@
-import { QuickPickleWorld, setWorldConstructor } from "quickpickle"
+import {
+  QuickPickleWorld,
+  setWorldConstructor,
+  type InfoConstructor,
+  type QuickPickleWorldInterface,
+} from "quickpickle"
 import type { TestContext } from "vitest"
-import type { InfoConstructor, QuickPickleWorldInterface } from "quickpickle"
 import { Effect } from "effect"
 import assert from "node:assert"
 import { execSync, execFile as execFileCb, spawn } from "node:child_process"
@@ -20,11 +24,13 @@ import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli, EXIT_OK } from "../../../src/cli/index.js"
-import { makeCapturingCliIo } from "../../../src/testing/cliIo.js"
-import { type ScriptedCommand } from "../../../src/testing/Layers.js"
-import { InMemRepo } from "../../../src/testing/InMemRepo.js"
-import { applyEmittedScript } from "../../../src/testing/EmittedScriptRecognizer.js"
-import type { AppRouter } from "../../../src/ui/Router.js"
+import {
+  makeCapturingCliIo,
+  type ScriptedCommand,
+  InMemRepo,
+  applyEmittedScript,
+} from "../../../src/testing/index.js"
+import type { AppRouter } from "../../../src/ui/index.js"
 import type { SteeringAnchor } from "../../../src/steering/index.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
@@ -723,7 +729,7 @@ export class GtdWorld extends QuickPickleWorld {
   ): Promise<void> {
     const { exited } = await this.spawnBoundGtdUiServe(servePort)
 
-    const { readServeRecord } = await import("../../../src/ui/Serve.js")
+    const { readServeRecord } = await import("../../../src/ui/index.js")
     const record = await this.withServeHome(() => readServeRecord(servePort))
     assert.ok(
       record !== undefined,
@@ -731,7 +737,7 @@ export class GtdWorld extends QuickPickleWorld {
     )
 
     const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-      import("../../../src/ui/Write.js"),
+      import("../../../src/ui/index.js"),
       import("@trpc/client"),
     ])
     const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
@@ -796,7 +802,7 @@ export class GtdWorld extends QuickPickleWorld {
     // first, before anything else's real import caches the module) that
     // always returns `undefined`, so calling the wrapper here would read
     // that mock, not this machine's real interfaces.
-    const { pickBindHost } = await import("../../../src/ui/Bind.js")
+    const { pickBindHost } = await import("../../../src/ui/index.js")
     const bindHost = pickBindHost(networkInterfaces())
     assert.ok(
       bindHost !== undefined,
@@ -807,7 +813,7 @@ export class GtdWorld extends QuickPickleWorld {
     process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
     try {
       const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/Write.js"),
+        import("../../../src/ui/index.js"),
         import("@trpc/client"),
       ])
       const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
@@ -846,7 +852,7 @@ export class GtdWorld extends QuickPickleWorld {
     process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
     try {
       const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/Write.js"),
+        import("../../../src/ui/index.js"),
         import("@trpc/client"),
       ])
       // `git rev-parse HEAD` directly, not `liveHeadSha` — `createTestProject`
@@ -919,7 +925,7 @@ export class GtdWorld extends QuickPickleWorld {
     process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
     try {
       const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/Write.js"),
+        import("../../../src/ui/index.js"),
         import("@trpc/client"),
       ])
       // `git rev-parse HEAD` directly — see `spawnGtdUiAndHandOff`'s identical
@@ -964,7 +970,7 @@ export class GtdWorld extends QuickPickleWorld {
       assert.strictEqual(reload.status, 200, "the reload must still be served, not a dead port")
 
       const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/Write.js"),
+        import("../../../src/ui/index.js"),
         import("@trpc/client"),
       ])
       // `git rev-parse HEAD` directly — see `spawnGtdUiAndHandOff`'s identical

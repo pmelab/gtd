@@ -9,7 +9,7 @@ import {
   renderInitScaffold,
 } from "./workflow/index.js"
 import { GitService, Host, Workspace, type GitOperations, type HostOps } from "./platform/index.js"
-import { runUiCommand, type UiRequirements } from "./ui/Server.js"
+import { runUiCommand, type UiRequirements } from "./ui/index.js"
 import { resolveSession } from "./Sessions.js"
 import {
   currentRest,

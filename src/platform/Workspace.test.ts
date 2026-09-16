@@ -6,8 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GitService, Host, Workspace } from "./index.js"
-import { InMemRepo } from "../testing/InMemRepo.js"
-import { makeInMemoryWorkspaceOps } from "../testing/Layers.js"
+import { InMemRepo, makeInMemoryWorkspaceOps } from "../testing/index.js"
 
 /**
  * One `Workspace` tier, in the shape `src/testing/GitTiers.ts` establishes

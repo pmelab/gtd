@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect"
 import { describe, expect, it, vi } from "vitest"
-import { strictGitOperations as stubGit } from "./testing/StrictGitOperations.js"
+import { strictGitOperations as stubGit } from "./testing/index.js"
 import {
   clearRetainedHistory,
   HISTORY_REF,

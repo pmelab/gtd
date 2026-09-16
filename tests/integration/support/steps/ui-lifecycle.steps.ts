@@ -56,7 +56,7 @@ When(
 Then(
   "no tailscale serve mapping or ownership record survives on port {int}",
   async (world: GtdWorld, servePort: number) => {
-    const { readServeRecord } = await import("../../../../src/ui/Serve.js")
+    const { readServeRecord } = await import("../../../../src/ui/index.js")
     // Read through the same sandboxed `$HOME` the spawned child's own
     // teardown wrote/deleted against — `readServeRecord` resolves
     // `~/.gtd/serve/` via node:os `homedir()`, which reads this process's

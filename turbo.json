@@ -34,6 +34,10 @@
       ],
       "outputs": []
     },
+    "lint:boundaries": {
+      "inputs": ["src/**", "tests/**", "tsconfig.json", ".dependency-cruiser.mjs"],
+      "outputs": []
+    },
     "typecheck": {
       "inputs": ["src/**", "tests/**", "evals/**", "*.ts"],
       "outputs": []

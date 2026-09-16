@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { ConfigDiscovery, SEARCH_PLACES, walkUp } from "../workflow/index.js"
-import { InMemRepo } from "./InMemRepo.js"
+import { InMemRepo } from "./index.js"
 import { testLayers } from "./Layers.js"
 
 // Pins the one fact `Layers.ts`'s over-long comment used to carry: the

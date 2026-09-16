@@ -18,4 +18,6 @@ import { vi } from "vitest"
 // cached, a `vi.mock` registered afterward (in a setup file later in the
 // list) never takes effect — the mock must be registered before ANYTHING
 // else in the setup chain imports this module transitively.
+// Same seam as `src/program.test.ts`: `vi.mock` must name the resolved module,
+// so it cannot go through `ui/index.ts`.
 vi.mock("../../../../src/ui/BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))

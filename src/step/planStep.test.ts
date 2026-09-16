@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { planStep } from "./planStep.js"
-import { snapshot } from "./testSnapshot.js"
+import { snapshot } from "./snapshot.fixture.js"
 import type { StateDef } from "../PatternMachine.js"
 
 describe("planStep — refusal", () => {

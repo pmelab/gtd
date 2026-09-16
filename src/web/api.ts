@@ -1,5 +1,5 @@
 import { createTRPCReact } from "@trpc/react-query"
-import type { AppRouter } from "../ui/Router.js"
+import type { AppRouter } from "../ui/index.js"
 
 /**
  * Typed against `AppRouter` only — no hand-written duplicate of a procedure's

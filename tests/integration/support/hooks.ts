@@ -3,7 +3,7 @@ import { rmSync, mkdtempSync, writeFileSync, chmodSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { GTD_BIN, type GtdWorld } from "./world.js"
-import { InMemRepo } from "../../../src/testing/InMemRepo.js"
+import { InMemRepo } from "../../../src/testing/index.js"
 
 // Scrub every inherited GIT_* and GTD_LOOP_* var from the test process's
 // environment, once, at support-load time — so the suite runs identically

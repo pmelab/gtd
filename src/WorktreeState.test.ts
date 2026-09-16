@@ -16,8 +16,7 @@ import { NodeContext } from "@effect/platform-node"
 import { describe, expect, it } from "vitest"
 import { loopLogPath, worktreeGitDir } from "./WorktreeState.js"
 import { GitService, Host, Workspace } from "./platform/index.js"
-import { InMemRepo } from "./testing/InMemRepo.js"
-import { testLayers } from "./testing/Layers.js"
+import { InMemRepo, testLayers } from "./testing/index.js"
 
 const provide = <A>(
   eff: Effect.Effect<A, never, Host | Workspace>,

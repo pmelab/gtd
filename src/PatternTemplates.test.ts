@@ -4,8 +4,7 @@ import { Effect, Layer } from "effect"
 import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
 import { compileTemplate } from "./workflows/index.js"
 import { Workspace, templateRead } from "./platform/index.js"
-import { InMemRepo } from "./testing/InMemRepo.js"
-import { makeInMemoryWorkspaceOps } from "./testing/Layers.js"
+import { InMemRepo, makeInMemoryWorkspaceOps } from "./testing/index.js"
 
 const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext => ({
   startCommit: "aaa111",
