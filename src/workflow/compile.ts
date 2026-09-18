@@ -47,7 +47,7 @@ export interface CompiledWorkflow {
   readonly stateScopes: Record<StateName, string>
   /** The merged top-level `ui:` key, already decoded per layer by `ConfigSchema` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: UiConfig
-  /** Every finding across every layer/phase — sorted (origin outermost→innermost, `(built-in default)` last, then config path) and deduped by `(severity, path, message)`. */
+  /** Every finding across every layer/phase — sorted (origin outermost→innermost, `(built-in default)` last, then config path) and deduped by `(severity, path, message, origin)`: the same problem in two layers stays two lines. */
   readonly diagnostics: readonly Diagnostic[]
 }
 

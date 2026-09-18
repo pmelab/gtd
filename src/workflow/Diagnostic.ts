@@ -62,12 +62,16 @@ export const formatDiagnostic = (d: Diagnostic): string => {
   return `${d.origin}: ${path}: ${d.message}`
 }
 
-/** Dedup by `(severity, path, message)`, first occurrence wins — callers pass diagnostics outermost-layer-first so the outermost layer is the origin named. */
+/**
+ * Dedup by `(severity, path, message, origin)`, first occurrence wins. A repeat
+ * WITHIN one layer collapses to one line, but the same problem in two files
+ * stays two lines, because each is a separate edit in a file the user owns.
+ */
 export const dedupeDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnostic[] => {
   const seen = new Set<string>()
   const out: Diagnostic[] = []
   for (const d of diagnostics) {
-    const key = JSON.stringify([d.severity, d.path, d.message])
+    const key = JSON.stringify([d.severity, d.path, d.message, d.origin])
     if (seen.has(key)) continue
     seen.add(key)
     out.push(d)

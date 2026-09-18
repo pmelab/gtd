@@ -440,6 +440,10 @@ gtd config:
   - .gtdrc: workflow.machines.root.states.idle.on.* **: "on" target "nowhere" is not a defined state
 ```
 
+The same problem carried by three config layers prints three lines, one per
+file: a nearer layer overriding the value does not silence the outer layer's
+line, because each is a separate edit in a file you own.
+
 Those findings include the **semantic graph checks**: every `on` target and
 `retry.otherwise` must name a defined state, and every state must be
 **reachable** from the initial state. All load failures exit **1** and write to

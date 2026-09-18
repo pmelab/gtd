@@ -70,7 +70,8 @@
         "stryker.config.json",
         "turbo.json",
         "docs/**",
-        "evals/**"
+        "evals/**",
+        ".dependency-cruiser.mjs"
       ],
       "outputs": []
     },

@@ -133,20 +133,21 @@ describe("compileWorkflow — origin follows the finding's own layer, not the in
   })
 })
 
-describe("compileWorkflow — dedup by (severity, path, message), first occurrence wins", () => {
-  it("keeps only the outermost layer's finding when two layers independently break the same field", () => {
-    // Both layers declare an equally-malformed top-level `vars:` shape, so the
-    // SAME (severity, path, message) triple is produced twice — once per
-    // layer — and only the outer layer's copy should survive.
-    const outer: ConfigLayer = layer("/home/.gtdrc", { vars: "not an object" })
-    const inner: ConfigLayer = layer("/repo/.gtdrc", {})
+describe("compileWorkflow — dedup by (severity, path, message, origin), first occurrence wins", () => {
+  it("keeps both layers' findings when two layers independently reference the same missing file", () => {
+    // Each layer's own `workflow.summary` file reference is resolved against
+    // its OWN layer, before merging (`inlineWorkflowFileRefs`, per layer) —
+    // so two layers naming the same missing file produce the SAME
+    // (severity, path, message) triple twice, once per layer. `origin`
+    // differs, so both survive, in layer order — a nearer layer repeating an
+    // outer layer's mistake does not silence the outer layer's line.
+    const outer: ConfigLayer = layer("/home/.gtdrc", { workflow: { summary: "./missing.md" } })
+    const inner: ConfigLayer = layer("/repo/.gtdrc", { workflow: { summary: "./missing.md" } })
 
     const result = compileWorkflow([outer, inner], noFiles)
-    const matching = result.diagnostics.filter(
-      (d) => d.path.join(".") === "vars" && d.message.includes("must be a mapping"),
-    )
-    expect(matching).toHaveLength(1)
-    expect(matching[0]?.origin).toBe("/home/.gtdrc")
+    const matching = result.diagnostics.filter((d) => d.path.join(".") === "summary")
+    expect(matching).toHaveLength(2)
+    expect(matching.map((d) => d.origin)).toEqual(["/home/.gtdrc", "/repo/.gtdrc"])
   })
 })
 

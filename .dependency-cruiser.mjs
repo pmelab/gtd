@@ -10,6 +10,13 @@
 // own neighbour's. The two variants exist only because `src/Foo.test.ts` and
 // `src/mod/Foo.test.ts` capture differently; dependency-cruiser rejects the
 // single optional-group regex that would unify them as ReDoS-unsafe.
+// `test-owns-impl`'s path-tail capture is `.+` (not `[^/]+`) so a test nested
+// more than one directory below its boundary is still matched — the boundary
+// capture itself stays `[^/]+`, deliberately single-segment. Its fixture
+// exception uses `.*` (not `(.+/)?[^/]+`) for the same reason: `safe-regex`
+// rejects the natural optional-group spelling as star-height 2.
+// `root-test-owns-impl` gains only `tsx?` here, not depth — its one capture
+// stays `[^/]+` and matches nothing nested, by design.
 const testMayReach = (own) => [
   own,
   "^src/[^/]+/index\\.ts$",
@@ -24,22 +31,22 @@ export default {
       comment:
         "A unit test under src/<boundary>/ imports the file it is named after, published barrels, root vocabulary, and its boundary's fixtures — never a neighbour's internals.",
       severity: "error",
-      from: { path: "^src/([^/]+)/([^/]+)\\.test\\.tsx?$" },
+      from: { path: "^src/([^/]+)/(.+)\\.test\\.tsx?$" },
       to: {
         path: "^src/",
         dependencyTypesNot: ["type-only"],
-        pathNot: [...testMayReach("^src/$1/$2\\.(tsx?|mjs)$"), "^src/$1/[^/]+\\.fixture\\.ts$"],
+        pathNot: [...testMayReach("^src/$1/$2\\.(tsx?|mjs)$"), "^src/$1/.*\\.fixture\\.ts$"],
       },
     },
     {
       name: "root-test-owns-impl",
       comment: "Same rule for a test beside a root module: src/Foo.test.ts sees src/Foo.ts.",
       severity: "error",
-      from: { path: "^src/([^/]+)\\.test\\.ts$" },
+      from: { path: "^src/([^/]+)\\.test\\.tsx?$" },
       to: {
         path: "^src/",
         dependencyTypesNot: ["type-only"],
-        pathNot: testMayReach("^src/$1\\.ts$"),
+        pathNot: testMayReach("^src/$1\\.(tsx?|mjs)$"),
       },
     },
     {
