@@ -142,14 +142,27 @@ vars:
   # inject it under its own `## Return lap` heading instead of burying
   # return-lap behaviour inside the first lap's own section.
   questionBar: |-
-    - Ask only when all three hold: it's a genuine fork with divergent
-      outcomes (user-visible for product, materially different builds for
-      technical); the diff and history don't already settle it (treat an
-      explicit `.gtd/TODO.md` directive, a committed hand-edit, or — on a
-      loop-back lap — the human's own review-round edit/note as settled);
-      and getting it wrong would survive to the human review tail
-    - Below that bar, decide it yourself: record it under
-      `## Answered Questions` as `### <the point phrased as a question>`
+    - The goal is shared understanding, not a quota or an empty section: a
+      question exists to close a gap between what the human wants and
+      what the agent is about to build. Ask whenever that gap is open —
+      even when the point looks cheap to undo, settled-looking, or
+      narrow. This goal outranks what follows; the conditions below are
+      signals a gap is real, strong evidence to ask, never permission
+      withheld
+    - Before writing `## Open Questions`, walk every concern you grouped and
+      collect every point above the bar into that ONE section — a question
+      held back for a later lap is a bug. One lap is the target; a second is
+      the exception
+    - Treat each of these as strong evidence a gap is real: it's a genuine
+      fork with divergent outcomes (user-visible for product, materially
+      different builds for technical); the diff and history don't already
+      settle it (treat an explicit `.gtd/TODO.md` directive, a committed
+      hand-edit, or — on a loop-back lap — the human's own review-round
+      edit/note as settled); or it would be expensive to undo once
+      packages are written
+    - Where no gap in shared understanding exists, decide it yourself:
+      record it under `## Answered Questions` as
+      `### <the point phrased as a question>`
       plus a one-line rationale in prose, no checkboxes. That heading
       always comes last, after every other `##` section
     - Above the bar, write it under `## Open Questions` — always the first
@@ -164,15 +177,31 @@ vars:
 
     - Never tick a box yourself — the human ticks exactly one per question
   questionBarReturn: |-
-    - The human ticked one option per question (or wrote their own in
-      place of `_your answer_`): fold each answer into its concern's
+    - This lap continues the same goal as the first: close the gap
+      between what the human wants and what gets built. Folding in
+      answers and deciding what's left is that same goal continued, not
+      a different job
+    - The human answered — a ticked box, a free-text answer in place of
+      `_your answer_`, a deleted question, or a deleted `## Open Questions`
+      section are all answers. Fold each resolved answer into its concern's
       prose, then move the question into `## Answered Questions` as
       `### <question>` with the resolved answer in plain prose — no
       checkboxes
     - `## Answered Questions` is always the last `##` section — a moved
       question lands there, never wherever `## Open Questions` used to sit
-    - Never re-raise a deleted question — treat a deleted `## Open
-      Questions` section as acceptance; omit it entirely once none are left
+    - Never re-raise a deleted question, and never re-open a settled
+      `## Answered Questions` entry
+    - An answer may earn a follow-up: if it opens a genuinely new fork above
+      the bar — one the answer itself created — raise it as a fresh `##
+      Open Questions` entry on this same lap. Never restate a question
+      already asked, and never treat this as licence to re-open a question
+      already settled under `## Answered Questions`
+    - Recognise a silent lap from `## Open Questions` still present with
+      nothing ticked and nothing else changed — the human's way of saying
+      the gap is already closed. That lap ends the questions, whatever the
+      goal says: decide every remaining question yourself, move each to
+      `## Answered Questions` with a one-line rationale, raise nothing new,
+      and leave no `## Open Questions` section behind
   # The body `packages.item.fix-suite` and `build.fix` share byte for byte —
   # both fix a red `.gtd/FEEDBACK.md`. `fix-suite` appends its own
   # cross-package paragraph right after this tag (before the shared
@@ -391,14 +420,21 @@ machines:
         answerGate: true
         message: $message
         on:
+          "C":
+            to: $onRevise
+            action: Accept as-is
+            describe: >-
+              change nothing and re-run to advance with the questions
+              unanswered — the plan stands as written.
           "* **":
             to: $onRevise
             action: Revise answers
             describe: >-
               tick exactly one option per open question (replace
               `_your answer_` for your own) to send it back for the agent to
-              fold your answers in. Delete a question to skip it, or delete
-              the whole `## Open Questions` section to accept the plan as-is.
+              fold your answers in, or delete a question to skip it. To
+              accept the plan as-is instead, revert everything and re-run —
+              a clean tree is the only accept gesture.
 
   # The triage phase — one conversation across the whole back-and-forth (the
   # human's answer rationale survives every return lap). A review loop-back
@@ -529,12 +565,18 @@ machines:
           checkLabel: Checking for open questions
           answerLabel: Awaiting your product answers
           message: |
+            Answering here closes a gap between what you want the product to
+            do and what gets built; changing nothing and re-running says that
+            gap is already closed.
+
             `.gtd/REQUIREMENTS.md` holds the concerns under
             development. Each open question under `## Open Questions` offers
             a few options plus a `- [ ] _your answer_` slot. Answer EVERY
             question by ticking exactly one box (`- [x]`); for your own
             answer, replace `_your answer_` with your text and tick that
-            line. Stepping is refused while any question is unanswered.
+            line. Stepping is refused while any question is unanswered — with one
+            escape: change nothing and re-run to advance with the questions
+            unanswered.
 
             You can also leave a footnote alongside an answer — it never
             substitutes for ticking a box, which is still required before
@@ -637,12 +679,18 @@ machines:
           checkLabel: Checking for open questions
           answerLabel: Awaiting your technical answers
           message: |
+            Answering here closes a gap between what you want built and how
+            it actually gets built; changing nothing and re-running says
+            that gap is already closed.
+
             `.gtd/ARCHITECTURE.md` holds the technical plan under
             development. Each open question under `## Open Questions` offers
             a few options plus a `- [ ] _your answer_` slot. Answer EVERY
             question by ticking exactly one box (`- [x]`); for your own
             answer, replace `_your answer_` with your text and tick that
-            line. Stepping is refused while any question is unanswered.
+            line. Stepping is refused while any question is unanswered — with one
+            escape: change nothing and re-run to advance with the questions
+            unanswered.
 
             You can also leave a footnote alongside an answer — it never
             substitutes for ticking a box, which is still required before

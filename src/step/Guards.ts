@@ -80,6 +80,11 @@ const answerCompletenessGuard: StepGuard = {
   appliesTo: (s) => isAnswerGateState(s.stateDef) && s.stateDef.mode === QA_MODE,
   check: (s) => {
     if (s.file === undefined) return undefined
+    // A wholly untouched tree is the human's silence — the only stop the
+    // return-lap loop can reach (package 01). Yields here, before reading
+    // any question content, so a partial edit (code included) still falls
+    // through to the ordinary unanswered-question refusal below.
+    if (s.changes.length === 0) return undefined
     const format = steeringFormatFor(QA_MODE)
     if (format === undefined) return undefined
     const current = s.worktreeFile ?? ""
@@ -88,7 +93,7 @@ const answerCompletenessGuard: StepGuard = {
     const list = unanswered
       .map((q) => `  - ${s.file}:${q.headingLine + 1}: ${q.question}`)
       .join("\n")
-    return `${unanswered.length} open question(s) in ${s.file} not answered at "${s.state}" — tick exactly one option per question (or delete a question you don't want to answer, or delete the whole "## Open Questions" section to accept the plan as-is):\n${list}`
+    return `${unanswered.length} open question(s) in ${s.file} not answered at "${s.state}" — tick exactly one option per question, or delete a question you don't want to answer. To accept the plan as-is instead, revert everything and re-run:\n${list}`
   },
 }
 

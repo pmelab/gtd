@@ -285,6 +285,8 @@ moments — everything between them runs without you.
 2. **You answer questions.** Planning stops and hands you a file with its open
    questions in it — what the thing should do first, then how it should be
    built. Answer them in your editor, in the file, and start the loop again.
+   Leave the file untouched and start the loop instead to accept the plan as-is,
+   unanswered questions and all.
 3. **You wait.** The work is split into packages and built one at a time, each
    one checked against your test suite and fixed until it passes.
 4. **You review.** You get a review document listing what changed and what to
