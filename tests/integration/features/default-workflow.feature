@@ -866,7 +866,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "only when all three hold"
+    And stdout contains "held back for a later lap is a bug"
 
     # architecture.author's copy of the bar must be the byte-identical
     # criteria — this identical-string assertion is the only guard against
@@ -879,7 +879,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "only when all three hold"
+    And stdout contains "held back for a later lap is a bug"
 
   @inmem
   Scenario: a package whose work already landed closes out via .gtd/SATISFIED.md

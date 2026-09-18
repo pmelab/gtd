@@ -119,6 +119,43 @@ describe("enforceStepGuards — answer-completeness", () => {
     expect(enforceStepGuards(s)).toBeUndefined()
   })
 
+  it("allows a clean snapshot even with an unanswered question — the human's silence is the stop", () => {
+    const s = snapshot({
+      state: "await-answers",
+      stateDef: qaState,
+      file: ".gtd/QUESTIONS.md",
+      worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [ ] A\n- [ ] B\n",
+      changes: [],
+    })
+    expect(enforceStepGuards(s)).toBeUndefined()
+  })
+
+  it("still refuses when the qa file itself is edited with a question left unticked", () => {
+    const s = snapshot({
+      state: "await-answers",
+      stateDef: qaState,
+      file: ".gtd/QUESTIONS.md",
+      worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [ ] A\n- [ ] B\n",
+      changes: [{ status: "M", path: ".gtd/QUESTIONS.md" }],
+    })
+    const refusal = enforceStepGuards(s)
+    expect(refusal).toContain("gtd land: answer-completeness: ")
+    expect(refusal).toContain("open question(s)")
+  })
+
+  it("still refuses when only unrelated code is edited and the qa file is byte-identical with a question left unticked", () => {
+    const s = snapshot({
+      state: "await-answers",
+      stateDef: qaState,
+      file: ".gtd/QUESTIONS.md",
+      worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [ ] A\n- [ ] B\n",
+      changes: [{ status: "M", path: "src/a.ts" }],
+    })
+    const refusal = enforceStepGuards(s)
+    expect(refusal).toContain("gtd land: answer-completeness: ")
+    expect(refusal).toContain("open question(s)")
+  })
+
   it("reads the CURRENT working tree as-is — no in-process formatting happens here", () => {
     const s = snapshot({
       state: "await-answers",

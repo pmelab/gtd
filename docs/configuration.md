@@ -117,7 +117,7 @@ workflow:
           reviewBase: true # optional — anchor the review's diff base (printed by `gtd base`) to this state's most-recent commit
           # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
           requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
-          answerGate: true # optional, requires "file" — refuse a turn until every open question in the (qa-mode) `file:` is answered
+          answerGate: true # optional, requires "file" — refuse a turn that edits anything while an open question in the (qa-mode) `file:` is unanswered; a turn that changes nothing at all is accepted and advances with the questions unanswered
           requireRevert: true # optional, requires "file" — refuse a turn until the human's review-round paths actually match the review base's parent
           entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared state is a valid target)
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
@@ -401,13 +401,22 @@ overridable via `.gtdrc` `vars:` or a `GTD_<NAME>` environment variable:
 - **`stateFileRules`** — the "this workflow steers itself through its own state
   files, treat them as a private scratchpad" opener, injected as the first line
   of every prompt that touches a `.gtd/` file directly.
-- **`questionBar`** — the open-questions warrant test, the decide-it-yourself
-  sink, the `## Open Questions` checkbox shape, the rule that
-  `## Open Questions` must come first and `## Answered Questions` must come last
-  among a file's `##` sections, and the return-lap fold-in instruction shared by
-  `design.triage` and `architecture.author`. Each site still states its own
-  phase scope (product-only vs. TECHNICAL) locally, since that's where the two
-  genuinely disagree.
+- **`questionBar`** — states the goal (asking closes a gap between what the
+  human wants and what the agent is about to build) that outranks the
+  open-questions warrant test, plus the decide-it-yourself sink, the
+  `## Open Questions` checkbox shape, and the rule that `## Open Questions` must
+  come first and `## Answered Questions` must come last among a file's `##`
+  sections. Injected into the first lap of both `design.triage` and
+  `architecture.author`. Each site still states its own phase scope
+  (product-only vs. TECHNICAL) locally, since that's where the two genuinely
+  disagree.
+- **`questionBarReturn`** — the return-lap half of the same instruction,
+  continuing `questionBar`'s goal: folding a human's answers back in, raising a
+  genuinely new follow-up fork, and the silent-lap rule that ends the questions
+  when nothing changed. Injected into the return lap of both `design.triage` and
+  `architecture.author`, under its own `## Return lap` heading. Each site still
+  states its own phase scope (product-only vs. TECHNICAL) locally, same as
+  `questionBar`.
 - **`fixFeedbackPrompt`** — the body `packages.item.fix-suite` and `build.fix`
   share byte for byte: read `.gtd/FEEDBACK.md`, fix the code, leave it
   uncommitted. `fix-suite` appends one extra sentence about implementing a later

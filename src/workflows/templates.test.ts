@@ -188,7 +188,7 @@ describe("the bundled unified workflow template", () => {
     expect(states["start-gate.check"]!.reviewBase).toBeUndefined()
   })
 
-  it("declares exactly two questionGate instances, each `check` with the mandatory C row and each `answer` with no C row", () => {
+  it("declares exactly two questionGate instances, each `check` and `answer` with a C row — answer's C row lands on the same target as its `* **` row (package 01)", () => {
     const { definition } = compileTemplate()
     // Pinned by count so a third `.gate.check` added later fails loudly.
     const gateChecks = Object.keys(definition.states)
@@ -203,8 +203,11 @@ describe("the bundled unified workflow template", () => {
       expect(answer.answerGate).toBe(true)
       expect(answer.mode).toBe("qa")
       expect(answer.file).toBeTruthy()
-      const answerPatterns = (answer.on ?? []).map(([pattern]) => pattern)
-      expect(answerPatterns, prefix).not.toContain("C")
+      const cRow = (answer.on ?? []).find(([pattern]) => pattern === "C")
+      const starRow = (answer.on ?? []).find(([pattern]) => pattern === "* **")
+      expect(cRow, prefix).toBeDefined()
+      expect(starRow, prefix).toBeDefined()
+      expect(cRow![1], prefix).toEqual(starRow![1])
     }
   })
 
@@ -662,6 +665,60 @@ describe("the bundled unified workflow template", () => {
     expect(vars.questionBarReturn).toMatch(
       /Answered Questions[\s\S]{0,200}(last|after every other)/i,
     )
+  })
+
+  it("questionBar sweeps the whole batch before writing, and sharpens the bar's third condition (package 01)", () => {
+    const { vars } = compileTemplate()
+    expect(vars.questionBar).toMatch(/walk every concern/i)
+    expect(vars.questionBar).toMatch(/collect every point above the bar/i)
+    expect(vars.questionBar).toMatch(/held back for a later lap is a bug/i)
+    expect(vars.questionBar).toMatch(/expensive to undo once\s+packages are written/i)
+    expect(vars.questionBar).not.toMatch(/survive to the human review tail/i)
+    expect(vars.questionBarReturn).not.toMatch(/survive to the human review tail/i)
+  })
+
+  it("questionBarReturn licenses a fresh follow-up fork and states the silence stop (package 01)", () => {
+    const { vars } = compileTemplate()
+    // Fresh-fork licence, scoped to a fork the answer itself created.
+    expect(vars.questionBarReturn).toMatch(/fresh.*Open Questions.*entry/is)
+    expect(vars.questionBarReturn).toMatch(/never restate a question\s+already asked/i)
+    expect(vars.questionBarReturn).toMatch(/re-open a question\s+already settled/i)
+    // The silence stop: a lap with nothing changed ends the questions.
+    expect(vars.questionBarReturn).toMatch(/nothing ticked and nothing else changed/i)
+    expect(vars.questionBarReturn).toMatch(/ends the\s+questions/i)
+    expect(vars.questionBarReturn).toMatch(/decide every remaining question/i)
+    expect(vars.questionBarReturn).toMatch(/leave no.*Open Questions.*section behind/is)
+    // The old "deleted section = acceptance" rule is retired.
+    expect(vars.questionBarReturn).not.toMatch(/treat a deleted.*as acceptance/is)
+  })
+
+  it("questionBar states the goal — asking closes a gap in shared understanding — and outranks the three conditions (package 01)", () => {
+    const { vars } = compileTemplate()
+    expect(vars.questionBar).toMatch(
+      /gap between what the human wants and\s+what the agent is about to build/i,
+    )
+    expect(vars.questionBar).not.toMatch(/all three hold/i)
+  })
+
+  it("questionBarReturn states the same goal as continuation of the first lap (package 01)", () => {
+    const { vars } = compileTemplate()
+    expect(vars.questionBarReturn).toMatch(/continues? the same goal/i)
+    expect(vars.questionBarReturn).toMatch(
+      /gap\s+between what the human wants and what gets built/i,
+    )
+  })
+
+  it("design.gate and architecture.gate messages each name what the gate is for, in that site's own voice (package 01)", () => {
+    const { definition } = compileTemplate()
+    expect(definition.states["design.gate.answer"]?.message).toMatch(
+      /closes? a gap between what you want the product to\s+do and what gets built/i,
+    )
+    expect(definition.states["architecture.gate.answer"]?.message).toMatch(
+      /closes? a gap between what you want built and how\s+it actually gets built/i,
+    )
+    for (const name of ["design.gate.answer", "architecture.gate.answer"]) {
+      expect(definition.states[name]?.message, `state "${name}"`).toMatch(/closes? a gap between/i)
+    }
   })
 
   // `footnoteRules` (how a human types one) wires into exactly these three
