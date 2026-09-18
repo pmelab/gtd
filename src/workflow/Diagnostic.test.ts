@@ -69,8 +69,14 @@ describe("sortDiagnostics", () => {
 })
 
 describe("dedupeDiagnostics", () => {
-  it("dedups by (severity, path, message), keeping the first occurrence", () => {
+  it("keeps two findings identical in severity, path, and message but differing in origin", () => {
     const first = diag({ origin: "/home/.gtdrc" })
+    const second = diag({ origin: "/repo/.gtdrc" })
+    expect(dedupeDiagnostics([first, second])).toEqual([first, second])
+  })
+
+  it("collapses two findings identical in all four fields to one", () => {
+    const first = diag({ origin: "/repo/.gtdrc" })
     const second = diag({ origin: "/repo/.gtdrc" })
     expect(dedupeDiagnostics([first, second])).toEqual([first])
   })
