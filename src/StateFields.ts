@@ -252,7 +252,7 @@ const STATE_FIELDS = {
     authored: "state",
     requires: "file",
     viz: "flag",
-    doc: "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`.",
+    doc: "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question — except a wholly untouched working tree, which passes the gate; any other change, code included, still refuses on unanswered questions. Requires a `file:` and `mode: qa`.",
   },
 
   /**

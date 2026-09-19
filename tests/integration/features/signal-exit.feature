@@ -7,14 +7,16 @@ Feature: A signal death reports the promised exit status and leaves nothing half
   parent's `wait` sees a genuine signal death (`WIFSIGNALED`), not a
   `process.exit(130)` that merely reuses the same number. Both signals are
   sent to a `gtd next` spawned against a prompt padded past the OS pipe
-  buffer — the same backpressure `pipe-truncation.feature` relies on — so the
-  process is still alive, mid-write, when the signal arrives rather than
-  racing its own natural exit. gtd writes no files and touches no git dir
-  itself (every write happens inside a script it emitted and a driver ran),
-  so an interrupted `gtd next` — a read command with nothing to drive — has
-  nothing half-written to leave behind either way: both scenarios assert the
-  working tree and the git dir are exactly as they were before the signal.
-  `@live` only: the in-memory tier never spawns a real process to signal.
+  buffer — the same fixture `pipe-truncation.feature` relies on — which keeps
+  `next` busy long enough that the signal reliably lands on a live,
+  still-computing process rather than racing its own natural exit; it does
+  not prove the process is blocked mid-write against the pipe. gtd writes no
+  files and touches no git dir itself (every write happens inside a script it
+  emitted and a driver ran), so an interrupted `gtd next` — a read command
+  with nothing to drive — has nothing half-written to leave behind either
+  way: both scenarios assert the working tree and the git dir are exactly as
+  they were before the signal. `@live` only: the in-memory tier never spawns
+  a real process to signal.
 
   Scenario: SIGINT kills a spawned gtd next with status 130
     Given a test project
@@ -26,6 +28,7 @@ Feature: A signal death reports the promised exit status and leaves nothing half
     And I snapshot the repository
     When I send SIGINT to a spawned gtd next
     Then the reported exit status is 130
+    And the child was still alive when the signal landed
     And the git status is clean
     And the repository snapshot is unchanged
 
@@ -39,5 +42,6 @@ Feature: A signal death reports the promised exit status and leaves nothing half
     And I snapshot the repository
     When I send SIGTERM to a spawned gtd next
     Then the reported exit status is 143
+    And the child was still alive when the signal landed
     And the git status is clean
     And the repository snapshot is unchanged

@@ -251,6 +251,8 @@ export class GtdWorld extends QuickPickleWorld {
   lastSignalExit:
     | { code: number | null; signal: NodeJS.Signals | null; status: number }
     | undefined = undefined
+  /** Whether the spawned `gtd next` was still alive (neither exited nor already signalled) the instant before `spawnGtdNextAndSignal` sent its signal — proves the process was actually there to interrupt, not racing its own natural exit. `@live` only. */
+  signalAliveAtSend: boolean | undefined = undefined
   /** Baseline byte count `runGtdNextRedirectedAndPiped`'s piped count is compared against, to prove a large artifact is never truncated. `@live` only. */
   directRedirectByteCount: number | undefined = undefined
   /** Byte count reaching a deliberately slow pipe consumer, set alongside `directRedirectByteCount`. `@live` only. */
@@ -536,14 +538,44 @@ export class GtdWorld extends QuickPickleWorld {
       env: this.spawnEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     })
+    // `close`, not `exit`: `exit` fires as soon as the OS process dies, which
+    // can race ahead of the stdio streams still draining buffered data into
+    // Node — waiting for `close` instead means the drains below (whatever
+    // they turn out to catch) have actually run before this resolves.
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (resolve) => {
-        child.once("exit", (code, sig) => resolve({ code, signal: sig }))
+        child.once("close", (code, sig) => resolve({ code, signal: sig }))
       },
     )
     await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
     await delay(300)
+    // Nothing reads `stdout`/`stderr` before this point, keeping the
+    // ordering honest — but that is not what makes the signal land right.
+    // The 200000-byte pad earns its place by keeping `next` busy computing
+    // long enough that the fixed `delay(300)` above reliably lands while
+    // gtd is still alive, not by filling the OS pipe buffer: see the
+    // package's Design amendment for why the child is never observably
+    // blocked mid-write here.
+    //
+    // Sending the signal any LATER than this (e.g. waiting for `stdout` to
+    // show buffered bytes) is provably too late to observe: `runCli`'s own
+    // completion — issuing the `stdout.write` and setting `exitCode` — is one
+    // synchronous step (`Cli.ts`'s `Effect.map`), so by the time a byte is
+    // ever observable on this end, `NodeRuntime.runMain`'s fiber has already
+    // exited on its own and detached its SIGINT/SIGTERM listener (see
+    // `@effect/platform-node-shared`'s `runtime.js`) — a signal arriving
+    // after that point is silently swallowed by `main.ts`'s leftover
+    // `process.once` and the process just exits normally (status 0), not
+    // via the signal this scenario is testing. The signal has to land WHILE
+    // gtd is still computing the prompt, before it ever reaches the write.
+    this.signalAliveAtSend = child.exitCode === null && child.signalCode === null
     child.kill(signal)
+    // `.resume()` alone (no `data` listener) is the standard drain-and-discard
+    // idiom: it pulls the stream into flowing mode so a still-pending write
+    // can finish, without this harness caring what the bytes are — see the
+    // package's Design amendment for why a byte count here proves nothing.
+    child.stdout?.resume()
+    child.stderr?.resume()
     const { code, signal: died } = await exited
     this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
   }
