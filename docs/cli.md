@@ -79,12 +79,14 @@ Commands:
                    refuses outside a repository like every other state command.
                    By default, publishes through `tailscale serve` (reachable
                    from anywhere on the tailnet, including over a DERP relay)
-                   with tailscaled terminating TLS; falls back to binding a
-                   local HTTPS server directly, never refusing, when serve
-                   isn't available. --host <addr> opts out of serve and binds
-                   that address directly instead; --port <n> overrides the
-                   serve port (default: 8443), or the bind port when --host is
-                   given; --self-signed also opts out of serve, generating a
+                   with tailscaled terminating TLS, walking 8443, then 10000,
+                   then 443 until one publishes; falls back to binding a local
+                   HTTPS server directly, never refusing, when none of the
+                   three works. --host <addr> opts out of serve and binds that
+                   address directly instead; --port <n> overrides the serve
+                   port (default: the first free of 8443, 10000, 443), or the
+                   bind port when --host is given (default: a free port);
+                   --self-signed also opts out of serve, generating a
                    throwaway TLS certificate instead of the configured
                    ui.cert/ui.key; --dev runs against local development sources
                    instead of the packaged build
@@ -149,7 +151,8 @@ Options:
                    error (exit 2).
   --port=<n>       (gtd visualize/gtd ui only) port to serve on: a free port
                    for visualize; for ui, the tailscale serve port (default:
-                   8443), or the bind port when --host opts out of serve
+                   the first free of 8443, 10000, 443), or the bind port when
+                   --host opts out of serve (default: a free port)
   --no-open        (gtd visualize only) do not open the browser
   --host=<addr>    (gtd ui only) opt out of the default tailscale serve front
                    door and bind this address directly instead, showing it in

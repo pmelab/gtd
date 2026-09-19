@@ -53,6 +53,38 @@ When(
   },
 )
 
+// ── Task 6's default-port candidate walk (package 01, `@live` only — see world.ts#seedForeignServeMapping/#spawnGtdUiServeAndHandOffDefaultPort) ──
+
+Given(
+  "a foreign tailscale serve mapping already published on port {int}",
+  (world: GtdWorld, port: number) => {
+    world.seedForeignServeMapping(port)
+  },
+)
+
+When(
+  "I hand off {string} in mode {string} with the text {string} to a spawned gtd ui using tailscale serve on the default port",
+  async (world: GtdWorld, filePath: string, mode: string, text: string) => {
+    await world.spawnGtdUiServeAndHandOffDefaultPort(filePath, mode, text)
+  },
+)
+
+Then("the taken serve port is {int}", (world: GtdWorld, port: number) => {
+  assert.strictEqual(world.lastServePort, port)
+})
+
+Then(
+  "the foreign tailscale serve mapping on port {int} is untouched",
+  (world: GtdWorld, port: number) => {
+    assert.ok(world.tailscaleStateDir !== undefined, "no fake tailscale state dir on this world")
+    const mappingPath = join(world.tailscaleStateDir!, `${port}.mapping`)
+    assert.ok(
+      existsSync(mappingPath),
+      `expected the foreign mapping at ${mappingPath} to still exist`,
+    )
+  },
+)
+
 Then(
   "no tailscale serve mapping or ownership record survives on port {int}",
   async (world: GtdWorld, servePort: number) => {

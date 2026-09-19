@@ -207,7 +207,17 @@ export class UiListener extends Context.Tag("UiListener")<
   })
 }
 
-const DEFAULT_PORT = 8443
+/**
+ * The tailscale serve front door's fixed candidate list, walked in order:
+ * a default tailnet permits HTTPS serve only on 443, 8443 and 10000 unless
+ * its policy file says otherwise — an arbitrary high port simply fails to
+ * publish, so nothing outside this list is worth trying.
+ */
+const SERVE_PORT_CANDIDATES: readonly number[] = [8443, 10000, 443]
+
+/** `0` means "auto-pick" for both `--port`/`ui.port` — identical to giving no port at all, and kept out of `publishServe --https=0`, which cannot publish. */
+const normalizePort = (port: number | undefined): number | undefined =>
+  port === 0 ? undefined : port
 
 /**
  * `--dev` needs the gtd SOURCE checkout (its `src/web/`, its `tsdown.config.ts`,
@@ -498,27 +508,48 @@ const probeLiveServeMapping = (
  * check, our own) is stale — cleared via `unpublishServe` before a fresh
  * publish; a record naming another LIVE gtd ui is left alone too, since two
  * instances racing the same port is exactly the case ownership exists to
- * prevent. Returns `true` when it's safe to proceed to `publishServe`,
- * `false` when the caller should fall back without ever calling it.
+ * prevent. Returns `"clear"` when it's safe to proceed to `publishServe`;
+ * `"occupied"` (a foreign live mapping) and `"unknowable"` (a probe that
+ * failed to answer) are both "don't publish", but the caller's candidate
+ * walk (Task 2) treats them differently — `"occupied"` is per-port and
+ * walkable, `"unknowable"` says nothing about any port and would only
+ * re-run the same failing subprocess against every remaining candidate, so
+ * it aborts the walk instead of advancing it.
  */
-const clearOrphanForPublish = (servePort: number): Effect.Effect<boolean, never, CommandRunner> =>
+const clearOrphanForPublish = (
+  servePort: number,
+): Effect.Effect<"clear" | "occupied" | "unknowable", never, CommandRunner> =>
   Effect.gen(function* () {
     const record = readServeRecord(servePort)
     if (record === undefined) {
       const probe = yield* probeLiveServeMapping(servePort)
-      if (!probe.ok) return false
-      return probe.mapping === undefined
+      if (!probe.ok) return "unknowable"
+      return probe.mapping === undefined ? "clear" : "occupied"
     }
-    if (isPidAlive(record.pid) && record.pid !== process.pid) return false
+    if (isPidAlive(record.pid) && record.pid !== process.pid) return "occupied"
     yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
     deleteServeRecord(servePort)
-    return true
+    return "clear"
   })
 
-/** What a serve attempt yields the caller: either a bound loopback listener plus the printable tailnet URL, or a one-line reason to fall back on — never a failed Effect (Task 3's own "never refuses" rule). */
+/**
+ * What one candidate attempt yields the caller: either a bound loopback
+ * listener plus the printable tailnet URL and the port actually taken, or a
+ * one-line reason — `retry: true` when the NEXT candidate is worth trying
+ * (a foreign mapping on just this port, or a publish that exited non-zero,
+ * both plausibly a per-port policy restriction), `retry: false` when serve
+ * isn't viable at all this run (no Tailscale backend, or the loopback bind
+ * itself refused — neither is specific to the port just tried). Never a
+ * failed Effect (Task 3's own "never refuses" rule).
+ */
 type ServeAttempt =
-  | { readonly ok: true; readonly bound: BoundServer; readonly url: string }
-  | { readonly ok: false; readonly reason: string }
+  | {
+      readonly ok: true
+      readonly bound: BoundServer
+      readonly url: string
+      readonly servePort: number
+    }
+  | { readonly ok: false; readonly retry: boolean; readonly reason: string }
 
 /**
  * Task 3's serve-first path: probe for a tailnet hostname, run the Task 4
@@ -541,14 +572,22 @@ const attemptServe = (
   Effect.gen(function* () {
     const tailscaleStatus = yield* probeTailscaleStatus()
     if (tailscaleStatus === undefined) {
-      return { ok: false, reason: "no Tailscale backend detected" } as const
+      return { ok: false, retry: false, reason: "no Tailscale backend detected" } as const
     }
 
-    const clearedForPublish = yield* clearOrphanForPublish(servePort)
-    if (!clearedForPublish) {
+    const orphanStatus = yield* clearOrphanForPublish(servePort)
+    if (orphanStatus === "occupied") {
       return {
         ok: false,
+        retry: true,
         reason: `port ${servePort} already carries a tailscale serve mapping this instance does not own`,
+      } as const
+    }
+    if (orphanStatus === "unknowable") {
+      return {
+        ok: false,
+        retry: false,
+        reason: `could not confirm port ${servePort} is free — tailscale serve status --json failed`,
       } as const
     }
 
@@ -559,6 +598,7 @@ const attemptServe = (
     if (!boundAttempt.ok) {
       return {
         ok: false,
+        retry: false,
         reason: `could not bind the loopback listener: ${boundAttempt.reason}`,
       } as const
     }
@@ -569,7 +609,11 @@ const attemptServe = (
     )
     if (!publishResult.ok) {
       yield* Effect.sync(() => bound.close())
-      return { ok: false, reason: `tailscale serve failed: ${publishResult.reason}` } as const
+      return {
+        ok: false,
+        retry: true,
+        reason: `tailscale serve failed: ${publishResult.reason}`,
+      } as const
     }
 
     writeServeRecord(servePort, {
@@ -584,7 +628,7 @@ const attemptServe = (
       servePort === 443
         ? `https://${tailscaleStatus.hostname}/`
         : `https://${tailscaleStatus.hostname}:${servePort}/`
-    return { ok: true, bound, url } as const
+    return { ok: true, bound, url, servePort } as const
   })
 
 /**
@@ -618,13 +662,16 @@ const teardownServe = (servePort: number): Effect.Effect<void, never, CommandRun
  * so that function's own cyclomatic/cognitive complexity stays flat (mirrors
  * why `resolveHostsAndCert` was pulled out for Package 02): an explicit
  * `--host`/`ui.host` or `--self-signed` skips serve entirely (step 1);
- * otherwise `attemptServe` is tried first, its own failure reason printed
- * above the URL before falling back (step 3) — never a refusal either way.
+ * otherwise Task 2's candidate walk is tried first — a one-element list when
+ * `explicitPort` was given, `SERVE_PORT_CANDIDATES` otherwise — printing the
+ * LAST candidate's failure reason (prefixed with every port tried, when more
+ * than one was) above the URL before falling back — never a refusal either
+ * way.
  */
 const resolveListener = (args: {
   readonly options: UiCommandOptions
   readonly config: UiConfig | undefined
-  readonly port: number
+  readonly explicitPort: number | undefined
   readonly explicitHost: string | undefined
   readonly worktree: string
   readonly uiListener: Context.Tag.Service<typeof UiListener>
@@ -640,7 +687,7 @@ const resolveListener = (args: {
   CommandRunner | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
-    const { options, config, port, explicitHost, worktree, uiListener, handler, out } = args
+    const { options, config, explicitPort, explicitHost, worktree, uiListener, handler, out } = args
 
     const directBind = (): Effect.Effect<
       { readonly bound: BoundServer; readonly url: string },
@@ -649,7 +696,12 @@ const resolveListener = (args: {
     > =>
       Effect.gen(function* () {
         const { bindHost, displayHost, certPair } = yield* resolveHostsAndCert(options, config)
-        const bound = yield* uiListener.listen({ tls: certPair, host: bindHost, port, handler })
+        const bound = yield* uiListener.listen({
+          tls: certPair,
+          host: bindHost,
+          port: explicitPort ?? 0,
+          handler,
+        })
         return { bound, url: `https://${displayHost}:${bound.port}/` }
       })
 
@@ -659,13 +711,30 @@ const resolveListener = (args: {
       return { bound, url, teardown: Effect.void }
     }
 
-    const attempt = yield* attemptServe(port, worktree, uiListener, handler)
-    if (attempt.ok) {
-      return { bound: attempt.bound, url: attempt.url, teardown: teardownServe(port) }
+    const candidates = explicitPort !== undefined ? [explicitPort] : SERVE_PORT_CANDIDATES
+    const tried: Array<{ readonly port: number; readonly reason: string }> = []
+    for (const candidate of candidates) {
+      const attempt = yield* attemptServe(candidate, worktree, uiListener, handler)
+      if (attempt.ok) {
+        return {
+          bound: attempt.bound,
+          url: attempt.url,
+          teardown: teardownServe(attempt.servePort),
+        }
+      }
+      tried.push({ port: candidate, reason: attempt.reason })
+      if (!attempt.retry) break
     }
     // Never a refusal — one line naming why, above the printed URL, then
-    // today's direct bind exactly as if serve had never been attempted.
-    out.write(`gtd ui: not using tailscale serve — ${attempt.reason}\n`)
+    // today's direct bind exactly as if serve had never been attempted. Only
+    // the LAST candidate's reason is printed; every port actually tried is
+    // named ahead of it when the walk went past one.
+    const last = tried[tried.length - 1]!
+    const reason =
+      tried.length > 1
+        ? `tried ${tried.map((t) => t.port).join(", ")} — ${last.reason}`
+        : last.reason
+    out.write(`gtd ui: not using tailscale serve — ${reason}\n`)
     const { bound, url } = yield* directBind()
     return { bound, url, teardown: Effect.void }
   })
@@ -705,7 +774,7 @@ export const runUiCommand = (
     const uiListener = yield* UiListener
     const runtime = yield* Effect.runtime<UiRequirements>()
 
-    const port = options.port ?? config?.port ?? DEFAULT_PORT
+    const explicitPort = normalizePort(options.port ?? config?.port)
     const explicitHost = options.host ?? config?.host
 
     // T5: resolved ONCE, here, ahead of `uiListener.listen` — never inside
@@ -819,7 +888,7 @@ export const runUiCommand = (
     const { bound, url, teardown } = yield* resolveListener({
       options,
       config,
-      port,
+      explicitPort,
       explicitHost,
       worktree: cwd.root,
       uiListener,

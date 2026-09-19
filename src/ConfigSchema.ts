@@ -42,7 +42,8 @@ const uiJsonSchema = {
   properties: {
     port: {
       type: "integer",
-      description: "TCP port `gtd ui` listens on.",
+      description:
+        "For ui, the tailscale serve port (default: the first free of 8443, 10000, 443), or the bind port when --host opts out of serve (default: a free port).",
     },
     host: {
       type: "string",

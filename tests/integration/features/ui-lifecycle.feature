@@ -393,6 +393,56 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Then the reported exit status is 0
     And the file ".gtd/PLAN.md" contains "handed back"
 
+  # Package 01 Task 6: no --port given at all, so `resolveListener`'s own
+  # candidate walk (8443 → 10000 → 443) is what picks the port — unlike
+  # every scenario above, which pins an explicit `--port` and so only ever
+  # exercises the one-element-list branch. 8443 is seeded as a foreign
+  # mapping first, so the walk must land on 10000.
+  @live
+  Scenario: no --port given, 8443 already carries a foreign mapping, gtd ui's own candidate walk lands on 10000 and tears only that down
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": working
+              working:
+                actor: human
+                file: "PLAN.md"
+                mode: qa
+                prompt: "answer the plan"
+                on:
+                  "* **": idle
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file ".gtd/PLAN.md" with:
+      """
+      Paragraph zero here.
+
+      Paragraph two here.
+      """
+    And a foreign tailscale serve mapping already published on port 8443
+    When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on the default port
+    Then the reported exit status is 0
+    And the file ".gtd/PLAN.md" contains "handed back"
+    And the taken serve port is 10000
+    And no tailscale serve mapping or ownership record survives on port 10000
+    And the foreign tailscale serve mapping on port 8443 is untouched
+
   @live
   Scenario: picking a question option writes the tick through to disk over a real setValue round trip
     Given a test project
