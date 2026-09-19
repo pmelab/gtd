@@ -94,6 +94,12 @@ describe("ConfigSchema — stateJsonSchema derives from STATE_FIELD_ENTRIES", ()
     expect(retry["required"]).toEqual(["max", "otherwise"])
     expect(retry["additionalProperties"]).toBe(false)
   })
+
+  it("documents answerGate's untouched-tree exception, not just the base rule", () => {
+    const state = buildStateSchema()
+    const answerGate = (state["properties"] as JsonObject)["answerGate"] as JsonObject
+    expect(answerGate["description"]).toContain("untouched")
+  })
 })
 
 describe("ConfigSchema — machineJsonSchema derives its machine-authored fields from MACHINE_FIELD_ENTRIES", () => {

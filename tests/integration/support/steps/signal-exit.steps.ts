@@ -38,6 +38,30 @@ When(
   },
 )
 
+// Only `signalAliveAtSend` is asserted — a genuine signal death and a
+// provably-backpressured write are mutually exclusive for `gtd next`:
+// `runCli` issues its `stdout.write` and completes in the same synchronous
+// step (`Cli.ts`'s `Effect.map`), so `NodeRuntime.runMain`'s fiber has
+// already exited and detached its own SIGINT/SIGTERM listener (`runtime.js`)
+// by the time any byte is observable on this end. A signal landing that late
+// is silently swallowed by `main.ts`'s leftover `process.once` and the child
+// just exits normally — not what "the reported exit status is …" expects.
+// Asserting `signalAliveAtSend` still proves the scenario's premise: the
+// signal hit a live, still-computing process, not one that had already
+// raced to a natural exit. See package `01`'s Design amendment.
+Then("the child was still alive when the signal landed", (world: GtdWorld) => {
+  assert.notStrictEqual(
+    world.signalAliveAtSend,
+    undefined,
+    'No signal was ever sent. Run a step like "I send SIGINT to a spawned gtd next" first.',
+  )
+  assert.strictEqual(
+    world.signalAliveAtSend,
+    true,
+    "Expected the child to still be alive when the signal was sent.",
+  )
+})
+
 Then("the reported exit status is {int}", (world: GtdWorld, expected: number) => {
   const exit = world.lastSignalExit
   assert.notStrictEqual(
