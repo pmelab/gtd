@@ -267,6 +267,8 @@ export class GtdWorld extends QuickPickleWorld {
   tailscaleStateDir: string | undefined = undefined
   /** Sandboxes `src/ui/Serve.ts#serveDir`'s `~/.gtd/serve/<port>.json` ownership record for the serve-path spawn helpers only (`spawnBoundGtdUiServe`/`withServeHome`) — never the general `spawnEnv()`, so every OTHER live spawn keeps the real `$HOME` and its config-discovery walk. Live tier only. */
   serveHomeDir: string | undefined = undefined
+  /** Package 01 Task 6's own discovered port: `spawnGtdUiServeAndHandOffDefaultPort` can't know ahead of time which candidate the walk lands on, so it's read back off the scan and stashed here for a later `Then` step to assert against. */
+  lastServePort: number | undefined = undefined
   /** A temp dir OUTSIDE the repo holding docs/driver.md's extracted driver script — proves the paste needs nothing inside the project. */
   driverDocDir: string | undefined = undefined
   /** Absolute path to the extracted driver script inside `driverDocDir`, chmod'd executable. */
@@ -797,6 +799,117 @@ export class GtdWorld extends QuickPickleWorld {
       "no fake tailscale state dir on this world (not @live?)",
     )
     writeFileSync(join(this.tailscaleStateDir, "fail-publish"), "")
+  }
+
+  /**
+   * Package 01 Task 6's own seed for the candidate-walk scenario: writes a
+   * mapping straight into the fake `tailscale` CLI's own state dir with NO
+   * matching ownership record under `serveHomeDir` — exactly what a foreign
+   * `gtd ui` (a different worktree/process) publishing on `port` first looks
+   * like to THIS instance's own orphan check (`Server.ts#clearOrphanForPublish`),
+   * which reads the mapping as occupied and the missing record as "not ours".
+   */
+  seedForeignServeMapping(port: number): void {
+    assert.ok(
+      this.tailscaleStateDir !== undefined,
+      "no fake tailscale state dir on this world (not @live?)",
+    )
+    writeFileSync(join(this.tailscaleStateDir, `${port}.mapping`), "http://127.0.0.1:9999")
+  }
+
+  /**
+   * Package 01 Task 6's own default-port counterpart of
+   * `spawnBoundGtdUiServe`: spawns `gtd ui` with NO `--port` at all, so
+   * `resolveListener`'s own candidate walk (8443 → 10000 → 443) picks
+   * whichever one this run actually lands on — unlike every other serve
+   * scenario here, the caller can't know that port ahead of time, so it's
+   * discovered by scanning the sandboxed `~/.gtd/serve/` directory
+   * (`serveHomeDir`) for the one ownership record this run wrote.
+   */
+  private async spawnBoundGtdUiServeDefaultPort(): Promise<{
+    readonly child: ReturnType<typeof spawn>
+    readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+    readonly stdout: () => string
+    readonly servePort: number
+  }> {
+    assert.ok(this.serveHomeDir !== undefined, "no serveHomeDir on this world (not @live?)")
+    const child = spawn(process.execPath, [GTD_BIN, "ui"], {
+      cwd: this.repoDir,
+      env: { ...this.spawnEnv(), HOME: this.serveHomeDir },
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8")
+    })
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8")
+    })
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => {
+        child.once("exit", (code, sig) => resolve({ code, signal: sig }))
+      },
+    )
+    await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
+    for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
+      await delay(50)
+    }
+    assert.ok(
+      stdout.includes("https://"),
+      `gtd ui never printed its serve URL: stdout=${stdout} stderr=${stderr}`,
+    )
+
+    const serveDir = join(this.serveHomeDir!, ".gtd", "serve")
+    const recordFiles = existsSync(serveDir)
+      ? readdirSync(serveDir).filter((f) => f.endsWith(".json"))
+      : []
+    assert.strictEqual(
+      recordFiles.length,
+      1,
+      `expected exactly one ownership record under ${serveDir}, found: ${recordFiles.join(", ")}`,
+    )
+    const servePort = Number(recordFiles[0]!.replace(/\.json$/, ""))
+
+    return { child, exited, stdout: () => stdout, servePort }
+  }
+
+  /**
+   * Package 01 Task 6's end-to-end proof of the default candidate walk: no
+   * `--port` given at all, a foreign mapping seeded on 8443 (`Given the
+   * scenario's own `seedForeignServeMapping`), so the walk must land on
+   * 10000 — asserted by the caller reading `servePort` back off the
+   * returned promise. Otherwise mirrors `spawnGtdUiServeAndHandOff`.
+   */
+  async spawnGtdUiServeAndHandOffDefaultPort(
+    filePath: string,
+    mode: string,
+    text: string,
+  ): Promise<number> {
+    const { exited, servePort } = await this.spawnBoundGtdUiServeDefaultPort()
+
+    const { readServeRecord } = await import("../../../src/ui/index.js")
+    const record = await this.withServeHome(() => readServeRecord(servePort))
+    assert.ok(
+      record !== undefined,
+      `no ownership record found at $HOME/.gtd/serve/${servePort}.json (sandboxed $HOME: ${this.serveHomeDir})`,
+    )
+
+    const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+      import("../../../src/ui/index.js"),
+      import("@trpc/client"),
+    ])
+    const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+    const content = readFileSync(join(this.repoDir, filePath), "utf8")
+    const client = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url: `http://127.0.0.1:${record!.targetPort}/trpc` })],
+    })
+    await client.done.mutate(doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text))
+
+    const { code, signal } = await exited
+    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+    this.lastServePort = servePort
+    return servePort
   }
 
   /**
