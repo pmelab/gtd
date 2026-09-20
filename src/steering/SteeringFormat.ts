@@ -182,7 +182,14 @@ export interface SteeringViewNode {
     readonly items?: readonly BlockListItem[]
     /** The fenced code block's info-string language, when it has one. Set only for `kind: "code"`. */
     readonly language?: string
-    /** The code block's body, or the blockquote's own text, verbatim. Set only for `kind: "code"`/`"blockquote"`. */
+    /**
+     * This block's own text, verbatim. `qa`/`review` set it only for
+     * `kind: "code"`/`"blockquote"` (the code block's body / the
+     * blockquote's own text); the free-form format (`freeform.ts`) sets it
+     * for EVERY kind — the block's own raw source bytes, unmodified — since
+     * it has no structure of its own to fall back on and an edit there
+     * replaces a block's whole source span with this same shape of text.
+     */
     readonly text?: string
   }
 }

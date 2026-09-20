@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto"
-import { readFile as readFileFs, writeFile as writeFileFs } from "node:fs/promises"
+import { readFile as readFileFs, mkdir, writeFile as writeFileFs } from "node:fs/promises"
+import { dirname } from "node:path"
 import type { SteeringAnchor, SteeringEdit } from "../steering/index.js"
-import { steeringFormatFor } from "../steering/index.js"
+import { steeringFormatOrFreeForm } from "../steering/index.js"
 import { liveRunInWorktree } from "./Beat.js"
 import { resolveWithinRoot } from "./SafePath.js"
 
@@ -18,14 +19,16 @@ export const contentHashOf = (content: string): string =>
  * T8's four named refusals — `stale-token`, `not-resting`, `file-vanished`,
  * `anchor-unresolved` (a stale index, or a paragraph line that no longer
  * parses) — never a shared message string, so the phone can render a
- * different sentence for each. Two more, reachable but not among T8's four,
- * get their OWN distinct value rather than being folded into
+ * different sentence for each. One more, reachable but not among T8's four,
+ * gets its OWN distinct value rather than being folded into
  * `anchor-unresolved` (the bug a previous round of this package shipped):
  * `note-collision` (the anchor resolved fine, but `annotate` refused because
  * the derived note id already names an existing definition — `SteeringFormat`
- * `id-collision`, T2's own "two attaches at the same anchor are rejected")
- * and `unsupported-mode` (`request.mode` doesn't resolve to a registered
- * format at all — a config problem, not a stale anchor or a stale token).
+ * `id-collision`, T2's own "two attaches at the same anchor are rejected").
+ * An unregistered/absent `request.mode` is no longer a refusal at all — it
+ * resolves to the free-form format (`steering/index.ts#steeringFormatOrFreeForm`),
+ * which only ever resolves a `paragraph` anchor, so a non-paragraph anchor
+ * against it surfaces as `anchor-unresolved` like any other stale anchor.
  */
 export type WriteRefusalReason =
   | "stale-token"
@@ -33,7 +36,6 @@ export type WriteRefusalReason =
   | "file-vanished"
   | "anchor-unresolved"
   | "note-collision"
-  | "unsupported-mode"
 
 export interface WriteRefusal {
   readonly ok: false
@@ -42,8 +44,23 @@ export interface WriteRefusal {
   readonly moved?: "sha" | "content-hash"
 }
 
+/**
+ * A `ui.format` command that ran but didn't leave the file formatted the way
+ * the client expects — reported so the phone can name what happened, never
+ * turned into a refusal or a revert (Task 5's own bullet: formatting failure
+ * never invalidates the write itself).
+ */
+export interface WriteFormatNotice {
+  readonly command: string
+  /** `null` when the command's binary couldn't even be spawned — mirrors `Beat.ts#SpawnOutcome.status`'s own convention. */
+  readonly exitCode: number | null
+}
+
 export interface WriteSuccess {
   readonly ok: true
+  /** The hash of the bytes actually on disk AFTER `deps.formatCommand` ran (or of `nextContent` itself when no formatter is configured) — the token a client swaps in for its next write, so its own successful write never invalidates its own compare-and-swap token. */
+  readonly contentHash: string
+  readonly formatNotice?: WriteFormatNotice
 }
 
 export type WriteResult = WriteSuccess | WriteRefusal
@@ -56,7 +73,7 @@ export interface WriteNoteRequest {
   readonly expectedHeadSha: string
   /** The token's content-hash half (`contentHashOf` over the file's exact bytes at render time). */
   readonly expectedContentHash: string
-  readonly mode: string
+  readonly mode: string | undefined
   readonly anchor: SteeringAnchor
   /** The human's own typed note body — carried verbatim into the new footnote definition by `SteeringFormat.annotate`, never a placeholder. */
   readonly text: string
@@ -74,7 +91,7 @@ export interface WriteValueRequest {
   readonly filePath: string
   readonly expectedHeadSha: string
   readonly expectedContentHash: string
-  readonly mode: string
+  readonly mode: string | undefined
   readonly anchor: SteeringAnchor
   readonly checked?: boolean
   readonly text?: string
@@ -95,6 +112,18 @@ export interface WriteDeps {
   /** `undefined` means the file doesn't exist (or can't be read) — never thrown. */
   readonly readFile: (absPath: string) => Promise<string | undefined>
   readonly writeFile: (absPath: string, content: string) => Promise<void>
+  /**
+   * `ui.format`'s own live spawn, `undefined` exactly when that config key is
+   * unset (Task 5: "unset means no formatting at all — no command spawned").
+   * Its `ok`/`exitCode` are read only to build a `WriteFormatNotice` — never
+   * to refuse or revert the write, which has already landed on disk by the
+   * time this runs.
+   */
+  readonly formatCommand?: (absPath: string) => Promise<{
+    readonly ok: boolean
+    readonly command: string
+    readonly exitCode: number | null
+  }>
 }
 
 /** Applies `edits` to `content` as byte-range offset splices — sorted last-to-first so an earlier range's offset is never invalidated by a later edit, mirroring every other splice in this codebase (`ReviewDoc.ts#clearFilePointerTicks` et al.). Positions are 0-based line/character over `\n`-split lines, matching `SteeringEdit`'s own LSP convention. */
@@ -153,8 +182,10 @@ const verifyForWrite = async (
   const actor = await deps.actorAt(request.worktreePath)
   if (actor !== "human") return { ok: false, reason: "not-resting" }
 
-  const content = await deps.readFile(absPath)
-  if (content === undefined) return { ok: false, reason: "file-vanished" }
+  // A resolved path with nothing at it yet (never written) reads as empty and
+  // lets the write through — only a `filePath` escaping the worktree (caught
+  // by `resolveWithinRoot` before this is ever called) refuses `file-vanished`.
+  const content = (await deps.readFile(absPath)) ?? ""
 
   const [sha, hash] = [await deps.headSha(request.worktreePath), contentHashOf(content)]
   if (sha !== request.expectedHeadSha) return { ok: false, reason: "stale-token", moved: "sha" }
@@ -162,6 +193,45 @@ const verifyForWrite = async (
     return { ok: false, reason: "stale-token", moved: "content-hash" }
   }
   return { ok: true, content }
+}
+
+/**
+ * Runs `deps.formatCommand` (when configured) after the bytes are already on
+ * disk, then re-reads the file so the returned `contentHash` reflects what
+ * formatting actually produced — never `nextContent` itself once a formatter
+ * ran, since that's the PRE-format text. A formatter failure (non-zero exit,
+ * missing binary) becomes a `formatNotice`, never a refusal: the write above
+ * this call already succeeded and stays on disk either way. Falls back to
+ * `nextContent` only if the re-read itself comes back empty-handed, which
+ * should not happen for a file this function just wrote.
+ */
+const finishWrite = async (
+  absPath: string,
+  nextContent: string,
+  deps: WriteDeps,
+): Promise<WriteSuccess> => {
+  if (deps.formatCommand === undefined) {
+    return { ok: true, contentHash: contentHashOf(nextContent) }
+  }
+  // Belt-and-suspenders alongside `Server.ts#buildFormatCommand`'s own
+  // internal catch: whatever `deps.formatCommand` implementation a caller
+  // wires in (a test double included), a throw here must still resolve as a
+  // `formatNotice`, never reject the mutation after the bytes already
+  // landed on disk above this call.
+  const outcome = await deps.formatCommand(absPath).catch((error: unknown) => ({
+    ok: false as const,
+    command: "<format command threw before naming itself>",
+    exitCode: null,
+    cause: error,
+  }))
+  const formatted = (await deps.readFile(absPath)) ?? nextContent
+  return {
+    ok: true,
+    contentHash: contentHashOf(formatted),
+    ...(outcome.ok
+      ? {}
+      : { formatNotice: { command: outcome.command, exitCode: outcome.exitCode } }),
+  }
 }
 
 /** `annotate`/`apply`'s shared refusal mapping: `id-collision` → `note-collision`, anything else → `anchor-unresolved` — the one place `writeNote`/`writeValue` translate a `SteeringAnnotateResult` refusal into a `WriteRefusalReason`. */
@@ -190,14 +260,13 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
     const verified = await verifyForWrite(request, absPath, deps)
     if (!verified.ok) return verified
 
-    const format = steeringFormatFor(request.mode)
-    if (format === undefined) return { ok: false, reason: "unsupported-mode" }
+    const format = steeringFormatOrFreeForm(request.mode)
     const annotated = format.annotate(verified.content, request.anchor, request.text)
     if (!annotated.ok) return annotateRefusal(annotated.reason)
 
     const nextContent = applySteeringEdits(verified.content, annotated.edits)
     await deps.writeFile(absPath, nextContent)
-    return { ok: true }
+    return finishWrite(absPath, nextContent, deps)
   })
 }
 
@@ -217,8 +286,7 @@ export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise
     const verified = await verifyForWrite(request, absPath, deps)
     if (!verified.ok) return verified
 
-    const format = steeringFormatFor(request.mode)
-    if (format === undefined) return { ok: false, reason: "unsupported-mode" }
+    const format = steeringFormatOrFreeForm(request.mode)
     const applied = format.apply(verified.content, request.anchor, {
       ...(request.checked !== undefined ? { checked: request.checked } : {}),
       ...(request.text !== undefined ? { text: request.text } : {}),
@@ -227,7 +295,7 @@ export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise
 
     const nextContent = applySteeringEdits(verified.content, applied.edits)
     await deps.writeFile(absPath, nextContent)
-    return { ok: true }
+    return finishWrite(absPath, nextContent, deps)
   })
 }
 
@@ -252,5 +320,16 @@ export const liveReadFile = async (absPath: string): Promise<string | undefined>
   }
 }
 
-export const liveWriteFile = (absPath: string, content: string): Promise<void> =>
-  writeFileFs(absPath, content, "utf8")
+/**
+ * `mkdir -p` the containing directory first — Task 4's "a missing served
+ * file reads as empty" means the FIRST write to a mode-less file can target a
+ * `.gtd/` that doesn't exist yet in this worktree at all (`Install.ts#`'s own
+ * `mkdir -p "$(dirname "$f")"` covers the same class of file for the CLI's
+ * own writes); a plain `writeFile` would throw `ENOENT` instead of creating
+ * it, which `enqueue`'s task lets escape as an unhandled rejection — a
+ * generic 500 the client can only render as the "unknown" refusal sentence.
+ */
+export const liveWriteFile = async (absPath: string, content: string): Promise<void> => {
+  await mkdir(dirname(absPath), { recursive: true })
+  await writeFileFs(absPath, content, "utf8")
+}

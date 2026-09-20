@@ -57,6 +57,11 @@ const uiJsonSchema = {
       type: "string",
       description: "Path to a TLS private key file, enabling HTTPS. Requires `cert` too.",
     },
+    format: {
+      type: "string",
+      description:
+        "Shell command run after every UI write, before it resolves (Eta template; it.file is the written file's absolute path). A non-zero exit or missing binary never reverts the write or refuses it — it's reported to the client as a notice naming the command and its exit code. Absent means no command runs at all.",
+    },
   },
 } as const
 
@@ -192,12 +197,16 @@ const workflowJsonSchema = {
 
 /**
  * `ui:`'s own shape is a plain, flat settings struct — unlike `vars`/`modes`
- * it needs no Eta-template compile step, so it is a real (not `Unknown`)
- * schema: excess sub-keys under `ui:` are rejected the same way as any
- * other excess key, by the `onExcessProperty: "error"` decode option
- * `Config.ts` already passes for the whole config (it applies recursively).
- * `uiJsonSchema` above still overrides the derived JSON Schema so the
- * published shape stays a hand-annotated literal like its siblings.
+ * it needs no MULTI-TEMPLATE compile step (no per-mode map to walk), so it is
+ * a real (not `Unknown`) schema: excess sub-keys under `ui:` are rejected the
+ * same way as any other excess key, by the `onExcessProperty: "error"` decode
+ * option `Config.ts` already passes for the whole config (it applies
+ * recursively). `format` IS an Eta template (`it.file` bound to the written
+ * file's absolute path, rendered the same way a mode's own `format:` is) —
+ * it's just a single string field, not a nested map, so it needs no compiler
+ * of its own the way `modes:` does. `uiJsonSchema` above still overrides the
+ * derived JSON Schema so the published shape stays a hand-annotated literal
+ * like its siblings.
  *
  * Deliberate deviation from this package's own T1 prose, which asked for an
  * unknown `ui:` sub-key to be "a decode failure at exit 2": every OTHER
@@ -212,6 +221,7 @@ const UiSchema = Schema.Struct({
   host: Schema.optional(Schema.String),
   cert: Schema.optional(Schema.String),
   key: Schema.optional(Schema.String),
+  format: Schema.optional(Schema.String),
 }).annotations({ jsonSchema: uiJsonSchema })
 
 export const ConfigSchema = Schema.Struct({

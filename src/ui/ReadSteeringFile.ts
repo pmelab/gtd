@@ -23,14 +23,14 @@ export type ReadSteeringFileResult =
     }
   | {
       readonly ok: false
-      readonly reason: "file-vanished" | "unsupported-mode" | "head-unresolved"
+      readonly reason: "file-vanished" | "head-unresolved"
     }
 
 export interface ReadSteeringFileRequest {
   readonly worktreePath: string
   /** Path to the steering file, relative to `worktreePath` — same convention as `Write.ts#WriteNoteRequest.filePath`. */
   readonly filePath: string
-  readonly mode: string
+  readonly mode: string | undefined
 }
 
 /** Injected side effects, mirroring `Write.ts#WriteDeps`'s split. */
@@ -55,13 +55,14 @@ export const readSteeringFile = async (
   // reaching `readFile` with a path outside `worktreePath` at all.
   const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
   if (absPath === undefined) return { ok: false, reason: "file-vanished" }
-  const content = await deps.readFile(absPath)
-  if (content === undefined) return { ok: false, reason: "file-vanished" }
+  // A resolved path with nothing at it yet (a mode-less steering file gtd
+  // hasn't written) reads as an empty document, not a refusal — only an
+  // escaping `filePath` (caught above) still refuses `file-vanished`.
+  const content = (await deps.readFile(absPath)) ?? ""
 
-  const viewResult = steeringViewFor(request.mode, content)
-  if (!viewResult.ok) return { ok: false, reason: "unsupported-mode" }
+  const view = steeringViewFor(request.mode, content)
 
   const headSha = await deps.headSha(request.worktreePath)
   if (headSha === undefined) return { ok: false, reason: "head-unresolved" }
-  return { ok: true, content, headSha, contentHash: contentHashOf(content), view: viewResult.view }
+  return { ok: true, content, headSha, contentHash: contentHashOf(content), view }
 }

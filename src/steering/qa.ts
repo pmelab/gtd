@@ -1,4 +1,5 @@
 import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
+import { blockNodesOf } from "./Blocks.js"
 import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
@@ -14,7 +15,6 @@ import {
   headingText as sharedHeadingText,
   lineRange,
   parseMarkdown,
-  sourceText,
   spanRange,
   taskItems,
   toLspPosition,
@@ -22,7 +22,6 @@ import {
   type HeadingBlock,
 } from "./MarkdownTree.js"
 import type {
-  BlockListItem,
   SteeringAnchor,
   SteeringAnnotateResult,
   SteeringEdit,
@@ -30,7 +29,6 @@ import type {
   SteeringFormat,
   SteeringOutlineNode,
   SteeringView,
-  SteeringViewNode,
 } from "./SteeringFormat.js"
 import type { SteeringDescriptor } from "./Descriptor.js"
 
@@ -1009,155 +1007,6 @@ const isInsideQuestionSpan = (spans: ReadonlyMap<number, number>, line: number):
 }
 
 /**
- * The flattened, marker-stripped, whitespace-collapsed text of a run of
- * sibling BLOCK nodes (a blockquote's own children, a list item's own
- * non-list children) — built by taking EACH child's own `sourceText`
- * individually and joining the results, never by slicing one span from the
- * first child's start to the last child's end. A single shared span would
- * include every byte BETWEEN the children verbatim — a nested `list`
- * filtered out of a list item's own children (see `listItemText`) still
- * sits, raw markdown and all, between its neighbors' offsets; a blockquote's
- * OWN `> ` continuation markers between two paragraphs sit there too (each
- * child's own position starts right after its line's `> `, but the raw text
- * BETWEEN two children's positions still crosses that marker). Per-child
- * `sourceText` also excises each child's own real footnote reference by its
- * OWN position, never merely regex-stripping the literal `[^name]` shape.
- */
-const childrenText = (content: string, children: readonly RootContent[]): string =>
-  children
-    .map((child) => stripMarkerText(sourceText(content, child)))
-    .filter((text) => text.length > 0)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim()
-
-/**
- * One list item's own text, EXCLUDING any nested `list` child (that's a
- * separate, recursive `items` entry — see `blockListItemOf`).
- */
-const listItemText = (content: string, item: ListItem): string =>
-  childrenText(
-    content,
-    item.children.filter((c) => c.type !== "list"),
-  )
-
-/** One list item as a `BlockListItem`, recursing into a nested `list` child (there is at most one, CommonMark's own shape) as its own `items`. */
-const blockListItemOf = (content: string, item: ListItem): BlockListItem => {
-  const nested = item.children.filter((c): c is List => c.type === "list")
-  const items = nested.flatMap((list) => blockListItemsOf(content, list.children))
-  return {
-    text: listItemText(content, item),
-    ...(item.checked === true || item.checked === false ? { checked: item.checked } : {}),
-    ...(items.length > 0 ? { items } : {}),
-  }
-}
-
-/** Every item of a `list` node's own `children`, as `BlockListItem`s, in document order. */
-const blockListItemsOf = (content: string, items: readonly ListItem[]): readonly BlockListItem[] =>
-  items.map((item) => blockListItemOf(content, item))
-
-/** The `title` an empty fenced code block (a `` ``` ``/`` ``` `` pair with nothing between them) falls back to — its real body is `""`, and Task 2's "every node still carries a non-empty title" allows no exception for it. */
-const EMPTY_CODE_BLOCK_TITLE = "(empty code block)"
-
-/**
- * A top-level node's own one-line, marker-stripped, whitespace-collapsed
- * text — every block kind's `title` (Task 2's "every node still carries a
- * non-empty title"), and reused verbatim as a `blockquote`'s own `text`.
- * `heading`/`blockquote` use `childrenText` (their own CHILDREN span — the
- * NODE's own position starts at the `#` run / the `>` marker, which
- * `sourceText` would otherwise pull in); `code` uses its `value` directly
- * (never `sourceText`, which would pull in the fence lines), falling back to
- * `EMPTY_CODE_BLOCK_TITLE` when that value is blank; everything else uses
- * `sourceText` over the node's own span.
- */
-const blockTitle = (content: string, node: RootContent): string => {
-  if (node.type === "heading") return headingText(content, node)
-  if (node.type === "blockquote") return childrenText(content, node.children)
-  if (node.type === "code") {
-    const text = stripMarkerText(node.value).replace(/\s+/g, " ").trim()
-    return text.length > 0 ? text : EMPTY_CODE_BLOCK_TITLE
-  }
-  return stripMarkerText(sourceText(content, node)).replace(/\s+/g, " ").trim()
-}
-
-/**
- * `SteeringViewNode.block` for one top-level node — `undefined` for a kind
- * `blockNodesOf` doesn't project structure for (a `thematicBreak`, an `html`
- * node, …), which still renders via `title` alone (Task 4's `ProseBlock`
- * default branch). `code`'s `text` is `node.value` VERBATIM — leading
- * whitespace intact, never whitespace-collapsed like every other kind's
- * `title` — and its `language` is the fence's own info string, omitted
- * entirely when there is none (`node.lang` is `null`/`undefined`).
- */
-const blockOf = (content: string, node: RootContent): SteeringViewNode["block"] | undefined => {
-  switch (node.type) {
-    case "heading":
-      return { kind: "heading", depth: node.depth }
-    case "list":
-      return {
-        kind: "list",
-        ordered: node.ordered === true,
-        items: blockListItemsOf(content, node.children),
-      }
-    case "code":
-      return {
-        kind: "code",
-        text: node.value,
-        ...(node.lang !== null && node.lang !== undefined ? { language: node.lang } : {}),
-      }
-    case "blockquote":
-      return { kind: "blockquote", text: blockTitle(content, node) }
-    case "paragraph":
-      return { kind: "paragraph" }
-    default:
-      return undefined
-  }
-}
-
-/**
- * Every top-level block of the document becomes a view node, in document
- * order — headings, lists, code blocks, blockquotes and paragraphs alike,
- * before the questions section, between two question sections, and after
- * them too. Skips exactly two things: the `## Open Questions`/`## Answered
- * Questions` heading NODEs themselves (`isQuestionsSectionHeading` — the
- * client renders those as its own section headers), and any node whose own
- * start line falls inside a real question's span (`isInsideQuestionSpan` —
- * already projected as that question's own `question`/`option` node pair).
- * A `footnoteDefinition` is skipped unconditionally: it is the note ITSELF,
- * surfaced below as a node's own `note`, never new document content in its
- * own right. Every node still carries a real, server-computed
- * `{kind:"paragraph", line}` anchor at its own start line — `SteeringAnchor`
- * gains no new member for the new `block` kinds (Task 3) — and an existing
- * footnote marker anchored at that same line surfaces as the node's own
- * `note` (mirrors `ReviewDoc.ts#chunkNoteOf`'s exact-line-match convention),
- * so a block already carrying a note offers editing it, not a second one.
- */
-const blockNodesOf = (content: string, tree: Root): readonly SteeringView["nodes"][number][] => {
-  const { markers, definitions } = parseFootnotes(content)
-  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
-  const spans = questionEndLines(content)
-  return tree.children
-    .filter((node) => node.position !== undefined)
-    .filter((node) => node.type !== "footnoteDefinition")
-    .filter((node) => !isQuestionsSectionHeading(content, node))
-    .filter((node) => !isInsideQuestionSpan(spans, toLspPosition(node.position!.start).line))
-    .map((node) => {
-      const startLine = toLspPosition(node.position!.start).line
-      const noteBodies = markers
-        .filter((marker) => marker.line === startLine)
-        .map((marker) => definitionByName.get(marker.name))
-        .filter((body): body is string => body !== undefined)
-      const block = blockOf(content, node)
-      return {
-        title: blockTitle(content, node),
-        anchor: { kind: "paragraph" as const, line: startLine },
-        ...(block !== undefined ? { block } : {}),
-        ...(noteBodies.length > 0 ? { note: noteBodies.join(" ") } : {}),
-      }
-    })
-}
-
-/**
  * `qa`-mode's `view`: every top-level block of the document (`blockNodesOf`
  * — prose, headings, lists, code, blockquotes; a prose-only document with no
  * `## Open Questions`/`## Answered Questions` section at all yields these
@@ -1175,7 +1024,11 @@ const blockNodesOf = (content: string, tree: Root): readonly SteeringView["nodes
  */
 const questionsView = (content: string): SteeringView => {
   const tree = parseMarkdown(content)
-  const blockNodes = blockNodesOf(content, tree)
+  const spans = questionEndLines(content)
+  const blockNodes = blockNodesOf(content, tree, {
+    skipNode: isQuestionsSectionHeading,
+    skipLine: (line) => isInsideQuestionSpan(spans, line),
+  })
   const { questions } = parseOpenQuestions(content)
   return {
     nodes: [

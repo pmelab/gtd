@@ -3,6 +3,7 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steer
 import { Button } from "../Button.js"
 import { Card, CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
+import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
@@ -458,6 +459,8 @@ const usePlanMutations = (
   mode: string,
   data: { readonly headSha: string; readonly contentHash: string } | undefined,
   onRefusal: (error: unknown) => void,
+  /** Task 5's own `ui.format`-failure sink — `ui.format` runs on every ui write regardless of screen, so `Plan`'s own writes surface it exactly like `FreeForm.tsx`'s do. */
+  onFormatNotice: (notice: FormatNotice | undefined) => void,
 ) => {
   const utils = trpc.useUtils()
   const writeNote = trpc.writeNote.useMutation({
@@ -484,7 +487,11 @@ const usePlanMutations = (
     const tokens = casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
-      (cas) => setValue.mutateAsync({ filePath, ...cas, mode, anchor, ...opts }),
+      (cas) =>
+        setValue.mutateAsync({ filePath, ...cas, mode, anchor, ...opts }).then((result) => {
+          onFormatNotice(result.formatNotice)
+          return result
+        }),
       tokens,
       refetchTokens,
     )
@@ -494,7 +501,11 @@ const usePlanMutations = (
     const tokens = casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
-      (cas) => writeNote.mutateAsync({ filePath, ...cas, mode, anchor, text }),
+      (cas) =>
+        writeNote.mutateAsync({ filePath, ...cas, mode, anchor, text }).then((result) => {
+          onFormatNotice(result.formatNotice)
+          return result
+        }),
       tokens,
       refetchTokens,
     )
@@ -546,11 +557,13 @@ const planViewDataProps = (
 export const Plan = ({ filePath, mode }: PlanProps) => {
   const query = trpc.readSteeringFile.useQuery({ filePath, mode })
   const { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry } = useRefusal()
+  const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
   const { onCommitAnswer, onSaveNote, onDoneNote, onDone, isDone } = usePlanMutations(
     filePath,
     mode,
     query.data,
     showRefusal,
+    setFormatNotice,
   )
 
   // Task 3's "Saving…"/"Saved" affordance — wraps only the two write paths a
@@ -572,6 +585,7 @@ export const Plan = ({ filePath, mode }: PlanProps) => {
         onDismiss={dismiss}
         onRetry={onRetry}
       />
+      <FormatNoticeBanner notice={formatNotice} onDismiss={() => setFormatNotice(undefined)} />
       {isDone ? (
         // Once `done` resolves, the server has already written the note and
         // called `ctx.handOff()` — see `Review.tsx#Review`'s identical check

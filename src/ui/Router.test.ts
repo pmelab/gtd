@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
-import { steeringFormatFor } from "../steering/index.js"
+import { freeFormFormat, steeringFormatFor } from "../steering/index.js"
 import type { StepRead } from "./Beat.js"
 import {
   appRouter,
   ReadSteeringFileRefusal,
-  UnsupportedModeRefusal,
   WriteNoteRefusal,
   type RouterContext,
 } from "./Router.js"
@@ -26,15 +25,18 @@ const OK_STEP: StepRead = {
   mode: "qa",
 }
 
+/** Every `writeNote`/`writeValue`/`done` fake below that just needs to succeed resolves this — a real `Write.ts#WriteSuccess` always carries `contentHash` now, so a bare `{ ok: true }` no longer type-checks as one. */
+const WRITE_OK = { ok: true as const, contentHash: "content-hash" }
+
 const contextFor = (
   readStep: RouterContext["readStep"] = () => Promise.resolve(OK_STEP),
-  writeNote: RouterContext["writeNote"] = () => Promise.resolve({ ok: true }),
+  writeNote: RouterContext["writeNote"] = () => Promise.resolve(WRITE_OK),
   resolveDiff: RouterContext["resolveDiff"] = () =>
     Promise.resolve({ kind: "refused", detail: "resolveDiff unexpectedly invoked" }),
   readSteeringFile: RouterContext["readSteeringFile"] = () =>
     Promise.resolve({ ok: false, reason: "file-vanished" }),
   handOff: RouterContext["handOff"] = () => {},
-  writeValue: RouterContext["writeValue"] = () => Promise.resolve({ ok: true }),
+  writeValue: RouterContext["writeValue"] = () => Promise.resolve(WRITE_OK),
 ): RouterContext => ({
   readStep,
   writeNote,
@@ -72,11 +74,18 @@ describe("appRouter.writeNote", () => {
     text: "a note a human typed",
   }
 
-  it("delegates to the context's writeNote and returns ok on success", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(undefined, () => Promise.resolve({ ok: true })),
-    )
-    await expect(caller.writeNote(request)).resolves.toEqual({ ok: true })
+  it("delegates to the context's writeNote and returns ok on success, forwarding contentHash", async () => {
+    const caller = appRouter.createCaller(contextFor(undefined, () => Promise.resolve(WRITE_OK)))
+    await expect(caller.writeNote(request)).resolves.toEqual(WRITE_OK)
+  })
+
+  it("forwards a formatNotice alongside contentHash when the write context reports one", async () => {
+    const withNotice = {
+      ...WRITE_OK,
+      formatNotice: { command: "npx oxfmt --write x", exitCode: 1 },
+    }
+    const caller = appRouter.createCaller(contextFor(undefined, () => Promise.resolve(withNotice)))
+    await expect(caller.writeNote(request)).resolves.toEqual(withNotice)
   })
 
   it("surfaces a refusal as a typed WriteNoteRefusal cause, naming the reason", async () => {
@@ -106,7 +115,7 @@ describe("appRouter.writeNote", () => {
     const caller = appRouter.createCaller(
       contextFor(undefined, (input) => {
         received = input
-        return Promise.resolve({ ok: true })
+        return Promise.resolve(WRITE_OK)
       }),
     )
     await caller.writeNote({ ...request, worktreePath: "/should/be/dropped" } as never)
@@ -124,13 +133,13 @@ describe("appRouter.setValue", () => {
     checked: true,
   }
 
-  it("delegates to the context's writeValue and returns ok on success", async () => {
+  it("delegates to the context's writeValue and returns ok on success, forwarding contentHash", async () => {
     const caller = appRouter.createCaller(
       contextFor(undefined, undefined, undefined, undefined, undefined, () =>
-        Promise.resolve({ ok: true }),
+        Promise.resolve(WRITE_OK),
       ),
     )
-    await expect(caller.setValue(request)).resolves.toEqual({ ok: true })
+    await expect(caller.setValue(request)).resolves.toEqual(WRITE_OK)
   })
 
   it("surfaces a refusal as a typed WriteNoteRefusal cause, naming the reason", async () => {
@@ -162,7 +171,7 @@ describe("appRouter.setValue", () => {
     const caller = appRouter.createCaller(
       contextFor(undefined, undefined, undefined, undefined, undefined, (input) => {
         received = input
-        return Promise.resolve({ ok: true })
+        return Promise.resolve(WRITE_OK)
       }),
     )
     await caller.setValue({ ...request, worktreePath: "/should/be/dropped" } as never)
@@ -174,7 +183,7 @@ describe("appRouter.setValue", () => {
     const caller = appRouter.createCaller(
       contextFor(undefined, undefined, undefined, undefined, undefined, (input) => {
         received = input
-        return Promise.resolve({ ok: true })
+        return Promise.resolve(WRITE_OK)
       }),
     )
     await caller.setValue({ ...request, checked: true, text: "my answer" })
@@ -193,14 +202,16 @@ describe("appRouter.view", () => {
     expect(result).toEqual({ view: QA_FORMAT.view(QA_FORMAT.sample) })
   })
 
-  it("surfaces an unregistered mode as a typed UnsupportedModeRefusal cause", async () => {
+  it("falls back to the free-form format's own view for an unregistered mode, never throwing", async () => {
     const caller = appRouter.createCaller(contextFor())
-    const error = await caller
-      .view({ mode: "not-a-real-mode", content: "x" })
-      .catch((e: unknown) => e)
-    const cause = (error as { cause?: unknown }).cause
-    expect(cause).toBeInstanceOf(UnsupportedModeRefusal)
-    expect((cause as UnsupportedModeRefusal).reason).toBe("unsupported-mode")
+    const result = await caller.view({ mode: "not-a-real-mode", content: "x" })
+    expect(result).toEqual({ view: freeFormFormat.view("x") })
+  })
+
+  it("falls back to the free-form format's own view when mode is absent entirely — the genuinely mode-less case Task 3 enables", async () => {
+    const caller = appRouter.createCaller(contextFor())
+    const result = await caller.view({ content: "x", mode: undefined })
+    expect(result).toEqual({ view: freeFormFormat.view("x") })
   })
 
   it("rejects malformed input rather than reaching steeringViewFor", async () => {
@@ -285,18 +296,16 @@ describe("appRouter.readSteeringFile", () => {
     expect((cause as ReadSteeringFileRefusal).reason).toBe("file-vanished")
   })
 
-  it("surfaces an unsupported-mode refusal as a typed ReadSteeringFileRefusal cause", async () => {
+  it('accepts an absent mode, forwarding it through to readSteeringFile as undefined, never a `""` sentinel', async () => {
+    let received: unknown
     const caller = appRouter.createCaller(
-      contextFor(undefined, undefined, undefined, () =>
-        Promise.resolve({ ok: false, reason: "unsupported-mode" }),
-      ),
+      contextFor(undefined, undefined, undefined, (input) => {
+        received = input
+        return Promise.resolve({ ok: false, reason: "file-vanished" })
+      }),
     )
-    const error = await caller
-      .readSteeringFile({ filePath: "x.md", mode: "not-a-real-mode" })
-      .catch((e: unknown) => e)
-    const cause = (error as { cause?: unknown }).cause
-    expect(cause).toBeInstanceOf(ReadSteeringFileRefusal)
-    expect((cause as ReadSteeringFileRefusal).reason).toBe("unsupported-mode")
+    await caller.readSteeringFile({ filePath: "x.md" } as never).catch(() => undefined)
+    expect(received).toMatchObject({ mode: undefined })
   })
 
   it("surfaces a head-unresolved refusal as a typed ReadSteeringFileRefusal cause with a BAD_REQUEST code", async () => {
@@ -328,7 +337,7 @@ describe("appRouter.done", () => {
         undefined,
         () => {
           calls.push("write")
-          return Promise.resolve({ ok: true })
+          return Promise.resolve(WRITE_OK)
         },
         undefined,
         undefined,
@@ -338,7 +347,7 @@ describe("appRouter.done", () => {
       ),
     )
     const result = await caller.done(doneRequest)
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual(WRITE_OK)
     expect(calls).toEqual(["write", "handoff"])
   })
 
@@ -367,7 +376,7 @@ describe("appRouter.done", () => {
         undefined,
         () => {
           calls.push("write")
-          return Promise.resolve({ ok: true })
+          return Promise.resolve(WRITE_OK)
         },
         undefined,
         undefined,
@@ -382,7 +391,7 @@ describe("appRouter.done", () => {
   })
 
   it("with a malformed note (a missing string field) throws before anything is written and before handOff is scheduled", async () => {
-    const write = vi.fn(() => Promise.resolve({ ok: true as const }))
+    const write = vi.fn(() => Promise.resolve(WRITE_OK))
     const handOff = vi.fn()
     const caller = appRouter.createCaller(
       contextFor(undefined, write, undefined, undefined, handOff),
@@ -393,7 +402,7 @@ describe("appRouter.done", () => {
   })
 
   it("with a malformed note (a bad anchor) throws before anything is written and before handOff is scheduled", async () => {
-    const write = vi.fn(() => Promise.resolve({ ok: true as const }))
+    const write = vi.fn(() => Promise.resolve(WRITE_OK))
     const handOff = vi.fn()
     const caller = appRouter.createCaller(
       contextFor(undefined, write, undefined, undefined, handOff),
@@ -444,7 +453,7 @@ describe("no procedure input carries a filesystem path from the client", () => {
         undefined,
         (request) => {
           seenWriteNote.push(request as Record<string, unknown>)
-          return Promise.resolve({ ok: true })
+          return Promise.resolve(WRITE_OK)
         },
         (path, line) => {
           seenDiff.push({ path, line })
