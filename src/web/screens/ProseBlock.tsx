@@ -1,6 +1,45 @@
-import type { ReactElement } from "react"
+import type { ReactElement, ReactNode } from "react"
 import type { BlockListItem, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
+
+/** A markdown inline link — `[label](url)` — the one inline construct Requirement A names ("headings, paragraphs, lists, code blocks, links") that survives into a node's `title`/`block.text` verbatim (`Blocks.ts#blockTitle`/`sourceText` strip footnote markers only, never link syntax). */
+const LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g
+
+/** One piece of `splitOnLinks`'s own output — plain text, or a matched link's own label/href. */
+type TextPart = { readonly text: string } | { readonly label: string; readonly href: string }
+
+/** Splits `text` on every `[label](url)` occurrence — the pure matching half of `InlineText`, kept apart from JSX so neither half carries the other's own branching. */
+const splitOnLinks = (text: string): readonly TextPart[] => {
+  const parts: TextPart[] = []
+  let lastIndex = 0
+  LINK_RE.lastIndex = 0
+  for (let match = LINK_RE.exec(text); match !== null; match = LINK_RE.exec(text)) {
+    if (match.index > lastIndex) parts.push({ text: text.slice(lastIndex, match.index) })
+    parts.push({ label: match[1]!, href: match[2]! })
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < text.length) parts.push({ text: text.slice(lastIndex) })
+  return parts
+}
+
+/**
+ * Renders `text` with every `[label](url)` occurrence as a real `<a>`,
+ * everything else as a plain string child — never wrapped in an extra
+ * element: `HeadingBlock`'s own `heading.tagName === "H2"` assertion (and
+ * every other caller's own text-content check) must still resolve to the
+ * SAME element this returns children into, not a synthetic wrapper one
+ * level deeper.
+ */
+const InlineText = ({ text }: { readonly text: string }): ReactNode =>
+  splitOnLinks(text).map((part, index) =>
+    "href" in part ? (
+      <a key={index} href={part.href} target="_blank" rel="noreferrer" className="underline">
+        {part.label}
+      </a>
+    ) : (
+      part.text
+    ),
+  )
 
 /** The heading tag a `block.heading`'s own `depth` renders as — three buckets covering all six markdown levels, never a literal `h1`..`h6` (this screen's own `h2` already labels "Open Questions"/"Already answered"). */
 const headingTagFor = (depth: number): "h2" | "h3" | "h4" => {
@@ -25,7 +64,7 @@ const BlockList = ({
           {item.checked !== undefined && (
             <input type="checkbox" checked={item.checked} readOnly className="mr-2 align-middle" />
           )}
-          {item.text}
+          <InlineText text={item.text} />
           {item.items !== undefined && <BlockList items={item.items} ordered={ordered} />}
         </li>
       ))}
@@ -36,7 +75,11 @@ const BlockList = ({
 /** A `heading` block's own rendering — its own component so `BlockBody`'s switch stays a plain dispatch, with every field's fallback living next to the field it defaults. */
 const HeadingBlock = ({ node }: { readonly node: SteeringViewNode }) => {
   const HeadingTag = headingTagFor(node.block?.depth ?? 2)
-  return <HeadingTag className="m-0 px-3 py-2 font-semibold">{node.title}</HeadingTag>
+  return (
+    <HeadingTag className="m-0 px-3 py-2 font-semibold">
+      <InlineText text={node.title} />
+    </HeadingTag>
+  )
 }
 
 /** A `list` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
@@ -56,13 +99,15 @@ const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => (
 /** A `blockquote` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
 const BlockquoteBlock = ({ node }: { readonly node: SteeringViewNode }) => (
   <blockquote className="m-0 border-l-2 border-border px-3 py-2 italic text-muted">
-    {node.block?.text ?? node.title}
+    <InlineText text={node.block?.text ?? node.title} />
   </blockquote>
 )
 
 /** The plain `p` fallback — `block` absent, or a `kind` this doesn't (yet) render structure for — exactly the fallback Task 4 requires so a client that ignores `block` still renders `title`. */
 const ParagraphBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <p className="m-0 px-3 py-2">{node.title}</p>
+  <p className="m-0 px-3 py-2">
+    <InlineText text={node.title} />
+  </p>
 )
 
 /** One renderer per `block.kind` this switches on — a lookup table, not a `switch`, so `BlockBody` itself stays a single dispatch with no per-case branch of its own. */
@@ -92,7 +137,7 @@ const BlockBody = ({ node }: { readonly node: SteeringViewNode }) => {
  * other kind gets both.
  */
 // fallow-ignore-next-line complexity
-const ProseBlock = ({
+export const ProseBlock = ({
   node,
   index,
   noteOverrides,

@@ -22,7 +22,7 @@ export interface RouterContext {
   readonly handOff: () => void
 }
 
-/** One of `Write.ts#WriteNoteRequest`'s four typed refusals, carried as a thrown `TRPCError`'s `cause` — the phone renders a different sentence for each, read off `error.data.writeRefusal`, never off `error.message`. */
+/** One of `Write.ts#WriteNoteRequest`'s five typed refusals, carried as a thrown `TRPCError`'s `cause` — the phone renders a different sentence for each, read off `error.data.writeRefusal`, never off `error.message`. */
 export class WriteNoteRefusal extends Error {
   constructor(
     readonly reason: import("./Write.js").WriteRefusalReason,
@@ -33,17 +33,9 @@ export class WriteNoteRefusal extends Error {
   }
 }
 
-/** `View.ts#steeringViewFor`'s one typed refusal, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.viewRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. */
-export class UnsupportedModeRefusal extends Error {
-  constructor(readonly reason: import("./View.js").SteeringViewRefusalReason) {
-    super(`gtd ui: view refused (${reason})`)
-    this.name = "UnsupportedModeRefusal"
-  }
-}
-
 /** One of `ReadSteeringFile.ts#ReadSteeringFileResult`'s two typed refusals, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.readRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. */
 export class ReadSteeringFileRefusal extends Error {
-  constructor(readonly reason: "file-vanished" | "unsupported-mode" | "head-unresolved") {
+  constructor(readonly reason: "file-vanished" | "head-unresolved") {
     super(`gtd ui: read refused (${reason})`)
     this.name = "ReadSteeringFileRefusal"
   }
@@ -67,7 +59,6 @@ const t = initTRPC.context<RouterContext>().create({
           reason: r.reason,
           moved: r.moved,
         })),
-        viewRefusal: refusalField(cause, UnsupportedModeRefusal, (r) => ({ reason: r.reason })),
         readRefusal: refusalField(cause, ReadSteeringFileRefusal, (r) => ({ reason: r.reason })),
       },
     }
@@ -120,27 +111,34 @@ const steeringAnchorInput = (value: unknown): SteeringAnchor => {
   return parsed
 }
 
-/** `writeNote`'s own input validator — every field is required, no `worktreePath`: the server writes through the one worktree it serves. `text` is the human's own typed note body, carried verbatim into the new footnote definition (never a placeholder). */
+/** `mode`'s own optional-string check, shared by every input validator here — present it must be a string, absent is allowed (the ui boundary falls back to free-form, never a `""` sentinel). */
+const parseOptionalMode = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined
+  if (typeof value !== "string") throw new Error("expected mode to be a string when present")
+  return value
+}
+
+/** `writeNote`'s own input validator — every field is required except `mode`, no `worktreePath`: the server writes through the one worktree it serves. `text` is the human's own typed note body, carried verbatim into the new footnote definition (never a placeholder). */
 const writeNoteInput = (
   value: unknown,
 ): {
   readonly filePath: string
   readonly expectedHeadSha: string
   readonly expectedContentHash: string
-  readonly mode: string
+  readonly mode: string | undefined
   readonly anchor: SteeringAnchor
   readonly text: string
 } => {
   if (!isRecord(value)) throw new Error("expected a write request")
   const { filePath, expectedHeadSha, expectedContentHash, mode, anchor, text } = value
-  for (const field of [filePath, expectedHeadSha, expectedContentHash, mode, text]) {
+  for (const field of [filePath, expectedHeadSha, expectedContentHash, text]) {
     if (typeof field !== "string") throw new Error("expected string fields on a write request")
   }
   return {
     filePath: filePath as string,
     expectedHeadSha: expectedHeadSha as string,
     expectedContentHash: expectedContentHash as string,
-    mode: mode as string,
+    mode: parseOptionalMode(mode),
     anchor: steeringAnchorInput(anchor),
     text: text as string,
   }
@@ -172,23 +170,24 @@ const setValueInput = (
   readonly filePath: string
   readonly expectedHeadSha: string
   readonly expectedContentHash: string
-  readonly mode: string
+  readonly mode: string | undefined
   readonly anchor: SteeringAnchor
   readonly checked?: boolean
   readonly text?: string
 } => {
   if (!isRecord(value)) throw new Error("expected a write request")
   const { filePath, expectedHeadSha, expectedContentHash, mode, anchor, checked, text } = value
-  for (const field of [filePath, expectedHeadSha, expectedContentHash, mode]) {
+  for (const field of [filePath, expectedHeadSha, expectedContentHash]) {
     if (typeof field !== "string") throw new Error("expected string fields on a write request")
   }
+  const parsedMode = parseOptionalMode(mode)
   const parsedChecked = parseOptionalChecked(checked)
   const parsedText = parseOptionalText(text)
   return {
     filePath: filePath as string,
     expectedHeadSha: expectedHeadSha as string,
     expectedContentHash: expectedContentHash as string,
-    mode: mode as string,
+    mode: parsedMode,
     anchor: steeringAnchorInput(anchor),
     ...(parsedChecked !== undefined ? { checked: parsedChecked } : {}),
     ...(parsedText !== undefined ? { text: parsedText } : {}),
@@ -214,12 +213,14 @@ const doneInput = (
   return { note: writeNoteInput(value.note) }
 }
 
-/** `steeringView`'s own input validator — a `{ content: string, mode: string }`, no `worktreePath`. */
-const viewInput = (value: unknown): { readonly content: string; readonly mode: string } => {
-  if (!isRecord(value) || typeof value.content !== "string" || typeof value.mode !== "string") {
-    throw new Error("expected { content: string, mode: string }")
+/** `steeringView`'s own input validator — a `{ content: string, mode?: string }`, no `worktreePath`. `mode` is optional, exactly like `writeNoteInput`/`setValueInput`/`readSteeringFileInput` (Task 3): the ui boundary falls back to free-form when it's absent or unregistered, never a `""` sentinel. */
+const viewInput = (
+  value: unknown,
+): { readonly content: string; readonly mode: string | undefined } => {
+  if (!isRecord(value) || typeof value.content !== "string") {
+    throw new Error("expected { content: string, mode?: string }")
   }
-  return { content: value.content, mode: value.mode }
+  return { content: value.content, mode: parseOptionalMode(value.mode) }
 }
 
 /** `resolveDiff`'s own input validator — `{ path: string, line?: number }`, no `worktreePath`. `line` is optional: a bare pointer with no line number is a real, valid case (`resolveDiff`'s own "no line number"), not a validation failure. */
@@ -233,14 +234,14 @@ const diffInput = (value: unknown): { readonly path: string; readonly line?: num
   return { path: value.path, ...(value.line !== undefined ? { line: value.line } : {}) }
 }
 
-/** `readSteeringFile`'s own input validator — `{ filePath: string, mode: string }`, no `worktreePath`. */
+/** `readSteeringFile`'s own input validator — `{ filePath: string, mode?: string }`, no `worktreePath`. */
 const readSteeringFileInput = (
   value: unknown,
-): { readonly filePath: string; readonly mode: string } => {
-  if (!isRecord(value) || typeof value.filePath !== "string" || typeof value.mode !== "string") {
-    throw new Error("expected { filePath: string, mode: string }")
+): { readonly filePath: string; readonly mode: string | undefined } => {
+  if (!isRecord(value) || typeof value.filePath !== "string") {
+    throw new Error("expected { filePath: string, mode?: string }")
   }
-  return { filePath: value.filePath, mode: value.mode }
+  return { filePath: value.filePath, mode: parseOptionalMode(value.mode) }
 }
 
 export const appRouter = t.router({
@@ -252,7 +253,7 @@ export const appRouter = t.router({
    * check and the actual splice to `Write.ts#writeNote`, which this router
    * never re-implements or second-guesses. A refusal becomes a `TRPCError`
    * whose `cause` is a `WriteNoteRefusal` — read back on the client via
-   * `error.data.writeRefusal.reason`, one of the four typed refusals, never
+   * `error.data.writeRefusal.reason`, one of the five typed refusals, never
    * a shared message string.
    */
   writeNote: t.procedure.input(writeNoteInput).mutation(async ({ input, ctx }) => {
@@ -264,7 +265,11 @@ export const appRouter = t.router({
         cause: new WriteNoteRefusal(result.reason, result.moved),
       })
     }
-    return { ok: true as const }
+    return {
+      ok: true as const,
+      contentHash: result.contentHash,
+      ...(result.formatNotice ? { formatNotice: result.formatNotice } : {}),
+    }
   }),
 
   /**
@@ -285,7 +290,11 @@ export const appRouter = t.router({
         cause: new WriteNoteRefusal(result.reason, result.moved),
       })
     }
-    return { ok: true as const }
+    return {
+      ok: true as const,
+      contentHash: result.contentHash,
+      ...(result.formatNotice ? { formatNotice: result.formatNotice } : {}),
+    }
   }),
 
   /**
@@ -302,38 +311,34 @@ export const appRouter = t.router({
    * state after the process exits and drives the next turn itself.
    */
   done: t.procedure.input(doneInput).mutation(async ({ input, ctx }) => {
-    if (input.note !== undefined) {
-      const write = await ctx.writeNote(input.note)
-      if (!write.ok) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `gtd ui: write refused (${write.reason})`,
-          cause: new WriteNoteRefusal(write.reason, write.moved),
-        })
-      }
+    if (input.note === undefined) {
+      ctx.handOff()
+      return { ok: true as const }
+    }
+    const write = await ctx.writeNote(input.note)
+    if (!write.ok) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `gtd ui: write refused (${write.reason})`,
+        cause: new WriteNoteRefusal(write.reason, write.moved),
+      })
     }
     ctx.handOff()
-    return { ok: true as const }
+    return {
+      ok: true as const,
+      contentHash: write.contentHash,
+      ...(write.formatNotice ? { formatNotice: write.formatNotice } : {}),
+    }
   }),
 
   /**
    * The steering screen's one read: `View.ts#steeringViewFor`'s pure
    * dispatch, never a format module import or a switch on `input.mode` here
-   * either. A refusal becomes a `TRPCError` whose `cause` is an
-   * `UnsupportedModeRefusal` — read back on the client via
-   * `error.data.viewRefusal.reason`.
+   * either — total, so there is no refusal to lift into a `TRPCError`.
    */
-  view: t.procedure.input(viewInput).query(({ input }) => {
-    const result = steeringViewFor(input.mode, input.content)
-    if (!result.ok) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `gtd ui: view refused (${result.reason})`,
-        cause: new UnsupportedModeRefusal(result.reason),
-      })
-    }
-    return { view: result.view }
-  }),
+  view: t.procedure.input(viewInput).query(({ input }) => ({
+    view: steeringViewFor(input.mode, input.content),
+  })),
 
   /**
    * A hunk screen's one read: `Diff.ts#resolveDiff`'s pure dispatch (`gtd

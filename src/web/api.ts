@@ -11,7 +11,7 @@ export const trpc = createTRPCReact<AppRouter>()
 /** Relative to the served origin, so it works regardless of host/port. */
 export const TRPC_URL = "/trpc"
 
-/** `ui/Write.ts#WriteResult`'s refusal half, read back off a `writeNote` mutation's error — mirrors `ui/Router.ts#WriteNoteRefusal`'s two fields exactly, kept as a plain type here (never importing `ui/Router.ts`) so this stays a thin client-side shape. `reason` mirrors `ui/Write.ts#WriteRefusalReason` verbatim, including the two reachable-but-not-among-T8's-four values (`note-collision`, `unsupported-mode`) — see that type's own doc comment for why they're distinct from `anchor-unresolved`. */
+/** `ui/Write.ts#WriteResult`'s refusal half, read back off a `writeNote` mutation's error — mirrors `ui/Router.ts#WriteNoteRefusal`'s two fields exactly, kept as a plain type here (never importing `ui/Router.ts`) so this stays a thin client-side shape. `reason` mirrors `ui/Write.ts#WriteRefusalReason` verbatim, including the one reachable-but-not-among-T8's-four value (`note-collision`) — see that type's own doc comment for why it's distinct from `anchor-unresolved`. */
 export interface WriteRefusalInfo {
   readonly reason:
     | "stale-token"
@@ -19,7 +19,6 @@ export interface WriteRefusalInfo {
     | "file-vanished"
     | "anchor-unresolved"
     | "note-collision"
-    | "unsupported-mode"
   readonly moved?: "sha" | "content-hash"
 }
 
@@ -50,7 +49,7 @@ export const writeRefusalFrom = (error: unknown): WriteRefusalInfo | undefined =
 
 /** `ui/ReadSteeringFile.ts#ReadSteeringFileResult`'s refusal half, read back off a `readSteeringFile` query's error — mirrors `WriteRefusalInfo`'s own shape and doc comment. `reason` mirrors `ui/ReadSteeringFile.ts`'s own union verbatim. */
 export interface ReadRefusalInfo {
-  readonly reason: "file-vanished" | "unsupported-mode" | "head-unresolved"
+  readonly reason: "file-vanished" | "head-unresolved"
 }
 
 /**

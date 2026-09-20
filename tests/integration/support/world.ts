@@ -31,7 +31,7 @@ import {
   applyEmittedScript,
 } from "../../../src/testing/index.js"
 import type { AppRouter } from "../../../src/ui/index.js"
-import type { SteeringAnchor } from "../../../src/steering/index.js"
+import type { SteeringAnchor, SteeringView } from "../../../src/steering/index.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 // Exported so hooks.ts's PATH shim execs this SAME bundle, never a globally-installed gtd.
@@ -51,7 +51,7 @@ const doneNoteRequest = (
   filePath: string,
   headSha: string,
   contentHash: string,
-  mode: string,
+  mode: string | undefined,
   text: string,
 ) => ({
   note: {
@@ -269,6 +269,13 @@ export class GtdWorld extends QuickPickleWorld {
   serveHomeDir: string | undefined = undefined
   /** Package 01 Task 6's own discovered port: `spawnGtdUiServeAndHandOffDefaultPort` can't know ahead of time which candidate the walk lands on, so it's read back off the scan and stashed here for a later `Then` step to assert against. */
   lastServePort: number | undefined = undefined
+  /** Package 01 Task 10's own `view` result — `spawnGtdUiAndReadView`'s real `readSteeringFile` query response, stashed for a later `Then` step to assert the rendered node shapes against. */
+  lastSteeringView: SteeringView | undefined = undefined
+  /** Package 01 Task 10's own stale-write proof: the typed refusal `spawnGtdUiAndSetValueWithStaleHash` reads off a real rejected `setValue` mutation, or `undefined` if the write unexpectedly succeeded. */
+  lastWriteRefusal: { readonly reason: string; readonly moved?: string } | undefined = undefined
+  /** Package 01 Task 10's own `ui.format` proof: the first write's own post-format `contentHash`, and whether a second write issued against it succeeded — `spawnGtdUiAndWriteTwiceReusingHash`'s result. */
+  formatWriteResult: { readonly firstContentHash: string; readonly secondOk: boolean } | undefined =
+    undefined
   /** A temp dir OUTSIDE the repo holding docs/driver.md's extracted driver script — proves the paste needs nothing inside the project. */
   driverDocDir: string | undefined = undefined
   /** Absolute path to the extracted driver script inside `driverDocDir`, chmod'd executable. */
@@ -990,7 +997,11 @@ export class GtdWorld extends QuickPickleWorld {
    * same tokens the phone client would have rendered) so the compare-and-
    * swap succeeds for real, not against a stale/guessed token.
    */
-  async spawnGtdUiAndHandOff(filePath: string, mode: string, text: string): Promise<void> {
+  async spawnGtdUiAndHandOff(
+    filePath: string,
+    mode: string | undefined,
+    text: string,
+  ): Promise<void> {
     const { boundUrl, exited } = await this.spawnBoundGtdUi()
 
     const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
@@ -1060,7 +1071,7 @@ export class GtdWorld extends QuickPickleWorld {
    */
   async spawnGtdUiAndSetValue(
     filePath: string,
-    mode: string,
+    mode: string | undefined,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<void> {
@@ -1091,6 +1102,201 @@ export class GtdWorld extends QuickPickleWorld {
     } finally {
       if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
       else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+    }
+
+    child.kill("SIGTERM")
+    await exited
+  }
+
+  /**
+   * Package 02's own idle round trip: a REAL `gtd ui` subprocess bound on an
+   * IDLE worktree, a REAL `setValue` write that creates `filePath` from
+   * scratch (there is nothing on disk yet — `content` reads as `""`, so this
+   * splices through `freeform.ts#freeFormApply`'s own append fallback, never
+   * `annotate`, which has no existing block to attach a footnote to), then a
+   * REAL `done` mutation carrying NO note — the same two-call shape a phone
+   * screen drives: the human's edit lands first, "hand off" is a separate
+   * tap. `done` schedules the exit, so this ends on `recordSpawnedExit` like
+   * `spawnGtdUiAndHandOff`, never a SIGTERM.
+   */
+  async spawnGtdUiAndSketchThenHandOff(filePath: string, text: string): Promise<void> {
+    const { boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/index.js"),
+        import("@trpc/client"),
+      ])
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const absPath = join(this.repoDir, filePath)
+      const content = existsSync(absPath) ? readFileSync(absPath, "utf8") : ""
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      await client.setValue.mutate({
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(content),
+        mode: undefined,
+        anchor: { kind: "paragraph", line: 0 },
+        text,
+      })
+      await client.done.mutate({})
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    await this.recordSpawnedExit(exited)
+  }
+
+  /**
+   * Package 01 Task 10's own render-structure proof: a REAL `gtd ui`
+   * subprocess, a REAL `readSteeringFile` tRPC query against it — the same
+   * round trip a phone client's own first load drives — stashing the
+   * returned `SteeringView` on `lastSteeringView` for a `Then` step to assert
+   * node shapes against. `setValue`'s own teardown pattern: `readSteeringFile`
+   * never ends the turn, so this kills the process (SIGTERM) once the query
+   * has resolved.
+   */
+  async spawnGtdUiAndReadView(filePath: string, mode: string | undefined): Promise<void> {
+    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      const result = await client.readSteeringFile.query({ filePath, mode })
+      assert.ok(result.ok, `expected readSteeringFile to succeed, got: ${JSON.stringify(result)}`)
+      this.lastSteeringView = result.view
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    child.kill("SIGTERM")
+    await exited
+  }
+
+  /**
+   * Package 01 Task 10's own stale-token proof: a REAL `gtd ui` subprocess, a
+   * REAL `setValue` mutation carrying a deliberately WRONG
+   * `expectedContentHash` (the file's real HEAD sha, so only the content-hash
+   * half of the compare-and-swap token is stale) — asserts the mutation
+   * rejects as a real `TRPCClientError` (`Server.test.ts`'s own
+   * `refusalDataFrom` pattern) and stashes its typed `writeRefusal` on
+   * `lastWriteRefusal`, rather than letting an unexpected success pass
+   * silently. `setValue`'s own teardown pattern: kills the process afterward.
+   */
+  async spawnGtdUiAndSetValueWithStaleHash(
+    filePath: string,
+    mode: string | undefined,
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<void> {
+    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const { createTRPCClient, httpBatchLink, TRPCClientError } = await import("@trpc/client")
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      try {
+        await client.setValue.mutate({
+          filePath,
+          expectedHeadSha: headSha,
+          // Deliberately wrong — the real content on disk never hashes to
+          // this fixed 64-hex-digit string, so `verifyForWrite` refuses
+          // `stale-token`/`moved: "content-hash"` regardless of what's
+          // actually on disk.
+          expectedContentHash: "0".repeat(64),
+          mode,
+          anchor,
+          ...opts,
+        })
+        this.lastWriteRefusal = undefined
+      } catch (error) {
+        assert.ok(
+          error instanceof TRPCClientError,
+          `expected a real TRPCClientError, got: ${String(error)}`,
+        )
+        const data = (error as InstanceType<typeof TRPCClientError>).data as
+          | { writeRefusal?: { reason: string; moved?: string } }
+          | undefined
+        assert.ok(data?.writeRefusal, `expected a writeRefusal on the rejected mutation's data`)
+        this.lastWriteRefusal = data!.writeRefusal
+      }
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    child.kill("SIGTERM")
+    await exited
+  }
+
+  /**
+   * Package 01 Task 10's own `ui.format` round trip: a REAL `gtd ui`
+   * subprocess, two REAL `setValue` mutations against the SAME anchor — the
+   * first against the file's real on-disk token, the second reusing that
+   * first mutation's own RETURNED `contentHash` (never a fresh read), which
+   * only succeeds if the configured `ui.format` command's rewrite is exactly
+   * what the returned hash already reflects (Task 6's whole point: a
+   * client's own next edit is never spuriously refused `stale-token`/
+   * `moved: "content-hash"` against a hash formatting just moved out from
+   * under it). Stashes both the first hash and the second write's own
+   * success on `formatWriteResult`.
+   */
+  async spawnGtdUiAndWriteTwiceReusingHash(
+    filePath: string,
+    mode: string | undefined,
+    anchor: SteeringAnchor,
+    firstText: string,
+    secondText: string,
+  ): Promise<void> {
+    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
+        import("../../../src/ui/index.js"),
+        import("@trpc/client"),
+      ])
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const content = readFileSync(join(this.repoDir, filePath), "utf8")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      const first = await client.setValue.mutate({
+        filePath,
+        expectedHeadSha: headSha,
+        expectedContentHash: contentHashOf(content),
+        mode,
+        anchor,
+        text: firstText,
+      })
+      let secondOk = true
+      try {
+        await client.setValue.mutate({
+          filePath,
+          expectedHeadSha: headSha,
+          expectedContentHash: first.contentHash,
+          mode,
+          anchor,
+          text: secondText,
+        })
+      } catch {
+        secondOk = false
+      }
+      this.formatWriteResult = { firstContentHash: first.contentHash, secondOk }
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
     }
 
     child.kill("SIGTERM")

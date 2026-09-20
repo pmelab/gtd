@@ -12,5 +12,8 @@
       "format": "npx oxfmt --no-error-on-unmatched-pattern --write '<%= it.file %>'",
       "validate": "node ./dist/gtd.bundle.mjs check review '<%= it.file %>'"
     }
+  },
+  "ui": {
+    "format": "npx oxfmt --no-error-on-unmatched-pattern --write '<%= it.file %>'"
   }
 }

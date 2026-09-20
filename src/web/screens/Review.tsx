@@ -3,6 +3,7 @@ import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steer
 import { Button } from "../Button.js"
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
+import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
@@ -514,6 +515,7 @@ export interface ReviewProps {
  */
 export const Review = ({ filePath }: ReviewProps) => {
   const { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry } = useRefusal()
+  const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath, mode: "review" })
   const writeNote = trpc.writeNote.useMutation({
@@ -544,7 +546,13 @@ export const Review = ({ filePath }: ReviewProps) => {
     const tokens = casTokensFor()
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
-      (cas) => setValue.mutateAsync({ filePath, ...cas, mode: "review", anchor, checked }),
+      (cas) =>
+        setValue
+          .mutateAsync({ filePath, ...cas, mode: "review", anchor, checked })
+          .then((result) => {
+            setFormatNotice(result.formatNotice)
+            return result
+          }),
       tokens,
       refetchTokens,
     )
@@ -554,7 +562,11 @@ export const Review = ({ filePath }: ReviewProps) => {
     const tokens = casTokensFor()
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
-      (cas) => writeNote.mutateAsync({ filePath, ...cas, mode: "review", anchor, text }),
+      (cas) =>
+        writeNote.mutateAsync({ filePath, ...cas, mode: "review", anchor, text }).then((result) => {
+          setFormatNotice(result.formatNotice)
+          return result
+        }),
       tokens,
       refetchTokens,
     )
@@ -591,6 +603,7 @@ export const Review = ({ filePath }: ReviewProps) => {
         onDismiss={dismiss}
         onRetry={onRetry}
       />
+      <FormatNoticeBanner notice={formatNotice} onDismiss={() => setFormatNotice(undefined)} />
       {done.isSuccess ? (
         // Once `done` resolves, the server has already written the note and
         // called `ctx.handOff()` — the process exits moments later, so

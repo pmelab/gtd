@@ -144,16 +144,20 @@ describe("ConfigSchema — top-level `ui:`", () => {
         host: "0.0.0.0",
         cert: "./certs/server.crt",
         key: "./certs/server.key",
+        format: "npx oxfmt --write <%= it.file %>",
       },
     }
     expect(decode(input).ui).toEqual(input.ui)
   })
 
-  it.each(["port", "host", "cert", "key"] as const)("decodes with only `%s` present", (key) => {
-    const value = key === "port" ? 4173 : "x"
-    const cfg = decode({ ui: { [key]: value } })
-    expect(cfg.ui).toEqual({ [key]: value })
-  })
+  it.each(["port", "host", "cert", "key", "format"] as const)(
+    "decodes with only `%s` present",
+    (key) => {
+      const value = key === "port" ? 4173 : "x"
+      const cfg = decode({ ui: { [key]: value } })
+      expect(cfg.ui).toEqual({ [key]: value })
+    },
+  )
 
   it("rejects an unknown sub-key under `ui:` as an excess property", () => {
     expect(() => decode({ ui: { bogus: true } })).toThrow()
@@ -177,7 +181,7 @@ describe("ConfigSchema — top-level `ui:`", () => {
     expect(typeof ui["description"]).toBe("string")
     expect((ui["description"] as string).length).toBeGreaterThan(0)
     const properties = ui["properties"] as Record<string, JsonObject>
-    expect(Object.keys(properties)).toEqual(["port", "host", "cert", "key"])
+    expect(Object.keys(properties)).toEqual(["port", "host", "cert", "key", "format"])
     for (const [key, prop] of Object.entries(properties)) {
       expect(typeof prop["description"], `property "${key}"`).toBe("string")
       expect((prop["description"] as string).length, `property "${key}"`).toBeGreaterThan(0)

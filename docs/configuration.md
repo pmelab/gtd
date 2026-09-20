@@ -51,8 +51,7 @@ not a special key gtd interprets.
 
 ### The `ui:` key
 
-`gtd ui`'s four settings, all optional — a flat, non-templated struct (unlike
-`vars:`/`modes:`, it needs no Eta compile step), so an unknown sub-key is
+`gtd ui`'s five settings, all optional — a flat struct, so an unknown sub-key is
 rejected the same way any other unknown config key is. `gtd ui` serves exactly
 the ONE worktree it is invoked in — there is no roots/discovery setting, because
 there is no fleet to discover:
@@ -72,6 +71,14 @@ there is no fleet to discover:
 - **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
   and private key, used as-is. `--self-signed` always overrides these with a
   freshly generated throwaway pair, even when both are configured.
+- **`format`** (string, optional) — a shell command run after every write
+  `gtd ui` makes to the steering file, before the phone's request resolves (an
+  Eta template; `it.file` is the written file's absolute path — the same
+  rendering a mode's own `format:` command gets). Absent means no command runs
+  at all. gtd ships no formatter — bring your own (`oxfmt`, `prettier`, a
+  script). A non-zero exit or a missing binary never reverts the write or
+  refuses it — the phone is told which command ran and what it exited with, and
+  the bytes it already wrote stay on disk either way.
 
 Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui:`
 value; see `docs/cli.md`'s `ui` row for the full flag list.

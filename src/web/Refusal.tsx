@@ -3,7 +3,7 @@ import { writeRefusalFrom, type ReadRefusalInfo, type WriteRefusalInfo } from ".
 import { Button } from "./Button.js"
 import { Notice } from "./Notice.js"
 
-/** Every shape `useRefusal.show` can hold — `WriteRefusalInfo`'s six named reasons, plus `"unknown"` for an error `writeRefusalFrom` can't read at all (a network failure, a dead server) — package 03's own seventh, generic sentence. */
+/** Every shape `useRefusal.show` can hold — `WriteRefusalInfo`'s five named reasons, plus `"unknown"` for an error `writeRefusalFrom` can't read at all (a network failure, a dead server) — package 03's own sixth, generic sentence. */
 export type RefusalState = WriteRefusalInfo | { readonly reason: "unknown" }
 
 /** One sentence per reason, naming which token moved for `stale-token` when known — never `error.message` (`api.ts#writeRefusalFrom`'s own doc comment: that text is for a log, not a client to display). Task 01 drops "reload" from every one of these: the banner now recovers in place via `RefusalBanner`'s own `Try again` control, never by sending a human off to reload the page. */
@@ -24,8 +24,6 @@ const messageFor = (refusal: RefusalState): string => {
       return "That item no longer matches the file on disk, so the write was refused."
     case "note-collision":
       return "Another note already occupies this spot."
-    case "unsupported-mode":
-      return "This steering file's mode isn't supported by the phone client."
     case "unknown":
       return "That write didn't go through — check your connection and try again."
   }
@@ -35,9 +33,9 @@ const messageFor = (refusal: RefusalState): string => {
  * One sentence per `readSteeringFile` refusal reason — `Plan.tsx`/`Review.tsx`
  * render this in their "no view yet" branch instead of the generic "Could
  * not load the plan/review." fallback. `head-unresolved` names a repository
- * state a retry can't fix (task 01's own wording); the other two are
- * ordinary, named failures, not the empty-message crutch that shipped
- * before this existed.
+ * state a retry can't fix (task 01's own wording); the other one
+ * (`file-vanished`) is an ordinary, named failure, not the empty-message
+ * crutch that shipped before this existed.
  */
 export const messageForReadRefusal = (refusal: ReadRefusalInfo): string => {
   switch (refusal.reason) {
@@ -45,8 +43,6 @@ export const messageForReadRefusal = (refusal: ReadRefusalInfo): string => {
       return "Can't read this repository's current commit — editing is disabled until that's fixed."
     case "file-vanished":
       return "The file this screen would show is no longer being served."
-    case "unsupported-mode":
-      return "This steering file's mode isn't supported by the phone client."
   }
 }
 

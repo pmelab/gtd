@@ -13,13 +13,14 @@ import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
 import type { UiConfig } from "../ConfigSchema.js"
 import { Host } from "../platform/index.js"
-import { steeringFormatFor } from "../steering/index.js"
 import generatedClientHtml from "../web/generated.html"
+import { renderFileCommand } from "../PatternTemplates.js"
 import {
   liveHeadSha,
   liveRunInWorktree,
   readLocalGtdVersionAt,
   readStep,
+  type RunInWorktree,
   type Step,
   type StepRead,
 } from "./Beat.js"
@@ -375,31 +376,66 @@ const liveBeatDeps = {
 }
 
 /**
- * `true` only for the one rest the phone client can actually render: a
- * non-idle rest whose ACTOR is human, carrying a `file` and a `mode` that
- * resolves to a registered steering format. `kind` is never read — a
- * `message` rest whose beat reports a human actor with a registered mode is
- * just as renderable as a `prompt` rest with the same shape, and content
- * kind shifts under the human's own editing (a `message` rest turns
- * `capture` the moment the tree is dirtied), so it's the wrong axis
- * regardless of which kinds would be listed. This is the SAME axis
- * `Write.ts#verifyForWrite` already gates writes on (`actorAt !== "human"` →
- * `not-resting`), so startup and write agree.
+ * Builds `Write.ts#WriteDeps.formatCommand` from `ui.format`: `undefined`
+ * when that key is unset at all (Task 5's "unset means no formatting at
+ * all — no command spawned" — `writeDeps` below must not even carry the
+ * field in that case). Renders through the same Eta instance a mode's own
+ * `format:`/`validate:` command renders through (`PatternTemplates.ts#renderFileCommand`),
+ * with `it.file` bound to the ABSOLUTE path `Write.ts` calls this with, then
+ * runs it via `run` (`Beat.ts#liveRunInWorktree` by default — the same
+ * `bash -c` spawn a mode's own shell commands use, so a worktree-local
+ * `node_modules/.bin` install resolves identically). `run`'s own
+ * `status`/`spawnError` become `exitCode: null` for "never even spawned",
+ * mirroring `SpawnOutcome`'s own convention — never thrown, since a
+ * formatting failure must never refuse or revert the write already on disk.
  */
-const isRenderable = (
-  step: Step,
-): step is Step & { readonly file: string; readonly mode: string } =>
-  !step.idle &&
-  step.actor === "human" &&
-  step.file !== undefined &&
-  step.mode !== undefined &&
-  steeringFormatFor(step.mode) !== undefined
+export const buildFormatCommand = (
+  format: string | undefined,
+  worktreeRoot: string,
+  run: RunInWorktree = liveRunInWorktree,
+): WriteDeps["formatCommand"] => {
+  if (format === undefined) return undefined
+  return async (absPath: string) => {
+    let command: string
+    try {
+      command = renderFileCommand(format, absPath)
+    } catch {
+      // Eta throws on a malformed template (an unclosed tag, or any
+      // variable but `it.file`, which this command's own context doesn't
+      // carry) — caught into the SAME `formatNotice` shape a non-zero exit
+      // produces, so a bad `ui.format` template degrades exactly like a
+      // missing binary rather than rejecting the whole mutation after the
+      // bytes already landed. The raw (unrendered) template stands in for
+      // `command` — there is no rendered one to report.
+      return { ok: false, command: format, exitCode: null }
+    }
+    const outcome = await run(worktreeRoot, command)
+    return { ok: outcome.status === 0, command, exitCode: outcome.status }
+  }
+}
+
+/**
+ * `true` only for the one rest the phone client can actually render: a
+ * rest whose ACTOR is human, carrying a `file`. An idle rest is renderable
+ * too (package 02) — the client opens free-form on `.gtd/TODO.md` and the
+ * human's own write is what eventually moves the state, not this axis.
+ * `mode` is no longer part of this axis either — an absent or unregistered
+ * `mode` falls back to free-form rendering (Tasks 3/4/7), so it can no
+ * longer be a reason to refuse. `kind` is never read either — a `message`
+ * rest whose beat reports a human actor is just as renderable as a `prompt`
+ * rest with the same shape, and content kind shifts under the human's own
+ * editing (a `message` rest turns `capture` the moment the tree is
+ * dirtied), so it's the wrong axis regardless of which kinds would be
+ * listed. This is the SAME axis `Write.ts#verifyForWrite` already gates
+ * writes on (`actorAt !== "human"` → `not-resting`), so startup and write
+ * agree.
+ */
+const isRenderable = (step: Step): step is Step & { readonly file: string } =>
+  step.actor === "human" && step.file !== undefined
 
 /**
  * The refusal named for whatever the served worktree actually rests at, in
- * order so the narrower cause always wins: unreadable, idle (checked BEFORE
- * the actor test — an idle worktree reports `actor: human` too, so an
- * actor-only test would bind a port on a finished worktree), a non-human
+ * order so the narrower cause always wins: unreadable, then a non-human
  * actor, then a human rest whose steering file isn't usable.
  */
 const refusalFor = (step: StepRead): GtdUsageError => {
@@ -408,24 +444,14 @@ const refusalFor = (step: StepRead): GtdUsageError => {
       `gtd ui: refuses to start — this worktree can't be read: ${step.status === "broken" ? step.detail : step.label}`,
     )
   }
-  if (step.idle) {
-    return new GtdUsageError(
-      `gtd ui: refuses to start — "${step.label}" is idle, so there is nothing to hand back`,
-    )
-  }
   if (step.actor !== "human") {
     return new GtdUsageError(
       `gtd ui: refuses to start — "${step.label}" rests with the ${step.actor}, which has no phone screen`,
     )
   }
-  const hint =
-    step.mode === undefined
-      ? "gtd next --json reported no steering mode for this rest"
-      : steeringFormatFor(step.mode) === undefined
-        ? `"${step.mode}" is not a registered steering mode`
-        : "gtd next --json reported no steering file for this rest"
+  const hint = "gtd next --json reported no steering file for this rest"
   return new GtdUsageError(
-    `gtd ui: refuses to start — "${step.label}" rests with you, but its steering file has no phone screen`,
+    `gtd ui: refuses to start — "${step.label}" rests with you, but names no steering file to show on the phone`,
     [hint],
   )
 }
@@ -784,11 +810,13 @@ export const runUiCommand = (
     // reachable by anything on the tailnet.
     const clientHtml = yield* resolveClientHtml(options.dev, runner, fs)
 
+    const formatCommand = buildFormatCommand(config?.format, cwd.root)
     const writeDeps: WriteDeps = {
       headSha: liveHeadSha,
       actorAt: liveActorAt,
       readFile: liveReadFile,
       writeFile: liveWriteFile,
+      ...(formatCommand !== undefined ? { formatCommand } : {}),
     }
     const diffDeps: DiffDeps = { run: liveRunInWorktree }
     const readDeps: ReadSteeringFileDeps = { headSha: liveHeadSha, readFile: liveReadFile }

@@ -1,14 +1,13 @@
 import type { StepRead } from "../ui/index.js"
 import { Notice } from "./Notice.js"
+import { FreeForm } from "./screens/FreeForm.js"
 import { Plan } from "./screens/Plan.js"
 import { Review } from "./screens/Review.js"
 import { trpc } from "./api.js"
 
-/** The one shape a screen can open: a clean read resting on a steering file with a registered mode — package 02's own refuse-to-start gate means the server never binds on anything else, so the `false` branch is defensive, not a production shape. */
-const openable = (
-  step: StepRead | undefined,
-): step is StepRead & { status: "ok"; file: string; mode: string } =>
-  step?.status === "ok" && step.file !== undefined && step.mode !== undefined
+/** The one shape a screen can open: a clean read resting on a steering file — package 01 dropped the `mode` requirement, since an absent or unregistered mode now falls through to `FreeForm` rather than refusing. */
+const openable = (step: StepRead | undefined): step is StepRead & { status: "ok"; file: string } =>
+  step?.status === "ok" && step.file !== undefined
 
 /**
  * The whole phone's navigation: `gtd ui` serves exactly one worktree resting
@@ -17,8 +16,10 @@ const openable = (
  * and no route back to one. `trpc.step`'s own `mode` picks the screen —
  * `"review"` always means `Review` (that screen's own `readSteeringFile` call
  * is hardcoded to `mode: "review"`, matching `.gtd/REVIEW.md`'s one format);
- * anything else means `Plan`. Neither screen offers a way back to a list —
- * `done` is the only thing that ends the turn, and it exits the process.
+ * `"qa"` means `Plan`; anything else (absent, or an unregistered mode name)
+ * falls through to `FreeForm`, which edits the file block-by-block as plain
+ * markdown. Neither screen offers a way back to a list — `done` is the only
+ * thing that ends the turn, and it exits the process.
  *
  * Never returns `null`: a blank white screen was package 03's own regression
  * (a phone over a tailnet with nothing on-screen to explain why) — every
@@ -77,8 +78,10 @@ export const App = () => {
     <div className="mx-auto max-w-[390px] h-dvh flex flex-col">
       {step.mode === "review" ? (
         <Review filePath={step.file} />
+      ) : step.mode === "qa" ? (
+        <Plan filePath={step.file} mode="qa" />
       ) : (
-        <Plan filePath={step.file} mode={step.mode} />
+        <FreeForm filePath={step.file} mode={step.mode} />
       )}
     </div>
   )

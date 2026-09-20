@@ -10,6 +10,12 @@ import type { SteeringDescriptor } from "./Descriptor.js"
 import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
 
+// The free-form format: the mode-less/unregistered-mode FALLBACK —
+// deliberately not a `REGISTRY` entry of its own, since it is never a mode a
+// `mode:` key names.
+import { freeFormFormat } from "./freeform.js"
+export { freeFormFormat }
+
 export type {
   BlockListItem,
   SteeringAction,
@@ -50,6 +56,18 @@ export { getParseCount } from "./MarkdownTree.js"
 
 /** The built-in `SteeringFormat` registered under `mode`'s name, or `undefined` when it isn't a built-in mode at all. The one place a bare mode-name string is ever looked up — `checkSteering`/`viewOf`/`clearTicks` all take the RESOLVED value this returns, never a name, so "mode is required, never inferred from a file's basename" is a type, not a rule to remember. */
 export const steeringFormatFor = (mode: string): SteeringFormat | undefined => REGISTRY.get(mode)
+
+/**
+ * The ui boundary's own resolution: `mode`'s registered format, or
+ * `freeFormFormat` when `mode` is absent or names nothing in `REGISTRY` —
+ * never `undefined`. `resolveMode` (`SteeringMode.ts`) stays on
+ * `steeringFormatFor` alone, so a workflow naming a mode nothing defines
+ * still fails to compile; this fallback is deliberately reachable only from
+ * `src/ui/View.ts` and `src/ui/Write.ts`, where a mode-less/unknown-mode
+ * document must still render and accept a paragraph note, never refuse.
+ */
+export const steeringFormatOrFreeForm = (mode: string | undefined): SteeringFormat =>
+  (mode !== undefined ? REGISTRY.get(mode) : undefined) ?? freeFormFormat
 
 /** The descriptor a resolved `format` wraps, found by reference — `format` is always literally one of `REGISTRY`'s own values (returned by `steeringFormatFor`), never reconstructed, so identity is exact, not approximate. `undefined` for any other `SteeringFormat` (there are none, today, but a caller that fabricates its own is not this module's problem to guess at). */
 const descriptorOf = (format: SteeringFormat): SteeringDescriptor | undefined =>

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { steeringFormatFor } from "../steering/index.js"
+import { freeFormFormat, steeringFormatFor } from "../steering/index.js"
 import { readSteeringFile } from "./ReadSteeringFile.js"
 import { contentHashOf, liveReadFile } from "./index.js"
 
@@ -28,12 +28,18 @@ describe("readSteeringFile", () => {
     })
   })
 
-  it("returns file-vanished when the file can't be read, never throwing", async () => {
+  it("reads a missing served file as an empty document, rather than refusing", async () => {
     const result = await readSteeringFile(
       { worktreePath: "/repo", filePath: "missing.md", mode: "qa" },
       depsFor({}, "abc123"),
     )
-    expect(result).toEqual({ ok: false, reason: "file-vanished" })
+    expect(result).toEqual({
+      ok: true,
+      content: "",
+      headSha: "abc123",
+      contentHash: contentHashOf(""),
+      view: QA_FORMAT.view(""),
+    })
   })
 
   it("refuses a filePath that escapes the worktree root, as file-vanished, never reaching readFile with a path outside it", async () => {
@@ -69,12 +75,32 @@ describe("readSteeringFile", () => {
     }
   })
 
-  it("returns unsupported-mode for an unregistered mode, never a throw or a stale/empty view", async () => {
+  it("falls back to the free-form format's own view for an unregistered mode, rather than refusing", async () => {
     const result = await readSteeringFile(
       { worktreePath: "/repo", filePath: "x.md", mode: "not-a-real-mode" },
       depsFor({ "/repo/x.md": "content" }, "abc123"),
     )
-    expect(result).toEqual({ ok: false, reason: "unsupported-mode" })
+    expect(result).toEqual({
+      ok: true,
+      content: "content",
+      headSha: "abc123",
+      contentHash: contentHashOf("content"),
+      view: freeFormFormat.view("content"),
+    })
+  })
+
+  it("falls back to the free-form format's own view when mode is absent entirely", async () => {
+    const result = await readSteeringFile(
+      { worktreePath: "/repo", filePath: "x.md", mode: undefined },
+      depsFor({ "/repo/x.md": "content" }, "abc123"),
+    )
+    expect(result).toEqual({
+      ok: true,
+      content: "content",
+      headSha: "abc123",
+      contentHash: contentHashOf("content"),
+      view: freeFormFormat.view("content"),
+    })
   })
 
   it("refuses as head-unresolved when headSha resolves undefined, never an ok:true carrying an empty headSha", async () => {

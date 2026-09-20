@@ -117,6 +117,15 @@ When(
   },
 )
 
+// ── package 02's idle round trip — a real setValue write creating the sketch from scratch, then a real done with no note, against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndSketchThenHandOff) ──
+
+When(
+  "I sketch {string} with the text {string} then hand off via a spawned gtd ui",
+  async (world: GtdWorld, filePath: string, text: string) => {
+    await world.spawnGtdUiAndSketchThenHandOff(filePath, text)
+  },
+)
+
 // ── package 04's Done control — a real done mutation with no note, against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndHandOffNoNote) ──
 
 When("I hand off with no note to a spawned gtd ui", async (world: GtdWorld) => {
@@ -169,3 +178,89 @@ Then(
     assert.ok(!content.includes(text), `expected ${path} not to contain ${JSON.stringify(text)}`)
   },
 )
+
+// ── Package 01 Task 10 — the mode-less steering screen's own e2e coverage (`@live` only, see world.ts#spawnGtdUiAndReadView/#spawnGtdUiAndSetValueWithStaleHash/#spawnGtdUiAndWriteTwiceReusingHash) ──
+
+When(
+  "I hand off {string} with the text {string} to a spawned gtd ui",
+  async (world: GtdWorld, filePath: string, text: string) => {
+    await world.spawnGtdUiAndHandOff(filePath, undefined, text)
+  },
+)
+
+When(
+  "I read the view of {string} via a spawned gtd ui",
+  async (world: GtdWorld, filePath: string) => {
+    await world.spawnGtdUiAndReadView(filePath, undefined)
+  },
+)
+
+Then(
+  "the rendered view has a {string} block at index {int}",
+  (world: GtdWorld, kind: string, index: number) => {
+    const nodes = world.lastSteeringView?.nodes ?? []
+    const node = nodes[index]
+    assert.ok(
+      node !== undefined,
+      `expected a node at index ${index}, got ${nodes.length} node(s): ${JSON.stringify(nodes)}`,
+    )
+    assert.strictEqual(
+      node.block?.kind,
+      kind,
+      `expected node ${index}'s block.kind to be "${kind}", got: ${JSON.stringify(node.block)}`,
+    )
+  },
+)
+
+When(
+  "I edit paragraph {int} of {string} with the text {string} via a spawned gtd ui",
+  async (world: GtdWorld, line: number, filePath: string, text: string) => {
+    await world.spawnGtdUiAndSetValue(filePath, undefined, { kind: "paragraph", line }, { text })
+  },
+)
+
+When(
+  "I attempt to edit paragraph {int} of {string} with the text {string} using a stale token via a spawned gtd ui",
+  async (world: GtdWorld, line: number, filePath: string, text: string) => {
+    await world.spawnGtdUiAndSetValueWithStaleHash(
+      filePath,
+      undefined,
+      { kind: "paragraph", line },
+      { text },
+    )
+  },
+)
+
+Then("the write is refused with reason {string}", (world: GtdWorld, reason: string) => {
+  assert.strictEqual(
+    world.lastWriteRefusal?.reason,
+    reason,
+    `expected a writeRefusal with reason "${reason}", got: ${JSON.stringify(world.lastWriteRefusal)}`,
+  )
+})
+
+When(
+  "I write {string} then {string} to paragraph {int} of {string} via a spawned gtd ui, reusing the first write's returned hash",
+  async (
+    world: GtdWorld,
+    firstText: string,
+    secondText: string,
+    line: number,
+    filePath: string,
+  ) => {
+    await world.spawnGtdUiAndWriteTwiceReusingHash(
+      filePath,
+      undefined,
+      { kind: "paragraph", line },
+      firstText,
+      secondText,
+    )
+  },
+)
+
+Then("the second write succeeded", (world: GtdWorld) => {
+  assert.ok(
+    world.formatWriteResult?.secondOk === true,
+    `expected the second write to succeed, got: ${JSON.stringify(world.formatWriteResult)}`,
+  )
+})

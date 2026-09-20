@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
+import { builtInModeNames } from "../steering/index.js"
 import { App } from "./App.js"
 import { TrpcTestProvider } from "./testing/TrpcTestProvider.js"
 
@@ -192,5 +193,93 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
     expect(canvas.getByTestId("app-loading")).toBeInTheDocument()
     expect(canvasElement.textContent?.length).toBeGreaterThan(0)
     await waitFor(() => expect(canvas.getByTestId("plan-screen")).toBeInTheDocument())
+  },
+}
+
+/** Package 01's own dispatch branch: an ABSENT `mode` falls through to `FreeForm`, never `Plan`/`Review` — the one case that used to refuse to start entirely (Task 9). */
+export const NoModeOpensDirectlyOnTheFreeFormScreen: Story = {
+  decorators: [
+    (Story) => (
+      <TrpcTestProvider
+        resolvers={{
+          step: () => okStep({ file: ".gtd/TODO.md", mode: undefined }),
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth editing.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth editing.",
+                  anchor: { kind: "paragraph", line: 0 },
+                  block: { kind: "paragraph", text: "A paragraph worth editing." },
+                },
+              ],
+            },
+          }),
+        }}
+      >
+        <Story />
+      </TrpcTestProvider>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("freeform-screen")).toBeInTheDocument())
+    expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
+    expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
+  },
+}
+
+/** Package 01's own dispatch branch: an UNREGISTERED `mode` (not "review"/"qa", and not in `steeringFormatFor`'s registry) also falls through to `FreeForm`. */
+export const UnregisteredModeOpensDirectlyOnTheFreeFormScreen: Story = {
+  decorators: [
+    (Story) => (
+      <TrpcTestProvider
+        resolvers={{
+          step: () => okStep({ file: ".gtd/PLAN.md", mode: "custom-mode" }),
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth editing.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth editing.",
+                  anchor: { kind: "paragraph", line: 0 },
+                  block: { kind: "paragraph", text: "A paragraph worth editing." },
+                },
+              ],
+            },
+          }),
+        }}
+      >
+        <Story />
+      </TrpcTestProvider>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("freeform-screen")).toBeInTheDocument())
+    await expect(
+      canvas.getByText('"custom-mode" has no screen — editing as plain markdown'),
+    ).toBeInTheDocument()
+  },
+}
+
+/**
+ * A pinning test for the assumption `App.tsx`'s own dispatch hardcodes:
+ * `"qa"`/`"review"` are the only two names with their own dedicated screen.
+ * If the built-in registry (`steering/index.ts#REGISTRY`) ever grows a third
+ * entry, THIS test breaks — loudly, at the source of truth — rather than
+ * that third format silently rendering `FreeForm` while nothing here notices
+ * `App.tsx`'s dispatch and the registry have quietly diverged.
+ */
+export const TheBuiltInRegistryStillHasExactlyTheTwoModesAppDispatchesByName: Story = {
+  render: () => <></>,
+  play: () => {
+    expect(builtInModeNames()).toEqual(["qa", "review"])
   },
 }

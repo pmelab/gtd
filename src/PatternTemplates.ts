@@ -98,3 +98,13 @@ export interface ModeCommandContext extends TemplateContext {
 /** Render one mode command template — same throw-on-failure discipline as `renderStateTemplate`. `SteeringMode.ts` turns a render failure into a refusal rather than running a half-rendered command. */
 export const renderModeCommand = (template: string, context: ModeCommandContext): string =>
   eta.renderString(template, context)
+
+/**
+ * Renders `ui.format`'s own command template: the same Eta instance every
+ * other template here renders through (no filesystem `include()`), with only
+ * `it.file` bound — the UI write path has no git `TemplateContext` to offer
+ * (it isn't mid-transition), so it gets this narrower sibling instead of
+ * `renderModeCommand`'s full `ModeCommandContext`.
+ */
+export const renderFileCommand = (template: string, file: string): string =>
+  eta.renderString(template, { file })
