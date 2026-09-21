@@ -1,4 +1,5 @@
 import { blockNodesOf } from "./Blocks.js"
+import { eolOf } from "./Eol.js"
 import { footnoteAttachEdits, type FootnoteAnchor } from "./Footnotes.js"
 import { blockNodeAt, parseMarkdown, toLspPosition } from "./MarkdownTree.js"
 import type {
@@ -47,9 +48,17 @@ const freeFormAnnotate: SteeringFormat["annotate"] = (
   return { ok: true, edits: result.edits }
 }
 
-/** A single edit spanning the WHOLE document, replacing it with `newText` — free-form's `apply` reasons about the resulting document as a plain string (splice/join on lines) rather than surgical offset math, since there is no structure here to preserve beyond the blocks themselves. */
+/**
+ * A single edit spanning the WHOLE document, replacing it with `newText` —
+ * free-form's `apply` reasons about the resulting document as a plain string
+ * (splice/join on lines) rather than surgical offset math, since there is no
+ * structure here to preserve beyond the blocks themselves. Its end position
+ * is computed from a plain `"\n"` split — matching `applySteeringEdits`'s own
+ * offset convention (a CRLF line keeps its `\r` as part of the line's own
+ * length) rather than `/\r?\n/`, which would strip it and undercount.
+ */
 const wholeDocumentEdit = (content: string, newText: string): SteeringEdit => {
-  const lines = content.split(/\r?\n/)
+  const lines = content.split("\n")
   return {
     range: {
       start: { line: 0, character: 0 },
@@ -67,9 +76,13 @@ const wholeDocumentEdit = (content: string, newText: string): SteeringEdit => {
  * typed) appends nothing rather than a bare trailing blank line.
  */
 const appendEdit = (content: string, text: string): SteeringEdit => {
+  const eol = eolOf(content)
   const trimmed = content.replace(/\s+$/, "")
-  if (text.length === 0) return wholeDocumentEdit(content, trimmed.length > 0 ? `${trimmed}\n` : "")
-  const newText = trimmed.length > 0 ? `${trimmed}\n\n${text}\n` : `${text}\n`
+  const normalizedText = text.split(/\r?\n/).join(eol)
+  if (text.length === 0)
+    return wholeDocumentEdit(content, trimmed.length > 0 ? `${trimmed}${eol}` : "")
+  const newText =
+    trimmed.length > 0 ? `${trimmed}${eol}${eol}${normalizedText}${eol}` : `${normalizedText}${eol}`
   return wholeDocumentEdit(content, newText)
 }
 
@@ -102,12 +115,14 @@ const freeFormApply: SteeringFormat["apply"] = (content, anchor, opts): Steering
   const startLine = toLspPosition(block.position!.start).line
   const endLine = toLspPosition(block.position!.end).line
 
+  const eol = eolOf(content)
+
   if (text.length === 0) {
     const hasTrailingBlank =
       endLine + 1 <= lastLineIndex && (lines[endLine + 1] ?? "").trim() === ""
     const deleteThroughLine = hasTrailingBlank ? endLine + 1 : endLine
     const newLines = [...lines.slice(0, startLine), ...lines.slice(deleteThroughLine + 1)]
-    return { ok: true, edits: [wholeDocumentEdit(content, newLines.join("\n"))] }
+    return { ok: true, edits: [wholeDocumentEdit(content, newLines.join(eol))] }
   }
 
   const newLines = [
@@ -115,7 +130,7 @@ const freeFormApply: SteeringFormat["apply"] = (content, anchor, opts): Steering
     ...text.split(/\r?\n/),
     ...lines.slice(endLine + 1),
   ]
-  return { ok: true, edits: [wholeDocumentEdit(content, newLines.join("\n"))] }
+  return { ok: true, edits: [wholeDocumentEdit(content, newLines.join(eol))] }
 }
 
 /** Free-form's `view`: every top-level block, in document order, each carrying its own raw source bytes verbatim as `block.text` — no format-specific structure (no questions, no chunks) to project beyond the shared block walk. */

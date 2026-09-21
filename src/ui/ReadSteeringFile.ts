@@ -1,7 +1,7 @@
 import type { SteeringView } from "../steering/index.js"
 import { resolveWithinRoot } from "./SafePath.js"
 import { steeringViewFor } from "./View.js"
-import { contentHashOf } from "./Write.js"
+import { contentHashOf, type ReadFileResult } from "./Write.js"
 
 /**
  * What a screen needs before it can render AND, later, write back through
@@ -36,7 +36,7 @@ export interface ReadSteeringFileRequest {
 /** Injected side effects, mirroring `Write.ts#WriteDeps`'s split. */
 export interface ReadSteeringFileDeps {
   readonly headSha: (worktreePath: string) => Promise<string | undefined>
-  readonly readFile: (absPath: string) => Promise<string | undefined>
+  readonly readFile: (absPath: string) => Promise<ReadFileResult>
 }
 
 /**
@@ -57,8 +57,11 @@ export const readSteeringFile = async (
   if (absPath === undefined) return { ok: false, reason: "file-vanished" }
   // A resolved path with nothing at it yet (a mode-less steering file gtd
   // hasn't written) reads as an empty document, not a refusal — only an
-  // escaping `filePath` (caught above) still refuses `file-vanished`.
-  const content = (await deps.readFile(absPath)) ?? ""
+  // escaping `filePath` (caught above) or a path that's there but couldn't be
+  // read still refuses `file-vanished`, reusing the existing refusal value.
+  const read = await deps.readFile(absPath)
+  if (read.kind === "unreadable") return { ok: false, reason: "file-vanished" }
+  const content = read.kind === "content" ? read.content : ""
 
   const view = steeringViewFor(request.mode, content)
 

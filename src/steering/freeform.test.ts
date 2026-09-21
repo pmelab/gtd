@@ -31,6 +31,45 @@ const applyEdits = (
   return result
 }
 
+/**
+ * Applies edits with the SAME offset convention `applySteeringEdits`
+ * (`src/ui/Write.ts`) uses in production: lines split on a bare `"\n"`, so a
+ * CRLF line keeps its `\r` as part of the line's own length. `applyEdits`
+ * above (this file's pre-existing helper) instead splits on `/\r?\n/`, which
+ * strips `\r` and undercounts offsets in a CRLF document — fine for the
+ * LF-only fixtures every other test in this file uses, but it would silently
+ * corrupt the byte-exact CRLF assertions below. Not a normalizing helper:
+ * mismatched newText/range still round-trips to the WRONG bytes, exactly as
+ * production would.
+ */
+const applyEditsExact = (
+  content: string,
+  edits: readonly { range: unknown; newText: string }[],
+): string => {
+  const lines = content.split("\n")
+  const toOffset = (position: { line: number; character: number }): number => {
+    let offset = 0
+    for (let i = 0; i < position.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
+    return offset + position.character
+  }
+  const sorted = [...edits].sort((a, b) => {
+    const ra = a.range as { start: { line: number; character: number } }
+    const rb = b.range as { start: { line: number; character: number } }
+    return toOffset(rb.start) - toOffset(ra.start)
+  })
+  let result = content
+  for (const edit of sorted) {
+    const range = edit.range as {
+      start: { line: number; character: number }
+      end: { line: number; character: number }
+    }
+    const start = toOffset(range.start)
+    const end = toOffset(range.end)
+    result = result.slice(0, start) + edit.newText + result.slice(end)
+  }
+  return result
+}
+
 describe("freeFormFormat — registry", () => {
   it("is not registered: steeringFormatFor('freeform') returns undefined", () => {
     expect(steeringFormatFor("freeform")).toBeUndefined()
@@ -228,5 +267,66 @@ describe("freeFormFormat.annotate", () => {
     const content = ["Paragraph one.", "", "Paragraph two.", ""].join("\n")
     const result = freeFormFormat.annotate(content, { kind: "paragraph", line: 1 }, "note")
     expect(result).toEqual({ ok: false, reason: "anchor-not-found" })
+  })
+})
+
+describe("freeFormFormat.apply — CRLF documents preserve untouched bytes", () => {
+  it("replacing one block leaves every other line's bytes byte-identical", () => {
+    const content = ["# Heading", "", "Paragraph one.", "", "Paragraph two.", ""].join("\r\n")
+    const result = freeFormFormat.apply(
+      content,
+      { kind: "paragraph", line: 2 },
+      { text: "Edited." },
+    )
+    expect(result.ok).toBe(true)
+    const applied = result.ok ? applyEditsExact(content, result.edits) : ""
+    expect(applied).toBe(["# Heading", "", "Edited.", "", "Paragraph two.", ""].join("\r\n"))
+  })
+
+  it("deleting one block leaves every other line's bytes byte-identical", () => {
+    const content = ["# Heading", "", "Paragraph one.", "", "Paragraph two.", ""].join("\r\n")
+    const result = freeFormFormat.apply(content, { kind: "paragraph", line: 2 }, { text: "" })
+    expect(result.ok).toBe(true)
+    const applied = result.ok ? applyEditsExact(content, result.edits) : ""
+    expect(applied).toBe(["# Heading", "", "Paragraph two.", ""].join("\r\n"))
+  })
+
+  it("appending to a CRLF document uses CRLF for the new bytes too", () => {
+    const content = ["Paragraph one.", ""].join("\r\n")
+    const lastLine = content.split(/\r?\n/).length - 1
+    const result = freeFormFormat.apply(
+      content,
+      { kind: "paragraph", line: lastLine },
+      { text: "New content." },
+    )
+    expect(result.ok).toBe(true)
+    const applied = result.ok ? applyEditsExact(content, result.edits) : ""
+    expect(applied).toBe(["Paragraph one.", "", "New content.", ""].join("\r\n"))
+  })
+
+  it("pasting LF text into a CRLF document introduces no mixed endings", () => {
+    const content = ["# Heading", "", "Paragraph one.", ""].join("\r\n")
+    const result = freeFormFormat.apply(
+      content,
+      { kind: "paragraph", line: 2 },
+      { text: "Line one.\nLine two." },
+    )
+    expect(result.ok).toBe(true)
+    const applied = result.ok ? applyEditsExact(content, result.edits) : ""
+    expect(applied).toBe(["# Heading", "", "Line one.", "Line two.", ""].join("\r\n"))
+    expect(applied).not.toContain("\n\n")
+    expect(applied.replace(/\r\n/g, "")).not.toContain("\n")
+  })
+
+  it("an LF document's existing byte-for-byte behaviour is unchanged", () => {
+    const content = ["# Heading", "", "Paragraph one.", "", "Paragraph two.", ""].join("\n")
+    const result = freeFormFormat.apply(
+      content,
+      { kind: "paragraph", line: 2 },
+      { text: "Edited." },
+    )
+    expect(result.ok).toBe(true)
+    const applied = result.ok ? applyEditsExact(content, result.edits) : ""
+    expect(applied).toBe(["# Heading", "", "Edited.", "", "Paragraph two.", ""].join("\n"))
   })
 })

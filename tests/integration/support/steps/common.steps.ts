@@ -1,6 +1,6 @@
 import { Given, Then, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
-import { writeFileSync, mkdirSync, mkdtempSync, chmodSync } from "node:fs"
+import { writeFileSync, mkdirSync, mkdtempSync, chmodSync, statSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -56,6 +56,20 @@ function writeRepoFile(world: GtdWorld, path: string, content: string, createDir
 
 Given("a file {string} with:", (world: GtdWorld, path: string, content: string) => {
   writeRepoFile(world, path, content)
+})
+
+// A deterministic, root-proof stand-in for a permission error: reading a
+// DIRECTORY where a steering file is expected fails EISDIR the same way on
+// every machine, unlike `chmod 000` (a no-op when the suite runs as root).
+Given("a directory at {string}", (world: GtdWorld, path: string) => {
+  mkdirSync(join(world.repoDir, path), { recursive: true })
+})
+
+Then("{string} is still a directory", (world: GtdWorld, path: string) => {
+  assert.ok(
+    statSync(join(world.repoDir, path)).isDirectory(),
+    `expected ${path} to still be a directory`,
+  )
 })
 
 Given("{string} is modified to:", (world: GtdWorld, path: string, content: string) => {

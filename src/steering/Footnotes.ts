@@ -6,6 +6,7 @@ import {
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
 import type { SteeringEdit, SteeringFinding, SteeringPointer } from "./SteeringFormat.js"
+import { eolOf } from "./Eol.js"
 
 /** One `[^name]` marker's anchor: line AND column of its opening `[` — never the word or sentence it follows, which the reader reads itself. `endCharacter` is the column right after the closing `]`, on the same line (a marker's name has no whitespace, so it never spans a line) — the reference node's (or, for an orphan, the regex match's) own end, never hand-computed from `name.length`. */
 export interface FootnoteMarker {
@@ -393,7 +394,7 @@ export const footnoteAttachEdits = (
   // splice into a CRLF file that inserts bare `\n` would leave a mixed-EOL
   // file behind, which is exactly the byte-level corruption this whole
   // package's offset-splice discipline exists to avoid.
-  const eol = content.includes("\r\n") ? "\r\n" : "\n"
+  const eol = eolOf(content)
   const markerEdit: SteeringEdit = {
     range: {
       start: { line: anchor.line, character: anchor.endCharacter },

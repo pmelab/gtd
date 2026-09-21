@@ -8,6 +8,17 @@ import { FreeForm, FreeFormView } from "./FreeForm.js"
 
 const meta: Meta<typeof FreeFormView> = {
   component: FreeFormView,
+  // Every story in this file mounts `FreeFormView`/`FreeForm`, both of which
+  // read/write real `localStorage` drafts (Task 3) — Storybook runs every
+  // story in this file in ONE headless Chromium, one origin, one
+  // `localStorage`. Several "real container" stories below share
+  // `REAL_FREEFORM_ARGS`'s own `filePath` and the same served block text, so
+  // without this they'd share one draft key and leak an abandoned draft from
+  // one story's rejected/never-cleared edit into the next story's initial
+  // textarea value.
+  beforeEach: () => {
+    localStorage.clear()
+  },
 }
 
 export default meta
@@ -30,7 +41,7 @@ const paragraphNode = (
 
 export const RendersHeadingListCodeParagraphAndLinkStructureNeverARawTextarea: Story = {
   args: {
-    contentHash: "structured-hash",
+    filePath: "/tmp/structured.md",
     isLoading: false,
     view: {
       nodes: [
@@ -80,7 +91,7 @@ export const RendersHeadingListCodeParagraphAndLinkStructureNeverARawTextarea: S
 
 export const EachBlockGetsItsOwnEditAffordanceOpeningATextareaWithRawSource: Story = {
   args: {
-    contentHash: "edit-hash",
+    filePath: "/tmp/edit.md",
     isLoading: false,
     view: {
       nodes: [
@@ -103,7 +114,7 @@ export const EachBlockGetsItsOwnEditAffordanceOpeningATextareaWithRawSource: Sto
 
 export const AppendRowSitsAtTheFootAndOpensATextarea: Story = {
   args: {
-    contentHash: "append-hash",
+    filePath: "/tmp/append.md",
     isLoading: false,
     view: { nodes: [paragraphNode(0, "First paragraph.")] } satisfies SteeringView,
   },
@@ -127,7 +138,7 @@ export const AppendRowSitsAtTheFootAndOpensATextarea: Story = {
 
 export const NoFindingsSurfaceRendersAnywhereOnThisScreen: Story = {
   args: {
-    contentHash: "no-findings-hash",
+    filePath: "/tmp/no-findings.md",
     isLoading: false,
     view: { nodes: [paragraphNode(0, "Some prose.")] } satisfies SteeringView,
   },
@@ -139,7 +150,7 @@ export const NoFindingsSurfaceRendersAnywhereOnThisScreen: Story = {
 
 export const UnregisteredModeNamesItselfInTheHeader: Story = {
   args: {
-    contentHash: "unregistered-mode-hash",
+    filePath: "/tmp/unregistered-mode.md",
     isLoading: false,
     mode: "qq",
     view: { nodes: [paragraphNode(0, "Some prose.")] } satisfies SteeringView,
@@ -154,7 +165,7 @@ export const UnregisteredModeNamesItselfInTheHeader: Story = {
 
 export const ModeLessFileShowsNoFallbackNotice: Story = {
   args: {
-    contentHash: "modeless-hash",
+    filePath: "/tmp/modeless.md",
     isLoading: false,
     view: { nodes: [paragraphNode(0, "Some prose.")] } satisfies SteeringView,
   },
@@ -175,7 +186,7 @@ export const ModeLessFileShowsNoFallbackNotice: Story = {
  */
 export const ARegisteredModeNeverGetsTheNoScreenNotice: Story = {
   args: {
-    contentHash: "registered-mode-hash",
+    filePath: "/tmp/registered-mode.md",
     isLoading: false,
     mode: "qa",
     view: { nodes: [paragraphNode(0, "Some prose.")] } satisfies SteeringView,
@@ -783,10 +794,10 @@ export const AnOpenEditSurvivesABackgroundInvalidate: StoryObj<typeof FreeForm> 
   },
 }
 
-/** The draft is restored on mount (a re-render / remount of the same block after closing and reopening its own edit) from `localStorage`, keyed on `contentHash`/`line`. */
+/** The draft is restored on mount (a re-render / remount of the same block after closing and reopening its own edit) from `localStorage`, keyed on `filePath`/the block's own text discriminator. */
 export const ADraftIsRestoredFromLocalStorageWhenReopeningTheSameBlock: Story = {
   args: {
-    contentHash: "restore-draft-hash",
+    filePath: "/tmp/restore-draft.md",
     isLoading: false,
     view: {
       nodes: [
@@ -822,7 +833,7 @@ export const ADraftIsRestoredFromLocalStorageWhenReopeningTheSameBlock: Story = 
  */
 export const ADraftIsClearedFromLocalStorageAfterASuccessfulSave: Story = {
   args: {
-    contentHash: "clear-draft-hash",
+    filePath: "/tmp/clear-draft.md",
     isLoading: false,
     view: {
       nodes: [
@@ -850,5 +861,133 @@ export const ADraftIsClearedFromLocalStorageAfterASuccessfulSave: Story = {
     // The saved draft is gone — reopening falls back to the block's own
     // current source text, not the cleared localStorage entry.
     await expect(canvas.getByTestId("freeform-edit-textarea-0")).toHaveValue("Original text.")
+  },
+}
+
+/**
+ * A tiny harness for Requirement B's three "the draft key names the file and
+ * the block, never the file's `contentHash`/the block's line" stories below —
+ * each swaps ONE prop (`filePath` or `view`) mid-story via a button, well
+ * after a draft was typed and the block's editor closed, standing in for "the
+ * SAME running `gtd ui` process now serves a different file" or "the file
+ * changed underneath this open tab" without ever remounting `FreeFormView`
+ * itself (a remount would trivially "work" for the wrong reason — a fresh
+ * `useState` lazy initializer re-reading `localStorage` on MOUNT, not a real
+ * re-read triggered by reopening the row).
+ */
+const FreeFormViewPropSwitcher = ({
+  initialFilePath,
+  initialView,
+  nextFilePath,
+  nextView,
+}: {
+  readonly initialFilePath: string
+  readonly initialView: SteeringView
+  readonly nextFilePath?: string
+  readonly nextView?: SteeringView
+}) => {
+  const [filePath, setFilePath] = useState(initialFilePath)
+  const [view, setView] = useState(initialView)
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="switch-props"
+        onClick={() => {
+          if (nextFilePath !== undefined) setFilePath(nextFilePath)
+          if (nextView !== undefined) setView(nextView)
+        }}
+      >
+        Switch
+      </button>
+      <FreeFormView view={view} filePath={filePath} isLoading={false} mode={undefined} />
+    </>
+  )
+}
+
+/** Requirement B's first acceptance bullet: a draft stored against one file's path does not appear when a DIFFERENT file with identical content is opened at the same line. */
+export const ADraftDoesNotFollowToADifferentFileWithIdenticalContent: StoryObj<
+  typeof FreeFormViewPropSwitcher
+> = {
+  render: (args) => <FreeFormViewPropSwitcher {...args} />,
+  args: {
+    initialFilePath: "/tmp/file-a.md",
+    initialView: { nodes: [paragraphNode(0, "Same paragraph text.")] },
+    nextFilePath: "/tmp/file-b.md",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("freeform-edit-0"))
+    await fireEvent.change(canvas.getByTestId("freeform-edit-textarea-0"), {
+      target: { value: "a draft typed against file A" },
+    })
+    await fireEvent.click(canvas.getByTestId("freeform-cancel-0"))
+
+    // Same byte-identical content, same line, but a DIFFERENT served path.
+    await fireEvent.click(canvas.getByTestId("switch-props"))
+    await fireEvent.click(canvas.getByTestId("freeform-edit-0"))
+    await expect(canvas.getByTestId("freeform-edit-textarea-0")).toHaveValue("Same paragraph text.")
+  },
+}
+
+/** Requirement B's second acceptance bullet: a draft survives the file being rewritten underneath it (a `ui.format` run, another block's save, an agent commit — modeled here as the `view` prop being swapped for a freshly-fetched one, same file, same block text). */
+export const ADraftSurvivesTheFileBeingRewrittenUnderneathIt: StoryObj<
+  typeof FreeFormViewPropSwitcher
+> = {
+  render: (args) => <FreeFormViewPropSwitcher {...args} />,
+  args: {
+    initialFilePath: "/tmp/rewritten.md",
+    initialView: { nodes: [paragraphNode(0, "Text that survives a rewrite.")] },
+    nextView: {
+      // A brand new node/view object — standing in for a fresh
+      // `readSteeringFile` result after the file was rewritten — but the
+      // SAME block text, so the draft's own discriminator still matches.
+      nodes: [paragraphNode(0, "Text that survives a rewrite.")],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("freeform-edit-0"))
+    await fireEvent.change(canvas.getByTestId("freeform-edit-textarea-0"), {
+      target: { value: "a draft typed before the rewrite" },
+    })
+    await fireEvent.click(canvas.getByTestId("freeform-cancel-0"))
+
+    await fireEvent.click(canvas.getByTestId("switch-props"))
+    await fireEvent.click(canvas.getByTestId("freeform-edit-0"))
+    await expect(canvas.getByTestId("freeform-edit-textarea-0")).toHaveValue(
+      "a draft typed before the rewrite",
+    )
+  },
+}
+
+/** Requirement B's third acceptance bullet: a draft follows its own block when an EARLIER block is deleted and every other block shifts up a line — proving the key is never the block's own anchor line. */
+export const ADraftFollowsItsBlockWhenAnEarlierBlockIsDeletedAndLinesShift: StoryObj<
+  typeof FreeFormViewPropSwitcher
+> = {
+  render: (args) => <FreeFormViewPropSwitcher {...args} />,
+  args: {
+    initialFilePath: "/tmp/shifting-lines.md",
+    initialView: {
+      nodes: [paragraphNode(0, "First paragraph."), paragraphNode(2, "Second paragraph.")],
+    },
+    // "First paragraph." deleted — "Second paragraph." now sits at line 0.
+    nextView: { nodes: [paragraphNode(0, "Second paragraph.")] },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // Types a draft against "Second paragraph.", which starts at index 1.
+    await fireEvent.click(canvas.getByTestId("freeform-edit-1"))
+    await fireEvent.change(canvas.getByTestId("freeform-edit-textarea-1"), {
+      target: { value: "a draft on the second paragraph" },
+    })
+    await fireEvent.click(canvas.getByTestId("freeform-cancel-1"))
+
+    await fireEvent.click(canvas.getByTestId("switch-props"))
+    // "Second paragraph." is now the ONLY, first (index 0) block.
+    await fireEvent.click(canvas.getByTestId("freeform-edit-0"))
+    await expect(canvas.getByTestId("freeform-edit-textarea-0")).toHaveValue(
+      "a draft on the second paragraph",
+    )
   },
 }

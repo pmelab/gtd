@@ -1241,6 +1241,63 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
+   * Package 01's own EISDIR proof: a REAL `gtd ui` subprocess, a REAL
+   * `setValue` mutation against a `filePath` that resolves to a DIRECTORY on
+   * disk — `liveReadFile` sees a real `EISDIR`, deterministic on every
+   * machine (unlike `chmod 000`, a no-op when the suite runs as root).
+   * Deliberately never reads `filePath` through this process's own `fs` first
+   * (that would throw here, not inside the server) — the request carries a
+   * fixed, always-wrong `expectedContentHash` instead, which never matters:
+   * `verifyForWrite` refuses `file-vanished` on the unreadable read, before
+   * the compare-and-swap ever inspects it. Mirrors
+   * `spawnGtdUiAndSetValueWithStaleHash`'s own refusal-capture shape.
+   */
+  async spawnGtdUiAndSetValueAgainstUnreadableFile(
+    filePath: string,
+    mode: string | undefined,
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<void> {
+    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const { createTRPCClient, httpBatchLink, TRPCClientError } = await import("@trpc/client")
+      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      try {
+        await client.setValue.mutate({
+          filePath,
+          expectedHeadSha: headSha,
+          expectedContentHash: "0".repeat(64),
+          mode,
+          anchor,
+          ...opts,
+        })
+        this.lastWriteRefusal = undefined
+      } catch (error) {
+        assert.ok(
+          error instanceof TRPCClientError,
+          `expected a real TRPCClientError, got: ${String(error)}`,
+        )
+        const data = (error as InstanceType<typeof TRPCClientError>).data as
+          | { writeRefusal?: { reason: string; moved?: string } }
+          | undefined
+        assert.ok(data?.writeRefusal, `expected a writeRefusal on the rejected mutation's data`)
+        this.lastWriteRefusal = data!.writeRefusal
+      }
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    child.kill("SIGTERM")
+    await exited
+  }
+
+  /**
    * Package 01 Task 10's own `ui.format` round trip: a REAL `gtd ui`
    * subprocess, two REAL `setValue` mutations against the SAME anchor — the
    * first against the file's real on-disk token, the second reusing that

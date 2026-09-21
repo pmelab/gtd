@@ -398,6 +398,37 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the file ".gtd/TODO.md" does not contain "Clobber attempt."
 
   @live
+  Scenario: writing against a served path that is a directory refuses instead of truncating it
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": planning
+              planning:
+                actor: human
+                file: "TODO.md"
+                message: "edit the plan"
+      """
+    And a commit "gtd(human): planning" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    And a directory at ".gtd/TODO.md"
+    When I attempt to edit paragraph 0 of ".gtd/TODO.md" with the text "Clobber attempt." against an unreadable file via a spawned gtd ui
+    Then the write is refused with reason "file-vanished"
+    And ".gtd/TODO.md" is still a directory
+
+  @live
   Scenario: handing off a genuinely mode-less rest (no mode key at all) exits 0 with the edit on disk
     Given a test project
     And a gtd config file at ".gtdrc" with:

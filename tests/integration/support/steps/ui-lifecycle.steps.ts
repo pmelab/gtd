@@ -231,6 +231,18 @@ When(
   },
 )
 
+When(
+  "I attempt to edit paragraph {int} of {string} with the text {string} against an unreadable file via a spawned gtd ui",
+  async (world: GtdWorld, line: number, filePath: string, text: string) => {
+    await world.spawnGtdUiAndSetValueAgainstUnreadableFile(
+      filePath,
+      undefined,
+      { kind: "paragraph", line },
+      { text },
+    )
+  },
+)
+
 Then("the write is refused with reason {string}", (world: GtdWorld, reason: string) => {
   assert.strictEqual(
     world.lastWriteRefusal?.reason,
