@@ -10,7 +10,12 @@ const QA_FORMAT = steeringFormatFor("qa")!
 
 const depsFor = (files: Readonly<Record<string, string>>, headSha: string | undefined) => ({
   headSha: () => Promise.resolve(headSha),
-  readFile: (absPath: string) => Promise.resolve(files[absPath]),
+  readFile: (absPath: string) =>
+    Promise.resolve(
+      absPath in files
+        ? { kind: "content" as const, content: files[absPath]! }
+        : { kind: "absent" as const },
+    ),
 })
 
 describe("readSteeringFile", () => {
@@ -50,7 +55,7 @@ describe("readSteeringFile", () => {
         headSha: () => Promise.resolve("abc123"),
         readFile: () => {
           readCalled = true
-          return Promise.resolve(undefined)
+          return Promise.resolve({ kind: "absent" as const })
         },
       },
     )
@@ -101,6 +106,17 @@ describe("readSteeringFile", () => {
       contentHash: contentHashOf("content"),
       view: freeFormFormat.view("content"),
     })
+  })
+
+  it("refuses as file-vanished when the read fails (EISDIR, permission error, …), never falling back to an empty document", async () => {
+    const result = await readSteeringFile(
+      { worktreePath: "/repo", filePath: "x.md", mode: "qa" },
+      {
+        headSha: () => Promise.resolve("abc123"),
+        readFile: () => Promise.resolve({ kind: "unreadable" as const }),
+      },
+    )
+    expect(result).toEqual({ ok: false, reason: "file-vanished" })
   })
 
   it("refuses as head-unresolved when headSha resolves undefined, never an ok:true carrying an empty headSha", async () => {

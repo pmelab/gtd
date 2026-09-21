@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { Card, CardList } from "../Card.js"
+import { useContentHashOverride } from "../contentHashOverride.js"
 import { Deck } from "../Deck.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
@@ -437,14 +438,6 @@ export interface PlanProps {
   readonly mode: string
 }
 
-/** The compare-and-swap token pair every one of `Plan`'s mutation wrappers sends, off the live `readSteeringFile` read — `undefined` when the read hasn't resolved yet, mirroring `Review.tsx`'s identical "no steering file loaded yet" guard. */
-const casTokensFor = (
-  data: { readonly headSha: string; readonly contentHash: string } | undefined,
-): CasTokens | undefined =>
-  data === undefined
-    ? undefined
-    : { expectedHeadSha: data.headSha, expectedContentHash: data.contentHash }
-
 /**
  * Every mutation `Plan` wires up, pulled into one hook so the component
  * itself stays a thin fetch-then-render dispatch (see `useReviewState` in
@@ -452,7 +445,11 @@ const casTokensFor = (
  * instead of its mutations). Every write routes through
  * `staleRetry.ts#withStaleShaRetry` (task 01): a `stale-token`/`moved: "sha"`
  * refusal refetches fresh tokens and retries once, silently, before the
- * banner ever shows.
+ * banner ever shows. The compare-and-swap token itself comes from the shared
+ * `contentHashOverride.ts` hook (package 02 task 1/2) — see its own doc
+ * comment for why a second Save fired before the `onSettled`
+ * invalidate/refetch lands must send the LAST write's own post-format hash,
+ * never the query cache's stale one.
  */
 const usePlanMutations = (
   filePath: string,
@@ -462,6 +459,7 @@ const usePlanMutations = (
   /** Task 5's own `ui.format`-failure sink — `ui.format` runs on every ui write regardless of screen, so `Plan`'s own writes surface it exactly like `FreeForm.tsx`'s do. */
   onFormatNotice: (notice: FormatNotice | undefined) => void,
 ) => {
+  const override = useContentHashOverride()
   const utils = trpc.useUtils()
   const writeNote = trpc.writeNote.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode }),
@@ -477,6 +475,7 @@ const usePlanMutations = (
   // don't fight (see the package's own task 4 doc comment).
   const refetchTokens = async (): Promise<CasTokens> => {
     const fresh = await utils.readSteeringFile.fetch({ filePath, mode })
+    override.clear()
     return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
   }
 
@@ -484,41 +483,54 @@ const usePlanMutations = (
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<unknown> => {
-    const tokens = casTokensFor(data)
+    const tokens = override.casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
       (cas) =>
         setValue.mutateAsync({ filePath, ...cas, mode, anchor, ...opts }).then((result) => {
+          override.onWriteSuccess(result.contentHash)
           onFormatNotice(result.formatNotice)
           return result
         }),
       tokens,
       refetchTokens,
-    )
+    ).catch((error: unknown) => {
+      override.onWriteRefusal(error)
+      throw error
+    })
   }
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = casTokensFor(data)
+    const tokens = override.casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
       (cas) =>
         writeNote.mutateAsync({ filePath, ...cas, mode, anchor, text }).then((result) => {
+          override.onWriteSuccess(result.contentHash)
           onFormatNotice(result.formatNotice)
           return result
         }),
       tokens,
       refetchTokens,
-    )
+    ).catch((error: unknown) => {
+      override.onWriteRefusal(error)
+      throw error
+    })
   }
 
   const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = casTokensFor(data)
+    const tokens = override.casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
-      (cas) => done.mutateAsync({ note: { filePath, ...cas, mode, anchor, text } }),
+      (cas) =>
+        done.mutateAsync({ note: { filePath, ...cas, mode, anchor, text } }).then((result) => {
+          if ("contentHash" in result) override.onWriteSuccess(result.contentHash)
+          return result
+        }),
       tokens,
       refetchTokens,
     ).catch((error: unknown) => {
+      override.onWriteRefusal(error)
       // Shows the reason but never rethrows: `NoteSheet`'s own `onDone` is
       // fire-and-forget (never awaited), so an uncaught rejection this far
       // down would be a real unhandled promise rejection, not just a

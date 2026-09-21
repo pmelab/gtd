@@ -1711,3 +1711,165 @@ export const RealContainerReadsAnAlreadyAnsweredOptionOnFreshMount: StoryObj<typ
     await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
   },
 }
+
+/**
+ * package 02 Requirement A / Task 2's own client-side proof, mirroring
+ * `FreeForm.stories.tsx#RealContainerReusesThePostFormatHashForItsNextWriteNoRefetchNeeded`
+ * applied to `Plan`'s own note-write path: the mock `readSteeringFile`
+ * deliberately never advances its own `contentHash` ("deadbeef", fixed) — a
+ * `ui.format` run on every save makes this the routine case, not an edge
+ * case — so a second note save fired right after the first succeeding, with
+ * no refetch resolving in between, only succeeds if `Plan` swapped its own
+ * compare-and-swap token for the hash the FIRST `writeNote` call actually
+ * returned.
+ */
+export const RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let expectedHash = "deadbeef"
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
+            },
+          }),
+          writeNote: (input) => {
+            const { expectedContentHash, text } = input as {
+              readonly expectedContentHash: string
+              readonly text: string
+            }
+            if (expectedContentHash !== expectedHash) {
+              throw {
+                error: {
+                  message: "gtd ui: write refused (stale-token)",
+                  code: -32600,
+                  data: {
+                    code: "CONFLICT",
+                    writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                  },
+                },
+              }
+            }
+            expectedHash = `deadbeef-${text}`
+            return { ok: true, contentHash: expectedHash }
+          },
+        }}
+      >
+        <Plan {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+
+    await openNoteSeamAndType(canvas, "first note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("first note"),
+    )
+
+    // Fired immediately — the mock `readSteeringFile` still answers with the
+    // ORIGINAL "deadbeef", so this only succeeds off `Plan`'s own local
+    // token override, never the query cache.
+    await openNoteSeamAndType(canvas, "second note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("second note"),
+    )
+    await expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * package 02 Task 2's other own bullet: a `stale-token`/`moved:
+ * "content-hash"` refusal (a genuine concurrent edit) must drop `Plan`'s own
+ * override rather than reuse it forever — mirrors
+ * `FreeForm.stories.tsx#RealContainerRecoversAfterAContentHashRefusalRatherThanWedging`'s
+ * identical sequence, applied to `Plan`'s note-write path: a first save
+ * succeeds (setting the override), a second is refused `content-hash`
+ * regardless of what it sends, and a third — retried via the refusal
+ * banner's own "Try again" — succeeds only by falling back to the
+ * STILL-cached `"deadbeef"`, proving the wedged override was dropped.
+ */
+export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: StoryObj<typeof Plan> =
+  {
+    render: (args) => {
+      let writeNoteCallCount = 0
+      return (
+        <TrpcTestProvider
+          resolvers={{
+            readSteeringFile: () => ({
+              ok: true,
+              content: "A paragraph worth commenting on.",
+              headSha: "abc123",
+              contentHash: "deadbeef",
+              view: {
+                nodes: [
+                  {
+                    title: "A paragraph worth commenting on.",
+                    anchor: { kind: "paragraph", line: 0 },
+                  },
+                ],
+              },
+            }),
+            writeNote: (input) => {
+              writeNoteCallCount += 1
+              const { expectedContentHash } = input as { readonly expectedContentHash: string }
+              if (writeNoteCallCount === 1) {
+                return { ok: true, contentHash: "deadbeef2" }
+              }
+              const refuseContentHash = () => {
+                throw {
+                  error: {
+                    message: "gtd ui: write refused (stale-token)",
+                    code: -32600,
+                    data: {
+                      code: "CONFLICT",
+                      writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                    },
+                  },
+                }
+              }
+              if (writeNoteCallCount === 2) return refuseContentHash()
+              if (expectedContentHash !== "deadbeef") return refuseContentHash()
+              return { ok: true, contentHash: "deadbeef3" }
+            },
+          }}
+        >
+          <Plan {...args} />
+        </TrpcTestProvider>
+      )
+    },
+    args: REAL_PLAN_ARGS,
+    play: async ({ canvasElement }) => {
+      const canvas = within(canvasElement)
+
+      await openNoteSeamAndType(canvas, "first note")
+      await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+      await waitFor(() =>
+        expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("first note"),
+      )
+
+      await openNoteSeamAndType(canvas, "second note")
+      await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+      await waitFor(() =>
+        expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+          "The file's content changed underneath you",
+        ),
+      )
+
+      await fireEvent.click(canvas.getByTestId("refusal-retry"))
+      await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
+    },
+  }

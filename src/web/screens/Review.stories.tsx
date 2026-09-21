@@ -749,6 +749,149 @@ export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof R
 }
 
 /**
+ * package 02 Requirement A / Task 2's own client-side proof, mirroring
+ * `Plan.stories.tsx#RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem`
+ * applied to `Review`'s own note-write path: the mock `readSteeringFile`
+ * never advances its own `contentHash` ("deadbeef", fixed) — standing in for
+ * "before a `ui.format` write's own invalidate/refetch has landed" — so a
+ * second note save fired right after the first succeeding only succeeds if
+ * `Review` swapped its own compare-and-swap token for the hash the FIRST
+ * `writeNote` call actually returned.
+ */
+export const RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem: StoryObj<typeof Review> = {
+  render: (args) => {
+    let expectedHash = "deadbeef"
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: SAMPLE_REVIEW_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          writeNote: (input) => {
+            const { expectedContentHash, text } = input as {
+              readonly expectedContentHash: string
+              readonly text: string
+            }
+            if (expectedContentHash !== expectedHash) {
+              throw {
+                error: {
+                  message: "gtd ui: write refused (stale-token)",
+                  code: -32600,
+                  data: {
+                    code: "CONFLICT",
+                    writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                  },
+                },
+              }
+            }
+            expectedHash = `deadbeef-${text}`
+            return { ok: true, contentHash: expectedHash }
+          },
+        }}
+      >
+        <Review {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+
+    await openChunkNoteAndType(canvas, "first note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note"))
+
+    // Fired immediately — the mock `readSteeringFile` still answers with the
+    // ORIGINAL "deadbeef", so this only succeeds off `Review`'s own local
+    // token override, never the query cache.
+    await openChunkNoteAndType(canvas, "second note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
+    await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note")
+  },
+}
+
+/**
+ * package 02 Task 2's other own bullet, mirroring
+ * `Plan.stories.tsx#RealContainerRecoversAfterAContentHashRefusalRatherThanWedging`
+ * applied to `Review`: a `stale-token`/`moved: "content-hash"` refusal must
+ * drop `Review`'s own override rather than reuse it forever. First save
+ * succeeds (setting the override), a second is refused `content-hash`
+ * regardless of what it sends, and a third — retried via the refusal
+ * banner's own "Try again" — succeeds only by falling back to the
+ * STILL-cached `"deadbeef"`.
+ */
+export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: StoryObj<
+  typeof Review
+> = {
+  render: (args) => {
+    let writeNoteCallCount = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: SAMPLE_REVIEW_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          writeNote: (input) => {
+            writeNoteCallCount += 1
+            const { expectedContentHash } = input as { readonly expectedContentHash: string }
+            if (writeNoteCallCount === 1) {
+              return { ok: true, contentHash: "deadbeef2" }
+            }
+            const refuseContentHash = () => {
+              throw {
+                error: {
+                  message: "gtd ui: write refused (stale-token)",
+                  code: -32600,
+                  data: {
+                    code: "CONFLICT",
+                    writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                  },
+                },
+              }
+            }
+            if (writeNoteCallCount === 2) return refuseContentHash()
+            if (expectedContentHash !== "deadbeef") return refuseContentHash()
+            return { ok: true, contentHash: "deadbeef3" }
+          },
+        }}
+      >
+        <Review {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+
+    await openChunkNoteAndType(canvas, "first note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note"))
+
+    await openChunkNoteAndType(canvas, "second note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+        "The file's content changed underneath you",
+      ),
+    )
+
+    await fireEvent.click(canvas.getByTestId("refusal-retry"))
+    await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
+  },
+}
+
+/**
  * A refused write (a stale-token `CONFLICT`, here standing in for any
  * `writeNote` failure) must revert the optimistic local note override —
  * otherwise the badge keeps claiming a footnote that was never actually

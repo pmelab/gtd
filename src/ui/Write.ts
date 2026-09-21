@@ -105,12 +105,25 @@ export interface WriteValueRequest {
  * no caching layer anywhere in this package to lean on instead; `Beat.ts#readStep`
  * itself re-reads the worktree on every call too.
  */
+/**
+ * `WriteDeps.readFile`/`ReadSteeringFileDeps.readFile`'s own return shape —
+ * carries the "nothing is there yet" vs "I could not read what's there"
+ * distinction that `liveReadFile` alone can see (it's the only place with the
+ * real `errno`), so every call site reads a tag it cannot ignore instead of a
+ * bare `string | undefined` that collapses both into the same falsy value.
+ * Only `absent` may create-on-write; `unreadable` always refuses.
+ */
+export type ReadFileResult =
+  | { readonly kind: "content"; readonly content: string }
+  | { readonly kind: "absent" }
+  | { readonly kind: "unreadable" }
+
 export interface WriteDeps {
   readonly headSha: (worktreePath: string) => Promise<string | undefined>
   /** The actor the worktree currently rests with (`"human"`/`"agent"`/etc, `StateFields.ts`'s `Actor`) — `undefined` when it can't be determined (treated as not-resting-with-a-human, never as an implicit pass). */
   readonly actorAt: (worktreePath: string) => Promise<string | undefined>
-  /** `undefined` means the file doesn't exist (or can't be read) — never thrown. */
-  readonly readFile: (absPath: string) => Promise<string | undefined>
+  /** Tagged `absent`/`unreadable`/`content` — see `ReadFileResult`. Never thrown. */
+  readonly readFile: (absPath: string) => Promise<ReadFileResult>
   readonly writeFile: (absPath: string, content: string) => Promise<void>
   /**
    * `ui.format`'s own live spawn, `undefined` exactly when that config key is
@@ -184,8 +197,11 @@ const verifyForWrite = async (
 
   // A resolved path with nothing at it yet (never written) reads as empty and
   // lets the write through — only a `filePath` escaping the worktree (caught
-  // by `resolveWithinRoot` before this is ever called) refuses `file-vanished`.
-  const content = (await deps.readFile(absPath)) ?? ""
+  // by `resolveWithinRoot` before this is ever called), or a path that IS
+  // there but couldn't be read, refuses `file-vanished`.
+  const read = await deps.readFile(absPath)
+  if (read.kind === "unreadable") return { ok: false, reason: "file-vanished" }
+  const content = read.kind === "content" ? read.content : ""
 
   const [sha, hash] = [await deps.headSha(request.worktreePath), contentHashOf(content)]
   if (sha !== request.expectedHeadSha) return { ok: false, reason: "stale-token", moved: "sha" }
@@ -224,7 +240,8 @@ const finishWrite = async (
     exitCode: null,
     cause: error,
   }))
-  const formatted = (await deps.readFile(absPath)) ?? nextContent
+  const reread = await deps.readFile(absPath)
+  const formatted = reread.kind === "content" ? reread.content : nextContent
   return {
     ok: true,
     contentHash: contentHashOf(formatted),
@@ -311,12 +328,22 @@ export const liveActorAt = async (worktreePath: string): Promise<string | undefi
   }
 }
 
-/** Live `readFile`/`writeFile`: `undefined` on any read failure (vanished file, permission error, …), never thrown — matches `WriteDeps.readFile`'s contract. */
-export const liveReadFile = async (absPath: string): Promise<string | undefined> => {
+/**
+ * Live `readFile`: the only place that sees the real `errno`, so the only
+ * place that classifies. `ENOENT`/`ENOTDIR` (nothing there yet) is `absent`;
+ * every other failure — `EACCES`, `EISDIR`, `EPERM`, `EIO`, `EMFILE`,
+ * anything unrecognised, or a non-`Error` throw — is `unreadable`. Fails
+ * closed: an unrecognised failure never becomes `absent`, because `absent` is
+ * the branch that authorises a truncating create-on-write. Never throws.
+ */
+export const liveReadFile = async (absPath: string): Promise<ReadFileResult> => {
   try {
-    return await readFileFs(absPath, "utf8")
-  } catch {
-    return undefined
+    const content = await readFileFs(absPath, "utf8")
+    return { kind: "content", content }
+  } catch (error) {
+    const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined
+    if (code === "ENOENT" || code === "ENOTDIR") return { kind: "absent" }
+    return { kind: "unreadable" }
   }
 }
 

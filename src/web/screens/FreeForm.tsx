@@ -1,13 +1,14 @@
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { steeringFormatFor } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { CardList } from "../Card.js"
+import { useContentHashOverride } from "../contentHashOverride.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
-import { readRefusalFrom, trpc, writeRefusalFrom } from "../api.js"
+import { readRefusalFrom, trpc } from "../api.js"
 import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
 import { ProseBlock } from "./ProseBlock.js"
 
@@ -22,19 +23,62 @@ import { ProseBlock } from "./ProseBlock.js"
  */
 const APPEND_LINE = Number.MAX_SAFE_INTEGER
 
-/** `gtd:freeform-draft:<contentHash>:<line>` — keyed on the file's own `contentHash` (a rewrite starts a fresh draft namespace, mirroring `Plan.tsx#usePlanReadConfirmation`'s identical reasoning) and the block's own anchor line (`APPEND_LINE` for the append row). */
-const draftStorageKey = (contentHash: string, line: number): string =>
-  `gtd:freeform-draft:${contentHash}:${line}`
+/** The append row's own draft discriminator — a fixed sentinel, never a hash: there is no served block text to hash for a row that doesn't exist in the document yet. */
+const APPEND_DISCRIMINATOR = "append"
 
-const readDraft = (contentHash: string, line: number): string | undefined =>
-  localStorage.getItem(draftStorageKey(contentHash, line)) ?? undefined
-
-const writeDraft = (contentHash: string, line: number, text: string): void => {
-  localStorage.setItem(draftStorageKey(contentHash, line), text)
+/**
+ * A synchronous FNV-1a (32-bit), base36-encoded — `crypto.subtle` is async
+ * and cannot run inside a keystroke's `onChange` handler, and this is a
+ * NAMESPACE key, never a security boundary, so a fast non-cryptographic hash
+ * is the right tool. Two byte-identical blocks in one file collide onto the
+ * same draft (an accepted consequence — see the package's own doc comment).
+ */
+const fnv1aBase36 = (text: string): string => {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
 }
 
-const clearDraft = (contentHash: string, line: number): void => {
-  localStorage.removeItem(draftStorageKey(contentHash, line))
+/**
+ * The draft key's own per-block half — a hash of the block's text AS SERVED
+ * (`node.block.text`), never of whatever is currently in the draft textarea:
+ * hashing the live draft would change the key on every keystroke, losing the
+ * very draft it's meant to find again.
+ */
+const blockDiscriminatorOf = (node: SteeringViewNode): string =>
+  fnv1aBase36(node.block?.text ?? node.title)
+
+/**
+ * `gtd:freeform-draft:<filePath>:<blockDiscriminator>` — keyed on the file's
+ * OWN served path (never its `contentHash`: a `ui.format` run, another
+ * block's save, or an agent commit rewrites the file mid-type today, and a
+ * hash-keyed draft would silently vanish underneath the person typing it) and
+ * the block's own text-derived discriminator (never its anchor line: a block
+ * added or removed above shifts every line below it, which would otherwise
+ * surface a draft against the wrong block entirely).
+ */
+const draftStorageKey = (filePath: string, blockDiscriminator: string): string =>
+  `gtd:freeform-draft:${filePath}:${blockDiscriminator}`
+
+const readDraft = (filePath: string, blockDiscriminator: string): string | undefined =>
+  localStorage.getItem(draftStorageKey(filePath, blockDiscriminator)) ?? undefined
+
+const writeDraft = (filePath: string, blockDiscriminator: string, text: string): void => {
+  try {
+    localStorage.setItem(draftStorageKey(filePath, blockDiscriminator), text)
+  } catch {
+    // A `QuotaExceededError` (or any other storage failure) must not escape
+    // an `onChange` handler and break typing outright — the draft just isn't
+    // persisted this keystroke; the textarea's own `value` state still holds
+    // what was typed.
+  }
+}
+
+const clearDraft = (filePath: string, blockDiscriminator: string): void => {
+  localStorage.removeItem(draftStorageKey(filePath, blockDiscriminator))
 }
 
 /** `node.anchor`'s own line — every free-form `view.nodes` entry carries a `paragraph` anchor (`freeform.ts#freeFormView`), so this only ever falls back to `index` for a malformed node. */
@@ -43,7 +87,8 @@ const lineOf = (node: SteeringViewNode, index: number): number =>
 
 export interface FreeFormViewProps {
   readonly view: SteeringView | undefined
-  readonly contentHash: string
+  /** The served file's own path — see `draftStorageKey`'s doc comment for why the draft key names this, never the file's `contentHash`. */
+  readonly filePath: string
   readonly isLoading: boolean
   readonly readError?: unknown
   /** The step's own `mode`, when present but unregistered (this screen never renders for `"review"`/`"qa"` — `App.tsx` dispatches those elsewhere) — named in the header rather than hidden, per the package's own "typo'd mode degrades, never silently" requirement. */
@@ -61,8 +106,7 @@ export interface FreeFormViewProps {
 const FreeFormBlockRow = ({
   node,
   index,
-  line,
-  contentHash,
+  filePath,
   isOpen,
   onOpen,
   onClose,
@@ -73,8 +117,7 @@ const FreeFormBlockRow = ({
 }: {
   readonly node: SteeringViewNode
   readonly index: number
-  readonly line: number
-  readonly contentHash: string
+  readonly filePath: string
   readonly isOpen: boolean
   readonly onOpen: () => void
   readonly onClose: () => void
@@ -83,8 +126,9 @@ const FreeFormBlockRow = ({
   readonly noteOverrides: Readonly<Record<number, string>>
   readonly onOpenNote: (node: SteeringViewNode) => void
 }) => {
+  const discriminator = blockDiscriminatorOf(node)
   const [draft, setDraft] = useState<string>(
-    () => readDraft(contentHash, line) ?? node.block?.text ?? "",
+    () => readDraft(filePath, discriminator) ?? node.block?.text ?? "",
   )
 
   if (!isOpen) {
@@ -101,7 +145,7 @@ const FreeFormBlockRow = ({
             variant="ghost"
             data-testid={`freeform-edit-${index}`}
             onClick={() => {
-              setDraft(readDraft(contentHash, line) ?? node.block?.text ?? "")
+              setDraft(readDraft(filePath, discriminator) ?? node.block?.text ?? "")
               onOpen()
             }}
           >
@@ -132,7 +176,7 @@ const FreeFormBlockRow = ({
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value)
-          writeDraft(contentHash, line, e.target.value)
+          writeDraft(filePath, discriminator, e.target.value)
         }}
         className="min-h-32 w-full resize-none rounded border border-border bg-surface p-2 text-[16px] text-text"
       />
@@ -150,7 +194,7 @@ const FreeFormBlockRow = ({
             // clearing it, so nothing typed is lost.
             onSave(draft)
               .then(() => {
-                clearDraft(contentHash, line)
+                clearDraft(filePath, discriminator)
                 onClose()
               })
               .catch(() => {})
@@ -165,19 +209,19 @@ const FreeFormBlockRow = ({
 
 /** The append row: a persistent last child (no scroll past the document's own length needed to reach it) opening the SAME textarea shape as any other block's edit, anchored at `APPEND_LINE`. */
 const AppendRow = ({
-  contentHash,
+  filePath,
   isOpen,
   onOpen,
   onClose,
   onSave,
 }: {
-  readonly contentHash: string
+  readonly filePath: string
   readonly isOpen: boolean
   readonly onOpen: () => void
   readonly onClose: () => void
   readonly onSave: (text: string) => Promise<unknown>
 }) => {
-  const [draft, setDraft] = useState<string>(() => readDraft(contentHash, APPEND_LINE) ?? "")
+  const [draft, setDraft] = useState<string>(() => readDraft(filePath, APPEND_DISCRIMINATOR) ?? "")
 
   if (!isOpen) {
     return (
@@ -185,7 +229,7 @@ const AppendRow = ({
         variant="ghost"
         data-testid="freeform-append-open"
         onClick={() => {
-          setDraft(readDraft(contentHash, APPEND_LINE) ?? "")
+          setDraft(readDraft(filePath, APPEND_DISCRIMINATOR) ?? "")
           onOpen()
         }}
         className="w-full border-t border-border px-3 py-3 text-left"
@@ -202,7 +246,7 @@ const AppendRow = ({
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value)
-          writeDraft(contentHash, APPEND_LINE, e.target.value)
+          writeDraft(filePath, APPEND_DISCRIMINATOR, e.target.value)
         }}
         className="min-h-32 w-full resize-none rounded border border-border bg-surface p-2 text-[16px] text-text"
       />
@@ -216,7 +260,7 @@ const AppendRow = ({
           onClick={() => {
             onSave(draft)
               .then(() => {
-                clearDraft(contentHash, APPEND_LINE)
+                clearDraft(filePath, APPEND_DISCRIMINATOR)
                 setDraft("")
                 onClose()
               })
@@ -237,7 +281,7 @@ const freeFormLoadingMessage = (isLoading: boolean, readError: unknown): string 
 }
 
 /**
- * Presentational free-form screen — takes `view`/`contentHash` as props so
+ * Presentational free-form screen — takes `view`/`filePath` as props so
  * `FreeForm.stories.tsx` can drive every shape with plain data, mirroring
  * `Plan.tsx#PlanView`'s own split. No findings surface anywhere here: a
  * mode-less file validates nothing (`freeform.ts`'s own `validate` is a
@@ -246,7 +290,7 @@ const freeFormLoadingMessage = (isLoading: boolean, readError: unknown): string 
 // fallow-ignore-next-line complexity
 export const FreeFormView = ({
   view,
-  contentHash,
+  filePath,
   isLoading,
   readError,
   mode,
@@ -317,8 +361,7 @@ export const FreeFormView = ({
                 key={line}
                 node={node}
                 index={index}
-                line={line}
-                contentHash={contentHash}
+                filePath={filePath}
                 isOpen={openLine === line}
                 onOpen={() => setOpenLine(line)}
                 onClose={() => setOpenLine(undefined)}
@@ -353,7 +396,7 @@ export const FreeFormView = ({
        */}
       <div className="shrink-0">
         <AppendRow
-          contentHash={contentHash}
+          filePath={filePath}
           isOpen={openLine === APPEND_LINE}
           onOpen={() => setOpenLine(APPEND_LINE)}
           onClose={() => setOpenLine(undefined)}
@@ -404,29 +447,7 @@ export interface FreeFormProps {
   readonly mode: string | undefined
 }
 
-const casTokensFor = (
-  data: { readonly headSha: string; readonly contentHash: string } | undefined,
-  /**
-   * Task 6's own client half: the LAST `contentHash` a write of ours actually
-   * resolved with (post-format), when we have one — overrides whatever the
-   * query cache still carries, so a second Save fired before the
-   * `onSettled` invalidate/refetch lands sends the token the server itself
-   * just handed back, not the pre-write one. `undefined` until this
-   * component's own first successful write; a stale/wrong override then only
-   * matters if a genuine concurrent edit landed underneath us, in which case
-   * `stale-token`/`moved:"content-hash"` refusing is the CORRECT outcome
-   * `withStaleShaRetry` deliberately never papers over.
-   */
-  contentHashOverride: string | undefined,
-): CasTokens | undefined =>
-  data === undefined
-    ? undefined
-    : {
-        expectedHeadSha: data.headSha,
-        expectedContentHash: contentHashOverride ?? data.contentHash,
-      }
-
-/** Every mutation `FreeForm` wires up — mirrors `Plan.tsx#usePlanMutations`'s identical shape, using `setValue` (`SteeringFormat.apply`) for every block write since free-form has no note-shaped `annotate` call here: an edit/delete/append is a whole-block replace, not a footnote attach. */
+/** Every mutation `FreeForm` wires up — mirrors `Plan.tsx#usePlanMutations`'s identical shape, using `setValue` (`SteeringFormat.apply`) for every block write since free-form has no note-shaped `annotate` call here: an edit/delete/append is a whole-block replace, not a footnote attach. Task 1's own token bookkeeping (the "consecutive writes with no refetch" override, and dropping it on a `stale-token` refusal) now lives in the shared `contentHashOverride.ts` hook — see its own doc comment for the WHY, kept there once for all three screens instead of copied here. */
 const useFreeFormMutations = (
   filePath: string,
   mode: string | undefined,
@@ -434,23 +455,7 @@ const useFreeFormMutations = (
   /** Task 6/5's own client-side sinks: called on every successful write with the post-format `contentHash` (token swap) and, when the configured `ui.format` command failed, the `formatNotice` naming it — never on a refusal, which the caller's own `.catch` handles separately. */
   onWriteSuccess: (contentHash: string, formatNotice?: FormatNotice) => void,
 ) => {
-  // A `useRef`, NOT `useState` — `onSave`/`onSaveNote` below get handed to
-  // `useRefusal`'s own "Try again" as a bare closure
-  // (`onRefusal?.(error, () => onSave(line, text))`, in `FreeFormView`),
-  // stored in THAT hook's own state and invoked an arbitrary number of
-  // renders later. A `useState` value read inside `onSave`/`onSaveNote`
-  // would stay whatever `contentHashOverride` was AT THE RENDER the retry
-  // thunk was captured on — frozen, never seeing a LATER
-  // `setContentHashOverride` this same hook call performs before the retry
-  // fires — since a plain closure doesn't re-run when state changes; only a
-  // NEW render's closure would see the new value, and nothing re-creates the
-  // stored retry thunk on a state change alone. Never rendered anywhere
-  // (nothing displays it), so there is no re-render to trigger either — a
-  // ref is both correct and simpler here.
-  const contentHashOverrideRef = useRef<string | undefined>(undefined)
-  const setContentHashOverride = (value: string | undefined): void => {
-    contentHashOverrideRef.current = value
-  }
+  const override = useContentHashOverride()
   const utils = trpc.useUtils()
   const setValue = trpc.setValue.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode }),
@@ -462,7 +467,7 @@ const useFreeFormMutations = (
 
   const refetchTokens = async (): Promise<CasTokens> => {
     const fresh = await utils.readSteeringFile.fetch({ filePath, mode })
-    setContentHashOverride(undefined)
+    override.clear()
     return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
   }
 
@@ -471,29 +476,12 @@ const useFreeFormMutations = (
     readonly contentHash: string
     readonly formatNotice?: FormatNotice
   }): void => {
-    setContentHashOverride(result.contentHash)
+    override.onWriteSuccess(result.contentHash)
     onWriteSuccess(result.contentHash, result.formatNotice)
   }
 
-  /**
-   * The other half of Task 6's own token bookkeeping: a `stale-token`
-   * refusal — `moved: "sha"` OR `"content-hash"` — means our own override no
-   * longer describes reality (a genuine concurrent edit, most likely for
-   * `"content-hash"`), so it's dropped rather than reused forever. Without
-   * this, `withStaleShaRetry` only clears/refreshes on a `"sha"` move (via
-   * `refetchTokens`); a `"content-hash"` refusal left the override standing,
-   * wedging every later write behind the SAME stale token — including the
-   * refusal banner's own "Try again", which re-enters this exact path — until
-   * a full page reload. Falling back to `data.contentHash` (whatever the
-   * `onSettled` invalidate's own refetch already landed, or will shortly) is
-   * always at least as fresh as the override it replaces.
-   */
-  const dropStaleOverrideOn = (error: unknown): void => {
-    if (writeRefusalFrom(error)?.reason === "stale-token") setContentHashOverride(undefined)
-  }
-
   const onSave = (line: number, text: string): Promise<unknown> => {
-    const tokens = casTokensFor(data, contentHashOverrideRef.current)
+    const tokens = override.casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
       (cas) =>
@@ -512,7 +500,7 @@ const useFreeFormMutations = (
       tokens,
       refetchTokens,
     ).catch((error: unknown) => {
-      dropStaleOverrideOn(error)
+      override.onWriteRefusal(error)
       throw error
     })
   }
@@ -520,7 +508,7 @@ const useFreeFormMutations = (
   const onDelete = (line: number): Promise<unknown> => onSave(line, "")
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = casTokensFor(data, contentHashOverrideRef.current)
+    const tokens = override.casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
       (cas) =>
@@ -531,7 +519,7 @@ const useFreeFormMutations = (
       tokens,
       refetchTokens,
     ).catch((error: unknown) => {
-      dropStaleOverrideOn(error)
+      override.onWriteRefusal(error)
       throw error
     })
   }
@@ -541,9 +529,9 @@ const useFreeFormMutations = (
   return { onSave, onDelete, onSaveNote, onDone, isDone: done.isSuccess }
 }
 
-const freeFormViewDataProps = (
-  data: { readonly view?: SteeringView; readonly contentHash?: string } | undefined,
-) => ({ view: data?.view, contentHash: data?.contentHash ?? "" })
+const freeFormViewDataProps = (data: { readonly view?: SteeringView } | undefined) => ({
+  view: data?.view,
+})
 
 /**
  * The real free-form screen: fetches content/`view`/tokens through
@@ -589,6 +577,7 @@ export const FreeForm = ({ filePath, mode }: FreeFormProps) => {
       ) : (
         <FreeFormView
           {...freeFormViewDataProps(query.data)}
+          filePath={filePath}
           isLoading={query.isLoading}
           readError={query.error}
           mode={mode}

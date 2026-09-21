@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
@@ -12,6 +12,13 @@ import {
   writeValue,
   type WriteDeps,
 } from "./Write.js"
+import type { ReadFileResult } from "./index.js"
+
+/** Shorthand for a `readFile` double returning `content` — the common case. */
+const content = (text: string): Promise<ReadFileResult> =>
+  Promise.resolve({ kind: "content", content: text })
+/** Shorthand for a `readFile` double returning `absent` — a mode-less file gtd hasn't written yet. */
+const absent = (): Promise<ReadFileResult> => Promise.resolve({ kind: "absent" })
 
 const REVIEW_FORMAT = steeringFormatFor("review")!
 
@@ -43,7 +50,7 @@ const QA_CONTENT = [
 const fakeDeps = (overrides: Partial<WriteDeps> = {}): WriteDeps => ({
   headSha: vi.fn(async () => "sha1"),
   actorAt: vi.fn(async () => "human"),
-  readFile: vi.fn(async () => CONTENT),
+  readFile: vi.fn(() => content(CONTENT)),
   writeFile: vi.fn(async () => undefined),
   ...overrides,
 })
@@ -66,6 +73,39 @@ const baseValueRequest = () => ({
   mode: "review",
   anchor: { kind: "hunk" as const, chunkIndex: 0, index: 0 },
   checked: true,
+})
+
+describe("liveReadFile", () => {
+  it("a path that was never written classifies as absent, not unreadable", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gtd-liveread-"))
+    try {
+      expect(await liveReadFile(join(root, "never-written.md"))).toEqual({ kind: "absent" })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("a directory at the path (EISDIR) classifies as unreadable, real on-disk — the deterministic stand-in for a permission error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gtd-liveread-"))
+    try {
+      const asDir = join(root, "actually-a-dir.md")
+      mkdirSync(asDir)
+      expect(await liveReadFile(asDir)).toEqual({ kind: "unreadable" })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("reads real content when the file is there", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gtd-liveread-"))
+    try {
+      const filePath = join(root, "file.md")
+      writeFileSync(filePath, "hello")
+      expect(await liveReadFile(filePath)).toEqual({ kind: "content", content: "hello" })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe("applySteeringEdits", () => {
@@ -145,7 +185,7 @@ describe("writeNote", () => {
   })
 
   it("rejects a write whose content hash moved, and the file is untouched", async () => {
-    const deps = fakeDeps({ readFile: vi.fn(async () => CONTENT + "\n") })
+    const deps = fakeDeps({ readFile: vi.fn(() => content(CONTENT + "\n")) })
     const result = await writeNote(baseRequest(), deps)
     expect(result).toEqual({ ok: false, reason: "stale-token", moved: "content-hash" })
     expect(deps.writeFile).not.toHaveBeenCalled()
@@ -153,7 +193,7 @@ describe("writeNote", () => {
 
   it("the content hash is over the file's exact bytes, so a whitespace-only change invalidates it", async () => {
     const withTrailingSpace = CONTENT.replace("## Chunk", "## Chunk ")
-    const deps = fakeDeps({ readFile: vi.fn(async () => withTrailingSpace) })
+    const deps = fakeDeps({ readFile: vi.fn(() => content(withTrailingSpace)) })
     // `baseRequest()`'s `expectedContentHash` is over the ORIGINAL `CONTENT`
     // bytes — the file on disk now differs by one trailing space only.
     const result = await writeNote(baseRequest(), deps)
@@ -174,7 +214,7 @@ describe("writeNote", () => {
     const shaResult = await writeNote(baseRequest(), fakeDeps({ headSha: vi.fn(async () => "x") }))
     const hashResult = await writeNote(
       baseRequest(),
-      fakeDeps({ readFile: vi.fn(async () => "different") }),
+      fakeDeps({ readFile: vi.fn(() => content("different")) }),
     )
     expect(shaResult).toMatchObject({ moved: "sha" })
     expect(hashResult).toMatchObject({ moved: "content-hash" })
@@ -215,7 +255,7 @@ describe("writeNote", () => {
   })
 
   it("a served file absent at write time (a mode-less file gtd hasn't written yet) is treated as empty, not vanished — the anchor still has to resolve against that empty document", async () => {
-    const deps = fakeDeps({ readFile: vi.fn(async () => undefined) })
+    const deps = fakeDeps({ readFile: vi.fn(() => absent()) })
     const request = {
       ...baseRequest(),
       mode: undefined,
@@ -226,6 +266,25 @@ describe("writeNote", () => {
     // footnote to — free-form's `anchor-not-found`, never `file-vanished`.
     // Proves `verifyForWrite` got past the "file exists?" question at all.
     expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "anchor-unresolved" })
+  })
+
+  it("a file that IS there but can't be read (EACCES, EIO, …) refuses as file-vanished — never truncated as if it were absent", async () => {
+    const deps = fakeDeps({
+      readFile: vi.fn(() => Promise.resolve({ kind: "unreadable" as const })),
+    })
+    const result = await writeNote(baseRequest(), deps)
+    expect(result).toEqual({ ok: false, reason: "file-vanished" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("an unreadable file refuses even when the expected content hash is the hash of empty content — the empty-content compare-and-swap never masks an unreadable file as absent", async () => {
+    const deps = fakeDeps({
+      readFile: vi.fn(() => Promise.resolve({ kind: "unreadable" as const })),
+    })
+    const request = { ...baseRequest(), expectedContentHash: contentHashOf("") }
+    const result = await writeNote(request, deps)
+    expect(result).toEqual({ ok: false, reason: "file-vanished" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
   })
 
   it("an anchor that no longer resolves is rejected, not silently dropped", async () => {
@@ -265,7 +324,7 @@ describe("writeNote", () => {
     const alreadyNotedContent = applySteeringEdits(CONTENT, firstAttach.edits)
 
     const deps = fakeDeps({
-      readFile: vi.fn(async () => alreadyNotedContent),
+      readFile: vi.fn(() => content(alreadyNotedContent)),
       writeFile: vi.fn(async () => undefined),
     })
     const request = {
@@ -288,7 +347,7 @@ describe("writeNote", () => {
     const scenarios: Partial<WriteDeps>[] = [
       { actorAt: vi.fn(async () => "agent") },
       { headSha: vi.fn(async () => "wrong") },
-      { readFile: vi.fn(async () => undefined) },
+      { readFile: vi.fn(() => absent()) },
     ]
     for (const overrides of scenarios) {
       const deps = fakeDeps(overrides)
@@ -307,7 +366,7 @@ describe("writeNote", () => {
     const deps: WriteDeps = {
       headSha: async () => "sha1",
       actorAt: async () => "human",
-      readFile: async () => stored,
+      readFile: async () => content(stored),
       writeFile: async (_path, content) => {
         writes.push(content)
         stored = content
@@ -349,7 +408,7 @@ describe("writeValue", () => {
   })
 
   it("commits checked and text together in ONE call for a qa free-text slot, landing the label change in the written bytes", async () => {
-    const deps = fakeDeps({ readFile: vi.fn(async () => QA_CONTENT) })
+    const deps = fakeDeps({ readFile: vi.fn(() => content(QA_CONTENT)) })
     const request = {
       worktreePath: WORKTREE,
       filePath: FILE,
@@ -381,7 +440,7 @@ describe("writeValue", () => {
   })
 
   it("rejects a write whose content hash moved, and the file is untouched", async () => {
-    const deps = fakeDeps({ readFile: vi.fn(async () => CONTENT + "\n") })
+    const deps = fakeDeps({ readFile: vi.fn(() => content(CONTENT + "\n")) })
     const result = await writeValue(baseValueRequest(), deps)
     expect(result).toEqual({ ok: false, reason: "stale-token", moved: "content-hash" })
     expect(deps.writeFile).not.toHaveBeenCalled()
@@ -397,7 +456,7 @@ describe("writeValue", () => {
   })
 
   it("a served file absent at write time is treated as empty, and appending to it CREATES the file rather than refusing", async () => {
-    const deps = fakeDeps({ readFile: vi.fn(async () => undefined) })
+    const deps = fakeDeps({ readFile: vi.fn(() => absent()) })
     const request = {
       worktreePath: WORKTREE,
       filePath: FILE,
@@ -473,7 +532,7 @@ describe("writeValue", () => {
       "  - [ ] ./b.ts#2 nested hunk",
       "",
     ].join("\n")
-    const deps = fakeDeps({ readFile: vi.fn(async () => nestedContent) })
+    const deps = fakeDeps({ readFile: vi.fn(() => content(nestedContent)) })
     const request = {
       ...baseValueRequest(),
       expectedContentHash: contentHashOf(nestedContent),
@@ -499,7 +558,7 @@ describe("writeValue — ui.format's post-write formatCommand", () => {
     const deps: WriteDeps = {
       headSha: async () => "sha1",
       actorAt: async () => "human",
-      readFile: async () => stored,
+      readFile: async () => content(stored),
       writeFile: async (_path, content) => {
         stored = content
       },
@@ -521,6 +580,32 @@ describe("writeValue — ui.format's post-write formatCommand", () => {
     const onDisk = diskAfter()
     expect(onDisk).toContain("<!-- formatted -->")
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(onDisk) })
+  })
+
+  it("finishWrite's post-format re-read is not hardened: an unreadable re-read falls back to hashing nextContent and still returns success", async () => {
+    // The FIRST readFile call is `verifyForWrite`'s own — real content, so the
+    // compare-and-swap passes. The SECOND is `finishWrite`'s post-format
+    // re-read, which comes back unreadable and must fall back to `nextContent`
+    // rather than turn into a refusal after the bytes already landed.
+    let calls = 0
+    const readFile: WriteDeps["readFile"] = async () => {
+      calls += 1
+      return calls === 1 ? { kind: "content", content: CONTENT } : { kind: "unreadable" }
+    }
+    const writeFile = vi.fn<WriteDeps["writeFile"]>(async () => undefined)
+    const deps: WriteDeps = {
+      headSha: async () => "sha1",
+      actorAt: async () => "human",
+      readFile,
+      writeFile,
+      formatCommand: async () => ({ ok: true, command: "npx oxfmt --write x", exitCode: 0 }),
+    }
+    const request = { ...baseValueRequest(), expectedContentHash: contentHashOf(CONTENT) }
+    const result = await writeValue(request, deps)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const [, written] = writeFile.mock.calls[0]!
+    expect(result.contentHash).toBe(contentHashOf(written))
   })
 
   it("unset ui.format (no formatCommand on deps) spawns no command at all — contentHash is just the pre-format bytes' own hash", async () => {
@@ -553,7 +638,7 @@ describe("writeValue — ui.format's post-write formatCommand", () => {
     const deps: WriteDeps = {
       headSha: async () => "sha1",
       actorAt: async () => "human",
-      readFile: async () => CONTENT,
+      readFile: async () => content(CONTENT),
       writeFile: async () => {},
       formatCommand: async () => {
         throw new Error("boom")

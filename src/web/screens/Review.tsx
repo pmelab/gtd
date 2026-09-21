@@ -2,6 +2,7 @@ import { useRef, useState, type RefObject } from "react"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { CardList } from "../Card.js"
+import { useContentHashOverride } from "../contentHashOverride.js"
 import { Deck } from "../Deck.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
@@ -516,6 +517,7 @@ export interface ReviewProps {
 export const Review = ({ filePath }: ReviewProps) => {
   const { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry } = useRefusal()
   const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
+  const override = useContentHashOverride()
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath, mode: "review" })
   const writeNote = trpc.writeNote.useMutation({
@@ -532,54 +534,63 @@ export const Review = ({ filePath }: ReviewProps) => {
   // populates the same cache entry, so the two don't fight.
   const refetchTokens = async (): Promise<CasTokens> => {
     const fresh = await utils.readSteeringFile.fetch({ filePath, mode: "review" })
+    override.clear()
     return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
   }
 
-  const casTokensFor = (): CasTokens | undefined => {
-    const data = query.data
-    return data === undefined
-      ? undefined
-      : { expectedHeadSha: data.headSha, expectedContentHash: data.contentHash }
-  }
-
   const onSetValue = (anchor: SteeringAnchor, checked: boolean): Promise<unknown> => {
-    const tokens = casTokensFor()
+    const tokens = override.casTokensFor(query.data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
       (cas) =>
         setValue
           .mutateAsync({ filePath, ...cas, mode: "review", anchor, checked })
           .then((result) => {
+            override.onWriteSuccess(result.contentHash)
             setFormatNotice(result.formatNotice)
             return result
           }),
       tokens,
       refetchTokens,
-    )
+    ).catch((error: unknown) => {
+      override.onWriteRefusal(error)
+      throw error
+    })
   }
 
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = casTokensFor()
+    const tokens = override.casTokensFor(query.data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
       (cas) =>
         writeNote.mutateAsync({ filePath, ...cas, mode: "review", anchor, text }).then((result) => {
+          override.onWriteSuccess(result.contentHash)
           setFormatNotice(result.formatNotice)
           return result
         }),
       tokens,
       refetchTokens,
-    )
+    ).catch((error: unknown) => {
+      override.onWriteRefusal(error)
+      throw error
+    })
   }
 
   const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = casTokensFor()
+    const tokens = override.casTokensFor(query.data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
     return withStaleShaRetry(
-      (cas) => done.mutateAsync({ note: { filePath, ...cas, mode: "review", anchor, text } }),
+      (cas) =>
+        done
+          .mutateAsync({ note: { filePath, ...cas, mode: "review", anchor, text } })
+          .then((result) => {
+            if ("contentHash" in result) override.onWriteSuccess(result.contentHash)
+            return result
+          }),
       tokens,
       refetchTokens,
     ).catch((error: unknown) => {
+      override.onWriteRefusal(error)
       // Mirrors `Plan.tsx#Plan`'s identical `onDoneNote` catch — see its
       // own doc comment for why this is caught, not rethrown.
       showRefusal(error)
