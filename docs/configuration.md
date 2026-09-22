@@ -123,7 +123,7 @@ workflow:
           answerGate: true # optional, requires "file" — refuse a turn that edits anything while an open question in the (qa-mode) `file:` is unanswered; a turn that changes nothing at all is accepted and advances with the questions unanswered
           requireRevert: true # optional, requires "file" — refuse a turn until the human's review-round paths actually match the review base's parent
           entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared state is a valid target)
-          judge: <string> # optional, requires "message" — an Eta template rendered ALONGSIDE message: (content kind stays "message"), must render to the JSON document { state, questions: [{ id, primitive, instructions, criteria }] }; `state` may only come from it.read(...)/git helpers (never an uncommitted artifact); `primitive` is one of noul (yes/no), choice, score. `gtd judge`/`gtd judge answer` are the surface — see `docs/cli.md`
+          judge: <string> # optional, requires "message" — an Eta template rendered ALONGSIDE message: (content kind stays "message"), must render to the JSON document { state, questions: [{ id, primitive, instructions, criteria }] }; `state` may only come from it.read(...)/git helpers/it.diff(...) (never an uncommitted artifact — it.diff(...) is the one deliberate exception, since it reads the working tree's own diff content, not a file); `primitive` is one of noul (yes/no), choice, score. `gtd judge`/`gtd judge answer` are the surface — see `docs/cli.md`
           shadow: true # optional, requires "judge" — records the verdict (a `Gtd-Judge:` trailer) but never consults it for routing; a repo's debugging switch for tuning a threshold, not a release stage every gate passes through
           routes: # optional, requires "judge" — an ORDERED list of judgment routing rows, first match wins, exactly like `on`; MUST end with a catch-all row carrying only `to`
             - question: <one of judge:'s own question ids>
@@ -131,7 +131,7 @@ workflow:
               minP: <string> # optional — probability floor (>=) the answer's own p must clear; an Eta template, typically a workflow var: reference
               maxP: <string> # optional — probability ceiling (<) the answer's own p must stay under; same Eta-template convention as minP
               to: <targetState>
-            - to: <targetState> # the trailing catch-all row — no question/is/minP/maxP
+            - to: <targetState> # the trailing catch-all row — no question/is/minP/maxP; MUST name the SAME target as this state's own "C" and "* **" on: rows — a skipped judgment (no verdict ever recorded) and a "keep going" verdict both land the conservative default, never the optimistic one
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```
 
@@ -177,6 +177,12 @@ Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
 - **`it.processCost`** / **`it.processCostByModel`** — accumulated token cost
   over the process (every `--cost`/`--model` recorded on `gtd land`), total and
   broken down per model.
+- **`it.diff(base)`** — `git diff <base>` against the working tree, tracked AND
+  untracked (non-ignored) content alike, as real hunks. The one field on this
+  list a `judge:` render is deliberately allowed to read fresh off the working
+  tree rather than committed-only (see the `judge:` row above) — a judgment
+  ruling on the diff's own hunks needs the hunks, not just a base name it has no
+  repository to `git diff` itself.
 
 #### `gtd summary`'s own template variables
 
@@ -196,10 +202,18 @@ The prompt carries no session identity of its own — no `session.id`, no
 `session.resume`, no model, no system prompt — so an agent reading it starts
 cold and reads every decision back out of the commits it names.
 
-A template never sees rendered diff CONTENT — no field carries a diff. It names
-a base and leaves the agent to run `git diff <base>` itself; this keeps every
-render cheap (no diff computed on `gtd next`/`gtd lsp`) and the prompt small and
-cacheable.
+`it.diff(base)` is bound on every template, but the BUNDLED workflow only ever
+calls it from a `judge:` field — an ordinary `script`/`prompt`/`message` names a
+base (`it.reviewBase`/`it.processBase`) and leaves the AGENT to run
+`git diff <base>` itself, keeping that render cheap and the prompt small and
+cacheable; a `judge:` template calls `it.diff(base)` instead because the judge
+it renders for has no repository of its own to run that command in. Nothing in
+the engine enforces this split — `it.diff` shells out to `git` (`git add -N` +
+`git diff`) the moment any template calls it, so a `script:`/`prompt:` that
+called it would pay the same cost. A `judge:` field naming `it.diff(...)`
+renders on every ordinary rest resolution too (`gtd next`, `gtd status`,
+`gtd judge`), not just `gtd judge answer` — there's no separate "judging now"
+mode that defers it.
 
 Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
 is the agent-facing contract for producing a valid `workflow:` — the state

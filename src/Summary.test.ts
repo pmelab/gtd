@@ -15,6 +15,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   processCost: 0,
   processCostByModel: [],
   read: (path: string) => `contents of ${path}`,
+  diff: (base: string) => `diff of ${base}`,
   sections: () => [],
   openQuestions: () => [],
   openQuestionOptions: () => [],
@@ -97,6 +98,19 @@ describe("buildSummary", () => {
     const template = "count=<%= it.humanCommits.length %>"
     const out = buildSummary(def(template), run, baseContext())
     expect(out).toBe("count=0")
+  })
+
+  it("a judge-authored commit names no entry in humanCommits — a judge's verdict is not a human contribution to summarize (package 02)", () => {
+    const run = trace([
+      { state: "unwind", hash: "h1", actor: "agent" },
+      { state: "build.health.judge", hash: "h2", actor: "judge" },
+      { state: "design.gate.answer", hash: "h3", actor: "human" },
+      { state: "idle", hash: "h4", actor: "agent" },
+    ])
+    const template =
+      "humans=<% it.humanCommits.forEach(function(h){ %><%= h.hash %>:<%= h.state %>;<% }) %>"
+    const out = buildSummary(def(template), run, baseContext())
+    expect(out).toBe("humans=h3:design.gate.answer;")
   })
 
   it("passes base's processCost/processCostByModel through into the rendered output", () => {

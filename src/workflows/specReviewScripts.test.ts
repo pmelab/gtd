@@ -36,7 +36,7 @@ const commitWithTrailer = (dir: string, trailer: string): void => {
     "commit",
     "-q",
     "-m",
-    `gtd(human): packages.item.spec.pre → packages.item.spec.scoping\n\n${trailer}`,
+    `gtd(judge): packages.item.spec.pre → packages.item.spec.scoping\n\n${trailer}`,
   )
 }
 
@@ -55,6 +55,7 @@ const runScoping = (dir: string, specPreJudge: string): void => {
     processCost: 0,
     processCostByModel: [],
     read: () => "",
+    diff: () => "",
     sections: () => [],
     openQuestions: () => [],
     openQuestionOptions: () => [],
@@ -174,6 +175,7 @@ const runStriking = (dir: string, specFindingKeep: string): void => {
     processCost: 0,
     processCostByModel: [],
     read: () => "",
+    diff: () => "",
     sections: () => [],
     openQuestions: () => [],
     openQuestionOptions: () => [],
@@ -297,6 +299,7 @@ describe("packages.item.spec.pre's judge template (round-3 review)", () => {
       processCostByModel: [],
       read: (path) =>
         path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
+      diff: () => "",
       sections: () => ["Do the thing"],
       openQuestions: () => [],
       openQuestionOptions: () => [],

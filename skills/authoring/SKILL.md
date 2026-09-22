@@ -91,9 +91,10 @@ states:
 `actor` is a **plain string** — no closed vocabulary. `gtd land` resolves the
 resting state's own declared actor and authenticates as it automatically (no
 caller-supplied actor argument), and it becomes the commit subject
-`gtd(<actor>): <from> → <to>`. Common actors: `human`, `agent`, `check`. Invent
-your own freely; the set of valid actors is derived from what your states
-declare.
+`gtd(<actor>): <from> → <to>`. Common actors: `human`, `agent`, `check`, `judge`
+(a state rendering `judge:` — no human can answer a judgment, so declare that
+actor `judge`, never `human`). Invent your own freely; the set of valid actors
+is derived from what your states declare.
 
 ### `model` lives on the machine, not the state — and there is no `memory:`
 
@@ -219,6 +220,8 @@ Every `script`/`prompt`/`message` value — plus a workflow's own top-level
 - `it.state` / `it.actor` — the state and actor being rendered.
 - `it.edges` — this state's `on` rows as `{ pattern, target, describe? }`.
 - `it.processCost` / `it.processCostByModel` — accumulated token cost.
+- `it.diff(base)` — `git diff <base>` against the working tree, tracked AND
+  untracked (non-ignored) content alike, as real hunks.
 
 A `summary:` template additionally sees `it.entryCommit` (the process's entry
 commit), `it.humanCommits` (every `human`-authored commit in the process's
@@ -226,9 +229,14 @@ trace, oldest to newest, as `{hash, state}`), and `it.processTip` (the process's
 closing/current tip) — none of the three means anything at an ordinary state
 template.
 
-**No field ever carries diff content.** A prompt names a range (one of the base
-hashes above) and tells the agent to run `git diff <base>` itself — never inline
-a rendered diff into a template; the context doesn't carry one.
+`it.diff(base)` is bound on every template, but by CONVENTION only a `judge:`
+field ever calls it: an ordinary `prompt`/`script`/`message` names a range (one
+of the base hashes above) and tells the AGENT to run `git diff <base>` itself,
+keeping that render cheap and the prompt small and cacheable. A `judge:` field
+calls `it.diff(base)` instead — inlining the diff's own content into the
+rendered document — because the judge it renders for has no repository of its
+own to run that command in. See `humanReview.pre` in `unified.yaml` for the
+pattern.
 
 A content value starting with `./` or `../` is a **file reference** — read
 relative to the config file at load time (a missing file is a load error).

@@ -36,13 +36,26 @@ export interface TemplateContext {
   /** Read a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — that throw is the render failure that refuses the step (`renderDecision`'s caller catches it into an empty script). */
   readonly read: (path: string) => string
   /**
+   * `git diff <base>` against the working tree — tracked and untracked
+   * (non-ignored) content alike, as real git-formatted hunks. Bound the same
+   * way regardless of which `read` a caller wired this context with: a
+   * judgment ruling on "is this hunk mechanical" needs the actual hunks, not
+   * a base name the judge has no repository to `git diff` itself. The one
+   * deliberate WORKING-TREE exception to `judge:`'s otherwise committed-only
+   * evidence rule (`it.read`'s doc comment) — see `Workspace.ts#diffSync`
+   * for why that's safe (a throwaway index copy, never the real one).
+   */
+  readonly diff: (base: string) => string
+  /**
    * `path`'s own top-level `## ` heading texts, in document order — a
    * dynamic-count `judge:` template's one hook into a real markdown parse
    * (`src/steering/MarkdownTree.ts`'s `headingSections`), since Eta templating
    * is plain string substitution and cannot otherwise reach that parser.
    * Shares whichever `read` binding the caller wired this context with, so a
    * `judge:` field's `it.sections(...)` inherits the SAME evidence rule as its
-   * own `it.read(...)` (committed-only, never a fresh working-tree write).
+   * own `it.read(...)` — committed-only for a `judge:` render, never a fresh
+   * working-tree write. (`it.diff`, above, is a separate, deliberately
+   * working-tree-reading field; that exception is its own, not this one's.)
    */
   readonly sections: (path: string) => readonly string[]
   /**
@@ -98,6 +111,11 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
   read: (path: string) => {
     throw new Error(
       `no working tree to read from while rendering against a vars-only context (path: ${path})`,
+    )
+  },
+  diff: (base: string) => {
+    throw new Error(
+      `no working tree to diff from while rendering against a vars-only context (base: ${base})`,
     )
   },
   sections: (path: string) => {

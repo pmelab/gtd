@@ -22,6 +22,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
       throw new Error(`ENOENT: no such file or directory, open '${path}'`)
     return `contents of ${path}`
   },
+  diff: (base: string) => `diff of ${base}`,
   sections: () => [],
   openQuestions: () => [],
   openQuestionOptions: () => [],
@@ -276,6 +277,9 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
           processCost: 0,
           processCostByModel: [],
           read,
+          diff: () => {
+            throw new Error("must not be called")
+          },
           sections: (path: string) => headingSections(read(path)),
           openQuestions: () => [],
           openQuestionOptions: () => [],
@@ -304,6 +308,9 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
           processCost: 0,
           processCostByModel: [],
           read,
+          diff: () => {
+            throw new Error("must not be called")
+          },
           sections: (path: string) => headingSections(read(path)),
           openQuestions: () => [],
           openQuestionOptions: () => [],
@@ -359,6 +366,9 @@ describe("renderStateTemplate — it.openQuestions(path)", () => {
             processCost: 0,
             processCostByModel: [],
             read,
+            diff: () => {
+              throw new Error("must not be called")
+            },
             sections: (path: string) => headingSections(read(path)),
             openQuestions: (path: string) => openQuestionTexts(read(path)),
             openQuestionOptions: () => [],
@@ -403,6 +413,9 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
           processCost: 0,
           processCostByModel: [],
           read,
+          diff: () => {
+            throw new Error("must not be called")
+          },
           sections: (path: string) => headingSections(read(path)),
           openQuestions: () => [],
           openQuestionOptions: () => [],
@@ -432,6 +445,9 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
           processCost: 0,
           processCostByModel: [],
           read,
+          diff: () => {
+            throw new Error("must not be called")
+          },
           sections: (path: string) => headingSections(read(path)),
           openQuestions: () => [],
           openQuestionOptions: () => [],
@@ -464,6 +480,9 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
           processCost: 0,
           processCostByModel: [],
           read,
+          diff: () => {
+            throw new Error("must not be called")
+          },
           sections: (path: string) => headingSections(read(path)),
           openQuestions: () => [],
           openQuestionOptions: () => [],

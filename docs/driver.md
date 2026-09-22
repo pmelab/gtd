@@ -164,14 +164,17 @@ rc=$?
 # Whose turn is it now? `gtd next --json=actor` is a strictly read-only peek —
 # every gtd command is, including `gtd next` (its prompt session id is
 # derived, never minted/stored) — only the emitted scripts a driver runs
-# actually touch git. A human actor means gtd is waiting on you; anything
-# else means the run ended with nothing owed.
+# actually touch git. An ALLOWLIST, not a denylist: only `agent`/`check` mean
+# this driver just handed off and nothing is owed; every other actor this
+# driver doesn't recognise — human, judge, a future workflow's own invention,
+# or an empty/failed read — means someone is owed a turn, so it reports
+# blocked rather than guessing idle on a name it has never seen.
 actor="$(gtd next --json=actor 2>/dev/null)" || actor=""
 
-if [ "$rc" -ne 0 ] || [ -z "$actor" ] || [ "$actor" = human ]; then
-  report blocked
-else
+if [ "$rc" -eq 0 ] && { [ "$actor" = agent ] || [ "$actor" = check ]; }; then
   report idle
+else
+  report blocked
 fi
 
 exit $rc
@@ -186,6 +189,10 @@ A few things to know before relying on it:
 - **`blocked` covers the resting `idle` state too** — gtd's own `idle` is a
   human gate (it waits for you to write a steering file), so a finished process
   reads as "your turn", which is what it is.
+- **A judge gate reports `blocked`, same as a human gate** — this wrapper
+  doesn't know the word `judge` and isn't supposed to guess; see
+  [Judge gates](#judge-gates-an-aware-drivers-env-var-mapping) for the same
+  allowlist rule stated for a driver author.
 - The status **persists after the wrapper exits** — that's the point: the
   sidebar keeps showing which worktree is waiting on you. Hand the pane back to
   ordinary detection with
@@ -534,14 +541,24 @@ not something the green suite can catch.)
 
 ### Judge gates: an aware driver's env var mapping
 
-A judge gate is a `kind: "message"` rest whose `--json=judge` field is non-empty
-— the rendered JSON document `{ state, questions: [...] }` the pending judgment
-asks about. `gtd` itself never calls a model: the reference driver above only
-displays the state's `message:` (which tells you to run `gtd judge answer` and
-paste a verdict) and stops. An AWARE driver — one built to answer a judge gate
-automatically — instead reads `--json=judge`, pipes that document to a judgment
-model such as TypeSafe's Jev, and pipes the verdict it gets back into
+A judge gate declares `actor: judge` and is a `kind: "message"` rest whose
+`--json=judge` field is non-empty — the rendered JSON document
+`{ state, questions: [...] }` the pending judgment asks about. `gtd` itself
+never calls a model: the reference driver above only displays the state's
+`message:` (which tells you to run `gtd judge answer` and paste a verdict) and
+stops. An AWARE driver — one built to answer a judge gate automatically —
+instead reads `--json=judge`, pipes that document to a judgment model such as
+TypeSafe's Jev, and pipes the verdict it gets back into
 `gtd judge answer --json=script` on stdin.
+
+Whose-turn-is-it status reporting (like the herdr wrapper above) should treat
+`actor` as an ALLOWLIST, not a denylist: stand down — report the run as resting
+on someone, same as any ordinary human gate — on any actor the driver doesn't
+specifically know how to advance, rather than assuming idle/done on everything
+that isn't `human`. `judge` is exactly such a case: an unaware driver that only
+recognises `agent`/`check` halts there correctly with no edit, while a driver
+that special-cased `!== "human"` as "nothing owed" would silently skip past a
+pending judgment.
 
 TypeSafe's own SDK expects its API key under `TYPESAFE_API_KEY`. If your
 environment instead carries the key under `TYPESAFE_AI_KEY` (a name some setup

@@ -26,6 +26,9 @@
         --check-bg: #d3f0ef;
         --check-fg: #0c524f;
         --check-dot: #16a39d;
+        --judge-bg: #e0f0d3;
+        --judge-fg: #3d6a24;
+        --judge-dot: #6fae3c;
         --engine-bg: #fbdfe4;
         --engine-fg: #8a1f38;
         --engine-dot: #d84a68;
@@ -63,6 +66,9 @@
           --check-bg: #123433;
           --check-fg: #68dcd4;
           --check-dot: #2dc4bc;
+          --judge-bg: #1f3312;
+          --judge-fg: #a8d97e;
+          --judge-dot: #7fc94c;
           --engine-bg: #3a1b24;
           --engine-fg: #f2a3b3;
           --engine-dot: #e05f7c;
@@ -95,6 +101,9 @@
         --check-bg: #d3f0ef;
         --check-fg: #0c524f;
         --check-dot: #16a39d;
+        --judge-bg: #e0f0d3;
+        --judge-fg: #3d6a24;
+        --judge-dot: #6fae3c;
         --engine-bg: #fbdfe4;
         --engine-fg: #8a1f38;
         --engine-dot: #d84a68;
@@ -126,6 +135,9 @@
         --check-bg: #123433;
         --check-fg: #68dcd4;
         --check-dot: #2dc4bc;
+        --judge-bg: #1f3312;
+        --judge-fg: #a8d97e;
+        --judge-dot: #7fc94c;
         --engine-bg: #3a1b24;
         --engine-fg: #f2a3b3;
         --engine-dot: #e05f7c;
@@ -800,6 +812,10 @@
         background: var(--check-bg);
         color: var(--check-fg);
       }
+      .pill.actor-judge {
+        background: var(--judge-bg);
+        color: var(--judge-fg);
+      }
       .pill.actor-engine {
         background: var(--engine-bg);
         color: var(--engine-fg);
@@ -821,6 +837,9 @@
       }
       .pill.actor-check .dot {
         background: var(--check-dot);
+      }
+      .pill.actor-judge .dot {
+        background: var(--judge-dot);
       }
       .pill.actor-engine .dot {
         background: var(--engine-dot);
@@ -1271,6 +1290,7 @@
         human: { cls: "actor-human", dot: "human", label: "human" },
         agent: { cls: "actor-agent", dot: "agent", label: "agent" },
         check: { cls: "actor-check", dot: "check", label: "check" },
+        judge: { cls: "actor-judge", dot: "judge", label: "judge" },
         commit: { cls: "actor-engine", dot: "engine", label: "commit" },
         unknown: { cls: "actor-unknown", dot: "unknown", label: "?" },
       }
@@ -1309,7 +1329,7 @@
         return true
       }
 
-      const actorFilter = new Set(["human", "agent", "check", "commit", "unknown"])
+      const actorFilter = new Set(["human", "agent", "check", "judge", "commit", "unknown"])
       let kindFilter = "all"
 
       // ── boot ─────────────────────────────────────────────────────────────
@@ -1335,7 +1355,7 @@
       byName = Object.fromEntries(STATES.map((s) => [s.name, s]))
 
       // ── header summary + hero ───────────────────────────────────────────
-      const counts = { human: 0, agent: 0, check: 0, commit: 0, unknown: 0 }
+      const counts = { human: 0, agent: 0, check: 0, judge: 0, commit: 0, unknown: 0 }
       STATES.forEach((s) => {
         counts[actorOf(s)]++
       })
@@ -1349,6 +1369,7 @@
         cnt("human"),
         cnt("agent"),
         cnt("check"),
+        cnt("judge"),
         cnt("commit"),
         cnt("unknown"),
       ]
@@ -1439,6 +1460,9 @@
           dark
             ? "classDef check fill:#123433,stroke:#2dc4bc,color:#68dcd4;"
             : "classDef check fill:#d3f0ef,stroke:#16a39d,color:#0c524f;",
+          dark
+            ? "classDef judge fill:#1f3312,stroke:#7fc94c,color:#a8d97e;"
+            : "classDef judge fill:#e0f0d3,stroke:#6fae3c,color:#3d6a24;",
           dark
             ? "classDef commit fill:#3a1b24,stroke:#e05f7c,color:#f2a3b3;"
             : "classDef commit fill:#fbdfe4,stroke:#d84a68,color:#8a1f38;",
@@ -2113,7 +2137,7 @@
       })
 
       const legendEl = document.getElementById("legend")
-      ;["human", "agent", "check", "commit", "unknown"].forEach((a) => {
+      ;["human", "agent", "check", "judge", "commit", "unknown"].forEach((a) => {
         if (!counts[a]) return
         const el = document.createElement("button")
         el.className = "li"

@@ -30,8 +30,8 @@ const commitWithTrailer = (dir: string, trailer: string, files: Record<string, s
   for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content)
   git("add", "-A")
   const message = trailer
-    ? `gtd(human): build.review.pre → build.review.preCheck\n\n${trailer}`
-    : "gtd(human): build.review.pre → build.review.preCheck"
+    ? `gtd(judge): build.review.pre → build.review.preCheck\n\n${trailer}`
+    : "gtd(judge): build.review.pre → build.review.preCheck"
   git("commit", "-q", "-m", message, "--allow-empty")
 }
 
@@ -63,6 +63,7 @@ const runScript = (
     processCost: 0,
     processCostByModel: [],
     read: () => "",
+    diff: () => "",
     sections: () => [],
     openQuestions: () => [],
     openQuestionOptions: () => [],

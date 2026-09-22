@@ -475,7 +475,7 @@ describe("the bundled unified workflow template", () => {
       // (not necessarily running `gtd judge answer`) still lands, at the
       // same conservative target, rather than refusing with "no-match".
       expect((state.on ?? []).find(([p]) => p === "* **")?.[1], judgeState).toBe(fix)
-      const dirtyStep = step(definition, judgeState, "human", {
+      const dirtyStep = step(definition, judgeState, "judge", {
         changes: [{ status: "M", path: "src/a.ts" }],
         processTrace: [],
       })
@@ -507,7 +507,7 @@ describe("the bundled unified workflow template", () => {
     // layer — the real numeric threshold is exercised end to end by the
     // process-level e2e scenario, not here), so it's the one case this
     // unit-level `step()` can assert without rendering `routes:` first.
-    const warranted = step(definition, "architecture-pre", "human", {
+    const warranted = step(definition, "architecture-pre", "judge", {
       changes: [],
       processTrace: [],
       routeAnswers: [{ id: "architectureWarranted", answer: "yes", p: 0.99 }],
@@ -542,7 +542,7 @@ describe("the bundled unified workflow template", () => {
       "packages.item.health.check",
       "packages.item.health.judge",
     ]
-    const decision = step(definition, "packages.item.health.judge", "human", {
+    const decision = step(definition, "packages.item.health.judge", "judge", {
       changes: [],
       processTrace: trace,
       routeAnswers: [{ id: "verdict", answer: "progress", p: 0.9 }],
@@ -1156,5 +1156,103 @@ describe("the bundled template's machine boundaries line up with conversational 
       "build.review.triaging",
       "fix-precheck",
     ])
+  })
+
+  it("actor: judge is EXACTLY the set of states declaring judge: — no other state changes actor, and no state claims a judgment it never renders (package 02)", () => {
+    const { definition } = compileTemplate()
+    const judgeStates = Object.entries(definition.states)
+      .filter(([, state]) => state.judge !== undefined)
+      .map(([name]) => name)
+      .sort()
+    const judgeActorStates = Object.entries(definition.states)
+      .filter(([, state]) => state.actor === "judge")
+      .map(([name]) => name)
+      .sort()
+    // Guards against a vacuous pass — the bundled template must actually
+    // declare at least one judge: state for this assertion to mean anything.
+    expect(judgeStates.length).toBeGreaterThan(0)
+    expect(judgeActorStates).toEqual(judgeStates)
+  })
+
+  it("every state declaring routes: ends its catch-all on the same conservative target as its own skipped-judgment C and * ** rows — a skipped verdict and a 'keep going' one must land the same place (package 02)", () => {
+    const { definition } = compileTemplate()
+    const routesStates = Object.entries(definition.states).filter(
+      ([, state]) => state.routes !== undefined,
+    )
+    expect(routesStates.length).toBeGreaterThan(0)
+    for (const [name, state] of routesStates) {
+      const routes = state.routes!
+      const catchAll = routes[routes.length - 1]!.to
+      const cTarget = (state.on ?? []).find(([pattern]) => pattern === "C")?.[1]
+      const wildTarget = (state.on ?? []).find(([pattern]) => pattern === "* **")?.[1]
+      expect(cTarget, name).toBe(catchAll)
+      expect(wildTarget, name).toBe(catchAll)
+    }
+  })
+})
+
+describe("a judgment inlines the evidence its questions ask about (package 03)", () => {
+  it("design.gate.screen's rendered judgment carries the plan's own prose, not just the question headings/options", () => {
+    const { definition, vars } = compileTemplate()
+    const state = definition.states["design.gate.screen"]!
+    const planProse = "Because the sky is blue and the sea is deep, we chose SQLite for storage."
+    const rendered = renderStateTemplate(state.judge!, {
+      ...varsOnlyContext(vars, "design.gate.screen"),
+      read: (path: string) => {
+        if (path === ".gtd/REQUIREMENTS.md") return planProse
+        throw new Error(`ENOENT: ${path}`)
+      },
+      openQuestions: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? ["Which backend?"] : []),
+      openQuestionOptions: (path: string) =>
+        path === ".gtd/REQUIREMENTS.md"
+          ? [{ question: "Which backend?", options: ["SQLite", "Postgres"] }]
+          : [],
+    })
+    const doc = JSON.parse(rendered)
+    expect(doc.state.plan).toBe(planProse)
+    // The old behaviour (headings/options only) stays present too — this is
+    // additive evidence, not a replacement of the question data itself.
+    expect(doc.state.questions).toEqual(["Which backend?"])
+  })
+
+  it("architecture.gate.screen falls back to .gtd/ARCHITECTURE.md's own prose when REQUIREMENTS.md carries no open questions — same try/fallback order as the questions themselves", () => {
+    const { definition, vars } = compileTemplate()
+    const state = definition.states["architecture.gate.screen"]!
+    const archProse = "The service boundary is drawn at the repo root because of X."
+    const rendered = renderStateTemplate(state.judge!, {
+      ...varsOnlyContext(vars, "architecture.gate.screen"),
+      read: (path: string) => {
+        if (path === ".gtd/ARCHITECTURE.md") return archProse
+        throw new Error(`ENOENT: ${path}`)
+      },
+      openQuestions: (path: string) => (path === ".gtd/ARCHITECTURE.md" ? ["Which host?"] : []),
+      openQuestionOptions: (path: string) =>
+        path === ".gtd/ARCHITECTURE.md"
+          ? [{ question: "Which host?", options: ["Fly", "Render"] }]
+          : [],
+    })
+    const doc = JSON.parse(rendered)
+    expect(doc.state.plan).toBe(archProse)
+  })
+
+  it("build.review.pre's rendered judgment carries real diff hunks in state.diff, and its three questions reference state.diff rather than a command the judge would have to run", () => {
+    const { definition, vars } = compileTemplate()
+    const state = definition.states["build.review.pre"]!
+    const diffText =
+      "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n"
+    const rendered = renderStateTemplate(state.judge!, {
+      ...varsOnlyContext(vars, "build.review.pre"),
+      reviewBase: "base123",
+      diff: (base: string) => {
+        expect(base).toBe("base123")
+        return diffText
+      },
+    })
+    const doc = JSON.parse(rendered)
+    expect(doc.state.diff).toBe(diffText)
+    for (const q of doc.questions) {
+      expect(q.instructions).toContain("state.diff")
+      expect(q.instructions).not.toMatch(/git diff/)
+    }
   })
 })

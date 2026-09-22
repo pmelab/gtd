@@ -46,7 +46,7 @@ Feature: Review-lap judgments (.gtd/packages/03-review-lap-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
 
     # preCheck's own script (a real DRIVER's job, not this harness's) finds
     # all three confident and writes the fast-path marker — given by hand
@@ -93,7 +93,7 @@ Feature: Review-lap judgments (.gtd/packages/03-review-lap-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
 
     # preCheck's own script finds touchesPublicAPI answered "yes" (the wrong
     # answer for the fast path) and writes nothing — a clean tree routes to
@@ -109,7 +109,7 @@ Feature: Review-lap judgments (.gtd/packages/03-review-lap-judgments.md)
     And an empty commit "gtd(check): build.health.check → build.review.pre"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
 
     When I run gtd land
     Then it succeeds
@@ -125,7 +125,7 @@ Feature: Review-lap judgments (.gtd/packages/03-review-lap-judgments.md)
       [{"id": "mechanicalOnly", "answer": true, "p": 0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
 
     # preCheck's own script finds touchesPublicAPI/changesBehavior never
     # answered and writes nothing — a clean tree routes to reviewing, never
@@ -148,7 +148,7 @@ Feature: Review-lap judgments (.gtd/packages/03-review-lap-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
 
     When I run gtd land
     Then it succeeds
@@ -200,7 +200,7 @@ Feature: Review-lap judgments (.gtd/packages/03-review-lap-judgments.md)
       [{"id": "chunk-1", "answer": false, "p": 0.9}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.triage → build.review.triaging"
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.triaging"
 
     # triaging's own script (given by hand) finds nothing actionable and
     # signs off — no `.gtd/REVIEW_RAW.md`, no `collecting` turn.
@@ -254,7 +254,7 @@ Feature: Review-lap judgments (.gtd/packages/03-review-lap-judgments.md)
       [{"id": "chunk-1", "answer": true, "p": 0.9}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.triage → build.review.triaging"
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.triaging"
 
     # triaging's own script (given by hand) finds the one chunk actionable
     # and captures it, the same shape `deciding`'s own hand-edit branch uses.

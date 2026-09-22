@@ -222,6 +222,49 @@ export class InMemRepo {
     return this.worktree.get(path)
   }
 
+  /**
+   * The fake's counterpart to `Workspace.ts#diffSync`'s real `git add -N`
+   * + `git diff <base>` — real git-diff-FORMATTED text (`diff --git`/`---`/
+   * `+++`/`@@` headers, `+`/`-` content lines), built from
+   * `changedPathsWorktree` (tracked and untracked alike, exactly what the
+   * real `add -N` trick achieves) rather than a minimal line-level diff — a
+   * modified file's hunk is its whole old/new content, not the smallest
+   * edit script, which is fine for a test double whose callers assert on
+   * PRESENCE of content, never on hunk shape.
+   */
+  diffWorktree(base: string): string {
+    const baseTree = this.treeAt(base)
+    const changes = this.changedPathsWorktree(base)
+    const parts: string[] = []
+    for (const { path, status } of changes) {
+      const oldContent = baseTree.get(path)
+      const newContent = this.worktree.get(path)
+      const oldLines = oldContent === undefined ? [] : oldContent.split("\n")
+      const newLines = newContent === undefined ? [] : newContent.split("\n")
+      parts.push(`diff --git a/${path} b/${path}`)
+      if (status === "A") {
+        parts.push("new file mode 100644")
+        parts.push("--- /dev/null")
+        parts.push(`+++ b/${path}`)
+        parts.push(`@@ -0,0 +1,${newLines.length} @@`)
+        parts.push(...newLines.map((l) => `+${l}`))
+      } else if (status === "D") {
+        parts.push("deleted file mode 100644")
+        parts.push(`--- a/${path}`)
+        parts.push("+++ /dev/null")
+        parts.push(`@@ -1,${oldLines.length} +0,0 @@`)
+        parts.push(...oldLines.map((l) => `-${l}`))
+      } else {
+        parts.push(`--- a/${path}`)
+        parts.push(`+++ b/${path}`)
+        parts.push(`@@ -1,${oldLines.length} +1,${newLines.length} @@`)
+        parts.push(...oldLines.map((l) => `-${l}`))
+        parts.push(...newLines.map((l) => `+${l}`))
+      }
+    }
+    return parts.length > 0 ? parts.join("\n") + "\n" : ""
+  }
+
   /** True when `path` is exactly a worktree file, or a directory prefix of one (any worktree key starts with `path/`). */
   hasPath(path: string): boolean {
     if (this.worktree.has(path)) return true

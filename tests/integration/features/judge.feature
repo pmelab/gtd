@@ -435,3 +435,146 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Then it succeeds
     And the last commit subject is "gtd(human): judge → fixing"
     And the last commit body does not contain "Gtd-Judge:"
+
+  # `.gtd/packages/02-judge-actor-and-conservative-catch-all.md` Requirement B:
+  # every bundled judge gate declares `actor: judge`, not `human` — no human
+  # can answer a judgment. `gtd next --json=actor`/`gtd land` need no engine
+  # change to accept the word (`Actor` is a plain string throughout), so this
+  # is a plain custom workflow proving the plumbing generically, standalone
+  # from the bundled template (pinned separately by
+  # `src/workflows/templates.test.ts`).
+  @inmem
+  Scenario: gtd next --json=actor at a judge gate reports "judge", not "human"
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: verdict
+            states:
+              verdict:
+                actor: judge
+                message: "run `gtd judge answer` and paste a verdict, or land to accept the conservative default"
+                judge: '{"state":"verdict","questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}'
+                on:
+                  "* **": done
+              done:
+                actor: human
+                message: "chore: done"
+      """
+    When I run gtd next with "--json=actor"
+    Then it succeeds
+    And stdout matches "^judge\n$"
+
+  @inmem
+  Scenario: a verdict landed at a judge gate writes a gtd(judge): subject
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: verdict
+            states:
+              verdict:
+                actor: judge
+                message: "run `gtd judge answer` and paste a verdict, or land to accept the conservative default"
+                judge: '{"state":"verdict","questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}'
+                on:
+                  "C": done
+              done:
+                actor: human
+                message: "chore: done"
+      """
+    When I run gtd judge answer with stdin:
+      """
+      [{"id":"q1","answer":true,"p":0.97}]
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): verdict → done"
+    And the last commit body contains "Gtd-Judge:"
+
+  @inmem
+  Scenario: a bare gtd land at a judge gate (no verdict piped) still authenticates as the judge actor — the skipped-judgment path is a judge commit, not a human one
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: verdict
+            states:
+              verdict:
+                actor: judge
+                message: "run `gtd judge answer` and paste a verdict, or land to accept the conservative default"
+                judge: '{"state":"verdict","questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}'
+                on:
+                  "C": done
+              done:
+                actor: human
+                message: "chore: done"
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(judge): verdict → done"
+    And the last commit body does not contain "Gtd-Judge:"
+
+  # `.gtd/packages/03-judgment-inlines-its-evidence.md`: the planning gate's
+  # `questionGate.screen` used to ship the judge only the question headings
+  # and their option lists — never the plan's own prose the question was
+  # drawn from. `state.plan` now carries the whole resolved file's text, in
+  # the same try/fallback order `questions`/`questionOptions` already use.
+  @inmem
+  Scenario: gtd judge at design.gate.screen inlines the plan's own prose, not just the question headings/options (03)
+    Given a test project
+    And the workflow
+    And a commit "gtd(human): design.gate.screen" that adds ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Greeting export
+
+      Add a greet() export returning a friendly string, chosen because bare
+      stdout output alone is unfriendly for a library consumer to script
+      against.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      - [ ] SQLite
+      - [ ] Postgres
+      - [ ] _your answer_
+      """
+    When I run gtd with args "judge"
+    Then it succeeds
+    And stdout contains "unfriendly for a library consumer to script"
+
+  # Same package, Task 3: the review fast-path gate (`build.review.pre`) used
+  # to ship the judge only `reviewBase` and tell it to `git diff` itself — a
+  # judge with no repository can't. `state.diff` now carries the real hunks,
+  # tracked and untracked alike (an `add -N`'d untracked file is otherwise
+  # invisible to a plain `git diff <base>`).
+  @inmem
+  Scenario: gtd judge at build.review.pre inlines real diff hunks — a tracked edit AND a brand-new untracked file both show up (03)
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And an empty commit "gtd(check): build.health.check → build.review.pre"
+    And a file "src/brand-new.ts" with:
+      """
+      export const neverAdded = true
+      """
+    When I run gtd with args "judge"
+    Then it succeeds
+    And stdout contains "calc.ts"
+    And stdout contains "brand-new.ts"
+    And stdout contains "neverAdded"

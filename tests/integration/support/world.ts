@@ -403,7 +403,7 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /** Real `sh`, with the PATH shim in scope so a script's bare `gtd` resolves to this build. */
-  private async runScriptWithSh(script: string): Promise<EmittedRun> {
+  async runScriptWithSh(script: string): Promise<EmittedRun> {
     try {
       const { stdout, stderr } = await execFile("sh", ["-c", script], {
         cwd: this.repoDir,
