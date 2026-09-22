@@ -9,6 +9,7 @@ import {
   inScope,
   isReviewBaseState,
   matchesPattern,
+  matchRoute,
   memoryScopeAt,
   parsePattern,
   parseStateSubject,
@@ -18,6 +19,7 @@ import {
   validateDefinition,
   wouldAttempt,
   type PendingChange,
+  type RouteAnswer,
   type StateDef,
   type StateMode,
   type StateName,
@@ -893,6 +895,168 @@ describe("step — retry redirection", () => {
     if (decision.kind === "commit") {
       expect(["a", "b"]).toContain(decision.to)
     }
+  })
+})
+
+// ── routes:-driven routing ───────────────────────────────────────────────────
+
+/**
+ * `check` (a `check` actor) has TWO red rows: `A/M PRIOR.md` (a prior round's
+ * feedback exists — route to `judge`) and `A/M FEEDBACK.md` (no prior round —
+ * bypass `judge` straight to `fix`, "the first red round pays for no
+ * judgment"). `judge` carries `routes:` (identical -> escalate, catch-all ->
+ * fix) and an ordinary `C` fallback row to `fix` for the "skipped"
+ * (no-verdict) case.
+ *
+ * `retry` stays on `fix`, NOT `judge`: `fix` has TWO direct structural
+ * sources — `check`'s own bypass row, and `judge`'s routes catch-all — so
+ * `episodeVisits` accumulates across the full check/judge/fix cycle with no
+ * reset, exactly like the bundled `fixerRetryWorkflow` shape above. Putting
+ * `retry` on `judge` instead does NOT work under `sourcesOf`'s single-hop,
+ * non-transitive rule (deliberately pinned by the `fixerRetryWorkflow` tests
+ * above, where an incidental single-hop-onward neighbour like `reviewing`
+ * must still reset the count): `judge`'s only direct source is `check`, but
+ * `fix` sits between every pair of `judge` visits and is NOT one of `judge`'s
+ * sources, so `fix` resets `judge`'s count on every single pass and the cap
+ * can never fire. `fix` is where the accumulation is actually sound.
+ */
+const judgeWorkflow: WorkflowDefinition = def(
+  {
+    check: {
+      actor: "check",
+      script: "s",
+      on: [
+        ["A PRIOR.md", "judge"],
+        ["M PRIOR.md", "judge"],
+        ["A FEEDBACK.md", "fix"],
+        ["M FEEDBACK.md", "fix"],
+        ["* **", "check"],
+        ["C", "check"],
+      ],
+    },
+    judge: {
+      actor: "human",
+      message: "verdict needed",
+      judge: '{"questions":[{"id":"verdict"}]}',
+      routes: [{ question: "verdict", is: "identical", to: "escalate" }, { to: "fix" }],
+      on: [["C", "fix"]],
+    },
+    fix: {
+      actor: "agent",
+      prompt: "fix it",
+      retry: { max: 2, otherwise: "escalate" },
+      on: [["* *", "check"]],
+    },
+    escalate: { actor: "human", message: "escalated" },
+  },
+  "check",
+)
+
+describe("step — routes:-driven routing off a `gtd judge answer` verdict", () => {
+  it("an answered verdict routes via `routes:`, bypassing `on:` entirely — a catch-all row wins with no matching question", () => {
+    const decision = step(judgeWorkflow, "judge", "human", {
+      changes: [],
+      processTrace: ["check"],
+      routeAnswers: [{ id: "verdict", answer: "progress", p: 0.9 }],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(human): judge → fix",
+      actor: "human",
+      from: "judge",
+      to: "fix",
+    })
+  })
+
+  it("an 'identical' verdict routes straight to escalate, before any retry cap", () => {
+    const decision = step(judgeWorkflow, "judge", "human", {
+      changes: [],
+      processTrace: ["check"],
+      routeAnswers: [{ id: "verdict", answer: "identical", p: 0.95 }],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(human): judge → escalate",
+      actor: "human",
+      from: "judge",
+      to: "escalate",
+    })
+  })
+
+  it("no verdict this call (an ordinary `gtd land`) ignores `routes:` and falls through to the state's own `on:` — the skipped-judgment path", () => {
+    const decision = step(judgeWorkflow, "judge", "human", {
+      changes: [],
+      processTrace: ["check"],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(human): judge → fix",
+      actor: "human",
+      from: "judge",
+      to: "fix",
+    })
+  })
+
+  it("`shadow: true` ignores a supplied verdict entirely and always falls through to `on:`", () => {
+    const shadowed: WorkflowDefinition = def(
+      {
+        judge: {
+          ...judgeWorkflow.states["judge"]!,
+          shadow: true,
+        },
+        escalate: judgeWorkflow.states["escalate"]!,
+        fix: judgeWorkflow.states["fix"]!,
+      },
+      "judge",
+    )
+    const decision = step(shadowed, "judge", "human", {
+      changes: [],
+      processTrace: [],
+      routeAnswers: [{ id: "verdict", answer: "identical", p: 0.99 }],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(human): judge → fix",
+      actor: "human",
+      from: "judge",
+      to: "fix",
+    })
+  })
+
+  it("three attempts still force escalation regardless of verdict — fix's retry cap redirects BEFORE a third fix attempt, even on a non-identical verdict", () => {
+    // Round 1: check -> fix directly (no PRIOR.md yet, bypasses judge) — 1st
+    // fix visit. Round 2: check -> judge -> fix (a "progress" verdict) — 2nd
+    // fix visit, meeting fix's own max: 2 cap. This 3rd round's judge routing
+    // (still "progress", never "identical") would raw-target "fix" again,
+    // but the cap redirects it to "escalate" instead — the verdict itself
+    // never said to stop.
+    const decision = step(judgeWorkflow, "judge", "human", {
+      changes: [],
+      processTrace: ["check", "fix", "check", "judge", "fix", "check"],
+      routeAnswers: [{ id: "verdict", answer: "progress", p: 0.9 }],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(human): judge → escalate",
+      actor: "human",
+      from: "judge",
+      to: "escalate",
+    })
+  })
+
+  it("under the cap: the same 'progress' verdict with only one prior fix visit still routes to fix", () => {
+    const decision = step(judgeWorkflow, "judge", "human", {
+      changes: [],
+      processTrace: ["check", "fix", "check"],
+      routeAnswers: [{ id: "verdict", answer: "progress", p: 0.9 }],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      subject: "gtd(human): judge → fix",
+      actor: "human",
+      from: "judge",
+      to: "fix",
+    })
   })
 })
 
@@ -1780,7 +1944,7 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toEqual([
-      'state "orphan" is unreachable from any entry state (a) (no "on" target or "retry.otherwise" leads to it)',
+      'state "orphan" is unreachable from any entry state (a) (no "on" target, "routes" target, or "retry.otherwise" leads to it)',
     ])
   })
 
@@ -1803,6 +1967,24 @@ describe("validateDefinition", () => {
     expect(errors).toEqual([])
   })
 
+  it("counts a `routes:` target as a reachability edge — a state reachable only through a judgment is not reported unreachable", () => {
+    const { errors } = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "judging"]] },
+        judging: {
+          actor: "h",
+          message: "verdict?",
+          judge: "{}",
+          routes: [{ question: "q1", is: "yes", minP: "0.9", to: "proceed" }, { to: "escalate" }],
+        },
+        proceed: { actor: "h", message: "ok", on: [["* *", "judging"]] },
+        escalate: { actor: "h", message: "stuck", on: [["* *", "judging"]] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
   it("reports a whole disconnected cluster as unreachable, not just its entry", () => {
     const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
@@ -1813,10 +1995,10 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain(
-      'state "b" is unreachable from any entry state (a) (no "on" target or "retry.otherwise" leads to it)',
+      'state "b" is unreachable from any entry state (a) (no "on" target, "routes" target, or "retry.otherwise" leads to it)',
     )
     expect(errors).toContain(
-      'state "c" is unreachable from any entry state (a) (no "on" target or "retry.otherwise" leads to it)',
+      'state "c" is unreachable from any entry state (a) (no "on" target, "routes" target, or "retry.otherwise" leads to it)',
     )
   })
 
@@ -1893,6 +2075,449 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "missingFile": "requireProgress" requires "file"')
     expect(errors).toContain('state "missingFile": "answerGate" requires "file"')
     expect(errors).toContain('state "blankBase": "reviewBase" template must not be blank')
+  })
+})
+
+describe("validateDefinition — routes", () => {
+  const base = {
+    entries: { default: "a", manual: [] },
+  } as const
+
+  it("accepts a routes list ending in a bare catch-all row", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: "{}",
+          routes: [{ question: "q1", is: "yes", minP: "0.9", to: "b" }, { to: "c" }],
+        },
+        b: { actor: "h", message: "b" },
+        c: { actor: "h", message: "c" },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects an empty routes list", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: { a: { actor: "h", message: "x", judge: "{}", routes: [] } },
+    })
+    expect(errors).toEqual(['state "a": "routes" must declare at least one row'])
+  })
+
+  it("rejects a routes list with no catch-all row", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: "{}",
+          routes: [{ question: "q1", is: "yes", minP: "0.9", to: "a" }],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "routes" must end with a catch-all row carrying only "to"')
+  })
+
+  it("rejects a catch-all row that isn't last", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: "{}",
+          routes: [{ to: "a" }, { question: "q1", is: "yes", minP: "0.9", to: "a" }],
+        },
+      },
+    })
+    expect(errors).toContain(
+      'state "a": "routes.0" is a catch-all (only "to") but is not the last row',
+    )
+    expect(errors).toContain('state "a": "routes" must end with a catch-all row carrying only "to"')
+  })
+
+  it("rejects a non-catch-all row missing is (question alone isn't enough)", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: "{}",
+          routes: [{ question: "q1", to: "a" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "routes.0.is" must be a non-empty string')
+  })
+
+  it("does NOT require minP on a non-catch-all row — minP/maxP are each independently optional, and a row declaring neither matches at any probability", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: "{}",
+          routes: [{ question: "q1", is: "yes", to: "a" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("accepts a non-catch-all row declaring ONLY maxP (no minP) — the exact shape the conjunction-with-a-floor pattern needs", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: "{}",
+          routes: [{ question: "q1", is: "yes", maxP: "0.9", to: "a" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("a row carrying ONLY maxP (no question/is/minP) does not misclassify as the catch-all — it still requires question/is, and its declared ceiling is never silently discarded", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: "{}",
+          routes: [{ maxP: "0.9", to: "a" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "routes.0.question" must be a non-empty string')
+    expect(errors).toContain('state "a": "routes.0.is" must be a non-empty string')
+  })
+
+  it("rejects a routes row whose `to` names an undefined state", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: "{}",
+          routes: [{ question: "q1", is: "yes", minP: "0.9", to: "ghost" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "routes.0.to" target "ghost" is not a defined state')
+  })
+
+  // The `judge:` question-id cross-check itself (Task 2: "checks every row's
+  // `question` against the state's rendered question ids ... failing at load
+  // time") — package 01, round-2 review item 3.
+  const JUDGE_WITH_VERDICT = '{"state": "x", "questions": [{"id": "verdict"}]}'
+
+  it("rejects a routes.*.question that doesn't name one of judge:'s own declared question ids — the exact failure scenario a typo'd question would otherwise silently degrade to the catch-all", () => {
+    const { errors } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: JUDGE_WITH_VERDICT,
+          routes: [{ question: "verdcit", is: "identical", minP: "0.9", to: "a" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toContain(
+      'state "a": "routes.0.question" "verdcit" is not one of this state\'s judge: question ids (verdict)',
+    )
+  })
+
+  it("accepts a routes.*.question that DOES match one of judge:'s declared question ids, and raises no cross-check warning", () => {
+    const { errors, warnings } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: JUDGE_WITH_VERDICT,
+          routes: [{ question: "verdict", is: "identical", minP: "0.9", to: "a" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toEqual([])
+    expect(warnings).toEqual([])
+  })
+
+  it("warns (does not error) when judge:'s template can't render/parse under the load-time stub, instead of silently skipping the question-id cross-check with no signal at all", () => {
+    // A var reference with no default declared renders the literal string
+    // "undefined" (Eta's own behaviour, pinned elsewhere in this repo), which
+    // breaks the surrounding JSON — exactly the failure scenario round 2
+    // traced: an author interpolates a var into `judge:`'s JSON text and the
+    // cross-check silently loses coverage with no error, no warning.
+    const { errors, warnings } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: '{"state": "x", "questions": [{"id": <%= it.vars.undeclaredVar %>}]}',
+          routes: [{ question: "verdict", is: "identical", minP: "0.9", to: "a" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toEqual([])
+    expect(warnings).toContain(
+      'state "a": "routes.*.question" could not be checked against "judge:"\'s own question ids — the template did not render/parse under a load-time stub (no working-tree/git evidence available yet); a typo\'d question here will not be caught until runtime',
+    )
+  })
+
+  it("warns (does not error) when a question id is itself DERIVED from it.read(...) — round 4's own false-positive repro: the same evidence-derived id renders to a real string under any single fixed stub, so a single-render check would wrongly cross-check a genuinely correct routes.0.question against it", () => {
+    const { errors, warnings } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: '{"state":"s","questions":[{"id": "<%= it.read(".gtd/QID.md").trim() %>"}]}',
+          routes: [{ question: "verdict", is: "yes", to: "a" }, { to: "a" }],
+        },
+      },
+    })
+    expect(errors).toEqual([])
+    expect(warnings).toContain(
+      'state "a": "routes.*.question" could not be checked against "judge:"\'s own question ids — the template did not render/parse under a load-time stub (no working-tree/git evidence available yet); a typo\'d question here will not be caught until runtime',
+    )
+  })
+
+  it("does not warn when routes: declares ONLY a catch-all row — nothing to cross-check against question ids regardless of whether judge: itself renders", () => {
+    const { warnings } = validateDefinition({
+      ...base,
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          judge: '{"state": "x", "questions": [{"id": <%= it.vars.undeclaredVar %>}]}',
+          routes: [{ to: "a" }],
+        },
+      },
+    })
+    expect(warnings).toEqual([])
+  })
+
+  it("resolves a judge: template's it.vars.<name> reference against the workflow's OWN declared vars: defaults at load time — the only var layer that exists before .gtdrc/entry-commit/env are known", () => {
+    const { errors, warnings } = validateDefinition(
+      {
+        ...base,
+        states: {
+          a: {
+            actor: "h",
+            message: "x",
+            judge: '{"state": "x", "questions": [{"id": "<%= it.vars.questionName %>"}]}',
+            routes: [{ question: "verdict", is: "identical", minP: "0.9", to: "a" }, { to: "a" }],
+          },
+        },
+      },
+      { questionName: "verdict" },
+    )
+    expect(errors).toEqual([])
+    expect(warnings).toEqual([])
+  })
+})
+
+describe("matchRoute", () => {
+  it("first-match-wins, exactly like matchOn", () => {
+    const routes = [
+      { question: "q1", is: "yes", minP: "0.5", to: "a" },
+      { question: "q1", is: "yes", minP: "0", to: "b" },
+      { to: "c" },
+    ]
+    // The first row already matches ("yes" at p=0.9 clears 0.5) — the second,
+    // also-matching row never gets a chance to fire.
+    expect(matchRoute(routes, [{ id: "q1", answer: "yes", p: 0.9 }])).toBe("a")
+  })
+
+  it("skips a row whose question has no answer, falling through to a later match", () => {
+    const routes = [
+      { question: "missing", is: "yes", minP: "0", to: "a" },
+      { question: "q1", is: "yes", minP: "0", to: "b" },
+      { to: "c" },
+    ]
+    expect(matchRoute(routes, [{ id: "q1", answer: "yes", p: 0.9 }])).toBe("b")
+  })
+
+  it("requires the answer's own p to clear minP — below the floor does not match", () => {
+    const routes = [{ question: "q1", is: "yes", minP: "0.90", to: "a" }, { to: "b" }]
+    expect(matchRoute(routes, [{ id: "q1", answer: "yes", p: 0.89 }])).toBe("b")
+    expect(matchRoute(routes, [{ id: "q1", answer: "yes", p: 0.9 }])).toBe("a")
+  })
+
+  it("treats an absent minP as a floor of 0 — any reported probability clears it", () => {
+    const routes = [{ question: "q1", is: "yes", to: "a" }, { to: "b" }]
+    expect(matchRoute(routes, [{ id: "q1", answer: "yes", p: 0 }])).toBe("a")
+  })
+
+  it("the catch-all matches regardless of the answer set, including empty", () => {
+    expect(matchRoute([{ to: "z" }], [])).toBe("z")
+  })
+
+  it("returns undefined when no row matches at all (a hand-built, unvalidated definition with no catch-all)", () => {
+    const routes = [{ question: "q1", is: "yes", minP: "0", to: "a" }]
+    expect(matchRoute(routes, [{ id: "q1", answer: "no", p: 1 }])).toBeUndefined()
+  })
+
+  it('conjunction by inversion: "all three nouls answered yes" — an escape row per noul (any "no" escalates) plus a catch-all that proceeds only once none of them fired', () => {
+    // A verdict is a probability; no single row can positively AND three
+    // separate questions' conditions (first-match-wins over ONE flat list
+    // can't require every row to match at once). The equivalent — and the
+    // only expressible — encoding inverts the conjunction: escalate the
+    // instant ANY of the three nouls fails, and let the (last, unconditional)
+    // catch-all stand for "none of them failed".
+    const escalateOnAnyNo = [
+      { question: "noul1", is: "no", minP: "0", to: "escalate" },
+      { question: "noul2", is: "no", minP: "0", to: "escalate" },
+      { question: "noul3", is: "no", minP: "0", to: "escalate" },
+      { to: "proceed" },
+    ]
+
+    const allYes: readonly RouteAnswer[] = [
+      { id: "noul1", answer: "yes", p: 0.95 },
+      { id: "noul2", answer: "yes", p: 0.92 },
+      { id: "noul3", answer: "yes", p: 0.99 },
+    ]
+    expect(matchRoute(escalateOnAnyNo, allYes)).toBe("proceed")
+
+    // Flipping ANY single noul to "no" escalates, regardless of which one or
+    // where in the answer set it sits.
+    for (const flip of ["noul1", "noul2", "noul3"] as const) {
+      const withOneNo = allYes.map((a) => (a.id === flip ? { ...a, answer: "no" } : a))
+      expect(matchRoute(escalateOnAnyNo, withOneNo)).toBe("escalate")
+    }
+
+    // minP also gates a row directly: a row requiring high confidence for a
+    // specific noul only fires once that noul clears the floor, letting the
+    // SAME escape-row shape additionally guard against a low-confidence
+    // "yes" for a question a workflow author chooses to gate this way.
+    const escalateOnLowConfidence = [
+      { question: "noul1", is: "yes", minP: "0.90", to: "proceed" },
+      { to: "escalate" },
+    ]
+    expect(matchRoute(escalateOnLowConfidence, [{ id: "noul1", answer: "yes", p: 0.5 }])).toBe(
+      "escalate",
+    )
+    expect(matchRoute(escalateOnLowConfidence, [{ id: "noul1", answer: "yes", p: 0.9 }])).toBe(
+      "proceed",
+    )
+  })
+
+  it('conjunction by inversion, WITH a confidence floor: "all three nouls answered yes at p ≥ 0.90" — two escape rows per noul (wrong answer, or right answer under the floor) plus a catch-all', () => {
+    // `maxP` (the row's probability CEILING, `<`) is what makes the floor
+    // half of the conjunction expressible: an escape row can now say "yes,
+    // but not confidently" (`is: "yes", maxP: "0.90"`), not just "no". Per
+    // noul this is TWO escape rows (wrong answer at any p; right answer under
+    // the floor) instead of one — six escape rows plus the catch-all for
+    // three nouls — still "N escape rows plus a catch-all", the shape the
+    // package spec's own checkbox names.
+    const escalateUnlessAllYesAt90 = [
+      { question: "noul1", is: "no", to: "escalate" },
+      { question: "noul1", is: "yes", maxP: "0.90", to: "escalate" },
+      { question: "noul2", is: "no", to: "escalate" },
+      { question: "noul2", is: "yes", maxP: "0.90", to: "escalate" },
+      { question: "noul3", is: "no", to: "escalate" },
+      { question: "noul3", is: "yes", maxP: "0.90", to: "escalate" },
+      { to: "proceed" },
+    ]
+
+    // Round 3's own finding: this exact row shape must LOAD, not just
+    // resolve correctly through the pure `matchRoute` function — `minP` was
+    // wrongly mandatory on every non-catch-all row, so every `maxP`-only
+    // escape row above failed `validateDefinition` with "routes.N.minP" must
+    // be a non-empty string" even though the row shape it demonstrates is
+    // exactly what the package spec's checkbox and `StateFields.ts`'s own
+    // "either bound alone is legal" contract prescribe.
+    const { errors } = validateDefinition({
+      entries: { default: "judging", manual: [] },
+      states: {
+        judging: {
+          actor: "h",
+          message: "x",
+          judge: '{"state": "x", "questions": [{"id": "noul1"}, {"id": "noul2"}, {"id": "noul3"}]}',
+          routes: escalateUnlessAllYesAt90,
+        },
+        escalate: { actor: "h", message: "escalate" },
+        proceed: { actor: "h", message: "proceed" },
+      },
+    })
+    expect(errors).toEqual([])
+
+    const allYesHighConfidence: readonly RouteAnswer[] = [
+      { id: "noul1", answer: "yes", p: 0.95 },
+      { id: "noul2", answer: "yes", p: 0.92 },
+      { id: "noul3", answer: "yes", p: 0.99 },
+    ]
+    expect(matchRoute(escalateUnlessAllYesAt90, allYesHighConfidence)).toBe("proceed")
+
+    // A "no" on any single noul still escalates, at any confidence.
+    for (const flip of ["noul1", "noul2", "noul3"] as const) {
+      const withOneNo = allYesHighConfidence.map((a) =>
+        a.id === flip ? { ...a, answer: "no" } : a,
+      )
+      expect(matchRoute(escalateUnlessAllYesAt90, withOneNo)).toBe("escalate")
+    }
+
+    // The failure scenario round 2 traced: noul1 = no @ p 0.6 (a LOW-
+    // confidence "no"), noul2/noul3 = yes @ 0.99. Without `maxP` this fell
+    // through to the catch-all and proceeded on a low-confidence failure —
+    // now the `is: "no"` escape row (no `minP` at all: it catches ANY "no")
+    // still fires regardless of that answer's own p.
+    const lowConfidenceNo: readonly RouteAnswer[] = [
+      { id: "noul1", answer: "no", p: 0.6 },
+      { id: "noul2", answer: "yes", p: 0.99 },
+      { id: "noul3", answer: "yes", p: 0.99 },
+    ]
+    expect(matchRoute(escalateUnlessAllYesAt90, lowConfidenceNo)).toBe("escalate")
+
+    // A "yes" that doesn't clear the 0.90 floor also escalates.
+    const oneLowConfidenceYes: readonly RouteAnswer[] = [
+      { id: "noul1", answer: "yes", p: 0.5 },
+      { id: "noul2", answer: "yes", p: 0.99 },
+      { id: "noul3", answer: "yes", p: 0.99 },
+    ]
+    expect(matchRoute(escalateUnlessAllYesAt90, oneLowConfidenceYes)).toBe("escalate")
+
+    // Exactly at the floor (0.90) clears it — `minP`'s own `>=` convention,
+    // `maxP`'s mirror is `<`, so 0.90 itself is NOT caught by `maxP: "0.90"`.
+    const exactlyAtFloor: readonly RouteAnswer[] = [
+      { id: "noul1", answer: "yes", p: 0.9 },
+      { id: "noul2", answer: "yes", p: 0.99 },
+      { id: "noul3", answer: "yes", p: 0.99 },
+    ]
+    expect(matchRoute(escalateUnlessAllYesAt90, exactlyAtFloor)).toBe("proceed")
+  })
+
+  it("a blank (or otherwise non-finite) minP/maxP makes the row fail closed — never match — rather than Number()'s dangerous coercion (blank -> 0, a floor of nothing)", () => {
+    // The documented off-switch idiom (`judgeIdenticalMinP: ""`, mirroring
+    // `reviewBase: ""`) must DISABLE the row it blanks, not make it fire on
+    // any probability — `Number("")` is `0`, which without this guard would
+    // do exactly the opposite of what a repo blanking the var intends.
+    const blankMinP = [{ question: "q1", is: "yes", minP: "", to: "escalate" }, { to: "proceed" }]
+    expect(matchRoute(blankMinP, [{ id: "q1", answer: "yes", p: 0.99 }])).toBe("proceed")
+
+    const blankMaxP = [{ question: "q1", is: "yes", maxP: "", to: "escalate" }, { to: "proceed" }]
+    expect(matchRoute(blankMaxP, [{ id: "q1", answer: "yes", p: 0.01 }])).toBe("proceed")
+
+    // A non-numeric var also fails closed, not just a blank one.
+    const nonNumericMinP = [
+      { question: "q1", is: "yes", minP: "off", to: "escalate" },
+      { to: "proceed" },
+    ]
+    expect(matchRoute(nonNumericMinP, [{ id: "q1", answer: "yes", p: 0.99 }])).toBe("proceed")
   })
 })
 

@@ -66,7 +66,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
-    And ".gtd/REVIEW_RAW.md" contains the hash of "review-commit"
-    And ".gtd/REVIEW_RAW.md" contains ".gtd/REVIEW.md"
-    And ".gtd/REVIEW_RAW.md" does not contain "diff --git"
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.triage"
+    And ".gtd/REVIEW_NOTE.md" contains the hash of "review-commit"
+    And ".gtd/REVIEW_NOTE.md" contains ".gtd/REVIEW.md"
+    And ".gtd/REVIEW_NOTE.md" does not contain "diff --git"

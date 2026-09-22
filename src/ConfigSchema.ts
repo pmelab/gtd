@@ -83,6 +83,8 @@ const JSON_TYPE: Record<FieldKind, object> = {
   flagOrTemplate: { oneOf: [{ const: true }, { type: "string" }] },
   edges: { type: "object" },
   retry: { type: "object" },
+  judge: { type: "string" },
+  routes: { type: "array" },
 }
 
 /** One state's shape — `properties` is derived from `STATE_FIELD_ENTRIES` (every `authored: "state"` field, in table order); see `ConfigSchema.test.ts`. */

@@ -53,7 +53,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.deciding → idle"
 
-  Scenario: ticking boxes and leaving a note is feedback — the commit carries the note, no tick, and routes to collecting
+  Scenario: ticking boxes and leaving a note is feedback — the commit carries the note, no tick, and routes to triage
     Given a test project
     And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
       """
@@ -84,8 +84,8 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
-    And ".gtd/REVIEW_RAW.md" exists
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.triage"
+    And ".gtd/REVIEW_NOTE.md" exists
 
   Scenario: ticking a two-space-indented (nested) hunk is cleared at the review gate too — the live bug this rewrite fixes
     Given a test project

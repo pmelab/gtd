@@ -95,6 +95,19 @@ describe("ConfigSchema — stateJsonSchema derives from STATE_FIELD_ENTRIES", ()
     expect(retry["additionalProperties"]).toBe(false)
   })
 
+  it("keeps `judge`'s string shape, sourced from its own jsonSchema escape hatch like on/retry", () => {
+    const state = buildStateSchema()
+    const judge = (state["properties"] as JsonObject)["judge"] as JsonObject
+    expect(judge["type"]).toBe("string")
+    expect((judge["description"] as string).length).toBeGreaterThan(0)
+  })
+
+  it("gives `shadow` a plain boolean shape", () => {
+    const state = buildStateSchema()
+    const shadow = (state["properties"] as JsonObject)["shadow"] as JsonObject
+    expect(shadow["type"]).toBe("boolean")
+  })
+
   it("documents answerGate's untouched-tree exception, not just the base rule", () => {
     const state = buildStateSchema()
     const answerGate = (state["properties"] as JsonObject)["answerGate"] as JsonObject

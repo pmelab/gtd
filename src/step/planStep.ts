@@ -1,6 +1,7 @@
 import {
   contentKindOf,
   step,
+  type RouteAnswer,
   type StateName,
   type StepDecision,
   type StepRefusal,
@@ -28,6 +29,19 @@ const noOpSettles = (snapshot: RepoSnapshot): boolean =>
   contentKindOf(snapshot.stateDef) === "script"
 
 /**
+ * One answered question off a `gtd judge answer` verdict — the same shape
+ * `src/program.ts`'s `verdictSchemaFor` decodes off stdin. Recorded as its own
+ * `Gtd-Judge:` trailer line (one per entry), the way `opts.cost` becomes
+ * `Gtd-Cost:` below — `src/Edge.ts`'s `computeProcessRun` scans both off the
+ * same `<startCommit>..HEAD` range.
+ */
+export interface JudgeVerdict {
+  readonly id: string
+  readonly answer: string | number | boolean
+  readonly p: number
+}
+
+/**
  * A decision whose emitted steps write git — the one kind a guard may run
  * before. No caller annotates a variable with this name yet (every call
  * site narrows `StepOutcome.decision.kind` and lets it infer) — exported via
@@ -51,11 +65,16 @@ const renderDecision = (
   decision: ExecutableDecision,
   cost: number | undefined,
   model: string | undefined,
+  judge: readonly JudgeVerdict[] | undefined,
 ): readonly LandStep[] => {
+  const trailerLines = [
+    cost === undefined ? undefined : `Gtd-Cost: ${cost}${model !== undefined ? ` ${model}` : ""}`,
+    ...(judge ?? []).map((verdict) => `Gtd-Judge: ${JSON.stringify(verdict)}`),
+  ].filter((line): line is string => line !== undefined)
   const subjectWithTrailer =
-    cost === undefined
+    trailerLines.length === 0
       ? decision.subject
-      : `${decision.subject}\n\nGtd-Cost: ${cost}${model !== undefined ? ` ${model}` : ""}`
+      : `${decision.subject}\n\n${trailerLines.join("\n")}`
   const file = snapshot.file
   const uncheckStep: readonly LandStep[] =
     isHumanReviewGate(snapshot.stateDef) && file !== undefined ? [{ kind: "uncheck", file }] : []
@@ -91,13 +110,43 @@ export type StepOutcome =
       readonly guardVerdict: Refusal
     }
 
+/**
+ * A `gtd judge answer` verdict, shaped for `routes:` matching — `answer`
+ * normalized to a string since `RouteAnswer.answer` (compared against a route
+ * row's own string `is`) is string-only, while a verdict's `answer` covers
+ * every `judge:` primitive (`noul` → boolean, `choice` → string, `score` →
+ * number). A `noul`'s boolean becomes `"yes"`/`"no"` — the documented `is:`
+ * vocabulary every doc site (`StateFields.ts`'s `RouteRow`/`ROUTES_JSON_SCHEMA`,
+ * `docs/configuration.md`) names for it — NOT `String(true)` ("true"), which
+ * an author writing `is: "yes"` per that same documentation could never match:
+ * the row silently falls through to the catch-all, no load error, no runtime
+ * signal. `choice` (already a string) and `score` (a number, `String(3)` →
+ * `"3"`, matching "a score's level") pass through `String()` unchanged.
+ */
+const asRouteAnswers = (judge: readonly JudgeVerdict[] | undefined): readonly RouteAnswer[] =>
+  (judge ?? []).map((v) => ({
+    id: v.id,
+    answer: typeof v.answer === "boolean" ? (v.answer ? "yes" : "no") : String(v.answer),
+    p: v.p,
+  }))
+
 export const planStep = (
   snapshot: RepoSnapshot,
-  opts: { readonly cost?: number; readonly model?: string } = {},
+  opts: {
+    readonly cost?: number
+    readonly model?: string
+    readonly judge?: readonly JudgeVerdict[]
+  } = {},
 ): StepOutcome => {
+  const { cost, model, judge } = opts
+  // `routeAnswers` is `undefined` (not `[]`) when no verdict was answered
+  // THIS call — `step`'s `routes:` precedence only applies when a verdict was
+  // actually supplied; an ordinary `gtd land` (no `judge` opt) must fall
+  // through to the state's own `on:`, the "skipped judgment" path.
   const decision = step(snapshot.stepDef, snapshot.state, snapshot.actor, {
     changes: snapshot.changes,
     processTrace: snapshot.processTrace,
+    ...(judge !== undefined ? { routeAnswers: asRouteAnswers(judge) } : {}),
   })
 
   if (decision.kind === "refusal") {
@@ -107,8 +156,7 @@ export const planStep = (
     return { kind: "noop", state: decision.state, settled: noOpSettles(snapshot) }
   }
 
-  const { cost, model } = opts
-  const steps = renderDecision(snapshot, decision, cost, model)
+  const steps = renderDecision(snapshot, decision, cost, model, judge)
   const guardVerdict = decision.attempt === true ? undefined : enforceStepGuards(snapshot)
 
   return { kind: "commit", state: snapshot.state, decision, steps, guardVerdict }

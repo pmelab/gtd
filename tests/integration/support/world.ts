@@ -22,6 +22,7 @@ import {
 } from "node:fs"
 import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
+import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli, EXIT_OK } from "../../../src/cli/index.js"
 import {
@@ -467,6 +468,104 @@ export class GtdWorld extends QuickPickleWorld {
         process.stderr.write(stderr)
       }
       this.lastResult = { exitCode, stdout, stderr }
+    }
+  }
+
+  /**
+   * The e2e driver's own stdin-piping counterpart of `invokeGtd` — `gtd judge
+   * answer` (`.gtd/packages/01-judgment-surface.md` Task 4) is the first
+   * command that reads stdin, so this is the first place the harness needs to
+   * pipe anything into a spawned/in-process gtd at all.
+   */
+  private async invokeGtdWithStdin(stdin: string, ...args: string[]): Promise<void> {
+    if (this.tier === "inmem") {
+      await this.runGtdInMemWithStdin(stdin, ...args)
+    } else {
+      await this.runGtdLiveWithStdin(stdin, ...args)
+    }
+  }
+
+  /** Read-only: pipes `stdin` into gtd and stops — never drives an emitted script. */
+  async runGtdWithStdin(stdin: string, ...args: string[]): Promise<void> {
+    await this.invokeGtdWithStdin(stdin, ...args)
+  }
+
+  /**
+   * `gtd judge answer`'s own write-driving counterpart of `driveLandWrite`:
+   * plain output carries no runnable script (same discipline as plain `gtd
+   * land`, package 02), so a successful answer is re-invoked with
+   * `--json=script` — stdin fed a SECOND time, since each invocation reads it
+   * to completion exactly once — and that script is what actually lands the
+   * `Gtd-Judge:` trailer and the transition `routes:` decided.
+   */
+  async runGtdJudgeAnswerWithStdin(stdin: string): Promise<void> {
+    await this.invokeGtdWithStdin(stdin, "judge", "answer")
+    if (!landExitDrivable(this.lastResult.exitCode)) return
+    const reported = this.lastResult
+    await this.invokeGtdWithStdin(stdin, "judge", "answer", "--json=script")
+    const script = this.lastResult.stdout
+    this.lastResult = reported
+    if (script.length === 0) return
+    const run = await this.runEmittedScript(script)
+    this.lastScriptOutput = run.output
+    if (run.exitCode === 0) return
+    this.lastResult = {
+      exitCode: run.exitCode,
+      stdout: reported.stdout,
+      stderr: reported.stderr + run.output,
+    }
+  }
+
+  /**
+   * Real `child_process.spawn`, not `execFile` — an async `execFile` has no
+   * `input` option (only its sync counterpart does), so writing to the
+   * child's own `stdin` stream directly is the only way to pipe data into a
+   * REAL gtd subprocess.
+   */
+  private async runGtdLiveWithStdin(stdin: string, ...args: string[]): Promise<void> {
+    const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
+    const child = spawn(process.execPath, [GTD_BIN, ...args], {
+      cwd: this.repoDir,
+      env: this.spawnEnv(),
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8")
+    })
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8")
+    })
+    const exited = new Promise<number>((resolve) => {
+      child.once("close", (code) => resolve(code ?? 1))
+    })
+    child.stdin?.end(stdin)
+    const exitCode = await exited
+    if (verbose) {
+      process.stderr.write(stdout)
+      process.stderr.write(stderr)
+    }
+    this.lastResult = { exitCode, stdout, stderr }
+  }
+
+  /**
+   * The `@inmem` tier's own stdin-piping counterpart: `runCli` runs IN this
+   * test process (no subprocess to spawn), so piping means swapping this
+   * process's own `process.stdin` for a `PassThrough` pre-loaded with
+   * `stdin` — the same technique `src/program.test.ts`'s `gtd lsp` test and
+   * `src/Lsp.test.ts` use — restored in a `finally` so a leftover stub can
+   * never leak into a later scenario.
+   */
+  private async runGtdInMemWithStdin(stdin: string, ...args: string[]): Promise<void> {
+    const saved = Object.getOwnPropertyDescriptor(process, "stdin")
+    const fake = new PassThrough()
+    Object.defineProperty(process, "stdin", { value: fake, configurable: true })
+    fake.end(stdin)
+    try {
+      await this.runGtdInMem(...args)
+    } finally {
+      if (saved) Object.defineProperty(process, "stdin", saved)
     }
   }
 

@@ -54,6 +54,26 @@ describe("renderBriefing", () => {
     expect(renderBriefing()).toContain(GTD_VERSION)
   })
 
+  it("names gtd judge answer --json=script alongside the other emitted-script commands", () => {
+    expect(renderBriefing()).toContain("gtd judge answer --json=script")
+  })
+
+  it("the ## Driver obligations section itself — not just PREREQUISITES elsewhere in the briefing — tells the driver about gtd judge answer", () => {
+    // Round 4's own finding: a grep over the WHOLE briefing already passed
+    // via PREREQUISITES/JSON_FIELD_REFERENCE, even though obligations 7/8
+    // (the numbered list a driver author actually implements against) still
+    // described gtd land as the only landing path. Scope the assertion to
+    // that one section so it can't pass on an unrelated mention again.
+    const briefing = renderBriefing()
+    const start = briefing.indexOf("## Driver obligations")
+    const end = briefing.indexOf("## Recovery")
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const obligations = briefing.slice(start, end)
+    expect(obligations).toContain("gtd judge answer")
+    expect(obligations).toContain("--json=judge")
+  })
+
   it("instructs the agent to investigate the repo and ask before driving", () => {
     expect(renderBriefing()).toMatch(/investigate the repository and ask/i)
   })

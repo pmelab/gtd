@@ -206,3 +206,17 @@ export const headingText = (
   }
   return strip(sourceText(content, synthetic)).replace(/\s+/g, " ").trim()
 }
+
+/**
+ * Every depth-`depth` (default 2, `## `) heading's own text, in document
+ * order — the section list a dynamic-count `judge:` template (one noul per
+ * section/finding) counts over. Top-level only (`tree.children`, not nested
+ * inside a list or blockquote), matching how a package/feedback file's own
+ * `## ` headings are always written at the document's own top level.
+ */
+export const headingSections = (content: string, depth = 2): readonly string[] => {
+  const tree = parseMarkdown(content)
+  return tree.children
+    .filter((node): node is Heading => node.type === "heading" && node.depth === depth)
+    .map((heading) => headingText(content, heading))
+}

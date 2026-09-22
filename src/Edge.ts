@@ -1,6 +1,14 @@
 import { Effect } from "effect"
 import { Narrator } from "./Commentary.js"
-import { GitService, Host, Workspace, templateRead, type GitOperations } from "./platform/index.js"
+import { headingSections, openQuestionOptions, openQuestionTexts } from "./steering/index.js"
+import {
+  GitService,
+  Host,
+  Workspace,
+  templateRead,
+  templateReadCommitted,
+  type GitOperations,
+} from "./platform/index.js"
 import { UNATTRIBUTED_MODEL } from "./wire/index.js"
 
 export { UNATTRIBUTED_MODEL }
@@ -20,6 +28,7 @@ import {
   type ContentKind,
   type OnEdge,
   type PendingChange,
+  type RouteRow,
   type StateDef,
   type StateName,
   type WorkflowDefinition,
@@ -66,6 +75,46 @@ const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
         cost: Number(match[1]),
         model: model !== undefined && model !== "" ? model : UNATTRIBUTED_MODEL,
       })
+    }
+  }
+  return entries
+}
+
+// `gtd judge answer --json=script` (`src/step/planStep.ts`'s `renderDecision`)
+// can carry one or more `Gtd-Judge: <json>` trailers on the step commit — one
+// per answered question, the same `{ id, answer, p }` shape `program.ts`'s
+// `verdictSchemaFor` decoded off stdin. `computeProcessRun` collects them into
+// `ProcessRun.judgeVerdicts`, the process's verdict history, exactly like
+// `costEntries` — a malformed line (never emitted by gtd itself) is skipped
+// rather than failing the whole scan, since a corrupt trailer must never make
+// `gtd next`/`gtd land` unusable.
+const JUDGE_TRAILER_RE = /^Gtd-Judge:[ \t]*(.+)$/gm
+
+export interface JudgeVerdictEntry {
+  readonly id: string
+  readonly answer: string | number | boolean
+  readonly p: number
+}
+
+const isJudgeVerdictEntry = (value: unknown): value is JudgeVerdictEntry =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as Record<string, unknown>).id === "string" &&
+  ["string", "number", "boolean"].includes(typeof (value as Record<string, unknown>).answer) &&
+  typeof (value as Record<string, unknown>).p === "number"
+
+const parseJudgeTrailers = (messages: readonly string[]): JudgeVerdictEntry[] => {
+  const entries: JudgeVerdictEntry[] = []
+  for (const message of messages) {
+    for (const match of message.matchAll(JUDGE_TRAILER_RE)) {
+      const parsed: unknown = (() => {
+        try {
+          return JSON.parse(match[1]!) as unknown
+        } catch {
+          return undefined
+        }
+      })()
+      if (isJudgeVerdictEntry(parsed)) entries.push(parsed)
     }
   }
   return entries
@@ -206,6 +255,8 @@ export interface ProcessRun {
   readonly trace: readonly TraceEntry[]
   /** Every `Gtd-Cost:` entry recorded on the process's turn commits — summed into `it.processCost` and grouped into `it.processCostByModel` (empty when none were recorded). */
   readonly costEntries: readonly CostEntry[]
+  /** Every `Gtd-Judge:` entry recorded on the process's turn commits (oldest → newest) — the process's verdict history, one entry per answered question (empty when no judgment was ever recorded). */
+  readonly judgeVerdicts: readonly JudgeVerdictEntry[]
   /** The `Gtd-Var:` trailers recorded on the process's FIRST (oldest) commit — an entry commit's fixed `it.vars` overrides, folded into `resolveVars`'s merge (empty when the process's oldest commit carries none, or the process is empty). */
   readonly entryVars: Record<string, string>
   /**
@@ -333,6 +384,7 @@ const computeProcessRun = (
       return { state: parsed.state, hash: h.hash, actor: parsed.actor }
     })
     const costEntries = parseCostTrailers(processCommits.map((h) => h.message))
+    const judgeVerdicts = parseJudgeTrailers(processCommits.map((h) => h.message))
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
     const startHash =
       startIdx < history.length ? history[startIdx]!.hash : history[history.length - 1]!.hash
@@ -346,6 +398,7 @@ const computeProcessRun = (
       diffBase,
       trace,
       costEntries,
+      judgeVerdicts,
       entryVars,
       headTurn,
       closingHash,
@@ -534,29 +587,65 @@ const renderOnEdgesOrFail = (
   })
 
 /**
- * A shallow clone of `def` whose `state`'s `on` is replaced by
- * `renderedOnEdges` — used to feed `PatternMachine.step`, which matches only
- * `def.states[state].on` for the state it's invoked at. Only the RESTING
- * state needs patching, even though `step`'s retry counter now reads every
- * state's `on` targets (plus `retry.otherwise`) to derive a capped state's
- * source set. That's still sound because `renderOnEdges` renders a pattern
- * KEY only and passes each edge's `target` through verbatim — the source-set
- * computation reads only `target` strings, never pattern keys, so every
- * other state's un-patched, unrendered-key `on` still reports the right
- * targets. Warning: if a future change ever templated a state's `on`
- * TARGET (not just its pattern key), that would silently mis-scope every
- * retry budget, because the source-set computation reads targets from every
- * state, and `withRenderedOn` patches only the one being rested at.
+ * Render every `routes:` row's `minP`/`maxP` as an Eta template over `vars`
+ * ONLY — the same `varsOnlyContext` restriction `renderOnEdges` applies, and
+ * for the same reason: a threshold never needs diffs/commit hashes, only a
+ * repo's own `var:` override. `question`/`is`/`to` pass through verbatim —
+ * they name a question id, an answer, and a target state, none of which are
+ * meant to be templated. Throws whatever Eta throws on a malformed
+ * `minP`/`maxP` template.
+ */
+const renderRoutes = (
+  routes: readonly RouteRow[] | undefined,
+  vars: Record<string, string>,
+): readonly RouteRow[] => {
+  const ctx = varsOnlyContext(vars)
+  return (routes ?? []).map(
+    (row): RouteRow => ({
+      ...row,
+      ...(row.minP !== undefined ? { minP: renderStateTemplate(row.minP, ctx) } : {}),
+      ...(row.maxP !== undefined ? { maxP: renderStateTemplate(row.maxP, ctx) } : {}),
+    }),
+  )
+}
+
+/** Wraps `renderRoutes`, turning a thrown Eta error into a plain `Error` failure — exactly like a content render failure. */
+const renderRoutesOrFail = (
+  routes: readonly RouteRow[] | undefined,
+  vars: Record<string, string>,
+): Effect.Effect<readonly RouteRow[], Error> =>
+  Effect.try({
+    try: () => renderRoutes(routes, vars),
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/**
+ * A shallow clone of `def` whose `state`'s `on` AND `routes` are replaced by
+ * `renderedOnEdges`/`renderedRoutes` — used to feed `PatternMachine.step`,
+ * which matches only `def.states[state].on`/`.routes` for the state it's
+ * invoked at. Only the RESTING state needs patching, even though `step`'s
+ * retry counter now reads every state's `on`/`routes` targets (plus
+ * `retry.otherwise`) to derive a capped state's source set. That's still
+ * sound because `renderOnEdges`/`renderRoutes` render a pattern KEY or a
+ * `minP`/`maxP` threshold only and pass each edge's `target`/`to` through
+ * verbatim — the source-set computation reads only target/`to` strings, never
+ * pattern keys or thresholds, so every other state's un-patched, unrendered
+ * `on`/`routes` still reports the right targets. Warning: if a future change
+ * ever templated a state's `on` TARGET or a `routes` row's `to` (not just a
+ * pattern key or a threshold), that would silently mis-scope every retry
+ * budget, because the source-set computation reads targets from every state,
+ * and `withRenderedOn` patches only the one being rested at.
  */
 const withRenderedOn = (
   def: WorkflowDefinition,
   state: StateName,
   renderedOnEdges: readonly OnEdge[],
+  renderedRoutes: readonly RouteRow[],
 ): WorkflowDefinition => ({
   ...def,
   states: {
     ...def.states,
-    [state]: { ...def.states[state]!, on: renderedOnEdges },
+    [state]: { ...def.states[state]!, on: renderedOnEdges, routes: renderedRoutes },
   },
 })
 
@@ -596,6 +685,9 @@ const buildTemplateContext = (
       processCost: totalCostOf(run.costEntries),
       processCostByModel: costByModel(run.costEntries),
       read,
+      sections: (path: string) => headingSections(read(path)),
+      openQuestions: (path: string) => openQuestionTexts(read(path)),
+      openQuestionOptions: (path: string) => openQuestionOptions(read(path)),
       vars,
       edges: toTemplateEdges(edges),
     }
@@ -715,7 +807,8 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const run = yield* computeProcessRun(git, def)
     const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env)
     const on = yield* renderOnEdgesOrFail(resolved.stateDef.on, vars)
-    const stepDef = withRenderedOn(def, resolved.state, on)
+    const routes = yield* renderRoutesOrFail(resolved.stateDef.routes, vars)
+    const stepDef = withRenderedOn(def, resolved.state, on, routes)
     const reviewBase = reviewBaseFor(def, run)
     const changes = yield* pendingChanges(git)
     const context = yield* buildTemplateContext(
@@ -728,9 +821,21 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       on,
       reviewBase,
     )
+    // `judge:` renders against committed-only evidence — same context shape,
+    // just `read` swapped for `templateReadCommitted` (see `renderHints`).
+    const judgeContext = yield* buildTemplateContext(
+      git,
+      templateReadCommitted(workspace),
+      resolved.state,
+      resolved.actor,
+      run,
+      vars,
+      on,
+      reviewBase,
+    )
     const memory = memoryKeyFor(config.stateScopes, resolved, run)
     const memoryResumed = memoryResumedFor(def, config.stateScopes, resolved, run)
-    const hints = yield* renderHints(resolved.stateDef, context)
+    const hints = yield* renderHints(resolved.stateDef, context, judgeContext)
 
     return {
       ...resolved,
@@ -777,8 +882,19 @@ const renderStateField = (
   })
 
 /**
+ * `judge:`'s own field key — rendered against `judgeContext` (evidence bounded
+ * to already-committed content) instead of `context` (the ordinary,
+ * working-tree-reading context every other rendered field shares). The
+ * evidence rule (Requirement section, Task 1) forbids a judgment consuming a
+ * freshly-gathered or uncommitted artifact; this is the one field where that
+ * distinction matters, so it is the one field singled out here.
+ */
+const JUDGE_FIELD_KEY = "judge"
+
+/**
  * Every `STATE_FIELDS` hint for one state, resolved against `context`:
- * `rest: "rendered"` fields (`model`/`label`/`file`) go through
+ * `rest: "rendered"` fields (`model`/`label`/`file`/`judge`, the last against
+ * `judgeContext` instead — see `JUDGE_FIELD_KEY`) go through
  * `renderStateField`, `rest: "verbatim"` fields (`mode`, a closed literal
  * never Eta-rendered) pass through as-is. Derived from the table, so a new
  * hint field needs no edit here — and computed ONCE, when the `Rest`
@@ -787,12 +903,14 @@ const renderStateField = (
 const renderHints = (
   stateDef: StateDef,
   context: TemplateContext,
+  judgeContext: TemplateContext,
 ): Effect.Effect<RestHints, Error> =>
   Effect.gen(function* () {
     const hints: Record<string, unknown> = {}
     for (const [key, spec] of STATE_FIELD_ENTRIES) {
       if (spec.rest === "rendered") {
-        hints[key] = yield* renderStateField(stateDef, key, context)
+        const fieldContext = key === JUDGE_FIELD_KEY ? judgeContext : context
+        hints[key] = yield* renderStateField(stateDef, key, fieldContext)
       } else if (spec.rest === "verbatim") {
         hints[key] = (stateDef as unknown as Record<string, unknown>)[key]
       }

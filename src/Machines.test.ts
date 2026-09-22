@@ -243,6 +243,39 @@ describe("flattenMachines — binding scope", () => {
     // not "mid.done" or "mid.inner.done".
     expect((out.states["mid.inner.step"] as { on: unknown }).on).toEqual({ "* **": "done" })
   })
+
+  it("resolves a `routes:` row's `to` through a bound $param, leaving `question`/`is`/`minP` untouched", () => {
+    const out = flattenMachines({
+      entry: { default: "unified" },
+      machines: {
+        unified: {
+          entry: "gate",
+          states: {
+            fix: commitState(),
+            gate: { machine: "healthGate", with: { onRed: "fix" } },
+          },
+        },
+        healthGate: {
+          params: ["onRed"],
+          entry: "judge",
+          states: {
+            escalate: commitState("chore: escalate"),
+            judge: {
+              actor: "human",
+              message: "m",
+              judge: "{}",
+              routes: [{ question: "verdict", is: "identical", to: "escalate" }, { to: "$onRed" }],
+            },
+          },
+        },
+      },
+    })
+    expect(out.diagnostics.map((d) => d.message)).toEqual([])
+    expect((out.states["gate.judge"] as { routes: unknown }).routes).toEqual([
+      { question: "verdict", is: "identical", to: "gate.escalate" },
+      { to: "fix" },
+    ])
+  })
 })
 
 describe("flattenMachines — Pass 1 guards", () => {

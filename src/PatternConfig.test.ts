@@ -8,7 +8,7 @@ import { compileWorkflowConfig, inlineWorkflowFileRefs, type ReadFile } from "./
 import { isSeededValidateCommand, seededValidateCommand } from "./SteeringFormats.js"
 import { resolveMode, validateScriptFor } from "./SteeringMode.js"
 import { Host } from "./platform/index.js"
-import type { TemplateContext } from "./PatternTemplates.js"
+import { type TemplateContext } from "./PatternTemplates.js"
 import type { Diagnostic } from "./workflow/index.js"
 
 /**
@@ -226,6 +226,15 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       processCost: 0,
       processCostByModel: [],
       read: () => {
+        throw new Error("must not be called")
+      },
+      sections: () => {
+        throw new Error("must not be called")
+      },
+      openQuestions: () => {
+        throw new Error("must not be called")
+      },
+      openQuestionOptions: () => {
         throw new Error("must not be called")
       },
       vars: {},
@@ -1270,6 +1279,236 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     })
     expect(definition.states["working"]!.file).toBe(".gtd/<%= it.vars.todoFile %>")
     expect(definition.states["working"]!.mode).toBe("qa")
+  })
+
+  it("compiles a `judge` template string through onto the state, alongside its required sibling `message`", () => {
+    const { definition } = compileWorkflowConfig({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: {
+              actor: "human",
+              message: "verdict needed",
+              judge: '{ "state": "<%= it.read(\'.gtd/FEEDBACK.md\') %>" }',
+            },
+          },
+        },
+      },
+    })
+    expect(definition.states["a"]!.judge).toBe(
+      '{ "state": "<%= it.read(\'.gtd/FEEDBACK.md\') %>" }',
+    )
+  })
+
+  it("omits `judge` entirely when the state declares none", () => {
+    const { definition } = compileWorkflowConfig({
+      entry: { default: "root" },
+      machines: {
+        root: { entry: "a", states: { a: { actor: "human", message: "hi" } } },
+      },
+    })
+    expect(definition.states["a"]).not.toHaveProperty("judge")
+  })
+
+  it("rejects a non-string `judge` as a config-shape error", () => {
+    const messages = compileErrors({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: { a: { actor: "human", message: "hi", judge: 42 } },
+        },
+      },
+    })
+    expect(messages).toContain('state "a": "judge" must be a string')
+  })
+
+  it("requires a sibling `message:` — a `judge` on a state with no `message` is a load error", () => {
+    const messages = compileErrors({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: { a: { actor: "agent", prompt: "p", judge: "{}" } },
+        },
+      },
+    })
+    expect(messages).toContain('state "a": "judge" requires "message"')
+  })
+
+  it("compiles a `shadow` boolean onto the state that declares `judge`", () => {
+    const { definition } = compileWorkflowConfig({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: { a: { actor: "human", message: "hi", judge: "{}", shadow: true } },
+        },
+      },
+    })
+    expect(definition.states["a"]!.shadow).toBe(true)
+  })
+
+  it("requires a sibling `judge:` — a `shadow` on a state with no `judge` is a load error", () => {
+    const messages = compileErrors({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: { a: { actor: "human", message: "hi", shadow: true } },
+        },
+      },
+    })
+    expect(messages).toContain('state "a": "shadow" requires "judge"')
+  })
+
+  it("compiles a `routes` list of { question, is, minP, to } rows, ordered, onto the state that declares `judge`", () => {
+    const { definition } = compileWorkflowConfig({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: {
+              actor: "human",
+              message: "verdict needed",
+              judge: "{}",
+              routes: [
+                { question: "q1", is: "yes", minP: "0.90", to: "proceed" },
+                { to: "escalate" },
+              ],
+            },
+            proceed: { actor: "human", message: "ok" },
+            escalate: { actor: "human", message: "stuck" },
+          },
+        },
+      },
+    })
+    expect(definition.states["a"]!.routes).toEqual([
+      { question: "q1", is: "yes", minP: "0.90", to: "proceed" },
+      { to: "escalate" },
+    ])
+  })
+
+  it("omits `routes` entirely when the state declares none", () => {
+    const { definition } = compileWorkflowConfig({
+      entry: { default: "root" },
+      machines: {
+        root: { entry: "a", states: { a: { actor: "human", message: "hi" } } },
+      },
+    })
+    expect(definition.states["a"]).not.toHaveProperty("routes")
+  })
+
+  it("rejects a non-array `routes` as a config-shape error", () => {
+    const messages = compileErrors({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: { a: { actor: "human", message: "hi", judge: "{}", routes: "nope" } },
+        },
+      },
+    })
+    expect(messages).toContain(
+      'state "a": "routes" must be an array of { question?, is?, minP?, maxP?, to } rows',
+    )
+  })
+
+  it("rejects a non-object row, an unknown row key, and a non-string row field", () => {
+    const messages = compileErrors({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              judge: "{}",
+              routes: [
+                "nope",
+                { question: "q1", is: "yes", minP: "0.9", to: "b", bogus: 1 },
+                { question: 1, is: "yes", minP: "0.9", to: "b" },
+                { to: "b" },
+              ],
+            },
+            b: { actor: "human", message: "ok" },
+          },
+        },
+      },
+    })
+    expect(messages).toContain(
+      'state "a": "routes.0" must be an object ({ question?, is?, minP?, maxP?, to })',
+    )
+    expect(messages).toContain('state "a": "routes.1" has unknown key(s) bogus')
+    expect(messages).toContain('state "a": "routes.2.question" must be a string')
+  })
+
+  it("rejects a row with no `to`", () => {
+    const messages = compileErrors({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: { actor: "human", message: "hi", judge: "{}", routes: [{ question: "q1" }] },
+          },
+        },
+      },
+    })
+    expect(messages).toContain('state "a": "routes.0.to" must be a target state name (string)')
+  })
+
+  it("requires a sibling `judge:` — a `routes` on a state with no `judge` is a load error", () => {
+    const messages = compileErrors({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: { actor: "human", message: "hi", routes: [{ to: "a" }] },
+          },
+        },
+      },
+    })
+    expect(messages).toContain('state "a": "routes" requires "judge"')
+  })
+})
+
+describe("judge: template compiles as a plain Eta-rendered string field", () => {
+  // The evidence rule itself — a judge: template's it.read reaching only
+  // already-COMMITTED content, never a freshly-gathered/uncommitted artifact
+  // — is enforced at RENDER TIME, not at compile time: `src/Edge.ts`'s
+  // `restAt` renders `judge:` through `templateReadCommitted` (`git show
+  // <ref>:<path>`), a DIFFERENT `it.read` binding than every other
+  // `rest: "rendered"` field gets (`templateRead`, a plain working-tree
+  // read). See `src/Edge.test.ts`'s "judge: rendering — the evidence rule"
+  // for the real enforcement coverage, and `src/platform/Workspace.test.ts`
+  // for `templateReadCommitted`/`readCommittedSync` directly. This file only
+  // confirms `judge:` compiles like any other string field — it has no `read`
+  // implementation of its own to assert against.
+  it("compiles judge: verbatim, an unrendered Eta template string", () => {
+    const { definition } = compileWorkflowConfig({
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: {
+              actor: "human",
+              message: "verdict needed",
+              judge: '{ "state": <%~ it.read(".gtd/FEEDBACK.md") %>, "questions": [] }',
+            },
+          },
+        },
+      },
+    })
+    expect(definition.states["a"]!.judge).toBe(
+      '{ "state": <%~ it.read(".gtd/FEEDBACK.md") %>, "questions": [] }',
+    )
   })
 })
 

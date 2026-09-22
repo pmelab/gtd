@@ -7,6 +7,16 @@ const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.ur
 const taskKeys = Object.keys(turbo.tasks)
 const nonBuildTaskKeys = taskKeys.filter((key) => key !== "build")
 
+// Tasks that need a network key (an LLM gateway) to run at all — deliberately
+// excluded from `npm test`'s turbo run, which must stay runnable offline/in
+// CI with no such key. Each still gets a real `turbo.json` task (for its own
+// `inputs`-scoped caching) and its own `package.json` script; it's just never
+// named in `test`'s invocation list. A task landing here without a matching
+// entry in `package.json`'s `eval*` scripts would be silently un-runnable —
+// see the assertion below.
+const NETWORK_GATED_TASKS: ReadonlySet<string> = new Set(["eval:judgments"])
+const testScriptTaskKeys = nonBuildTaskKeys.filter((key) => !NETWORK_GATED_TASKS.has(key))
+
 describe("turbo.json / package.json invariants", () => {
   it("has a package.json script for every turbo task", () => {
     for (const key of taskKeys) {
@@ -14,11 +24,21 @@ describe("turbo.json / package.json invariants", () => {
     }
   })
 
-  it("names exactly the non-build tasks in the test script's turbo run", () => {
+  it("names exactly the non-build, non-network-gated tasks in the test script's turbo run", () => {
     const match = pkg.scripts.test.match(/^turbo run (.+)$/)
     expect(match, `"test" script must start with "turbo run": ${pkg.scripts.test}`).not.toBeNull()
     const invoked = match![1].split(/\s+/)
-    expect(new Set(invoked)).toEqual(new Set(nonBuildTaskKeys))
+    expect(new Set(invoked)).toEqual(new Set(testScriptTaskKeys))
+  })
+
+  it("never names a network-gated task in the test script's turbo run", () => {
+    const match = pkg.scripts.test.match(/^turbo run (.+)$/)
+    const invoked = new Set(match![1].split(/\s+/))
+    for (const key of NETWORK_GATED_TASKS) {
+      expect(invoked.has(key), `"${key}" needs a network key and must stay out of "test"`).toBe(
+        false,
+      )
+    }
   })
 
   it("does not name itself as a turbo task (no recursion)", () => {

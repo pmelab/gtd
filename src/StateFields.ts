@@ -30,6 +30,33 @@ export type OnEdge = readonly [
   action?: string,
 ]
 
+/**
+ * One `routes:` row: a declarative probability gate, not an expression
+ * string. `question` names one of the judge state's own rendered question
+ * ids; `is` the expected answer (a noul's yes/no, a choice's option, a
+ * score's level); `minP` the probability floor that answer's own `p` must
+ * clear (`>=`) to count as a match, `maxP` the probability CEILING it must
+ * stay under (`<`) — both Eta templates (typically a workflow `var:`
+ * reference), rendered the same way an `on:` pattern is: ALREADY-rendered by
+ * the time the engine's `matchRoute` sees it, never re-rendered here. Either
+ * bound alone is legal (a row with no `maxP` has no ceiling; one with no
+ * `minP` has a floor of 0); `maxP` is what makes "yes, but not confidently"
+ * expressible — the conjunction "all of N questions answered yes at p ≥ 0.90"
+ * inverts to N escape-row PAIRS (one row for `is` != the expected answer, one
+ * for the expected answer with `maxP` at the threshold) plus the catch-all.
+ * A row carrying only `to` (every other field `undefined`) is the CATCH-ALL:
+ * unconditional, matches regardless of any verdict, and legal only as the
+ * LAST row of a state's `routes:` list — see `PatternMachine.ts`'s
+ * `matchRoute`/`validateDefinition`.
+ */
+export interface RouteRow {
+  readonly question?: string
+  readonly is?: string
+  readonly minP?: string
+  readonly maxP?: string
+  readonly to: StateName
+}
+
 // ── The field table ──────────────────────────────────────────────────────────
 
 export interface FieldValue {
@@ -42,6 +69,8 @@ export interface FieldValue {
   readonly flagOrTemplate: true | string
   readonly edges: readonly OnEdge[]
   readonly retry: RetryDef
+  readonly judge: string
+  readonly routes: readonly RouteRow[]
 }
 
 export type FieldKind = keyof FieldValue
@@ -117,6 +146,53 @@ const RETRY_JSON_SCHEMA = {
   },
 } as const
 
+/**
+ * `judge:`'s rendered output is not free text like `message`/`prompt` — it is
+ * an Eta template whose render must produce the JSON document
+ * `{ state, questions: [{ id, primitive, instructions, criteria }] }`. `state`
+ * may only come from `it.read(...)`/the git helpers a `prompt` template
+ * already uses (never an uncommitted gathering step). `questions` is part of
+ * the RENDERED document, not a structured YAML field of its own — there is no
+ * `questions:` key an author declares separately; it's written as ordinary
+ * JSON text inside the same Eta template (the bundled `healthGate.judge`
+ * writes its one question as a JSON literal right there), computed however
+ * the template author likes, never parsed by the compiler. The shape is
+ * still a plain string at the authoring level (same as `message`), so the
+ * escape hatch exists only to carry this long-form contract as the schema's
+ * `description`, the way `on`/`retry` carry theirs.
+ */
+const JUDGE_JSON_SCHEMA = {
+  type: "string",
+  description:
+    "Eta template rendered ALONGSIDE this state's message: (content kind stays message — no sixth content kind). Must render to the JSON document { state, questions: [{ id, primitive, instructions, criteria }] }: `state` is evidence the template gathers only through it.read(...)/git helpers a prompt template already uses — never an uncommitted, freshly-gathered artifact. `questions` is part of the RENDERED document, not a separate structured YAML field — write it as ordinary JSON text inside this same template (a literal array, or computed however you like); gtd never parses it as YAML. `primitive` is one of noul (yes/no), choice, score. An unaware driver ignores this field and shows message: to a human; an aware driver pipes it to a judge model and answers with `gtd judge answer`. Requires a sibling `message:`.",
+} as const
+
+const ROUTES_JSON_SCHEMA = {
+  type: "array",
+  description:
+    'Ordered list of judgment routing rows — a probability is not an "on" change pattern, so this is its own engine routing language. Each row is { question, is, minP, maxP, to }: question names one of this state\'s own judge: question ids, is the expected answer, minP the probability floor (>=) and maxP the probability ceiling (<) that answer\'s own p must clear (both Eta templates, typically a workflow var:; either alone is legal). First declared match wins, exactly like "on". The list MUST end with a catch-all row carrying only "to" — a list without one is a load error. A conjunction ("all of N questions answered yes at p >= threshold") is expressed by inversion: per question, one escape row for the wrong answer plus one for the right answer under maxP=threshold, routing to the conservative target, followed by the catch-all routing to the optimistic one. Requires a sibling `judge:`.',
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["to"],
+    properties: {
+      question: { type: "string", description: "One of this state's own judge: question ids." },
+      is: { type: "string", description: "The expected answer for this row to match." },
+      minP: {
+        type: "string",
+        description:
+          "Probability floor (>=) the answer's own p must clear (an Eta template, typically a workflow var: reference).",
+      },
+      maxP: {
+        type: "string",
+        description:
+          "Probability ceiling (<) the answer's own p must stay under (an Eta template, typically a workflow var: reference).",
+      },
+      to: { type: "string", description: "The target state name." },
+    },
+  },
+} as const
+
 const ENTRY_JSON_SCHEMA = {
   const: true,
   description:
@@ -170,6 +246,36 @@ const STATE_FIELDS = {
     viz: "field",
     jsonSchema: RETRY_JSON_SCHEMA,
     doc: RETRY_JSON_SCHEMA.description,
+  },
+
+  judge: {
+    kind: "judge",
+    surface: "def",
+    authored: "state",
+    requires: "message",
+    rest: "rendered",
+    viz: "field",
+    jsonSchema: JUDGE_JSON_SCHEMA,
+    doc: JUDGE_JSON_SCHEMA.description,
+  },
+
+  routes: {
+    kind: "routes",
+    surface: "def",
+    authored: "state",
+    requires: "judge",
+    jsonSchema: ROUTES_JSON_SCHEMA,
+    doc: ROUTES_JSON_SCHEMA.description,
+  },
+
+  /** A repo's debugging switch: records the verdict and routes as if no judgment existed — never a release stage every gate passes through. */
+  shadow: {
+    kind: "flag",
+    surface: "def",
+    authored: "state",
+    requires: "judge",
+    viz: "flag",
+    doc: "When true, this state's judge: verdict is recorded (Gtd-Judge: trailer) but never consulted for routing — the state routes exactly as if judge: were absent. A debugging switch a repo turns on to diagnose a live threshold, not a release stage every gate passes through. Requires a sibling `judge:`.",
   },
 
   /** Not authored directly on a state anymore: the compiler stamps this from the owning machine's own `model:` onto every one of its `prompt` states. */

@@ -31,8 +31,18 @@ while :; do
       exit 1 ;;
     # you re-ran us resting here: you either edited something or accepted by
     # editing nothing, so land the opening beat either way. Later beats are
-    # gates we just produced and you have not read yet — hand off.
-    message) [ "$beat" = 1 ] || { gtd next; exit 0; } ;;
+    # gates we just produced and you have not read yet — hand off. A judge
+    # gate's own \`--json=judge\` is non-empty here; the message: itself
+    # already tells you to run \`gtd judge answer\` and paste a verdict, so
+    # this reference driver just displays it and stops like any other
+    # message — it never calls the network. An aware driver would read
+    # \`--json=judge\` here instead and route it to an LLM (see "Judge gates"
+    # below).
+    message)
+      [ "$beat" = 1 ] || {
+        gtd next
+        exit 0
+      } ;;
     capture) ;; # the human already acted — just land it
     script)
       # A \`script\` rest's plain output is prose, not pipeable into \`sh\` — the
@@ -218,8 +228,9 @@ construction): \`session.id\`/\`session.resume\` — both DERIVED from history,
 never stored, so a plain peek is exactly as safe to call as a dispatch would
 be — and, when the state declares a validatable steering file, \`validate\`
 (the script that formats then validates it). When set: \`model\`, \`memory\`,
-\`label\`, \`file\`, \`mode\`, \`edges\`. When a cost has been recorded (a prior
-\`gtd land --cost=<n>\`): \`cost\`, \`costByModel\`.
+\`label\`, \`file\`, \`mode\`, \`edges\`, \`judge\` (the pending judgment's rendered
+document). When a cost has been recorded (a prior \`gtd land --cost=<n>\`):
+\`cost\`, \`costByModel\`.
 
 \`gtd land\` fields, in fixed order: \`script\` (the POSIX sh to run), \`settled\`
 (true for a no-op at a \`script\` rest — stop immediately, nothing more to
@@ -293,6 +304,23 @@ const DRIVER_OBLIGATIONS = `
    (read once more with plain \`gtd next\` only to show that gate's message,
    the decision to stop already made). Exit code carries none of this any
    more — every command exits \`0\` on success uniformly.
+10. A \`message\` beat whose \`--json=judge\` is non-empty is a JUDGE GATE — an
+    UNAWARE driver (obligation 3, above) already handles it correctly by
+    doing nothing special: display the message (which itself tells a human
+    to run \`gtd judge answer\`) and stop. An AWARE driver reads
+    \`--json=judge\`, pipes that rendered \`{ state, questions }\` document to a
+    judge model, and pipes ITS verdict (one \`{ id, answer, p }\` per pending
+    question, as JSON on stdin) to \`gtd judge answer\` — the FIFTH command
+    that changes anything, alongside \`gtd land\`/\`gtd --entry\`/\`gtd
+    abandon\`/\`gtd restore\`. It follows the exact same required-half /
+    optional-half script contract as \`gtd land\` in obligation 8 above:
+    read \`--json=script\` (and, if you want them, \`--json=settled\`/
+    \`--json=idle\` — \`gtd judge answer --json\` emits the same pinned 7-key
+    document \`gtd land --json=<path>\` does) and pipe the script into \`sh\`.
+    A malformed verdict (stdin isn't
+    JSON, or it names a question id this judgment never asked) exits 2 — a
+    caller-input error, retry with a corrected verdict, not obligation 3's
+    "stop" — before anything is planned.
 `
 
 const RECOVERY = `
@@ -549,9 +577,10 @@ const PREREQUISITES = `
 
 - A POSIX \`sh\` (dash, ash, bash's own POSIX mode, etc.) — gtd's own emitted
   scripts (\`gtd land --json=script\`, \`gtd --entry <state>\`, \`gtd abandon\`,
-  \`gtd restore\`) are POSIX sh; captured, then piped into it (see obligation
-  8 above). Reading \`gtd next --json=<path>\`/\`gtd land --json=<path>\`'s own
-  output needs nothing beyond the same POSIX \`sh\` — no \`eval\`, no parser.
+  \`gtd restore\`, \`gtd judge answer --json=script\`) are POSIX sh; captured,
+  then piped into it (see obligation 8 above). Reading
+  \`gtd next --json=<path>\`/\`gtd land --json=<path>\`'s own output needs
+  nothing beyond the same POSIX \`sh\` — no \`eval\`, no parser.
 - \`gtd\` on \`PATH\` — a seeded mode \`validate:\` command is literally the
   string \`gtd check <mode> '<file>'\`, resolved by NAME at script-run time.
   Keep one \`gtd\` on \`PATH\`, consistently.

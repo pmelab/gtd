@@ -484,6 +484,36 @@ const emitRetry = (
   return next
 }
 
+/** Rewrite the `routes` list — each row's `to` (a `RouteRow`'s only target-shaped field) through the resolver, same discipline as `emitRetry`'s `otherwise`; `question`/`is`/`minP` are left untouched (never target-shaped). */
+const emitRoutes = (
+  raw: unknown,
+  instance: Instance,
+  where: string,
+  path: readonly (string | number)[],
+  instancesByPath: ReadonlyMap<InstancePath, Instance>,
+  machinesRaw: Record<string, unknown>,
+  diagnostics: Diagnostic[],
+): unknown => {
+  if (!Array.isArray(raw)) return raw
+  return raw.map((rowRaw, i) => {
+    if (!isPlainObject(rowRaw)) return rowRaw
+    const next: Record<string, unknown> = { ...rowRaw }
+    if (typeof rowRaw["to"] === "string") {
+      next["to"] =
+        resolveOnTarget(
+          rowRaw["to"],
+          instance,
+          where,
+          [...path, "routes", i, "to"],
+          instancesByPath,
+          machinesRaw,
+          diagnostics,
+        ) ?? rowRaw["to"]
+    }
+    return next
+  })
+}
+
 const emitState = (
   stateRaw: unknown,
   instance: Instance,
@@ -506,6 +536,10 @@ const emitState = (
     }
     if (key === "retry") {
       out[key] = emitRetry(value, instance, where, path, instancesByPath, machinesRaw, diagnostics)
+      continue
+    }
+    if (key === "routes") {
+      out[key] = emitRoutes(value, instance, where, path, instancesByPath, machinesRaw, diagnostics)
       continue
     }
     const resolved = substituteScalar(value, instance, where, [...path, key], diagnostics)

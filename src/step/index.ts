@@ -5,7 +5,7 @@
 // exported anyway, since they're the public contract a future caller
 // pattern-matches against by name.
 // fallow-ignore-next-line unused-type
-export { planStep, type StepOutcome } from "./planStep.js"
+export { planStep, type StepOutcome, type JudgeVerdict } from "./planStep.js"
 // fallow-ignore-next-line unused-type
 export { planEntry, type EntryCurrent, type EntryOutcome } from "./planEntry.js"
 // `ExecutableDecision` names the input `renderDecision` narrows a

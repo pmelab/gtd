@@ -278,21 +278,67 @@ that file and line, no go-to-definition required.
 ### The workflow it ships with
 
 One built-in workflow drives all of that. From where you sit, it has four
-moments — everything between them runs without you.
+moments — everything between them runs without you, with the judged exceptions
+noted in steps 2, 3, and 4 below.
 
 1. **You sketch.** Change anything, or write the idea into `.gtd/TODO.md`. Rough
    is fine; it is treated as a sketch, not as work.
-2. **You answer questions.** Planning stops and hands you a file with its open
-   questions in it — what the thing should do first, then how it should be
-   built. Answer them in your editor, in the file, and start the loop again.
-   Leave the file untouched and start the loop instead to accept the plan as-is,
-   unanswered questions and all.
+2. **You answer questions — when it needs you to.** Planning works out what the
+   thing should do first, then how it should be built, and hands you a file with
+   its open questions in it at either point. Answer them in your editor, in the
+   file, and start the loop again. Leave the file untouched and start the loop
+   instead to accept the plan as-is, unanswered questions and all. Three more
+   points along this phase are judged rather than always asking you outright:
+   - Each open question, on what-it-should-do first and how-it-should-be-built
+     second: would a wrong assumption here cost a whole rebuild, or is a
+     confident default safe to infer and tick in for you? The first floor is
+     strict (a wrong guess about what you want is expensive); the second is
+     permissive (a wrong technical call is still caught later, in review) — the
+     same judged stop, tuned differently depending on which question it's
+     answering. Confident enough on both, with a specific answer picked from the
+     question's own options, skips it entirely; any doubt still stops and hands
+     you the file.
+   - Before the how-it-should-be-built pass starts: does this plan actually need
+     one? A confident no skips it — and the review it would have raised — going
+     straight from your answers to a single built package, with no technical
+     plan shown to you at all.
+
+   A driver built only to run this loop (not to answer judgments) still handles
+   every one of these correctly: it shows you the message and stops, same as any
+   other question.
+
 3. **You wait.** The work is split into packages and built one at a time, each
-   one checked against your test suite and fixed until it passes.
+   one checked against your test suite and fixed until it passes, then reviewed
+   against its own spec before moving on. Four points along that loop are judged
+   rather than always asking you outright — each stops and hands you a verdict
+   to make (`gtd judge answer`, or land with a clean tree to accept the
+   conservative default, which never skips work):
+   - Every red round after the first: was the failure identical, new, or
+     progress?
+   - Before spending a review turn on a package: does the code already satisfy
+     each of its requirements?
+   - After a review turn raises concerns: would each one actually violate the
+     spec if left unaddressed, or is it a nit?
+   - Before showing you the review document: is this round mechanical, touches
+     no public surface, and changes no behavior? Confident on all three skips
+     the agent's own review turn — step 4 still shows you a (machine-written)
+     summary of what changed.
+
+   A driver built only to run this loop (not to answer judgments) still handles
+   every one of these correctly: it shows you the message and stops, same as any
+   other question.
+
 4. **You review.** You get a review document listing what changed and what to
-   look at. Tick the boxes to approve, or write what is wrong. Approving ends
-   the process; feedback sends it back to step 2 for a fresh plan — it never
-   patches over a design you rejected.
+   look at — plus, when step 2 answered any question for you, an Assumptions
+   section naming each one and what it inferred, so you read those decisions
+   while reviewing the diff they shaped, not buried in the commit trail. Tick
+   the boxes to approve, or write what is wrong. Approving ends the process;
+   feedback sends it back to step 2 for a fresh plan — it never patches over a
+   design you rejected. One more judged point sits on that feedback path: after
+   you leave a comment, is it actionable, or just approval? Confident it's
+   approval-only skips the replan and signs off directly — the same
+   `gtd judge answer` / conservative-default shape as step 3's own judged
+   points.
 
 You never talk to it. Every exchange is a file in `.gtd/` that you edit in your
 own editor, and every answer you give is a commit. Your test suite is the gate

@@ -495,7 +495,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.review.pre"
+
+    # Landed untouched, with no verdict — the conservative default runs the
+    # full review lap.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"
 
     When I run gtd next with "--json"
     Then it succeeds

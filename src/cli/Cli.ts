@@ -82,6 +82,8 @@ export type Command =
   | { readonly kind: "install" }
   | { readonly kind: "summary" }
   | { readonly kind: "base" }
+  | { readonly kind: "judge" }
+  | { readonly kind: "judgeAnswer" }
 
 /**
  * `--json`'s three shapes: absent, bare (the whole document), or `--json=<path>`
@@ -159,23 +161,24 @@ const FLAGS: readonly FlagRow[] = [
     name: "--json",
     arity: "optional",
     repeatable: false,
-    scope: (kind) => kind === "next" || kind === "land",
+    scope: (kind) =>
+      kind === "next" || kind === "land" || kind === "judge" || kind === "judgeAnswer",
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land` — every other command prints " +
-      "plain text; see `gtd install` for the driver protocol briefing",
+      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer` — " +
+      "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
     help: [
-      "(gtd next/gtd land only) output structured JSON. Bare",
-      "--json prints the whole document; --json=<path> (a dotted",
-      "key path into that document, e.g. kind, content,",
-      "session.id) prints just that value: a scalar raw and",
-      "unquoted, a boolean as true/false, a list one JSON entry",
-      "per line. An absent optional field prints nothing and",
-      "exits 0 — including when an earlier segment of <path> is",
-      "itself absent/null (e.g. session.id at a non-prompt rest),",
-      "which never counts as unknown; an unknown path is a usage",
-      "error (exit 2).",
+      "(gtd next/gtd land/gtd judge/gtd judge answer only) output",
+      "structured JSON. Bare --json prints the whole document;",
+      "--json=<path> (a dotted key path into that document, e.g.",
+      "kind, content, session.id) prints just that value: a",
+      "scalar raw and unquoted, a boolean as true/false, a list",
+      "one JSON entry per line. An absent optional field prints",
+      "nothing and exits 0 — including when an earlier segment of",
+      "<path> is itself absent/null (e.g. session.id at a",
+      "non-prompt rest), which never counts as unknown; an",
+      "unknown path is a usage error (exit 2).",
     ],
   },
   {
@@ -606,6 +609,32 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "Refuses (exit 1) when no process is underway.",
     ],
   },
+  {
+    token: "judge",
+    kind: "judge",
+    arity: "none",
+    details: [
+      "Print the resolved rest's pending judgment — the prepared",
+      "state, its typed questions, and their criteria — the same",
+      "judge field `gtd next --json` already carries. Read-only:",
+      "resolves no session, writes nothing. Refuses (exit 1) when",
+      "the resolved rest declares no judge:",
+    ],
+  },
+  {
+    token: "judge answer",
+    kind: "judgeAnswer",
+    arity: "none",
+    details: [
+      "Read a verdict off stdin — one { id, answer, p } entry per",
+      "question the pending judgment declared — and decode it",
+      "against an Effect Schema built from those same question",
+      "ids. Refuses (exit 1) when the resolved rest declares no",
+      "judge:. Exits 2 (a usage error, like an unknown --json",
+      "selector) when stdin isn't valid JSON or the verdict",
+      "doesn't decode against the pending question ids.",
+    ],
+  },
 ]
 
 const commandByToken = (token: string): CommandRow | undefined =>
@@ -921,12 +950,30 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const row = first === undefined ? undefined : commandByToken(first)
   const removedMessage = first === undefined ? undefined : REMOVED[first]
 
+  // `gtd judge answer` — the CLI's one two-level verb. The NORMAL path is
+  // "answer" arriving as `positionals[1]`, a second token after "judge" —
+  // detected below via `judgeAnswer`, not through a second dispatchable
+  // `COMMAND_ROWS` row: the `"judge answer"`-tokened row above exists for
+  // `renderHelp()`'s two-line entry. It CAN also be matched by
+  // `commandByToken` directly, but only if a caller passes the single
+  // (space-containing) argv token `"judge answer"` — an unusual shell quoting
+  // choice, not the normal two-argv-token invocation `gtd judge answer` — and
+  // `row.kind` is `"judgeAnswer"` either way, so nothing downstream branches
+  // differently between the two paths. `row`'s own arity (still "none",
+  // judge's own) applies to whatever follows "answer" below, so no bespoke
+  // `Arity` variant is needed for this one verb.
+  const judgeAnswer = row?.kind === "judge" && positionals[1] === "answer"
+
   // The `--entry` selector: no command at all, with `--entry` present,
   // resolves to the generic `entry` command instead — landing and entering
   // are different verbs, so `gtd land --entry <state>` is NOT a synonym (it
   // fails the scope check below instead).
   const selectsEntry = entryPresent && first === undefined
-  const kind: Command["kind"] | undefined = selectsEntry ? "entry" : row?.kind
+  const kind: Command["kind"] | undefined = selectsEntry
+    ? "entry"
+    : judgeAnswer
+      ? "judgeAnswer"
+      : row?.kind
 
   if (row === undefined && removedMessage === undefined && !selectsEntry) {
     // No dispatchable row resolved (missing/unknown command) — a scoped flag
@@ -955,8 +1002,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return usagePlan(violation ?? removedMessage, jsonSeen)
   }
 
-  // From here, `kind` is a genuine `Command["kind"]`.
-  const restPositionals = first === undefined ? positionals : positionals.slice(1)
+  // From here, `kind` is a genuine `Command["kind"]`. `judgeAnswer` consumes
+  // TWO leading positionals ("judge" and "answer"), everything else one.
+  const restPositionals = first === undefined ? positionals : positionals.slice(judgeAnswer ? 2 : 1)
 
   if (kind === "entry" && first === undefined) {
     if (restPositionals.length > 0) {
@@ -1083,7 +1131,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "validate"
       | "install"
       | "summary"
-      | "base",
+      | "base"
+      | "judge"
+      | "judgeAnswer",
   }
   return { kind: "command", command, json, verbose }
 }

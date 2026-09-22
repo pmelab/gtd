@@ -1057,12 +1057,18 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the last commit subject is "gtd(check): checking → idle"
     And the log file matches "AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1[\s\S]*AGENT SESSION=\1 RESUME=0"
 
-  Scenario: A still-red suite with byte-identical output escalates instead of false-greening into review
+  Scenario: A still-red suite with byte-identical output lands the judged retry instead of false-greening into review
     # Drives the REAL bundled unified template (not a custom .gtdrc) through
     # `gtd --entry fix-precheck`: a suite that always fails with
     # byte-identical output must never be mistaken for green just because a
-    # re-run produces no diff — `build.fix`'s own `retry: {max: 3}` routes to
-    # `build.health.escalate` after 3 unsuccessful fix attempts.
+    # re-run produces no diff. `.gtd/packages/01-judgment-surface.md` Task 7:
+    # the first red round bypasses judgment (no prior committed
+    # `.gtd/FEEDBACK.md` yet), but the SECOND red round finds one and lands
+    # on `build.health.judge` instead of straight back at `build.fix` — a
+    # `message` rest, per package 01 Task 6's human fallback. This reference
+    # driver is UNAWARE (never calls `gtd judge answer`), so it just displays
+    # that gate's `message:` and stops — exactly the package's own second
+    # acceptance scenario, exercised here against the real bundled workflow.
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
@@ -1083,8 +1089,54 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
-    And stdout contains "The agent could not get the check to pass after repeated attempts."
+    And stdout contains "Judging the retry"
+    And stdout contains "Run `gtd judge answer`"
+    And the git log contains "build.health.check → build.health.judge"
     And the git log does not contain "build.health.check → build.review"
+    And the last commit body does not contain "Gtd-Judge:"
+
+  Scenario: A still-red suite still escalates after 3 fix attempts even when every judge round is skipped — the retry cap, not the judgment, ends the loop
+    # The pre-package-01 version of this scenario proved `build.fix`'s
+    # `retry: {max: 3}` forces `build.health.escalate` on a suite that never
+    # goes green. Task 7 kept `retry:` on `fix` (not the judge state — see
+    # `src/workflows/unified.yaml`'s own comment on why moving it would break
+    # `episodeVisits`), so that ceiling still applies REGARDLESS of what the
+    # judge rounds do. This reference driver is UNAWARE and never answers a
+    # verdict, so every `build.health.judge` round lands its clean-tree
+    # fallback (the skipped-judgment path) instead — proving the cap fires
+    # even when NO judgment is ever recorded, not just when one is.
+    Given a test project
+    And the workflow
+    And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"the failing test output"*)
+          echo x >> scratch.txt
+          ;;
+        *)
+          echo "readme-driver test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    Given the driver pasted from docs/driver.md
+    When I run the driver from the docs
+    Then it succeeds
+    # Each invocation's opening beat (beat=1) accepts whatever message rest
+    # is currently pending (the judge gate's own clean-tree fallback) and
+    # keeps driving until the NEXT message beat — one round of the
+    # check/judge/fix cycle per invocation, same as a human re-running the
+    # driver after reading (and not answering) the judge gate.
+    When I run the driver from the docs
+    Then it succeeds
+    When I run the driver from the docs
+    Then it succeeds
+    And stdout contains "The agent could not get the check to pass after repeated attempts."
+    And the git log contains "build.health.judge → build.health.escalate"
+    And the last commit body does not contain "Gtd-Judge:"
 
   Scenario: --entry fix-precheck on a green baseline lands an ordinary probe commit, then halts at idle
     # A green suite is nothing to fix: `land` never moves HEAD, so the empty

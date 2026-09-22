@@ -1,4 +1,4 @@
-import { Effect, Either, Option, Runtime } from "effect"
+import { Effect, Either, Option, Runtime, Schema } from "effect"
 import type { ArtifactOut, Command, JsonMode, Needs } from "./cli/index.js"
 import { Narrator } from "./Commentary.js"
 import {
@@ -24,7 +24,7 @@ import {
   type RenderedRest,
   type RestRequirements,
 } from "./Edge.js"
-import { planEntry, planStep as planStepPure } from "./step/index.js"
+import { planEntry, planStep as planStepPure, type JudgeVerdict } from "./step/index.js"
 import { buildSummary } from "./Summary.js"
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
@@ -101,18 +101,22 @@ type Rest = Effect.Effect.Success<typeof currentRest>
 
 /**
  * A command-level failure that should exit like a CLI usage error (2), not a
- * generic runtime failure (1) — currently only the `--json=<unknown-path>`
- * selector case.
+ * generic runtime failure (1): an unknown `--json=<path>` selector, or a
+ * `gtd judge answer` verdict that fails to decode — malformed JSON on stdin,
+ * or one naming a question id the pending judgment never asked. Both are
+ * caller-input errors per `docs/cli.md`'s exit-code table, not a refusal
+ * about the resolved rest's own state.
  */
 export class SelectorUsageError extends Error {}
 
 /**
- * The `--json=<path>` select branch, shared by `runNextCommand` and
- * `runLandCommand` so the two never drift on the unknown-selector message: a
- * `value` writes its text plus exactly one trailing newline, `absent` writes
- * nothing (the caller's normal success path continues), and `unknown` fails
- * with `SelectorUsageError` (mapped to `EXIT_USAGE_ERROR` by `Cli.ts`'s
- * `report`).
+ * The `--json=<path>` select branch, shared by `runNextCommand`,
+ * `runLandCommand`, and `runJudgeAnswerCommand` (which emits the same
+ * `LandFields` shape `gtd land` does) so none of the three drift on the
+ * unknown-selector message: a `value` writes its text plus exactly one
+ * trailing newline, `absent` writes nothing (the caller's normal success
+ * path continues), and `unknown` fails with `SelectorUsageError` (mapped to
+ * `EXIT_USAGE_ERROR` by `Cli.ts`'s `report`).
  */
 const writeSelection = (
   out: ArtifactOut,
@@ -236,10 +240,17 @@ const landingScript = (required: RunnableScript): string => combinedScript(requi
 // very first commit (no earlier commit to rewind to).
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-/** `gtd land`'s own flags, threaded as one bag rather than growing `planLanding`/`runLandCommand`'s positional list. */
+/**
+ * `gtd land`'s own flags, threaded as one bag rather than growing
+ * `planLanding`/`runLandCommand`'s positional list. `judge` is `gtd judge
+ * answer`'s own extra: `planLanding({ judge })` is the ONE landing path both
+ * commands share — `runJudgeAnswerCommand` supplies verdicts, plain
+ * `gtd land` never does.
+ */
 interface LandOptions {
   readonly cost?: number
   readonly model?: string
+  readonly judge?: readonly JudgeVerdict[]
 }
 
 /**
@@ -351,6 +362,167 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
     }
     const base = reviewBaseFor(rest.def, rest.run)
     out.write(`${base}\n`)
+  })
+
+/**
+ * `gtd judge`: read-only peek at the resolved rest's pending judgment — the
+ * same `judge` field `gtd next --json` already carries (`renderRest`'s
+ * `RenderedRest.judge`, rendered by `judge:`'s Eta template into the JSON
+ * document `{ state, questions: [...] }`). Refuses (mapped to the
+ * runtime-error exit code) when the resolved rest declares no `judge:` — a
+ * state may legitimately have none. `--json`'s three shapes match `gtd
+ * next`/`gtd land`: bare prints the whole document (`rendered.judge`
+ * itself), `--json=<path>` selects a dotted key out of it via the same
+ * `selectPath`/`SelectorUsageError` machinery (an unknown path exits with
+ * the usage-error code), plain output (no `--json`) prints the document
+ * verbatim, same as before this flag was wired in.
+ */
+const runJudgeCommand = (
+  json: JsonMode,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const rest = yield* currentRest
+    const rendered = yield* renderRest(rest)
+    if (rendered.judge === undefined) {
+      return yield* Effect.fail(
+        new Error(`gtd judge: refused — the resolved rest ("${rest.state}") declares no "judge:"`),
+      )
+    }
+    const document = rendered.judge.endsWith("\n") ? rendered.judge : `${rendered.judge}\n`
+    if (json.kind === "select") {
+      const parsed = yield* Effect.try({
+        try: () => JSON.parse(rendered.judge!) as unknown,
+        catch: () =>
+          new SelectorUsageError(
+            'gtd judge: the resolved rest\'s "judge:" template did not render valid JSON',
+          ),
+      })
+      const selection = selectPath(parsed, json.path)
+      if (selection.kind === "value") {
+        out.write(`${selection.text}\n`)
+      } else if (selection.kind === "unknown") {
+        return yield* Effect.fail(
+          new SelectorUsageError(
+            `gtd: unknown --json selector "${selection.path}" — see \`gtd --help\``,
+          ),
+        )
+      }
+      return
+    }
+    out.write(document)
+  })
+
+/** `gtd judge`'s own rendered document shape — only the `id` of each question is read here, to build the verdict's own Effect Schema. */
+interface JudgeQuestion {
+  readonly id: string
+}
+interface JudgeDocument {
+  readonly questions: readonly JudgeQuestion[]
+}
+
+const parseJudgeDocument = (rendered: string): Effect.Effect<JudgeDocument, Error> =>
+  Effect.try({
+    try: () => JSON.parse(rendered) as JudgeDocument,
+    catch: () =>
+      new Error(
+        'gtd judge answer: the resolved rest\'s "judge:" template did not render valid JSON',
+      ),
+  })
+
+/**
+ * The first stdin-consuming command outside `src/Lsp.ts` (which reads LSP's
+ * own length-prefixed frames off `process.stdin`, not a one-shot read) —
+ * reads stdin to completion and decodes it as UTF-8 text, no framing.
+ */
+const readStdin = (): Effect.Effect<string, Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const chunks: Buffer[] = []
+      for await (const chunk of process.stdin as AsyncIterable<Buffer>) {
+        chunks.push(chunk)
+      }
+      return Buffer.concat(chunks).toString("utf8")
+    },
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/** A verdict's own `answer` shape covers every `judge:` primitive (`noul` → boolean, `choice` → string, `score` → number) without gtd itself interpreting which one applies — that's a driver/judge-model concern, not this decode's. */
+const VerdictAnswer = Schema.Union(Schema.String, Schema.Number, Schema.Boolean)
+
+/**
+ * One `gtd judge answer` verdict entry per pending question, `{ id, answer,
+ * p }` — `id` constrained to the pending state's OWN question ids (never a
+ * bare string), so a verdict naming a question this rest never asked fails
+ * to decode rather than silently being ignored. `ids.length === 0` (a
+ * `judge:` that rendered no questions) constrains `id` to `Schema.Never`,
+ * accepting only the empty array — there is nothing to answer.
+ */
+const verdictSchemaFor = (ids: readonly string[]) =>
+  Schema.Array(
+    Schema.Struct({
+      id: ids.length > 0 ? Schema.Literal(...(ids as [string, ...string[]])) : Schema.Never,
+      answer: VerdictAnswer,
+      // Bounded [0, 1] — every OTHER bound in the routes: matching path fails
+      // CLOSED (a non-finite rendered minP/maxP never matches); an
+      // unvalidated p wouldn't: a driver bug or a miscalibrated model
+      // sending p > 1 would clear every minP a workflow declares,
+      // unconditionally forcing the judged route on a live gate.
+      p: Schema.Number.pipe(Schema.between(0, 1)),
+    }),
+  )
+
+/**
+ * `gtd judge answer`: decode a verdict off stdin against the pending
+ * judgment's own question ids, then land the CURRENT turn through the SAME
+ * `planLanding` path `gtd land` uses — `planLanding({ judge })`, one shared
+ * decision path so the two can never drift on the required-half /
+ * optional-half script contract, `settled`/`idle`, or the `Gtd-Judge: <json>`
+ * trailer `planStep`'s `renderDecision` adds per answered question (the way
+ * `--cost`/`--model` already carry `Gtd-Cost:`). `--json` therefore emits the
+ * same pinned 7-key `LandFields` `gtd land --json` does; plain output points
+ * at `gtd judge answer --json=script`, not `gtd land`'s own hint.
+ */
+const runJudgeAnswerCommand = (
+  json: JsonMode,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const rest = yield* currentRest
+    const rendered = yield* renderRest(rest)
+    if (rendered.judge === undefined) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd judge answer: refused — the resolved rest ("${rest.state}") declares no "judge:"`,
+        ),
+      )
+    }
+    const document = yield* parseJudgeDocument(rendered.judge)
+    const ids = document.questions.map((q) => q.id)
+
+    const raw = yield* readStdin()
+    const parsed = yield* Effect.try({
+      try: () => JSON.parse(raw) as unknown,
+      catch: () => new SelectorUsageError("gtd judge answer: stdin is not valid JSON"),
+    })
+    const verdict = yield* Schema.decodeUnknown(verdictSchemaFor(ids))(parsed).pipe(
+      Effect.mapError(
+        (e) =>
+          new SelectorUsageError(
+            `gtd judge answer: the verdict on stdin does not match the pending questions — ${e.message}`,
+          ),
+      ),
+    )
+
+    const result = yield* planLanding({ judge: verdict })
+    const built = landFields(result)
+    if (json.kind === "document") {
+      out.write(renderLandJson(built))
+    } else if (json.kind === "select") {
+      yield* writeSelection(out, built, json.path)
+    } else {
+      out.write(renderLandPlain(built, "judge answer"))
+    }
   })
 
 /**
@@ -1117,6 +1289,10 @@ const dispatchVoidCommand = (
       return runSummaryCommand(out)
     case "base":
       return runBaseCommand(out)
+    case "judge":
+      return runJudgeCommand(json, out)
+    case "judgeAnswer":
+      return runJudgeAnswerCommand(json, out)
   }
 }
 

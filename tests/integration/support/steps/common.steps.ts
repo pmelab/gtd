@@ -295,6 +295,29 @@ When("I run gtd status with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd("status", arg)
 })
 
+// `gtd judge answer` (.gtd/packages/01-judgment-surface.md Task 4) is the
+// first command that reads stdin — `runGtdWithStdin` pipes a docstring's
+// content into it, real-subprocess on @live, a swapped process.stdin on
+// @inmem (see `GtdWorld.runGtdWithStdin`'s own doc comment).
+When(
+  "I run gtd with args {string} and stdin:",
+  async (world: GtdWorld, args: string, stdin: string) => {
+    // quickpickle hands the docstring in as a `DocString` (a `String`
+    // subclass, `typeof` "object") — `String(...)` coerces it to a genuine
+    // primitive, since `child_process`'s `stdin.end()`/a `PassThrough` both
+    // reject anything that isn't a real string/Buffer/TypedArray.
+    await world.runGtdWithStdin(String(stdin), ...args.split(" "))
+  },
+)
+
+// `gtd judge answer`'s write-driving counterpart — pipes the verdict on
+// stdin, then re-invokes with `--json=script` (stdin fed again) and runs
+// what comes back, landing the `Gtd-Judge:` trailer and the `routes:`
+// transition (`GtdWorld.runGtdJudgeAnswerWithStdin`'s own doc comment).
+When("I run gtd judge answer with stdin:", async (world: GtdWorld, stdin: string) => {
+  await world.runGtdJudgeAnswerWithStdin(String(stdin))
+})
+
 // ── Assertions ───────────────────────────────────────────────────────────────
 
 // Whose turn is next lives in `gtd next --json`'s own `kind` field, never in

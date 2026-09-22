@@ -63,8 +63,11 @@ export const landProseText = (subject: string): string => renderFormat(FMT_LAND_
  * `gtd land`'s plain-text encoding — names the commit subject at a real
  * landing and points at `--json=script`, since the script itself is
  * unreachable from plain output; prints the existing no-op note otherwise.
+ * `command` names the invocation to point at — `"land"` by default, but
+ * `gtd judge answer` (the only other caller of `planLanding`/`landFields`)
+ * passes its own two-word name so the hint stays runnable verbatim.
  */
-export const renderLandPlain = (fields: LandFields): string =>
+export const renderLandPlain = (fields: LandFields, command = "land"): string =>
   fields.subject !== null
-    ? `${landProseText(fields.subject).trimEnd()}\n(run \`gtd land --json=script | sh\` to get the landing script)\n`
+    ? `${landProseText(fields.subject).trimEnd()}\n(run \`gtd ${command} --json=script | sh\` to get the landing script)\n`
     : noopText(fields.state)

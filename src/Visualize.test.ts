@@ -252,6 +252,49 @@ describe("buildVizModel", () => {
     })
   })
 
+  it("renders `routes:` rows as real edges, with `minP` rendered against vars, and reflects them in the incoming-edges map", () => {
+    const routedRaw = {
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: {
+              actor: "human",
+              message: "verdict?",
+              judge: "{}",
+              routes: [
+                { question: "q1", is: "yes", minP: "<%= it.vars.floor %>", to: "b" },
+                { to: "c" },
+              ],
+            },
+            b: { actor: "human", message: "b" },
+            c: { actor: "human", message: "c" },
+          },
+        },
+      },
+    }
+    const routedCompiled = compileWorkflowConfig(routedRaw)
+    const routedModel = buildVizModel(
+      routedCompiled.definition,
+      routedCompiled.tree!,
+      { floor: "0.90" },
+      routedCompiled.scopes,
+    )
+    expect(routedModel.states.find((s) => s.name === "a")!.routes).toEqual([
+      { question: "q1", is: "yes", minP: "0.90", to: "b" },
+      { to: "c" },
+    ])
+    expect(routedModel.states.find((s) => s.name === "b")!.incoming).toContainEqual({
+      from: "a",
+      pattern: "q1 = yes (p≥0.90)",
+    })
+    expect(routedModel.states.find((s) => s.name === "c")!.incoming).toContainEqual({
+      from: "a",
+      pattern: "otherwise",
+    })
+  })
+
   it("carries an on-edge's action when present, omits it when absent — all 4 describe/action combinations", () => {
     const rawWithAction = {
       entry: { default: "root" },

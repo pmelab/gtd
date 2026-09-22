@@ -353,6 +353,17 @@ const parseChunkBody = (
   return { description, files, errors }
 }
 
+/**
+ * The one chunk title exempt from "has no file pointers" — `humanReview.reviewing`'s
+ * own convention (`src/workflows/unified.yaml`) for the process's assumptions:
+ * every open question `questionGate.decide` judged safe to skip without
+ * asking, named here with no code to point at. An assumption is a decision,
+ * not a hunk, so it carries no `./path` pointer at all — exempting only this
+ * exact title (never "any chunk with zero pointers") keeps every ordinary
+ * review chunk's own requirement intact.
+ */
+const ASSUMPTIONS_CHUNK_TITLE = "Assumptions"
+
 /** One `##` chunk heading node with its raw body block nodes (up to the next `##`-or-shallower heading). */
 interface ChunkBlock extends HeadingBlock {
   readonly headingLine: number
@@ -394,7 +405,7 @@ const parseChangesets = (
     const title = headingText(content, heading)
     const { description, files, errors: bodyErrors } = parseChunkBody(content, lines, title, body)
     errors.push(...bodyErrors)
-    if (files.length === 0) {
+    if (files.length === 0 && title !== ASSUMPTIONS_CHUNK_TITLE) {
       errors.push({
         message: `Chunk "${title}" has no file pointers`,
         line: headingLine,

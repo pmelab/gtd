@@ -51,6 +51,7 @@ export interface BeatStatus {
   readonly next: NextMatch | null
   readonly cost: number
   readonly costByModel: readonly ModelCost[]
+  readonly judge: string | undefined
 }
 
 /**
@@ -85,5 +86,6 @@ export const statusOf = (input: {
     next,
     cost,
     costByModel,
+    judge: rendered.judge,
   }
 }

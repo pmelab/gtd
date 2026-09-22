@@ -6,4 +6,4 @@
 set +e
 pkg=$(cat .gtd/NEXT.md 2>/dev/null)
 [ -n "$pkg" ] && rm -f "$pkg"
-rm -f .gtd/SPEC_FEEDBACK.md .gtd/NEXT.md .gtd/SATISFIED.md
+rm -f .gtd/SPEC_FEEDBACK.md .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md .gtd/NEXT.md .gtd/SATISFIED.md

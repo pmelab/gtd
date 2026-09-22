@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml"
 import { describe, expect, it } from "vitest"
-import { step, validateDefinition } from "../PatternMachine.js"
+import { step, TRANSITION_SEP, validateDefinition } from "../PatternMachine.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 import { renderStateTemplate, varsOnlyContext } from "../PatternTemplates.js"
 import type { MachineNode } from "../Machines.js"
@@ -211,6 +211,36 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
+  it("questionGate's `threshold` param is inert at render time (a machine `$param` can't be spliced into a shared script body) — pins design.gate/architecture.gate's own `with: threshold:` to the EXACT var name questionGate.decide's script reads instead, so a rename of one without the other is caught here (04)", () => {
+    // `compileTemplate()`'s own flattened `definition` reflects nothing of
+    // `threshold` at all (never bound to a real state field), so this reads
+    // the raw, uncompiled machine tree instead — the one place `threshold`'s
+    // OWN pairing with the var each caller means still exists on disk.
+    const parsed = parseYaml(unifiedYaml) as {
+      readonly vars: Record<string, unknown>
+      readonly machines: {
+        readonly designPlan: {
+          readonly states: { readonly gate: { readonly with: { readonly threshold: unknown } } }
+        }
+        readonly archPlan: {
+          readonly states: { readonly gate: { readonly with: { readonly threshold: unknown } } }
+        }
+        readonly questionGate: { readonly states: { readonly decide: { readonly script: string } } }
+      }
+    }
+    expect(parsed.machines.designPlan.states.gate.with.threshold).toBe(
+      "<%= it.vars.questionSkipConservativeMinP %>",
+    )
+    expect(parsed.machines.archPlan.states.gate.with.threshold).toBe(
+      "<%= it.vars.questionSkipAggressiveMinP %>",
+    )
+    expect(parsed.vars).toHaveProperty("questionSkipConservativeMinP")
+    expect(parsed.vars).toHaveProperty("questionSkipAggressiveMinP")
+    const decideScript = parsed.machines.questionGate.states.decide.script
+    expect(decideScript).toContain("it.vars.questionSkipConservativeMinP")
+    expect(decideScript).toContain("it.vars.questionSkipAggressiveMinP")
+  })
+
   it("no state declares `mode: prose`", () => {
     const { definition } = compileTemplate()
     for (const [name, state] of Object.entries(definition.states)) {
@@ -375,6 +405,152 @@ describe("the bundled unified workflow template", () => {
     const packagesHealthCheck = definition.states["packages.item.health.check"]!
     expect(buildHealthCheck.script).not.toContain(".gtd/SATISFIED.md")
     expect(packagesHealthCheck.script).not.toContain(".gtd/SATISFIED.md")
+  })
+
+  it("healthGate.check writes .gtd/PRIOR_FEEDBACK.md from history and routes to judge only when it appears, straight to $onRed otherwise (package 01, task 7)", () => {
+    const { definition } = compileTemplate()
+    for (const check of ["build.health.check", "packages.item.health.check"]) {
+      const script = definition.states[check]!.script!
+      expect(script).toContain(".gtd/PRIOR_FEEDBACK.md")
+      expect(script).toContain(".gtd/FEEDBACK.md")
+      const onEdges = definition.states[check]!.on ?? []
+      const patterns = onEdges.map(([pattern]) => pattern)
+      const priorIndex = patterns.findIndex((p) => p.includes("PRIOR_FEEDBACK.md"))
+      const feedbackIndex = patterns.findIndex(
+        (p) => p.includes("FEEDBACK.md") && !p.includes("PRIOR"),
+      )
+      expect(priorIndex, check).toBeGreaterThanOrEqual(0)
+      expect(feedbackIndex, check).toBeGreaterThanOrEqual(0)
+      // PRIOR_FEEDBACK.md rows come first — first-match-wins, so a round
+      // with a prior committed FEEDBACK.md takes the judge row even though
+      // FEEDBACK.md itself also changed this round.
+      expect(priorIndex, check).toBeLessThan(feedbackIndex)
+      const judgeTarget = definition.states[check]!.on!.find(([p]) => p.includes("PRIOR"))![1]
+      const bypassTarget = definition.states[check]!.on!.find(
+        ([p]) => p.includes("FEEDBACK.md") && !p.includes("PRIOR"),
+      )![1]
+      expect(judgeTarget, check).toBe(`${check.replace(/\.check$/, "")}.judge`)
+      expect(bypassTarget, check).not.toBe(judgeTarget)
+    }
+  })
+
+  it("healthGate.check's PRIOR_FEEDBACK.md episode-anchor grep pattern is built from TRANSITION_SEP, not a private copy of the literal (package 01, round-2 review item 10)", () => {
+    // The rendered script greps `git log` subjects for `<TRANSITION_SEP><the
+    // check state's own qualified name>` to bound its history walk to the
+    // CURRENT episode (see the script's own comment in unified.yaml). That
+    // grep pattern is only correct as long as it matches
+    // `PatternMachine.ts`'s `stateSubject`, which is what actually WRITES a
+    // commit's subject — a change to `TRANSITION_SEP` with no matching YAML
+    // edit would silently stop the judge state from ever being reached
+    // (PRIOR_FEEDBACK.md's history walk would never find its anchor), with
+    // every OTHER test in this suite still green.
+    const { definition } = compileTemplate()
+    for (const check of ["build.health.check", "packages.item.health.check"]) {
+      const script = definition.states[check]!.script!
+      expect(script, check).toContain(`grep -F -- '${TRANSITION_SEP}<%= it.state %>'`)
+    }
+  })
+
+  it("build.health.judge/packages.item.health.judge declare judge:/routes: — identical escalates, the catch-all matches the coder's own $onRed fix state (package 01, task 7)", () => {
+    const { definition } = compileTemplate()
+    const cases: Array<[judgeState: string, escalate: string, fix: string]> = [
+      ["build.health.judge", "build.health.escalate", "build.fix"],
+      ["packages.item.health.judge", "packages.item.health.escalate", "packages.item.fix-suite"],
+    ]
+    for (const [judgeState, escalate, fix] of cases) {
+      const state = definition.states[judgeState]!
+      expect(state.judge, judgeState).toBeDefined()
+      expect(state.message, judgeState).toBeDefined()
+      const routes = state.routes!
+      expect(routes, judgeState).toBeDefined()
+      expect(routes[routes.length - 1]).toEqual({ to: fix })
+      const identicalRow = routes.find((r) => r.is === "identical")!
+      expect(identicalRow, judgeState).toBeDefined()
+      expect(identicalRow.to).toBe(escalate)
+      // The "skipped judgment" fallback: an ordinary clean-tree row to the
+      // SAME conservative target the catch-all route also names.
+      expect((state.on ?? []).find(([p]) => p === "C")?.[1], judgeState).toBe(fix)
+      // Round 4's own finding: the human fallback must not stall on a DIRTY
+      // tree either — a human standing at this gate who touches one file
+      // (not necessarily running `gtd judge answer`) still lands, at the
+      // same conservative target, rather than refusing with "no-match".
+      expect((state.on ?? []).find(([p]) => p === "* **")?.[1], judgeState).toBe(fix)
+      const dirtyStep = step(definition, judgeState, "human", {
+        changes: [{ status: "M", path: "src/a.ts" }],
+        processTrace: [],
+      })
+      expect(dirtyStep, judgeState).toMatchObject({ kind: "commit", to: fix })
+    }
+  })
+
+  it("architecture-pre judges architectureWarranted over .gtd/REQUIREMENTS.md ONLY — never the bare .gtd/TODO.md — and routes a confident 'no' to architecture-promote, everything else to the full architecture pass (04)", () => {
+    const { definition } = compileTemplate()
+    const state = definition.states["architecture-pre"]!
+    expect(state.judge).toBeDefined()
+    expect(state.judge).toContain(".gtd/REQUIREMENTS.md")
+    expect(state.judge).not.toContain("TODO.md")
+    expect(state.message).toBeDefined()
+
+    const routes = state.routes!
+    expect(routes[routes.length - 1]).toEqual({ to: "architecture.author" })
+    const noRow = routes.find((r) => r.is === "no")!
+    expect(noRow.question).toBe("architectureWarranted")
+    expect(noRow.to).toBe("architecture-promote")
+
+    // Skipped judgment (no verdict piped): the conservative default runs the
+    // full pass, whether the tree is clean or the human touched a file.
+    expect((state.on ?? []).find(([p]) => p === "C")?.[1]).toBe("architecture.author")
+    expect((state.on ?? []).find(([p]) => p === "* **")?.[1]).toBe("architecture.author")
+
+    // A "yes" verdict never matches the "no" row regardless of `minP`
+    // (unrendered `<%~ it.vars... %>` text at this compiled-but-unrendered
+    // layer — the real numeric threshold is exercised end to end by the
+    // process-level e2e scenario, not here), so it's the one case this
+    // unit-level `step()` can assert without rendering `routes:` first.
+    const warranted = step(definition, "architecture-pre", "human", {
+      changes: [],
+      processTrace: [],
+      routeAnswers: [{ id: "architectureWarranted", answer: "yes", p: 0.99 }],
+    })
+    expect(warranted).toMatchObject({ kind: "commit", to: "architecture.author" })
+  })
+
+  it("architecture-promote writes exactly one .gtd/packages/ file — never leaves the queue empty on the skip path (04)", () => {
+    const { definition } = compileTemplate()
+    const state = definition.states["architecture-promote"]!
+    expect(state.script).toContain(".gtd/packages/")
+    expect(state.script).toContain(".gtd/REQUIREMENTS.md")
+    expect((state.on ?? []).find(([p]) => p === "* **")?.[1]).toBe("packages.picking")
+  })
+
+  it("three attempts still force escalation regardless of verdict — the retry cap on $onRed (fix/fix-suite) overrides a non-identical routes: verdict (package 01, task 7)", () => {
+    const { definition } = compileTemplate()
+    // packages.item: round 1 bypasses judge straight to fix-suite (1st visit);
+    // round 2 goes through judge with a "progress" verdict, routing to
+    // fix-suite again (2nd visit, meeting its own max: 3 only after a 3rd).
+    // Simulate a trace where fix-suite has already been entered 3 times, so a
+    // 4th "progress" verdict must still redirect to escalate.
+    const trace = [
+      "packages.item.health.check",
+      "packages.item.fix-suite",
+      "packages.item.health.check",
+      "packages.item.health.judge",
+      "packages.item.fix-suite",
+      "packages.item.health.check",
+      "packages.item.health.judge",
+      "packages.item.fix-suite",
+      "packages.item.health.check",
+      "packages.item.health.judge",
+    ]
+    const decision = step(definition, "packages.item.health.judge", "human", {
+      changes: [],
+      processTrace: trace,
+      routeAnswers: [{ id: "verdict", answer: "progress", p: 0.9 }],
+    })
+    expect(decision).toMatchObject({
+      kind: "commit",
+      to: "packages.item.health.escalate",
+    })
   })
 
   it("packages.item.closing's C row advances to packages.picking on an already-clean tree (package 03) — nothing left to sweep still drains the queue instead of stalling", () => {
@@ -613,6 +789,36 @@ describe("the bundled unified workflow template", () => {
     expect(prompt).toMatch(/indented exactly two spaces/i)
     expect(prompt).toMatch(/never four or\s+more/i)
     expect(prompt).toMatch(/never start\s+with a bare `\.\/path` token/i)
+  })
+
+  it("build.review.reviewing pins the Assumptions-chunk rule (04): folds .gtd/ASSUMPTIONS.md into its own chunk, exempt from the one-pointer-per-hunk rule, when it exists", () => {
+    const { definition } = compileTemplate()
+    const prompt = definition.states["build.review.reviewing"]!.prompt!
+
+    expect(prompt).toMatch(/ASSUMPTIONS\.md/)
+    expect(prompt).toMatch(/## Assumptions/)
+    expect(prompt).toMatch(/exempt from the\s+"one pointer per hunk" rule/i)
+
+    const renderedNoAssumptions = renderStateTemplate(prompt, {
+      ...varsOnlyContext(compileTemplate().vars),
+      currentCommit: "abc1234",
+      reviewBase: "def5678",
+      read: (path: string) => {
+        throw new Error(`no ${path}`)
+      },
+    })
+    expect(renderedNoAssumptions).not.toContain("ASSUMPTIONS.md` exists")
+
+    const renderedWithAssumptions = renderStateTemplate(prompt, {
+      ...varsOnlyContext(compileTemplate().vars),
+      currentCommit: "abc1234",
+      reviewBase: "def5678",
+      read: (path: string) => {
+        if (path === ".gtd/ASSUMPTIONS.md") return "- Which backend? — inferred\n"
+        throw new Error(`no ${path}`)
+      },
+    })
+    expect(renderedWithAssumptions).toContain("ASSUMPTIONS.md` exists")
   })
 
   // Package 01 (shared prompt vars): a misspelt `it.vars.<name>` tag or a
@@ -920,5 +1126,35 @@ describe("the bundled template's machine boundaries line up with conversational 
     expect(ownPromptStates("healthGate")).toEqual([])
     expect(ownPromptStates("questionGate")).toEqual([])
     expect(ownPromptStates("packageLoop")).toEqual([])
+  })
+
+  it("no path closes a process without a human sign-off — every edge landing straight on the sign-off target is one of the four vetted sources, all downstream of a human gate (package 03)", () => {
+    // `$onSignoff` resolves to the root's own `idle` — the process-boundary
+    // commit. A future state wired straight to it (skipping every human
+    // gate entirely) would close a process with no human ever having seen
+    // it; this fails loudly the moment a FIFTH source is added, rather than
+    // relying on the one e2e scenario that only pins `fastReview` →
+    // `await-review`. `fix-precheck` (an already-green baseline needs no
+    // repair at all) and `build.review.collecting` (the pre-existing
+    // non-actionable short-circuit on a hand-edited round) both predate
+    // this package; `build.review.deciding`/`build.review.triaging` are
+    // its own two new sources — the note-only round's non-actionable
+    // short-circuit, one state earlier than `collecting`'s.
+    const { definition } = compileTemplate()
+    const SIGNOFF_TARGET = "idle"
+    const sourcesOfSignoff = Object.entries(definition.states)
+      .filter(([, state]) => {
+        const onTargets = (state.on ?? []).map(([, target]) => target)
+        const routeTargets = (state.routes ?? []).map((row) => row.to)
+        return [...onTargets, ...routeTargets].includes(SIGNOFF_TARGET)
+      })
+      .map(([name]) => name)
+      .sort()
+    expect(sourcesOfSignoff).toEqual([
+      "build.review.collecting",
+      "build.review.deciding",
+      "build.review.triaging",
+      "fix-precheck",
+    ])
   })
 })

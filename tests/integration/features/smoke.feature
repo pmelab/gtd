@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   dedicated feature files — see refusals.feature, default-workflow.feature,
   retry.feature.
 
-  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.check -> architecture.author -> architecture.gate.check -> architecture.decompose -> packages.picking -> packages.item.building -> packages.item.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.check -> architecture-pre -> architecture.author -> architecture.gate.check -> architecture.decompose -> packages.picking -> packages.item.building -> packages.item.health.check
     Given a test project
     And the workflow
     And a file "src/feature.ts" with:
@@ -41,7 +41,12 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     # No open questions recorded -> the human gate is skipped entirely.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.check → architecture.author"
+    And the last commit subject is "gtd(check): design.gate.check → architecture-pre"
+    # architecture-pre: no verdict piped -> the conservative default runs
+    # the full architecture pass.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): architecture-pre → architecture.author"
     Given the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
