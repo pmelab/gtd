@@ -87,6 +87,10 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
           isGitDirKey(key) ? undefined : (repo.fileAtRef(ref, key) ?? undefined),
         ),
       ),
+    readCommittedSync: (path, ref = "HEAD") => {
+      const key = assertRepoRelative(path)
+      return isGitDirKey(key) ? undefined : (repo.fileAtRef(ref, key) ?? undefined)
+    },
     atPath: (path) => readAt(toKey(path)),
     writeAtPath: (path, content) =>
       Effect.try({

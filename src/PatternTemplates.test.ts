@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
 import { compileTemplate } from "./workflows/index.js"
-import { Workspace, templateRead } from "./platform/index.js"
+import { Workspace, templateRead, templateReadCommitted } from "./platform/index.js"
 import { InMemRepo, makeInMemoryWorkspaceOps } from "./testing/index.js"
+import { headingSections, openQuestionTexts } from "./steering/index.js"
 
 const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext => ({
   startCommit: "aaa111",
@@ -21,6 +22,9 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
       throw new Error(`ENOENT: no such file or directory, open '${path}'`)
     return `contents of ${path}`
   },
+  sections: () => [],
+  openQuestions: () => [],
+  openQuestionOptions: () => [],
   vars: { greeting: "hi" },
   edges: [],
   ...overrides,
@@ -207,13 +211,21 @@ describe("renderStateTemplate — bundled `script` states render to valid bash",
 
   it("covers every bundled script state (guards against a state being dropped)", () => {
     expect(scriptStates.map(([name]) => name).sort()).toEqual([
+      "architecture-promote",
       "architecture.gate.check",
+      "architecture.gate.decide",
       "build.health.check",
       "build.review.deciding",
+      "build.review.fastReview",
+      "build.review.preCheck",
+      "build.review.triaging",
       "design.gate.check",
+      "design.gate.decide",
       "fix-precheck",
       "packages.item.closing",
       "packages.item.health.check",
+      "packages.item.spec.scoping",
+      "packages.item.spec.striking",
       "packages.picking",
       "re-unwind",
       "review-gate.check",
@@ -264,6 +276,9 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
           processCost: 0,
           processCostByModel: [],
           read,
+          sections: (path: string) => headingSections(read(path)),
+          openQuestions: () => [],
+          openQuestionOptions: () => [],
           vars: { file: "computed.md" },
           edges: [],
         })
@@ -289,11 +304,174 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
           processCost: 0,
           processCostByModel: [],
           read,
+          sections: (path: string) => headingSections(read(path)),
+          openQuestions: () => [],
+          openQuestionOptions: () => [],
           vars: {},
           edges: [],
         })
       }),
     )
     await expect(renderResult).rejects.toThrow()
+  })
+})
+
+describe("renderStateTemplate — it.openQuestions(path)", () => {
+  const makeWorkspace = () => {
+    const root = "/repo"
+    const repo = new InMemRepo()
+    const workspaceOps = makeInMemoryWorkspaceOps(repo, root)
+    return {
+      repo,
+      provide: <A>(eff: Effect.Effect<A, Error, Workspace>): Promise<A> =>
+        Effect.runPromise(eff.pipe(Effect.provide(Layer.succeed(Workspace, workspaceOps)))),
+    }
+  }
+
+  it("lists each open, unanswered question's heading text — the same parse `gtd check qa --open-questions` performs", async () => {
+    const { repo, provide } = makeWorkspace()
+    repo.writeFile(
+      "REQUIREMENTS.md",
+      [
+        "## Open Questions",
+        "",
+        "### Which backend?",
+        "",
+        "- [ ] SQLite",
+        "- [ ] Postgres",
+        "",
+      ].join("\n"),
+    )
+    const rendered = await provide(
+      Effect.gen(function* () {
+        const workspace = yield* Workspace
+        const read = templateRead(workspace)
+        return renderStateTemplate(
+          '<% it.openQuestions("REQUIREMENTS.md").forEach(function(q){ %><%= q %>;<% }) %>',
+          {
+            startCommit: "",
+            currentCommit: "",
+            previousCommit: "",
+            state: "",
+            actor: "",
+            reviewBase: "",
+            processBase: "",
+            processCost: 0,
+            processCostByModel: [],
+            read,
+            sections: (path: string) => headingSections(read(path)),
+            openQuestions: (path: string) => openQuestionTexts(read(path)),
+            openQuestionOptions: () => [],
+            vars: {},
+            edges: [],
+          },
+        )
+      }),
+    )
+    expect(rendered).toBe("Which backend?;")
+  })
+})
+
+describe("renderStateTemplate — it.read through templateReadCommitted (the evidence-rule read, judge:'s own)", () => {
+  const makeWorkspace = () => {
+    const root = "/repo"
+    const repo = new InMemRepo()
+    const workspaceOps = makeInMemoryWorkspaceOps(repo, root)
+    return {
+      repo,
+      provide: <A>(eff: Effect.Effect<A, Error, Workspace>): Promise<A> =>
+        Effect.runPromise(eff.pipe(Effect.provide(Layer.succeed(Workspace, workspaceOps)))),
+    }
+  }
+
+  it("resolves a committed path's content", async () => {
+    const { repo, provide } = makeWorkspace()
+    repo.writeFile("a.md", "committed\n")
+    repo.commitAllWithPrefix("chore: commit a.md")
+    const rendered = await provide(
+      Effect.gen(function* () {
+        const workspace = yield* Workspace
+        const read = templateReadCommitted(workspace)
+        return renderStateTemplate("<%~ it.read('a.md') %>", {
+          startCommit: "",
+          currentCommit: "",
+          previousCommit: "",
+          state: "",
+          actor: "",
+          reviewBase: "",
+          processBase: "",
+          processCost: 0,
+          processCostByModel: [],
+          read,
+          sections: (path: string) => headingSections(read(path)),
+          openQuestions: () => [],
+          openQuestionOptions: () => [],
+          vars: {},
+          edges: [],
+        })
+      }),
+    )
+    expect(rendered).toBe("committed\n")
+  })
+
+  it("a template's it.read of a NEVER-committed (working-tree-only) path throws and refuses the render, unlike templateRead", async () => {
+    const { repo, provide } = makeWorkspace()
+    repo.writeFile("scratch.md", "freshly gathered, ungoverned\n")
+    const renderResult = provide(
+      Effect.gen(function* () {
+        const workspace = yield* Workspace
+        const read = templateReadCommitted(workspace)
+        return renderStateTemplate("<%~ it.read('scratch.md') %>", {
+          startCommit: "",
+          currentCommit: "",
+          previousCommit: "",
+          state: "",
+          actor: "",
+          reviewBase: "",
+          processBase: "",
+          processCost: 0,
+          processCostByModel: [],
+          read,
+          sections: (path: string) => headingSections(read(path)),
+          openQuestions: () => [],
+          openQuestionOptions: () => [],
+          vars: {},
+          edges: [],
+        })
+      }),
+    )
+    await expect(renderResult).rejects.toThrow(/ENOENT/)
+  })
+
+  it("still returns the COMMITTED content for a path since edited in the working tree — never the pending edit", async () => {
+    const { repo, provide } = makeWorkspace()
+    repo.writeFile("a.md", "committed\n")
+    repo.commitAllWithPrefix("chore: commit a.md")
+    // Edited after committing — pending, uncommitted content.
+    repo.writeFile("a.md", "an uncommitted edit\n")
+    const rendered = await provide(
+      Effect.gen(function* () {
+        const workspace = yield* Workspace
+        const read = templateReadCommitted(workspace)
+        return renderStateTemplate("<%~ it.read('a.md') %>", {
+          startCommit: "",
+          currentCommit: "",
+          previousCommit: "",
+          state: "",
+          actor: "",
+          reviewBase: "",
+          processBase: "",
+          processCost: 0,
+          processCostByModel: [],
+          read,
+          sections: (path: string) => headingSections(read(path)),
+          openQuestions: () => [],
+          openQuestionOptions: () => [],
+          vars: {},
+          edges: [],
+        })
+      }),
+    )
+    expect(rendered).toBe("committed\n")
   })
 })

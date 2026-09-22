@@ -165,6 +165,7 @@ describe("beatDocument / renderBeatJson", () => {
       "edges",
       "cost",
       "costByModel",
+      "judge",
     ]) {
       expect(key in parsed).toBe(false)
     }
@@ -179,6 +180,7 @@ describe("beatDocument / renderBeatJson", () => {
       mode: "qa",
       label: "Fixing",
       edges: [{ pattern: "C", target: "idle" }],
+      judge: '{"state":"build.fixing","questions":[]}',
     })
     const line = renderJsonLine({
       rendered: r,
@@ -213,6 +215,7 @@ describe("beatDocument / renderBeatJson", () => {
       "next",
       "cost",
       "costByModel",
+      "judge",
     ])
   })
 
@@ -266,6 +269,18 @@ describe("beatDocument / renderBeatJson", () => {
     expect(parsedWithCost.costByModel).toEqual([{ model: "opus", cost: 42 }])
   })
 
+  it("omits judge entirely (not undefined/null) when unset, emits it verbatim when set", () => {
+    const unset = renderJsonLine({ kind: "prompt" })
+    expect("judge" in (JSON.parse(unset) as Record<string, unknown>)).toBe(false)
+
+    const set = renderJsonLine({
+      rendered: rendered({ judge: '{"state":"build.fixing","questions":[]}' }),
+      kind: "prompt",
+    })
+    const parsedSet = JSON.parse(set) as Record<string, unknown>
+    expect(parsedSet.judge).toBe('{"state":"build.fixing","questions":[]}')
+  })
+
   it("carries no version key", () => {
     const line = renderJsonLine({ kind: "prompt" })
     expect("version" in (JSON.parse(line) as Record<string, unknown>)).toBe(false)
@@ -281,6 +296,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
     mode: "qa",
     label: "Fixing",
     edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
+    judge: '{"state":"build.fixing","questions":[]}',
   })
   const commonInput = {
     rendered: fullRendered,
@@ -313,6 +329,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         next: { action: "land", pattern: "C", target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
+        judge: '{"state":"build.fixing","questions":[]}',
       }) + "\n",
     )
   })
@@ -338,6 +355,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         next: { action: "land", pattern: "C", target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
+        judge: '{"state":"build.fixing","questions":[]}',
       }) + "\n",
     )
   })
@@ -363,6 +381,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         next: { action: "land", pattern: "C", target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
+        judge: '{"state":"build.fixing","questions":[]}',
       }) + "\n",
     )
   })
@@ -397,6 +416,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         next: { action: "land", pattern: "C", target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
+        judge: '{"state":"build.fixing","questions":[]}',
       }) + "\n",
     )
   })
@@ -422,6 +442,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         next: { action: "land", pattern: "C", target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
+        judge: '{"state":"build.fixing","questions":[]}',
       }) + "\n",
     )
   })

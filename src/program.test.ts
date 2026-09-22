@@ -38,6 +38,7 @@ import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { renderInitConfig } from "./workflows/index.js"
 import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "./testing/index.js"
 import { commitAll } from "./GitScript.js"
+import { DID_NOT_RUN_COMMENT } from "./Emit.js"
 import { HISTORY_REF } from "./RetainedHistory.js"
 import { abandonNoopOutcome, noteOutcome, restoredOutcome } from "./OutcomeScript.js"
 
@@ -2314,6 +2315,8 @@ describe("runCommand — refuses in a repository with no commits", () => {
     install: { kind: "install" },
     summary: { kind: "summary" },
     base: { kind: "base" },
+    judge: { kind: "judge" },
+    judgeAnswer: { kind: "judgeAnswer" },
   }
 
   const stateKinds = (Object.keys(commandFor) as Command["kind"][]).filter(
@@ -2323,9 +2326,21 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the nine non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the eleven non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
-      ["abandon", "base", "entry", "land", "next", "restore", "summary", "validate", "ui"].sort(),
+      [
+        "abandon",
+        "base",
+        "entry",
+        "land",
+        "next",
+        "restore",
+        "summary",
+        "validate",
+        "ui",
+        "judge",
+        "judgeAnswer",
+      ].sort(),
     )
   })
 
@@ -2776,4 +2791,253 @@ describe("gtd next/land --json=<path> — the select branch (package 01, task 4)
     expect(exitCode).toBe(0)
     expect(stdout.length).toBeGreaterThan(0)
   })
+})
+
+describe("gtd judge / gtd judge answer (.gtd/packages/01-judgment-surface.md, Task 4)", () => {
+  const JUDGE_DOCUMENT =
+    '{"state":"idle","questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}'
+
+  const WORKFLOW_WITH_JUDGE = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    `          judge: '${JUDGE_DOCUMENT}'`,
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", WORKFLOW_WITH_JUDGE)
+    repo.commitAllWithPrefix("chore: add workflow with a judge state")
+    return repo
+  }
+
+  const NO_JUDGE_WORKFLOW = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const seededRepoWithoutJudge = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", NO_JUDGE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add workflow with no judge state")
+    return repo
+  }
+
+  it("gtd judge prints the rendered judge document verbatim, plus exactly one trailing newline", async () => {
+    const repo = seededRepo()
+    const { stdout, exitCode } = await run(repo, "judge")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe(`${JUDGE_DOCUMENT}\n`)
+  })
+
+  it("gtd judge --json prints the same document — a read-only peek, no mutation", async () => {
+    const repo = seededRepo()
+    const before = repo.commitHistory().length
+    const { stdout, exitCode } = await run(repo, "judge", "--json")
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe(`${JUDGE_DOCUMENT}\n`)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("gtd judge refuses through the ordinary error envelope when the resolved rest declares no judge:", async () => {
+    const repo = seededRepoWithoutJudge()
+    const { exitCode, stderr, stdout } = await run(repo, "judge")
+    expect(exitCode).toBe(1)
+    expect(stdout).toBe("")
+    expect(stderr).toContain('declares no "judge:"')
+  })
+
+  it("polling gtd judge twice reads byte-identical output — a peek, not a dispatch", async () => {
+    const repo = seededRepo()
+    const first = await run(repo, "judge")
+    const second = await run(repo, "judge")
+    expect(first.stdout).toBe(second.stdout)
+  })
+
+  // `process.stdin` is swapped for a `PassThrough` around every `gtd judge
+  // answer` test below — the same technique `gtd lsp`'s test in this file and
+  // `Lsp.test.ts` use — and always restored, so a leftover stub can't affect
+  // any other test in this file.
+  let savedStdin: PropertyDescriptor | undefined
+  afterEach(() => {
+    if (savedStdin) {
+      Object.defineProperty(process, "stdin", savedStdin)
+      savedStdin = undefined
+    }
+  })
+
+  const withStdin = async <T>(content: string, fn: () => Promise<T>): Promise<T> => {
+    savedStdin = Object.getOwnPropertyDescriptor(process, "stdin")
+    const stdin = new PassThrough()
+    Object.defineProperty(process, "stdin", { value: stdin, configurable: true })
+    stdin.end(content)
+    try {
+      return await fn()
+    } finally {
+      if (savedStdin) Object.defineProperty(process, "stdin", savedStdin)
+      savedStdin = undefined
+    }
+  }
+
+  it("gtd judge answer decodes a verdict on stdin against the pending question ids and succeeds", async () => {
+    const repo = seededRepo()
+    const { exitCode, stdout } = await withStdin(
+      JSON.stringify([{ id: "q1", answer: true, p: 0.97 }]),
+      () => run(repo, "judge", "answer"),
+    )
+    expect(exitCode).toBe(0)
+    expect(stdout.length).toBeGreaterThan(0)
+  })
+
+  it("gtd judge answer refuses on a verdict naming a question id the pending judgment never declared, with the usage-error exit code — a caller-input error, not a rest refusal", async () => {
+    const repo = seededRepo()
+    const { exitCode, stderr } = await withStdin(
+      JSON.stringify([{ id: "not-a-real-question", answer: true, p: 0.97 }]),
+      () => run(repo, "judge", "answer"),
+    )
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("does not match the pending questions")
+  })
+
+  it("gtd judge answer refuses when stdin is not valid JSON at all, with the usage-error exit code", async () => {
+    const repo = seededRepo()
+    const { exitCode, stderr } = await withStdin("not json", () => run(repo, "judge", "answer"))
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("stdin is not valid JSON")
+  })
+
+  it("gtd judge answer refuses a verdict whose p is outside [0, 1] — every OTHER bound in routes: matching fails closed, and an unvalidated p would force-match every minP a workflow declares", async () => {
+    const repo = seededRepo()
+    const { exitCode, stderr } = await withStdin(
+      JSON.stringify([{ id: "q1", answer: true, p: 5 }]),
+      () => run(repo, "judge", "answer"),
+    )
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("does not match the pending questions")
+  })
+
+  it("gtd judge answer refuses a verdict whose p is negative", async () => {
+    const repo = seededRepo()
+    const { exitCode, stderr } = await withStdin(
+      JSON.stringify([{ id: "q1", answer: true, p: -0.1 }]),
+      () => run(repo, "judge", "answer"),
+    )
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("does not match the pending questions")
+  })
+
+  it("gtd judge answer refuses through the ordinary error envelope when the resolved rest declares no judge:", async () => {
+    const repo = seededRepoWithoutJudge()
+    const { exitCode, stderr } = await withStdin("[]", () => run(repo, "judge", "answer"))
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain('declares no "judge:"')
+  })
+
+  // `.gtd/packages/01-judgment-surface.md` Task 5 — the emitted landing
+  // script and the `Gtd-Judge:` trailer. `idle`'s "* **" row never matches a
+  // clean tree, so these tests use a judge state whose row IS a clean-tree
+  // "C" — the only shape that actually lands a commit here, exercising the
+  // real `renderDecision` trailer path rather than a no-op.
+  const WORKFLOW_WITH_JUDGE_LANDING = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    `          judge: '${JUDGE_DOCUMENT}'`,
+    "          on:",
+    '            "C": landed',
+    "        landed:",
+    "          actor: human",
+    "          message: done",
+    "",
+  ].join("\n")
+
+  const seededLandingRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", WORKFLOW_WITH_JUDGE_LANDING)
+    repo.commitAllWithPrefix("chore: add workflow with a landing judge state")
+    return repo
+  }
+
+  it("gtd judge answer --json=script emits a POSIX sh script carrying a Gtd-Judge: trailer on the step commit", async () => {
+    const repo = seededLandingRepo()
+    const { stdout, exitCode } = await withStdin(
+      JSON.stringify([{ id: "q1", answer: true, p: 0.97 }]),
+      () => run(repo, "judge", "answer", "--json=script"),
+    )
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain(DID_NOT_RUN_COMMENT)
+    expect(stdout).toContain('Gtd-Judge: {"id":"q1","answer":true,"p":0.97}')
+
+    const applied = applyEmittedScript(repo, new Map(), stdout)
+    expect(applied.ok).toBe(true)
+    expect(repo.lastCommitMessage()).toContain('Gtd-Judge: {"id":"q1","answer":true,"p":0.97}')
+  })
+
+  it("gtd judge answer --json=script follows the same required-half / optional-half contract as land", async () => {
+    const repo = seededLandingRepo()
+    const { stdout: script } = await withStdin(
+      JSON.stringify([{ id: "q1", answer: true, p: 0.97 }]),
+      () => run(repo, "judge", "answer", "--json=script"),
+    )
+    const { stdout: landScript } = await run(repo, "land", "--json=script")
+    // Both scripts share the same leading "did not run it" comment and the
+    // same `set -eu` preamble shape — the same `combinedScript`/`ScriptSurface`
+    // machinery `gtd land` already uses.
+    expect(script.split("\n")[0]).toBe(landScript.split("\n")[0])
+  })
+
+  it("plain gtd judge answer (no --json) names the commit and points at --json=script, never the script itself", async () => {
+    const repo = seededLandingRepo()
+    const { stdout, exitCode } = await withStdin(
+      JSON.stringify([{ id: "q1", answer: true, p: 0.97 }]),
+      () => run(repo, "judge", "answer"),
+    )
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain("--json=script")
+    expect(stdout).not.toContain(DID_NOT_RUN_COMMENT)
+  })
+
+  // `src/Edge.test.ts`'s "collects the process's turn-commit Gtd-Judge:
+  // entries" covers `ProcessRun.judgeVerdicts` parsing directly; this level
+  // only needs to confirm the trailer this command writes is the same shape
+  // that scan reads back — already covered above by inspecting
+  // `repo.lastCommitMessage()` after applying the emitted script.
 })

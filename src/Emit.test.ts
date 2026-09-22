@@ -237,6 +237,7 @@ describe("emitScripts — a command step with onFailure", () => {
     execFileSync("git", ["init", "-q"], { cwd: dir })
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
     execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], { cwd: dir })
     return dir
   }
@@ -313,6 +314,7 @@ describe("real repo — an assembled script end to end", () => {
     execFileSync("git", ["init", "-q"], { cwd: dir })
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
     execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], { cwd: dir })
     return dir
   }

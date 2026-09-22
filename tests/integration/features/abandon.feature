@@ -78,7 +78,15 @@ Feature: gtd abandon — end the process underway without completing it
     Then it succeeds
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → build.review.pre"
+    # Landed untouched, with no verdict — the conservative default runs the
+    # full review lap.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234

@@ -124,6 +124,7 @@ describe("worktreeGitDir [real git]", () => {
     gitExecIn(root, "init", "-q")
     gitExecIn(root, "config", "user.email", "test@test.com")
     gitExecIn(root, "config", "user.name", "Test")
+    gitExecIn(root, "config", "commit.gpgsign", "false")
     gitExecIn(root, "commit", "--allow-empty", "-q", "-m", "init")
 
     expect(await runIn(root)).toBe(gitExecIn(root, "rev-parse", "--git-dir"))
@@ -138,6 +139,7 @@ describe("worktreeGitDir [real git]", () => {
     gitExecIn(root, "init", "-q")
     gitExecIn(root, "config", "user.email", "test@test.com")
     gitExecIn(root, "config", "user.name", "Test")
+    gitExecIn(root, "config", "commit.gpgsign", "false")
     gitExecIn(root, "commit", "--allow-empty", "-q", "-m", "init")
     const expected = await runIn(root)
 

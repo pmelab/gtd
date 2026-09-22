@@ -3,6 +3,7 @@ import fc from "fast-check"
 import {
   blockNodeAt,
   getParseCount,
+  headingSections,
   parseMarkdown,
   sourceText,
   taskItems,
@@ -168,5 +169,26 @@ describe("taskItems", () => {
     const content = "- a\n- [x] b\n"
     const tree = parseMarkdown(content)
     expect(taskItems(tree)).toHaveLength(1)
+  })
+})
+
+describe("headingSections", () => {
+  it("returns every top-level `## ` heading's text, in document order", () => {
+    const content = "# Title\n\n## First\n\nbody\n\n## Second\n\nmore body\n"
+    expect(headingSections(content)).toEqual(["First", "Second"])
+  })
+
+  it("excludes a `# ` (depth 1) and a `### ` (depth 3) heading — depth 2 only, by default", () => {
+    const content = "# Top\n\n## Section\n\n### Nested\n"
+    expect(headingSections(content)).toEqual(["Section"])
+  })
+
+  it("is empty for a package file with no `## ` sections — the fail-open case a dynamic-count judge template must detect", () => {
+    expect(headingSections("# Title\n\njust prose, no sections\n")).toEqual([])
+  })
+
+  it("takes an explicit depth", () => {
+    const content = "## Two\n\n### Three\n"
+    expect(headingSections(content, 3)).toEqual(["Three"])
   })
 })

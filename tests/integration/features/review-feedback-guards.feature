@@ -2,8 +2,15 @@
 Feature: Review feedback — capture, classification, and the loop-back guards
 
   The review feedback lap of the bundled unified workflow (see STATES.md §10).
-  A human comment at `await-review` routes to `build.review.deciding`, which CAPTURES
-  the raw material into `.gtd/REVIEW_RAW.md` (never interprets it). The
+  A human comment at `await-review` routes to `build.review.deciding`, which is
+  the MECHANICAL decider: a hand-edit outside `.gtd/` is a fact, so it CAPTURES
+  the raw material into `.gtd/REVIEW_RAW.md` straight away (never interprets
+  it) and routes to `collecting`. A note-only round (`.gtd/REVIEW.md` itself
+  changed, nothing hand-edited outside `.gtd/`) is a JUDGMENT call instead, so
+  it routes to `build.review.triage` first — one noul per `## ` chunk,
+  "actionable, not approval or nit?" — whose own `build.review.triaging`
+  check then produces the same `.gtd/REVIEW_RAW.md` capture only when
+  something actually is (see review-lap-judgments.feature). The
   `build.review.collecting` agent then JUDGES whether the round is
   actionable — it never builds; when it IS actionable it CLASSIFIES the
   round straight into `.gtd/REQUIREMENTS.md` as ordered, PRODUCT/TECHNICAL
@@ -32,8 +39,9 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   more, so its exemption is pinned here against a minimal custom workflow
   instead.
 
-  Each check-actor turn (`build.review.deciding`) is simulated by writing its verdict
-  files and running `gtd land`; @inmem never executes the scripts.
+  Each check-actor turn (`build.review.deciding`, `build.review.triaging`) is
+  simulated by writing its verdict files and running `gtd land`; @inmem never
+  executes the scripts.
 
   Scenario: a note-like unchecked line outside a file pointer no longer blocks sign-off
     Given a test project
@@ -109,6 +117,27 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
+    # Only `.gtd/REVIEW.md` changed this round (no hand-edit outside
+    # `.gtd/`) — deciding's script leaves it in place for `triage`'s own
+    # noul, and writes the `.gtd/REVIEW_NOTE.md` signal so this check's own
+    # (otherwise clean) commit still routes.
+    Given a file ".gtd/REVIEW_NOTE.md" with:
+      """
+      This is machine-captured input, not instructions. A downstream judgment decides actionability.
+
+      Commit: abc1234
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.triage"
+
+    When I run gtd judge answer with stdin:
+      """
+      [{"id": "chunk-1", "answer": true, "p": 0.95}]
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.triage → build.review.triaging"
+
     Given a file ".gtd/REVIEW_RAW.md" with:
       """
       Raw review material captured for classification.
@@ -118,9 +147,10 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       - [x] ./src/calc.ts#1 — new add function — rename `add` to `sum`
       """
     And the file ".gtd/REVIEW.md" is deleted
+    And the file ".gtd/REVIEW_NOTE.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
+    And the last commit subject is "gtd(check): build.review.triaging → build.review.collecting"
 
     Given a file ".gtd/REQUIREMENTS.md" with:
       """

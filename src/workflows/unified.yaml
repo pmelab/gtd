@@ -29,6 +29,91 @@ vars:
   # Declared (not left undeclared) so `--var reviewBase=...` passes the CLI's
   # declared-name check; blank renders empty, which the review entry refuses.
   reviewBase: ""
+  # `healthGate.judge`'s probability floor for the "identical" verdict to end
+  # a retry loop early — the ONLY off-switch this judged gate has (see
+  # 01-judgment-surface.md's Requirement section): a repo retunes or disables
+  # it by repointing this var, never by editing the bundled routes: row.
+  judgeIdenticalMinP: "0.7"
+  # `specReview.pre`'s per-section noul: a section answered "yes" needs at
+  # least this confidence to skip `review` for it; "no", or "yes" under this
+  # floor, both scope the review to that section instead. NOT measured by
+  # `evals/judgments/`'s sweep — no mined fixture case is a "requirement
+  # already satisfied?" judgment (every case judges finding merit instead),
+  # so there is no data to derive this from; a round of review caught an
+  # earlier version deriving it as `1 - specFindingKeep`, an identity the
+  # sweep never actually measures (see `evals/judgments/metrics.mjs`'s
+  # `UNMEASURED_SPEC_PRE_JUDGE_DEFAULT`, which this value must stay in sync
+  # with by hand). Chosen conservatively high instead: the pre-judge should
+  # rarely fire until real pre-judge history exists to mine a measured value
+  # from.
+  specPreJudge: "0.9"
+  # `specReview.findingJudge`'s per-finding noul: a finding answered "yes" (it
+  # would violate the requirement if left unaddressed) below this confidence
+  # is struck rather than spent on a `fix-spec` turn — a finding answered "no"
+  # is struck regardless of this floor. Blanking it disables `striking`
+  # entirely (nothing struck at all, not even a "no"), the same
+  # blank-turns-this-gate-off convention `judgeIdenticalMinP`/`specPreJudge`
+  # follow. This ONE var IS measured
+  # by `evals/judgments/eval.mjs`'s sweep over `evals/judgments/fixture.json`
+  # (6 cases mined from this repo's own `fix-spec` history — `npm run
+  # eval:judgments` reproduces the run): the lowest-miss-rate threshold. That
+  # fixture judges each case at FILE granularity (a whole `.gtd/
+  # SPEC_FEEDBACK.md`, not one `## ` finding) — see `eval.mjs`'s own opening
+  # comment for why that makes this a validated floor for turn-level
+  # suppression, not a per-finding-calibrated number. The fixture's single
+  # churn example is thin evidence either way — re-run as the mined history
+  # grows.
+  specFindingKeep: "0.1"
+  # `humanReview.pre`'s three nouls (mechanicalOnly, touchesPublicAPI,
+  # changesBehavior) over `git diff <reviewBase>` — all three must clear this
+  # floor at "yes"/"no"/"no" respectively to take the fast path
+  # (`fastReview`, skipping the agent's own authoring lap). Not measured by
+  # `evals/judgments/` — no mined fixture case judges this three-way
+  # combination — so chosen conservatively high, the same
+  # unmeasured-default posture `specPreJudge` documents, until real
+  # `humanReview.pre` history exists to mine a value from.
+  reviewFastPath: "0.9"
+  # `humanReview.triage`'s per-chunk noul over `.gtd/REVIEW.md`'s own
+  # chunks: "actionable, not approval or nit?" A chunk answered "yes" below
+  # this floor is treated as non-actionable (folded into sign-off) rather
+  # than spent on a `collecting` turn — a chunk answered "no" is
+  # non-actionable regardless of this floor, same shape `specFindingKeep`
+  # uses for a finding. Blanking it disables the dismissal (every "yes"
+  # counts, at any confidence) — the same blank-turns-the-optimization-off
+  # convention `specFindingKeep` follows, kept in the SAFE direction here
+  # (never silently sign off). Not measured by `evals/judgments/` — chosen
+  # conservatively until real `triage` history exists to mine a value from.
+  reviewNoteActionable: "0.7"
+  # `questionGate.screen`'s per-question noul PAIR (blocking?, inferable?):
+  # both must clear this floor — blocking at "no", inferable at "yes" — for
+  # that question to skip `questionGate.answer` (the human stop) rather than
+  # stop for it; an unanswered or low-confidence verdict on EITHER noul keeps
+  # the question stopping, the safe default. Two separate floors, not one,
+  # because `questionGate` is shared by two callers with different stakes
+  # (`questionGate.decide`'s script picks between them by checking which of
+  # `.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` exists — the same
+  # file-existence branch `questionGate.check`'s own script already uses,
+  # since a machine `$param` can't be spliced into a shared script body, see
+  # that comment below). Not measured by `evals/judgments/` — chosen
+  # conservatively (design) / permissively (architecture) until real
+  # `questionGate.screen` history exists to mine either from.
+  #
+  # `design.gate`'s own value: PRODUCT questions get the HIGH floor — a wrong
+  # inferred intent costs a whole rebuild lap, so skipping the human here
+  # must be rare.
+  questionSkipConservativeMinP: "0.9"
+  # `architecture.gate`'s own value: TECHNICAL questions get the LOW floor —
+  # a wrong inferred call is still caught at spec review, so skipping the
+  # human here can be common.
+  questionSkipAggressiveMinP: "0.6"
+  # `architecture-pre`'s single noul (`architectureWarranted`, over the
+  # just-triaged `.gtd/REQUIREMENTS.md`): an answer of "no" needs at least
+  # this confidence to skip `architecture.author`/`architecture.decompose`
+  # entirely; any other outcome (including a skipped judgment) runs the full
+  # pass — the conservative default. Not measured by `evals/judgments/` —
+  # chosen conservatively until real `architecture-pre` history exists to
+  # mine a value from.
+  architectureSkipMinP: "0.85"
   # gtd's own voice for generated files — adapted from the "Spartan" output
   # style (https://github.com/alexgreensh/attention-span, AGPL-3.0, version 0.6),
   # rewritten in gtd's own words for deliverables rather than chat replies;
@@ -295,6 +380,20 @@ machines:
       check:
         actor: check
         label: $checkLabel
+        # `&suiteCheck` below (the output-capture / empty-output-fallback /
+        # HEAD-stamp body, from `<%~ it.vars.testCommand %>` through the
+        # trailing if/else) is DUPLICATED — not aliased — into
+        # `healthGate.check` further down this file: a YAML alias reuses a
+        # whole scalar node, and `healthGate.check`'s script needs its own
+        # PRIOR_FEEDBACK.md prologue TEXTUALLY BEFORE that shared body inside
+        # the SAME Eta-templated string, which plain YAML has no mechanism to
+        # express (no string-concatenation-of-aliases, and the shared body
+        # itself still needs live `<%~ it.vars.testCommand %>` interpolation,
+        # so pulling it into a `vars:` entry would freeze that reference as
+        # dead text instead of evaluating it). A change to this body — the
+        # capture/fallback/stamp logic — MUST be mirrored into
+        # `healthGate.check`'s copy by hand; neither test suite nor YAML
+        # tooling catches a drift between them.
         script: &suiteCheck |
           #!/usr/bin/env sh
           set +e
@@ -343,8 +442,23 @@ machines:
             action: Retry check
             describe: $blockedDescribe
 
-  # Shared check/escalate pair for build.health.*/packages.item.health.* —
-  # the caller's own coder fix-state ($onRed), not this machine, handles red.
+  # Shared check/judge/escalate trio for build.health.*/packages.item.health.*
+  # — the caller's own coder fix-state ($onRed), not this machine, handles
+  # red. `check` writes `.gtd/PRIOR_FEEDBACK.md` from the last COMMITTED red
+  # round (found by walking history, not HEAD — the intervening fix turn
+  # always deletes `.gtd/FEEDBACK.md` from HEAD once it believes it resolved
+  # the failure) only when one exists, so the FIRST red round of an episode
+  # (nothing to compare against yet) bypasses `judge` straight to `$onRed`,
+  # paying for no judgment. `retry:` stays on `$onRed` (see
+  # `packageItem`/`buildTail` below) rather than moving onto `judge` here:
+  # `judge`'s only direct structural source is `check`, but `fix`/`fix-suite`
+  # sits between every pair of `judge` visits and is NOT one of `judge`'s
+  # sources, so `episodeVisits` (`PatternMachine.ts`) would reset `judge`'s
+  # own count on every single pass and a cap declared here could never fire.
+  # `$onRed` has TWO direct sources instead (`check`'s own bypass row, and
+  # `judge`'s `routes:` catch-all below) — sound accumulation under
+  # `sourcesOf`'s single-hop rule, the same shape the bundled retry-workflow
+  # tests already pin.
   healthGate:
     params: [onGreen, onRed, escalateDescribe, checkLabel, escalateLabel]
     entry: check
@@ -352,13 +466,102 @@ machines:
       check:
         actor: check
         label: $checkLabel
-        # See the shared suite check on `entryGate.check` above.
-        script: *suiteCheck
+        # DUPLICATES (not aliases) `entryGate.check`'s `&suiteCheck` body from
+        # `<%~ it.vars.testCommand %>` through the trailing if/else — see the
+        # comment on that anchor for why plain YAML/Eta can't express "this
+        # state's own PRIOR_FEEDBACK.md prologue, THEN the shared body" any
+        # other way. Mirror a change to that shared portion here by hand.
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          mkdir -p .gtd
+          rm -f .gtd/PRIOR_FEEDBACK.md
+          # Sweep a raw review capture an earlier, abandoned process may have
+          # left behind — no ordinary path from deciding/collecting reaches
+          # this check (same as entryGate.check's own sweep).
+          rm -f .gtd/REVIEW_RAW.md
+          # Bound the PRIOR_FEEDBACK.md search to the CURRENT episode, not the
+          # whole process (`it.startCommit`): HEAD's own subject already reads
+          # "... → <%= it.state %>" (the commit that just entered this check —
+          # `PatternMachine.ts`'s `stateSubject`/`TRANSITION_SEP`), so the
+          # SECOND most recent such subject is the last time this exact check
+          # was entered before now. Reaching THIS check always requires
+          # passing through it (green or red), so that prior entry is never
+          # itself carrying an unrelated gate's FEEDBACK.md the way
+          # `it.startCommit` (spanning the whole process, every earlier gate
+          # included) could. No second match at all means this is the very
+          # first visit ever — nothing to bound against, so there is no prior
+          # round full stop (never falls back to `it.startCommit`, which would
+          # reintroduce exactly the cross-episode leak this bounds against).
+          episode_anchor=$(git log --format='%H %s' <%= it.startCommit %>..HEAD \
+            | grep -F -- ' → <%= it.state %>' | sed -n '2p' | cut -d' ' -f1)
+          if [ -n "$episode_anchor" ]; then
+            prior_commit=$(git log --format=%H --diff-filter=AM "$episode_anchor"..HEAD -- .gtd/FEEDBACK.md 2>/dev/null | head -n 1)
+            if [ -n "$prior_commit" ]; then
+              git show "$prior_commit":.gtd/FEEDBACK.md > .gtd/PRIOR_FEEDBACK.md 2>/dev/null
+            fi
+          fi
+          <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            if [ -s .gtd/.check-output ]; then
+              mv .gtd/.check-output .gtd/FEEDBACK.md
+            else
+              rm -f .gtd/.check-output
+              printf 'the test command failed with exit code %s and produced no output.' "$code" > .gtd/FEEDBACK.md
+            fi
+            # Stamp with HEAD so a repeat identical failure still re-registers
+            # as an M/A edit instead of looking byte-identical (GREEN).
+            printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/FEEDBACK.md
+          else
+            rm -f .gtd/.check-output
+            rm -f .gtd/FEEDBACK.md
+            rm -f .gtd/PRIOR_FEEDBACK.md
+          fi
         on:
+          "A .gtd/PRIOR_FEEDBACK.md": judge
+          "M .gtd/PRIOR_FEEDBACK.md": judge
           "A .gtd/FEEDBACK.md": $onRed
           "M .gtd/FEEDBACK.md": $onRed
           "* **": $onGreen
           "C": $onGreen
+      # The judged retry: a `choice` between identical/new-failure/progress
+      # over `.gtd/FEEDBACK.md` (this round) vs `.gtd/PRIOR_FEEDBACK.md` (the
+      # previous round), both committed by `check` above so `it.read` can
+      # reach them (the evidence rule — no gathering turn). An unaware driver
+      # sees only `message:` and lands with a clean tree, taking the ordinary
+      # `C` row to `$onRed` — the same conservative target `routes:`'s own
+      # catch-all names, so a skipped judgment and a "keep fixing" verdict
+      # both land the same place; only the `Gtd-Judge:` trailer (or its
+      # absence) tells them apart.
+      judge:
+        actor: human
+        label: Judging the retry
+        message: |
+          The check is still red, and this isn't the first round —
+          `.gtd/FEEDBACK.md` (this round) and `.gtd/PRIOR_FEEDBACK.md` (the
+          previous round) are both on disk. Run `gtd judge answer` and pipe a
+          verdict — identical, new-failure, or progress — or land (with or
+          without an edit of your own) to accept the conservative default
+          (retry the fix) with no verdict recorded.
+        judge: |-
+          {"state": <%~ JSON.stringify({ current: it.read(".gtd/FEEDBACK.md"), previous: it.read(".gtd/PRIOR_FEEDBACK.md") }) %>, "questions": [{"id": "verdict", "primitive": "choice", "instructions": "Compare this round's failing check output (current) against the previous round's (previous), both in state. Classify the change.", "criteria": "identical: the same failure restated, byte-for-byte or the same root cause, IGNORING each round's own trailing `<!-- gtd check <sha> -->` stamp (that line always differs and is not part of the failure). new-failure: a materially different symptom than previous. progress: still red, but measurably closer to green (fewer failures, a later stage reached)."}]}
+        routes:
+          - question: verdict
+            is: identical
+            minP: "<%~ it.vars.judgeIdenticalMinP %>"
+            to: escalate
+          - to: $onRed
+        on:
+          "C": $onRed
+          # The human fallback (Task 6) must not stall on a dirty tree: every
+          # OTHER human gate with no wildcard row is a check/agent state whose
+          # own script owns the tree — this one is a person, who may touch a
+          # file while reading the message. No verdict landed this turn (an
+          # ordinary edit, not `gtd judge answer`) is still the skipped-
+          # judgment path: the same conservative $onRed target as "C", never
+          # a refusal.
+          "* **": $onRed
       escalate:
         actor: human
         label: $escalateLabel
@@ -377,12 +580,19 @@ machines:
             action: Retry check
             describe: $escalateDescribe
 
-  # Shared check/answer pair for design.gate/architecture.gate. No `file:`
-  # PARAM for the probe script itself: machine `$param` substitution is
-  # whole-value only, so a path can't be spliced into a shared script body —
-  # `file` here is instead the `answer` param's own `file:` (the human gate).
+  # Shared check/screen/decide/answer quartet for design.gate/architecture.gate.
+  # No `file:` PARAM for the probe/screen/decide script bodies themselves:
+  # machine `$param` substitution is whole-value only, so a path (or a
+  # threshold) can't be spliced into a shared script body — `file` is instead
+  # the `answer` param's own `file:` (the human gate), and `threshold` is
+  # advisory documentation only (`params:` is never cross-checked against
+  # actual `$name` usage): `screen`/`decide` below read BOTH
+  # `questionSkipConservativeMinP`/`questionSkipAggressiveMinP` directly via
+  # `it.vars` and pick between them the same way `check`'s own script already
+  # picks between REQUIREMENTS.md/ARCHITECTURE.md — by testing which file
+  # exists, at runtime, inside the shared script.
   questionGate:
-    params: [file, message, onNone, onRevise, checkLabel, answerLabel]
+    params: [file, message, onNone, onRevise, checkLabel, answerLabel, threshold]
     entry: check
     states:
       check:
@@ -408,10 +618,268 @@ machines:
             rm -f .gtd/QUESTIONS.md
           fi
         on:
-          "A .gtd/QUESTIONS.md": answer
-          "M .gtd/QUESTIONS.md": answer
+          "A .gtd/QUESTIONS.md": screen
+          "M .gtd/QUESTIONS.md": screen
           "D .gtd/QUESTIONS.md": $onNone
           "C": $onNone
+      # Per open question: two nouls, `blocking-N` (would a wrong assumption
+      # cost a whole lap?) and `inferable-N` (can a confident default be
+      # inferred without asking?). No `routes:` — the question count is
+      # dynamic, and a `routes:` row for a question with no landed answer is
+      # SKIPPED (not failed), which would let a PARTIAL verdict fall through
+      # to an optimistic catch-all (the exact hole `humanReview.pre`'s own
+      # comment documents). `decide`, below, recomputes the whole skip
+      # decision fresh from the just-landed `Gtd-Judge:` trailers instead —
+      # the same recompute-from-scratch shape `specReview.scoping`/`striking`
+      # use.
+      screen:
+        actor: human
+        label: Judging whether these open questions can be answered for you
+        message: |
+          Judging each open question in `.gtd/QUESTIONS.md` on three
+          outputs: would a WRONG assumption here cost a whole rebuild lap
+          (`blocking-N`, a noul), can a confident default be inferred from
+          the plan's own context without asking you (`inferable-N`, a
+          noul), and — if so — which of the question's own listed options
+          would that default choose, verbatim (`pick-N`, a choice). A
+          question clears the bar to skip only when answered not-blocking
+          AND inferable, both at sufficient confidence, AND `pick-N` names
+          one of its listed options — any other outcome (including a
+          skipped judgment, or a blank/invented `pick-N`) leaves it
+          stopping for you. `pick-N`'s own answer is what gets ticked in
+          the plan and named in `.gtd/REVIEW.md` later — never just a
+          verdict that skipping is safe. Run `gtd judge answer` and pipe a
+          `blocking-N`/`inferable-N`/`pick-N` verdict triple per open
+          question (in the order `gtd check qa <file> --open-questions`
+          lists them) — or land untouched to keep every question stopping
+          (the conservative default).
+        judge: |-
+          <%
+            let questions = []
+            let questionOptions = []
+            try {
+              questions = it.openQuestions(".gtd/REQUIREMENTS.md")
+              questionOptions = it.openQuestionOptions(".gtd/REQUIREMENTS.md")
+            } catch (e) { questions = []; questionOptions = [] }
+            if (questions.length === 0) {
+              try {
+                questions = it.openQuestions(".gtd/ARCHITECTURE.md")
+                questionOptions = it.openQuestionOptions(".gtd/ARCHITECTURE.md")
+              } catch (e) { questions = []; questionOptions = [] }
+            }
+            const qs = []
+            questions.forEach(function (text, i) {
+              const options = (questionOptions[i] && questionOptions[i].options) || []
+              qs.push({
+                id: "blocking-" + (i + 1),
+                primitive: "noul",
+                instructions: "Would a WRONG assumption for the open question \"" + text + "\" cost a whole rebuild lap — does it materially change what gets built?",
+                criteria: "Answer yes if uncertain; a blocking question always stops for the human.",
+              })
+              qs.push({
+                id: "inferable-" + (i + 1),
+                primitive: "noul",
+                instructions: "Can a reasonable, defensible default answer to \"" + text + "\" be confidently inferred from the plan's own context, without asking the human?",
+                criteria: "Answer no if uncertain; only a genuinely confident inference counts.",
+              })
+              qs.push({
+                id: "pick-" + (i + 1),
+                primitive: "choice",
+                instructions: "If \"" + text + "\" is confidently inferable (see inferable-" + (i + 1) + "), which of its own listed options would that confident default choose? Answer with that option's OWN TEXT, verbatim.",
+                criteria: "The only valid answers are exactly: " + (options.length > 0 ? options.map(function (o) { return JSON.stringify(o) }).join(", ") : "(this question has no listed options — answer with an empty string)") + ". Never invent an option not listed here, and never answer with anything if inferable-" + (i + 1) + " is no.",
+              })
+            })
+          %>{"state": <%~ JSON.stringify({ questions: questions, questionOptions: questionOptions }) %>, "questions": <%~ JSON.stringify(qs) %>}
+        on:
+          "C": decide
+          "* **": decide
+      # Recomputes the skip decision fresh from the just-landed `Gtd-Judge:`
+      # trailers AND a fresh `gtd check qa --open-questions` listing (never
+      # trusts `screen`'s own verdict to be complete) — an unanswered or
+      # low-confidence noul on EITHER question, or a blank `pick-N`, defaults
+      # to NOT skipping, the one direction this gate must never get wrong. A
+      # skipped question is an ANSWERED one, never a dropped one: every
+      # question that clears the bar gets its `pick-N` answer folded into
+      # `$file`'s own `## Answered Questions` section — ONLY that question's
+      # own `### ` block moves, matched by its exact heading TEXT (never by
+      # position: a question already ticked from an earlier lap can still sit
+      # under `## Open Questions` without being unanswered, so the block
+      # count and the unanswered count diverge the moment one exists) — and
+      # named, with that same answer, in `.gtd/ASSUMPTIONS.md` (appended, never overwritten —
+      # both `design.gate` and `architecture.gate` share this file across
+      # the whole planning phase) so `humanReview.reviewing` can later name
+      # each one in `.gtd/REVIEW.md`'s own `## Assumptions` chunk.
+      # `.gtd/QUESTIONS.md` — `check`'s own sentinel, otherwise only ever
+      # cleaned up by a LATER `check` run finding no more open questions — is
+      # `rm -f`'d here too, since the skip path never gives `check` that
+      # later run. `answer` (the human stop) is skipped only when EVERY open
+      # question cleared the bar.
+      decide:
+        actor: check
+        label: Scoping which questions still need you
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          file=.gtd/REQUIREMENTS.md
+          label=design
+          threshold=<%~ it.vars.questionSkipConservativeMinP %>; if [ ! -f "$file" ]; then
+            file=.gtd/ARCHITECTURE.md
+            label=architecture
+            threshold=<%~ it.vars.questionSkipAggressiveMinP %>; fi
+          questions=$(gtd check qa "$file" --open-questions 2>&1 \
+            | sed -n "s#^${file}:[0-9]*: ##p")
+          total=0
+          [ -n "$questions" ] && total=$(printf '%s\n' "$questions" | wc -l | tr -d ' ')
+          trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+          assumptions=$(mktemp)
+          answered=$(mktemp)
+          resolved=$(mktemp)
+          i=1
+          all_safe=1
+          while [ "$i" -le "$total" ]; do
+            qtext=$(printf '%s\n' "$questions" | sed -n "${i}p")
+            b_line=$(printf '%s\n' "$trailers" | grep "\"id\":\"blocking-$i\"" | head -n 1)
+            n_line=$(printf '%s\n' "$trailers" | grep "\"id\":\"inferable-$i\"" | head -n 1)
+            p_line=$(printf '%s\n' "$trailers" | grep "\"id\":\"pick-$i\"" | head -n 1)
+            safe=0
+            p_answer=""
+            if [ -n "$b_line" ] && [ -n "$n_line" ] && [ -n "$p_line" ] && [ -n "$threshold" ]; then
+              b_answer=$(printf '%s' "$b_line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
+              case "$b_answer" in (true) b_answer=yes ;; (false) b_answer=no ;; esac
+              b_p=$(printf '%s' "$b_line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
+              n_answer=$(printf '%s' "$n_line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
+              case "$n_answer" in (true) n_answer=yes ;; (false) n_answer=no ;; esac
+              n_p=$(printf '%s' "$n_line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
+              # A choice answer is a raw JSON string — never a bare "yes"/"no"
+              # word, so no true/false normalization applies here.
+              p_answer=$(printf '%s' "$p_line" | sed -n 's/.*"answer":"\([^"]*\)".*/\1/p')
+              # `pick-i` must name one of question i's OWN listed options —
+              # never a blank, an invented value, or one belonging to a
+              # different question. `$i` indexes `$questions` — the
+              # UNANSWERED-only list `gtd check qa --open-questions` (and so
+              # `screen`'s own `openQuestions`/`openQuestionOptions`) already
+              # produces — which is NOT the same count as every `### `
+              # heading under `## Open Questions`: a question already ticked
+              # (but not yet migrated out) still sits there without being
+              # unanswered. Matching `q_options` by the question's own TEXT
+              # (`$qtext`, from that same `$questions` list), never by
+              # position among ALL headings, is what keeps the two aligned —
+              # a positional match validated against the wrong question's
+              # options on any file with even one already-ticked question.
+              q_options=$(awk -v qtext="$qtext" '
+                /^## Open Questions[ \t]*$/ { in_open = 1; next }
+                in_open && /^## / { in_open = 0 }
+                !in_open { next }
+                /^### / {
+                  if (in_q) { for (k = 1; k < n; k++) print opt[k] }
+                  line = $0
+                  sub(/^### /, "", line)
+                  in_q = (line == qtext); n = 0
+                  next
+                }
+                in_q && /^[-*] \[[ xX]\] / {
+                  line = $0
+                  sub(/^[-*] \[[ xX]\] /, "", line)
+                  n++; opt[n] = line
+                }
+                END { if (in_q) { for (k = 1; k < n; k++) print opt[k] } }
+              ' "$file")
+              picked_valid=0
+              if [ -n "$p_answer" ] && printf '%s\n' "$q_options" | grep -Fxq "$p_answer"; then
+                picked_valid=1
+              fi
+              if [ "$b_answer" = "no" ] \
+                && awk -v p="$b_p" -v t="$threshold" 'BEGIN{exit !(p>=t)}' 2>/dev/null \
+                && [ "$n_answer" = "yes" ] \
+                && awk -v p="$n_p" -v t="$threshold" 'BEGIN{exit !(p>=t)}' 2>/dev/null \
+                && [ "$picked_valid" -eq 1 ]; then
+                safe=1
+              fi
+            fi
+            if [ "$safe" -eq 1 ]; then
+              printf -- '- %s → %s — not blocking, confidently inferable; skipped without asking (%s phase).\n' \
+                "$qtext" "$p_answer" "$label" >> "$assumptions"
+              printf -- '### %s\n\n%s\n\n' "$qtext" "$p_answer" >> "$answered"
+              printf '%s\n' "$qtext" >> "$resolved"
+            else
+              all_safe=0
+            fi
+            i=$((i + 1))
+          done
+          if [ "$total" -gt 0 ] && [ "$all_safe" -eq 1 ]; then
+            mkdir -p .gtd
+            rm -f .gtd/QUESTIONS.md
+            cat "$assumptions" >> .gtd/ASSUMPTIONS.md
+            # `-v blockfile=`/`-v resolvedfile=` (PATHS, one line each)
+            # rather than `-v` carrying either file's own multi-line text: a
+            # whole-value `-v` with an embedded newline is a hard `awk` parse
+            # error on at least one POSIX awk this script must run under —
+            # `dumpblock()`'s own `getline < blockfile` loop streams the
+            # resolved Q&A text in, and `resolved[]` (built once, in BEGIN,
+            # from `$resolvedfile`) is the exact-heading-text drop set: a
+            # `### ` block under `## Open Questions` is removed ONLY when its
+            # own heading text is a member, so an already-ticked SIBLING
+            # question — resolved by an earlier human lap, not this judged
+            # one — survives untouched. `## Open Questions` itself is only
+            # dropped when NOTHING survives under it (`any_kept` stays 0).
+            awk -v blockfile="$answered" -v resolvedfile="$resolved" '
+              function dumpblock(   line) {
+                while ((getline line < blockfile) > 0) print line
+                close(blockfile)
+              }
+              BEGIN {
+                while ((getline line < resolvedfile) > 0) resolved[line] = 1
+                close(resolvedfile)
+              }
+              /^## Open Questions[ \t]*$/ {
+                in_open = 1; open_heading = $0; buf_n = 0; any_kept = 0
+                next
+              }
+              in_open && /^## / {
+                in_open = 0
+                if (any_kept) {
+                  print open_heading
+                  for (k = 1; k <= buf_n; k++) print buf[k]
+                }
+              }
+              in_open {
+                if ($0 ~ /^### /) {
+                  line = $0
+                  sub(/^### /, "", line)
+                  dropping = (line in resolved)
+                  if (!dropping) any_kept = 1
+                }
+                if (!dropping) { buf_n++; buf[buf_n] = $0 }
+                next
+              }
+              /^## Answered Questions[ \t]*$/ {
+                print
+                print ""
+                dumpblock()
+                printed = 1
+                next
+              }
+              { print }
+              END {
+                if (in_open && any_kept) {
+                  print open_heading
+                  for (k = 1; k <= buf_n; k++) print buf[k]
+                }
+                if (!printed) {
+                  print ""
+                  print "## Answered Questions"
+                  print ""
+                  dumpblock()
+                }
+              }
+            ' "$file" > "$file.new" && mv "$file.new" "$file"
+          fi
+          rm -f "$assumptions" "$answered" "$resolved"
+        on:
+          "A .gtd/ASSUMPTIONS.md": $onNone
+          "M .gtd/ASSUMPTIONS.md": $onNone
+          "* **": answer
+          "C": answer
       answer:
         actor: human
         label: $answerLabel
@@ -564,6 +1032,7 @@ machines:
           onRevise: triage
           checkLabel: Checking for open questions
           answerLabel: Awaiting your product answers
+          threshold: <%= it.vars.questionSkipConservativeMinP %>
           message: |
             Answering here closes a gap between what you want the product to
             do and what gets built; changing nothing and re-running says that
@@ -678,6 +1147,7 @@ machines:
           onRevise: author
           checkLabel: Checking for open questions
           answerLabel: Awaiting your technical answers
+          threshold: <%= it.vars.questionSkipAggressiveMinP %>
           message: |
             Answering here closes a gap between what you want built and how
             it actually gets built; changing nothing and re-running says
@@ -751,8 +1221,130 @@ machines:
 
 
       <%~ it.vars.agentConduct %>
-    entry: reviewing
+    entry: pre
     states:
+      # The review pre-judge: three nouls over the reviewBase→worktree diff,
+      # judged BEFORE the agent's own authoring lap. Never routes off
+      # `routes:` directly — `matchRoute` (`src/PatternMachine.ts`) SKIPS a
+      # row whose question has no landed answer, so a bare
+      # conjunction-by-inversion table here would let a PARTIAL verdict
+      # (fewer than all three questions answered) fall through every escape
+      # row straight to the catch-all fast path, the exact hole
+      # `specReview.pre`'s own comment documents for its padded-slot design.
+      # Unconditionally hands off to `preCheck` instead, which recomputes
+      # the whole decision fresh from the landed `Gtd-Judge:` trailers —
+      # the same recompute-from-scratch shape `packages.item.spec.scoping`
+      # uses for the identical reason.
+      pre:
+        actor: human
+        label: Judging whether this round needs a full review lap
+        message: |
+          Judging whether this round of changes is mechanical, touches no
+          public surface, and changes no behavior — confident enough on all
+          three to skip the agent's own review lap and land straight at the
+          human stop with a machine-written summary. Run `gtd judge answer`
+          and pipe a verdict for `mechanicalOnly`, `touchesPublicAPI`, and
+          `changesBehavior` — or land untouched to run the full lap (the
+          conservative default; a skipped judgment never suppresses it).
+        judge: |-
+          {"state": {"reviewBase": "<%= it.reviewBase %>"}, "questions": [
+            {"id": "mechanicalOnly", "primitive": "noul", "instructions": "Over `git diff <%= it.reviewBase %>` (against the working tree), is every hunk mechanical — formatting, a rename, generated output, or a straight refactor with no behavior change?", "criteria": "Answer no if any hunk could plausibly change what the code does, even slightly."},
+            {"id": "touchesPublicAPI", "primitive": "noul", "instructions": "Over the same diff, does any hunk touch a publicly exported symbol, CLI flag, config key, or documented file format?", "criteria": "Answer yes if uncertain which surface counts as public."},
+            {"id": "changesBehavior", "primitive": "noul", "instructions": "Over the same diff, does any hunk change runtime behavior visible to a user or a test?", "criteria": "Answer yes if uncertain."}
+          ]}
+        on:
+          "C": preCheck
+          "* **": preCheck
+      # Recomputes the fast-path decision fresh from the just-landed
+      # `Gtd-Judge:` trailers — never trusts a verdict to be complete.
+      # Requires ALL THREE questions answered as `mechanicalOnly: yes`,
+      # `touchesPublicAPI: no`, `changesBehavior: no`, each at
+      # `reviewFastPath` confidence or better; a missing question, a
+      # malformed answer, a wrong answer, or a low-confidence right answer
+      # ALL fail the SAME way — nothing written, a clean tree, `"C"` routes
+      # to `reviewing`. Only a fully-confident, fully-answered "yes to
+      # mechanical, no to the other two" verdict writes the marker that
+      # routes to `fastReview`.
+      preCheck:
+        actor: check
+        label: Scoping the fast path
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          rm -f .gtd/REVIEW_FAST.md
+          threshold=<%~ it.vars.reviewFastPath %>; trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+          fast=1
+          for spec in mechanicalOnly:yes touchesPublicAPI:no changesBehavior:no; do
+            id=${spec%%:*}
+            want=${spec#*:}
+            line=$(printf '%s\n' "$trailers" | grep "\"id\":\"$id\"" | head -n 1)
+            if [ -z "$line" ]; then
+              fast=0
+              continue
+            fi
+            answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
+            case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
+            if [ "$answer" != "$want" ]; then
+              fast=0
+              continue
+            fi
+            p=$(printf '%s' "$line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
+            if [ -z "$threshold" ] \
+              || ! awk -v p="$p" -v t="$threshold" 'BEGIN{exit !(p>=t)}' 2>/dev/null; then
+              fast=0
+            fi
+          done
+          if [ "$fast" -eq 1 ]; then
+            : > .gtd/REVIEW_FAST.md
+          fi
+        on:
+          "A .gtd/REVIEW_FAST.md": fastReview
+          "C": reviewing
+      # The fast path: a `check`-actor script writes `.gtd/REVIEW.md` itself
+      # — the pre-judge already established the round is mechanical,
+      # touches no public surface, and changes no behavior, so there is
+      # nothing for the agent's own `reviewing` lap to add. The human stop
+      # is never skipped: this still routes to `await-review`. An empty
+      # diff (a fast-pathed round with nothing to point at — reachable from
+      # a clean-tree `--entry review-gate.check`) still needs at least one
+      # pointer: `.gtd/REVIEW.md` itself is the one path this script can
+      # always point at, since `gtd check review`'s own parser refuses a
+      # chunk with none.
+      fastReview:
+        actor: check
+        label: Writing the review summary
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          rm -f .gtd/REVIEW_FAST.md
+          {
+            printf '# Review: %s\n\n' "$(git rev-parse --short HEAD)"
+            printf '<!-- base: <%= it.reviewBase %> -->\n\n'
+            printf '## Changes\n\n'
+            files=$(git diff --name-only <%= it.reviewBase %>)
+            if [ -n "$files" ]; then
+              printf '%s\n' "$files" | while IFS= read -r f; do
+                printf -- '- [ ] ./%s — changed\n' "$f"
+              done
+            else
+              printf -- '- [ ] ./.gtd/REVIEW.md — no file changes this round\n'
+            fi
+            # The fast path skips `reviewing` entirely — its own prompt is
+            # the ONLY other place `.gtd/ASSUMPTIONS.md` gets folded in and
+            # swept, so this script owns both here too: a fast-pathed round
+            # must never sign off on a review record naming zero inferred
+            # answers, and must never leak the file into the next process.
+            if [ -f .gtd/ASSUMPTIONS.md ]; then
+              printf '\n## Assumptions\n\n'
+              cat .gtd/ASSUMPTIONS.md
+            fi
+          } > .gtd/REVIEW.md
+          rm -f .gtd/ASSUMPTIONS.md
+        on:
+          "A .gtd/REVIEW.md": await-review
+          "M .gtd/REVIEW.md": await-review
+          "* **": await-review
+          "C": await-review
       reviewing:
         actor: agent
         label: Reviewing
@@ -770,9 +1362,9 @@ machines:
 
           <%~ it.vars.stateFileRules %>
 
-          - The only state file this turn touches is `.gtd/REVIEW.md`,
-            written at exactly that path — no other files for notes or
-            output
+          - The only state files this turn touches are `.gtd/REVIEW.md`
+            (written) and `.gtd/ASSUMPTIONS.md` (deleted once folded in,
+            when it exists) — no other files for notes or output
 
           Write `.gtd/REVIEW.md` in this exact format, to help a human
           review the changes:
@@ -798,7 +1390,16 @@ machines:
             A note sitting entirely on the line(s) beneath the pointer is
             also valid. Either way, the note must never start with a bare `./path` token
             — that parses as a second pointer, not a note
-
+          <% let assumptions; try { assumptions = it.read(".gtd/ASSUMPTIONS.md") } catch (e) { assumptions = undefined } %><% if (assumptions) { %>
+          - `.gtd/ASSUMPTIONS.md` exists — the planning phase skipped one or
+            more open questions without asking you, each judged not blocking
+            and confidently inferable. Fold its content, unchanged, into its
+            own `## Assumptions` chunk (one line per assumption, no `./path`
+            pointer on any of them — this ONE chunk is exempt from the
+            "one pointer per hunk" rule above) so you read every inferred
+            answer while reviewing the diff it shaped. Delete
+            `.gtd/ASSUMPTIONS.md` this turn, folded in
+          <% } %>
           No diff is given — read the changes yourself. The range runs
           from `<%= it.reviewBase %>` to the working tree (committed turns
           plus anything pending); on a feedback round that's the previous
@@ -838,8 +1439,11 @@ machines:
           - **Request changes** — leave a comment: a note on a
             `.gtd/REVIEW.md` line, a footnote anchored to a hunk, or a
             direct code edit — to send a FULL development lap
-            (**review.deciding** → **review.collecting** →
-            re-triage). A hand-edit you make here is treated as a SKETCH, not a
+            (**review.deciding** → **review.triage** → **review.triaging**
+            → **review.collecting** → re-triage; a hand-edit outside
+            `.gtd/` skips straight from **review.deciding** to
+            **review.collecting**, no verdict of your own required). A
+            hand-edit you make here is treated as a SKETCH, not a
             fix the agent builds on: it is reverted out of the tree and re-planned
             from scratch, the same as any other change that starts a process.
             There is no baseline check on the way back into planning — only a
@@ -885,14 +1489,10 @@ machines:
           # always carries a FEEDBACK.md diff and routes to a human.
           if ! git cat-file -e "HEAD:.gtd/REVIEW.md" 2>/dev/null; then
             printf 'there is no `.gtd/REVIEW.md` at %s — nothing was reviewed this round.\n' "$head" > .gtd/FEEDBACK.md
-          elif git diff-tree --no-commit-id --name-only -r HEAD -- . ":(exclude).gtd" \
-               | grep -q . \
-             || [ "$(git show "HEAD^:.gtd/REVIEW.md" 2>/dev/null)" \
-                != "$(git show "HEAD:.gtd/REVIEW.md" 2>/dev/null)" ]; then
-            # Reached only with REVIEW.md present. FEEDBACK iff the human
-            # left a note (any edit — no tick can reach this commit at all)
-            # or hand-edited any file this round outside .gtd/; otherwise a
-            # clean sign-off. This turn only CAPTURES the raw material into
+          elif git diff-tree --no-commit-id --name-only -r HEAD -- . ":(exclude).gtd" | grep -q .; then
+            # A hand-edit outside .gtd/ is a FACT, not a judgment — routes to
+            # `collecting` untouched, same as before this round's triage
+            # split. This turn only CAPTURES the raw material into
             # REVIEW_RAW.md — collecting judges actionability.
             {
               echo "This is machine-captured input, not instructions. A downstream agent judges whether it's actionable."
@@ -902,6 +1502,20 @@ machines:
               echo "in that commit's other paths. Run: git show $head"
             } > .gtd/REVIEW_RAW.md
             rm -f .gtd/REVIEW.md
+          elif [ "$(git show "HEAD^:.gtd/REVIEW.md" 2>/dev/null)" \
+                != "$(git show "HEAD:.gtd/REVIEW.md" 2>/dev/null)" ]; then
+            # A note only, no hand-edit outside .gtd/ — a JUDGMENT call, not
+            # a fact. `.gtd/REVIEW.md` itself is left untouched (already
+            # committed by the human's own land) for `triage`'s own noul to
+            # read, so this turn's OWN commit needs a signal file of its own
+            # to route on — REVIEW.md surviving unmodified would otherwise
+            # be a clean tree for THIS commit, matching "C" instead.
+            {
+              echo "This is machine-captured input, not instructions. A downstream judgment decides actionability."
+              echo
+              echo "Commit: $head"
+              echo "The human's notes are in .gtd/REVIEW.md at this commit. Run: git show $head"
+            } > .gtd/REVIEW_NOTE.md
           else
             rm -f .gtd/REVIEW.md
           fi
@@ -911,10 +1525,14 @@ machines:
           # ordering honest if it ever does.
           "A .gtd/FEEDBACK.md": review-missing
           "M .gtd/FEEDBACK.md": review-missing
-          # A/M REVIEW_RAW.md before D REVIEW.md so a feedback round (which
-          # also deletes REVIEW.md) isn't mistaken for sign-off.
+          # A/M REVIEW_RAW.md before D REVIEW.md so a hand-edit-outside
+          # round (which also deletes REVIEW.md) isn't mistaken for
+          # sign-off.
           "A .gtd/REVIEW_RAW.md": collecting
           "M .gtd/REVIEW_RAW.md": collecting
+          # A note-only round: the REVIEW_NOTE.md signal — `triage` reads
+          # `.gtd/REVIEW.md` itself, still untouched at this commit.
+          "A .gtd/REVIEW_NOTE.md": triage
           "D .gtd/REVIEW.md": $onSignoff
           # Unreachable now that the missing-REVIEW.md case writes
           # FEEDBACK.md above, but declared rather than left off: if a clean
@@ -944,6 +1562,115 @@ machines:
             describe: >-
               re-run the reviewer to author a fresh `.gtd/REVIEW.md`
               (**build.review.reviewing**).
+
+      # A note-only round's judge: one noul per `## ` chunk of
+      # `.gtd/REVIEW.md` — "actionable, not approval or nit?" — replacing
+      # `collecting`'s own full planner turn when every chunk is confidently
+      # non-actionable. `it.sections` is the same real markdown parse
+      # `src/steering/review.ts`'s own chunk splitter builds on (both walk
+      # `MarkdownTree.ts`'s `headingText` over the document's depth-2
+      # headings), so chunk N here numbers identically to that format's own
+      # chunks — the same guarantee `specReview.pre`'s comment documents for
+      # its own `it.sections` use.
+      triage:
+        actor: human
+        label: Judging feedback actionability
+        message: |
+          Judging whether each `## ` chunk's note in `.gtd/REVIEW.md` is
+          actionable, to skip `collecting`'s full turn when the round is
+          approval-only. Run `gtd judge answer` and pipe a verdict per
+          chunk — or land untouched to run the full triage (the
+          conservative default; a skipped judgment never signs off).
+        judge: |-
+          <%
+            const chunks = it.sections(".gtd/REVIEW.md")
+            const questions = chunks.map((title, i) => ({
+              id: `chunk-${i + 1}`,
+              primitive: "noul",
+              instructions: `Is the note under review chunk "${title}" (in .gtd/REVIEW.md) actionable — anything beyond an approving remark with no code edit?`,
+              criteria: "A concrete request, a question, a code comment, or a hand-edit under this chunk answers yes. No note, or a purely approving remark, answers no.",
+            }))
+          %>{"state": <%~ JSON.stringify({ review: it.read(".gtd/REVIEW.md") }) %>, "questions": <%~ JSON.stringify(questions) %>}
+        on:
+          "C": triaging
+          "* **": triaging
+      # Recomputes actionability fresh from the just-landed `Gtd-Judge:`
+      # trailers and `.gtd/REVIEW.md`'s own chunk count — never trusts
+      # `triage`'s verdict to be complete. An unanswered chunk (a skipped
+      # judgment, a partial verdict, or a dirty land) defaults to
+      # ACTIONABLE — the conservative direction, matching `triage`'s own
+      # message ("land untouched to run the full triage"). Its `awk`
+      # heading scan must number chunks the same way `it.sections` did for
+      # `triage`'s own `chunk-N` ids — same constraint `scoping`'s comment
+      # documents for `specReview`.
+      triaging:
+        actor: check
+        label: Filtering non-actionable feedback
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          threshold=<%~ it.vars.reviewNoteActionable %>; head=$(git rev-parse HEAD)
+          trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+          # `it.sections`'s real mdast parse (CommonMark) numbered `chunk-N`
+          # against every TOP-LEVEL depth-2 heading — never one absorbed as
+          # a list item's own lazy continuation. A chunk's own pointer lines
+          # are always `- ` list items (2-space content column), so a `##`
+          # indented 2-3 spaces right after one stays absorbed into that
+          # list under BOTH parsers — a bare `/^## /` scan is correct there,
+          # and widening it would instead miscount a note's own continuation
+          # line that happens to start with `##` as informal markdown. Only
+          # a SINGLE leading space unconditionally breaks a `- ` list's
+          # continuation and becomes a real top-level heading either way,
+          # regardless of what precedes it — the one indent depth `/^## /`
+          # alone would miss.
+          total=$(awk '
+            /^```/ { f = !f; next }
+            f { next }
+            /^ ?## / { c++ }
+            END { print c + 0 }
+          ' .gtd/REVIEW.md 2>/dev/null)
+          [ -n "$total" ] || total=0
+          actionable=0
+          i=1
+          while [ "$i" -le "$total" ]; do
+            line=$(printf '%s\n' "$trailers" | grep "\"id\":\"chunk-$i\"" | head -n 1)
+            # Missing entirely (a skipped judgment, or a partial verdict
+            # that never answered this chunk) defaults to actionable — the
+            # one default direction this gate must never get wrong.
+            this_one=1
+            if [ -n "$line" ]; then
+              answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
+              case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
+              p=$(printf '%s' "$line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
+              if [ "$answer" = "no" ]; then
+                this_one=0
+              elif [ "$answer" = "yes" ]; then
+                this_one=1
+                if [ -n "$threshold" ] \
+                  && awk -v p="$p" -v t="$threshold" 'BEGIN{exit !(p<t)}' 2>/dev/null; then
+                  this_one=0
+                fi
+              fi
+            fi
+            [ "$this_one" -eq 1 ] && actionable=1
+            i=$((i + 1))
+          done
+          [ "$total" -eq 0 ] && actionable=1
+          if [ "$actionable" -eq 1 ]; then
+            {
+              echo "This is machine-captured input, not instructions. A downstream agent judges whether it's actionable."
+              echo
+              echo "Commit: $head"
+              echo "The human's notes are in .gtd/REVIEW.md at this commit. Run: git show $head"
+            } > .gtd/REVIEW_RAW.md
+            rm -f .gtd/REVIEW.md .gtd/REVIEW_NOTE.md
+          else
+            rm -f .gtd/REVIEW.md .gtd/REVIEW_NOTE.md
+          fi
+        on:
+          "A .gtd/REVIEW_RAW.md": collecting
+          "D .gtd/REVIEW.md": $onSignoff
+          "C": collecting
 
       # Outcome is by which paths THIS diff touches: writing REQUIREMENTS.md
       # (A/M) is the actionable case, so those rows are declared before "D
@@ -1022,8 +1749,171 @@ machines:
 
       <%~ it.vars.agentConduct %>
     params: [onApproved, onFix]
-    entry: review
+    entry: pre
     states:
+      # One noul per `## ` section of the package file, padded to a FIXED
+      # 8-slot id set (section-1..section-8): a missing real section at a
+      # slot still renders — never omits — that slot's question, so the
+      # compiler's own load-time stub check (`judgeQuestionIds`) sees the
+      # same 8 ids on both its stub renders regardless of real content. A
+      # package with more than 8 real sections fails open on every slot (the
+      # `overflow` branch below) — full review, never a silent partial one.
+      #
+      # Deliberately carries NO `routes:` — a verdict answering only SOME of
+      # the 8 slots (the expected shape: real slots plus whatever padding a
+      # driver bothers to answer) must never let an unanswered REAL section
+      # slip through as an implicit approval, and `routes:`'s own
+      # first-match-wins matching (`matchRoute`, `src/PatternMachine.ts`) has
+      # no way to require "every question was answered" — an absent answer
+      # just falls through every row untouched, unable to tell "this is
+      # padding" from "the driver skipped a real requirement". `scoping`
+      # below owns the whole approve/scope decision instead, recomputing
+      # fresh from the just-landed `Gtd-Judge:` trailers AND the package's
+      # own real section count every time — an unanswered real section
+      # defaults to failing there, closing the hole structurally rather than
+      # trusting every future verdict to be complete.
+      pre:
+        actor: human
+        label: Judging spec coverage
+        message: |
+          Judging whether the code already satisfies each requirement in the
+          package spec, before spending a full review turn. Run `gtd judge
+          answer` and pipe a verdict per section — or land untouched to run
+          the full review (the conservative default; a skipped judgment
+          never suppresses anything).
+        judge: |-
+          <%
+            const pkgPath = it.read(".gtd/NEXT.md").trim()
+            const pkg = it.read(pkgPath)
+            const sections = it.sections(pkgPath)
+            const MAX_SECTIONS = 8
+            // More real sections than slots: fail open on EVERY slot rather
+            // than silently judging only the first 8 and letting the rest
+            // through unreviewed — the one direction this gate must never
+            // fail in (see the review feedback this fixed).
+            const overflow = sections.length > MAX_SECTIONS
+            const questions = []
+            for (let i = 0; i < MAX_SECTIONS; i += 1) {
+              const title = sections[i]
+              if (overflow) {
+                questions.push({
+                  id: `section-${i + 1}`,
+                  primitive: "noul",
+                  instructions: "This package has more `## ` sections than this gate can judge (max 8) — always answer no, never yes: a confident approval here would silently skip review of the sections beyond the eighth.",
+                  criteria: "Structural, not a judgment call — no is the only correct answer.",
+                })
+              } else if (title !== undefined) {
+                questions.push({
+                  id: `section-${i + 1}`,
+                  primitive: "noul",
+                  instructions: `Is the requirement "${title}" already fully satisfied by the code on the range from ${it.startCommit} to the working tree?`,
+                  criteria: "Judge from the package markdown plus that range, read yourself. Only answer yes at a probability clearing the threshold below if genuinely confident nothing in this section is missing.",
+                })
+              } else if (sections.length === 0) {
+                questions.push({
+                  id: `section-${i + 1}`,
+                  primitive: "noul",
+                  instructions: "This package has no `## ` sections at all — there is nothing to judge. Always answer no, never yes: a confident approval here would silently skip the only review this package would ever get.",
+                  criteria: "Structural, not a judgment call — no is the only correct answer.",
+                })
+              } else {
+                questions.push({
+                  id: `section-${i + 1}`,
+                  primitive: "noul",
+                  instructions: "Padding slot: this package has fewer than 8 `## ` sections. There is no corresponding requirement.",
+                  criteria: "Always answer yes at p 1 — nothing to evaluate.",
+                })
+              }
+            }
+          %>{"state": <%~ JSON.stringify({ package: pkg }) %>, "questions": <%~ JSON.stringify(questions) %>, "specPreJudgeThreshold": "<%= it.vars.specPreJudge %>"}
+        on:
+          "C": scoping
+          # A dirty-tree land with no verdict piped — package 01's own
+          # `build.health.judge`/`packages.item.health.judge` fix for this
+          # same shape: the human fallback must not stall on a dirty tree
+          # either, so it takes the same conservative target "C" does —
+          # `scoping` recomputes the real decision fresh either way.
+          "* **": scoping
+      # Owns the WHOLE approve/scope decision `pre`'s own comment describes:
+      # recomputes fresh from the package's real `## ` sections (never trusts
+      # `pre`'s verdict to be complete) and the just-landed `Gtd-Judge:`
+      # trailers. An unanswered real section — a partial verdict, a skipped
+      # judgment, or a dirty-tree land with no verdict at all — defaults to
+      # FAILING: only `.gtd/SPEC_CLEARED.md` (written exclusively when every
+      # real section is both answered and confident) approves; every other
+      # outcome, including a script bug that produces no output at all,
+      # lands on `review` — the fail-open direction can never accidentally
+      # become fail-approve.
+      #
+      # The `awk '/^```/{f=!f} !f && /^## /{...}'` heading scan below MUST
+      # number sections the same way `it.sections` (an mdast parse,
+      # `src/steering/MarkdownTree.ts`'s `headingSections`) numbered them for
+      # `pre`'s own `section-N` ids, or a verdict answered against mdast's
+      # numbering strikes/scopes the WRONG section here — a real, silent
+      # corruption a round of review caught (a `##` line quoted inside a
+      # fenced code block is not a heading; shell can't run mdast, so this
+      # skips fenced regions by hand instead, the one desync case realistic
+      # here). A setext (`---`-underlined) H2 is still a mismatch — no
+      # package/finding content in this codebase's own history has ever used
+      # one; `docs/`'s own style never does either.
+      scoping:
+        actor: check
+        label: Scoping the review to the failing sections
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          rm -f .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md
+          pkg=$(cat .gtd/NEXT.md 2>/dev/null)
+          threshold=<%~ it.vars.specPreJudge %>; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
+            titles=$(awk '/^```/{f=!f} !f && /^## /{sub(/^## /,""); print}' "$pkg")
+            total=0
+            [ -n "$titles" ] && total=$(printf '%s\n' "$titles" | wc -l | tr -d ' ')
+            if [ "$total" -gt 0 ]; then
+              trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+              i=1
+              while [ "$i" -le "$total" ]; do
+                line=$(printf '%s\n' "$trailers" | grep "\"id\":\"section-$i\"" | head -n 1)
+                # Missing entirely (padding, a skipped judgment, or a real
+                # section the verdict just never answered) defaults to
+                # failing — the one default direction this gate must never
+                # get wrong.
+                failing=1
+                if [ -n "$line" ]; then
+                  answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
+                  # Same RAW-verdict shape `striking` documents (a noul
+                  # answer is conventionally a JSON boolean, but the decode
+                  # accepts a quoted "yes"/"no" string too) — both spellings
+                  # must clear a section, or a driver using the string form
+                  # silently loses the whole optimisation, scoping every
+                  # section into review forever without ever being wrong.
+                  case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
+                  p=$(printf '%s' "$line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
+                  # `[ -n "$threshold" ]` guards a BLANK `specPreJudge`: awk
+                  # treats an empty `-v t=` as the uninitialized strnum `0`,
+                  # so `p >= t` would be true at ANY probability — turning
+                  # the workflow's documented "blank disables" convention
+                  # into fail-APPROVE for this one gate. Blank must instead
+                  # never clear anything, the same failing default as a
+                  # missing answer.
+                  if [ "$answer" = "yes" ] && [ -n "$threshold" ] \
+                    && awk -v p="$p" -v t="$threshold" 'BEGIN{exit !(p>=t)}' 2>/dev/null; then
+                    failing=0
+                  fi
+                fi
+                if [ "$failing" -eq 1 ]; then
+                  title=$(printf '%s\n' "$titles" | sed -n "${i}p")
+                  [ -n "$title" ] && printf -- '- %s\n' "$title" >> .gtd/SPEC_SCOPE.md
+                fi
+                i=$((i + 1))
+              done
+              [ -f .gtd/SPEC_SCOPE.md ] || : > .gtd/SPEC_CLEARED.md
+            fi
+          fi
+        on:
+          "A .gtd/SPEC_CLEARED.md": $onApproved
+          "A .gtd/SPEC_SCOPE.md": review
+          "* **": review
+          "C": review
       review:
         actor: agent
         label: Reviewing the package
@@ -1044,6 +1934,10 @@ machines:
           - The only state file this turn touches is
             `.gtd/SPEC_FEEDBACK.md` — write it only when you find problems
           - The package spec is: <%~ it.read(".gtd/NEXT.md") %>
+          <% let scope; try { scope = it.read(".gtd/SPEC_SCOPE.md") } catch (e) { scope = undefined } %><% if (scope) { %>
+          - A pre-judge already found the other sections satisfied. Confine
+            your review to only these sections: <%~ scope %>
+          <% } %>
           - Verify the implementation against it: tasks done, criteria
             met, code sound and consistent with the codebase. No diff is
             given — read the range yourself, from `<%= it.startCommit %>`
@@ -1051,14 +1945,142 @@ machines:
             packages)
           - If it fully satisfies the spec, write nothing — silence is
             your approval. Otherwise write `.gtd/SPEC_FEEDBACK.md` listing
-            concrete problems for a fix turn, specific enough to act on
+            concrete problems for a fix turn, specific enough to act on,
+            each as its own `## ` heading so a later judgment can weigh
+            them individually
           - Never fix anything yourself and never delete the package
             file — a later step owns that
         on:
-          "A .gtd/SPEC_FEEDBACK.md": $onFix
-          "M .gtd/SPEC_FEEDBACK.md": $onFix
+          "A .gtd/SPEC_FEEDBACK.md": findingJudge
+          "M .gtd/SPEC_FEEDBACK.md": findingJudge
           "D .gtd/SPEC_FEEDBACK.md": $onApproved
           "C": $onApproved
+      # One noul per `## ` finding in `.gtd/SPEC_FEEDBACK.md` — no `routes:`
+      # (and so no fixed-slot padding like `pre` above needs) because the
+      # decision this drives is an AGGREGATE edit, striking SOME findings,
+      # never a single first-match target — `striking`, below, computes that
+      # itself from the landed `Gtd-Judge:` trailers.
+      findingJudge:
+        actor: human
+        label: Judging findings
+        message: |
+          Judging whether each finding in `.gtd/SPEC_FEEDBACK.md` would
+          actually violate the package spec if left unaddressed, to strike
+          nits before they cost a `fix-spec` turn. Run `gtd judge answer` and
+          pipe a verdict per finding — or land untouched to keep every
+          finding (the conservative default).
+        judge: |-
+          <%
+            const findings = it.sections(".gtd/SPEC_FEEDBACK.md")
+            const questions = findings.map((title, i) => ({
+              id: `finding-${i + 1}`,
+              primitive: "noul",
+              instructions: `Would the finding "${title}" violate the package spec if left unaddressed?`,
+              criteria: "Judge the finding on its own merits, not the reviewer's confidence in raising it. A nit or a stylistic preference the spec never asked for answers no.",
+            }))
+          %>{"state": <%~ JSON.stringify({ package: it.read(it.read(".gtd/NEXT.md").trim()), findings: it.read(".gtd/SPEC_FEEDBACK.md") }) %>, "questions": <%~ JSON.stringify(questions) %>, "specFindingKeepThreshold": "<%= it.vars.specFindingKeep %>"}
+        on:
+          "C": striking
+          # A dirty-tree land with no verdict piped — package 01's own
+          # `build.health.judge`/`packages.item.health.judge` fix for this
+          # same shape (`templates.test.ts` pins it there): the human
+          # fallback must not stall on a dirty tree either, so it takes the
+          # same conservative target "C" does.
+          "* **": striking
+      # Strikes every finding the just-landed verdict answered "no", or "yes"
+      # under `specFindingKeep`, from `.gtd/SPEC_FEEDBACK.md` — workflow-only,
+      # the same trailer-parsing shape as `scoping` above. A skipped judgment
+      # (no `Gtd-Judge:` trailer on HEAD) strikes nothing — the conservative
+      # default, `fix-spec` still runs with every finding intact. Its own
+      # `awk`-based heading scan carries the same "must number sections
+      # exactly like `it.sections` did" constraint `scoping`'s comment
+      # documents — `findingJudge`'s `finding-N` ids are numbered by that
+      # same mdast parse, over `.gtd/SPEC_FEEDBACK.md` instead of the package
+      # file.
+      striking:
+        actor: check
+        label: Filtering low-confidence findings
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          # A blank threshold disables striking entirely (never deletes a
+          # "no"-answered finding either) — the same "blank turns this judged
+          # gate off" convention `scoping`'s own `specPreJudge` guard follows,
+          # rather than the doc-contradicting "keep every yes, strike every
+          # no" a bare `[ -n "$threshold" ]`-free comparison would silently
+          # keep doing.
+          threshold=<%~ it.vars.specFindingKeep %>; if [ -f .gtd/SPEC_FEEDBACK.md ] && [ -n "$threshold" ]; then
+            strike_ids=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}' | while read -r line; do
+              json=${line#Gtd-Judge: }
+              id=$(printf '%s' "$json" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+              answer=$(printf '%s' "$json" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
+              # A noul answer is a JSON boolean (`true`/`false`), never the
+              # bare "yes"/"no" `routes:` matching normalizes it to
+              # internally (`asRouteAnswers`, src/step/planStep.ts) — the
+              # committed trailer carries the RAW verdict, so this shell
+              # parse must accept both spellings.
+              case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
+              p=$(printf '%s' "$json" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
+              idx=${id#finding-}
+              case "$idx" in ("" | *[!0-9]*) continue ;; esac
+              strike=0
+              [ "$answer" = "no" ] && strike=1
+              if [ "$answer" = "yes" ] && awk -v p="$p" -v t="$threshold" 'BEGIN{exit !(p<t)}' 2>/dev/null; then
+                strike=1
+              fi
+              [ "$strike" -eq 1 ] && printf '%s\n' "$idx"
+            done)
+            if [ -n "$strike_ids" ]; then
+              headings=$(awk '/^```/{f=!f} !f && /^## /{print NR":"$0}' .gtd/SPEC_FEEDBACK.md | cut -d: -f1)
+              # `wc -l` counts NEWLINES, not lines — a file whose last line
+              # has no trailing newline (nothing in gtd forces one on an
+              # agent-authored file) undercounts by one, truncating the
+              # final surviving finding's last line. `awk 'END{print NR}'`
+              # counts the true line count either way.
+              total=$(awk 'END{print NR}' .gtd/SPEC_FEEDBACK.md)
+              tmp=$(mktemp)
+              # Everything before the first `## ` heading (a preamble the
+              # reviewer wrote, never a finding itself) survives
+              # unconditionally — a strike must never depend on prose that
+              # isn't one of the numbered findings.
+              first_heading=$(printf '%s\n' "$headings" | head -n 1)
+              if [ -n "$first_heading" ] && [ "$first_heading" -gt 1 ]; then
+                sed -n "1,$((first_heading - 1))p" .gtd/SPEC_FEEDBACK.md >> "$tmp"
+              fi
+              n=0
+              any_kept=0
+              for start in $headings; do
+                n=$((n + 1))
+                end=$(printf '%s\n' "$headings" | awk -v s="$start" '$1>s{print $1-1; exit}')
+                [ -z "$end" ] && end=$total
+                keep=1
+                for idx in $strike_ids; do
+                  [ "$idx" = "$n" ] && keep=0
+                done
+                if [ "$keep" -eq 1 ]; then
+                  any_kept=1
+                  sed -n "${start},${end}p" .gtd/SPEC_FEEDBACK.md >> "$tmp"
+                fi
+              done
+              # Emptiness is judged on SURVIVING FINDINGS, never on bytes: a
+              # preamble (title plus prose ahead of the first `## ` heading)
+              # keeps the rebuilt file non-empty even after every finding is
+              # struck, which would otherwise still land as `M
+              # .gtd/SPEC_FEEDBACK.md` and spend the exact `fix-spec` turn
+              # this post-judge exists to avoid, with nothing left in the
+              # file to act on.
+              if [ "$any_kept" -eq 1 ]; then
+                mv "$tmp" .gtd/SPEC_FEEDBACK.md
+              else
+                rm -f "$tmp" .gtd/SPEC_FEEDBACK.md
+              fi
+            fi
+          fi
+        on:
+          "D .gtd/SPEC_FEEDBACK.md": $onApproved
+          "M .gtd/SPEC_FEEDBACK.md": $onFix
+          "* **": $onFix
+          "C": $onFix
 
   # The per-package build queue — identity-free; build identity lives in
   # packageItem (below).
@@ -1194,7 +2216,7 @@ machines:
           set +e
           pkg=$(cat .gtd/NEXT.md 2>/dev/null)
           [ -n "$pkg" ] && rm -f "$pkg"
-          rm -f .gtd/SPEC_FEEDBACK.md .gtd/NEXT.md .gtd/SATISFIED.md
+          rm -f .gtd/SPEC_FEEDBACK.md .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md .gtd/NEXT.md .gtd/SATISFIED.md
         on:
           "* **": $onNext
           # Nothing left to sweep (an already-clean NEXT.md/package) still
@@ -1329,6 +2351,19 @@ machines:
           #!/usr/bin/env sh
           set +e
           mkdir -p .gtd
+          # Sweep a leftover `.gtd/ASSUMPTIONS.md` an earlier, ABANDONED
+          # process may have left behind — `gtd abandon` keeps every `.gtd/`
+          # steering file in the working tree (see `abandon.feature`), and
+          # this is the one state that runs exactly once, at process START,
+          # before this process's own assumptions (if any) exist — the same
+          # "sweep a raw review capture an earlier, abandoned process may
+          # have left behind" rationale `entryGate.check`'s own sweep line
+          # documents for `.gtd/REVIEW_RAW.md`. Never in `&suiteCheck`
+          # (aliased by `review-gate.check`, which runs MID-process, after
+          # this process's own planning phase may have already written the
+          # file) — sweeping there would delete the CURRENT process's own
+          # assumptions before `reviewing`/`fastReview` ever folds them in.
+          rm -f .gtd/ASSUMPTIONS.md
           # Hoisted here, at the TOP: Eta's autoTrim eats the newline after
           # an interpolation tag, so no tag may be the last token on a line.
           # Uses it.currentCommit (render-time), not bare HEAD, so a
@@ -1470,7 +2505,67 @@ machines:
       design:
         machine: designPlan
         with:
-          onArchitecture: architecture
+          onArchitecture: architecture-pre
+
+      # Judges whether `.gtd/REQUIREMENTS.md` — the committed artifact
+      # `design.triage` just settled — warrants a dedicated architecture
+      # pass, never an ex-ante complexity score off the bare `.gtd/TODO.md`
+      # (that has no committed artifact to judge, and would break the
+      # evidence rule every other judge state in this file follows). A
+      # single fixed noul, so `routes:` is the right tool here (unlike
+      # `questionGate.screen`'s per-question dynamic count, which can't use
+      # it — see that state's own comment).
+      architecture-pre:
+        actor: human
+        label: Judging whether this plan warrants an architecture pass
+        message: |
+          Judging whether `.gtd/REQUIREMENTS.md`'s settled concerns need a
+          dedicated architecture pass — real structural decisions, multiple
+          integration points, or a non-obvious tradeoff — before packages
+          are written. Run `gtd judge answer` and pipe a verdict for
+          `architectureWarranted` — or land untouched to run the full pass
+          (the conservative default; a skipped judgment never suppresses
+          it).
+        judge: |-
+          {"state": {"requirements": <%~ JSON.stringify(it.read(".gtd/REQUIREMENTS.md")) %>}, "questions": [
+            {"id": "architectureWarranted", "primitive": "noul", "instructions": "Given the settled concerns in `.gtd/REQUIREMENTS.md` (in state), does this plan warrant a dedicated architecture pass — real structural decisions, multiple integration points, or a non-obvious tradeoff — before packages are written?", "criteria": "Answer yes if uncertain; a trivial, single-concern, mechanical plan with no real design decision answers no."}
+          ]}
+        routes:
+          - question: architectureWarranted
+            is: "no"
+            minP: <%~ it.vars.architectureSkipMinP %>
+            to: architecture-promote
+          - to: architecture
+        on:
+          "C": architecture
+          "* **": architecture
+
+      # The skip path: promotes `.gtd/REQUIREMENTS.md` wholesale into a
+      # SINGLE `.gtd/packages/01-<slug>.md` before the queue is entered —
+      # never split, `architecture.decompose`'s own job, skipped here.
+      # Without this, skipping `architecture.decompose` would leave
+      # `.gtd/packages/` empty, so `packageLoop.picking` would match its
+      # `"C"` row, route `$onDrained`, and the process would close having
+      # built nothing.
+      architecture-promote:
+        actor: check
+        label: Promoting the plan straight to a package
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          mkdir -p .gtd/packages
+          title=$(awk '/^```/{f=!f} !f && /^## /{sub(/^## /,""); print; exit}' .gtd/REQUIREMENTS.md)
+          [ -z "$title" ] && title=package
+          slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9]\{1,\}/-/g; s/^-*//; s/-*$//')
+          [ -z "$slug" ] && slug=package
+          mv .gtd/REQUIREMENTS.md ".gtd/packages/01-${slug}.md"
+        on:
+          "* **": packages
+          # Unreachable in practice (`mv` always changes the tree) but
+          # declared rather than left off: if a clean tree ever does happen
+          # here, it must run the full pass, never silently produce nothing.
+          "C": architecture
 
       architecture:
         machine: archPlan

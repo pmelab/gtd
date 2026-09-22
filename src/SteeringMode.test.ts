@@ -23,6 +23,9 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
   read: (path: string) => {
     throw new Error(`unexpected read of ${path}`)
   },
+  sections: () => [],
+  openQuestions: () => [],
+  openQuestionOptions: () => [],
   vars,
   edges: [],
 })

@@ -214,41 +214,44 @@ as the `gtd` that printed it.
 The minimal driver below is gtd's own reference driver, not a privileged one —
 the engine itself is a supported public surface, and anything below holds for
 any driver you write against it. gtd decides and prints; it never touches git
-itself. The four commands that change anything — `gtd land`,
-`gtd --entry <state>`, `gtd abandon`, and `gtd restore` — perform no git write
-when run: each one's `--json=script` form carries ONE POSIX sh script for YOU to
-execute — a leading comment ("gtd emitted this and did NOT run it — pipe it into
-`sh` to land the turn"), then the REQUIRED half verbatim, then, only when
-there's a presentation-only follow-up, a second comment ("presentation only —
-safe to skip") and the OPTIONAL half wrapped in a subshell whose own non-zero
-exit is swallowed (reported to stderr as a warning, never turning a landed turn
-into a failing one). Plain `gtd land` is the one exception: it prints a
-human-readable sentence, never a script (see below) — a driver reads the script
-from `--json=script` instead. Printing gtd's output and never running it is not
-driving anything; a driver must pipe or execute what gtd prints — e.g. the
-capture-then-pipe form the reference driver below uses, via
-`gtd land --json=script`.
+itself. The five commands that change anything — `gtd land`,
+`gtd --entry <state>`, `gtd abandon`, `gtd restore`, and `gtd judge answer` —
+perform no git write when run: each one's `--json=script` form carries ONE POSIX
+sh script for YOU to execute — a leading comment ("gtd emitted this and did NOT
+run it — pipe it into `sh` to land the turn"), then the REQUIRED half verbatim,
+then, only when there's a presentation-only follow-up, a second comment
+("presentation only — safe to skip") and the OPTIONAL half wrapped in a subshell
+whose own non-zero exit is swallowed (reported to stderr as a warning, never
+turning a landed turn into a failing one). Plain `gtd land` (and plain
+`gtd judge answer`) is the one exception: it prints a human-readable sentence,
+never a script (see below) — a driver reads the script from `--json=script`
+instead. Printing gtd's output and never running it is not driving anything; a
+driver must pipe or execute what gtd prints — e.g. the capture-then-pipe form
+the reference driver below uses, via `gtd land --json=script`.
 
 Every script gtd emits — `gtd land --json=script`, `gtd --entry <state>`,
-`gtd abandon`, `gtd restore`, and the format/validate script `gtd validate`
-prints — is POSIX `sh`, portable to `dash`: a driver may run any of them with
-any POSIX-compliant shell, not specifically bash. The same convention extends to
-the workflow's own `vars.testCommand` (what a `script`-content check state
-actually executes): it is expected to be POSIX sh-compatible too, but this is a
-DOCUMENTED CONVENTION only — gtd never inspects or validates `testCommand`'s
-shell dialect itself, it only renders the value into a script and hands it to
-whatever shell the driver invokes that script with.
+`gtd abandon`, `gtd restore`, `gtd judge answer --json=script`, and the
+format/validate script `gtd validate` prints — is POSIX `sh`, portable to
+`dash`: a driver may run any of them with any POSIX-compliant shell, not
+specifically bash. The same convention extends to the workflow's own
+`vars.testCommand` (what a `script`-content check state actually executes): it
+is expected to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION
+only — gtd never inspects or validates `testCommand`'s shell dialect itself, it
+only renders the value into a script and hands it to whatever shell the driver
+invokes that script with.
 
 - **The required half** is everything that decides what lands in git — the
-  commit itself (`gtd land` and `gtd --entry <state>`), or the ref update and
-  reset that undo a process (`gtd abandon`, `gtd restore`) — and, last, a
-  printed line naming what just landed: a transition or capture's changed-file
-  rows, or the abandon/restore prose, resolved from the repository AFTER the
-  write above it. Its own exit code IS the printed script's exit code — skipping
-  it means the turn never lands, and you never see what it did. A resting
-  state's own steering-mode `format:`/`validate:` commands are NOT part of this
-  script — they're a separate driver contract via `gtd next --json`'s own
-  `validate` field (see `gtd install`'s obligation 6).
+  commit itself (`gtd land`, `gtd --entry <state>`, and `gtd judge answer`, the
+  last carrying one `Gtd-Judge:` trailer per answered question alongside its
+  ordinary commit), or the ref update and reset that undo a process
+  (`gtd abandon`, `gtd restore`) — and, last, a printed line naming what just
+  landed: a transition or capture's changed-file rows, or the abandon/restore
+  prose, resolved from the repository AFTER the write above it. Its own exit
+  code IS the printed script's exit code — skipping it means the turn never
+  lands, and you never see what it did. A resting state's own steering-mode
+  `format:`/`validate:` commands are NOT part of this script — they're a
+  separate driver contract via `gtd next --json`'s own `validate` field (see
+  `gtd install`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No emitter
@@ -323,16 +326,17 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 19 keys (17 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 20 keys (18 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`); a real driver reads 8 of
-the 19. The minimal driver below is the reference for exactly which: `kind`,
+the 20. The minimal driver below is the reference for exactly which: `kind`,
 `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, and `validate` — every
-`--json=<path>` selector its `case` arms touch. The remaining 11 (`state`,
+`--json=<path>` selector its `case` arms touch. The remaining 12 (`state`,
 `actor`, `label`, `memory`, `file`, `mode`, `edges`, `changes`, `next`, `cost`,
-`costByModel`) are read only by a human looking at plain output, or by a driver
-author deciding what to log — no `case` arm branches on them. This is a property
-of what a driver NEEDS, not a smaller wire: every key stays on every
+`costByModel`, `judge`) are read only by a human looking at plain output, or by
+a driver author deciding what to log or route to a judge model (see "Judge
+gates" below) — no `case` arm in THIS reference driver branches on them. This is
+a property of what a driver NEEDS, not a smaller wire: every key stays on every
 `gtd next --json` line, unconditionally, so `--json=<path>` keeps resolving the
 same way for a human poking at one field as for the reference driver reading
 eight of them in a loop.
@@ -393,8 +397,18 @@ while :; do
       exit 1 ;;
     # you re-ran us resting here: you either edited something or accepted by
     # editing nothing, so land the opening beat either way. Later beats are
-    # gates we just produced and you have not read yet — hand off.
-    message) [ "$beat" = 1 ] || { gtd next; exit 0; } ;;
+    # gates we just produced and you have not read yet — hand off. A judge
+    # gate's own `--json=judge` is non-empty here; the message: itself
+    # already tells you to run `gtd judge answer` and paste a verdict, so
+    # this reference driver just displays it and stops like any other
+    # message — it never calls the network. An aware driver would read
+    # `--json=judge` here instead and route it to an LLM (see "Judge gates"
+    # below).
+    message)
+      [ "$beat" = 1 ] || {
+        gtd next
+        exit 0
+      } ;;
     capture) ;; # the human already acted — just land it
     script)
       # A `script` rest's plain output is prose, not pipeable into `sh` — the
@@ -469,7 +483,14 @@ stops; `message` halts unless it is the opening beat, which the human's own
 re-invocation authored and which therefore lands like any other decision (see
 [Driving the loop](#driving-the-loop) above — this is the one place the driver,
 not gtd, decides, because "has the human read this gate" is run-scoped knowledge
-gtd deliberately does not keep); `capture` lands a human's already-made edit
+gtd deliberately does not keep). A judge gate is a `message` rest whose own
+`--json=judge` is non-empty — this reference driver never reads that field at
+all (it is UNAWARE of judge gates by design) and just displays the message
+(which itself tells you to run `gtd judge answer`) and stops; it never calls the
+network, and landing that gate with no verdict ever recorded falls onto the
+state's own conservative `"C"` edge exactly like any other clean-tree message
+gate (see [Judge gates](#judge-gates-an-aware-drivers-env-var-mapping) below for
+what an aware driver does instead). `capture` lands a human's already-made edit
 outright, no display needed; `script` reads its content off `--json=content`
 (the raw script, not plain `gtd next`'s prose) and runs it; `prompt` pipes plain
 `gtd next`'s own output to the agent over stdin, with
@@ -511,6 +532,30 @@ proves this paste parses and runs against a `claude` shim — not that the flag 
 spelled or placed correctly; that's a `claude --help` check plus one live run,
 not something the green suite can catch.)
 
+### Judge gates: an aware driver's env var mapping
+
+A judge gate is a `kind: "message"` rest whose `--json=judge` field is non-empty
+— the rendered JSON document `{ state, questions: [...] }` the pending judgment
+asks about. `gtd` itself never calls a model: the reference driver above only
+displays the state's `message:` (which tells you to run `gtd judge answer` and
+paste a verdict) and stops. An AWARE driver — one built to answer a judge gate
+automatically — instead reads `--json=judge`, pipes that document to a judgment
+model such as TypeSafe's Jev, and pipes the verdict it gets back into
+`gtd judge answer --json=script` on stdin.
+
+TypeSafe's own SDK expects its API key under `TYPESAFE_API_KEY`. If your
+environment instead carries the key under `TYPESAFE_AI_KEY` (a name some setup
+flows use), map one onto the other yourself before invoking the SDK — e.g.
+`export TYPESAFE_API_KEY="$TYPESAFE_AI_KEY"`. This mapping is entirely a driver
+concern: `gtd` neither reads nor validates either variable, under any name. It's
+written here as prose, not as a runnable snippet, on purpose — naming either
+variable inside a fenced script would make it an environment dependency of
+`driver-doc.feature`, which extracts and runs the single fence in
+[A complete minimal driver](#a-complete-minimal-driver) above with only `$PATH`
+(a shim directory first) and `$HOME` on its process environment; a
+judge-answering driver that needs more than that is, correctly, a different
+paste from the reference one.
+
 ### The self-validation gate
 
 After an agent turn at a state that declares `file:`+`mode:`, run the script:
@@ -549,15 +594,26 @@ Several different things can go wrong, and they mean different things — and mo
 non-zero-looking exits are not a failure at all:
 
 - **`gtd` itself exits 1.** Nothing was attempted — this is a refusal (a guard
-  rejected the turn). No script was ever produced.
+  rejected the turn, or the resolved rest declares no `judge:` for
+  `gtd judge`/`gtd judge answer`). No script was ever produced.
 - **`gtd` itself exits 2.** A usage error — nothing was even attempted, the
-  invocation itself was wrong (unknown option/command, bad arity, a scope
-  violation).
+  invocation itself was wrong: unknown option/command, bad arity, a scope
+  violation, an unknown `--json=<path>` selector, or (for `gtd judge answer`
+  specifically) a verdict that fails to DECODE off stdin — malformed JSON, or
+  one naming a question id the pending judgment never declared. All of these are
+  caller-input errors, not a judgment about the rest itself, so retrying with a
+  corrected invocation (or a corrected verdict) is the right move — unlike an
+  exit-1 refusal, which means the turn itself was rejected.
 - **`gtd land` succeeds (exit 0) but doesn't settle.** This is NOT a failure:
   whose turn is next lives in the FOLLOWING `gtd next`'s own `kind` field, not
   in `gtd land`'s exit code (see [Exit codes](./cli.md#exit-codes)) — and
   `gtd land --json=script` still carries a script (a print-only note, or an
   ordinary commit) that a driver must still run.
+- **`gtd judge answer` succeeds (exit 0) after a verdict decodes cleanly.** Like
+  `gtd land`, this is not itself the failure signal — a clean decode always
+  produces a script (a print-only no-op, or a real commit carrying its
+  `Gtd-Judge:` trailer) via `gtd judge answer --json=script`, which a driver
+  must still run.
 - **An emitted script exits non-zero when YOU run it.** Something may have
   partially happened — e.g. one git write landed but a later step in the same
   script failed. Nothing is retried on your behalf: git's own error is what you

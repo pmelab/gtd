@@ -105,10 +105,12 @@ describe("parseArgv — scope", () => {
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
   })
 
-  it("--json is in scope for next and land — every other command usage-errors on it", () => {
+  it("--json is in scope for next, land, judge and judge answer — every other command usage-errors on it", () => {
     for (const args of [
       ["next", "--json"],
       ["land", "--json"],
+      ["judge", "--json"],
+      ["judge", "answer", "--json"],
     ]) {
       const ok = parseArgv(["node", "gtd.js", ...args])
       expect(ok.kind).toBe("command")
@@ -797,6 +799,59 @@ describe("parseArgv — gtd ui", () => {
   })
 })
 
+describe("parseArgv — gtd judge / gtd judge answer", () => {
+  it("gtd judge parses to a bare judge command", () => {
+    const plan = parseArgv(["node", "gtd.js", "judge"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "judge" })
+      expect(plan.json).toEqual({ kind: "off" })
+    }
+  })
+
+  it("gtd judge answer parses to a judgeAnswer command — the CLI's one two-level verb", () => {
+    const plan = parseArgv(["node", "gtd.js", "judge", "answer"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "judgeAnswer" })
+    }
+  })
+
+  it("gtd judge --json / gtd judge answer --json both parse with json set", () => {
+    for (const args of [
+      ["judge", "--json"],
+      ["judge", "answer", "--json"],
+    ]) {
+      const plan = parseArgv(["node", "gtd.js", ...args])
+      expect(plan.kind).toBe("command")
+      if (plan.kind === "command") expect(plan.json).toEqual({ kind: "document" })
+    }
+  })
+
+  it("gtd judge extra (not 'answer') is a too-many-arguments usage error, not judgeAnswer", () => {
+    const plan = parseArgv(["node", "gtd.js", "judge", "extra"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+
+  it("gtd judge answer extra is a too-many-arguments usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "judge", "answer", "extra"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+
+  it("a scoped-out flag (e.g. --cost) is rejected on judge and judge answer", () => {
+    for (const args of [
+      ["judge", "--cost=5"],
+      ["judge", "answer", "--cost=5"],
+    ]) {
+      const plan = parseArgv(["node", "gtd.js", ...args])
+      expect(plan.kind).toBe("usage")
+      if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
+    }
+  })
+})
+
 describe("standaloneKinds / needsOf", () => {
   it("pins the six standalone kinds", () => {
     expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check", "uncheck", "install"])
@@ -809,7 +864,17 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("init")).toBe("fs")
     expect(needsOf("visualize")).toBe("config")
     expect(needsOf("install")).toBe("none")
-    for (const kind of ["land", "entry", "abandon", "restore", "next", "validate", "ui"] as const) {
+    for (const kind of [
+      "land",
+      "entry",
+      "abandon",
+      "restore",
+      "next",
+      "validate",
+      "ui",
+      "judge",
+      "judgeAnswer",
+    ] as const) {
       expect(needsOf(kind)).toBe("state")
     }
   })
@@ -833,6 +898,8 @@ describe("renderHelp", () => {
     expect(help).toContain("check <mode> <file>")
     expect(help).toContain("install")
     expect(help).toContain("base ")
+    expect(help).toMatch(/^ {2}judge\b/m)
+    expect(help).toContain("judge answer")
     expect(help).toContain("version")
     expect(help).toContain("help")
     expect(help).toContain("--json")

@@ -24,7 +24,11 @@ export default defineConfig({
         plugins: [rawMd(), ensureWebClient()],
         test: {
           name: "unit",
-          include: ["src/**/*.test.ts", "tests/tooling/*.test.ts"],
+          // evals/judgments/*.test.ts covers only the pure threshold-sweep
+          // math (evals/judgments/metrics.mjs) — the LLM-judge call itself
+          // needs GTD_EVALS_URL/GTD_EVALS_KEY and is exercised by
+          // `npm run eval:judgments`, deliberately outside `npm test`.
+          include: ["src/**/*.test.ts", "tests/tooling/*.test.ts", "evals/judgments/*.test.ts"],
           exclude: ["**/*.integration.test.ts"],
           testTimeout: 30_000,
           hookTimeout: 30_000,

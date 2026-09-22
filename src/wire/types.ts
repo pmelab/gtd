@@ -55,4 +55,5 @@ export interface RenderedDemandSource {
   readonly file?: string
   readonly mode?: StateMode
   readonly edges: readonly TemplateEdge[]
+  readonly judge?: string
 }

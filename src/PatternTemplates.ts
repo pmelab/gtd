@@ -36,6 +36,36 @@ export interface TemplateContext {
   /** Read a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — that throw is the render failure that refuses the step (`renderDecision`'s caller catches it into an empty script). */
   readonly read: (path: string) => string
   /**
+   * `path`'s own top-level `## ` heading texts, in document order — a
+   * dynamic-count `judge:` template's one hook into a real markdown parse
+   * (`src/steering/MarkdownTree.ts`'s `headingSections`), since Eta templating
+   * is plain string substitution and cannot otherwise reach that parser.
+   * Shares whichever `read` binding the caller wired this context with, so a
+   * `judge:` field's `it.sections(...)` inherits the SAME evidence rule as its
+   * own `it.read(...)` (committed-only, never a fresh working-tree write).
+   */
+  readonly sections: (path: string) => readonly string[]
+  /**
+   * `path`'s own open, unanswered `qa`-mode question texts, in document
+   * order (`src/steering/qa.ts#openQuestionTexts`) — a dynamic-count `judge:`
+   * template's hook into the SAME parse `gtd check qa <file> --open-questions`
+   * already performs, so a judge question built per open question can never
+   * drift from what the answer-completeness guard itself considers open.
+   * Shares whichever `read` binding the caller wired this context with, the
+   * same evidence-scoping `sections` documents above.
+   */
+  readonly openQuestions: (path: string) => readonly string[]
+  /**
+   * `path`'s own open, unanswered `qa`-mode questions, each with its real
+   * (listed, non-free-text) option texts (`src/steering/qa.ts#openQuestionOptions`)
+   * — a `choice`-primitive judge question's own candidate list for "which
+   * option would a reasonable default choose", the same evidence-scoping
+   * `openQuestions` documents above.
+   */
+  readonly openQuestionOptions: (
+    path: string,
+  ) => readonly { readonly question: string; readonly options: readonly string[] }[]
+  /**
    * The merged variable map every template sees as `it.vars.<name>` —
    * assembled by `src/Edge.ts`'s `resolveVars` from four layers (later wins):
    * the workflow's declared `vars:` defaults, the top-level `.gtdrc` `vars:`
@@ -66,6 +96,21 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
   processCost: 0,
   processCostByModel: [],
   read: (path: string) => {
+    throw new Error(
+      `no working tree to read from while rendering against a vars-only context (path: ${path})`,
+    )
+  },
+  sections: (path: string) => {
+    throw new Error(
+      `no working tree to read from while rendering against a vars-only context (path: ${path})`,
+    )
+  },
+  openQuestions: (path: string) => {
+    throw new Error(
+      `no working tree to read from while rendering against a vars-only context (path: ${path})`,
+    )
+  },
+  openQuestionOptions: (path: string) => {
     throw new Error(
       `no working tree to read from while rendering against a vars-only context (path: ${path})`,
     )

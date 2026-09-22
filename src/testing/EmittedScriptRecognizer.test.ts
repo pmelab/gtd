@@ -40,6 +40,24 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     expect(snapshot(repo)).toEqual(snapshot(twin))
   })
 
+  it("commitAll: a multi-line message carrying Gtd-Judge: trailers (gtd judge answer --json=script) round-trips like any other trailer-carrying message", () => {
+    // No dedicated recognizer for `gtd judge answer`'s script exists (or is
+    // needed) — its required half is built from the SAME `commitAll` builder
+    // `gtd land` uses, so this generic recognizer already handles it,
+    // trailer content and all. See `.gtd/packages/01-judgment-surface.md`
+    // Task 5.
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+    const message =
+      'gtd(human): idle\n\nGtd-Judge: {"id":"q1","answer":true,"p":0.97}\n' +
+      'Gtd-Judge: {"id":"q2","answer":"escalate","p":0.6}'
+
+    const result = applyEmittedScript(repo, NO_COMMANDS, commitAll(message))
+
+    expect(result).toEqual({ ok: true })
+    expect(repo.lastCommitMessage()).toBe(message)
+  })
+
   it("commitAsIs: commits whatever is already staged, without an implicit add", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")

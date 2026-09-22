@@ -9,6 +9,7 @@ import {
   type OnEdge,
   type PendingChange,
   type RetryDef,
+  type RouteRow,
   type StateDef,
   type StateName,
   type WorkflowDefinition,
@@ -26,6 +27,15 @@ export interface VizEdge {
   readonly to: string
   readonly describe?: string
   readonly action?: string
+}
+
+/** One `routes:` row, flattened for the viewer — the judgment-routing analogue of `VizEdge`. `question`/`is`/`minP`/`maxP` are all absent for the catch-all row; `minP`/`maxP` are independently optional otherwise. */
+export interface VizRouteEdge {
+  readonly to: string
+  readonly question?: string
+  readonly is?: string
+  readonly minP?: string
+  readonly maxP?: string
 }
 
 /** Every `StateDef` field marked `viz: "field"` in `STATE_FIELDS` (key/value, as opposed to a boolean flag chip — see `FLAG_KEYS`) — derived so a new such field needs no separate edit here. */
@@ -46,6 +56,8 @@ export interface VizState extends VizFields {
   /** Boolean state flags that are set: reviewBase/entry/requireProgress/answerGate. */
   readonly flags: readonly string[]
   readonly on: readonly VizEdge[]
+  /** This state's `routes:` rows, `minP` rendered against `it.vars` — real edges, same as `on`. */
+  readonly routes: readonly VizRouteEdge[]
   /** Every edge (and retry redirect) that targets this state — computed, for the "routes in from" view. */
   readonly incoming: ReadonlyArray<{ readonly from: string; readonly pattern: string }>
   /** This state's qualified name minus its last segment — the instance it directly belongs to, if any. */
@@ -101,6 +113,9 @@ const vizFieldsOf = (def: StateDef): Record<string, unknown> => {
 const edgeToViz = ([pattern, to, describe, action]: OnEdge): VizEdge =>
   stripUndefined({ pattern, to, describe, action }) as unknown as VizEdge
 
+const routeToViz = ({ question, is, minP, maxP, to }: RouteRow): VizRouteEdge =>
+  stripUndefined({ question, is, minP, maxP, to }) as unknown as VizRouteEdge
+
 /** Drop keys whose value is `undefined` (so `exactOptionalPropertyTypes` optionals stay absent, not `undefined`). */
 const stripUndefined = (o: Record<string, unknown>): Record<string, unknown> => {
   for (const key of Object.keys(o)) if (o[key] === undefined) delete o[key]
@@ -112,6 +127,7 @@ const toVizState = (
   name: string,
   def: StateDef,
   onEdges: readonly OnEdge[],
+  routeEdges: readonly RouteRow[],
   group: string | undefined,
   incoming: ReadonlyArray<{ from: string; pattern: string }>,
   entries: WorkflowEntries,
@@ -124,6 +140,7 @@ const toVizState = (
     initial: entries.default === name ? true : undefined,
     flags: [...flagsOf(def), ...(entries.manual.includes(name) ? ["entry"] : [])],
     on: onEdges.map(edgeToViz),
+    routes: routeEdges.map(routeToViz),
     incoming,
     group,
   }) as unknown as VizState
@@ -154,6 +171,34 @@ const renderedOnByState = (
       }),
     ]),
   )
+
+/** Render every `routes:` row's `minP`/`maxP` of every state against `vars` (`question`/`is`/`to` pass through verbatim) — same best-effort-on-failure discipline as `renderPatternOrRaw`, keyed by state name. */
+const renderedRoutesByState = (
+  workflow: WorkflowDefinition,
+  vars: Record<string, string>,
+): ReadonlyMap<string, readonly RouteRow[]> =>
+  new Map(
+    Object.entries(workflow.states).map(([name, def]) => [
+      name,
+      (def.routes ?? []).map(
+        (row): RouteRow => ({
+          ...row,
+          ...(row.minP !== undefined ? { minP: renderPatternOrRaw(row.minP, vars) } : {}),
+          ...(row.maxP !== undefined ? { maxP: renderPatternOrRaw(row.maxP, vars) } : {}),
+        }),
+      ),
+    ]),
+  )
+
+/** A one-line label for a `routes:` row, for the "routes in from" incoming view — `"otherwise"` for the catch-all. Either bound alone omits the other side. */
+const routeIncomingLabel = (row: RouteRow): string => {
+  if (row.question === undefined) return "otherwise"
+  const bounds = [
+    row.minP !== undefined ? `p≥${row.minP}` : undefined,
+    row.maxP !== undefined ? `p<${row.maxP}` : undefined,
+  ].filter((b): b is string => b !== undefined)
+  return `${row.question} = ${row.is}${bounds.length > 0 ? ` (${bounds.join(", ")})` : ""}`
+}
 
 /** A state's owning instance path, from `scopes` — a direct lookup, not a string chop off the qualified name (a state's group isn't always "everything before the last dot"). Root-owned (`""`) reports as `undefined`. */
 const groupOf = (name: string, scopes: Record<StateName, string>): string | undefined => {
@@ -232,6 +277,7 @@ export const buildVizModel = (
   })
 
   const renderedOn = renderedOnByState(workflow, vars)
+  const renderedRoutes = renderedRoutesByState(workflow, vars)
 
   const incoming = new Map<string, Array<{ from: string; pattern: string }>>()
   const addIncoming = (target: string, from: string, pattern: string) => {
@@ -241,6 +287,8 @@ export const buildVizModel = (
   }
   for (const [name, def] of Object.entries(workflow.states)) {
     for (const [pattern, to] of renderedOn.get(name) ?? []) addIncoming(to, name, pattern)
+    for (const row of renderedRoutes.get(name) ?? [])
+      addIncoming(row.to, name, routeIncomingLabel(row))
     if (def.retry) addIncoming(def.retry.otherwise, name, `retry ×${def.retry.max}`)
   }
 
@@ -249,6 +297,7 @@ export const buildVizModel = (
       name,
       def,
       renderedOn.get(name) ?? [],
+      renderedRoutes.get(name) ?? [],
       groupOf(name, scopes),
       incoming.get(name) ?? [],
       workflow.entries,

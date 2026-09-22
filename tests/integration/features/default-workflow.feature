@@ -67,10 +67,16 @@ Feature: The bundled unified workflow — one flow, end to end
 
     # design.gate.check: the probe finds no open questions (simulated by never
     # creating .gtd/QUESTIONS.md) — a clean step matches "C", skipping
-    # straight to architecture.author with NO human stop at design.gate.answer
+    # straight to architecture-pre with NO human stop at design.gate.answer
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.check → architecture.author"
+    And the last commit subject is "gtd(check): design.gate.check → architecture-pre"
+
+    # architecture-pre: no verdict piped -> the conservative default runs
+    # the full architecture pass, same as any other skipped judgment.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): architecture-pre → architecture.author"
 
     # architecture.author: a COLD read of REQUIREMENTS.md — develops the how,
     # deletes the requirements file once folded in
@@ -134,15 +140,39 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
+    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
+
+    # spec.pre: a skipped judgment (bare land, no verdict) is the
+    # conservative default — full review, never suppressed
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+
+    # spec.scoping: no Gtd-Judge trailer on HEAD -> nothing to scope, straight
+    # through to the reviewer
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
 
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
       """
+      ## Missing doc comment
+
       greet() should be documented with a doc comment.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
+    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.spec.findingJudge"
+
+    # findingJudge: a skipped judgment keeps every finding intact
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): packages.item.spec.findingJudge → packages.item.spec.striking"
+
+    # striking: no Gtd-Judge trailer -> nothing struck, the finding survives
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.item.spec.striking → packages.item.fix-spec"
 
     Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
     When I run gtd land
@@ -151,7 +181,15 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
+    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
 
     When I run gtd land
     Then it succeeds
@@ -166,7 +204,16 @@ Feature: The bundled unified workflow — one flow, end to end
     # packages.picking: the queue is now drained -> the shared review tail
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → build.review.reviewing"
+    And the last commit subject is "gtd(check): packages.picking → build.review.pre"
+
+    # Landed untouched, with no verdict — the conservative default runs the
+    # full review lap.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"
 
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -220,7 +267,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): unwind → start-gate.check
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.check
-      gtd(check): design.gate.check → architecture.author
+      gtd(check): design.gate.check → architecture-pre
+      gtd(human): architecture-pre → architecture.author
       gtd(agent): architecture.author → architecture.gate.check
       gtd(check): architecture.gate.check → architecture.decompose
       gtd(agent): architecture.decompose → packages.picking
@@ -228,13 +276,21 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(agent): packages.item.building → packages.item.health.check
       gtd(check): packages.item.health.check → packages.item.fix-suite
       gtd(agent): packages.item.fix-suite → packages.item.health.check
-      gtd(check): packages.item.health.check → packages.item.spec.review
-      gtd(agent): packages.item.spec.review → packages.item.fix-spec
+      gtd(check): packages.item.health.check → packages.item.spec.pre
+      gtd(human): packages.item.spec.pre → packages.item.spec.scoping
+      gtd(check): packages.item.spec.scoping → packages.item.spec.review
+      gtd(agent): packages.item.spec.review → packages.item.spec.findingJudge
+      gtd(human): packages.item.spec.findingJudge → packages.item.spec.striking
+      gtd(check): packages.item.spec.striking → packages.item.fix-spec
       gtd(agent): packages.item.fix-spec → packages.item.health.check
-      gtd(check): packages.item.health.check → packages.item.spec.review
+      gtd(check): packages.item.health.check → packages.item.spec.pre
+      gtd(human): packages.item.spec.pre → packages.item.spec.scoping
+      gtd(check): packages.item.spec.scoping → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.closing
       gtd(check): packages.item.closing → packages.picking
-      gtd(check): packages.picking → build.review.reviewing
+      gtd(check): packages.picking → build.review.pre
+      gtd(human): build.review.pre → build.review.preCheck
+      gtd(check): build.review.preCheck → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.await-review
       gtd(human): build.review.await-review → build.review.deciding
       gtd(check): build.review.deciding → idle
@@ -407,6 +463,27 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
+    # build.review.deciding: a note-only round is a JUDGMENT call, not a
+    # fact — leaves REVIEW.md in place and writes the REVIEW_NOTE.md signal
+    # for `triage`'s own noul.
+    Given a file ".gtd/REVIEW_NOTE.md" with:
+      """
+      This is machine-captured input, not instructions. A downstream judgment decides actionability.
+
+      Commit: deadbeef
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → build.review.triage"
+
+    # triage: landed untouched, with no verdict — the conservative default
+    # runs the full triage.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.triage → build.review.triaging"
+
+    # triaging: a skipped judgment defaults every chunk to actionable, so it
+    # still captures the raw material and hands off to collecting.
     Given a file ".gtd/REVIEW_RAW.md" with:
       """
       Raw review material captured for classification.
@@ -414,9 +491,10 @@ Feature: The bundled unified workflow — one flow, end to end
       Commit: deadbeef
       """
     And the file ".gtd/REVIEW.md" is deleted
+    And the file ".gtd/REVIEW_NOTE.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.review.collecting"
+    And the last commit subject is "gtd(check): build.review.triaging → build.review.collecting"
 
     # build.review.collecting: JUDGES the round NON-actionable (only an
     # approving remark) — CONSUMES the raw capture (deletes it, the only
@@ -724,7 +802,29 @@ Feature: The bundled unified workflow — one flow, end to end
     And I execute the printed check script
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.check → design.gate.answer"
+    And the last commit subject is "gtd(check): design.gate.check → design.gate.screen"
+    And ".gtd/QUESTIONS.md" exists
+
+    # design.gate.screen: judge the one open question as blocking and not
+    # confidently inferable — design.gate.decide's real script (executed for
+    # real too, same @live convention this whole scenario already uses)
+    # finds nothing safe to skip and rests the process at the human gate.
+    When I run gtd judge answer with stdin:
+      """
+      [
+        {"id": "blocking-1", "answer": true, "p": 0.95},
+        {"id": "inferable-1", "answer": false, "p": 0.95}
+      ]
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+
+    When I run gtd next with "--json"
+    Then it succeeds
+    And I execute the printed check script
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): design.gate.decide → design.gate.answer"
     And ".gtd/QUESTIONS.md" exists
 
     # Round 1's question is answered in full (satisfying the answer gate),
@@ -763,13 +863,30 @@ Feature: The bundled unified workflow — one flow, end to end
 
     # Round 2 of the check: HEAD has advanced since round 1's committed
     # marker, so the fresh stamp must differ and land at the gate again —
-    # never fall through to architecture.author.
+    # never fall through to architecture-pre.
     When I run gtd next with "--json"
     Then it succeeds
     And I execute the printed check script
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.check → design.gate.answer"
+    And the last commit subject is "gtd(check): design.gate.check → design.gate.screen"
+
+    When I run gtd judge answer with stdin:
+      """
+      [
+        {"id": "blocking-1", "answer": true, "p": 0.95},
+        {"id": "inferable-1", "answer": false, "p": 0.95}
+      ]
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+
+    When I run gtd next with "--json"
+    Then it succeeds
+    And I execute the printed check script
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): design.gate.decide → design.gate.answer"
 
   @inmem
   Scenario: a hand-edited code change does not survive the unwind; its concern is folded into REQUIREMENTS.md instead
@@ -823,9 +940,15 @@ Feature: The bundled unified workflow — one flow, end to end
     # before anything could reach review sign-off.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.check → architecture.author"
+    And the last commit subject is "gtd(check): design.gate.check → architecture-pre"
     And "SCRATCH.md" does not exist
     And "src/real.ts" does not exist
+
+    # architecture-pre: no verdict piped -> the conservative default runs
+    # the full architecture pass.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): architecture-pre → architecture.author"
 
   @inmem
   Scenario: the handover — architecture.author works from REQUIREMENTS.md alone, a cold read with no assumption of a prior design conversation
@@ -909,7 +1032,17 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.review"
+    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
+
+    # spec.pre/spec.scoping: a skipped judgment (bare land) always runs the
+    # full review — this package has no `## ` sections at all anyway
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
 
     # packages.item.spec.review (clean = approval — the reviewer's own range
     # is process-wide, so it can see the earlier package's commit that
@@ -929,7 +1062,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # the shared review tail
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → build.review.reviewing"
+    And the last commit subject is "gtd(check): packages.picking → build.review.pre"
 
   @inmem
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
@@ -1030,7 +1163,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.review.pre"
     And ".gtd/FEEDBACK.md" does not exist
 
   @inmem

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// Drives `promptfoo eval` for the `eval` npm script and strips its own
+// Grades prompt-turn quality: one two-sided case per bundled-workflow state
+// that rests with an agent, judged per (case, variant, model) cell — the
+// sibling `evals/judgments/` runner grades a different unit (post-hoc
+// suppress/keep threshold accuracy over mined history), not this one. Drives
+// `promptfoo eval` for the `eval` npm script and strips its own
 // end-of-run aggregate ("Results: N passed (X%)" ... "Duration: ...") from
 // stdout as it streams — that block sums pass/fail across BOTH fixtures AND
 // BOTH models, exactly the aggregate Requirement C forbids. The per-test

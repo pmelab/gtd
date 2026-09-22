@@ -119,6 +119,7 @@ describe("reviewBaseFor", () => {
     diffBase,
     trace: trace.map((entry) => ({ ...entry, actor: "agent" })),
     costEntries: [],
+    judgeVerdicts: [],
     entryVars: {},
     headTurn: undefined,
     closingHash: undefined,
@@ -162,6 +163,7 @@ describe("memoryResumedFor", () => {
     diffBase: "p",
     trace: trace.map((entry) => ({ ...entry, actor: "agent" })),
     costEntries: [],
+    judgeVerdicts: [],
     entryVars: {},
     headTurn: undefined,
     closingHash: undefined,
@@ -357,6 +359,7 @@ describe("currentRun", () => {
       diffBase: boundary,
       trace: [],
       costEntries: [],
+      judgeVerdicts: [],
       entryVars: {},
     })
   })
@@ -410,6 +413,31 @@ describe("currentRun", () => {
       { cost: 300, model: "haiku" },
       { cost: 50, model: UNATTRIBUTED_MODEL },
     ])
+  })
+
+  it("collects the process's turn-commit Gtd-Judge: entries — one per answered question, oldest first", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix(
+      'gtd(agent): grilling\n\nGtd-Judge: {"id":"q1","answer":true,"p":0.97}',
+    )
+    repo.commitAllWithPrefix(
+      "gtd(agent): building\n\n" +
+        'Gtd-Judge: {"id":"q1","answer":"escalate","p":0.6}\n' +
+        'Gtd-Judge: {"id":"q2","answer":3,"p":0.8}',
+    )
+    const run = await provide(currentRun, repo)
+    expect(run.judgeVerdicts).toEqual([
+      { id: "q1", answer: true, p: 0.97 },
+      { id: "q1", answer: "escalate", p: 0.6 },
+      { id: "q2", answer: 3, p: 0.8 },
+    ])
+  })
+
+  it("skips a Gtd-Judge: trailer whose body isn't valid JSON rather than failing the whole scan", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix("gtd(agent): grilling\n\nGtd-Judge: not json")
+    const run = await provide(currentRun, repo)
+    expect(run.judgeVerdicts).toEqual([])
   })
 
   it("a Gtd-Review-Base: trailer on the process's OLDEST commit overrides diffBase, leaving startParentHash untouched", async () => {
@@ -657,6 +685,47 @@ describe("currentRest — one snapshot: cost folding, per-model grouping, entryV
     repo.commitAllWithPrefix("gtd(agent): thinking")
     const rest = await provide(currentRest, repo)
     expect(rest.on).toEqual([["A NOTE.md", "thinking"]])
+  })
+
+  it("renders routes:' minP/maxP Eta templates against it.vars before the plan sees them, onto rest.stepDef — the same rendering renderRoutes/withRenderedOn apply for step()", async () => {
+    const ROUTES_WORKFLOW = [
+      "workflow:",
+      "  vars:",
+      "    floor: '0.7'",
+      "    ceiling: '0.95'",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: judging",
+      "      states:",
+      "        judging:",
+      "          actor: human",
+      "          message: verdict needed",
+      "          judge: '{}'",
+      "          routes:",
+      "            - question: verdict",
+      "              is: identical",
+      "              minP: <%= it.vars.floor %>",
+      "              maxP: <%= it.vars.ceiling %>",
+      "              to: escalate",
+      "            - to: proceed",
+      "        escalate:",
+      "          actor: human",
+      "          message: escalate",
+      "        proceed:",
+      "          actor: human",
+      "          message: proceed",
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", ROUTES_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add routes workflow")
+    const rest = await provide(currentRest, repo)
+    expect(rest.stepDef.states["judging"]!.routes).toEqual([
+      { question: "verdict", is: "identical", minP: "0.7", maxP: "0.95", to: "escalate" },
+      { to: "proceed" },
+    ])
   })
 
   it("omits `system` (never `undefined`-valued) when the resting machine declares none", async () => {
@@ -1105,5 +1174,81 @@ describe("renderRest", () => {
     const broken = { ...rest, stateDef: { actor: "human" } }
     const exit = await Effect.runPromiseExit(renderRest(broken))
     expect(Exit.isFailure(exit)).toBe(true)
+  })
+})
+
+// The evidence rule, enforced for real: `restAt` renders `judge:` against
+// `templateReadCommitted` (`git show HEAD:<path>`), a DIFFERENT `it.read`
+// binding than every other `rest: "rendered"` field gets (`templateRead`, a
+// plain working-tree read via `Workspace.readSync`) — see `src/Edge.ts`'s
+// `renderHints`/`JUDGE_FIELD_KEY`. Package 01's Task 1: "a test asserts a
+// `judge:` template cannot reach an uncommitted artifact."
+describe("judge: rendering — the evidence rule (no gathering turn)", () => {
+  const JUDGE_WORKFLOW = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: a",
+    "      states:",
+    "        a:",
+    "          actor: human",
+    // The ordinary `message:` field reads the SAME path through the
+    // ordinary working-tree `it.read` — proving the distinction is real,
+    // not "nothing can read this path.".
+    "          message: \"working-tree read: <%~ it.read('.gtd/SCRATCH.md') %>\"",
+    '          judge: \'{ "state": "<%~ it.read(".gtd/SCRATCH.md") %>", "questions": [] }\'',
+    "",
+  ].join("\n")
+
+  it("judge:'s it.read of an uncommitted artifact refuses rest resolution, even though the sibling message: field (an ordinary working-tree read) reaches the SAME path fine", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", JUDGE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    // Written to the WORKING TREE only — never committed.
+    repo.writeFile(".gtd/SCRATCH.md", "freshly gathered, ungoverned evidence")
+
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+    const failure = Exit.isFailure(exit) ? String(exit.cause) : ""
+    expect(failure).toMatch(/ENOENT/)
+    expect(failure).toMatch(/not committed/)
+  })
+
+  it("judge:'s it.read of an already-committed artifact renders fine — the evidence rule's positive case", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", JUDGE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile(".gtd/SCRATCH.md", "governed evidence, committed by an earlier state")
+    repo.commitAllWithPrefix("chore: commit scratch evidence")
+
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.judge).toBe(
+      '{ "state": "governed evidence, committed by an earlier state", "questions": [] }',
+    )
+    expect(rendered.content).toBe(
+      "working-tree read: governed evidence, committed by an earlier state",
+    )
+  })
+
+  it("judge:'s it.read renders the COMMITTED version of an artifact that's since been EDITED in the working tree, ignoring the pending edit — unlike the sibling message: field, which reads the pending edit", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", JUDGE_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile(".gtd/SCRATCH.md", "the committed version")
+    repo.commitAllWithPrefix("chore: commit scratch evidence")
+    // Edited again after committing — pending, uncommitted content.
+    repo.writeFile(".gtd/SCRATCH.md", "an uncommitted edit on top of the committed version")
+
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    // The judge field renders the COMMITTED content, not the pending edit.
+    expect(rendered.judge).toBe('{ "state": "the committed version", "questions": [] }')
+    // The ordinary message: field reads the pending working-tree edit.
+    expect(rendered.content).toBe(
+      "working-tree read: an uncommitted edit on top of the committed version",
+    )
   })
 })

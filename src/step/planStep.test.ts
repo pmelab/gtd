@@ -164,4 +164,148 @@ describe("planStep — commit", () => {
     if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
     expect(write.write.message).toContain("Gtd-Cost: 10 opus")
   })
+
+  it("records one Gtd-Judge: trailer line per verdict entry when opts.judge is given", () => {
+    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
+    const s = snapshot({
+      state: "building",
+      stateDef,
+      def: {
+        states: { building: stateDef, done: { actor: "human", message: "done" } },
+        entries: { default: "building", manual: [] },
+      },
+      changes: [{ status: "M", path: ".gtd/FILE.md" }],
+    })
+    const outcome = planStep(s, {
+      judge: [
+        { id: "q1", answer: true, p: 0.97 },
+        { id: "q2", answer: "escalate", p: 0.6 },
+      ],
+    })
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    const write = outcome.steps.find((st) => st.kind === "gitWrite")
+    if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
+    expect(write.write.message).toContain('Gtd-Judge: {"id":"q1","answer":true,"p":0.97}')
+    expect(write.write.message).toContain('Gtd-Judge: {"id":"q2","answer":"escalate","p":0.6}')
+  })
+
+  it("combines Gtd-Cost: and Gtd-Judge: trailers on the same commit, cost first", () => {
+    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
+    const s = snapshot({
+      state: "building",
+      stateDef,
+      def: {
+        states: { building: stateDef, done: { actor: "human", message: "done" } },
+        entries: { default: "building", manual: [] },
+      },
+      changes: [{ status: "M", path: ".gtd/FILE.md" }],
+    })
+    const outcome = planStep(s, {
+      cost: 10,
+      model: "opus",
+      judge: [{ id: "q1", answer: true, p: 0.97 }],
+    })
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    const write = outcome.steps.find((st) => st.kind === "gitWrite")
+    if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
+    const costIndex = write.write.message.indexOf("Gtd-Cost: 10 opus")
+    const judgeIndex = write.write.message.indexOf('Gtd-Judge: {"id":"q1"')
+    expect(costIndex).toBeGreaterThan(-1)
+    expect(judgeIndex).toBeGreaterThan(costIndex)
+  })
+
+  it("an answered verdict routes via the state's own `routes:`, overriding what `on:` alone would decide", () => {
+    // `on:`'s only row ("C": "conservative") would land at "conservative" for
+    // a clean tree — but a verdict was supplied this call, and the state
+    // declares `routes:`, so the verdict decides instead.
+    const stateDef: StateDef = {
+      actor: "human",
+      message: "verdict needed",
+      judge: '{"questions":[{"id":"verdict"}]}',
+      routes: [{ question: "verdict", is: "identical", to: "escalate" }, { to: "fix" }],
+      on: [["C", "conservative"]],
+    }
+    const s = snapshot({
+      state: "judging",
+      stateDef,
+      def: {
+        states: {
+          judging: stateDef,
+          conservative: { actor: "human", message: "c" },
+          fix: { actor: "human", message: "f" },
+          escalate: { actor: "human", message: "e" },
+        },
+        entries: { default: "judging", manual: [] },
+      },
+      changes: [],
+    })
+    const outcome = planStep(s, { judge: [{ id: "verdict", answer: "identical", p: 0.95 }] })
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    if (outcome.decision.kind !== "commit") throw new Error("expected a commit decision")
+    expect(outcome.decision.to).toBe("escalate")
+  })
+
+  it('a `noul` verdict\'s boolean answer routes against `is: "yes"`/`is: "no"` — the documented vocabulary, not `String(true)`', () => {
+    // Every doc site (StateFields.ts's RouteRow/ROUTES_JSON_SCHEMA,
+    // docs/configuration.md) tells an author a noul's `is:` is "yes"/"no".
+    // `asRouteAnswers` must normalize the verdict's own boolean to match, or
+    // a row written exactly as documented can never fire.
+    const stateDef: StateDef = {
+      actor: "human",
+      message: "verdict needed",
+      judge: '{"questions":[{"id":"confident"}]}',
+      routes: [{ question: "confident", is: "yes", to: "proceed" }, { to: "escalate" }],
+    }
+    const def = {
+      states: {
+        judging: stateDef,
+        proceed: { actor: "human", message: "p" },
+        escalate: { actor: "human", message: "e" },
+      },
+      entries: { default: "judging", manual: [] },
+    }
+    const outcomeTrue = planStep(snapshot({ state: "judging", stateDef, def, changes: [] }), {
+      judge: [{ id: "confident", answer: true, p: 0.95 }],
+    })
+    if (outcomeTrue.kind !== "commit" || outcomeTrue.decision.kind !== "commit") {
+      throw new Error(`expected commit, got ${outcomeTrue.kind}`)
+    }
+    expect(outcomeTrue.decision.to).toBe("proceed")
+
+    const outcomeFalse = planStep(snapshot({ state: "judging", stateDef, def, changes: [] }), {
+      judge: [{ id: "confident", answer: false, p: 0.95 }],
+    })
+    if (outcomeFalse.kind !== "commit" || outcomeFalse.decision.kind !== "commit") {
+      throw new Error(`expected commit, got ${outcomeFalse.kind}`)
+    }
+    expect(outcomeFalse.decision.to).toBe("escalate")
+  })
+
+  it("no `judge` opt at all (an ordinary `gtd land`) ignores `routes:` and uses the state's own `on:` — the skipped-judgment path", () => {
+    const stateDef: StateDef = {
+      actor: "human",
+      message: "verdict needed",
+      judge: '{"questions":[{"id":"verdict"}]}',
+      routes: [{ question: "verdict", is: "identical", to: "escalate" }, { to: "fix" }],
+      on: [["C", "conservative"]],
+    }
+    const s = snapshot({
+      state: "judging",
+      stateDef,
+      def: {
+        states: {
+          judging: stateDef,
+          conservative: { actor: "human", message: "c" },
+          fix: { actor: "human", message: "f" },
+          escalate: { actor: "human", message: "e" },
+        },
+        entries: { default: "judging", manual: [] },
+      },
+      changes: [],
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    if (outcome.decision.kind !== "commit") throw new Error("expected a commit decision")
+    expect(outcome.decision.to).toBe("conservative")
+  })
 })

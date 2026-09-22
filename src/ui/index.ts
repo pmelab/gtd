@@ -1,7 +1,4 @@
 export { runUiCommand, UiListener, type UiRequirements } from "./Server.js"
-// `contentHashOf` has no static consumer: the integration world reaches it
-// through a dynamic `import()` destructure, which the analyzer cannot follow.
-// fallow-ignore-next-line unused-export
 export { applySteeringEdits, contentHashOf, liveReadFile } from "./Write.js"
 export { readServeRecord, writeServeRecord, deleteServeRecord } from "./Serve.js"
 export { pickBindHost } from "./Bind.js"

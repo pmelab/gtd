@@ -28,6 +28,50 @@ describe("STATE_FIELD_ENTRIES", () => {
   })
 })
 
+describe("STATE_FIELD_ENTRIES — every state-authored key is documented in docs/configuration.md", () => {
+  // `docs/configuration.md`'s state-shape ```yaml block is the canonical,
+  // exhaustive-looking reference a user reads — per AGENTS.md, a config key
+  // is exactly what documentation exists to state. This pins the reference
+  // against `STATE_FIELDS` itself, so a new state-authored field (or a
+  // rename) fails HERE instead of shipping silently undocumented — package
+  // 01's round-2 review item 7 found `judge:`/`routes:`/`shadow:` absent.
+  it('names every key with authored: "state" (actor/on/retry/.../judge/routes/shadow) in the state-shape block', () => {
+    const doc = readFileSync(
+      fileURLToPath(new URL("../docs/configuration.md", import.meta.url)),
+      "utf8",
+    )
+    const block = doc.match(/```yaml\nworkflow:\n([\s\S]*?)\n```/)
+    expect(block).not.toBeNull()
+    const shapeBlock = block![1]!
+    const stateAuthoredKeys = STATE_FIELD_ENTRIES.filter(
+      ([, spec]) => spec.authored === "state",
+    ).map(([key]) => key)
+    expect(stateAuthoredKeys.length).toBeGreaterThan(0)
+    for (const key of stateAuthoredKeys) {
+      expect(shapeBlock).toMatch(new RegExp(`\\n\\s*${key}:`))
+    }
+  })
+})
+
+describe("judge/shadow — requires chain", () => {
+  it("judge requires message", () => {
+    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "judge")![1]
+    expect(spec.requires).toBe("message")
+  })
+
+  it("shadow requires judge", () => {
+    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "shadow")![1]
+    expect(spec.requires).toBe("judge")
+  })
+})
+
+describe("routes — requires chain", () => {
+  it("routes requires judge", () => {
+    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "routes")![1]
+    expect(spec.requires).toBe("judge")
+  })
+})
+
 describe("CONTENT_FIELDS", () => {
   it("is exactly script/prompt/message, in that order", () => {
     expect(CONTENT_FIELDS).toEqual(["script", "prompt", "message"])

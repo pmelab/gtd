@@ -152,6 +152,30 @@ for (const { name, make } of tiers) {
       expect(missing).toBeUndefined()
     })
 
+    it("readCommittedSync reads a file's contents at a given ref, undefined when absent there — committed's synchronous twin, for judge:'s Eta render", async () => {
+      t = make()
+      t.commit("a.txt", "committed\n")
+      const [atHead, missing] = await t.provide(
+        Effect.gen(function* () {
+          const workspace = yield* Workspace
+          return [workspace.readCommittedSync("a.txt"), workspace.readCommittedSync("missing.txt")]
+        }),
+      )
+      expect(atHead).toBe("committed\n")
+      expect(missing).toBeUndefined()
+    })
+
+    it("readCommittedSync is undefined for a path that's only in the working tree, never committed — the evidence rule's whole point", async () => {
+      t = make()
+      t.writeWorking("scratch.txt", "freshly gathered, ungoverned\n")
+      const result = await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).readCommittedSync("scratch.txt")
+        }),
+      )
+      expect(result).toBeUndefined()
+    })
+
     it("write then read round-trips a repo-relative path", async () => {
       t = make()
       const content = await t.provide(

@@ -123,6 +123,15 @@ workflow:
           answerGate: true # optional, requires "file" — refuse a turn that edits anything while an open question in the (qa-mode) `file:` is unanswered; a turn that changes nothing at all is accepted and advances with the questions unanswered
           requireRevert: true # optional, requires "file" — refuse a turn until the human's review-round paths actually match the review base's parent
           entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared state is a valid target)
+          judge: <string> # optional, requires "message" — an Eta template rendered ALONGSIDE message: (content kind stays "message"), must render to the JSON document { state, questions: [{ id, primitive, instructions, criteria }] }; `state` may only come from it.read(...)/git helpers (never an uncommitted artifact); `primitive` is one of noul (yes/no), choice, score. `gtd judge`/`gtd judge answer` are the surface — see `docs/cli.md`
+          shadow: true # optional, requires "judge" — records the verdict (a `Gtd-Judge:` trailer) but never consults it for routing; a repo's debugging switch for tuning a threshold, not a release stage every gate passes through
+          routes: # optional, requires "judge" — an ORDERED list of judgment routing rows, first match wins, exactly like `on`; MUST end with a catch-all row carrying only `to`
+            - question: <one of judge:'s own question ids>
+              is: <the expected answer>
+              minP: <string> # optional — probability floor (>=) the answer's own p must clear; an Eta template, typically a workflow var: reference
+              maxP: <string> # optional — probability ceiling (<) the answer's own p must stay under; same Eta-template convention as minP
+              to: <targetState>
+            - to: <targetState> # the trailing catch-all row — no question/is/minP/maxP
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```
 
@@ -321,7 +330,58 @@ a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
 1. **The workflow's own `vars:` key** (sibling to `entry:`/`machines:`) — the
    workflow author's declared defaults. The unified template declares
    `vars: { testCommand: "npm test" }`, read by `build.health.check`'s script as
-   `<%~ it.vars.testCommand %>`.
+   `<%~ it.vars.testCommand %>`. It also declares `judgeIdenticalMinP: "0.7"` —
+   the probability floor `healthGate.judge`'s `routes:` row requires before an
+   "identical" verdict ends a retry loop early; this is the ONE off-switch that
+   judged gate has, so retuning or disabling it is exactly this same
+   `.gtdrc`/`GTD_JUDGEIDENTICALMINP` override the four layers below already give
+   every other var — there is no separate mechanism. Blanking it
+   (`judgeIdenticalMinP: ""`) disables the row outright: a blank, non-numeric,
+   or otherwise non-finite rendered `minP`/`maxP` makes its `routes:` row fail
+   closed (never match), never the opposite (`Number("")` would silently be `0`,
+   a floor of nothing). Two more judged gates tune the same way: `specPreJudge`
+   (`specReview.pre`'s floor for skipping a package's `review` turn on a section
+   already judged satisfied) and `specFindingKeep` (`specReview.findingJudge`'s
+   floor for keeping a review finding rather than striking it before a
+   `fix-spec` turn). Only `specFindingKeep` defaults to a value
+   `evals/judgments/eval.mjs`'s sweep picked from this repo's own history —
+   `specPreJudge` is an unmeasured, deliberately conservative default (no mined
+   fixture case is a "requirement already satisfied?" judgment, so there is no
+   sweep to pick it from; see `evals/judgments/metrics.mjs`'s
+   `UNMEASURED_SPEC_PRE_JUDGE_DEFAULT`). Both retune or disable (blank) exactly
+   like `judgeIdenticalMinP` above. Two more tune the review lap the same way:
+   `reviewFastPath` (`0.9`) is `build.review.pre`'s floor — all three of its
+   nouls (mechanical-only, touches-no-public-API, changes-no-behavior) must
+   clear it before `build.review.preCheck` takes the fast path
+   (`build.review.fastReview`, skipping the agent's own review turn); blanking
+   it disables the fast path outright, the same fail-closed direction as
+   `judgeIdenticalMinP`. `reviewNoteActionable` (`0.7`) is
+   `build.review.triage`'s floor for treating a review-note chunk as
+   non-actionable (folded into a sign-off) rather than spending a
+   `build.review.collecting` turn on it — blanking THIS one instead disables the
+   dismissal, in the opposite (still safe) direction: every "yes" verdict counts
+   as actionable at any confidence, rather than every "yes" failing to clear an
+   unmeetable floor. Neither is measured by `evals/judgments/`'s sweep — both
+   are unmeasured, deliberately conservative defaults, the same posture
+   `specPreJudge` takes. Three more tune the planning phase's own skip-forward
+   judgments: `questionGate.screen`'s per-question `blocking-N`/`inferable-N`
+   nouls need BOTH `questionSkipConservativeMinP` (`0.9`, `design.gate`'s own
+   value) or `questionSkipAggressiveMinP` (`0.6`, `architecture.gate`'s own
+   value) to clear before `questionGate.decide` treats that question as safe to
+   skip without asking — two separate floors, not one, because the same shared
+   `questionGate` machine backs both callers at different stakes (a wrong
+   PRODUCT intent costs a whole rebuild lap; a wrong TECHNICAL call is still
+   caught at spec review). Blanking either makes the same fail-closed direction
+   as `judgeIdenticalMinP` apply: every question then stops for the human, never
+   the opposite. `architectureSkipMinP` (`0.85`) is `architecture-pre`'s own
+   floor: its `architectureWarranted` noul answered "no" must clear it for a
+   plan to skip `architecture.author`/`architecture.decompose` entirely
+   (`architecture-promote` instead); blanking it makes that `routes:` row fail
+   to match, so the full architecture pass always runs — again the same
+   fail-closed direction. None of the three is measured by `evals/judgments/`'s
+   sweep — all three are unmeasured, deliberately conservative (or, for
+   `questionSkipAggressiveMinP`, deliberately permissive) defaults, the same
+   posture `specPreJudge` takes.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
 3. **The current process's entry `--var` overrides**, if it was started via
@@ -390,12 +450,15 @@ top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
   `build.review.reviewing`), plus `.gtd/REQUIREMENTS.md` again at
   `build.review.collecting`, which classifies a review round straight into it.
 
-Three more generated files carry no injected voice, because a script — not an
+Four more generated files carry no injected voice, because a script — not an
 agent — writes them: `.gtd/FEEDBACK.md` (verbatim test-suite output plus a HEAD
 stamp — the tool's content, not gtd's prose), `.gtd/NEXT.md` (a bare path, no
-prose to style), and `.gtd/REVIEW_RAW.md` (gtd's own prose, hand-tightened in
-the voice directly in `build.review.deciding`'s script rather than templated in
-through either variable).
+prose to style), `.gtd/REVIEW_RAW.md` (gtd's own prose, hand-tightened in the
+voice directly in `build.review.deciding`'s script rather than templated in
+through either variable), and `.gtd/REVIEW.md` when the review pre-judge
+(`build.review.pre`) takes the fast path — `build.review.fastReview`'s script
+writes a bare per-path checklist in place of `build.review.reviewing`'s own
+prose.
 
 Three more vars exist purely to dedup wording repeated across several prompts —
 they carry no voice, just shared instructions — and, like every bundled var, are

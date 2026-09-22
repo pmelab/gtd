@@ -6,16 +6,19 @@ import {
   type ContentKind,
   type OnEdge,
   type RetryDef,
+  type RouteRow,
   type StateDef,
   type StateMode,
   type StateName,
 } from "./StateFields.js"
+import { renderStateTemplate, type TemplateContext } from "./PatternTemplates.js"
 
 export {
   type Actor,
   type ContentKind,
   type OnEdge,
   type RetryDef,
+  type RouteRow,
   type StateDef,
   type StateMode,
   type StateName,
@@ -115,7 +118,16 @@ export const enterableStates = (def: WorkflowDefinition): readonly StateName[] =
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
-const TRANSITION_SEP = " → "
+/**
+ * Exported (not just module-private) so a test can pin it against any OTHER
+ * copy of this literal in the repo — `src/workflows/unified.yaml`'s
+ * `healthGate.check` script greps commit subjects for `TRANSITION_SEP +
+ * it.state` to bound its `PRIOR_FEEDBACK.md` search to the current episode
+ * (see `src/workflows/templates.test.ts`); a change here that isn't mirrored
+ * there would silently stop the judge state from ever being reached, with
+ * every OTHER test still green.
+ */
+export const TRANSITION_SEP = " → "
 
 /**
  * `gtd(<actor>): <from> → <to>` — the subject a step commit carries.
@@ -296,6 +308,14 @@ export interface StepPayload {
   readonly changes: readonly PendingChange[]
   /** State names entered since the current process started, oldest → newest (does NOT include the prospective new entry). */
   readonly processTrace: readonly StateName[]
+  /**
+   * The verdict answered THIS call (from `gtd judge answer`, rendered
+   * straight off stdin) — `undefined` for an ordinary `gtd land`, which is
+   * exactly the "skipped" case a judge state's own `C` fallback `on:` row
+   * covers. Consulted by `step` only when `state` declares `routes:` AND not
+   * `shadow:` — see `step`'s routing precedence.
+   */
+  readonly routeAnswers?: readonly RouteAnswer[]
 }
 
 export type StepRefusal =
@@ -356,9 +376,80 @@ const matchOn = (
   return undefined
 }
 
-/** Every state `state`'s edges can enter: its `on` targets plus its `retry.otherwise` redirect. */
+/**
+ * One answered question from a rendered judge verdict: `{ id, answer, p }`.
+ * `answer` is compared against a route row's `is`; `p` against its `minP`.
+ */
+export interface RouteAnswer {
+  readonly id: string
+  readonly answer: string
+  readonly p: number
+}
+
+/**
+ * A rendered `minP`/`maxP` string, parsed to a finite number — or `undefined`
+ * when the field wasn't declared (the caller supplies its own open-ended
+ * default). A declared-but-non-finite value (blank, "off", anything
+ * `Number()` can't parse) is reported as `invalid`, never silently coerced:
+ * `Number("")` is `0`, which would make a `minP` meant to gate a row instead
+ * open it to ANY probability — exactly the failure mode a repo's blank-value
+ * "disable this" idiom (`reviewBase: ""`, `judgeIdenticalMinP: ""`) must NOT
+ * trigger. `matchRoute` below treats `invalid` as "this row can never match"
+ * (fail closed) — the same effect a blank value's AUTHOR actually wants when
+ * using it to turn a gate off, and safe by construction for any other typo.
+ */
+type ParsedBound =
+  | { readonly kind: "open" }
+  | { readonly kind: "invalid" }
+  | { readonly kind: "value"; readonly n: number }
+const parseProbabilityBound = (raw: string | undefined): ParsedBound => {
+  if (raw === undefined) return { kind: "open" }
+  // `Number("")` (and whitespace-only) is `0` — finite, and exactly the
+  // dangerous silent-open-floor case this guard exists for — so blank is
+  // checked explicitly rather than trusted to `Number.isFinite`.
+  if (raw.trim() === "") return { kind: "invalid" }
+  const n = Number(raw)
+  return Number.isFinite(n) ? { kind: "value", n } : { kind: "invalid" }
+}
+
+/**
+ * Resolve a judge state's `routes:` against a rendered verdict —
+ * first-match-wins, exactly like `matchOn`. A row with no `question` is the
+ * catch-all and always matches (a validated definition guarantees it's last).
+ * Every other row matches only when `answers` carries a `RouteAnswer` for
+ * `row.question` whose `answer` equals `row.is`, whose `p` clears `row.minP`
+ * (`>=`, floor `0` when undeclared), AND whose `p` stays under `row.maxP`
+ * (`<`, no ceiling when undeclared) — `minP`/`maxP` are ALREADY Eta-rendered
+ * here, the same discipline `matchOn` applies to an `on` pattern: the edge
+ * substitutes `it.vars` before either ever runs. A row whose declared
+ * `minP`/`maxP` doesn't parse to a finite number (`parseProbabilityBound`)
+ * never matches, fail-closed. Returns `undefined` only when no row matches at
+ * all — a validated definition always ends in a catch-all, so this return
+ * only fires for a hand-built/unvalidated `WorkflowDefinition`.
+ */
+export const matchRoute = (
+  routes: readonly RouteRow[],
+  answers: readonly RouteAnswer[],
+): StateName | undefined => {
+  for (const row of routes) {
+    if (row.question === undefined) return row.to
+    const answer = answers.find((a) => a.id === row.question)
+    if (answer === undefined) continue
+    if (answer.answer !== row.is) continue
+    const minP = parseProbabilityBound(row.minP)
+    const maxP = parseProbabilityBound(row.maxP)
+    if (minP.kind === "invalid" || maxP.kind === "invalid") continue
+    const clearsFloor = minP.kind === "open" || answer.p >= minP.n
+    const underCeiling = maxP.kind === "open" || answer.p < maxP.n
+    if (clearsFloor && underCeiling) return row.to
+  }
+  return undefined
+}
+
+/** Every state `state`'s edges can enter: its `on` targets, its `routes:` targets, plus its `retry.otherwise` redirect. */
 const edgeTargets = (state: StateDef): readonly StateName[] => [
   ...(state.on ?? []).map(([, target]) => target),
+  ...(state.routes ?? []).map((row) => row.to),
   ...(state.retry !== undefined ? [state.retry.otherwise] : []),
 ]
 
@@ -449,15 +540,54 @@ export const memoryScopeAt = (
 }
 
 /**
+ * A verdict answered THIS call (`payload.routeAnswers`) routes via `routes:`
+ * instead of `on:` — but only when the state actually declares `routes:` and
+ * isn't `shadow:` (a shadowed judgment records but never routes). No verdict
+ * this call (an ordinary `gtd land`, or a `shadow:` state) falls through to
+ * the state's ordinary `on:` matching in `step` — exactly the "skipped
+ * judgment" path, resolved by its own `C` row.
+ */
+const resolveRoutedTarget = (stateDef: StateDef, payload: StepPayload): StateName | undefined =>
+  stateDef.routes !== undefined && stateDef.shadow !== true && payload.routeAnswers !== undefined
+    ? matchRoute(stateDef.routes, payload.routeAnswers)
+    : undefined
+
+/**
+ * The `on:` fallback once no `routes:` verdict picked a target this call: a
+ * clean tree with no matching pattern is a plain no-op at a
+ * `script`/`message` rest, but at a `prompt` rest it's an ATTEMPT instead —
+ * the state itself becomes the raw target, tagged `attempt: true` on the
+ * eventual `"commit"` so a fruitless dispatch is still remembered across
+ * restarts. Returns either a terminal decision (`refusal`/`noop`) or the raw
+ * target plus its attempt flag for `step` to retry-redirect.
+ */
+const resolveOnTarget = (
+  state: StateName,
+  stateDef: StateDef,
+  payload: StepPayload,
+): StepDecision | { readonly target: StateName; readonly attempt: boolean } => {
+  const onEdges = stateDef.on ?? []
+  const rawTarget = matchOn(onEdges, payload.changes)
+  if (rawTarget !== undefined) return { target: rawTarget, attempt: false }
+  if (payload.changes.length !== 0) {
+    return {
+      kind: "refusal",
+      reason: "no-match",
+      state,
+      patterns: onEdges.map(([pattern]) => pattern),
+    }
+  }
+  if (contentKindOf(stateDef) !== "prompt") return { kind: "noop", state }
+  // Using the resting state itself as the target means `retry:` on this
+  // state counts an attempt exactly like any other entry, redirecting to
+  // `otherwise` once capped just like a real transition would.
+  return { target: state, attempt: true }
+}
+
+/**
  * Decide what invoking `invoker` at `state` does — a pure decision, not an
  * effect. Refusals: `invoker` isn't `state`'s declared actor (out-of-turn),
- * or the tree is dirty and no `on` pattern matches. A clean tree with no
- * matching pattern is a plain no-op at a `script`/`message` rest, but at a
- * `prompt` rest it's an ATTEMPT instead: the state itself becomes the raw
- * target, falling through the same retry tail as a real match, tagged
- * `attempt: true` on the resulting `"commit"` — a fruitless `prompt`
- * dispatch still costs money and must be remembered across restarts, so it's
- * committed rather than treated as an inert no-op. The target (or attempt's
+ * or the tree is dirty and no `on` pattern matches. The target (or attempt's
  * self-target) is retry-redirected (`applyRetry`) before being classified —
  * always yielding `"commit"`. Throws only on a structurally invalid call: an
  * undefined `state`.
@@ -478,26 +608,17 @@ export const step = (
     return { kind: "refusal", reason: "out-of-turn", state, awaits: stateDef.actor }
   }
 
-  const onEdges = stateDef.on ?? []
-  const rawTarget = matchOn(onEdges, payload.changes)
-
-  // Using the resting state itself as the raw target means `retry:` on this
-  // state counts an attempt exactly like any other entry, redirecting to
-  // `otherwise` once capped just like a real transition would.
-  let target = rawTarget
-  let attempt = false
-  if (target === undefined) {
-    if (payload.changes.length !== 0) {
-      return {
-        kind: "refusal",
-        reason: "no-match",
-        state,
-        patterns: onEdges.map(([pattern]) => pattern),
-      }
-    }
-    if (contentKindOf(stateDef) !== "prompt") return { kind: "noop", state }
-    target = state
-    attempt = true
+  const routedTarget = resolveRoutedTarget(stateDef, payload)
+  let target: StateName
+  let attempt: boolean
+  if (routedTarget !== undefined) {
+    target = routedTarget
+    attempt = false
+  } else {
+    const resolved = resolveOnTarget(state, stateDef, payload)
+    if ("kind" in resolved) return resolved
+    target = resolved.target
+    attempt = resolved.attempt
   }
 
   const finalTarget = applyRetry(def, target, payload.processTrace)
@@ -672,6 +793,211 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
 }
 
 /**
+ * One render of `judgeTemplate` against a stub context whose `read` always
+ * returns `readStub` (never throws) and whose `vars` are real — extracts
+ * `questions[].id` from the rendered JSON, or `undefined` when the render
+ * throws or doesn't parse as the expected shape.
+ */
+const renderJudgeQuestionIds = (
+  name: string,
+  judgeTemplate: string,
+  vars: Record<string, string>,
+  readStub: string,
+): readonly string[] | undefined => {
+  try {
+    const ctx: TemplateContext = {
+      startCommit: "",
+      currentCommit: "",
+      previousCommit: "",
+      state: name,
+      actor: "",
+      reviewBase: "",
+      processBase: "",
+      processCost: 0,
+      processCostByModel: [],
+      read: () => readStub,
+      // Always empty regardless of `readStub`: a load-time stub has no real
+      // markdown to parse, and this must agree across BOTH stub renders
+      // (`STUB-A`/`STUB-B`) for `judgeQuestionIds` to trust either — see its
+      // own comment on why a dynamic-count `judge:` template pads its
+      // `questions[]` out to a fixed slot count rather than varying it here.
+      sections: () => [],
+      // Same "always empty, must agree across both stub renders" rationale as
+      // `sections` above — a load-time stub has no real `qa`-mode markdown to
+      // parse either.
+      openQuestions: () => [],
+      openQuestionOptions: () => [],
+      vars,
+      edges: [],
+    }
+    const rendered = renderStateTemplate(judgeTemplate, ctx)
+    const doc: unknown = JSON.parse(rendered)
+    if (typeof doc !== "object" || doc === null || !("questions" in doc)) return undefined
+    const questions = (doc as { questions: unknown }).questions
+    if (!Array.isArray(questions)) return undefined
+    const ids = questions.map((q: unknown) =>
+      typeof q === "object" && q !== null && "id" in q ? (q as { id: unknown }).id : undefined,
+    )
+    return ids.every((id): id is string => typeof id === "string") ? ids : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Best-effort extraction of a `judge:` template's own declared question ids,
+ * for cross-checking a `routes:` row's `question` at LOAD TIME — without any
+ * real evidence (git plumbing/working tree). `state`'s value legitimately
+ * needs `it.read(...)`, but the `questions` array is declared as a JSON
+ * literal inside the same template (Task 1: "computed at render time, never
+ * declared in YAML" refers to it being part of the RENDERED document, not
+ * authored as a structured field — it is still literal JSON text in the
+ * template, not derived from evidence). `vars` are the workflow's OWN
+ * declared `vars:` DEFAULTS (`.gtdrc`/entry-commit/env layers don't exist yet
+ * at load time, but the declared default is exactly what a `<%= it.vars.x %>`
+ * reference resolves to absent those) — so a template that only ever varies
+ * `state`/uses a var for prose still renders and parses cleanly here.
+ *
+ * Rendered TWICE, against two DIFFERENT `it.read` stub values, and only
+ * TRUSTED when both renders agree byte-for-byte on every id: `state` — the
+ * one field allowed to depend on evidence — is never compared, but a
+ * `questions[].id` computed FROM `it.read(...)` (not just `state`) would
+ * leak the differing stub through and disagree between the two renders,
+ * exactly the false positive a single fixed stub value couldn't catch (an
+ * `it.read(...).trim()`-derived id rendering to a real string either way,
+ * cross-checked as if it were the evidence-free literal it claims to be).
+ * Returns `undefined` — the same "couldn't verify" signal as a render/parse
+ * failure — the moment either render fails OR the two disagree, so
+ * `validateRoutesQuestionCheck` turns EITHER case into a WARNING, never a
+ * false-positive load ERROR.
+ */
+const judgeQuestionIds = (
+  name: string,
+  judgeTemplate: string,
+  vars: Record<string, string>,
+): readonly string[] | undefined => {
+  const idsA = renderJudgeQuestionIds(name, judgeTemplate, vars, "STUB-A")
+  const idsB = renderJudgeQuestionIds(name, judgeTemplate, vars, "STUB-B")
+  if (idsA === undefined || idsB === undefined) return undefined
+  if (idsA.length !== idsB.length) return undefined
+  return idsA.every((id, i) => id === idsB[i]) ? idsA : undefined
+}
+
+/** A row carrying NONE of `question`/`is`/`minP`/`maxP` (only `to`) — `maxP` counts here too, or a `{ maxP, to }` row would misclassify as the catch-all, silently discarding its declared ceiling with no load error and no runtime signal. */
+const isCatchAllRoute = (row: RouteRow): boolean =>
+  row.question === undefined &&
+  row.is === undefined &&
+  row.minP === undefined &&
+  row.maxP === undefined
+
+/** `question`/`is` are the only fields REQUIRED non-blank on a non-catch-all row — `minP`/`maxP` are each independently optional (`StateFields.ts`'s `RouteRow` doc: "Either bound alone is legal"; a row with neither matches at any probability). */
+const ROUTE_ROW_REQUIRED_FIELDS = ["question", "is"] as const
+
+/** Every non-catch-all row's REQUIRED field left blank — the shape errors specific to that case. */
+const blankRouteFields = (name: string, row: RouteRow, i: number): string[] =>
+  ROUTE_ROW_REQUIRED_FIELDS.filter((field) => row[field] === undefined || row[field] === "").map(
+    (field) => `state "${name}": "routes.${i}.${field}" must be a non-empty string`,
+  )
+
+/** A non-catch-all row's `question` against the state's own `judge:` question ids — silent (no error) when either side is unavailable: a blank `question` is already a `blankRouteFields` error, and an unresolvable `questionIds` means `judgeQuestionIds` couldn't render/parse (reported separately, once per state, as a warning — see `validateRoutesQuestionCheck`). */
+const questionIdError = (
+  name: string,
+  row: RouteRow,
+  i: number,
+  questionIds: readonly string[] | undefined,
+): string[] => {
+  if (row.question === undefined || row.question === "" || questionIds === undefined) return []
+  if (questionIds.includes(row.question)) return []
+  return [
+    `state "${name}": "routes.${i}.question" "${row.question}" is not one of this state's judge: question ids (${questionIds.join(", ")})`,
+  ]
+}
+
+/** One `routes:` row's shape errors — a single row in isolation, blind to its position in the list. */
+const validateRouteRow = (
+  name: string,
+  row: RouteRow,
+  i: number,
+  isLast: boolean,
+  names: readonly string[],
+  questionIds: readonly string[] | undefined,
+): string[] => {
+  const isCatchAll = isCatchAllRoute(row)
+  const errors: string[] = [
+    ...(isCatchAll && !isLast
+      ? [`state "${name}": "routes.${i}" is a catch-all (only "to") but is not the last row`]
+      : []),
+    ...(isCatchAll ? [] : blankRouteFields(name, row, i)),
+    ...(isCatchAll ? [] : questionIdError(name, row, i, questionIds)),
+  ]
+  if (!names.includes(row.to)) {
+    errors.push(`state "${name}": "routes.${i}.to" target "${row.to}" is not a defined state`)
+  }
+  return errors
+}
+
+/**
+ * `routes:` rows, checked in declaration order. Every row's `to` must name a
+ * defined state. A non-catch-all row's `question`/`is` are checked for SHAPE
+ * (non-blank, and REQUIRED — `minP`/`maxP` are each independently optional,
+ * see `ROUTE_ROW_REQUIRED_FIELDS`) and, when the state's own `judge:`
+ * template renders and parses cleanly (`judgeQuestionIds`), `question` is
+ * also checked against the template's OWN declared question ids — catching a
+ * typo'd `question` that would otherwise never match any answer and silently
+ * degrade the gate to "no judgment" via the catch-all, with no error
+ * anywhere. A `routes:` list must end with EXACTLY one catch-all row (only
+ * `to` set) — earlier or missing is a load error, never a runtime surprise.
+ */
+const validateRoutes = (
+  name: string,
+  state: StateDef,
+  names: readonly string[],
+  vars: Record<string, string>,
+): string[] => {
+  const rows = state.routes
+  if (rows === undefined) return []
+  const errors: string[] = []
+  if (rows.length === 0) {
+    errors.push(`state "${name}": "routes" must declare at least one row`)
+    return errors
+  }
+  const questionIds =
+    state.judge !== undefined ? judgeQuestionIds(name, state.judge, vars) : undefined
+  rows.forEach((row, i) => {
+    errors.push(...validateRouteRow(name, row, i, i === rows.length - 1, names, questionIds))
+  })
+  if (!isCatchAllRoute(rows[rows.length - 1]!)) {
+    errors.push(`state "${name}": "routes" must end with a catch-all row carrying only "to"`)
+  }
+  return errors
+}
+
+/**
+ * `judgeQuestionIds` couldn't render/parse this state's `judge:` template
+ * under the load-time stub — the question-id cross-check ran for every OTHER
+ * `routes:` row in this process, but had nothing to check THIS state's
+ * `question`s against. A WARNING (not an error): the template may be
+ * perfectly valid at runtime, with real evidence available then that isn't
+ * here — but staying silent would leave a typo'd `question` on THIS state
+ * genuinely unchecked with no signal anywhere, the exact gap round 2's
+ * review flagged. Fires at most once per state (not once per row).
+ */
+const validateRoutesQuestionCheck = (
+  name: string,
+  state: StateDef,
+  vars: Record<string, string>,
+): string[] => {
+  const rows = state.routes
+  if (rows === undefined || state.judge === undefined) return []
+  const hasNonCatchAllRow = rows.some((row) => !isCatchAllRoute(row))
+  if (!hasNonCatchAllRow) return []
+  if (judgeQuestionIds(name, state.judge, vars) !== undefined) return []
+  return [
+    `state "${name}": "routes.*.question" could not be checked against "judge:"'s own question ids — the template did not render/parse under a load-time stub (no working-tree/git evidence available yet); a typo'd question here will not be caught until runtime`,
+  ]
+}
+
+/**
  * Every state is reachable from an ENTRY ROOT by walking `on` targets and
  * `retry.otherwise` redirects (both are real edges — a redirect ENTERS its
  * `otherwise` state exactly like an `on` match enters its target). The roots
@@ -701,7 +1027,7 @@ const validateReachability = (def: WorkflowDefinition, names: readonly string[])
     .filter((name) => !visited.has(name))
     .map(
       (name) =>
-        `state "${name}" is unreachable from any entry state (${roots.join(", ")}) (no "on" target or "retry.otherwise" leads to it)`,
+        `state "${name}" is unreachable from any entry state (${roots.join(", ")}) (no "on" target, "routes" target, or "retry.otherwise" leads to it)`,
     )
 }
 
@@ -714,11 +1040,18 @@ const validateReachability = (def: WorkflowDefinition, names: readonly string[])
 const BESPOKE: Readonly<
   Record<
     string,
-    (def: WorkflowDefinition, name: string, state: StateDef, names: readonly string[]) => string[]
+    (
+      def: WorkflowDefinition,
+      name: string,
+      state: StateDef,
+      names: readonly string[],
+      vars: Record<string, string>,
+    ) => string[]
   >
 > = {
   on: (_def, name, state, names) => validateOnEdges(name, state, names),
   retry: (_def, name, state, names) => validateRetry(name, state, names),
+  routes: (_def, name, state, names, vars) => validateRoutes(name, state, names, vars),
   mode: (def, name, state) => validateKnownMode(def, name, state),
   reviewBase: (_def, name, state) => validateReviewBaseTemplate(name, state),
   file: (_def, name, state) => validateFileUnderStateDir(name, state),
@@ -734,13 +1067,14 @@ const validateState = (
   def: WorkflowDefinition,
   name: string,
   names: readonly string[],
+  vars: Record<string, string>,
 ): string[] => {
   const state = def.states[name]!
   return [
     ...validateContentKind(name, state),
     ...validateActorShape(name, state),
     ...STATE_FIELD_ENTRIES.flatMap(([key, spec]) => [
-      ...(BESPOKE[key]?.(def, name, state, names) ?? []),
+      ...(BESPOKE[key]?.(def, name, state, names, vars) ?? []),
       ...validateFieldRules(name, state, key, spec),
     ]),
   ]
@@ -790,9 +1124,18 @@ const validateHasCRow = (def: WorkflowDefinition, name: string, state: StateDef)
  * per-field rule not listed above (`on`/`retry` targets resolving, `mode`
  * naming a known vocabulary, etc.) is declared once in `src/StateFields.ts`'s
  * `STATE_FIELDS` table instead.
+ *
+ * `vars` (default `{}`) is the workflow's own declared `vars:` DEFAULTS —
+ * the only var layer that exists at load time (`.gtdrc`/entry-commit/env
+ * layers don't) — threaded through to `judgeQuestionIds`'s stub render so a
+ * `judge:` template referencing `it.vars.x` still resolves for the
+ * `routes:` question-id cross-check. Every OTHER call site in this
+ * repo (`PatternMachine.test.ts`'s many hand-built definitions) omits it
+ * deliberately: those tests aren't exercising the judge/routes surface.
  */
 export const validateDefinition = (
   def: WorkflowDefinition,
+  vars: Record<string, string> = {},
 ): { readonly errors: readonly string[]; readonly warnings: readonly string[] } => {
   const names = Object.keys(def.states)
   if (names.length === 0) {
@@ -804,9 +1147,12 @@ export const validateDefinition = (
     errors: [
       ...entriesErrors,
       ...validateModes(def),
-      ...names.flatMap((name) => validateState(def, name, names)),
+      ...names.flatMap((name) => validateState(def, name, names, vars)),
       ...(entriesErrors.length === 0 ? validateReachability(def, names) : []),
     ],
-    warnings: names.flatMap((name) => validateHasCRow(def, name, def.states[name]!)),
+    warnings: [
+      ...names.flatMap((name) => validateHasCRow(def, name, def.states[name]!)),
+      ...names.flatMap((name) => validateRoutesQuestionCheck(name, def.states[name]!, vars)),
+    ],
   }
 }

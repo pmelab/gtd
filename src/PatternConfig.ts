@@ -5,6 +5,7 @@ import {
   type ModeDef,
   type OnEdge,
   type RetryDef,
+  type RouteRow,
   type StateDef,
   type StateName,
   type WorkflowDefinition,
@@ -827,6 +828,98 @@ const compileRetry = (
   return maxOk && otherwiseOk ? { max, otherwise } : undefined
 }
 
+const KNOWN_ROUTE_KEYS: ReadonlySet<string> = new Set(["question", "is", "minP", "maxP", "to"])
+
+/** The four optional `routes:` row fields — `question`/`is`/`minP`/`maxP` — each independently optional at THIS shape level; only `to` is structurally required (`compileRouteRow` below). */
+const ROUTE_OPTIONAL_FIELDS = ["question", "is", "minP", "maxP"] as const
+
+/** Validated as a string when present — `undefined` on any field's type error (diagnostic already pushed). */
+const compileRouteOptionalFields = (
+  value: Record<string, unknown>,
+  index: number,
+  name: string,
+  path: readonly (string | number)[],
+  diagnostics: Diagnostic[],
+): Partial<Record<(typeof ROUTE_OPTIONAL_FIELDS)[number], string>> | undefined => {
+  const out: Partial<Record<(typeof ROUTE_OPTIONAL_FIELDS)[number], string>> = {}
+  for (const field of ROUTE_OPTIONAL_FIELDS) {
+    const raw = value[field]
+    if (raw === undefined) continue
+    if (typeof raw !== "string") {
+      diagnostics.push(err(path, `state "${name}": "routes.${index}.${field}" must be a string`))
+      return undefined
+    }
+    out[field] = raw
+  }
+  return out
+}
+
+/**
+ * Compile one `routes:` row into a `RouteRow`. `question`/`is`/`minP`/`maxP`
+ * are each optional at THIS shape level (the catch-all-only-carries-`to` rule
+ * and the "non-catch-all needs question/is" semantic rule are
+ * `validateRoutes`'s job, not the compiler's) — only `to` is structurally
+ * required, and only a string for any present key is enforced here.
+ */
+const compileRouteRow = (
+  value: unknown,
+  index: number,
+  name: string,
+  statePath: readonly (string | number)[],
+  diagnostics: Diagnostic[],
+): RouteRow | undefined => {
+  const path = [...statePath, index]
+  if (!isPlainObject(value)) {
+    diagnostics.push(
+      err(
+        path,
+        `state "${name}": "routes.${index}" must be an object ({ question?, is?, minP?, maxP?, to })`,
+      ),
+    )
+    return undefined
+  }
+  const unknownKeys = Object.keys(value).filter((k) => !KNOWN_ROUTE_KEYS.has(k))
+  if (unknownKeys.length > 0) {
+    diagnostics.push(
+      err(path, `state "${name}": "routes.${index}" has unknown key(s) ${unknownKeys.join(", ")}`),
+    )
+  }
+  const { to } = value
+  if (typeof to !== "string") {
+    diagnostics.push(
+      err(path, `state "${name}": "routes.${index}.to" must be a target state name (string)`),
+    )
+    return undefined
+  }
+  const optionalFields = compileRouteOptionalFields(value, index, name, path, diagnostics)
+  if (optionalFields === undefined) return undefined
+  return { ...optionalFields, to }
+}
+
+const compileRoutes = (
+  raw: unknown,
+  name: string,
+  statePath: readonly (string | number)[],
+  diagnostics: Diagnostic[],
+): readonly RouteRow[] | undefined => {
+  if (raw === undefined) return undefined
+  if (!Array.isArray(raw)) {
+    diagnostics.push(
+      err(
+        [...statePath, "routes"],
+        `state "${name}": "routes" must be an array of { question?, is?, minP?, maxP?, to } rows`,
+      ),
+    )
+    return undefined
+  }
+  const rows: RouteRow[] = []
+  raw.forEach((value, i) => {
+    const row = compileRouteRow(value, i, name, [...statePath, "routes"], diagnostics)
+    if (row !== undefined) rows.push(row)
+  })
+  return rows
+}
+
 const compileText = (
   raw: Record<string, unknown>,
   key: string,
@@ -981,6 +1074,9 @@ const COMPILE: Record<FieldKind, FieldCompiler> = {
   edges: (raw, key, name, ctx) => compileOn(raw[key], name, ctx.path.slice(0, -1), ctx.diagnostics),
   retry: (raw, key, name, ctx) =>
     compileRetry(raw[key], name, ctx.path.slice(0, -1), ctx.diagnostics),
+  judge: (raw, key, name, ctx) => compileText(raw, key, name, ctx.path, ctx.diagnostics),
+  routes: (raw, key, name, ctx) =>
+    compileRoutes(raw[key], name, ctx.path.slice(0, -1), ctx.diagnostics),
 }
 
 /**
@@ -1162,7 +1258,7 @@ export const compileWorkflowConfig = (
   // `flattened.scopes` is guaranteed (by construction — both are populated by
   // the same `emitTree` pass in `src/Machines.ts`) to cover exactly
   // `Object.keys(states)`; no separate cross-check is needed.
-  const definitionResult = validateDefinition(definition)
+  const definitionResult = validateDefinition(definition, vars)
   diagnostics.push(
     ...definitionResult.errors.map((message) =>
       err(bestEffortPath(message, machineByState, flattened.scopes), message),

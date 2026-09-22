@@ -1459,6 +1459,20 @@
         ]
       }
 
+      // A `routes:` row's one-line label — `question = is (p≥minP, p<maxP)`,
+      // or "otherwise" for the catch-all (a catch-all row is never itself
+      // drawn as an edge — `matchRoute` always resolves through one, but it
+      // isn't a distinct condition worth its own arrow; the detail drawer's
+      // "outgoing" list shows it as plain text instead, not an edge button).
+      // Shared by the diagram builder and the state detail drawer.
+      const routeLabel = (row) => {
+        const bounds = [
+          row.minP !== undefined ? "p≥" + row.minP : null,
+          row.maxP !== undefined ? "p<" + row.maxP : null,
+        ].filter(Boolean)
+        return `${row.question} = ${row.is}${bounds.length ? " (" + bounds.join(", ") + ")" : ""}`
+      }
+
       /**
        * Build one flowchart's mermaid source over `states` (a diagram scope):
        * the whole machine for the main flow (`opts.scope` unset), or one
@@ -1526,6 +1540,7 @@
         // same box-level edge (a black box hides which one specifically).
         const solid = new Map()
         const dashed = new Map()
+        const routed = new Map()
         const addEdge = (map, from, to, label) => {
           if (from === to) return
           const key = from + " " + to
@@ -1540,6 +1555,10 @@
           if (s.retry && inSet.has(s.retry.otherwise)) {
             addEdge(dashed, unitId(s.name), unitId(s.retry.otherwise), "retry ×" + s.retry.max)
           }
+          ;(s.routes || []).forEach((r) => {
+            if (r.question === undefined || !inSet.has(r.to) || !byName[r.to]) return
+            addEdge(routed, unitId(s.name), unitId(r.to), routeLabel(r))
+          })
         })
         // Ghost edges to a target entirely outside this diagram's state set
         // (only fires for a sub-machine diagram — the main flow's set is
@@ -1564,6 +1583,15 @@
               `  ${idFor(s.name)} -.->|${mlabel("retry ×" + s.retry.max)}| e${idFor(s.retry.otherwise)}`,
             )
           }
+          ;(s.routes || []).forEach((r) => {
+            if (r.question === undefined || inSet.has(r.to) || !byName[r.to]) return
+            const target = byName[r.to]
+            if (!emittedGhosts.has(r.to)) {
+              emittedGhosts.add(r.to)
+              lines.push(ghostLine(target))
+            }
+            lines.push(`  ${idFor(s.name)} ==>|${mlabel(routeLabel(r))}| e${idFor(r.to)}`)
+          })
         })
 
         solid.forEach((labels, key) => {
@@ -1576,15 +1604,25 @@
           const label = labels.length === 1 ? mlabel(labels[0]) : null
           lines.push(`  ${from} -.->${label ? "|" + label + "|" : ""} ${to}`)
         })
+        // Thick/bold arrow — a routes: row is a JUDGMENT edge, distinct from
+        // an ordinary `on:` change pattern (solid) or a `retry` redirect
+        // (dashed): it fires on a verdict's probability, not a diff.
+        routed.forEach((labels, key) => {
+          const [from, to] = key.split(" ")
+          const label = labels.length === 1 ? mlabel(labels[0]) : null
+          lines.push(`  ${from} ==>${label ? "|" + label + "|" : ""} ${to}`)
+        })
 
         lines.push(...classDefs(isDark()))
         return lines.join("\n")
       }
 
       document.getElementById("diaNote").innerHTML =
-        `Every state as a node — shape is the content kind, colour is the actor. Each edge is an ` +
-        `<span class="mono">on</span> pattern (first match wins); dashed edges are ` +
-        `<span class="mono">retry</span> redirects. A sub-machine invocation collapses into a single ` +
+        `Every state as a node — shape is the content kind, colour is the actor. A solid edge is an ` +
+        `<span class="mono">on</span> pattern (first match wins); a dashed edge is a ` +
+        `<span class="mono">retry</span> redirect; a THICK edge is a ` +
+        `<span class="mono">routes</span> judgment row (question = expected answer, at a probability). ` +
+        `A sub-machine invocation collapses into a single ` +
         `dark box (click it to jump to its own diagram below); an edge label is dropped when several ` +
         `patterns collapse onto the same box-to-box edge. Scroll/pinch or drag to pan and zoom; use the ` +
         `<span class="mono">+</span>/<span class="mono">−</span>/<span class="mono">⤢</span> controls in the corner.`
@@ -2224,6 +2262,22 @@
               `</div></div></div>`
             : ""
 
+        const routes = s.routes || []
+        const routesBlock = routes.length
+          ? `<div class="field"><div class="k">outgoing edges — routes (judgment, first match wins)</div><div class="edges">${routes
+              .map((r) => {
+                const t = byName[r.to]
+                const ta = t ? actorOf(t) : "unknown"
+                const label = r.question === undefined ? "otherwise" : routeLabel(r)
+                return (
+                  `<div class="edge"><div class="er">` +
+                  `<span class="pat">${esc(label)}</span><span class="arr">→</span>` +
+                  `<button class="goto" data-actor="${ta}" data-to="${esc(r.to)}">${esc(r.to)}</button></div></div>`
+                )
+              })
+              .join("")}</div></div>`
+          : ""
+
         const inc = s.incoming || []
         const incBlock =
           `<div class="field"><div class="k">routes in from (${inc.length})</div>` +
@@ -2256,6 +2310,7 @@
           contentBlock +
           flagBlock +
           edgesBlock +
+          routesBlock +
           retryOut +
           incBlock +
           `</div>`

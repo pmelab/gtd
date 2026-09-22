@@ -112,6 +112,7 @@ describe("no ANSI, on a pipe or a real tty", () => {
     execFileSync("git", ["init", "-q"], { cwd: dir })
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
     execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "gtd(human): idle"], { cwd: dir })
   }
 
@@ -176,6 +177,7 @@ describe("abandonedOutcome / restoredOutcome — real repo", () => {
     execFileSync("git", ["init", "-q"], { cwd: dir })
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
     execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "gtd(human): idle"], { cwd: dir })
     return dir
   }

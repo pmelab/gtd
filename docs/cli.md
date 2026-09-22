@@ -135,20 +135,32 @@ Commands:
                    the first review round it's the process's diff base;
                    afterward it's the most-recent review round's boundary.
                    Refuses (exit 1) when no process is underway.
+  judge            Print the resolved rest's pending judgment — the prepared
+                   state, its typed questions, and their criteria — the same
+                   judge field `gtd next --json` already carries. Read-only:
+                   resolves no session, writes nothing. Refuses (exit 1) when
+                   the resolved rest declares no judge:
+  judge answer     Read a verdict off stdin — one { id, answer, p } entry per
+                   question the pending judgment declared — and decode it
+                   against an Effect Schema built from those same question
+                   ids. Refuses (exit 1) when the resolved rest declares no
+                   judge:. Exits 2 (a usage error, like an unknown --json
+                   selector) when stdin isn't valid JSON or the verdict
+                   doesn't decode against the pending question ids.
   version          Print version and exit
   help             Print this help and exit
 
 Options:
-  --json=<path>    (gtd next/gtd land only) output structured JSON. Bare
-                   --json prints the whole document; --json=<path> (a dotted
-                   key path into that document, e.g. kind, content,
-                   session.id) prints just that value: a scalar raw and
-                   unquoted, a boolean as true/false, a list one JSON entry
-                   per line. An absent optional field prints nothing and
-                   exits 0 — including when an earlier segment of <path> is
-                   itself absent/null (e.g. session.id at a non-prompt rest),
-                   which never counts as unknown; an unknown path is a usage
-                   error (exit 2).
+  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer only) output
+                   structured JSON. Bare --json prints the whole document;
+                   --json=<path> (a dotted key path into that document, e.g.
+                   kind, content, session.id) prints just that value: a
+                   scalar raw and unquoted, a boolean as true/false, a list
+                   one JSON entry per line. An absent optional field prints
+                   nothing and exits 0 — including when an earlier segment of
+                   <path> is itself absent/null (e.g. session.id at a
+                   non-prompt rest), which never counts as unknown; an
+                   unknown path is a usage error (exit 2).
   --port=<n>       (gtd visualize/gtd ui only) port to serve on: a free port
                    for visualize; for ui, the tailscale serve port (default:
                    the first free of 8443, 10000, 443), or the bind port when
@@ -235,11 +247,11 @@ driving a loop is a driver's job, not a bundled command (see
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository.
 The state commands (`land`, `--entry`, `abandon`, `restore`, `next`, `status`,
-`validate`, `summary`, `ui`) must run from the **repository root** — gtd derives
-the workflow, pending changes, and process history relative to cwd, so they
-refuse with a clear error from a subdirectory; `lsp`, `init`, `visualize`,
-`check`, and `uncheck` are standalone and run from anywhere (see each command's
-own help entry).
+`validate`, `summary`, `ui`, `judge`, `judge answer`) must run from the
+**repository root** — gtd derives the workflow, pending changes, and process
+history relative to cwd, so they refuse with a clear error from a subdirectory;
+`lsp`, `init`, `visualize`, `check`, and `uncheck` are standalone and run from
+anywhere (see each command's own help entry).
 
 `install` is described on its own above: it writes nothing and installs
 knowledge into the calling agent's context, not files on disk.

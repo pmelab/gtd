@@ -38,10 +38,18 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     When I run gtd with args "--entry review-gate.check --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): review-gate.check"
-    # The green-baseline gate: a clean tree (tests pass) advances to build.review.reviewing.
+    # The green-baseline gate: a clean tree (tests pass) advances to build.review.pre.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → build.review.pre"
+    # Landed untouched, with no verdict — the conservative default runs the
+    # full review lap.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt NAMES the fixed base rather than inlining its diff.
