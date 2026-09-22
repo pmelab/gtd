@@ -76,7 +76,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # the full architecture pass, same as any other skipped judgment.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): architecture-pre → architecture.author"
+    And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
 
     # architecture.author: a COLD read of REQUIREMENTS.md — develops the how,
     # deletes the requirements file once folded in
@@ -146,7 +146,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # conservative default — full review, never suppressed
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
 
     # spec.scoping: no Gtd-Judge trailer on HEAD -> nothing to scope, straight
     # through to the reviewer
@@ -167,7 +167,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # findingJudge: a skipped judgment keeps every finding intact
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.findingJudge → packages.item.spec.striking"
+    And the last commit subject is "gtd(judge): packages.item.spec.findingJudge → packages.item.spec.striking"
 
     # striking: no Gtd-Judge trailer -> nothing struck, the finding survives
     When I run gtd land
@@ -185,7 +185,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
 
     When I run gtd land
     Then it succeeds
@@ -210,7 +210,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # full review lap.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"
@@ -268,7 +268,7 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.check
       gtd(check): design.gate.check → architecture-pre
-      gtd(human): architecture-pre → architecture.author
+      gtd(judge): architecture-pre → architecture.author
       gtd(agent): architecture.author → architecture.gate.check
       gtd(check): architecture.gate.check → architecture.decompose
       gtd(agent): architecture.decompose → packages.picking
@@ -277,19 +277,19 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): packages.item.health.check → packages.item.fix-suite
       gtd(agent): packages.item.fix-suite → packages.item.health.check
       gtd(check): packages.item.health.check → packages.item.spec.pre
-      gtd(human): packages.item.spec.pre → packages.item.spec.scoping
+      gtd(judge): packages.item.spec.pre → packages.item.spec.scoping
       gtd(check): packages.item.spec.scoping → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.spec.findingJudge
-      gtd(human): packages.item.spec.findingJudge → packages.item.spec.striking
+      gtd(judge): packages.item.spec.findingJudge → packages.item.spec.striking
       gtd(check): packages.item.spec.striking → packages.item.fix-spec
       gtd(agent): packages.item.fix-spec → packages.item.health.check
       gtd(check): packages.item.health.check → packages.item.spec.pre
-      gtd(human): packages.item.spec.pre → packages.item.spec.scoping
+      gtd(judge): packages.item.spec.pre → packages.item.spec.scoping
       gtd(check): packages.item.spec.scoping → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.closing
       gtd(check): packages.item.closing → packages.picking
       gtd(check): packages.picking → build.review.pre
-      gtd(human): build.review.pre → build.review.preCheck
+      gtd(judge): build.review.pre → build.review.preCheck
       gtd(check): build.review.preCheck → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.await-review
       gtd(human): build.review.await-review → build.review.deciding
@@ -480,7 +480,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # runs the full triage.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.triage → build.review.triaging"
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.triaging"
 
     # triaging: a skipped judgment defaults every chunk to actionable, so it
     # still captures the raw material and hands off to collecting.
@@ -817,7 +817,7 @@ Feature: The bundled unified workflow — one flow, end to end
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -879,7 +879,7 @@ Feature: The bundled unified workflow — one flow, end to end
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -948,7 +948,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # the full architecture pass.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): architecture-pre → architecture.author"
+    And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
 
   @inmem
   Scenario: the handover — architecture.author works from REQUIREMENTS.md alone, a cold read with no assumption of a prior design conversation
@@ -1038,7 +1038,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # full review — this package has no `## ` sections at all anyway
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
 
     When I run gtd land
     Then it succeeds

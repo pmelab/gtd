@@ -5,6 +5,7 @@ import {
   GitService,
   Host,
   Workspace,
+  templateDiff,
   templateRead,
   templateReadCommitted,
   type GitOperations,
@@ -655,13 +656,16 @@ const withRenderedOn = (
  * (`renderOnEdges`). `it.processCost`/`it.processCostByModel` total only the
  * process's already-committed cost entries — rest resolution always happens
  * BEFORE a step's own `--cost`/`--model` exist, so there is never an
- * in-flight step's cost to fold in here. No diff is computed here —
- * `it.reviewBase`/`it.processBase` are bases a template tells the agent to
- * `git diff` itself.
+ * in-flight step's cost to fold in here. `it.reviewBase`/`it.processBase` are
+ * bases a template names for the AGENT to `git diff` itself; `it.diff` (wired
+ * here, computed lazily — only when a template actually calls it) is the
+ * separate, judge-facing exception that inlines the diff's own content, for
+ * a judge with no repository to run that command in.
  */
 const buildTemplateContext = (
   git: GitOperations,
   read: (path: string) => string,
+  diff: (base: string) => string,
   state: StateName,
   actor: string,
   run: ProcessRun,
@@ -685,6 +689,7 @@ const buildTemplateContext = (
       processCost: totalCostOf(run.costEntries),
       processCostByModel: costByModel(run.costEntries),
       read,
+      diff,
       sections: (path: string) => headingSections(read(path)),
       openQuestions: (path: string) => openQuestionTexts(read(path)),
       openQuestionOptions: (path: string) => openQuestionOptions(read(path)),
@@ -717,6 +722,7 @@ export const summaryTemplateContext = (
     return yield* buildTemplateContext(
       git,
       templateRead(workspace),
+      templateDiff(workspace),
       "",
       "",
       run,
@@ -814,6 +820,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const context = yield* buildTemplateContext(
       git,
       templateRead(workspace),
+      templateDiff(workspace),
       resolved.state,
       resolved.actor,
       run,
@@ -823,9 +830,13 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     )
     // `judge:` renders against committed-only evidence — same context shape,
     // just `read` swapped for `templateReadCommitted` (see `renderHints`).
+    // `diff` stays the SAME working-tree-reading binding as `context`'s own —
+    // it is the one field `judge:` is deliberately allowed to read fresh
+    // (see `PatternTemplates.ts`'s `diff` doc comment).
     const judgeContext = yield* buildTemplateContext(
       git,
       templateReadCommitted(workspace),
+      templateDiff(workspace),
       resolved.state,
       resolved.actor,
       run,

@@ -84,6 +84,38 @@ describe("buildVizModel", () => {
     expect(planning.on).toEqual([{ pattern: "* **", to: "done" }])
   })
 
+  it("carries a judge actor through generically, same as any other actor string (package 02)", () => {
+    const judgeRaw = {
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "verdict",
+          states: {
+            verdict: {
+              actor: "judge",
+              message: "judging",
+              judge: '{"state":"x","questions":[]}',
+              routes: [{ to: "done" }],
+              on: { "* **": "done" },
+            },
+            done: { actor: "human", message: "chore: done" },
+          },
+        },
+      },
+    }
+    const judgeCompiled = compileWorkflowConfig(judgeRaw)
+    const judgeModel = buildVizModel(
+      judgeCompiled.definition,
+      judgeCompiled.tree!,
+      { testCommand: "npm test" },
+      judgeCompiled.scopes,
+    )
+    expect(judgeModel.states.find((s) => s.name === "verdict")).toMatchObject({
+      actor: "judge",
+      kind: "message",
+    })
+  })
+
   it("surfaces `system` as a key/value field with the table's own doc as its tooltip", () => {
     expect(model.fieldDocs["system"]).toBe(STATE_FIELDS.system.doc)
     expect(model.fieldDocs["system"]?.length).toBeGreaterThan(0)

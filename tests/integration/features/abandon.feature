@@ -83,7 +83,7 @@ Feature: gtd abandon — end the process underway without completing it
     # full review lap.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.pre → build.review.preCheck"
+    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"

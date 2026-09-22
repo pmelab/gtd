@@ -535,7 +535,7 @@ machines:
       # both land the same place; only the `Gtd-Judge:` trailer (or its
       # absence) tells them apart.
       judge:
-        actor: human
+        actor: judge
         label: Judging the retry
         message: |
           The check is still red, and this isn't the first round —
@@ -554,10 +554,11 @@ machines:
           - to: $onRed
         on:
           "C": $onRed
-          # The human fallback (Task 6) must not stall on a dirty tree: every
-          # OTHER human gate with no wildcard row is a check/agent state whose
-          # own script owns the tree — this one is a person, who may touch a
-          # file while reading the message. No verdict landed this turn (an
+          # The skipped-judgment fallback (Task 6) must not stall on a dirty
+          # tree: every OTHER check/agent state's own script owns the tree, so
+          # a wildcard row would be dead; this one is a `judge` gate, where a
+          # human may still touch a file while reading the message instead of
+          # running `gtd judge answer`. No verdict landed this turn (an
           # ordinary edit, not `gtd judge answer`) is still the skipped-
           # judgment path: the same conservative $onRed target as "C", never
           # a refusal.
@@ -633,7 +634,7 @@ machines:
       # the same recompute-from-scratch shape `specReview.scoping`/`striking`
       # use.
       screen:
-        actor: human
+        actor: judge
         label: Judging whether these open questions can be answered for you
         message: |
           Judging each open question in `.gtd/QUESTIONS.md` on three
@@ -657,15 +658,21 @@ machines:
           <%
             let questions = []
             let questionOptions = []
+            // Same try/fallback order as `questions`/`questionOptions`, so the
+            // inlined plan text can never name a different document than the
+            // questions themselves do (`.gtd/packages/03-judgment-inlines-its-evidence.md`).
+            let planText = ""
             try {
               questions = it.openQuestions(".gtd/REQUIREMENTS.md")
               questionOptions = it.openQuestionOptions(".gtd/REQUIREMENTS.md")
-            } catch (e) { questions = []; questionOptions = [] }
+              planText = it.read(".gtd/REQUIREMENTS.md")
+            } catch (e) { questions = []; questionOptions = []; planText = "" }
             if (questions.length === 0) {
               try {
                 questions = it.openQuestions(".gtd/ARCHITECTURE.md")
                 questionOptions = it.openQuestionOptions(".gtd/ARCHITECTURE.md")
-              } catch (e) { questions = []; questionOptions = [] }
+                planText = it.read(".gtd/ARCHITECTURE.md")
+              } catch (e) { questions = []; questionOptions = []; planText = "" }
             }
             const qs = []
             questions.forEach(function (text, i) {
@@ -689,7 +696,7 @@ machines:
                 criteria: "The only valid answers are exactly: " + (options.length > 0 ? options.map(function (o) { return JSON.stringify(o) }).join(", ") : "(this question has no listed options — answer with an empty string)") + ". Never invent an option not listed here, and never answer with anything if inferable-" + (i + 1) + " is no.",
               })
             })
-          %>{"state": <%~ JSON.stringify({ questions: questions, questionOptions: questionOptions }) %>, "questions": <%~ JSON.stringify(qs) %>}
+          %>{"state": <%~ JSON.stringify({ plan: planText, questions: questions, questionOptions: questionOptions }) %>, "questions": <%~ JSON.stringify(qs) %>}
         on:
           "C": decide
           "* **": decide
@@ -1236,7 +1243,7 @@ machines:
       # the same recompute-from-scratch shape `packages.item.spec.scoping`
       # uses for the identical reason.
       pre:
-        actor: human
+        actor: judge
         label: Judging whether this round needs a full review lap
         message: |
           Judging whether this round of changes is mechanical, touches no
@@ -1247,10 +1254,10 @@ machines:
           `changesBehavior` — or land untouched to run the full lap (the
           conservative default; a skipped judgment never suppresses it).
         judge: |-
-          {"state": {"reviewBase": "<%= it.reviewBase %>"}, "questions": [
-            {"id": "mechanicalOnly", "primitive": "noul", "instructions": "Over `git diff <%= it.reviewBase %>` (against the working tree), is every hunk mechanical — formatting, a rename, generated output, or a straight refactor with no behavior change?", "criteria": "Answer no if any hunk could plausibly change what the code does, even slightly."},
-            {"id": "touchesPublicAPI", "primitive": "noul", "instructions": "Over the same diff, does any hunk touch a publicly exported symbol, CLI flag, config key, or documented file format?", "criteria": "Answer yes if uncertain which surface counts as public."},
-            {"id": "changesBehavior", "primitive": "noul", "instructions": "Over the same diff, does any hunk change runtime behavior visible to a user or a test?", "criteria": "Answer yes if uncertain."}
+          <% const diffText = it.diff(it.reviewBase) %>{"state": {"reviewBase": "<%= it.reviewBase %>", "diff": <%~ JSON.stringify(diffText) %>}, "questions": [
+            {"id": "mechanicalOnly", "primitive": "noul", "instructions": "Over state.diff (the change from reviewBase to the working tree), is every hunk mechanical — formatting, a rename, generated output, or a straight refactor with no behavior change?", "criteria": "Answer no if any hunk could plausibly change what the code does, even slightly."},
+            {"id": "touchesPublicAPI", "primitive": "noul", "instructions": "Over the same state.diff, does any hunk touch a publicly exported symbol, CLI flag, config key, or documented file format?", "criteria": "Answer yes if uncertain which surface counts as public."},
+            {"id": "changesBehavior", "primitive": "noul", "instructions": "Over the same state.diff, does any hunk change runtime behavior visible to a user or a test?", "criteria": "Answer yes if uncertain."}
           ]}
         on:
           "C": preCheck
@@ -1573,7 +1580,7 @@ machines:
       # chunks — the same guarantee `specReview.pre`'s comment documents for
       # its own `it.sections` use.
       triage:
-        actor: human
+        actor: judge
         label: Judging feedback actionability
         message: |
           Judging whether each `## ` chunk's note in `.gtd/REVIEW.md` is
@@ -1773,7 +1780,7 @@ machines:
       # defaults to failing there, closing the hole structurally rather than
       # trusting every future verdict to be complete.
       pre:
-        actor: human
+        actor: judge
         label: Judging spec coverage
         message: |
           Judging whether the code already satisfies each requirement in the
@@ -1830,9 +1837,9 @@ machines:
           "C": scoping
           # A dirty-tree land with no verdict piped — package 01's own
           # `build.health.judge`/`packages.item.health.judge` fix for this
-          # same shape: the human fallback must not stall on a dirty tree
-          # either, so it takes the same conservative target "C" does —
-          # `scoping` recomputes the real decision fresh either way.
+          # same shape: the skipped-judgment fallback must not stall on a
+          # dirty tree either, so it takes the same conservative target "C"
+          # does — `scoping` recomputes the real decision fresh either way.
           "* **": scoping
       # Owns the WHOLE approve/scope decision `pre`'s own comment describes:
       # recomputes fresh from the package's real `## ` sections (never trusts
@@ -1961,7 +1968,7 @@ machines:
       # never a single first-match target — `striking`, below, computes that
       # itself from the landed `Gtd-Judge:` trailers.
       findingJudge:
-        actor: human
+        actor: judge
         label: Judging findings
         message: |
           Judging whether each finding in `.gtd/SPEC_FEEDBACK.md` would
@@ -1983,9 +1990,9 @@ machines:
           "C": striking
           # A dirty-tree land with no verdict piped — package 01's own
           # `build.health.judge`/`packages.item.health.judge` fix for this
-          # same shape (`templates.test.ts` pins it there): the human
-          # fallback must not stall on a dirty tree either, so it takes the
-          # same conservative target "C" does.
+          # same shape (`templates.test.ts` pins it there): the
+          # skipped-judgment fallback must not stall on a dirty tree either,
+          # so it takes the same conservative target "C" does.
           "* **": striking
       # Strikes every finding the just-landed verdict answered "no", or "yes"
       # under `specFindingKeep`, from `.gtd/SPEC_FEEDBACK.md` — workflow-only,
@@ -2516,7 +2523,7 @@ machines:
       # `questionGate.screen`'s per-question dynamic count, which can't use
       # it — see that state's own comment).
       architecture-pre:
-        actor: human
+        actor: judge
         label: Judging whether this plan warrants an architecture pass
         message: |
           Judging whether `.gtd/REQUIREMENTS.md`'s settled concerns need a

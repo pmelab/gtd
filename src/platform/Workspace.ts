@@ -1,11 +1,32 @@
 import { execFileSync } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
+import {
+  copyFileSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
 import { isAbsolute, join } from "node:path"
 import { Context, Effect, Layer } from "effect"
 import { GitService, type GitOperations } from "./Git.js"
 import { Host } from "./Host.js"
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
+
+/**
+ * `execFileSync`'s default `maxBuffer` (1 MB) throws `ENOBUFS` well below any
+ * real review diff (a touched lockfile or generated fixture clears it
+ * easily) — `Beat.ts` raises the same default to 16 MB for the same class of
+ * problem; `diffSync` goes further (64 MB) since a refused render here stalls
+ * `build.review.pre` outright (`gtd next`/`gtd status`/`gtd judge` all render
+ * the same rest). The judgment doc's own Risk note is deliberate: a diff too
+ * big for the JUDGE MODEL's context is the driver's problem to hit, not
+ * gtd's to pre-empt by truncating or refusing.
+ */
+const DIFF_MAX_BUFFER = 64 * 1024 * 1024
 
 /**
  * The one port onto repo file content, in four REPO-RELATIVE read shapes:
@@ -17,7 +38,9 @@ const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(Strin
  * synchronous — `judge:`'s own Eta render needs evidence bounded to already-
  * committed content, the same "can't `yield*` mid-render" constraint
  * `readSync` exists for, just against `git show` instead of the working
- * tree). Absence is a VALUE (`undefined`) on every shape, never an error — a
+ * tree). `diffSync` is a fifth, separate shape — see its own doc comment —
+ * the one deliberate WORKING-TREE read a `judge:` render may make. Absence is
+ * a VALUE (`undefined`) on every read shape, never an error — a
  * genuine fault (EACCES, EISDIR) still fails/throws for the two working-tree
  * shapes; `committed`/`readCommittedSync` fold EVERY git failure (missing
  * ref, missing path, a real fault) into absence, matching `git show`'s own
@@ -41,6 +64,23 @@ export interface WorkspaceOps {
   readonly committed: (path: string, ref?: string) => Effect.Effect<string | undefined, Error>
   /** `committed`, synchronous — see the interface doc comment. */
   readonly readCommittedSync: (path: string, ref?: string) => string | undefined
+  /**
+   * `git diff <base>` — tracked AND untracked (non-ignored) working-tree
+   * content alike, against `base` — for `judge:`'s Eta render (`it.diff`,
+   * `PatternTemplates.ts`). The one deliberate WORKING-TREE read this port
+   * exposes to a judge template, unlike every other `judge:`-bound member
+   * (`readCommittedSync`), because the fast-path review gate's whole point is
+   * ruling on hunks that are, by definition, not committed yet. A real `git
+   * diff <base>` alone would miss a brand-new file entirely (untracked is
+   * invisible to it), so this runs `git add -N -A` first — against a
+   * THROWAWAY COPY of the real index (`GIT_INDEX_FILE`), deleted after, so
+   * rendering a judgment never flips a real `??` entry into `A` and changes
+   * which `on:` pattern the very next `gtd next` matches. Throws on ANY
+   * failure (bad base, an index copy that fails, an `add -N` error) — never
+   * silently falls back to a tracked-only diff, which would read as "no new
+   * files" to a judge that trusts it.
+   */
+  readonly diffSync: (base: string) => string
   /**
    * Reads an ARBITRARY path — repo-relative or already-absolute, inside the
    * repo, above it, or anywhere else on disk — with the same absence-is-a-
@@ -92,6 +132,43 @@ const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
     }
   }
 
+  // `--absolute-git-dir` (not a hardcoded ".git") so a linked worktree's own
+  // per-worktree index is copied — never the common gitdir's, which a
+  // worktree doesn't share for its index.
+  const diffSync = (base: string): string => {
+    const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: DIFF_MAX_BUFFER,
+    }).trim()
+    const tmpDir = mkdtempSync(join(tmpdir(), "gtd-diff-"))
+    const tmpIndex = join(tmpDir, "index")
+    try {
+      const realIndex = join(gitDir, "index")
+      copyFileSync(realIndex, tmpIndex)
+      // `copyFileSync` gives the copy a FRESH mtime (now) — later than the
+      // real index's own. Git treats an entry as "racily clean" whenever
+      // `entry.mtime >= index_file.mtime`; a fresh copy mtime un-races
+      // entries that WERE racy against the real index, so git trusts stale
+      // cached stat data instead of re-reading content and a same-second,
+      // same-size edit silently vanishes from the diff. Preserving the real
+      // index's own mtime (not "now") keeps that racy-index protection
+      // intact on the copy.
+      const { atime, mtime } = statSync(realIndex)
+      utimesSync(tmpIndex, atime, mtime)
+      const env = { ...process.env, GIT_INDEX_FILE: tmpIndex }
+      execFileSync("git", ["add", "-N", "-A"], { cwd: root, env, maxBuffer: DIFF_MAX_BUFFER })
+      return execFileSync("git", ["diff", base], {
+        cwd: root,
+        env,
+        encoding: "utf8",
+        maxBuffer: DIFF_MAX_BUFFER,
+      })
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  }
+
   return {
     readSync,
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
@@ -107,6 +184,7 @@ const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
         ),
       ),
     readCommittedSync,
+    diffSync,
     atPath: (path) => readFileOrAbsent(resolveAny(path)),
     writeAtPath: (path, content) =>
       Effect.try({ try: () => writeFileSync(resolveAny(path), content, "utf8"), catch: toError }),
@@ -146,6 +224,18 @@ export const templateReadCommitted =
     }
     return content
   }
+
+/**
+ * `it.diff`'s binding (`PatternTemplates.ts`'s `TemplateContext.diff`) —
+ * thin proxy over `workspace.diffSync`, kept as its own named export so a
+ * render site wires it the same "`Pick<WorkspaceOps, ...>`" way
+ * `templateRead`/`templateReadCommitted` do, rather than reaching into
+ * `WorkspaceOps` directly.
+ */
+export const templateDiff =
+  (workspace: Pick<WorkspaceOps, "diffSync">) =>
+  (base: string): string =>
+    workspace.diffSync(base)
 
 export class Workspace extends Context.Tag("Workspace")<Workspace, WorkspaceOps>() {
   static Live = Layer.effect(

@@ -46,7 +46,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     # the full architecture pass.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): architecture-pre → architecture.author"
+    And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
     Given the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """

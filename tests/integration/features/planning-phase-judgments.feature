@@ -52,7 +52,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
 
     # design.gate.decide's own script (a real DRIVER's job, not this
     # harness's) finds the one open question non-blocking, confidently
@@ -142,7 +142,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
 
     # design.gate.decide's own script finds the payment-provider question
     # both blocking and not confidently inferable — nothing to write, since
@@ -171,7 +171,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): architecture-pre → architecture-promote"
+    And the last commit subject is "gtd(judge): architecture-pre → architecture-promote"
 
     # architecture-promote's own script (a real DRIVER's job) promotes
     # .gtd/REQUIREMENTS.md wholesale into a single package file — never
@@ -233,7 +233,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -277,7 +277,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -306,7 +306,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): architecture-pre → architecture-promote"
+    And the last commit subject is "gtd(judge): architecture-pre → architecture-promote"
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -377,7 +377,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.screen → design.gate.decide"
+    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
 
     When I run gtd next with "--json"
     Then it succeeds

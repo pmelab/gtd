@@ -231,5 +231,135 @@ for (const { name, make } of tiers) {
       )
       expect(content).toBe("abs\n")
     })
+
+    it("diffSync carries a tracked modification's own hunk", async () => {
+      t = make()
+      t.commit("a.txt", "one\n")
+      t.writeWorking("a.txt", "two\n")
+      const diff = await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).diffSync("HEAD")
+        }),
+      )
+      expect(diff).toContain("a.txt")
+      expect(diff).toContain("-one")
+      expect(diff).toContain("+two")
+    })
+
+    it("diffSync carries an UNTRACKED, never-added file's own content as a real hunk — git diff alone would miss it entirely", async () => {
+      t = make()
+      t.commit("committed.txt", "seed\n")
+      t.writeWorking("brand-new.txt", "never added\n")
+      const diff = await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).diffSync("HEAD")
+        }),
+      )
+      expect(diff).toContain("brand-new.txt")
+      expect(diff).toContain("+never added")
+    })
+
+    it("diffSync leaves the repository's real index and git status byte-identical — the untracked file stays ??", async () => {
+      t = make()
+      if (name !== "Live") return
+      t.commit("committed.txt", "seed\n")
+      t.writeWorking("brand-new.txt", "never added\n")
+      const statusBefore = gitExecIn(t.root, "status", "--porcelain")
+      await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).diffSync("HEAD")
+        }),
+      )
+      const statusAfter = gitExecIn(t.root, "status", "--porcelain")
+      expect(statusAfter).toBe(statusBefore)
+      expect(statusAfter).toContain("?? brand-new.txt")
+    })
+
+    it("diffSync omits a .gitignore'd file entirely", async () => {
+      t = make()
+      if (name !== "Live") return
+      t.commit(".gitignore", "ignored.txt\n")
+      t.writeWorking("ignored.txt", "should never appear\n")
+      const diff = await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).diffSync("HEAD")
+        }),
+      )
+      expect(diff).not.toContain("ignored.txt")
+    })
+
+    it("diffSync throws for a base that doesn't resolve, rather than falling back to a tracked-only diff", async () => {
+      t = make()
+      if (name !== "Live") return
+      t.commit("a.txt", "one\n")
+      const attempt = t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).diffSync("not-a-real-ref")
+        }),
+      )
+      await expect(attempt).rejects.toThrow()
+    })
+
+    it("diffSync returns a diff well past Node's default 1 MB execFileSync buffer, rather than throwing ENOBUFS", async () => {
+      t = make()
+      if (name !== "Live") return
+      t.commit("seed.txt", "seed\n")
+      // A single-file change past 1 MB — Node's execFileSync default
+      // maxBuffer — reproduces the ENOBUFS a missing `maxBuffer` option
+      // throws (`spec-review` finding: build.review.pre could never render
+      // past this size).
+      const big = "x".repeat(1_400_000)
+      t.writeWorking("big.txt", big)
+      const diff = await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).diffSync("HEAD")
+        }),
+      )
+      expect(diff).toContain("big.txt")
+      expect(diff.length).toBeGreaterThan(1_000_000)
+    })
+
+    // Racy-index pin. `copyFileSync` alone gives the throwaway index a FRESH
+    // mtime; git treats an entry as "racily clean" (must re-read content
+    // rather than trust a cached stat match) exactly when the entry's own
+    // recorded mtime is >= the index FILE's mtime — a fresh copy mtime
+    // un-races entries that were racy against the REAL index, so a
+    // same-tick edit can silently vanish from the diff. This can't be
+    // forced deterministically with `utimesSync`: forging an mtime back to
+    // an earlier value also changes the file's `ctime` (metadata-change
+    // time, unforgeable without root), which then no longer matches the
+    // cached entry either, so git re-reads content anyway and the forced
+    // setup never reproduces the bug — confirmed empirically against both
+    // the buggy and the fixed code path while diagnosing this pin. The
+    // window only exists for a GENUINE same-tick commit-then-edit, so this
+    // asserts across many real ones instead: unfixed, this fails within
+    // ~100 iterations (~1-3% per iteration, reproduced directly against a
+    // real repo while diagnosing `.gtd/packages/03-judgment-inlines-its-evidence.md`);
+    // fixed (the real index's own mtime preserved on the copy), 0 failures
+    // in 150+ iterations.
+    it("diffSync never silently drops a tracked edit made in the same tick as the commit that preceded it, across many real commit-then-edit cycles", async () => {
+      t = make()
+      if (name !== "Live") return
+      const ITERATIONS = 150
+      // Fixed-width content (always 5 bytes) so a genuine content change
+      // never coincides with a size change — the one condition that would
+      // let a plain stat check catch the edit without racy protection ever
+      // being relevant, defeating the pin. Committed content varies by `i`
+      // (else the 2nd+ commit is a same-content no-op, "nothing to
+      // commit"); the uncommitted edit is a fixed marker, same width.
+      for (let i = 0; i < ITERATIONS; i++) {
+        t.commit("a.txt", `${String(i).padStart(4, "0")}\n`)
+        t.writeWorking("a.txt", "zzzz\n")
+        // eslint-disable-next-line no-await-in-loop -- each iteration's
+        // repo state (the just-made commit) must exist before the next.
+        const diff = await t.provide(
+          Effect.gen(function* () {
+            return (yield* Workspace).diffSync("HEAD")
+          }),
+        )
+        expect(diff, `iteration ${i}`).toContain("a.txt")
+        expect(diff, `iteration ${i}`).toContain("+zzzz")
+      }
+    }, 120_000)
   })
 }

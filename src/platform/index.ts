@@ -10,7 +10,13 @@
  * `Workspace.readSync` as a plain function argument instead of injecting the
  * tag. Everything else goes through `Workspace`/`Host` via `yield*`.
  */
-export { Workspace, templateRead, templateReadCommitted, type WorkspaceOps } from "./Workspace.js"
+export {
+  Workspace,
+  templateDiff,
+  templateRead,
+  templateReadCommitted,
+  type WorkspaceOps,
+} from "./Workspace.js"
 export { Host, type HostOps } from "./Host.js"
 export {
   GitService,

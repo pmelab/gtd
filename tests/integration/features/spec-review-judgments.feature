@@ -28,7 +28,7 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
@@ -64,7 +64,7 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
 
     # scoping's own script (a real DRIVER's job, not this harness's) finds
     # every real section answered and confident — given by hand here, same
@@ -105,7 +105,7 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
 
     # sections 2 and 3 were never judged — scoping must scope the reviewer
     # to them, never approve on section-1 alone.
@@ -158,7 +158,7 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
 
     # scoping's own script (a real DRIVER's job, not this harness's) maps the
     # just-landed Gtd-Judge trailers' failing ids back to section titles —
@@ -221,7 +221,7 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.findingJudge → packages.item.spec.striking"
+    And the last commit subject is "gtd(judge): packages.item.spec.findingJudge → packages.item.spec.striking"
 
     # striking's own script strikes the two low-confidence findings from
     # `.gtd/SPEC_FEEDBACK.md` — given by hand, same convention as `scoping`
@@ -273,7 +273,7 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): packages.item.spec.findingJudge → packages.item.spec.striking"
+    And the last commit subject is "gtd(judge): packages.item.spec.findingJudge → packages.item.spec.striking"
 
     Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
     When I run gtd land

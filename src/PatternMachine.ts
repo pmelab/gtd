@@ -816,6 +816,11 @@ const renderJudgeQuestionIds = (
       processCost: 0,
       processCostByModel: [],
       read: () => readStub,
+      // Reuses the SAME per-call stub value as `read` (differs between the
+      // `STUB-A`/`STUB-B` renders below) so a `questions[].id` computed from
+      // `it.diff(...)` — not just `state` — is caught disagreeing the same
+      // way an `it.read(...)`-derived one is; see the module comment above.
+      diff: () => readStub,
       // Always empty regardless of `readStub`: a load-time stub has no real
       // markdown to parse, and this must agree across BOTH stub renders
       // (`STUB-A`/`STUB-B`) for `judgeQuestionIds` to trust either — see its

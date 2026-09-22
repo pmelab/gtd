@@ -136,7 +136,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       [{"id": "chunk-1", "answer": true, "p": 0.95}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.triage → build.review.triaging"
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.triaging"
 
     Given a file ".gtd/REVIEW_RAW.md" with:
       """
