@@ -65,8 +65,6 @@ const runScript = (
     read: () => "",
     diff: () => "",
     sections: () => [],
-    openQuestions: () => [],
-    openQuestionOptions: () => [],
     vars: { ...vars, ...varsOverride },
     edges: [],
   })

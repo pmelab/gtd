@@ -17,8 +17,6 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   read: (path: string) => `contents of ${path}`,
   diff: (base: string) => `diff of ${base}`,
   sections: () => [],
-  openQuestions: () => [],
-  openQuestionOptions: () => [],
   vars: {},
   edges: [],
   ...overrides,

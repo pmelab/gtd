@@ -287,17 +287,8 @@ noted in steps 2, 3, and 4 below.
    thing should do first, then how it should be built, and hands you a file with
    its open questions in it at either point. Answer them in your editor, in the
    file, and start the loop again. Leave the file untouched and start the loop
-   instead to accept the plan as-is, unanswered questions and all. Three more
-   points along this phase are judged rather than always asking you outright:
-   - Each open question, on what-it-should-do first and how-it-should-be-built
-     second: would a wrong assumption here cost a whole rebuild, or is a
-     confident default safe to infer and tick in for you? The first floor is
-     strict (a wrong guess about what you want is expensive); the second is
-     permissive (a wrong technical call is still caught later, in review) — the
-     same judged stop, tuned differently depending on which question it's
-     answering. Confident enough on both, with a specific answer picked from the
-     question's own options, skips it entirely; any doubt still stops and hands
-     you the file.
+   instead to accept the plan as-is, unanswered questions and all. One point
+   along this phase is judged rather than always asking you outright:
    - Before the how-it-should-be-built pass starts: does this plan actually need
      one? A confident no skips it — and the review it would have raised — going
      straight from your answers to a single built package, with no technical
@@ -329,15 +320,12 @@ noted in steps 2, 3, and 4 below.
    other question.
 
 4. **You review.** You get a review document listing what changed and what to
-   look at — plus, when step 2 answered any question for you, an Assumptions
-   section naming each one and what it inferred, so you read those decisions
-   while reviewing the diff they shaped, not buried in the commit trail. Tick
-   the boxes to approve, or write what is wrong. Approving ends the process;
-   feedback sends it back to step 2 for a fresh plan — it never patches over a
-   design you rejected. One more judged point sits on that feedback path: after
-   you leave a comment, is it actionable, or just approval? Confident it's
-   approval-only skips the replan and signs off directly — the same
-   `gtd judge answer` / conservative-default shape as step 3's own judged
+   look at. Tick the boxes to approve, or write what is wrong. Approving ends
+   the process; feedback sends it back to step 2 for a fresh plan — it never
+   patches over a design you rejected. One more judged point sits on that
+   feedback path: after you leave a comment, is it actionable, or just approval?
+   Confident it's approval-only skips the replan and signs off directly — the
+   same `gtd judge answer` / conservative-default shape as step 3's own judged
    points.
 
 You never talk to it. Every exchange is a file in `.gtd/` that you edit in your

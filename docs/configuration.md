@@ -377,25 +377,14 @@ a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
    as actionable at any confidence, rather than every "yes" failing to clear an
    unmeetable floor. Neither is measured by `evals/judgments/`'s sweep — both
    are unmeasured, deliberately conservative defaults, the same posture
-   `specPreJudge` takes. Three more tune the planning phase's own skip-forward
-   judgments: `questionGate.screen`'s per-question `blocking-N`/`inferable-N`
-   nouls need BOTH `questionSkipConservativeMinP` (`0.9`, `design.gate`'s own
-   value) or `questionSkipAggressiveMinP` (`0.6`, `architecture.gate`'s own
-   value) to clear before `questionGate.decide` treats that question as safe to
-   skip without asking — two separate floors, not one, because the same shared
-   `questionGate` machine backs both callers at different stakes (a wrong
-   PRODUCT intent costs a whole rebuild lap; a wrong TECHNICAL call is still
-   caught at spec review). Blanking either makes the same fail-closed direction
-   as `judgeIdenticalMinP` apply: every question then stops for the human, never
-   the opposite. `architectureSkipMinP` (`0.85`) is `architecture-pre`'s own
-   floor: its `architectureWarranted` noul answered "no" must clear it for a
+   `specPreJudge` takes. `architectureSkipMinP` (`0.85`) is `architecture-pre`'s
+   own floor: its `architectureWarranted` noul answered "no" must clear it for a
    plan to skip `architecture.author`/`architecture.decompose` entirely
    (`architecture-promote` instead); blanking it makes that `routes:` row fail
-   to match, so the full architecture pass always runs — again the same
-   fail-closed direction. None of the three is measured by `evals/judgments/`'s
-   sweep — all three are unmeasured, deliberately conservative (or, for
-   `questionSkipAggressiveMinP`, deliberately permissive) defaults, the same
-   posture `specPreJudge` takes.
+   to match, so the full architecture pass always runs — the same fail-closed
+   direction as `judgeIdenticalMinP`. Not measured by `evals/judgments/`'s sweep
+   — an unmeasured, deliberately conservative default, the same posture
+   `specPreJudge` takes.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
 3. **The current process's entry `--var` overrides**, if it was started via

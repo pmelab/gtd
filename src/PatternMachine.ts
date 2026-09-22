@@ -827,11 +827,6 @@ const renderJudgeQuestionIds = (
       // own comment on why a dynamic-count `judge:` template pads its
       // `questions[]` out to a fixed slot count rather than varying it here.
       sections: () => [],
-      // Same "always empty, must agree across both stub renders" rationale as
-      // `sections` above — a load-time stub has no real `qa`-mode markdown to
-      // parse either.
-      openQuestions: () => [],
-      openQuestionOptions: () => [],
       vars,
       edges: [],
     }

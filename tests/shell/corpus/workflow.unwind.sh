@@ -1,19 +1,6 @@
 #!/usr/bin/env sh
 set +e
 mkdir -p .gtd
-# Sweep a leftover `.gtd/ASSUMPTIONS.md` an earlier, ABANDONED
-# process may have left behind — `gtd abandon` keeps every `.gtd/`
-# steering file in the working tree (see `abandon.feature`), and
-# this is the one state that runs exactly once, at process START,
-# before this process's own assumptions (if any) exist — the same
-# "sweep a raw review capture an earlier, abandoned process may
-# have left behind" rationale `entryGate.check`'s own sweep line
-# documents for `.gtd/REVIEW_RAW.md`. Never in `&suiteCheck`
-# (aliased by `review-gate.check`, which runs MID-process, after
-# this process's own planning phase may have already written the
-# file) — sweeping there would delete the CURRENT process's own
-# assumptions before `reviewing`/`fastReview` ever folds them in.
-rm -f .gtd/ASSUMPTIONS.md
 # Hoisted here, at the TOP: Eta's autoTrim eats the newline after
 # an interpolation tag, so no tag may be the last token on a line.
 # Uses it.currentCommit (render-time), not bare HEAD, so a
