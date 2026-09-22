@@ -527,34 +527,6 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     And the last commit body does not contain "Gtd-Judge:"
 
   # `.gtd/packages/03-judgment-inlines-its-evidence.md`: the planning gate's
-  # `questionGate.screen` used to ship the judge only the question headings
-  # and their option lists — never the plan's own prose the question was
-  # drawn from. `state.plan` now carries the whole resolved file's text, in
-  # the same try/fallback order `questions`/`questionOptions` already use.
-  @inmem
-  Scenario: gtd judge at design.gate.screen inlines the plan's own prose, not just the question headings/options (03)
-    Given a test project
-    And the workflow
-    And a commit "gtd(human): design.gate.screen" that adds ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a greet() export returning a friendly string, chosen because bare
-      stdout output alone is unfriendly for a library consumer to script
-      against.
-
-      ## Open Questions
-
-      ### Which storage backend?
-
-      - [ ] SQLite
-      - [ ] Postgres
-      - [ ] _your answer_
-      """
-    When I run gtd with args "judge"
-    Then it succeeds
-    And stdout contains "unfriendly for a library consumer to script"
-
   # Same package, Task 3: the review fast-path gate (`build.review.pre`) used
   # to ship the judge only `reviewBase` and tell it to `git diff` itself — a
   # judge with no repository can't. `state.diff` now carries the real hunks,

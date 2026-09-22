@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { Narrator } from "./Commentary.js"
-import { headingSections, openQuestionOptions, openQuestionTexts } from "./steering/index.js"
+import { headingSections } from "./steering/index.js"
 import {
   GitService,
   Host,
@@ -691,8 +691,6 @@ const buildTemplateContext = (
       read,
       diff,
       sections: (path: string) => headingSections(read(path)),
-      openQuestions: (path: string) => openQuestionTexts(read(path)),
-      openQuestionOptions: (path: string) => openQuestionOptions(read(path)),
       vars,
       edges: toTemplateEdges(edges),
     }

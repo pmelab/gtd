@@ -234,12 +234,6 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       sections: () => {
         throw new Error("must not be called")
       },
-      openQuestions: () => {
-        throw new Error("must not be called")
-      },
-      openQuestionOptions: () => {
-        throw new Error("must not be called")
-      },
       vars: {},
       edges: [],
     }

@@ -666,40 +666,6 @@ const unansweredQuestions = (content: string): readonly OpenQuestion[] =>
   parseOpenQuestions(content).questions.filter((q) => q.status === "open" && !q.answered)
 
 /**
- * Every open, unanswered question's own heading text, in document order —
- * the SAME parse `unansweredQuestions` (and so `gtd check qa <file>
- * --open-questions`) already performs, reduced to just the text a triage
- * renderer needs to build a judge question per open question. `content`
- * `undefined` (the file doesn't exist) yields `[]`, mirroring every other
- * missing-file read in this codebase rather than throwing.
- */
-export const openQuestionTexts = (content: string | undefined): readonly string[] =>
-  content === undefined ? [] : unansweredQuestions(content).map((q) => q.question)
-
-/** One open question's own heading text plus its real (listed, non-free-text) option texts — `openQuestionOptions`'s own element shape. */
-export interface OpenQuestionOptions {
-  readonly question: string
-  readonly options: readonly string[]
-}
-
-/**
- * Every open, unanswered question's heading text plus its own real (listed,
- * non-free-text, non-empty) option texts, in document order — a `choice`
- * judge's own candidate list for "which option would a reasonable default
- * choose" (`questionGate.screen`'s `pick-N` question). The free-text slot is
- * never a candidate: a judge picks among the options the human already
- * wrote, never invents new prose. `content` `undefined` yields `[]`,
- * mirroring `openQuestionTexts`.
- */
-export const openQuestionOptions = (content: string | undefined): readonly OpenQuestionOptions[] =>
-  content === undefined
-    ? []
-    : unansweredQuestions(content).map((q) => ({
-        question: q.question,
-        options: q.options.filter((o) => !o.freeText && o.text.length > 0).map((o) => o.text),
-      }))
-
-/**
  * Flips the checkbox on the task-list item starting at `line`, preserving the
  * rest of the line exactly. `undefined` when `line` isn't a real task-list
  * item's own start line — a bare `[x]` in ordinary prose doesn't count,

@@ -27,8 +27,6 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
     throw new Error(`unexpected diff of ${base}`)
   },
   sections: () => [],
-  openQuestions: () => [],
-  openQuestionOptions: () => [],
   vars,
   edges: [],
 })
