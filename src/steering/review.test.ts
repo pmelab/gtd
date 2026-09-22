@@ -96,20 +96,6 @@ describe("review — structure (checkSteering)", () => {
     )
   })
 
-  it("an 'Assumptions' chunk with no file pointers at all is exempt — an inferred answer carries no code pointer", () => {
-    const content = doc([
-      HEADER,
-      "",
-      BASE,
-      "",
-      "## Assumptions",
-      "",
-      "- Which backend? — not blocking, confidently inferable; skipped without asking (design phase).",
-      "",
-    ])
-    expect(checkSteering(review, content)).toEqual([])
-  })
-
   it("an ordinary chunk still isn't exempted merely by carrying prose that resembles an assumption", () => {
     const content = doc([
       HEADER,
@@ -123,6 +109,22 @@ describe("review — structure (checkSteering)", () => {
     ])
     expect(checkSteering(review, content)).toContainEqual(
       expect.objectContaining({ message: 'Chunk "Not Assumptions" has no file pointers' }),
+    )
+  })
+
+  it("a literal Assumptions chunk with no file pointers is a finding too — no title is exempt", () => {
+    const content = doc([
+      HEADER,
+      "",
+      BASE,
+      "",
+      "## Assumptions",
+      "",
+      "- some inferred note with no pointer",
+      "",
+    ])
+    expect(checkSteering(review, content)).toContainEqual(
+      expect.objectContaining({ message: 'Chunk "Assumptions" has no file pointers' }),
     )
   })
 })

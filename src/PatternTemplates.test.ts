@@ -5,7 +5,7 @@ import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./Pa
 import { compileTemplate } from "./workflows/index.js"
 import { Workspace, templateRead, templateReadCommitted } from "./platform/index.js"
 import { InMemRepo, makeInMemoryWorkspaceOps } from "./testing/index.js"
-import { headingSections, openQuestionTexts } from "./steering/index.js"
+import { headingSections } from "./steering/index.js"
 
 const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext => ({
   startCommit: "aaa111",
@@ -24,8 +24,6 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   },
   diff: (base: string) => `diff of ${base}`,
   sections: () => [],
-  openQuestions: () => [],
-  openQuestionOptions: () => [],
   vars: { greeting: "hi" },
   edges: [],
   ...overrides,
@@ -214,14 +212,12 @@ describe("renderStateTemplate — bundled `script` states render to valid bash",
     expect(scriptStates.map(([name]) => name).sort()).toEqual([
       "architecture-promote",
       "architecture.gate.check",
-      "architecture.gate.decide",
       "build.health.check",
       "build.review.deciding",
       "build.review.fastReview",
       "build.review.preCheck",
       "build.review.triaging",
       "design.gate.check",
-      "design.gate.decide",
       "fix-precheck",
       "packages.item.closing",
       "packages.item.health.check",
@@ -281,8 +277,6 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
             throw new Error("must not be called")
           },
           sections: (path: string) => headingSections(read(path)),
-          openQuestions: () => [],
-          openQuestionOptions: () => [],
           vars: { file: "computed.md" },
           edges: [],
         })
@@ -312,73 +306,12 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
             throw new Error("must not be called")
           },
           sections: (path: string) => headingSections(read(path)),
-          openQuestions: () => [],
-          openQuestionOptions: () => [],
           vars: {},
           edges: [],
         })
       }),
     )
     await expect(renderResult).rejects.toThrow()
-  })
-})
-
-describe("renderStateTemplate — it.openQuestions(path)", () => {
-  const makeWorkspace = () => {
-    const root = "/repo"
-    const repo = new InMemRepo()
-    const workspaceOps = makeInMemoryWorkspaceOps(repo, root)
-    return {
-      repo,
-      provide: <A>(eff: Effect.Effect<A, Error, Workspace>): Promise<A> =>
-        Effect.runPromise(eff.pipe(Effect.provide(Layer.succeed(Workspace, workspaceOps)))),
-    }
-  }
-
-  it("lists each open, unanswered question's heading text — the same parse `gtd check qa --open-questions` performs", async () => {
-    const { repo, provide } = makeWorkspace()
-    repo.writeFile(
-      "REQUIREMENTS.md",
-      [
-        "## Open Questions",
-        "",
-        "### Which backend?",
-        "",
-        "- [ ] SQLite",
-        "- [ ] Postgres",
-        "",
-      ].join("\n"),
-    )
-    const rendered = await provide(
-      Effect.gen(function* () {
-        const workspace = yield* Workspace
-        const read = templateRead(workspace)
-        return renderStateTemplate(
-          '<% it.openQuestions("REQUIREMENTS.md").forEach(function(q){ %><%= q %>;<% }) %>',
-          {
-            startCommit: "",
-            currentCommit: "",
-            previousCommit: "",
-            state: "",
-            actor: "",
-            reviewBase: "",
-            processBase: "",
-            processCost: 0,
-            processCostByModel: [],
-            read,
-            diff: () => {
-              throw new Error("must not be called")
-            },
-            sections: (path: string) => headingSections(read(path)),
-            openQuestions: (path: string) => openQuestionTexts(read(path)),
-            openQuestionOptions: () => [],
-            vars: {},
-            edges: [],
-          },
-        )
-      }),
-    )
-    expect(rendered).toBe("Which backend?;")
   })
 })
 
@@ -417,8 +350,6 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
             throw new Error("must not be called")
           },
           sections: (path: string) => headingSections(read(path)),
-          openQuestions: () => [],
-          openQuestionOptions: () => [],
           vars: {},
           edges: [],
         })
@@ -449,8 +380,6 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
             throw new Error("must not be called")
           },
           sections: (path: string) => headingSections(read(path)),
-          openQuestions: () => [],
-          openQuestionOptions: () => [],
           vars: {},
           edges: [],
         })
@@ -484,8 +413,6 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
             throw new Error("must not be called")
           },
           sections: (path: string) => headingSections(read(path)),
-          openQuestions: () => [],
-          openQuestionOptions: () => [],
           vars: {},
           edges: [],
         })

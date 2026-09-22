@@ -84,28 +84,6 @@ vars:
   # (never silently sign off). Not measured by `evals/judgments/` — chosen
   # conservatively until real `triage` history exists to mine a value from.
   reviewNoteActionable: "0.7"
-  # `questionGate.screen`'s per-question noul PAIR (blocking?, inferable?):
-  # both must clear this floor — blocking at "no", inferable at "yes" — for
-  # that question to skip `questionGate.answer` (the human stop) rather than
-  # stop for it; an unanswered or low-confidence verdict on EITHER noul keeps
-  # the question stopping, the safe default. Two separate floors, not one,
-  # because `questionGate` is shared by two callers with different stakes
-  # (`questionGate.decide`'s script picks between them by checking which of
-  # `.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` exists — the same
-  # file-existence branch `questionGate.check`'s own script already uses,
-  # since a machine `$param` can't be spliced into a shared script body, see
-  # that comment below). Not measured by `evals/judgments/` — chosen
-  # conservatively (design) / permissively (architecture) until real
-  # `questionGate.screen` history exists to mine either from.
-  #
-  # `design.gate`'s own value: PRODUCT questions get the HIGH floor — a wrong
-  # inferred intent costs a whole rebuild lap, so skipping the human here
-  # must be rare.
-  questionSkipConservativeMinP: "0.9"
-  # `architecture.gate`'s own value: TECHNICAL questions get the LOW floor —
-  # a wrong inferred call is still caught at spec review, so skipping the
-  # human here can be common.
-  questionSkipAggressiveMinP: "0.6"
   # `architecture-pre`'s single noul (`architectureWarranted`, over the
   # just-triaged `.gtd/REQUIREMENTS.md`): an answer of "no" needs at least
   # this confidence to skip `architecture.author`/`architecture.decompose`
@@ -238,6 +216,13 @@ vars:
       collect every point above the bar into that ONE section — a question
       held back for a later lap is a bug. One lap is the target; a second is
       the exception
+    - Raise first, narrow second: only once every concern above the bar is
+      raised into `## Open Questions`, walk that same set once more and
+      answer the ones a confident default settles, moving each into
+      `## Answered Questions` with its answer. This pass narrows what's
+      already raised — it is never license to raise less, and skipping the
+      raise to answer straight through is the same bug as holding a
+      question back for a later lap
     - Treat each of these as strong evidence a gap is real: it's a genuine
       fork with divergent outcomes (user-visible for product, materially
       different builds for technical); the diff and history don't already
@@ -581,19 +566,14 @@ machines:
             action: Retry check
             describe: $escalateDescribe
 
-  # Shared check/screen/decide/answer quartet for design.gate/architecture.gate.
-  # No `file:` PARAM for the probe/screen/decide script bodies themselves:
-  # machine `$param` substitution is whole-value only, so a path (or a
-  # threshold) can't be spliced into a shared script body — `file` is instead
-  # the `answer` param's own `file:` (the human gate), and `threshold` is
-  # advisory documentation only (`params:` is never cross-checked against
-  # actual `$name` usage): `screen`/`decide` below read BOTH
-  # `questionSkipConservativeMinP`/`questionSkipAggressiveMinP` directly via
-  # `it.vars` and pick between them the same way `check`'s own script already
-  # picks between REQUIREMENTS.md/ARCHITECTURE.md — by testing which file
-  # exists, at runtime, inside the shared script.
+  # Shared check/answer pair for design.gate/architecture.gate. No `file:`
+  # PARAM for the probe script itself: machine `$param` substitution is
+  # whole-value only, so a path can't be spliced into a shared script body —
+  # `file` is instead the `answer` param's own `file:` (the human gate).
+  # `check`'s own script picks between REQUIREMENTS.md/ARCHITECTURE.md by
+  # testing which file exists, at runtime, inside the shared script.
   questionGate:
-    params: [file, message, onNone, onRevise, checkLabel, answerLabel, threshold]
+    params: [file, message, onNone, onRevise, checkLabel, answerLabel]
     entry: check
     states:
       check:
@@ -619,274 +599,10 @@ machines:
             rm -f .gtd/QUESTIONS.md
           fi
         on:
-          "A .gtd/QUESTIONS.md": screen
-          "M .gtd/QUESTIONS.md": screen
+          "A .gtd/QUESTIONS.md": answer
+          "M .gtd/QUESTIONS.md": answer
           "D .gtd/QUESTIONS.md": $onNone
           "C": $onNone
-      # Per open question: two nouls, `blocking-N` (would a wrong assumption
-      # cost a whole lap?) and `inferable-N` (can a confident default be
-      # inferred without asking?). No `routes:` — the question count is
-      # dynamic, and a `routes:` row for a question with no landed answer is
-      # SKIPPED (not failed), which would let a PARTIAL verdict fall through
-      # to an optimistic catch-all (the exact hole `humanReview.pre`'s own
-      # comment documents). `decide`, below, recomputes the whole skip
-      # decision fresh from the just-landed `Gtd-Judge:` trailers instead —
-      # the same recompute-from-scratch shape `specReview.scoping`/`striking`
-      # use.
-      screen:
-        actor: judge
-        label: Judging whether these open questions can be answered for you
-        message: |
-          Judging each open question in `.gtd/QUESTIONS.md` on three
-          outputs: would a WRONG assumption here cost a whole rebuild lap
-          (`blocking-N`, a noul), can a confident default be inferred from
-          the plan's own context without asking you (`inferable-N`, a
-          noul), and — if so — which of the question's own listed options
-          would that default choose, verbatim (`pick-N`, a choice). A
-          question clears the bar to skip only when answered not-blocking
-          AND inferable, both at sufficient confidence, AND `pick-N` names
-          one of its listed options — any other outcome (including a
-          skipped judgment, or a blank/invented `pick-N`) leaves it
-          stopping for you. `pick-N`'s own answer is what gets ticked in
-          the plan and named in `.gtd/REVIEW.md` later — never just a
-          verdict that skipping is safe. Run `gtd judge answer` and pipe a
-          `blocking-N`/`inferable-N`/`pick-N` verdict triple per open
-          question (in the order `gtd check qa <file> --open-questions`
-          lists them) — or land untouched to keep every question stopping
-          (the conservative default).
-        judge: |-
-          <%
-            let questions = []
-            let questionOptions = []
-            // Same try/fallback order as `questions`/`questionOptions`, so the
-            // inlined plan text can never name a different document than the
-            // questions themselves do (`.gtd/packages/03-judgment-inlines-its-evidence.md`).
-            let planText = ""
-            try {
-              questions = it.openQuestions(".gtd/REQUIREMENTS.md")
-              questionOptions = it.openQuestionOptions(".gtd/REQUIREMENTS.md")
-              planText = it.read(".gtd/REQUIREMENTS.md")
-            } catch (e) { questions = []; questionOptions = []; planText = "" }
-            if (questions.length === 0) {
-              try {
-                questions = it.openQuestions(".gtd/ARCHITECTURE.md")
-                questionOptions = it.openQuestionOptions(".gtd/ARCHITECTURE.md")
-                planText = it.read(".gtd/ARCHITECTURE.md")
-              } catch (e) { questions = []; questionOptions = []; planText = "" }
-            }
-            const qs = []
-            questions.forEach(function (text, i) {
-              const options = (questionOptions[i] && questionOptions[i].options) || []
-              qs.push({
-                id: "blocking-" + (i + 1),
-                primitive: "noul",
-                instructions: "Would a WRONG assumption for the open question \"" + text + "\" cost a whole rebuild lap — does it materially change what gets built?",
-                criteria: "Answer yes if uncertain; a blocking question always stops for the human.",
-              })
-              qs.push({
-                id: "inferable-" + (i + 1),
-                primitive: "noul",
-                instructions: "Can a reasonable, defensible default answer to \"" + text + "\" be confidently inferred from the plan's own context, without asking the human?",
-                criteria: "Answer no if uncertain; only a genuinely confident inference counts.",
-              })
-              qs.push({
-                id: "pick-" + (i + 1),
-                primitive: "choice",
-                instructions: "If \"" + text + "\" is confidently inferable (see inferable-" + (i + 1) + "), which of its own listed options would that confident default choose? Answer with that option's OWN TEXT, verbatim.",
-                criteria: "The only valid answers are exactly: " + (options.length > 0 ? options.map(function (o) { return JSON.stringify(o) }).join(", ") : "(this question has no listed options — answer with an empty string)") + ". Never invent an option not listed here, and never answer with anything if inferable-" + (i + 1) + " is no.",
-              })
-            })
-          %>{"state": <%~ JSON.stringify({ plan: planText, questions: questions, questionOptions: questionOptions }) %>, "questions": <%~ JSON.stringify(qs) %>}
-        on:
-          "C": decide
-          "* **": decide
-      # Recomputes the skip decision fresh from the just-landed `Gtd-Judge:`
-      # trailers AND a fresh `gtd check qa --open-questions` listing (never
-      # trusts `screen`'s own verdict to be complete) — an unanswered or
-      # low-confidence noul on EITHER question, or a blank `pick-N`, defaults
-      # to NOT skipping, the one direction this gate must never get wrong. A
-      # skipped question is an ANSWERED one, never a dropped one: every
-      # question that clears the bar gets its `pick-N` answer folded into
-      # `$file`'s own `## Answered Questions` section — ONLY that question's
-      # own `### ` block moves, matched by its exact heading TEXT (never by
-      # position: a question already ticked from an earlier lap can still sit
-      # under `## Open Questions` without being unanswered, so the block
-      # count and the unanswered count diverge the moment one exists) — and
-      # named, with that same answer, in `.gtd/ASSUMPTIONS.md` (appended, never overwritten —
-      # both `design.gate` and `architecture.gate` share this file across
-      # the whole planning phase) so `humanReview.reviewing` can later name
-      # each one in `.gtd/REVIEW.md`'s own `## Assumptions` chunk.
-      # `.gtd/QUESTIONS.md` — `check`'s own sentinel, otherwise only ever
-      # cleaned up by a LATER `check` run finding no more open questions — is
-      # `rm -f`'d here too, since the skip path never gives `check` that
-      # later run. `answer` (the human stop) is skipped only when EVERY open
-      # question cleared the bar.
-      decide:
-        actor: check
-        label: Scoping which questions still need you
-        script: |
-          #!/usr/bin/env sh
-          set +e
-          file=.gtd/REQUIREMENTS.md
-          label=design
-          threshold=<%~ it.vars.questionSkipConservativeMinP %>; if [ ! -f "$file" ]; then
-            file=.gtd/ARCHITECTURE.md
-            label=architecture
-            threshold=<%~ it.vars.questionSkipAggressiveMinP %>; fi
-          questions=$(gtd check qa "$file" --open-questions 2>&1 \
-            | sed -n "s#^${file}:[0-9]*: ##p")
-          total=0
-          [ -n "$questions" ] && total=$(printf '%s\n' "$questions" | wc -l | tr -d ' ')
-          trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
-          assumptions=$(mktemp)
-          answered=$(mktemp)
-          resolved=$(mktemp)
-          i=1
-          all_safe=1
-          while [ "$i" -le "$total" ]; do
-            qtext=$(printf '%s\n' "$questions" | sed -n "${i}p")
-            b_line=$(printf '%s\n' "$trailers" | grep "\"id\":\"blocking-$i\"" | head -n 1)
-            n_line=$(printf '%s\n' "$trailers" | grep "\"id\":\"inferable-$i\"" | head -n 1)
-            p_line=$(printf '%s\n' "$trailers" | grep "\"id\":\"pick-$i\"" | head -n 1)
-            safe=0
-            p_answer=""
-            if [ -n "$b_line" ] && [ -n "$n_line" ] && [ -n "$p_line" ] && [ -n "$threshold" ]; then
-              b_answer=$(printf '%s' "$b_line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
-              case "$b_answer" in (true) b_answer=yes ;; (false) b_answer=no ;; esac
-              b_p=$(printf '%s' "$b_line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
-              n_answer=$(printf '%s' "$n_line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
-              case "$n_answer" in (true) n_answer=yes ;; (false) n_answer=no ;; esac
-              n_p=$(printf '%s' "$n_line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
-              # A choice answer is a raw JSON string — never a bare "yes"/"no"
-              # word, so no true/false normalization applies here.
-              p_answer=$(printf '%s' "$p_line" | sed -n 's/.*"answer":"\([^"]*\)".*/\1/p')
-              # `pick-i` must name one of question i's OWN listed options —
-              # never a blank, an invented value, or one belonging to a
-              # different question. `$i` indexes `$questions` — the
-              # UNANSWERED-only list `gtd check qa --open-questions` (and so
-              # `screen`'s own `openQuestions`/`openQuestionOptions`) already
-              # produces — which is NOT the same count as every `### `
-              # heading under `## Open Questions`: a question already ticked
-              # (but not yet migrated out) still sits there without being
-              # unanswered. Matching `q_options` by the question's own TEXT
-              # (`$qtext`, from that same `$questions` list), never by
-              # position among ALL headings, is what keeps the two aligned —
-              # a positional match validated against the wrong question's
-              # options on any file with even one already-ticked question.
-              q_options=$(awk -v qtext="$qtext" '
-                /^## Open Questions[ \t]*$/ { in_open = 1; next }
-                in_open && /^## / { in_open = 0 }
-                !in_open { next }
-                /^### / {
-                  if (in_q) { for (k = 1; k < n; k++) print opt[k] }
-                  line = $0
-                  sub(/^### /, "", line)
-                  in_q = (line == qtext); n = 0
-                  next
-                }
-                in_q && /^[-*] \[[ xX]\] / {
-                  line = $0
-                  sub(/^[-*] \[[ xX]\] /, "", line)
-                  n++; opt[n] = line
-                }
-                END { if (in_q) { for (k = 1; k < n; k++) print opt[k] } }
-              ' "$file")
-              picked_valid=0
-              if [ -n "$p_answer" ] && printf '%s\n' "$q_options" | grep -Fxq "$p_answer"; then
-                picked_valid=1
-              fi
-              if [ "$b_answer" = "no" ] \
-                && awk -v p="$b_p" -v t="$threshold" 'BEGIN{exit !(p>=t)}' 2>/dev/null \
-                && [ "$n_answer" = "yes" ] \
-                && awk -v p="$n_p" -v t="$threshold" 'BEGIN{exit !(p>=t)}' 2>/dev/null \
-                && [ "$picked_valid" -eq 1 ]; then
-                safe=1
-              fi
-            fi
-            if [ "$safe" -eq 1 ]; then
-              printf -- '- %s → %s — not blocking, confidently inferable; skipped without asking (%s phase).\n' \
-                "$qtext" "$p_answer" "$label" >> "$assumptions"
-              printf -- '### %s\n\n%s\n\n' "$qtext" "$p_answer" >> "$answered"
-              printf '%s\n' "$qtext" >> "$resolved"
-            else
-              all_safe=0
-            fi
-            i=$((i + 1))
-          done
-          if [ "$total" -gt 0 ] && [ "$all_safe" -eq 1 ]; then
-            mkdir -p .gtd
-            rm -f .gtd/QUESTIONS.md
-            cat "$assumptions" >> .gtd/ASSUMPTIONS.md
-            # `-v blockfile=`/`-v resolvedfile=` (PATHS, one line each)
-            # rather than `-v` carrying either file's own multi-line text: a
-            # whole-value `-v` with an embedded newline is a hard `awk` parse
-            # error on at least one POSIX awk this script must run under —
-            # `dumpblock()`'s own `getline < blockfile` loop streams the
-            # resolved Q&A text in, and `resolved[]` (built once, in BEGIN,
-            # from `$resolvedfile`) is the exact-heading-text drop set: a
-            # `### ` block under `## Open Questions` is removed ONLY when its
-            # own heading text is a member, so an already-ticked SIBLING
-            # question — resolved by an earlier human lap, not this judged
-            # one — survives untouched. `## Open Questions` itself is only
-            # dropped when NOTHING survives under it (`any_kept` stays 0).
-            awk -v blockfile="$answered" -v resolvedfile="$resolved" '
-              function dumpblock(   line) {
-                while ((getline line < blockfile) > 0) print line
-                close(blockfile)
-              }
-              BEGIN {
-                while ((getline line < resolvedfile) > 0) resolved[line] = 1
-                close(resolvedfile)
-              }
-              /^## Open Questions[ \t]*$/ {
-                in_open = 1; open_heading = $0; buf_n = 0; any_kept = 0
-                next
-              }
-              in_open && /^## / {
-                in_open = 0
-                if (any_kept) {
-                  print open_heading
-                  for (k = 1; k <= buf_n; k++) print buf[k]
-                }
-              }
-              in_open {
-                if ($0 ~ /^### /) {
-                  line = $0
-                  sub(/^### /, "", line)
-                  dropping = (line in resolved)
-                  if (!dropping) any_kept = 1
-                }
-                if (!dropping) { buf_n++; buf[buf_n] = $0 }
-                next
-              }
-              /^## Answered Questions[ \t]*$/ {
-                print
-                print ""
-                dumpblock()
-                printed = 1
-                next
-              }
-              { print }
-              END {
-                if (in_open && any_kept) {
-                  print open_heading
-                  for (k = 1; k <= buf_n; k++) print buf[k]
-                }
-                if (!printed) {
-                  print ""
-                  print "## Answered Questions"
-                  print ""
-                  dumpblock()
-                }
-              }
-            ' "$file" > "$file.new" && mv "$file.new" "$file"
-          fi
-          rm -f "$assumptions" "$answered" "$resolved"
-        on:
-          "A .gtd/ASSUMPTIONS.md": $onNone
-          "M .gtd/ASSUMPTIONS.md": $onNone
-          "* **": answer
-          "C": answer
       answer:
         actor: human
         label: $answerLabel
@@ -993,7 +709,9 @@ machines:
 
           Raise questions only for product concerns here — technical ones
           wait for the next phase. When every concern is TECHNICAL, write
-          no `## Open Questions` section.
+          no `## Open Questions` section. STRICT: answer it yourself only
+          when the product default is unmistakable; a wrong intent costs a
+          whole rebuild lap.
 
           ### Fold in the sketch
 
@@ -1039,7 +757,6 @@ machines:
           onRevise: triage
           checkLabel: Checking for open questions
           answerLabel: Awaiting your product answers
-          threshold: <%= it.vars.questionSkipConservativeMinP %>
           message: |
             Answering here closes a gap between what you want the product to
             do and what gets built; changing nothing and re-running says that
@@ -1136,7 +853,9 @@ machines:
           - Prefer fewer, larger packages — the smallest independently
             valuable change, not the smallest change that compiles
           - Every open point here is TECHNICAL — triage already resolved
-            the product ones, one phase earlier
+            the product ones, one phase earlier. PERMISSIVE: answer it
+            yourself unless you genuinely cannot defend a default; a wrong
+            technical call is still caught at spec review
 
           <%~ it.vars.questionBar %>
 
@@ -1154,7 +873,6 @@ machines:
           onRevise: author
           checkLabel: Checking for open questions
           answerLabel: Awaiting your technical answers
-          threshold: <%= it.vars.questionSkipAggressiveMinP %>
           message: |
             Answering here closes a gap between what you want built and how
             it actually gets built; changing nothing and re-running says
@@ -1336,17 +1054,7 @@ machines:
             else
               printf -- '- [ ] ./.gtd/REVIEW.md — no file changes this round\n'
             fi
-            # The fast path skips `reviewing` entirely — its own prompt is
-            # the ONLY other place `.gtd/ASSUMPTIONS.md` gets folded in and
-            # swept, so this script owns both here too: a fast-pathed round
-            # must never sign off on a review record naming zero inferred
-            # answers, and must never leak the file into the next process.
-            if [ -f .gtd/ASSUMPTIONS.md ]; then
-              printf '\n## Assumptions\n\n'
-              cat .gtd/ASSUMPTIONS.md
-            fi
           } > .gtd/REVIEW.md
-          rm -f .gtd/ASSUMPTIONS.md
         on:
           "A .gtd/REVIEW.md": await-review
           "M .gtd/REVIEW.md": await-review
@@ -1369,9 +1077,8 @@ machines:
 
           <%~ it.vars.stateFileRules %>
 
-          - The only state files this turn touches are `.gtd/REVIEW.md`
-            (written) and `.gtd/ASSUMPTIONS.md` (deleted once folded in,
-            when it exists) — no other files for notes or output
+          - The only state file this turn touches is `.gtd/REVIEW.md` —
+            no other files for notes or output
 
           Write `.gtd/REVIEW.md` in this exact format, to help a human
           review the changes:
@@ -1397,16 +1104,6 @@ machines:
             A note sitting entirely on the line(s) beneath the pointer is
             also valid. Either way, the note must never start with a bare `./path` token
             — that parses as a second pointer, not a note
-          <% let assumptions; try { assumptions = it.read(".gtd/ASSUMPTIONS.md") } catch (e) { assumptions = undefined } %><% if (assumptions) { %>
-          - `.gtd/ASSUMPTIONS.md` exists — the planning phase skipped one or
-            more open questions without asking you, each judged not blocking
-            and confidently inferable. Fold its content, unchanged, into its
-            own `## Assumptions` chunk (one line per assumption, no `./path`
-            pointer on any of them — this ONE chunk is exempt from the
-            "one pointer per hunk" rule above) so you read every inferred
-            answer while reviewing the diff it shaped. Delete
-            `.gtd/ASSUMPTIONS.md` this turn, folded in
-          <% } %>
           No diff is given — read the changes yourself. The range runs
           from `<%= it.reviewBase %>` to the working tree (committed turns
           plus anything pending); on a feedback round that's the previous
@@ -2358,19 +2055,6 @@ machines:
           #!/usr/bin/env sh
           set +e
           mkdir -p .gtd
-          # Sweep a leftover `.gtd/ASSUMPTIONS.md` an earlier, ABANDONED
-          # process may have left behind — `gtd abandon` keeps every `.gtd/`
-          # steering file in the working tree (see `abandon.feature`), and
-          # this is the one state that runs exactly once, at process START,
-          # before this process's own assumptions (if any) exist — the same
-          # "sweep a raw review capture an earlier, abandoned process may
-          # have left behind" rationale `entryGate.check`'s own sweep line
-          # documents for `.gtd/REVIEW_RAW.md`. Never in `&suiteCheck`
-          # (aliased by `review-gate.check`, which runs MID-process, after
-          # this process's own planning phase may have already written the
-          # file) — sweeping there would delete the CURRENT process's own
-          # assumptions before `reviewing`/`fastReview` ever folds them in.
-          rm -f .gtd/ASSUMPTIONS.md
           # Hoisted here, at the TOP: Eta's autoTrim eats the newline after
           # an interpolation tag, so no tag may be the last token on a line.
           # Uses it.currentCommit (render-time), not bare HEAD, so a
@@ -2519,9 +2203,7 @@ machines:
       # pass, never an ex-ante complexity score off the bare `.gtd/TODO.md`
       # (that has no committed artifact to judge, and would break the
       # evidence rule every other judge state in this file follows). A
-      # single fixed noul, so `routes:` is the right tool here (unlike
-      # `questionGate.screen`'s per-question dynamic count, which can't use
-      # it — see that state's own comment).
+      # single fixed noul, so `routes:` is the right tool here.
       architecture-pre:
         actor: judge
         label: Judging whether this plan warrants an architecture pass

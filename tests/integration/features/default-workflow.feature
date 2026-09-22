@@ -802,29 +802,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And I execute the printed check script
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.check → design.gate.screen"
-    And ".gtd/QUESTIONS.md" exists
-
-    # design.gate.screen: judge the one open question as blocking and not
-    # confidently inferable — design.gate.decide's real script (executed for
-    # real too, same @live convention this whole scenario already uses)
-    # finds nothing safe to skip and rests the process at the human gate.
-    When I run gtd judge answer with stdin:
-      """
-      [
-        {"id": "blocking-1", "answer": true, "p": 0.95},
-        {"id": "inferable-1", "answer": false, "p": 0.95}
-      ]
-      """
-    Then it succeeds
-    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
-
-    When I run gtd next with "--json"
-    Then it succeeds
-    And I execute the printed check script
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.decide → design.gate.answer"
+    And the last commit subject is "gtd(check): design.gate.check → design.gate.answer"
     And ".gtd/QUESTIONS.md" exists
 
     # Round 1's question is answered in full (satisfying the answer gate),
@@ -869,24 +847,29 @@ Feature: The bundled unified workflow — one flow, end to end
     And I execute the printed check script
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.check → design.gate.screen"
+    And the last commit subject is "gtd(check): design.gate.check → design.gate.answer"
 
-    When I run gtd judge answer with stdin:
+  @inmem
+  Scenario: a self-answered question in ## Answered Questions never stops the process at design.gate.answer
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): design.triage → design.gate.check" that adds ".gtd/REQUIREMENTS.md" with:
       """
-      [
-        {"id": "blocking-1", "answer": true, "p": 0.95},
-        {"id": "inferable-1", "answer": false, "p": 0.95}
-      ]
-      """
-    Then it succeeds
-    And the last commit subject is "gtd(judge): design.gate.screen → design.gate.decide"
+      ## Greeting export
 
-    When I run gtd next with "--json"
-    Then it succeeds
-    And I execute the printed check script
+      Add a greet() export returning a friendly string.
+
+      ## Answered Questions
+
+      ### Which storage backend?
+
+      SQLite — no concurrent writers, a confident default.
+      """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.decide → design.gate.answer"
+    And the last commit subject is "gtd(check): design.gate.check → architecture-pre"
+    And the git log does not contain "Gtd-Judge:"
+    And ".gtd/ASSUMPTIONS.md" does not exist
 
   @inmem
   Scenario: a hand-edited code change does not survive the unwind; its concern is folded into REQUIREMENTS.md instead

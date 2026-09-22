@@ -57,8 +57,6 @@ const runScoping = (dir: string, specPreJudge: string): void => {
     read: () => "",
     diff: () => "",
     sections: () => [],
-    openQuestions: () => [],
-    openQuestionOptions: () => [],
     vars: { ...vars, specPreJudge },
     edges: [],
   })
@@ -177,8 +175,6 @@ const runStriking = (dir: string, specFindingKeep: string): void => {
     read: () => "",
     diff: () => "",
     sections: () => [],
-    openQuestions: () => [],
-    openQuestionOptions: () => [],
     vars: { ...vars, specFindingKeep },
     edges: [],
   })
@@ -301,8 +297,6 @@ describe("packages.item.spec.pre's judge template (round-3 review)", () => {
         path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
       diff: () => "",
       sections: () => ["Do the thing"],
-      openQuestions: () => [],
-      openQuestionOptions: () => [],
       vars,
       edges: [],
     }

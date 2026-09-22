@@ -6,13 +6,7 @@ import {
   unansweredQuestions,
   viewOf,
 } from "./index.js"
-import {
-  FREE_TEXT_PLACEHOLDER,
-  isAnswered,
-  openQuestionOptions,
-  openQuestionTexts,
-  parseOpenQuestions,
-} from "./qa.js"
+import { FREE_TEXT_PLACEHOLDER, isAnswered, parseOpenQuestions } from "./qa.js"
 import { getParseCount } from "./index.js"
 
 const qa = steeringFormatFor("qa")!
@@ -488,100 +482,6 @@ describe("qa — answer completeness (unansweredQuestions)", () => {
     expect(unansweredQuestions(qa, content)).toEqual([
       expect.objectContaining({ question: "Which backend?", headingLine: 4 }),
     ])
-  })
-})
-
-describe("openQuestionTexts", () => {
-  it("returns each open question's heading text, in document order", () => {
-    const content = doc([
-      "Plan.",
-      "",
-      "## Open Questions",
-      "",
-      "### Which backend?",
-      "",
-      "- [ ] SQLite",
-      "- [ ] Postgres",
-      "",
-      "### Which cache?",
-      "",
-      "- [ ] Redis",
-      "- [ ] Memcached",
-      "",
-    ])
-    expect(openQuestionTexts(content)).toEqual(["Which backend?", "Which cache?"])
-  })
-
-  it("omits an already-answered question", () => {
-    const content = doc([
-      "## Open Questions",
-      "",
-      "### A?",
-      "",
-      "- [x] Yes",
-      "- [ ] No",
-      "",
-      "### B?",
-      "",
-      "- [ ] Yes",
-      "- [ ] No",
-      "",
-    ])
-    expect(openQuestionTexts(content)).toEqual(["B?"])
-  })
-
-  it("returns [] for a file with no questions at all", () => {
-    expect(openQuestionTexts("Just a plan, no questions.")).toEqual([])
-  })
-
-  it("returns [] for a missing file (undefined content)", () => {
-    expect(openQuestionTexts(undefined)).toEqual([])
-  })
-})
-
-describe("openQuestionOptions", () => {
-  it("returns each open question's text plus its real (listed) option texts, excluding the free-text slot", () => {
-    const content = doc([
-      "## Open Questions",
-      "",
-      "### Which backend?",
-      "",
-      "- [ ] SQLite",
-      "- [ ] Postgres",
-      "- [ ] _your answer_",
-      "",
-    ])
-    expect(openQuestionOptions(content)).toEqual([
-      { question: "Which backend?", options: ["SQLite", "Postgres"] },
-    ])
-  })
-
-  it("omits an already-answered question", () => {
-    const content = doc([
-      "## Open Questions",
-      "",
-      "### A?",
-      "",
-      "- [x] Yes",
-      "- [ ] No",
-      "- [ ] _your answer_",
-      "",
-      "### B?",
-      "",
-      "- [ ] Yes",
-      "- [ ] No",
-      "- [ ] _your answer_",
-      "",
-    ])
-    expect(openQuestionOptions(content)).toEqual([{ question: "B?", options: ["Yes", "No"] }])
-  })
-
-  it("returns [] for a file with no questions at all", () => {
-    expect(openQuestionOptions("Just a plan, no questions.")).toEqual([])
-  })
-
-  it("returns [] for a missing file (undefined content)", () => {
-    expect(openQuestionOptions(undefined)).toEqual([])
   })
 })
 

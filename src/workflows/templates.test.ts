@@ -211,36 +211,6 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("questionGate's `threshold` param is inert at render time (a machine `$param` can't be spliced into a shared script body) — pins design.gate/architecture.gate's own `with: threshold:` to the EXACT var name questionGate.decide's script reads instead, so a rename of one without the other is caught here (04)", () => {
-    // `compileTemplate()`'s own flattened `definition` reflects nothing of
-    // `threshold` at all (never bound to a real state field), so this reads
-    // the raw, uncompiled machine tree instead — the one place `threshold`'s
-    // OWN pairing with the var each caller means still exists on disk.
-    const parsed = parseYaml(unifiedYaml) as {
-      readonly vars: Record<string, unknown>
-      readonly machines: {
-        readonly designPlan: {
-          readonly states: { readonly gate: { readonly with: { readonly threshold: unknown } } }
-        }
-        readonly archPlan: {
-          readonly states: { readonly gate: { readonly with: { readonly threshold: unknown } } }
-        }
-        readonly questionGate: { readonly states: { readonly decide: { readonly script: string } } }
-      }
-    }
-    expect(parsed.machines.designPlan.states.gate.with.threshold).toBe(
-      "<%= it.vars.questionSkipConservativeMinP %>",
-    )
-    expect(parsed.machines.archPlan.states.gate.with.threshold).toBe(
-      "<%= it.vars.questionSkipAggressiveMinP %>",
-    )
-    expect(parsed.vars).toHaveProperty("questionSkipConservativeMinP")
-    expect(parsed.vars).toHaveProperty("questionSkipAggressiveMinP")
-    const decideScript = parsed.machines.questionGate.states.decide.script
-    expect(decideScript).toContain("it.vars.questionSkipConservativeMinP")
-    expect(decideScript).toContain("it.vars.questionSkipAggressiveMinP")
-  })
-
   it("no state declares `mode: prose`", () => {
     const { definition } = compileTemplate()
     for (const [name, state] of Object.entries(definition.states)) {
@@ -791,36 +761,6 @@ describe("the bundled unified workflow template", () => {
     expect(prompt).toMatch(/never start\s+with a bare `\.\/path` token/i)
   })
 
-  it("build.review.reviewing pins the Assumptions-chunk rule (04): folds .gtd/ASSUMPTIONS.md into its own chunk, exempt from the one-pointer-per-hunk rule, when it exists", () => {
-    const { definition } = compileTemplate()
-    const prompt = definition.states["build.review.reviewing"]!.prompt!
-
-    expect(prompt).toMatch(/ASSUMPTIONS\.md/)
-    expect(prompt).toMatch(/## Assumptions/)
-    expect(prompt).toMatch(/exempt from the\s+"one pointer per hunk" rule/i)
-
-    const renderedNoAssumptions = renderStateTemplate(prompt, {
-      ...varsOnlyContext(compileTemplate().vars),
-      currentCommit: "abc1234",
-      reviewBase: "def5678",
-      read: (path: string) => {
-        throw new Error(`no ${path}`)
-      },
-    })
-    expect(renderedNoAssumptions).not.toContain("ASSUMPTIONS.md` exists")
-
-    const renderedWithAssumptions = renderStateTemplate(prompt, {
-      ...varsOnlyContext(compileTemplate().vars),
-      currentCommit: "abc1234",
-      reviewBase: "def5678",
-      read: (path: string) => {
-        if (path === ".gtd/ASSUMPTIONS.md") return "- Which backend? — inferred\n"
-        throw new Error(`no ${path}`)
-      },
-    })
-    expect(renderedWithAssumptions).toContain("ASSUMPTIONS.md` exists")
-  })
-
   // Package 01 (shared prompt vars): a misspelt `it.vars.<name>` tag or a
   // blanked override renders the literal string `undefined` into an agent's
   // prompt — silently, with no throw and no warning (Eta just stringifies
@@ -912,6 +852,30 @@ describe("the bundled unified workflow template", () => {
     expect(vars.questionBarReturn).toMatch(
       /gap\s+between what the human wants and what gets built/i,
     )
+  })
+
+  it("design.triage and architecture.author both carry the second-pass wording (via the shared questionBar var) and each carries its OWN strictness sentence, never the other's (package 01)", () => {
+    const { definition, vars } = compileTemplate()
+    const triagePrompt = definition.states["design.triage"]!.prompt!
+    const authorPrompt = definition.states["architecture.author"]!.prompt!
+
+    // Both sites inject the shared questionBar tag, which carries the
+    // second-pass wording — pinned on the var itself, since the raw prompt
+    // text holds only the uninterpolated `<%~ it.vars.questionBar %>` tag.
+    expect(triagePrompt).toContain("<%~ it.vars.questionBar %>")
+    expect(authorPrompt).toContain("<%~ it.vars.questionBar %>")
+    expect(vars.questionBar).toMatch(/raise first,?\s*narrow second/i)
+    expect(vars.questionBar).toMatch(/never\s+license to raise less/i)
+    expect(vars.questionBar).toMatch(/skipping the\s+raise.*same bug/is)
+
+    expect(triagePrompt).toMatch(
+      /STRICT:\s+answer it yourself only\s+when the product default is unmistakable/is,
+    )
+    expect(triagePrompt).not.toMatch(/PERMISSIVE/)
+    expect(authorPrompt).toMatch(
+      /PERMISSIVE:\s+answer it\s+yourself unless you genuinely cannot defend a default/is,
+    )
+    expect(authorPrompt).not.toMatch(/STRICT/)
   })
 
   it("design.gate and architecture.gate messages each name what the gate is for, in that site's own voice (package 01)", () => {
@@ -1192,49 +1156,6 @@ describe("the bundled template's machine boundaries line up with conversational 
 })
 
 describe("a judgment inlines the evidence its questions ask about (package 03)", () => {
-  it("design.gate.screen's rendered judgment carries the plan's own prose, not just the question headings/options", () => {
-    const { definition, vars } = compileTemplate()
-    const state = definition.states["design.gate.screen"]!
-    const planProse = "Because the sky is blue and the sea is deep, we chose SQLite for storage."
-    const rendered = renderStateTemplate(state.judge!, {
-      ...varsOnlyContext(vars, "design.gate.screen"),
-      read: (path: string) => {
-        if (path === ".gtd/REQUIREMENTS.md") return planProse
-        throw new Error(`ENOENT: ${path}`)
-      },
-      openQuestions: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? ["Which backend?"] : []),
-      openQuestionOptions: (path: string) =>
-        path === ".gtd/REQUIREMENTS.md"
-          ? [{ question: "Which backend?", options: ["SQLite", "Postgres"] }]
-          : [],
-    })
-    const doc = JSON.parse(rendered)
-    expect(doc.state.plan).toBe(planProse)
-    // The old behaviour (headings/options only) stays present too — this is
-    // additive evidence, not a replacement of the question data itself.
-    expect(doc.state.questions).toEqual(["Which backend?"])
-  })
-
-  it("architecture.gate.screen falls back to .gtd/ARCHITECTURE.md's own prose when REQUIREMENTS.md carries no open questions — same try/fallback order as the questions themselves", () => {
-    const { definition, vars } = compileTemplate()
-    const state = definition.states["architecture.gate.screen"]!
-    const archProse = "The service boundary is drawn at the repo root because of X."
-    const rendered = renderStateTemplate(state.judge!, {
-      ...varsOnlyContext(vars, "architecture.gate.screen"),
-      read: (path: string) => {
-        if (path === ".gtd/ARCHITECTURE.md") return archProse
-        throw new Error(`ENOENT: ${path}`)
-      },
-      openQuestions: (path: string) => (path === ".gtd/ARCHITECTURE.md" ? ["Which host?"] : []),
-      openQuestionOptions: (path: string) =>
-        path === ".gtd/ARCHITECTURE.md"
-          ? [{ question: "Which host?", options: ["Fly", "Render"] }]
-          : [],
-    })
-    const doc = JSON.parse(rendered)
-    expect(doc.state.plan).toBe(archProse)
-  })
-
   it("build.review.pre's rendered judgment carries real diff hunks in state.diff, and its three questions reference state.diff rather than a command the judge would have to run", () => {
     const { definition, vars } = compileTemplate()
     const state = definition.states["build.review.pre"]!
