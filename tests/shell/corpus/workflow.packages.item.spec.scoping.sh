@@ -18,12 +18,15 @@ threshold=0.9; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
       failing=1
       if [ -n "$line" ]; then
         answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
-        # Same RAW-verdict shape `striking` documents (a noul
-        # answer is conventionally a JSON boolean, but the decode
-        # accepts a quoted "yes"/"no" string too) — both spellings
-        # must clear a section, or a driver using the string form
-        # silently loses the whole optimisation, scoping every
-        # section into review forever without ever being wrong.
+        # A noul answer is conventionally a JSON boolean
+        # (`true`/`false`), never the bare "yes"/"no" `routes:`
+        # matching normalizes it to internally (`asRouteAnswers`,
+        # src/step/planStep.ts), but the decode accepts a quoted
+        # string too — the committed trailer carries the RAW
+        # verdict, so both spellings must clear a section here, or
+        # a driver using the string form silently loses the whole
+        # optimisation, scoping every section into review forever
+        # without ever being wrong.
         case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
         p=$(printf '%s' "$line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
         # `[ -n "$threshold" ]` guards a BLANK `specPreJudge`: awk

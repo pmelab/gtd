@@ -1,17 +1,20 @@
-Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-review-judgments.md)
+Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
 
   `packages.item.spec.pre` renders one `noul` per `## ` section of the
-  package the current build is judged against; `packages.item.spec.striking`
-  renders one `noul` per `## ` finding in a fresh review's own
-  `.gtd/SPEC_FEEDBACK.md`. Both are entered directly here (a fabricated
-  commit history, exactly `machine-memory.feature`'s technique) rather than
-  walked through triage/architecture — the states under test don't care how
-  the process got there, only what a landed verdict does next. `scoping`'s
-  and `striking`'s own shell bodies are workflow-authored scripts a real
-  DRIVER runs (never this test harness, same convention every other
-  `actor: check` state's script uses here) — their effect is given by hand,
-  the way `packages.item.health.check`'s own script output already is
+  package the current build is judged against. It is entered directly here
+  (a fabricated commit history, exactly `machine-memory.feature`'s
+  technique) rather than walked through triage/architecture — the states
+  under test don't care how the process got there, only what a landed
+  verdict does next. `scoping`'s own shell body is a workflow-authored
+  script a real DRIVER runs (never this test harness, same convention every
+  other `actor: check` state's script uses here) — its effect is given by
+  hand, the way `packages.item.health.check`'s own script output already is
   elsewhere in this suite.
+
+  There is no post-judge over the review's findings: `review` owns the
+  severity bar itself and a round that finds only nits writes nothing, so
+  the last scenario pins that a written `.gtd/SPEC_FEEDBACK.md` goes
+  straight to `fix-spec` with every finding intact.
 
   @inmem
   Scenario: a skipped judgment (no verdict) always runs the full review — the fail-open default, even for a package with no `## ` sections at all
@@ -179,7 +182,7 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
     And stdout does not contain "Section C"
 
   @inmem
-  Scenario: one of three review findings survives the post-judge — fix-spec runs with exactly that finding
+  Scenario: a written .gtd/SPEC_FEEDBACK.md routes straight to fix-spec with every finding intact — no post-judge re-weighs them
     Given a test project
     And the workflow
     And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
@@ -200,48 +203,18 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
 
       src/a.ts#12 never guards against a null input, contradicting the spec.
 
-      ## Prefer const
+      ## Unhandled empty list
 
-      src/a.ts#20 uses `let` where the value is never reassigned.
-
-      ## Extra blank line
-
-      src/a.ts#30 has a stray blank line.
+      src/a.ts#20 throws on the empty input the criteria name.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.spec.findingJudge"
-
-    When I run gtd judge answer with stdin:
-      """
-      [
-        {"id": "finding-1", "answer": true, "p": 0.95},
-        {"id": "finding-2", "answer": false, "p": 0.9},
-        {"id": "finding-3", "answer": false, "p": 0.9}
-      ]
-      """
-    Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.findingJudge → packages.item.spec.striking"
-
-    # striking's own script strikes the two low-confidence findings from
-    # `.gtd/SPEC_FEEDBACK.md` — given by hand, same convention as `scoping`
-    # above.
-    Given ".gtd/SPEC_FEEDBACK.md" is modified to:
-      """
-      ## Missing null check
-
-      src/a.ts#12 never guards against a null input, contradicting the spec.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.striking → packages.item.fix-spec"
-    And ".gtd/SPEC_FEEDBACK.md" exists
+    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
     And ".gtd/SPEC_FEEDBACK.md" contains "Missing null check"
-    And ".gtd/SPEC_FEEDBACK.md" does not contain "Prefer const"
-    And ".gtd/SPEC_FEEDBACK.md" does not contain "Extra blank line"
+    And ".gtd/SPEC_FEEDBACK.md" contains "Unhandled empty list"
 
   @inmem
-  Scenario: every review finding struck by the post-judge closes the package with no fix-spec turn
+  Scenario: a review that writes no .gtd/SPEC_FEEDBACK.md approves the package outright — silence is the only approval
     Given a test project
     And the workflow
     And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
@@ -256,27 +229,7 @@ Feature: specReview's pre-judge and finding post-judge (.gtd/packages/02-spec-re
       .gtd/packages/01-widget.md
       """
     And an empty commit "gtd(agent): packages.item.spec.review"
-    Given a file ".gtd/SPEC_FEEDBACK.md" with:
-      """
-      ## A stylistic nit
-
-      Purely cosmetic, never asked for by the spec.
-      """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.spec.findingJudge"
-
-    When I run gtd judge answer with stdin:
-      """
-      [
-        {"id": "finding-1", "answer": false, "p": 0.9}
-      ]
-      """
-    Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.findingJudge → packages.item.spec.striking"
-
-    Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.striking → packages.item.closing"
+    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
     And ".gtd/SPEC_FEEDBACK.md" does not exist

@@ -100,10 +100,6 @@
     "test:web": {
       "inputs": ["src/**", ".storybook/**", "vitest.config.ts", "!src/web/generated.html"],
       "outputs": []
-    },
-    "eval:judgments": {
-      "inputs": ["evals/judgments/**"],
-      "outputs": []
     }
   }
 }

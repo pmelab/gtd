@@ -51,8 +51,7 @@
     "storybook": "storybook dev --host 0.0.0.0",
     "coverage": "vitest run --project unit --coverage",
     "eval": ": \"${GTD_EVALS_URL:?GTD_EVALS_URL is required — the OpenAI-compatible gateway every graded turn and the judge run through}\" && : \"${GTD_EVALS_KEY:?GTD_EVALS_KEY is required — the gateway bearer key}\" && npx turbo run build && node evals/eval.mjs",
-    "eval:baseline": "node evals/compare-baseline.mjs --record",
-    "eval:judgments": ": \"${GTD_EVALS_URL:?GTD_EVALS_URL is required — the judge model gateway}\" && : \"${GTD_EVALS_KEY:?GTD_EVALS_KEY is required — the gateway bearer key}\" && node evals/judgments/eval.mjs"
+    "eval:baseline": "node evals/compare-baseline.mjs --record"
   },
   "lint-staged": {
     "*": "oxfmt --no-error-on-unmatched-pattern --write"

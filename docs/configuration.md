@@ -360,17 +360,12 @@ a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
    (`judgeIdenticalMinP: ""`) disables the row outright: a blank, non-numeric,
    or otherwise non-finite rendered `minP`/`maxP` makes its `routes:` row fail
    closed (never match), never the opposite (`Number("")` would silently be `0`,
-   a floor of nothing). Two more judged gates tune the same way: `specPreJudge`
+   a floor of nothing). One more judged gate tunes the same way: `specPreJudge`
    (`specReview.pre`'s floor for skipping a package's `review` turn on a section
-   already judged satisfied) and `specFindingKeep` (`specReview.findingJudge`'s
-   floor for keeping a review finding rather than striking it before a
-   `fix-spec` turn). Only `specFindingKeep` defaults to a value
-   `evals/judgments/eval.mjs`'s sweep picked from this repo's own history —
-   `specPreJudge` is an unmeasured, deliberately conservative default (no mined
-   fixture case is a "requirement already satisfied?" judgment, so there is no
-   sweep to pick it from; see `evals/judgments/metrics.mjs`'s
-   `UNMEASURED_SPEC_PRE_JUDGE_DEFAULT`). Both retune or disable (blank) exactly
-   like `judgeIdenticalMinP` above. Two more tune the review lap the same way:
+   already judged satisfied). It is an unmeasured, deliberately conservative
+   default — no mined history of "requirement already satisfied?" judgments
+   exists to pick it from — and it retunes or disables (blank) exactly like
+   `judgeIdenticalMinP` above. Two more tune the review lap the same way:
    `reviewFastPath` (`0.9`) is `build.review.pre`'s floor — all three of its
    nouls (mechanical-only, touches-no-public-API, changes-no-behavior) must
    clear it before `build.review.preCheck` takes the fast path
@@ -382,16 +377,15 @@ a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
    `build.review.collecting` turn on it — blanking THIS one instead disables the
    dismissal, in the opposite (still safe) direction: every "yes" verdict counts
    as actionable at any confidence, rather than every "yes" failing to clear an
-   unmeetable floor. Neither is measured by `evals/judgments/`'s sweep — both
-   are unmeasured, deliberately conservative defaults, the same posture
-   `specPreJudge` takes. `architectureSkipMinP` (`0.85`) is `architecture-pre`'s
-   own floor: its `architectureWarranted` noul answered "no" must clear it for a
-   plan to skip `architecture.author`/`architecture.decompose` entirely
+   unmeetable floor. Neither is measured — both are unmeasured, deliberately
+   conservative defaults, the same posture `specPreJudge` takes.
+   `architectureSkipMinP` (`0.85`) is `architecture-pre`'s own floor: its
+   `architectureWarranted` noul answered "no" must clear it for a plan to skip
+   `architecture.author`/`architecture.decompose` entirely
    (`architecture-promote` instead); blanking it makes that `routes:` row fail
    to match, so the full architecture pass always runs — the same fail-closed
-   direction as `judgeIdenticalMinP`. Not measured by `evals/judgments/`'s sweep
-   — an unmeasured, deliberately conservative default, the same posture
-   `specPreJudge` takes.
+   direction as `judgeIdenticalMinP`. Unmeasured too — a deliberately
+   conservative default, the same posture `specPreJudge` takes.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
 3. **The current process's entry `--var` overrides**, if it was started via
