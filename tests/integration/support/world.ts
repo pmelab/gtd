@@ -38,6 +38,14 @@ const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 // Exported so hooks.ts's PATH shim execs this SAME bundle, never a globally-installed gtd.
 export const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 
+// How long after `spawn` the signal-death scenarios wait before signalling,
+// and how many times they retry a signal that missed the window. Both are
+// tuned against a measured ~520ms `gtd next` whose cost is Node startup, not
+// the fixture's pad — `sendSignalToOneSpawnedGtdNext` carries the numbers and
+// the reason the delay must not be tuned DOWN.
+const SIGNAL_SEND_DELAY_MS = 300
+const SIGNAL_SEND_ATTEMPTS = 5
+
 export type Tier = "live" | "inmem"
 
 /**
@@ -254,6 +262,8 @@ export class GtdWorld extends QuickPickleWorld {
     | undefined = undefined
   /** Whether the spawned `gtd next` was still alive (neither exited nor already signalled) the instant before `spawnGtdNextAndSignal` sent its signal — proves the process was actually there to interrupt, not racing its own natural exit. `@live` only. */
   signalAliveAtSend: boolean | undefined = undefined
+  /** How many spawn-and-signal attempts `spawnGtdNextAndSignal` needed before one landed inside the window (1 when the first did). Surfaced so an all-attempts-missed run reports the miss rather than a bare wrong status. `@live` only. */
+  signalSendAttempts: number | undefined = undefined
   /** Baseline byte count `runGtdNextRedirectedAndPiped`'s piped count is compared against, to prove a large artifact is never truncated. `@live` only. */
   directRedirectByteCount: number | undefined = undefined
   /** Byte count reaching a deliberately slow pipe consumer, set alongside `directRedirectByteCount`. `@live` only. */
@@ -641,6 +651,55 @@ export class GtdWorld extends QuickPickleWorld {
    * read back the same POSIX `status`.
    */
   async spawnGtdNextAndSignal(signal: NodeJS.Signals): Promise<void> {
+    for (let attempt = 1; attempt <= SIGNAL_SEND_ATTEMPTS; attempt += 1) {
+      await this.sendSignalToOneSpawnedGtdNext(signal)
+      this.signalSendAttempts = attempt
+      // A swallowed signal did not TEST the contract, it missed the window
+      // entirely — retry rather than report it as a violation. See
+      // `sendSignalToOneSpawnedGtdNext` for why the window is narrow and why
+      // no wall-clock delay can be chosen that always lands inside it. A
+      // genuinely broken re-raise fails every attempt, so this never converts
+      // a real regression into a pass; it only discards invalid trials.
+      if (!this.lastSignalWasSwallowed()) return
+    }
+  }
+
+  /** True when the last attempt's child exited normally (status 0) despite having been alive when the signal was sent — the documented late-landing miss, not a contract violation. */
+  private lastSignalWasSwallowed(): boolean {
+    return (
+      this.signalAliveAtSend === true &&
+      this.lastSignalExit?.signal === null &&
+      this.lastSignalExit.code === 0
+    )
+  }
+
+  /**
+   * One spawn-and-signal attempt. Sets `signalAliveAtSend` and
+   * `lastSignalExit`; `spawnGtdNextAndSignal` decides whether the attempt
+   * counted.
+   *
+   * WHY THIS RACES AT ALL, measured rather than assumed: `gtd next` against
+   * this fixture takes ~520ms end to end, and that cost is almost entirely
+   * Node's own startup and bundle evaluation — padding `.gtd/NEXT.md` from
+   * 200_000 to 1_000_000 bytes moved it by ~15ms. The pad does NOT hold the
+   * process open the way this harness once claimed; it is the interpreter
+   * boot that does. So the usable window runs from "main.ts's `process.once`
+   * listeners are registered" to "`NodeRuntime.runMain`'s fiber tears down
+   * and detaches them", and `SIGNAL_SEND_DELAY_MS` aims at the middle of it
+   * with roughly a fifth of a second of slack on either side. A loaded or
+   * fast runner is enough to miss.
+   *
+   * Landing LATE is silent: `main.ts`'s leftover `process.once` handler only
+   * records the signal, so a post-teardown signal neither kills the process
+   * nor re-raises — the child just exits 0. Landing EARLY is worse, and is
+   * why this delay must never be tuned down toward zero chasing stability: a
+   * signal arriving before those listeners exist gets Node's DEFAULT
+   * disposition, which also dies with status 143 — the assertion would pass
+   * while proving nothing about the re-raise contract this scenario exists
+   * for. Retrying a miss is therefore the only safe direction to stabilize
+   * in.
+   */
+  private async sendSignalToOneSpawnedGtdNext(signal: NodeJS.Signals): Promise<void> {
     const child = spawn(process.execPath, [GTD_BIN, "next"], {
       cwd: this.repoDir,
       env: this.spawnEnv(),
@@ -656,26 +715,14 @@ export class GtdWorld extends QuickPickleWorld {
       },
     )
     await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
-    await delay(300)
-    // Nothing reads `stdout`/`stderr` before this point, keeping the
-    // ordering honest — but that is not what makes the signal land right.
-    // The 200000-byte pad earns its place by keeping `next` busy computing
-    // long enough that the fixed `delay(300)` above reliably lands while
-    // gtd is still alive, not by filling the OS pipe buffer: see the
-    // package's Design amendment for why the child is never observably
-    // blocked mid-write here.
-    //
-    // Sending the signal any LATER than this (e.g. waiting for `stdout` to
-    // show buffered bytes) is provably too late to observe: `runCli`'s own
-    // completion — issuing the `stdout.write` and setting `exitCode` — is one
-    // synchronous step (`Cli.ts`'s `Effect.map`), so by the time a byte is
-    // ever observable on this end, `NodeRuntime.runMain`'s fiber has already
-    // exited on its own and detached its SIGINT/SIGTERM listener (see
-    // `@effect/platform-node-shared`'s `runtime.js`) — a signal arriving
-    // after that point is silently swallowed by `main.ts`'s leftover
-    // `process.once` and the process just exits normally (status 0), not
-    // via the signal this scenario is testing. The signal has to land WHILE
-    // gtd is still computing the prompt, before it ever reaches the write.
+    await delay(SIGNAL_SEND_DELAY_MS)
+    // Nothing reads `stdout`/`stderr` before this point, keeping the ordering
+    // honest. Sending the signal any later than this — e.g. waiting for
+    // `stdout` to show buffered bytes — is provably too late to observe:
+    // `runCli`'s own completion (issuing the `stdout.write` and setting
+    // `exitCode`) is one synchronous step (`Cli.ts`'s `Effect.map`), so by
+    // the time a byte is ever observable on this end the fiber has already
+    // torn down.
     this.signalAliveAtSend = child.exitCode === null && child.signalCode === null
     child.kill(signal)
     // `.resume()` alone (no `data` listener) is the standard drain-and-discard
