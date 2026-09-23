@@ -43,4 +43,12 @@ else
   rm -f .gtd/.check-output
   rm -f .gtd/FEEDBACK.md
   rm -f .gtd/PRIOR_FEEDBACK.md
+  # `.gtd/ESCALATION.md` is swept ONLY here, on a genuinely green
+  # result — never on a still-red round, so an unresolved analysis
+  # a fix turn left in place (fixFeedbackPrompt never deletes it)
+  # survives every retry within the same episode. That also makes
+  # its deletion a reliable "this episode's escalation budget just
+  # reset" signal: `escalate`'s own script (below) anchors its
+  # round count on the most recent such deletion.
+  rm -f .gtd/ESCALATION.md
 fi

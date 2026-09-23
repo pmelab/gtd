@@ -453,6 +453,113 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
+  it("build.health.escalate/packages.item.health.escalate are round-counting check gates — a fresh escalation routes to describe, a second round to the terminal exhausted stop (package 01, task 1/4)", () => {
+    const { definition } = compileTemplate()
+    for (const escalate of ["build.health.escalate", "packages.item.health.escalate"]) {
+      const state = definition.states[escalate]!
+      expect(state.actor, escalate).toBe("check")
+      expect(state.script, escalate).toBeDefined()
+      expect(state.message, escalate).toBeUndefined()
+      expect(state.prompt, escalate).toBeUndefined()
+      const onEdges = state.on ?? []
+      const addRow = onEdges.find(([p]) => p === "A .gtd/ESCALATION.md")
+      const modRow = onEdges.find(([p]) => p === "M .gtd/ESCALATION.md")
+      const cleanRow = onEdges.find(([p]) => p === "C")
+      const describeTarget = escalate.replace(/\.escalate$/, ".describe")
+      const exhaustedTarget = escalate.replace(/\.escalate$/, ".exhausted")
+      expect(addRow?.[1], escalate).toBe(exhaustedTarget)
+      expect(modRow?.[1], escalate).toBe(exhaustedTarget)
+      expect(cleanRow?.[1], escalate).toBe(describeTarget)
+    }
+    // The comment explaining why `retry:` can't express the round cap sits
+    // right above the state, in the source (state.script only captures the
+    // shell heredoc, not the surrounding YAML comment).
+    expect(unifiedYaml).toMatch(/episodeVisits/)
+  })
+
+  it("build.health.describe/packages.item.health.describe write .gtd/ESCALATION.md from FEEDBACK.md/PRIOR_FEEDBACK.md/the touched code, and every clean/dirty outcome rests at stop (package 01, task 2/4)", () => {
+    const { definition } = compileTemplate()
+    for (const describe of ["build.health.describe", "packages.item.health.describe"]) {
+      const state = definition.states[describe]!
+      expect(state.actor, describe).toBe("agent")
+      expect(state.prompt, describe).toBeDefined()
+      expect(state.file, describe).toBe(".gtd/FEEDBACK.md")
+      expect(state.prompt, describe).toContain(".gtd/FEEDBACK.md")
+      expect(state.prompt, describe).toContain(".gtd/PRIOR_FEEDBACK.md")
+      expect(state.prompt, describe).toContain(".gtd/ESCALATION.md")
+      // Tolerates a missing PRIOR_FEEDBACK.md (the retry-cap path's first
+      // round has no prior round to compare).
+      expect(state.prompt, describe).toMatch(/when present/)
+      const stopTarget = describe.replace(/\.describe$/, ".stop")
+      const onEdges = state.on ?? []
+      for (const pattern of ["A .gtd/ESCALATION.md", "M .gtd/ESCALATION.md", "C", "* **"]) {
+        expect(onEdges.find(([p]) => p === pattern)?.[1], `${describe} "${pattern}"`).toBe(
+          stopTarget,
+        )
+      }
+    }
+  })
+
+  it("build.health.stop/build.health.exhausted (and the packages.item.health equivalents) are human gates on ESCALATION.md that release straight into the caller's own $onRed fix state, never back through check, and land untouched (a 'C' row) advances too (package 01, task 2/4)", () => {
+    const { definition } = compileTemplate()
+    const cases: Array<[stop: string, exhausted: string, fix: string]> = [
+      ["build.health.stop", "build.health.exhausted", "build.fix"],
+      ["packages.item.health.stop", "packages.item.health.exhausted", "packages.item.fix-suite"],
+    ]
+    for (const [stop, exhausted, fix] of cases) {
+      for (const name of [stop, exhausted]) {
+        const state = definition.states[name]!
+        expect(state.actor, name).toBe("human")
+        expect(state.file, name).toBe(".gtd/ESCALATION.md")
+        expect(state.message, name).toBeDefined()
+        const onEdges = state.on ?? []
+        expect(onEdges.find(([p]) => p === "* **")?.[1], name).toBe(fix)
+        // Landing untouched must still hand the document to the next fix
+        // turn (both messages promise this) — a bare "* **" row never
+        // matches a clean tree, so a "C" row is the only way a clean land
+        // advances instead of no-opping.
+        expect(onEdges.find(([p]) => p === "C")?.[1], name).toBe(fix)
+      }
+      expect(definition.states[exhausted]!.message).toContain(".gtd/ESCALATION.md")
+      expect(definition.states[exhausted]!.message).toContain(".gtd/FEEDBACK.md")
+    }
+  })
+
+  it("build.health.escalate/packages.item.health.escalate count rounds by describe's own transition subject, not every commit touching ESCALATION.md — so the human's own edit at stop (which lands as an M .gtd/ESCALATION.md commit too) never spends the round budget (package 01, spec-feedback)", () => {
+    const { definition } = compileTemplate()
+    for (const escalate of ["build.health.escalate", "packages.item.health.escalate"]) {
+      const state = definition.states[escalate]!
+      // The script must key its round count off `describe` as the commit
+      // subject's FROM state (derived from `it.state`, the currently-
+      // instantiated `escalate`'s own fully-qualified name), not a bare
+      // --diff-filter=AM history of the file — that history also contains
+      // the human's edit at `stop`.
+      expect(state.script, escalate).toContain('it.state.replace(/\\.escalate$/, ".describe")')
+      // The round COUNT is taken with no `-- .gtd/ESCALATION.md` pathspec —
+      // a `describe` turn's own landing commit exists every round even when
+      // its write is byte-identical to what's already on disk (a `prompt`
+      // state's clean step is an attempt, not a no-op), and a pathspec would
+      // silently drop that commit from the count.
+      expect(state.script, escalate).toMatch(
+        /rounds=\$\(git log --format='%s' "\$anchor"\.\.HEAD 2>\/dev\/null \| grep -c -F -- "\$describe_source →"\)/,
+      )
+      // The RESTORE lookup (only reached when the file is missing) is still
+      // pathspec-scoped to ESCALATION.md, since it needs the commit that
+      // actually wrote it.
+      expect(state.script, escalate).toContain(
+        "-- .gtd/ESCALATION.md 2>/dev/null \\\n      | grep -F",
+      )
+    }
+  })
+
+  it("build.health.escalate/packages.item.health.escalate never overwrite a file already on disk at round >= 2 — restoring from history only when ESCALATION.md is missing, so a human's edit at the terminal exhausted stop survives the next arrival (package 01, spec-feedback)", () => {
+    const { definition } = compileTemplate()
+    for (const escalate of ["build.health.escalate", "packages.item.health.escalate"]) {
+      const state = definition.states[escalate]!
+      expect(state.script, escalate).toContain("if [ ! -f .gtd/ESCALATION.md ]; then")
+    }
+  })
+
   it("architecture-pre judges architectureWarranted over .gtd/REQUIREMENTS.md ONLY — never the bare .gtd/TODO.md — and routes a confident 'no' to architecture-promote, everything else to the full architecture pass (04)", () => {
     const { definition } = compileTemplate()
     const state = definition.states["architecture-pre"]!
@@ -610,6 +717,11 @@ describe("the bundled unified workflow template", () => {
       states: ["build.fix"],
       personaVar: "finisherPersona",
     },
+    {
+      machine: "healthGate",
+      states: ["build.health.describe", "packages.item.health.describe"],
+      personaVar: "escalationPersona",
+    },
   ]
 
   it("no machine's `system:` value is a file reference (package 04)", () => {
@@ -621,7 +733,7 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("declares the six persona variables in vars:, each non-empty (package 04)", () => {
+  it("declares the seven persona variables in vars:, each non-empty (package 04)", () => {
     const { vars } = compileTemplate()
     for (const { personaVar } of PERSONA_MACHINES) {
       expect(vars[personaVar], personaVar).toBeTruthy()
@@ -1036,7 +1148,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     expect(identityOf("build.review")).toBe("planner")
   })
 
-  it("packages, build.health, packages.item.health, start-gate, review-gate, design.gate, and architecture.gate have no model — they are identity-free gate/queue machines", () => {
+  it("packages, start-gate, review-gate, design.gate, and architecture.gate have no model — they are identity-free gate/queue machines", () => {
     const { tree } = compileTemplate()
     const machineAt: Record<string, string> = {}
     const walk = (node: MachineNode): void => {
@@ -1047,8 +1159,6 @@ describe("the bundled template's machine boundaries line up with conversational 
 
     for (const instancePath of [
       "packages",
-      "build.health",
-      "packages.item.health",
       "start-gate",
       "review-gate",
       "design.gate",
@@ -1056,6 +1166,23 @@ describe("the bundled template's machine boundaries line up with conversational 
     ]) {
       expect(raw.machines[machineAt[instancePath]!]?.model, instancePath).toBeUndefined()
     }
+  })
+
+  it("build.health/packages.item.health (healthGate) declare a model — the escalation `describe` turn is a real prompt state, in its own memory scope separate from the surrounding build/packages.item session (package 01)", () => {
+    const { tree, scopes } = compileTemplate()
+    const machineAt: Record<string, string> = {}
+    const walk = (node: MachineNode): void => {
+      machineAt[node.key] = node.machine
+      node.children.forEach(walk)
+    }
+    walk(tree!)
+
+    for (const instancePath of ["build.health", "packages.item.health"]) {
+      expect(raw.machines[machineAt[instancePath]!]?.model, instancePath).toBeTruthy()
+    }
+    expect(scopes["build.health.describe"]).toBe("build.health")
+    expect(scopes["build.health.describe"]).not.toBe(scopes["build.fix"])
+    expect(scopes["packages.item.health.describe"]).toBe("packages.item.health")
   })
 
   it("`build.review` is nested inside `build`'s own scope, so the review round-trip never breaks the builder's session", () => {
@@ -1087,7 +1214,7 @@ describe("the bundled template's machine boundaries line up with conversational 
     expect(ownPromptStates("buildTail")).toEqual(["fix"])
 
     expect(ownPromptStates("entryGate")).toEqual([])
-    expect(ownPromptStates("healthGate")).toEqual([])
+    expect(ownPromptStates("healthGate")).toEqual(["describe"])
     expect(ownPromptStates("questionGate")).toEqual([])
     expect(ownPromptStates("packageLoop")).toEqual([])
   })

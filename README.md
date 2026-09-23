@@ -319,6 +319,15 @@ noted in steps 2, 3, and 4 below.
    every one of these correctly: it shows you the message and stops, same as any
    other question.
 
+   A red suite that keeps failing past a few fix attempts escalates instead of
+   retrying forever: an agent turn reads the failing output and writes
+   `.gtd/ESCALATION.md` — what's failing, why the earlier attempts didn't fix
+   it, and what to try next — and the process stops for you to edit or land
+   as-is, handing that document to the next fix turn as its instruction. Two
+   such rounds with no fix is the terminal stop: the last analysis stays on disk
+   instead of a third being written, and editing it is what gets the next
+   attempt anywhere new.
+
 4. **You review.** You get a review document listing what changed and what to
    look at. Tick the boxes to approve, or write what is wrong. Approving ends
    the process; feedback sends it back to step 2 for a fresh plan — it never

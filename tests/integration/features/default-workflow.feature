@@ -1138,7 +1138,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/FEEDBACK.md" does not exist
 
   @inmem
-  Scenario: repeated check failures escalate once fixing's retry cap (3) is reached
+  Scenario: repeated check failures escalate once fixing's retry cap (3) is reached, writing a fix-design document a human can edit before the next fix turn
     Given a test project
     And the workflow
     And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
@@ -1176,22 +1176,65 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.health.escalate"
-    # The human takes the escalate gate's own "Retry check" edge — any change
-    # at all routes back to build.health.check ("* **": check), restoring
-    # build.fix's spent budget: build.health.escalate's only "on" target is
-    # "check", so it is not one of build.fix's sources, and per the
-    # per-episode retry rule an intervening non-source entry resets the count.
-    Given a file ".gtd/marker2.md" with:
+    # build.health.escalate is now a round-counting `check` gate, not a human
+    # rest: this is the first arrival since the last green check (0 rounds so
+    # far), so its own script leaves the tree clean and the "C" row routes on
+    # to build.health.describe.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains ".gtd/FEEDBACK.md"
+    And stdout contains ".gtd/PRIOR_FEEDBACK.md"
+    And stdout contains ".gtd/ESCALATION.md"
+    Given a file ".gtd/ESCALATION.md" with:
       """
-      retrying after escalation
+      What's failing: the suite still reports "attempt 4 failed" after three
+      fix attempts.
+
+      Why earlier attempts didn't resolve it: fix-1/fix-2/fix-3 each patched
+      a symptom, not the root cause.
+
+      Suggested approach: rewrite the failing test's setup fixture instead
+      of touching the assertion again.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.health.escalate → build.health.check"
-    # A second red run: if the budget were still process-pooled (the OLD
-    # whole-trace rule), this would see build.fix's 3 prior visits and bounce
-    # straight back to build.health.escalate. Reaching build.fix instead is
-    # the proof the human gate genuinely restored it.
+    And the last commit subject is "gtd(agent): build.health.describe → build.health.stop"
+    And ".gtd/ESCALATION.md" contains "What's failing: the suite still reports"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains ".gtd/ESCALATION.md"
+    And stdout contains "Edit it"
+    # The human takes the stop gate's own edge straight into build.fix — no
+    # detour back through build.health.check first, unlike the old
+    # human-rest escalate.
+    Given a file ".gtd/marker2.md" with:
+      """
+      landing the escalation document as the next fix turn's instruction
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.health.stop → build.fix"
+    When I run gtd next
+    Then it succeeds
+    # fixFeedbackPrompt names .gtd/ESCALATION.md as the primary instruction
+    # whenever it is present.
+    And stdout contains ".gtd/ESCALATION.md"
+    Given a file "src/thing.ts" with:
+      """
+      export const thing = 2
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.fix → build.health.check"
+    # A second red run: if the retry budget were still process-pooled (the
+    # OLD whole-trace rule), this would see build.fix's 3 prior visits and
+    # bounce straight back to build.health.escalate. Reaching build.fix
+    # instead is the proof the escalation round genuinely restored it —
+    # build.health.describe (a non-source of build.fix) sat between every
+    # pair of arrivals.
     Given a file ".gtd/FEEDBACK.md" with:
       """
       attempt 5 failed
@@ -1199,6 +1242,226 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.fix"
+
+  @inmem
+  Scenario: landing build.health.stop with a clean tree still hands the document to the next fix turn, and editing ESCALATION.md there does not spend a second escalation round
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker1.md" with:
+      """
+      entering the first escalation round
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    Given a file ".gtd/ESCALATION.md" with:
+      """
+      Round 1: the suite fails inside the same setup fixture every attempt.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.health.describe → build.health.stop"
+
+    # The human EDITS the document at `stop` — the primary action its own
+    # message asks for ("Edit it — narrow it, redirect it, add what you
+    # know") — rather than landing an unrelated marker file. This commit is
+    # an M .gtd/ESCALATION.md, same shape as `describe`'s own A/M, but it
+    # must not be mistaken for a second escalation round.
+    Given a file ".gtd/ESCALATION.md" with:
+      """
+      Round 1, human-narrowed: the fixture leaks state between the second
+      and third assertion — look at teardown, not setup.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.health.stop → build.fix"
+
+    # A real fix turn, still red — back to health.check, then to escalate
+    # for what is genuinely only the SECOND round (the human's own edit
+    # above must not have counted as one).
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 3
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.fix → build.health.check"
+    # Jump straight to a second arrival at escalate the same way the
+    # existing two-full-rounds scenario does (an injected commit), rather
+    # than re-driving the retry-cap's own 3-strikes count — that mechanism
+    # is unrelated to what this scenario pins.
+    Given a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker3.md" with:
+      """
+      entering what must be the SECOND escalation round, not the third
+      """
+    # If the human's edit at `stop` had counted as a round, this would see 2
+    # prior rounds already and land straight at the terminal `exhausted`
+    # stop. Reaching `describe` instead is the proof it didn't.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+
+  @inmem
+  Scenario: landing build.health.stop with a genuinely clean tree still advances to build.fix — "land it untouched" as its message promises
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker1.md" with:
+      """
+      entering the first escalation round
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    Given a file ".gtd/ESCALATION.md" with:
+      """
+      Round 1: the suite fails inside the same setup fixture every attempt.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.health.describe → build.health.stop"
+
+    # A genuinely clean land — no edit, no unrelated marker — still hands
+    # the document to build.fix via stop's own "C" row.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.health.stop → build.fix"
+
+  @inmem
+  Scenario: a second full escalation round rests at the terminal exhausted stop — no third document is written, and .gtd/ESCALATION.md stays on disk
+    Given a test project
+    And the workflow
+    # Round 1: the round-counting escalate gate's first arrival since the
+    # last green check — 0 prior `.gtd/ESCALATION.md` rounds, so its script
+    # leaves the tree clean ("C") and routes on to describe.
+    And a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker1.md" with:
+      """
+      entering the first escalation round
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    Given a file ".gtd/ESCALATION.md" with:
+      """
+      Round 1: the suite fails inside the same setup fixture every attempt.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.health.describe → build.health.stop"
+    Given a file ".gtd/marker2.md" with:
+      """
+      landing round 1's document untouched
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.health.stop → build.fix"
+
+    # A real fix turn between round 1 and round 2: it believes it resolved
+    # the check and deletes `.gtd/FEEDBACK.md` (fixFeedbackPrompt's own
+    # instruction), but `.gtd/ESCALATION.md` survives untouched — the SAME
+    # prompt tells the turn to never edit or delete it, only a genuinely
+    # green check does that. The next check is still red and rewrites
+    # `.gtd/FEEDBACK.md` from scratch.
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 3
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.fix → build.health.check"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 5 failed
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.fix"
+    And ".gtd/ESCALATION.md" contains "Round 1: the suite fails"
+
+    # Round 2: back at the same red check, escalating again — still under 2
+    # prior rounds (round 1's own add is the only one so far), so the script
+    # again leaves the tree clean and routes on to describe rather than the
+    # terminal stop.
+    Given a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker3.md" with:
+      """
+      entering the second escalation round
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    # Round 2's describe OVERWRITES round 1's still-surviving document — an
+    # M, not an A, since nothing ever swept it in between.
+    Given a file ".gtd/ESCALATION.md" with:
+      """
+      Round 2: still the same fixture, now with a different failing assertion.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.health.describe → build.health.stop"
+    Given a file ".gtd/marker4.md" with:
+      """
+      landing round 2's document untouched
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.health.stop → build.fix"
+
+    # Another real fix turn between round 2 and round 3 — same shape as
+    # above: FEEDBACK.md churns, ESCALATION.md survives untouched.
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing2.ts" with:
+      """
+      export const thing2 = 4
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.fix → build.health.check"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 6 failed
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.fix"
+    And ".gtd/ESCALATION.md" contains "Round 2: still the same fixture"
+
+    # Round 3: the cap. Two prior `.gtd/ESCALATION.md` rounds are already on
+    # record since the last green check (round 1's add, round 2's modify —
+    # health.check's own sweep only ever runs on a green result, so neither
+    # was ever deleted along the way), so the round-counting script stamps
+    # round 2's own surviving content in place instead of routing to describe
+    # for a third — stamped with HEAD so it still registers as a real edit
+    # (an M, the file never having been swept) even though the content is
+    # otherwise unchanged. It restores from history only when the file is
+    # missing, which it isn't here.
+    Given a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker5.md" with:
+      """
+      entering the third escalation round
+      """
+    Given a file ".gtd/ESCALATION.md" with:
+      """
+      Round 2: still the same fixture, now with a different failing assertion.
+
+      <!-- gtd escalate 0000000 -->
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.escalate → build.health.exhausted"
+    And ".gtd/ESCALATION.md" contains "Round 2: still the same fixture"
+    And ".gtd/ESCALATION.md" does not contain "Round 1: the suite fails"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "exhausted"
+    And stdout contains ".gtd/ESCALATION.md"
+    And stdout contains ".gtd/FEEDBACK.md"
+
+    # Landing the terminal exhausted stop with a genuinely clean tree still
+    # buys another attempt at the same analysis, exactly as its message
+    # promises — the "C" row, not just "* **", is what makes that true.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.health.exhausted → build.fix"
 
   @inmem
   Scenario: deleting REVIEW.md at await-review is refused — sign off by leaving no comment, not by deleting
