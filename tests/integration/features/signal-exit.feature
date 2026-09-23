@@ -6,11 +6,17 @@ Feature: A signal death reports the promised exit status and leaves nothing half
   runtime's own interruption has unblocked whatever it was doing, so a
   parent's `wait` sees a genuine signal death (`WIFSIGNALED`), not a
   `process.exit(130)` that merely reuses the same number. Both signals are
-  sent to a `gtd next` spawned against a prompt padded past the OS pipe
-  buffer — the same fixture `pipe-truncation.feature` relies on — which keeps
-  `next` busy long enough that the signal reliably lands on a live,
-  still-computing process rather than racing its own natural exit; it does
-  not prove the process is blocked mid-write against the pipe. gtd writes no
+  sent to a `gtd next` spawned against a padded prompt — the same fixture
+  `pipe-truncation.feature` relies on — after a fixed delay. The pad is NOT
+  what keeps `next` alive long enough to signal: measured, the whole run
+  takes ~520ms whether the pad is 200_000 or 1_000_000 bytes, because the
+  cost is Node's own startup, not the prompt. The window between gtd's
+  signal handlers being registered and the runtime detaching them is
+  therefore narrow enough to miss on a fast or loaded machine, so the
+  harness retries a missed signal rather than reporting it as a violation
+  (`world.ts#spawnGtdNextAndSignal`, which also records why the delay must
+  never be tuned DOWN to chase stability). Nothing here proves the process
+  is blocked mid-write against the pipe. gtd writes no
   files and touches no git dir itself (every write happens inside a script it
   emitted and a driver ran), so an interrupted `gtd next` — a read command
   with nothing to drive — has nothing half-written to leave behind either
