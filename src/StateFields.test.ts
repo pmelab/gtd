@@ -72,6 +72,55 @@ describe("routes — requires chain", () => {
   })
 })
 
+describe("skills", () => {
+  it("declares exactly kind/surface/authored/nonEmpty/requires/rest/viz plus doc — no jsonSchema escape hatch", () => {
+    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "skills")![1]
+    expect(Object.keys(spec).sort()).toEqual(
+      ["authored", "doc", "kind", "nonEmpty", "requires", "rest", "surface", "viz"].sort(),
+    )
+    expect(spec.kind).toBe("text")
+    expect(spec.surface).toBe("def")
+    expect(spec.authored).toBe("state")
+    expect(spec.nonEmpty).toBe(true)
+    expect(spec.requires).toBe("prompt")
+    expect(spec.rest).toBe("rendered")
+    expect(spec.viz).toBe("field")
+  })
+
+  it("its doc states both facts: a literal empty string is rejected at load, a blank RENDER is legal", () => {
+    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "skills")![1]
+    expect(spec.doc).toMatch(/rejected at load/)
+    expect(spec.doc).toMatch(/RENDERS? blank is legal|renders blank is legal/i)
+  })
+
+  it("is rejected without a sibling prompt:", () => {
+    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "skills")![1]
+    expect(validateFieldRules("build.fixing", { skills: "code-review" }, "skills", spec)).toEqual([
+      'state "build.fixing": "skills" requires "prompt"',
+    ])
+  })
+
+  it("passes when a sibling prompt: is declared", () => {
+    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "skills")![1]
+    expect(
+      validateFieldRules(
+        "build.fixing",
+        { skills: "code-review", prompt: "fix it" },
+        "skills",
+        spec,
+      ),
+    ).toEqual([])
+  })
+
+  it("rejects a literal empty string at load", () => {
+    const spec = STATE_FIELD_ENTRIES.find(([k]) => k === "skills")![1]
+    expect(validateFieldRules("build.fixing", { skills: "" }, "skills", spec)).toEqual([
+      'state "build.fixing": "skills" must be a non-empty string',
+      'state "build.fixing": "skills" requires "prompt"',
+    ])
+  })
+})
+
 describe("CONTENT_FIELDS", () => {
   it("is exactly script/prompt/message, in that order", () => {
     expect(CONTENT_FIELDS).toEqual(["script", "prompt", "message"])

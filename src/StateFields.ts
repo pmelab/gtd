@@ -310,6 +310,25 @@ const STATE_FIELDS = {
     doc: 'Opaque display name passed through `gtd next --json`/`gtd status --json` so a driver/viewer can show something nicer than the raw state name (e.g. "Running checks"). Never interpreted by gtd.',
   },
 
+  /**
+   * An Eta template, like every other text field — a state names a workflow
+   * `var:` a project repoints in `.gtdrc` or via `GTD_<NAME>`, the same route
+   * `plannerModel` already takes. `requires: "prompt"` is the safety
+   * boundary: a `script` state's content runs through bash, where a
+   * concatenated preamble is a syntax error; a `message` state's content is
+   * read by a human, who has no skills to load.
+   */
+  skills: {
+    kind: "text",
+    surface: "def",
+    authored: "state",
+    nonEmpty: true,
+    requires: "prompt",
+    rest: "rendered",
+    viz: "field",
+    doc: 'The skills this state\'s agent should load, as prose for its own harness — an Eta template (typically a workflow var: reference). A literal `skills: ""` is rejected at load (nonEmpty); a value that RENDERS blank is legal and means "no skills at this state this run" — the preamble is simply omitted. gtd never resolves, loads, or validates a skill name; it is concatenated into the prompt untouched, prepended via the `skillsPreamble` var (blank that var to switch the mechanism off repo-wide). Requires a sibling `prompt:`.',
+  },
+
   /** Multiple states may (and, in the bundled default, do) share one `file:`. The engine never reads a path out of this string itself — only the LSP interprets it, to map rendered paths to `mode`. */
   file: {
     kind: "stateFile",

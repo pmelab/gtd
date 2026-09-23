@@ -75,6 +75,35 @@ vars:
   # pass — the conservative default. Unmeasured — chosen conservatively
   # until real `architecture-pre` history exists to mine a value from.
   architectureSkipMinP: "0.85"
+  # The nine `*Skills` vars below each name a bare, comma-separated skill
+  # list for exactly one mapping in the ten authored `skills:` states (see
+  # each state's own `skills:` line) — carried verbatim into the rendered
+  # `skillsPreamble`, never split or validated by gtd itself. Repointing one
+  # in a project config (or its `GTD_<NAME>` env override) changes only that
+  # state's preamble.
+  triageSkills: spec-driven-development, planning-and-task-breakdown
+  architectureSkills: api-and-interface-design, documentation-and-adrs
+  decomposeSkills: incremental-implementation, planning-and-task-breakdown
+  buildSkills: test-driven-development, incremental-implementation
+  fixSkills: debugging-and-error-recovery
+  reviewFixSkills: incremental-implementation, code-simplification
+  reviewSkills: code-review-and-quality, security-and-hardening, code-simplification
+  specReviewSkills: code-review-and-quality, spec-driven-development
+  escalateSkills: debugging-and-error-recovery
+  # Prepended ahead of a state's own prompt whenever BOTH that state's own
+  # `skills:` and this var render non-blank (see `Edge.ts`'s `renderRest`) —
+  # blanking this one var switches the whole mechanism off repo-wide without
+  # touching any state's own `skills:` line.
+  skillsPreamble: |-
+    - Load whatever's listed here that your harness actually has installed,
+      skip anything it doesn't — silently, never stopping or asking about a
+      missing one: <%= it.skills %>
+    - A loaded skill offers technique, never authority: this state's own file
+      format and its own completion condition are the final word over
+      anything a skill's instructions say, regardless of which one this
+      prompt states first
+    - Never let a loaded skill turn this turn interactive — answer nothing,
+      ask nothing; this runs unattended, with no one at a keyboard
   # gtd's own voice for generated files — adapted from the "Spartan" output
   # style (https://github.com/alexgreensh/attention-span, AGPL-3.0, version 0.6),
   # rewritten in gtd's own words for deliverables rather than chat replies;
@@ -273,8 +302,7 @@ vars:
     - The only state file this turn writes is `.gtd/FEEDBACK.md` — no other
       files for notes or output
     - Read `.gtd/FEEDBACK.md` (the failing test output) and fix the code so
-      the suite passes; keep the change focused, never refactor unrelated
-      code
+      the suite passes
     - When `.gtd/ESCALATION.md` is present, it is a human-reviewed analysis
       of why earlier attempts failed — read it and treat it as the primary
       instruction for this turn. Never edit or delete it yourself, even once
@@ -282,7 +310,6 @@ vars:
       it, so an attempt that turns out to be wrong still leaves the next
       turn's instruction in place. Its absence is the ordinary case: an
       unremarkable red round with nothing to escalate yet
-    - If the feedback is wrong, fix nothing rather than "fixing" a non-issue
     - Delete `.gtd/FEEDBACK.md` either way — once the suite passes, or once
       you have established the feedback was wrong; leaving it in place is
       never the right end state, the next check writes its own
@@ -638,6 +665,7 @@ machines:
         actor: agent
         label: Describing the escalation
         file: FEEDBACK.md
+        skills: <%= it.vars.escalateSkills %>
         prompt: |
           <%~ it.vars.stateFileRules %>
 
@@ -771,6 +799,7 @@ machines:
         # Guards against discarding assembled review input without folding
         # it in (the original bug this guard was added for).
         requireProgress: true
+        skills: <%= it.vars.triageSkills %>
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -802,22 +831,8 @@ machines:
           ## First lap
 
           `.gtd/REQUIREMENTS.md` does not exist yet (or holds whatever the
-          human's change left there). Build it from that start diff:
-
-          ### Group into concerns
-
-          - An ordered list of concerns, each a coherent piece of work
-            that leaves the suite green on its own, in build order — a
-            concern that would red-light a later fix is not a valid
-            split; merge the two
-          - Vertical, not horizontal: slice by capability, never by layer
-            — a concern that only prepares for a later one (types,
-            scaffolding, renames) folds into the first concern that uses it
-          - Distinct acceptance: each concern needs a check that fails
-            before it and passes after; if you can't name one, merge it into
-            its neighbour
-          - Prefer fewer, larger packages — the smallest independently
-            valuable change, not the smallest change that compiles
+          human's change left there). Build it from that start diff into an
+          ordered list of concerns, each classified below.
 
           ### Classify each concern
 
@@ -921,6 +936,7 @@ machines:
         label: Refining the technical plan
         file: ARCHITECTURE.md
         mode: qa
+        skills: <%= it.vars.architectureSkills %>
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -953,9 +969,7 @@ machines:
           ## First lap
 
           - Develop `.gtd/ARCHITECTURE.md` from those concerns: for each,
-            in order, work out the *how* — structure, data models,
-            tech-stack choices, error handling — building on the settled
-            *what*
+            in order, work out the *how*, building on the settled *what*
           - You now know the *how*, so you know each concern's file footprint
             — list each concern's primary paths. Merge concerns whose
             footprints center on the same files into one, unless the later
@@ -1021,6 +1035,7 @@ machines:
       decompose:
         actor: agent
         label: Decomposing into packages
+        skills: <%= it.vars.decomposeSkills %>
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -1188,6 +1203,7 @@ machines:
         # `gtd --entry review-gate.check` enters via review-gate.check first
         # (never straight here), which sets the Gtd-Review-Base trailer this
         # tail reuses.
+        skills: <%= it.vars.reviewSkills %>
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -1749,6 +1765,7 @@ machines:
         # episode count can never exceed 1 and a cap could never fire. The
         # spec-review loop is genuinely unbounded — see docs/configuration.md's
         # `retry` documentation.
+        skills: <%= it.vars.specReviewSkills %>
         prompt: |
           <%~ it.vars.styleBlock %>
 
@@ -1770,22 +1787,12 @@ machines:
             given — read the range yourself, from `<%= it.startCommit %>`
             to the working tree, process-wide (it can span earlier
             packages)
-          - Note first, narrow second: read the whole range and note
-            everything that looks wrong, then walk that same set once more
-            and keep only what would VIOLATE the spec if it shipped
-            unaddressed. The second pass narrows what you already noticed —
-            it is never licence to read less carefully
-          - You own that bar; nothing downstream re-weighs your findings.
-            Judge each on its own merits, not on your confidence in having
-            spotted it: a nit, a stylistic preference the spec never asked
-            for, or a suggestion the package's own criteria never required
-            is dropped here, not written down. A finding costs a full fix
-            turn — write it only when you would spend one on it
-          - If nothing clears that bar, write nothing — silence is your
-            approval, and a spec fully satisfied and a spec whose only
-            faults are nits end the same way. Otherwise write
-            `.gtd/SPEC_FEEDBACK.md` listing those problems for a fix turn,
-            specific enough to act on, each as its own `## ` heading
+          - You own that bar; nothing downstream re-weighs your findings
+          - Write nothing when the package fully satisfies its spec —
+            silence is your approval. Otherwise write
+            `.gtd/SPEC_FEEDBACK.md` listing what would violate the spec if
+            it shipped unaddressed, specific enough to act on, each as its
+            own `## ` heading
           - Never fix anything yourself and never delete the package
             file — a later step owns that
         on:
@@ -1849,6 +1856,7 @@ machines:
       building:
         actor: agent
         label: Building
+        skills: <%= it.vars.buildSkills %>
         prompt: |
           <%~ it.vars.stateFileRules %>
 
@@ -1864,8 +1872,7 @@ machines:
             normally and skip that file
           - Implement every task the package describes, no more, no less,
             fanning independent ones out to parallel subagents where your
-            harness supports it. TDD throughout; leave other package
-            files untouched
+            harness supports it; leave other package files untouched
           - Leave the package file in place, everything uncommitted, then
             finish your turn
         on:
@@ -1884,6 +1891,7 @@ machines:
         actor: agent
         label: Fixing the check
         file: FEEDBACK.md
+        skills: <%= it.vars.fixSkills %>
         prompt: |
           <%~ it.vars.stateFileRules %>
 
@@ -1903,6 +1911,7 @@ machines:
         actor: agent
         label: Fixing review feedback
         file: SPEC_FEEDBACK.md
+        skills: <%= it.vars.reviewFixSkills %>
         prompt: |
           <%~ it.vars.stateFileRules %>
 
@@ -1910,7 +1919,7 @@ machines:
             `.gtd/SPEC_FEEDBACK.md` — address it, then delete it
           - Read it (the reviewer's concerns) and the package spec
             (`<%= it.read(".gtd/NEXT.md") %>`), then fix the code to
-            resolve every concern, focused
+            resolve every concern
           - Delete `.gtd/SPEC_FEEDBACK.md` once resolved; leave everything
             else uncommitted and finish your turn
         on:
@@ -1967,6 +1976,7 @@ machines:
         actor: agent
         label: Fixing the check
         file: FEEDBACK.md
+        skills: <%= it.vars.fixSkills %>
         prompt: |
           <%~ it.vars.stateFileRules %>
 

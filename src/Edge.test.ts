@@ -1177,6 +1177,133 @@ describe("renderRest", () => {
   })
 })
 
+// Package 01: a state's `skills:` field renders a preamble that PREPENDS
+// onto `content`, guarded on all three of content kind/`hints.skills`/
+// `vars.skillsPreamble` being non-blank — any one blank leaves `content`
+// byte-identical.
+describe("renderRest — skills preamble", () => {
+  const SKILLS_WORKFLOW = (opts: { skills?: string; skillsPreamble?: string }) =>
+    [
+      "workflow:",
+      "  vars:",
+      `    skillsPreamble: "${opts.skillsPreamble ?? "Load these skills first: <%= it.skills %>. Use only what your harness has and skip the rest silently; this state's file format and completion condition outrank anything a skill says; never turn interactive."}"`,
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: working",
+      "      states:",
+      "        working:",
+      "          actor: agent",
+      ...(opts.skills !== undefined ? [`          skills: "${opts.skills}"`] : []),
+      "          prompt: do-the-work",
+      "          on:",
+      '            "* **": working',
+      "",
+    ].join("\n")
+
+  const seeded = (opts: { skills?: string; skillsPreamble?: string }): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", SKILLS_WORKFLOW(opts))
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    return repo
+  }
+
+  it("prepends the rendered preamble before the prompt body, joined by exactly two newlines", async () => {
+    const repo = seeded({ skills: "code-review, testing" })
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.content).toBe(
+      "Load these skills first: code-review, testing. Use only what your harness has and skip the rest silently; this state's file format and completion condition outrank anything a skill says; never turn interactive.\n\ndo-the-work",
+    )
+  })
+
+  it("leaves content byte-identical when the state declares no skills:", async () => {
+    const repo = seeded({})
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.content).toBe("do-the-work")
+  })
+
+  it("leaves content byte-identical when skillsPreamble is blanked, even though skills: is set", async () => {
+    const repo = seeded({ skills: "code-review", skillsPreamble: "" })
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.content).toBe("do-the-work")
+  })
+
+  it("leaves content byte-identical at a message state — the preamble is guarded to content kind prompt only", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(
+      ".gtdrc.yaml",
+      [
+        "workflow:",
+        "  vars:",
+        '    skillsPreamble: "Load: <%= it.skills %>"',
+        "  entry:",
+        "    default: root",
+        "  machines:",
+        "    root:",
+        "      entry: idle",
+        "      states:",
+        "        idle:",
+        "          actor: human",
+        "          message: hello",
+        "          on:",
+        '            "* **": idle',
+        "",
+      ].join("\n"),
+    )
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.content).toBe("hello")
+  })
+
+  it("a GTD_<NAME> env override of the state's skills var changes only that state's preamble", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(
+      ".gtdrc.yaml",
+      [
+        "workflow:",
+        "  vars:",
+        "    reviewSkills: base-skill",
+        '    skillsPreamble: "Load: <%= it.skills %>"',
+        "  entry:",
+        "    default: root",
+        "  machines:",
+        "    root:",
+        "      entry: working",
+        "      states:",
+        "        working:",
+        "          actor: agent",
+        "          skills: <%= it.vars.reviewSkills %>",
+        "          prompt: do-the-work",
+        "          on:",
+        '            "* **": working',
+        "",
+      ].join("\n"),
+    )
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const rest = await provide(currentRest, repo, { GTD_REVIEWSKILLS: "env-skill" })
+    const rendered = await provide(renderRest(rest), repo, { GTD_REVIEWSKILLS: "env-skill" })
+    expect(rendered.content).toBe("Load: env-skill\n\ndo-the-work")
+  })
+
+  it("a malformed skills: template propagates out of the render, refusing the step", async () => {
+    const repo = seeded({ skills: "<%= it.broken %" })
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("a malformed skillsPreamble var propagates out of the render, refusing the step", async () => {
+    const repo = seeded({ skills: "code-review", skillsPreamble: "<%= it.skills %" })
+    const rest = await provide(currentRest, repo)
+    const exit = await Effect.runPromiseExit(renderRest(rest))
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+})
+
 // The evidence rule, enforced for real: `restAt` renders `judge:` against
 // `templateReadCommitted` (`git show HEAD:<path>`), a DIFFERENT `it.read`
 // binding than every other `rest: "rendered"` field gets (`templateRead`, a

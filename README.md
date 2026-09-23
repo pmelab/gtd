@@ -23,6 +23,12 @@ Or run without installing (prefix every `gtd` below with `npx`) — see
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for the settings most projects tune.
 
+Also install
+[`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills) — the
+bundled workflow names skills from it at several states instead of spelling out
+technique in the prompt itself; see
+[Setup](https://github.com/pmelab/gtd/blob/main/docs/setup.md) for the details.
+
 ## Quick start
 
 Pipe the output of `gtd install` into your coding agent and answer its

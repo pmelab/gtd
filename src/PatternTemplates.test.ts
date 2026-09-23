@@ -1,7 +1,12 @@
 import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
+import {
+  renderSkillsPreamble,
+  renderStateTemplate,
+  varsOnlyContext,
+  type TemplateContext,
+} from "./PatternTemplates.js"
 import { compileTemplate } from "./workflows/index.js"
 import { Workspace, templateRead, templateReadCommitted } from "./platform/index.js"
 import { InMemRepo, makeInMemoryWorkspaceOps } from "./testing/index.js"
@@ -188,6 +193,22 @@ describe("varsOnlyContext", () => {
 
   it("its read() throws — no working tree at this layer", () => {
     expect(() => varsOnlyContext({}).read("anything")).toThrow()
+  })
+})
+
+describe("renderSkillsPreamble", () => {
+  it("renders it.skills alongside it.vars", () => {
+    const out = renderSkillsPreamble("Load: <%= it.skills %> (<%= it.vars.greeting %>)", {
+      ...baseContext(),
+      skills: "code-review, testing",
+    })
+    expect(out).toBe("Load: code-review, testing (hi)")
+  })
+
+  it("throws for a malformed template — the caller refuses the step, never half-renders", () => {
+    expect(() =>
+      renderSkillsPreamble("<%= it.skills %", { ...baseContext(), skills: "x" }),
+    ).toThrow()
   })
 })
 
