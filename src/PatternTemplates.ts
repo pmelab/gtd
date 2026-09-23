@@ -133,6 +133,18 @@ export const renderModeCommand = (template: string, context: ModeCommandContext)
   eta.renderString(template, context)
 
 /**
+ * `TemplateContext` plus `it.skills` (the state's own rendered `skills:`
+ * field) for rendering the `skillsPreamble` var. Modelled on `ModeCommandContext`.
+ */
+export interface SkillsPreambleContext extends TemplateContext {
+  readonly skills: string
+}
+
+/** Render the `skillsPreamble` template — same throw-on-failure discipline as `renderStateTemplate`. `Edge.ts`'s `renderRest` turns a render failure into a refused step rather than a half-rendered preamble. */
+export const renderSkillsPreamble = (template: string, context: SkillsPreambleContext): string =>
+  eta.renderString(template, context)
+
+/**
  * Renders `ui.format`'s own command template: the same Eta instance every
  * other template here renders through (no filesystem `include()`), with only
  * `it.file` bound — the UI write path has no git `TemplateContext` to offer

@@ -36,6 +36,7 @@ import {
 } from "./PatternMachine.js"
 import { STATE_FIELD_ENTRIES, type FieldValue, type StateFieldsTable } from "./StateFields.js"
 import {
+  renderSkillsPreamble,
   renderStateTemplate,
   varsOnlyContext,
   type TemplateContext,
@@ -928,6 +929,40 @@ const renderHints = (
   })
 
 /**
+ * Prepend the rendered `skillsPreamble` to `content`, guarded on all three of:
+ * `kind` is `prompt`; `rest.hints.skills` is non-blank after trimming;
+ * `rest.context.vars.skillsPreamble` is non-blank after trimming. Any one of
+ * the three blank leaves `content` byte-identical — see
+ * `.gtd/packages/01-state-skills-field.md`. The preamble PREPENDS (the agent
+ * is told which skills to load before it reads the task), joined by exactly
+ * two newlines.
+ */
+const withSkillsPreamble = (
+  kind: ContentKind,
+  content: string,
+  hints: RestHints,
+  context: TemplateContext,
+): Effect.Effect<string, Error> =>
+  Effect.gen(function* () {
+    const skills = hints.skills
+    const skillsPreambleTemplate = context.vars.skillsPreamble
+    if (
+      kind !== "prompt" ||
+      skills === undefined ||
+      skills.trim() === "" ||
+      skillsPreambleTemplate === undefined ||
+      skillsPreambleTemplate.trim() === ""
+    ) {
+      return content
+    }
+    const preamble = yield* Effect.try({
+      try: () => renderSkillsPreamble(skillsPreambleTemplate, { ...context, skills }),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+    return `${preamble}\n\n${content}`
+  })
+
+/**
  * Render a `Rest`'s declared content (script/prompt/message) plus every
  * `STATE_FIELDS` field carrying a `rest` kind and its computed memory key —
  * all of which already live on `rest` (`rest.context`/`rest.hints`/
@@ -943,10 +978,11 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
       )
     }
     const template = rest.stateDef.script ?? rest.stateDef.prompt ?? rest.stateDef.message!
-    const content = yield* Effect.try({
+    const rendered = yield* Effect.try({
       try: () => renderStateTemplate(template, rest.context),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
+    const content = yield* withSkillsPreamble(kind, rendered, rest.hints, rest.context)
     return {
       state: rest.state,
       actor: rest.actor,

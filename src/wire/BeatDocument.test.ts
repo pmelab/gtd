@@ -143,6 +143,19 @@ describe("beatDocument / renderBeatJson", () => {
     }
   })
 
+  it("never emits skills — package 01: a state's skills: field is concatenated into content, never a separate wire key", () => {
+    // `RenderedDemandSource` (and `RenderedRest`, which satisfies it) may
+    // carry a `skills` hint, but the interface declares no such field, and
+    // `beatDocument`'s object literal reads no such key — so it can't leak
+    // through even when present on the source object.
+    const withSkills = { ...rendered(), skills: "some-skill" } as RenderedDemandSource
+    for (const kind of BEAT_KINDS) {
+      const line = renderJsonLine({ rendered: withSkills, kind })
+      const parsed = JSON.parse(line) as Record<string, unknown>
+      expect("skills" in parsed).toBe(false)
+    }
+  })
+
   it("omits system when its rendered value is the empty string, unlike model which carries an empty string through", () => {
     const line = renderJsonLine({ rendered: rendered({ model: "", system: "" }), kind: "prompt" })
     const parsed = JSON.parse(line) as Record<string, unknown>

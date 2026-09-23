@@ -779,20 +779,164 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
+  const SKILLS_STATES = [
+    { state: "design.triage", skillsVar: "triageSkills" },
+    { state: "architecture.author", skillsVar: "architectureSkills" },
+    { state: "architecture.decompose", skillsVar: "decomposeSkills" },
+    { state: "packages.item.building", skillsVar: "buildSkills" },
+    { state: "packages.item.fix-suite", skillsVar: "fixSkills" },
+    { state: "build.fix", skillsVar: "fixSkills" },
+    { state: "packages.item.fix-spec", skillsVar: "reviewFixSkills" },
+    { state: "build.review.reviewing", skillsVar: "reviewSkills" },
+    { state: "packages.item.spec.review", skillsVar: "specReviewSkills" },
+    { state: "build.health.describe", skillsVar: "escalateSkills" },
+    { state: "packages.item.health.describe", skillsVar: "escalateSkills" },
+  ]
+
+  it("declares `skills:` on exactly the eleven compiled states the mapping table names, and nowhere else — build.review.collecting included (package 02)", () => {
+    const { definition } = compileTemplate()
+    const withSkills = Object.entries(definition.states)
+      .filter(([, s]) => s.skills !== undefined)
+      .map(([name]) => name)
+      .sort()
+    expect(withSkills).toEqual(SKILLS_STATES.map((s) => s.state).sort())
+    expect(definition.states["build.review.collecting"]?.skills).toBeUndefined()
+  })
+
+  // Task 4's guard: a trim overreaching into a state's own file name, finish
+  // condition, or routing contract stalls a process weeks later, never as a
+  // red test on its own — these per-state assertions are the one mechanical
+  // check standing in for that.
+  const SKILLS_STATE_CONTRACT: Record<string, { fileNeedle: string; finishNeedle: string }> = {
+    "design.triage": { fileNeedle: ".gtd/REQUIREMENTS.md", finishNeedle: "uncommitted and finish" },
+    "architecture.author": {
+      fileNeedle: ".gtd/ARCHITECTURE.md",
+      finishNeedle: "uncommitted and finish",
+    },
+    "architecture.decompose": {
+      fileNeedle: ".gtd/packages/",
+      finishNeedle: "uncommitted and finish",
+    },
+    "packages.item.building": { fileNeedle: ".gtd/SATISFIED.md", finishNeedle: "finish your turn" },
+    "packages.item.fix-suite": { fileNeedle: ".gtd/FEEDBACK.md", finishNeedle: "finish your turn" },
+    "build.fix": { fileNeedle: ".gtd/FEEDBACK.md", finishNeedle: "do not commit" },
+    "packages.item.fix-spec": {
+      fileNeedle: ".gtd/SPEC_FEEDBACK.md",
+      finishNeedle: "finish your turn",
+    },
+    "build.review.reviewing": {
+      fileNeedle: ".gtd/REVIEW.md",
+      finishNeedle: "uncommitted and finish",
+    },
+    "packages.item.spec.review": {
+      fileNeedle: ".gtd/SPEC_FEEDBACK.md",
+      finishNeedle: "a later step owns that",
+    },
+    "build.health.describe": {
+      fileNeedle: ".gtd/ESCALATION.md",
+      finishNeedle: "only writes the document",
+    },
+    "packages.item.health.describe": {
+      fileNeedle: ".gtd/ESCALATION.md",
+      finishNeedle: "only writes the document",
+    },
+  }
+
+  it("each of the eleven skills-bearing states still names its own steering file and its own finish condition after the trim (package 02, task 4)", () => {
+    const { definition } = compileTemplate()
+    // `statesReferencing` alone misses `packages.item.fix-suite`/`build.fix`:
+    // their prompt text reaches `.gtd/FEEDBACK.md` only through the shared
+    // `fixFeedbackPrompt` var tag, not a literal in the raw (unrendered)
+    // prompt `statesReferencing` scans — so the needle is checked against
+    // the RENDERED prompt here instead, covering every state uniformly.
+    const { vars } = compileTemplate()
+    const context = { ...varsOnlyContext(vars), read: () => "stub file content" }
+    for (const { state } of SKILLS_STATES) {
+      const { fileNeedle, finishNeedle } = SKILLS_STATE_CONTRACT[state]!
+      const rendered = renderStateTemplate(definition.states[state]!.prompt!, context)
+      expect(rendered, `state "${state}" file`).toContain(fileNeedle)
+      expect(rendered, `state "${state}" finish`).toContain(finishNeedle)
+    }
+  })
+
+  // Three of the eleven branch their `on:` on a specific `.gtd/*.md` path
+  // (write-vs-don't-write decides the route) rather than falling through a
+  // single unconditional edge — those three are where an overreaching trim
+  // could delete the very instruction the routing depends on.
+  const BRANCHING_STATES = [
+    "packages.item.building",
+    "packages.item.spec.review",
+    "build.health.describe",
+    "packages.item.health.describe",
+  ]
+
+  it("every branching state's `on:` routing still names, in its own prompt, each `.gtd/*.md` path its routing keys off (package 02, task 4)", () => {
+    const { definition } = compileTemplate()
+    for (const state of BRANCHING_STATES) {
+      const prompt = definition.states[state]!.prompt!
+      const edges = definition.states[state]!.on ?? []
+      const routedPaths = new Set(
+        edges.flatMap(([pattern]) => pattern.match(/\.gtd\/[A-Za-z_]+\.md/g) ?? []),
+      )
+      expect(routedPaths.size, `state "${state}" has at least one routed path`).toBeGreaterThan(0)
+      for (const path of routedPaths) {
+        expect(prompt, `state "${state}" names ${path}`).toContain(path)
+      }
+    }
+  })
+
+  it("declares each of the nine `*Skills` vars, non-blank (package 02)", () => {
+    const { vars } = compileTemplate()
+    const skillsVars = [...new Set(SKILLS_STATES.map((s) => s.skillsVar))]
+    expect(skillsVars).toHaveLength(9)
+    for (const name of skillsVars) {
+      expect(vars[name], name).toBeTruthy()
+    }
+  })
+
+  it("each skills-bearing state's `skills:` references its own mapping-table var, and renders that var's actual skill names (package 02)", () => {
+    const { definition, vars } = compileTemplate()
+    const context = { ...varsOnlyContext(vars), read: () => "stub file content" }
+    for (const { state, skillsVar } of SKILLS_STATES) {
+      const raw = definition.states[state]?.skills
+      expect(raw, `state "${state}"`).toMatch(new RegExp(`it\\.vars\\.${skillsVar}\\b`))
+      const rendered = renderStateTemplate(raw!, context)
+      expect(rendered, `state "${state}"`).toBe(vars[skillsVar])
+    }
+  })
+
+  it("declares the `skillsPreamble` var, non-blank, reading `it.skills` (package 02)", () => {
+    const { vars } = compileTemplate()
+    expect(vars.skillsPreamble).toBeTruthy()
+    expect(vars.skillsPreamble).toMatch(/it\.skills\b/)
+  })
+
+  it("skillsPreamble's three clauses are each present by a distinct phrase (package 02)", () => {
+    const { vars } = compileTemplate()
+    const preamble = vars.skillsPreamble!
+    // Clause 1: load only what your harness has, skip the rest silently.
+    expect(preamble).toMatch(/skip\s+anything it doesn't\s*—\s*silently/i)
+    // Clause 2: this state's own format/completion outranks a skill, worded
+    // to stand on its own — not "the following", not positional.
+    expect(preamble).toMatch(
+      /this state's own file\s+format and its own completion condition are the final word/i,
+    )
+    // Clause 3: never turn the turn interactive.
+    expect(preamble).toMatch(/never let a loaded skill turn this turn interactive/i)
+  })
+
   // Pinned by stable keyword, never a whole sentence, so a later reword
   // doesn't red this suite for no reason.
 
-  it("design.triage's grouping step states the vertical-slicing test and the distinct-acceptance test (package 01)", () => {
+  it("design.triage no longer states the vertical-slicing/distinct-acceptance technique — triageSkills (planning-and-task-breakdown) covers it now (package 02)", () => {
     const { definition } = compileTemplate()
     const prompt = definition.states["design.triage"]!.prompt!
 
-    expect(prompt).toMatch(/vertical/i)
-    expect(prompt).toMatch(/capability/i)
-    expect(prompt).toMatch(/never by layer/i)
-    expect(prompt).toMatch(/scaffolding/i)
-
-    expect(prompt).toMatch(/fails\s+before it and passes after/i)
-    expect(prompt).toMatch(/merge it into\s+its neighbour/i)
+    expect(prompt).not.toMatch(/vertical/i)
+    expect(prompt).not.toMatch(/never by layer/i)
+    expect(prompt).not.toMatch(/scaffolding/i)
+    expect(prompt).not.toMatch(/fails\s+before it and passes after/i)
+    expect(prompt).not.toMatch(/merge it into\s+its neighbour/i)
   })
 
   it("architecture.author states the footprint/merge rule under a dedicated `## Merged Concerns` heading, merge only, never split (package 01)", () => {
@@ -807,7 +951,7 @@ describe("the bundled unified workflow template", () => {
     expect(prompt).toMatch(/do not route it to `architecture\.gate` for a veto/i)
   })
 
-  it("the fewer-larger-packages bias is the same literal sentence in both design.triage and architecture.author (package 01)", () => {
+  it("the fewer-larger-packages bias survives in architecture.author, but not in design.triage — triageSkills (planning-and-task-breakdown) covers package sizing there now (package 01, 02)", () => {
     const { definition } = compileTemplate()
     const normalize = (s: string): string => s.replace(/\s+/g, " ").trim().toLowerCase()
     const triagePrompt = normalize(definition.states["design.triage"]!.prompt!)
@@ -815,7 +959,7 @@ describe("the bundled unified workflow template", () => {
 
     const bias =
       "prefer fewer, larger packages — the smallest independently valuable change, not the smallest change that compiles"
-    expect(triagePrompt).toContain(bias)
+    expect(triagePrompt).not.toContain(bias)
     expect(authorPrompt).toContain(bias)
   })
 

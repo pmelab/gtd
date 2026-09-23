@@ -1,5 +1,69 @@
 # Setup
 
+## Prerequisites
+
+Install [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills)
+— the bundled workflow's build/fix/review states name skills from this set
+(`skills:` in a state's prompt) instead of spelling out their technique in
+prose. This is a real prerequisite, not an optional boost: without it installed,
+your harness has nothing to load at those states, and the prompt no longer
+carries the prose that used to stand in for it. gtd itself never installs,
+resolves, or verifies this — a repo can also repoint any of the bundled
+`*Skills` config vars to name a different set its own harness has instead.
+Blanking the `skillsPreamble` var turns the skill names off but does not restore
+the deleted prose.
+
+### Using a different skill set
+
+Two routes, and they combine:
+
+- **Instead of the bundled set** — repoint the `*Skills` var for the state you
+  want to change. There are nine: `triageSkills`, `architectureSkills`,
+  `decomposeSkills`, `buildSkills`, `fixSkills`, `reviewFixSkills`,
+  `reviewSkills`, `specReviewSkills`, `escalateSkills`. Each is an ordinary
+  workflow var, overridable per repo via `.gtdrc`:
+
+  ```yaml
+  # .gtdrc — build states load your own skill instead of the bundled pair
+  vars:
+    buildSkills: my-org-tdd-skill
+  ```
+
+  or, highest precedence, via the matching `GTD_<NAME>` environment variable:
+
+  ```bash
+  GTD_BUILDSKILLS="my-org-tdd-skill" gtd next
+  ```
+
+- **In addition to the bundled set** — declare `skills:` on any `prompt` state
+  in your own workflow; the field is not reserved to the bundled ten. There is
+  no append mechanism: an override REPLACES the var's default, it never adds to
+  it. Wanting the bundled skills plus your own means writing the whole list —
+  bundled names included — into your own value:
+
+  ```yaml
+  # .gtdrc — keep the bundled pair, add one more
+  vars:
+    buildSkills:
+      test-driven-development, incremental-implementation, my-org-tdd-skill
+  ```
+
+  The cost of this route: a later gtd release that changes `buildSkills`'
+  bundled default is silently lost to you, because your override already
+  replaced it — you keep whatever list you wrote until you edit it again.
+
+Both routes share the same safety rules:
+
+- The value is prose gtd never splits or validates — a comma-separated list is
+  convention only, not a parsed format.
+- A skill name your harness does not have is skipped silently by the preamble.
+  An over-long list costs nothing.
+- A skill carrying `disable-model-invocation: true` is skipped just as silently
+  — the agent cannot load it at all, only a human can, by slash command. Naming
+  one in a `*Skills` var is a no-op with no error. This is the trap most likely
+  to bite when picking your own set: check the skill's frontmatter before
+  relying on it here.
+
 ## Repository requirements
 
 - **Single writer, linear branch.** A process's history is walked via

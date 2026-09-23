@@ -111,6 +111,7 @@ workflow:
           script: <string> # exactly one of script/prompt/message
           prompt: <string>
           message: <string>
+          skills: <string> # optional, requires "prompt" — an Eta template (typically a workflow var: reference) naming the skills this state's agent should load; prepended to the rendered prompt as a preamble via the `skillsPreamble` var (see "Variables" below). A literal `skills: ""` is rejected at load; a value that RENDERS blank means "no skills this run" and the preamble is simply omitted
           on: # a mapping, DECLARATION ORDER PRESERVED
             "<pattern>": <targetState> # short form
             "<pattern>": {
@@ -414,6 +415,21 @@ vars:
 # highest precedence — beats both the workflow default and the .gtdrc value above
 GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
+
+One var is meaningful only when a state also declares `skills:`:
+**`skillsPreamble`** — the Eta template (seeing `it.skills`, the state's own
+rendered `skills:` value, alongside the ordinary `it.vars`) that renders into
+the preamble PREPENDED to that state's prompt. Blanking it
+(`GTD_SKILLSPREAMBLE=""` or `.gtdrc`'s `vars: { skillsPreamble: "" }`) switches
+the mechanism off repo-wide without editing a single state's `skills:`
+declaration — the prompt then renders exactly as if `skills:` were absent. A
+template you write for this var must carry three clauses, or the field is
+unsafe: load only what your harness has and skip the rest silently; THIS STATE'S
+FILE FORMAT AND COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn
+the turn interactive, because no one is at a keyboard. The precedence clause is
+load-bearing — the preamble PREPENDS, sitting above the state's own format prose
+in the rendered prompt, so a skill that reflows the steering file changes which
+`on:` pattern matches, and with it the transition.
 
 #### The voice
 
