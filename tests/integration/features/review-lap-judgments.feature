@@ -50,8 +50,7 @@ Feature: Review-lap judgments (.gtd/packages/03-review-lap-judgments.md)
 
     # preCheck's own script (a real DRIVER's job, not this harness's) finds
     # all three confident and writes the fast-path marker — given by hand
-    # here, same convention as `scoping`/`striking` in
-    # spec-review-judgments.feature.
+    # here, same convention as `scoping` in spec-review-judgments.feature.
     Given a file ".gtd/REVIEW_FAST.md" with:
       """
       """

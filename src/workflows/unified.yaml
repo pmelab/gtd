@@ -36,40 +36,22 @@ vars:
   judgeIdenticalMinP: "0.7"
   # `specReview.pre`'s per-section noul: a section answered "yes" needs at
   # least this confidence to skip `review` for it; "no", or "yes" under this
-  # floor, both scope the review to that section instead. NOT measured by
-  # `evals/judgments/`'s sweep — no mined fixture case is a "requirement
-  # already satisfied?" judgment (every case judges finding merit instead),
-  # so there is no data to derive this from; a round of review caught an
-  # earlier version deriving it as `1 - specFindingKeep`, an identity the
-  # sweep never actually measures (see `evals/judgments/metrics.mjs`'s
-  # `UNMEASURED_SPEC_PRE_JUDGE_DEFAULT`, which this value must stay in sync
-  # with by hand). Chosen conservatively high instead: the pre-judge should
-  # rarely fire until real pre-judge history exists to mine a measured value
-  # from.
+  # floor, both scope the review to that section instead. UNMEASURED: no
+  # mined history of "requirement already satisfied?" judgments exists to
+  # derive it from, and no arithmetic on another threshold can stand in for
+  # one — a round of review caught an earlier version deriving this from a
+  # value measured for a different question entirely. Chosen conservatively
+  # high instead: the pre-judge should rarely fire until real pre-judge
+  # history exists to mine a measured value from. Every judged-gate
+  # threshold in this file is now an unmeasured conservative default on the
+  # same footing.
   specPreJudge: "0.9"
-  # `specReview.findingJudge`'s per-finding noul: a finding answered "yes" (it
-  # would violate the requirement if left unaddressed) below this confidence
-  # is struck rather than spent on a `fix-spec` turn — a finding answered "no"
-  # is struck regardless of this floor. Blanking it disables `striking`
-  # entirely (nothing struck at all, not even a "no"), the same
-  # blank-turns-this-gate-off convention `judgeIdenticalMinP`/`specPreJudge`
-  # follow. This ONE var IS measured
-  # by `evals/judgments/eval.mjs`'s sweep over `evals/judgments/fixture.json`
-  # (6 cases mined from this repo's own `fix-spec` history — `npm run
-  # eval:judgments` reproduces the run): the lowest-miss-rate threshold. That
-  # fixture judges each case at FILE granularity (a whole `.gtd/
-  # SPEC_FEEDBACK.md`, not one `## ` finding) — see `eval.mjs`'s own opening
-  # comment for why that makes this a validated floor for turn-level
-  # suppression, not a per-finding-calibrated number. The fixture's single
-  # churn example is thin evidence either way — re-run as the mined history
-  # grows.
-  specFindingKeep: "0.1"
   # `humanReview.pre`'s three nouls (mechanicalOnly, touchesPublicAPI,
   # changesBehavior) over `git diff <reviewBase>` — all three must clear this
   # floor at "yes"/"no"/"no" respectively to take the fast path
-  # (`fastReview`, skipping the agent's own authoring lap). Not measured by
-  # `evals/judgments/` — no mined fixture case judges this three-way
-  # combination — so chosen conservatively high, the same
+  # (`fastReview`, skipping the agent's own authoring lap). Unmeasured — no
+  # mined history judges this three-way combination — so chosen
+  # conservatively high, the same
   # unmeasured-default posture `specPreJudge` documents, until real
   # `humanReview.pre` history exists to mine a value from.
   reviewFastPath: "0.9"
@@ -77,20 +59,21 @@ vars:
   # chunks: "actionable, not approval or nit?" A chunk answered "yes" below
   # this floor is treated as non-actionable (folded into sign-off) rather
   # than spent on a `collecting` turn — a chunk answered "no" is
-  # non-actionable regardless of this floor, same shape `specFindingKeep`
-  # uses for a finding. Blanking it disables the dismissal (every "yes"
-  # counts, at any confidence) — the same blank-turns-the-optimization-off
-  # convention `specFindingKeep` follows, kept in the SAFE direction here
-  # (never silently sign off). Not measured by `evals/judgments/` — chosen
+  # non-actionable regardless of this floor. Blanking it disables the
+  # dismissal (every "yes" counts, at any confidence) — the same
+  # blank-turns-this-judged-gate-off convention `judgeIdenticalMinP` and
+  # `specPreJudge` follow, kept in the SAFE direction here (never silently
+  # sign off). This gate weighs chunks the HUMAN wrote, evidence no agent in
+  # the loop produced — which is why it stays where a post-judge over an
+  # agent's own freshly-authored output does not. Unmeasured — chosen
   # conservatively until real `triage` history exists to mine a value from.
   reviewNoteActionable: "0.7"
   # `architecture-pre`'s single noul (`architectureWarranted`, over the
   # just-triaged `.gtd/REQUIREMENTS.md`): an answer of "no" needs at least
   # this confidence to skip `architecture.author`/`architecture.decompose`
   # entirely; any other outcome (including a skipped judgment) runs the full
-  # pass — the conservative default. Not measured by `evals/judgments/` —
-  # chosen conservatively until real `architecture-pre` history exists to
-  # mine a value from.
+  # pass — the conservative default. Unmeasured — chosen conservatively
+  # until real `architecture-pre` history exists to mine a value from.
   architectureSkipMinP: "0.85"
   # gtd's own voice for generated files — adapted from the "Spartan" output
   # style (https://github.com/alexgreensh/attention-span, AGPL-3.0, version 0.6),
@@ -1584,12 +1567,15 @@ machines:
                 failing=1
                 if [ -n "$line" ]; then
                   answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
-                  # Same RAW-verdict shape `striking` documents (a noul
-                  # answer is conventionally a JSON boolean, but the decode
-                  # accepts a quoted "yes"/"no" string too) — both spellings
-                  # must clear a section, or a driver using the string form
-                  # silently loses the whole optimisation, scoping every
-                  # section into review forever without ever being wrong.
+                  # A noul answer is conventionally a JSON boolean
+                  # (`true`/`false`), never the bare "yes"/"no" `routes:`
+                  # matching normalizes it to internally (`asRouteAnswers`,
+                  # src/step/planStep.ts), but the decode accepts a quoted
+                  # string too — the committed trailer carries the RAW
+                  # verdict, so both spellings must clear a section here, or
+                  # a driver using the string form silently loses the whole
+                  # optimisation, scoping every section into review forever
+                  # without ever being wrong.
                   case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
                   p=$(printf '%s' "$line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
                   # `[ -n "$threshold" ]` guards a BLANK `specPreJudge`: awk
@@ -1647,144 +1633,29 @@ machines:
             given — read the range yourself, from `<%= it.startCommit %>`
             to the working tree, process-wide (it can span earlier
             packages)
-          - If it fully satisfies the spec, write nothing — silence is
-            your approval. Otherwise write `.gtd/SPEC_FEEDBACK.md` listing
-            concrete problems for a fix turn, specific enough to act on,
-            each as its own `## ` heading so a later judgment can weigh
-            them individually
+          - Note first, narrow second: read the whole range and note
+            everything that looks wrong, then walk that same set once more
+            and keep only what would VIOLATE the spec if it shipped
+            unaddressed. The second pass narrows what you already noticed —
+            it is never licence to read less carefully
+          - You own that bar; nothing downstream re-weighs your findings.
+            Judge each on its own merits, not on your confidence in having
+            spotted it: a nit, a stylistic preference the spec never asked
+            for, or a suggestion the package's own criteria never required
+            is dropped here, not written down. A finding costs a full fix
+            turn — write it only when you would spend one on it
+          - If nothing clears that bar, write nothing — silence is your
+            approval, and a spec fully satisfied and a spec whose only
+            faults are nits end the same way. Otherwise write
+            `.gtd/SPEC_FEEDBACK.md` listing those problems for a fix turn,
+            specific enough to act on, each as its own `## ` heading
           - Never fix anything yourself and never delete the package
             file — a later step owns that
         on:
-          "A .gtd/SPEC_FEEDBACK.md": findingJudge
-          "M .gtd/SPEC_FEEDBACK.md": findingJudge
+          "A .gtd/SPEC_FEEDBACK.md": $onFix
+          "M .gtd/SPEC_FEEDBACK.md": $onFix
           "D .gtd/SPEC_FEEDBACK.md": $onApproved
           "C": $onApproved
-      # One noul per `## ` finding in `.gtd/SPEC_FEEDBACK.md` — no `routes:`
-      # (and so no fixed-slot padding like `pre` above needs) because the
-      # decision this drives is an AGGREGATE edit, striking SOME findings,
-      # never a single first-match target — `striking`, below, computes that
-      # itself from the landed `Gtd-Judge:` trailers.
-      findingJudge:
-        actor: judge
-        label: Judging findings
-        message: |
-          Judging whether each finding in `.gtd/SPEC_FEEDBACK.md` would
-          actually violate the package spec if left unaddressed, to strike
-          nits before they cost a `fix-spec` turn. Run `gtd judge answer` and
-          pipe a verdict per finding — or land untouched to keep every
-          finding (the conservative default).
-        judge: |-
-          <%
-            const findings = it.sections(".gtd/SPEC_FEEDBACK.md")
-            const questions = findings.map((title, i) => ({
-              id: `finding-${i + 1}`,
-              primitive: "noul",
-              instructions: `Would the finding "${title}" violate the package spec if left unaddressed?`,
-              criteria: "Judge the finding on its own merits, not the reviewer's confidence in raising it. A nit or a stylistic preference the spec never asked for answers no.",
-            }))
-          %>{"state": <%~ JSON.stringify({ package: it.read(it.read(".gtd/NEXT.md").trim()), findings: it.read(".gtd/SPEC_FEEDBACK.md") }) %>, "questions": <%~ JSON.stringify(questions) %>, "specFindingKeepThreshold": "<%= it.vars.specFindingKeep %>"}
-        on:
-          "C": striking
-          # A dirty-tree land with no verdict piped — package 01's own
-          # `build.health.judge`/`packages.item.health.judge` fix for this
-          # same shape (`templates.test.ts` pins it there): the
-          # skipped-judgment fallback must not stall on a dirty tree either,
-          # so it takes the same conservative target "C" does.
-          "* **": striking
-      # Strikes every finding the just-landed verdict answered "no", or "yes"
-      # under `specFindingKeep`, from `.gtd/SPEC_FEEDBACK.md` — workflow-only,
-      # the same trailer-parsing shape as `scoping` above. A skipped judgment
-      # (no `Gtd-Judge:` trailer on HEAD) strikes nothing — the conservative
-      # default, `fix-spec` still runs with every finding intact. Its own
-      # `awk`-based heading scan carries the same "must number sections
-      # exactly like `it.sections` did" constraint `scoping`'s comment
-      # documents — `findingJudge`'s `finding-N` ids are numbered by that
-      # same mdast parse, over `.gtd/SPEC_FEEDBACK.md` instead of the package
-      # file.
-      striking:
-        actor: check
-        label: Filtering low-confidence findings
-        script: |
-          #!/usr/bin/env sh
-          set +e
-          # A blank threshold disables striking entirely (never deletes a
-          # "no"-answered finding either) — the same "blank turns this judged
-          # gate off" convention `scoping`'s own `specPreJudge` guard follows,
-          # rather than the doc-contradicting "keep every yes, strike every
-          # no" a bare `[ -n "$threshold" ]`-free comparison would silently
-          # keep doing.
-          threshold=<%~ it.vars.specFindingKeep %>; if [ -f .gtd/SPEC_FEEDBACK.md ] && [ -n "$threshold" ]; then
-            strike_ids=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}' | while read -r line; do
-              json=${line#Gtd-Judge: }
-              id=$(printf '%s' "$json" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-              answer=$(printf '%s' "$json" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
-              # A noul answer is a JSON boolean (`true`/`false`), never the
-              # bare "yes"/"no" `routes:` matching normalizes it to
-              # internally (`asRouteAnswers`, src/step/planStep.ts) — the
-              # committed trailer carries the RAW verdict, so this shell
-              # parse must accept both spellings.
-              case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
-              p=$(printf '%s' "$json" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
-              idx=${id#finding-}
-              case "$idx" in ("" | *[!0-9]*) continue ;; esac
-              strike=0
-              [ "$answer" = "no" ] && strike=1
-              if [ "$answer" = "yes" ] && awk -v p="$p" -v t="$threshold" 'BEGIN{exit !(p<t)}' 2>/dev/null; then
-                strike=1
-              fi
-              [ "$strike" -eq 1 ] && printf '%s\n' "$idx"
-            done)
-            if [ -n "$strike_ids" ]; then
-              headings=$(awk '/^```/{f=!f} !f && /^## /{print NR":"$0}' .gtd/SPEC_FEEDBACK.md | cut -d: -f1)
-              # `wc -l` counts NEWLINES, not lines — a file whose last line
-              # has no trailing newline (nothing in gtd forces one on an
-              # agent-authored file) undercounts by one, truncating the
-              # final surviving finding's last line. `awk 'END{print NR}'`
-              # counts the true line count either way.
-              total=$(awk 'END{print NR}' .gtd/SPEC_FEEDBACK.md)
-              tmp=$(mktemp)
-              # Everything before the first `## ` heading (a preamble the
-              # reviewer wrote, never a finding itself) survives
-              # unconditionally — a strike must never depend on prose that
-              # isn't one of the numbered findings.
-              first_heading=$(printf '%s\n' "$headings" | head -n 1)
-              if [ -n "$first_heading" ] && [ "$first_heading" -gt 1 ]; then
-                sed -n "1,$((first_heading - 1))p" .gtd/SPEC_FEEDBACK.md >> "$tmp"
-              fi
-              n=0
-              any_kept=0
-              for start in $headings; do
-                n=$((n + 1))
-                end=$(printf '%s\n' "$headings" | awk -v s="$start" '$1>s{print $1-1; exit}')
-                [ -z "$end" ] && end=$total
-                keep=1
-                for idx in $strike_ids; do
-                  [ "$idx" = "$n" ] && keep=0
-                done
-                if [ "$keep" -eq 1 ]; then
-                  any_kept=1
-                  sed -n "${start},${end}p" .gtd/SPEC_FEEDBACK.md >> "$tmp"
-                fi
-              done
-              # Emptiness is judged on SURVIVING FINDINGS, never on bytes: a
-              # preamble (title plus prose ahead of the first `## ` heading)
-              # keeps the rebuilt file non-empty even after every finding is
-              # struck, which would otherwise still land as `M
-              # .gtd/SPEC_FEEDBACK.md` and spend the exact `fix-spec` turn
-              # this post-judge exists to avoid, with nothing left in the
-              # file to act on.
-              if [ "$any_kept" -eq 1 ]; then
-                mv "$tmp" .gtd/SPEC_FEEDBACK.md
-              else
-                rm -f "$tmp" .gtd/SPEC_FEEDBACK.md
-              fi
-            fi
-          fi
-        on:
-          "D .gtd/SPEC_FEEDBACK.md": $onApproved
-          "M .gtd/SPEC_FEEDBACK.md": $onFix
-          "* **": $onFix
-          "C": $onFix
 
   # The per-package build queue — identity-free; build identity lives in
   # packageItem (below).

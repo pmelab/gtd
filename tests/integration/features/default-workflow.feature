@@ -162,17 +162,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.spec.findingJudge"
-
-    # findingJudge: a skipped judgment keeps every finding intact
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.findingJudge → packages.item.spec.striking"
-
-    # striking: no Gtd-Judge trailer -> nothing struck, the finding survives
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.striking → packages.item.fix-spec"
+    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
 
     Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
     When I run gtd land
@@ -279,9 +269,7 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): packages.item.health.check → packages.item.spec.pre
       gtd(judge): packages.item.spec.pre → packages.item.spec.scoping
       gtd(check): packages.item.spec.scoping → packages.item.spec.review
-      gtd(agent): packages.item.spec.review → packages.item.spec.findingJudge
-      gtd(judge): packages.item.spec.findingJudge → packages.item.spec.striking
-      gtd(check): packages.item.spec.striking → packages.item.fix-spec
+      gtd(agent): packages.item.spec.review → packages.item.fix-spec
       gtd(agent): packages.item.fix-spec → packages.item.health.check
       gtd(check): packages.item.health.check → packages.item.spec.pre
       gtd(judge): packages.item.spec.pre → packages.item.spec.scoping
