@@ -495,9 +495,58 @@ overridable via `.gtdrc` `vars:` or a `GTD_<NAME>` environment variable:
   `questionBar`.
 - **`fixFeedbackPrompt`** — the body `packages.item.fix-suite` and `build.fix`
   share byte for byte: read `.gtd/FEEDBACK.md`, fix the code, leave it
-  uncommitted. `fix-suite` appends one extra sentence about implementing a later
-  package's work when that's the only way to green the suite; `build.fix` does
-  not.
+  uncommitted, and — when `.gtd/ESCALATION.md` is present — treat it as the
+  primary instruction, but never edit or delete it: only a genuinely green check
+  retires it (see [Escalation](#escalation) below), so a wrong attempt still
+  leaves the next turn's instruction in place. `fix-suite` appends one extra
+  sentence about implementing a later package's work when that's the only way to
+  green the suite; `build.fix` does not.
+
+#### Escalation
+
+`build.health.escalate`/`packages.item.health.escalate` (both instances of the
+shared `healthGate` machine) are where a check that stays red past `build.fix`'s
+or `packages.item.fix-suite`'s own `retry: {max: 3}` cap — or a
+`healthGate.judge` verdict of "identical" — ends up. Rather than resting there
+directly, `escalate` is a `check` gate that counts escalation rounds from git
+history and routes accordingly:
+
+- **Under 2 rounds** — routes to `describe`
+  (`build.health.describe`/`packages.item.health.describe`): an agent turn that
+  reads `.gtd/FEEDBACK.md`, `.gtd/PRIOR_FEEDBACK.md` when present, and the code
+  its own earlier attempts touched, then writes `.gtd/ESCALATION.md` — what's
+  failing, why the previous attempts didn't resolve it, and concrete approaches
+  to try next. That turn rests at a human gate
+  (`build.health.stop`/`packages.item.health.stop`) on that file: edit it or
+  land it untouched, either way handing it to the next fix turn as its primary
+  instruction (see `fixFeedbackPrompt` above).
+- **At 2 or more rounds** — the cap: no third document is written. The script
+  restores the last `.gtd/ESCALATION.md` and rests at a terminal human gate
+  (`build.health.exhausted`/`packages.item.health.exhausted`) naming both that
+  file and `.gtd/FEEDBACK.md`. Editing the document there is what gives the next
+  attempt anything new to try; landing it untouched tries the same analysis
+  again.
+
+The round count comes from git history, not the file's mere presence: since a
+still-red fix turn never touches `.gtd/ESCALATION.md` (see `fixFeedbackPrompt`
+above), the same document can survive several retries as one round, and
+`healthGate.check`'s own script sweeps it ONLY on a genuinely green result —
+never on a still-red one. That deletion is therefore a reliable "this episode's
+escalation budget just reset" marker: `escalate`'s script anchors its round
+count on the most recent such deletion (falling back to the process start when
+none exists), then counts commits since that anchor whose subject names
+`describe` as the transition's FROM state — that is, `describe`'s own landed
+turn, every round, whether or not its write actually changed the file. Editing
+`.gtd/ESCALATION.md` at the human gate itself never spends a round: that edit
+lands under a different subject (`stop`/`exhausted` as the FROM state), which
+this count does not match.
+
+Both human gates release straight into the caller's own fix state
+(`build.fix`/`packages.item.fix-suite`) — no detour back through the check — so
+the fix turn that consumes the (possibly hand-edited) document is the very next
+turn. `.gtd/ESCALATION.md` is a steering file like any other under `.gtd/`:
+oxfmt-formatted, but with no `mode:`/`format:`/`validate:` pair of its own —
+freeform prose, not a parsed document.
 
 ### Lookup and precedence
 

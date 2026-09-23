@@ -180,6 +180,14 @@ vars:
     before it closes. Fix a late-breaking failing check after sign-off,
     focused and minimal. Every turn lands its own commit — nothing here
     gets squashed away.
+  escalationPersona: |-
+    You are the diagnosing voice in gtd's build pipeline, called in once a
+    check has stayed red past repeated fix attempts. Read the failing
+    output, the previous round's, and the code those attempts touched, then
+    write down what is failing, why the earlier attempts didn't resolve it,
+    and concrete approaches worth trying next. Never fix the code yourself —
+    naming the problem precisely enough for the next fix turn is the whole
+    job.
 
   # The scratchpad-opener sentence shared by every prompt-content state (see
   # STATE_FIELDS's `prompt`) — this workflow's own state files are its private
@@ -279,10 +287,18 @@ vars:
   # the appended paragraph lands in the same position it renders in today);
   # `build.fix` renders the tag alone.
   fixFeedbackPrompt: |-
-    - The only state file this turn touches is `.gtd/FEEDBACK.md` — no
-      other files for notes or output
-    - Read it (the failing test output) and fix the code so the suite
-      passes; keep the change focused, never refactor unrelated code
+    - The only state file this turn writes is `.gtd/FEEDBACK.md` — no other
+      files for notes or output
+    - Read `.gtd/FEEDBACK.md` (the failing test output) and fix the code so
+      the suite passes; keep the change focused, never refactor unrelated
+      code
+    - When `.gtd/ESCALATION.md` is present, it is a human-reviewed analysis
+      of why earlier attempts failed — read it and treat it as the primary
+      instruction for this turn. Never edit or delete it yourself, even once
+      you believe you've resolved it: only a genuinely green check retires
+      it, so an attempt that turns out to be wrong still leaves the next
+      turn's instruction in place. Its absence is the ordinary case: an
+      unremarkable red round with nothing to escalate yet
     - If the feedback is wrong, fix nothing rather than "fixing" a non-issue
     - Delete `.gtd/FEEDBACK.md` either way — once the suite passes, or once
       you have established the feedback was wrong; leaving it in place is
@@ -445,7 +461,13 @@ machines:
   # `sourcesOf`'s single-hop rule, the same shape the bundled retry-workflow
   # tests already pin.
   healthGate:
-    params: [onGreen, onRed, escalateDescribe, checkLabel, escalateLabel]
+    model: <%= it.vars.coderModel %>
+    system: |-
+      <%~ it.vars.escalationPersona %>
+
+
+      <%~ it.vars.agentConduct %>
+    params: [onGreen, onRed, checkLabel, escalateLabel]
     entry: check
     states:
       check:
@@ -502,6 +524,14 @@ machines:
             rm -f .gtd/.check-output
             rm -f .gtd/FEEDBACK.md
             rm -f .gtd/PRIOR_FEEDBACK.md
+            # `.gtd/ESCALATION.md` is swept ONLY here, on a genuinely green
+            # result — never on a still-red round, so an unresolved analysis
+            # a fix turn left in place (fixFeedbackPrompt never deletes it)
+            # survives every retry within the same episode. That also makes
+            # its deletion a reliable "this episode's escalation budget just
+            # reset" signal: `escalate`'s own script (below) anchors its
+            # round count on the most recent such deletion.
+            rm -f .gtd/ESCALATION.md
           fi
         on:
           "A .gtd/PRIOR_FEEDBACK.md": judge
@@ -548,23 +578,130 @@ machines:
           # judgment path: the same conservative $onRed target as "C", never
           # a refusal.
           "* **": $onRed
+      # The round-counting gate: no `message:`/`file:` — a plain `check`
+      # actor's script decides, from git history, whether this is a fresh
+      # escalation (write a new `.gtd/ESCALATION.md`) or the second one (stop
+      # for good). The round count is git history, not `retry:`: `retry:`'s
+      # `episodeVisits` (`PatternMachine.ts`) resets a target's count the
+      # moment a non-source state appears in the trace, and BOTH the `stop`
+      # human gate and the fix turn sit between every pair of arrivals here
+      # without being sources of either — so no `retry:` on any of the three
+      # states below could ever accumulate across escalation rounds.
       escalate:
+        actor: check
+        label: Counting escalation rounds
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          # Anchor on the most recent commit that DELETED .gtd/ESCALATION.md
+          # — under `healthGate.check`'s own script (above), that ONLY ever
+          # happens on a genuinely green result, never a still-red round
+          # (a still-red round leaves an unresolved analysis untouched for
+          # the next fix attempt to read). So this is reliably "the last
+          # time this episode's escalation budget was reset" — unlike
+          # `.gtd/FEEDBACK.md`, which a fix turn deletes on EVERY belief it
+          # resolved the check, red or green, and so sits between every
+          # pair of escalation arrivals regardless of episode. With no such
+          # deletion, the whole process is one unbroken streak since the
+          # start.
+          anchor=$(git log --format=%H <%= it.startCommit %>..HEAD --diff-filter=D -- .gtd/ESCALATION.md 2>/dev/null | head -n 1)
+          if [ -z "$anchor" ]; then anchor=<%= it.startCommit %>; fi
+          # Counting every --diff-filter=AM commit against .gtd/ESCALATION.md
+          # would also count the HUMAN's own edit at `stop` — landing that
+          # edit produces an M .gtd/ESCALATION.md commit too, and `stop`'s own
+          # message explicitly invites that edit. So instead of the file's
+          # diff history, grep commit SUBJECTS for `describe` as the FROM
+          # state — `stateSubject`'s "gtd(actor): from → to" shape means the
+          # commit that lands a `describe` turn's own write always reads
+          # "... build.health.describe → build.health.stop" (or the
+          # packages.item.health equivalent), the same narrowing
+          # `healthGate.check`'s own `episode_anchor` uses above — never the
+          # human's own "... build.health.stop → build.fix" landing at `stop`.
+          #
+          # No `-- .gtd/ESCALATION.md` pathspec on this count: a `prompt`
+          # state's clean step is an ATTEMPT by design, not a no-op
+          # (`validateHasCRow`'s own doc comment), so `describe`'s landing
+          # commit exists every round even when its write is byte-identical
+          # to what already sits in the tree — a pathspec would silently drop
+          # that commit from the count (git sees no diff on that path) and
+          # the 2-round cap would never fire on a repeatedly identical
+          # analysis.
+          describe_source='<%= it.state.replace(/\.escalate$/, ".describe") %>'
+          rounds=$(git log --format='%s' "$anchor"..HEAD 2>/dev/null | grep -c -F -- "$describe_source →")
+          if [ "$rounds" -ge 2 ]; then
+            # Preserve whatever is already in the tree — including a human's
+            # own fresh-instructions edit landed at `exhausted` itself (a
+            # "... exhausted → fix" commit this filter never matches, so it's
+            # never mistaken for a describe round either) — rather than
+            # overwriting it with the machine's last analysis. Only restore
+            # from history when the file is genuinely missing.
+            if [ ! -f .gtd/ESCALATION.md ]; then
+              last=$(git log --format='%H %s' "$anchor"..HEAD -- .gtd/ESCALATION.md 2>/dev/null \
+                | grep -F -- "$describe_source →" | head -n 1 | cut -d' ' -f1)
+              git show "$last":.gtd/ESCALATION.md > .gtd/ESCALATION.md 2>/dev/null
+            fi
+            # Stamp with HEAD so this step's own change registers as a real
+            # M/A edit even when the tree's content is otherwise unchanged
+            # (the common case — nothing else touches the file between
+            # rounds), the same technique `healthGate.check`'s own
+            # FEEDBACK.md stamp uses.
+            printf '\n<!-- gtd escalate %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/ESCALATION.md
+          fi
+        on:
+          "A .gtd/ESCALATION.md": exhausted
+          "M .gtd/ESCALATION.md": exhausted
+          "C": describe
+      describe:
+        actor: agent
+        label: Describing the escalation
+        file: FEEDBACK.md
+        prompt: |
+          <%~ it.vars.stateFileRules %>
+
+          - The only state file this turn writes is `.gtd/ESCALATION.md`
+          - Read `.gtd/FEEDBACK.md` (this round's failing check output),
+            `.gtd/PRIOR_FEEDBACK.md` when present (an earlier round's — this
+            may be the first round, with no prior round to compare), and the
+            code your own earlier attempts touched
+          - Write `.gtd/ESCALATION.md`: what is failing, why the previous
+            attempts did not resolve it, and concrete suggested approaches to
+            solve it
+          - Never fix the code yourself — this turn only writes the document
+        on:
+          "A .gtd/ESCALATION.md": stop
+          "M .gtd/ESCALATION.md": stop
+          "C": stop
+          "* **": stop
+      stop:
         actor: human
         label: $escalateLabel
-        file: FEEDBACK.md
+        file: ESCALATION.md
         message: |
-          The agent could not get the check to pass after repeated attempts.
-          `.gtd/FEEDBACK.md` holds the last failing output.
+          The agent could not get the check to pass after repeated attempts,
+          and has written `.gtd/ESCALATION.md`: what is failing, why the
+          previous attempts didn't resolve it, and suggested approaches.
 
-          What each change does next (then run `gtd land`):
-          <% it.edges.forEach(function (e) { if (e.describe) { %>
-          <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-          <% } }) %>
+          Edit it — narrow it, redirect it, add what you know — or land it
+          untouched to hand it to the next fix turn as-is.
         on:
-          "* **":
-            to: check
-            action: Retry check
-            describe: $escalateDescribe
+          "C": $onRed
+          "* **": $onRed
+      exhausted:
+        actor: human
+        label: Escalation exhausted
+        file: ESCALATION.md
+        message: |
+          Escalation attempts are exhausted — this is the second round, and
+          the check is still red. `.gtd/ESCALATION.md` holds the last
+          unresolved analysis, and `.gtd/FEEDBACK.md` the last failing
+          output.
+
+          Edit `.gtd/ESCALATION.md` with fresh instructions for the next fix
+          turn, or land untouched to give it one more attempt at the same
+          analysis.
+        on:
+          "C": $onRed
+          "* **": $onRed
 
   # Shared check/answer pair for design.gate/architecture.gate. No `file:`
   # PARAM for the probe script itself: machine `$param` substitution is
@@ -1932,9 +2069,6 @@ machines:
         with:
           onGreen: spec
           onRed: fix-suite
-          escalateDescribe: >-
-            edit the code and/or `.gtd/FEEDBACK.md` yourself
-            (**packages.item.health.check**).
           checkLabel: Running checks
           escalateLabel: Escalating to a human
 
@@ -1979,9 +2113,6 @@ machines:
         with:
           onGreen: review
           onRed: fix
-          escalateDescribe: >-
-            edit the code and/or `.gtd/FEEDBACK.md` yourself
-            (**build.health.check**).
           checkLabel: Running checks
           escalateLabel: Escalating to a human
 

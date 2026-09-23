@@ -1111,6 +1111,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And a stub agent script that responds to prompts with:
       """
       case "$GTD_LOOP_PROMPT" in
+        *"this round's failing check output"*)
+          printf 'what is failing: boom.\nwhy earlier attempts failed: same root cause.\na suggested approach: fix the actual bug.\n' > .gtd/ESCALATION.md
+          ;;
         *"the failing test output"*)
           echo x >> scratch.txt
           ;;
@@ -1132,10 +1135,18 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # driver after reading (and not answering) the judge gate.
     When I run the driver from the docs
     Then it succeeds
+    # The 3rd invocation's retry-capped round now runs straight through
+    # build.health.escalate (a `check` gate, auto — 0 prior rounds, so its
+    # script leaves the tree clean) into build.health.describe, a real
+    # `prompt` turn the stub above answers by writing
+    # `.gtd/ESCALATION.md`, which then rests the run at build.health.stop.
     When I run the driver from the docs
     Then it succeeds
-    And stdout contains "The agent could not get the check to pass after repeated attempts."
+    And stdout contains "Edit it"
+    And stdout contains ".gtd/ESCALATION.md"
     And the git log contains "build.health.judge → build.health.escalate"
+    And the git log contains "build.health.escalate → build.health.describe"
+    And the git log contains "build.health.describe → build.health.stop"
     And the last commit body does not contain "Gtd-Judge:"
 
   Scenario: --entry fix-precheck on a green baseline lands an ordinary probe commit, then halts at idle

@@ -45,7 +45,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"design.triage\""
     And the json field "memory" matches the one recorded as "first lap"
 
-  Scenario: memory is retained across an excursion into a child machine's own check (and its escalate) — build.fix resumes across build.health.check/.escalate
+  Scenario: memory is retained across an excursion into a child machine's own check/escalate/describe/stop — build.fix resumes across the whole detour
     Given a test project
     And the workflow
     And a commit "gtd(check): build.fix" that adds ".gtd/FEEDBACK.md" with:
@@ -66,6 +66,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.health.check\""
     And stdout does not contain "\"memory\""
 
+    # build.health.escalate is the round-counting `check` gate now, not a
+    # human rest — still no memory field, same as build.health.check above.
     Given a commit "gtd(check): build.health.escalate" that adds ".gtd/FEEDBACK.md" with:
       """
       test failed again: widget() still returns undefined
@@ -75,14 +77,38 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.health.escalate\""
     And stdout does not contain "\"memory\""
 
+    # build.health.describe is a real `prompt` state — its own memory key,
+    # scoped to build.health (the healthGate instance), distinct from
+    # build.fix's own "build"-scoped key recorded above.
+    Given a commit "gtd(agent): build.health.describe" that adds ".gtd/marker.md" with:
+      """
+      entering the escalation document turn
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"build.health.describe\""
+    And the json field "memory" differs from the one recorded as "first fix attempt"
+    And I record the json field "memory" as "the escalation turn"
+
+    Given a commit "gtd(human): build.health.stop" that adds ".gtd/ESCALATION.md" with:
+      """
+      what's failing, why the earlier attempts didn't resolve it, and a
+      suggested approach
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"build.health.stop\""
+    And stdout does not contain "\"memory\""
+
     Given a commit "gtd(human): build.fix" that adds "NOTE.md" with:
       """
-      the human retried the check after escalation
+      the human landed the escalation document, handing it to the next fix turn
       """
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And the json field "memory" matches the one recorded as "first fix attempt"
+    And the json field "memory" differs from the one recorded as "the escalation turn"
 
   Scenario: memory is retained across a CHILD's own full agent turn, and that child's own session is never confused with the caller's — packages.item.building ⇄ packages.item.spec.review ⇄ packages.item.fix-spec
     # The sharpest case, and the one the old "last label" driver design (before
