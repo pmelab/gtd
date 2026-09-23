@@ -165,6 +165,22 @@ export interface SteeringViewNode {
   readonly anchor: SteeringAnchor
   readonly children?: readonly SteeringViewNode[]
   /**
+   * A node's own body, projected as block nodes — a SIBLING of `children`,
+   * never a reuse of it: `children` on a `qa` question node means its
+   * options (`Question.tsx` maps them to radio rows), so a body block riding
+   * in that same array would render as a phantom option; a `review` chunk
+   * node has no `children` collision to worry about, but keeps the same
+   * split for consistency. Each body node carries its own real
+   * `{kind: "paragraph", line}` anchor (`OpenQuestions.ts#questionBodyNodes`,
+   * `review.ts#parseChunkBody`'s `descriptionNodes`, both via
+   * `Blocks.ts#blockNodesOfRun`) — no new `SteeringAnchor` member exists for
+   * it. Set by `qa` questions and `review` chunks alike; `[]` for either one
+   * with no body at all — never merely absent on a node that legitimately
+   * carries this field, so `node.body !== undefined` alone is not "this is a
+   * question" (`Review.tsx` sets it too).
+   */
+  readonly body?: readonly SteeringViewNode[]
+  /**
    * The document structure a prose block carries (`OpenQuestions.ts#blockOf`)
    * — NO new anchor kind: every block, whatever `kind` it names here, still
    * anchors as `{kind: "paragraph", line}` (`SteeringAnchor` gains no member).

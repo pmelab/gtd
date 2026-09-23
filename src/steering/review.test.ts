@@ -27,6 +27,13 @@ describe("parseReviewDoc", () => {
           title: "Add calculator",
           headingLine: 4,
           description: "New add function for the calculator.",
+          descriptionNodes: [
+            {
+              title: "New add function for the calculator.",
+              anchor: { kind: "paragraph", line: 6 },
+              block: { kind: "paragraph" },
+            },
+          ],
           files: [
             { path: "./src/calc.ts", line: 1, checked: false, sourceLine: 8, endLine: 8 },
             { path: "./src/calc.ts", line: 5, checked: false, sourceLine: 9, endLine: 9 },
@@ -145,7 +152,7 @@ describe("parseReviewDoc — a chunk's description is its own prose, never a nod
     expect(result.changesets[0]?.files[0]?.path).toBe("./src/a.ts")
   })
 
-  it("yields an empty description when the pointers are indented four spaces (a code block, not a list)", () => {
+  it("the pointer run still starts at the real list even when a four-space-indented line above it looks like a pointer (a code block, not a list)", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -158,10 +165,19 @@ describe("parseReviewDoc — a chunk's description is its own prose, never a nod
       "",
     ].join("\n")
     const result = parseReviewDoc(content)
-    expect(result.changesets[0]?.description).toBe("")
+    // The indented line parses as a `code` node, not a list — it never
+    // registers as a pointer, so the real pointer run still starts (and
+    // stays) at `./src/b.ts#1` below. The code node itself, however, now
+    // sits in the leading run like any other node kind, so its own text
+    // surfaces as the description — this is Task 1's own drop fix, not a
+    // regression in where the pointer run starts.
+    expect(result.changesets[0]?.description).toBe("- [ ] ./src/a.ts#1")
+    expect(result.changesets[0]?.files).toEqual([
+      { path: "./src/b.ts", line: 1, checked: false, sourceLine: 7, endLine: 7 },
+    ])
   })
 
-  it("yields an empty description for a `###` sub-heading before the pointers", () => {
+  it("a `###` sub-heading before the pointers now yields real description text", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -174,10 +190,10 @@ describe("parseReviewDoc — a chunk's description is its own prose, never a nod
       "",
     ].join("\n")
     const result = parseReviewDoc(content)
-    expect(result.changesets[0]?.description).toBe("")
+    expect(result.changesets[0]?.description).toBe("### Sub")
   })
 
-  it("yields an empty description for an HTML comment before the pointers", () => {
+  it("an HTML comment before the pointers now yields real description text", () => {
     const content = [
       "# Review: abc1234",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
@@ -190,7 +206,7 @@ describe("parseReviewDoc — a chunk's description is its own prose, never a nod
       "",
     ].join("\n")
     const result = parseReviewDoc(content)
-    expect(result.changesets[0]?.description).toBe("")
+    expect(result.changesets[0]?.description).toBe("<!-- x -->")
   })
 
   it("still yields real leading prose as the description", () => {
@@ -207,6 +223,55 @@ describe("parseReviewDoc — a chunk's description is its own prose, never a nod
     ].join("\n")
     const result = parseReviewDoc(content)
     expect(result.changesets[0]?.description).toBe("Real prose about this chunk.")
+  })
+
+  it("keeps every block kind in the leading run — heading, fenced code, HTML block and thematic break alike — in document order in `descriptionNodes`", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "### Sub",
+      "",
+      "```ts",
+      "const x = 1",
+      "```",
+      "",
+      "<!-- a comment -->",
+      "",
+      "---",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.descriptionNodes.map((n) => n.block?.kind ?? n.title)).toEqual([
+      "heading",
+      "code",
+      "<!-- a comment -->",
+      "---",
+    ])
+  })
+
+  it("excludes a `footnoteDefinition` from both `description` and `descriptionNodes`, even inside the leading run", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "Real prose about this chunk.[^1]",
+      "",
+      "[^1]: a footnote body",
+      "",
+      "- [ ] ./src/a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    expect(result.changesets[0]?.description).toBe("Real prose about this chunk.")
+    expect(result.changesets[0]?.descriptionNodes).toHaveLength(1)
+    expect(result.changesets[0]?.descriptionNodes[0]?.block?.kind).toBe("paragraph")
   })
 })
 

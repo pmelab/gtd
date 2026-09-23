@@ -305,9 +305,14 @@ export const PlanView = ({
 
   if (noteSheetAnchor !== undefined) {
     const line = noteSheetAnchor.kind === "paragraph" ? noteSheetAnchor.line : undefined
-    const originalNote = view.nodes.find(
-      (node) => node.anchor.kind === "paragraph" && node.anchor.line === line,
-    )?.note
+    // A `paragraph` anchor can name either a top-level prose block OR a
+    // block riding in one of `body` (a question's own body, package 06's
+    // Task 3) — so the existing-note lookup walks both, never just
+    // `view.nodes` itself, or reopening a body block's own note-editing seam
+    // would show no existing text at all.
+    const originalNote = view.nodes
+      .flatMap((node) => [node, ...(node.body ?? [])])
+      .find((node) => node.anchor.kind === "paragraph" && node.anchor.line === line)?.note
     const existing = (line !== undefined ? noteOverrides[line] : undefined) ?? originalNote
     return (
       <NoteSheet
@@ -374,6 +379,8 @@ export const PlanView = ({
             }
             {...(onCommitAnswer !== undefined ? { onCommitAnswer } : {})}
             {...(onRefusal !== undefined ? { onRefusal } : {})}
+            noteOverrides={noteOverrides}
+            onOpenNote={(bodyNode) => setNoteSheetAnchor(bodyNode.anchor)}
           />
         )}
       />

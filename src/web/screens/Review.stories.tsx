@@ -196,6 +196,130 @@ export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
   },
 }
 
+/**
+ * Package 02 Task 2: a chunk whose description carries a heading and a
+ * fenced code block — `descriptionNodes` projected straight through
+ * (`review.ts#reviewView`'s own `body` field), rendered on the chunk's own
+ * screen via the shared `ProseBlocks` (`ProseBlock.tsx`), the SAME renderer
+ * `Question.tsx`/`Plan.tsx` already use for their own body blocks. No new
+ * renderer, no new CSS: the existing `CodeBlock` handles the fenced block's
+ * own overflow.
+ */
+/**
+ * One unbroken "word" (no spaces to wrap on), well past 390px at any
+ * reasonable font size — a short line like `const x = 1` would pass an
+ * overflow assertion whether or not the fenced block actually clips its own
+ * content, so this is long enough to genuinely test it.
+ */
+const LONG_CODE_LINE =
+  "const veryLongIdentifierNameThatWillNeverWrapBecauseItHasNoWhitespaceAtAllInsideIt123456789 = 1"
+
+const DESCRIPTION_CHUNK: SteeringView["nodes"][number] = {
+  title: "Chunk with a rich description",
+  detail: "A heading followed by a fenced code block.",
+  anchor: { kind: "chunk", index: 3 },
+  body: [
+    {
+      title: "Watch this",
+      anchor: { kind: "paragraph", line: 0 },
+      block: { kind: "heading", depth: 3 },
+      // An existing footnote landing on this block's own line — real
+      // content the block still shows inline, even though there is no
+      // write path to edit it from this screen (see the next story).
+      note: "left over from an earlier pass",
+    },
+    {
+      title: "long code line",
+      anchor: { kind: "paragraph", line: 2 },
+      block: { kind: "code", text: LONG_CODE_LINE },
+    },
+  ],
+  children: [
+    {
+      title: "src/e.ts#1",
+      path: "src/e.ts",
+      line: 1,
+      checked: false,
+      anchor: { kind: "hunk", chunkIndex: 3, index: 0 },
+    },
+  ],
+}
+
+const VIEW_WITH_DESCRIPTION_CHUNK: SteeringView = {
+  header: "sample123",
+  nodes: [NESTED_CHUNK, FOOTNOTE_CHUNK, SINGLE_HUNK_CHUNK, DESCRIPTION_CHUNK],
+}
+
+export const AChunkDescriptionsHeadingAndFencedCodeBlockBothRenderOnTheChunksScreen: Story = {
+  args: { view: VIEW_WITH_DESCRIPTION_CHUNK, isLoading: false },
+  play: async ({ canvasElement }) => {
+    // Phone width — the same 390px convention `Card.stories.tsx`'s
+    // `RendersCorrectlyAt390pxWide` measures against.
+    await page.viewport(390, 844)
+    const canvas = within(canvasElement)
+    // The chunk card itself still renders `detail` as a single text row —
+    // unchanged, no block structure leaking into the list.
+    const card = canvas.getByTestId("chunk-card-3")
+    await expect(card).toHaveTextContent("A heading followed by a fenced code block.")
+
+    await fireEvent.click(canvas.getByTestId("chunk-open-3"))
+
+    // Both blocks from `body` render on the chunk's own screen (the hunk
+    // deck), through the shared `prose-paragraphs` rendering.
+    const body = canvas.getByTestId("prose-paragraphs")
+    await expect(body).toHaveTextContent("Watch this")
+    await expect(body).toHaveTextContent(LONG_CODE_LINE)
+
+    // The fenced block renders inside a scrollable `pre` — `CodeBlock`'s own
+    // `overflow-auto`.
+    const pre = body.querySelector("pre")
+    expect(pre).not.toBeNull()
+    expect(pre?.className).toContain("overflow-auto")
+    // The line has no whitespace to wrap on and is far wider than 390px, so
+    // the `pre`'s OWN scroll region genuinely overflows its box — this is
+    // the positive control proving the line really is long enough to widen
+    // something if nothing clipped it.
+    expect(pre!.scrollWidth).toBeGreaterThan(pre!.clientWidth)
+    // What must NOT grow: the document itself. If the fenced block reflowed
+    // its ancestors instead of scrolling internally, the whole page would
+    // widen past the 390px viewport — this is the actual layout risk Task
+    // 2 names ("a fenced block does not reflow"), not the `pre`'s own
+    // (expected-to-overflow) `scrollWidth`.
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+  },
+}
+
+/**
+ * The bug this fixes: `ProseBlocks` normally draws a full-width "+ Add
+ * note"/"Edit note" seam below every non-code block — real in
+ * `Question.tsx`/`Plan.tsx`, which wire a real `onOpenNote` handler, but a
+ * review document has no per-block write path at all (its only phone edit is
+ * ticking a pointer's checkbox). `Review.tsx` passes `readOnly` so the seam
+ * never renders here, even though a block still shows an existing footnote's
+ * text inline (real content, not a control that would do nothing when
+ * tapped).
+ */
+export const DescriptionBlocksShowAnExistingNoteButNoDeadEditSeam: Story = {
+  args: { view: VIEW_WITH_DESCRIPTION_CHUNK, isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-open-3"))
+    const body = canvas.getByTestId("prose-paragraphs")
+    await expect(body).toHaveTextContent("left over from an earlier pass")
+    expect(body.querySelector("[data-testid^='note-seam-']")).toBeNull()
+  },
+}
+
+export const AChunkWithAnEmptyDescriptionRendersNoBodyRegionOnItsOwnScreen: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // `NESTED_CHUNK`'s own `body` is unset — no body region on its screen.
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    expect(canvas.queryByTestId("prose-paragraphs")).not.toBeInTheDocument()
+  },
+}
+
 export const ChunkCardShowsProseCheckAllAndNoteAffordance: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {

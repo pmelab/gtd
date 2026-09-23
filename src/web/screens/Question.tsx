@@ -2,6 +2,7 @@ import { useId, useRef, useState } from "react"
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
+import { ProseBlocks } from "./ProseBlock.js"
 
 /** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */
 const normalizeAnswerText = (text: string): string => {
@@ -81,6 +82,24 @@ export interface QuestionProps {
   ) => Promise<unknown>
   /** Fires on every refusal a `commitAnchor`-issued write surfaces (package 03's Task 1) — alongside the revert, never instead of it. Absent exactly where `onCommitAnswer` is absent (`Question.stories.tsx`'s pure-data stories). */
   readonly onRefusal?: (error: unknown) => void
+  /**
+   * The question's own body's note overrides, keyed by each body block's
+   * `paragraph` anchor line — the SAME shape `Plan.tsx#PlanView` already
+   * keeps for the list screen's own prose (`noteOverrides`), threaded down
+   * here so a note saved on a body block while drilled into this question
+   * shows up immediately, without waiting on a `readSteeringFile` refetch.
+   * Defaults to `{}` so `Question.stories.tsx`'s pure-data stories (and any
+   * question with no body) never have to pass one.
+   */
+  readonly noteOverrides?: Readonly<Record<number, string>>
+  /**
+   * Opens the note sheet for one of this question's own body blocks —
+   * `ProseBlocks`' own `onOpenNote` prop, passed straight through. Absent
+   * exactly where `onCommitAnswer` is (`Question.stories.tsx`'s pure-data
+   * stories): with no write path, there's nothing for a saved note to write
+   * through to either.
+   */
+  readonly onOpenNote?: (node: SteeringViewNode) => void
 }
 
 const FreeTextOption = ({
@@ -183,6 +202,8 @@ export const Question = ({
   onAnswerChange,
   onCommitAnswer,
   onRefusal,
+  noteOverrides,
+  onOpenNote,
 }: QuestionProps) => {
   const options = node.children ?? []
   const lastIndex = options.length - 1
@@ -323,6 +344,13 @@ export const Question = ({
       <div data-testid="question-status" className="mb-2 text-small text-muted">
         {answered ? "answered" : "unanswered"}
       </div>
+      {node.body !== undefined && node.body.length > 0 && (
+        <ProseBlocks
+          nodes={node.body}
+          noteOverrides={noteOverrides ?? {}}
+          onOpenNote={onOpenNote ?? (() => {})}
+        />
+      )}
       {options.map((option, index) => (
         <OptionRow
           key={index}
