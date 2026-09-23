@@ -134,7 +134,12 @@ const BlockBody = ({ node }: { readonly node: SteeringViewNode }) => {
  * node so the row still renders and keys uniquely. A fenced CODE block gets
  * neither the seam nor the inline note row (Task 3's own reason: a marker on
  * its anchor line would land in the opening fence and corrupt it) — every
- * other kind gets both.
+ * other kind gets both, UNLESS `readOnly` is set: `Review.tsx`'s chunk
+ * description has no per-block write path at all (a review document's only
+ * phone edit is ticking a pointer's checkbox), so a caller passing
+ * `readOnly` still shows an existing footnote's text inline (real content,
+ * not a dead control) but never the seam — a control that would tap into a
+ * no-op `onOpenNote` otherwise.
  */
 // fallow-ignore-next-line complexity
 export const ProseBlock = ({
@@ -142,11 +147,13 @@ export const ProseBlock = ({
   index,
   noteOverrides,
   onOpenNote,
+  readOnly,
 }: {
   readonly node: SteeringViewNode
   readonly index: number
   readonly noteOverrides: Readonly<Record<number, string>>
   readonly onOpenNote: (node: SteeringViewNode) => void
+  readonly readOnly?: boolean
 }) => {
   const line = node.anchor.kind === "paragraph" ? node.anchor.line : index
   const noteText = noteOverrides[line] ?? node.note
@@ -168,7 +175,7 @@ export const ProseBlock = ({
        * minimum height (Apple's/Android's own minimum recommended touch
        * target) makes it reliably tappable on a phone.
        */}
-      {!isCode && (
+      {!isCode && !readOnly && (
         <Button
           variant="ghost"
           data-testid={`note-seam-${index}`}
@@ -182,15 +189,17 @@ export const ProseBlock = ({
   )
 }
 
-/** Prose-only rendering: one `ProseBlock` per `view.nodes` entry (each carrying a real, server-computed `paragraph` anchor — `OpenQuestions.ts#blockNodesOf`). A block already carrying a note (`node.note`, or a locally-saved override) shows it inline and offers editing via the same seam, never a second note. */
+/** Prose-only rendering: one `ProseBlock` per `view.nodes` entry (each carrying a real, server-computed `paragraph` anchor — `OpenQuestions.ts#blockNodesOf`). A block already carrying a note (`node.note`, or a locally-saved override) shows it inline and offers editing via the same seam, never a second note — unless `readOnly` (see `ProseBlock`'s own doc comment), which never renders the seam at all. */
 export const ProseBlocks = ({
   nodes,
   noteOverrides,
   onOpenNote,
+  readOnly,
 }: {
   readonly nodes: readonly SteeringViewNode[]
   readonly noteOverrides: Readonly<Record<number, string>>
   readonly onOpenNote: (node: SteeringViewNode) => void
+  readonly readOnly?: boolean
 }) => (
   <div data-testid="prose-paragraphs">
     {nodes.map((node, index) => (
@@ -200,6 +209,7 @@ export const ProseBlocks = ({
         index={index}
         noteOverrides={noteOverrides}
         onOpenNote={onOpenNote}
+        {...(readOnly !== undefined ? { readOnly } : {})}
       />
     ))}
   </div>

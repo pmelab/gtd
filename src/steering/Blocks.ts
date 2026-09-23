@@ -62,21 +62,44 @@ const blockListItemsOf = (content: string, items: readonly ListItem[]): readonly
 const EMPTY_CODE_BLOCK_TITLE = "(empty code block)"
 
 /**
+ * A `list` node's own children with `options.skipListItem` removed — identity
+ * filtering, not a line-range guess (see `BlockWalkOptions.skipListItem`'s own
+ * doc comment for why): a caller excluding SOME of a list's items (`qa.ts`'s
+ * own option items, mixed in the SAME list as ordinary body bullets) still
+ * sees whatever's left, rather than losing the whole node the moment any one
+ * child matches.
+ */
+const visibleListItems = (node: List, options?: BlockWalkOptions): readonly ListItem[] =>
+  options?.skipListItem
+    ? node.children.filter((item) => !options.skipListItem!(item))
+    : node.children
+
+/**
  * A top-level node's own one-line, marker-stripped, whitespace-collapsed
  * text — every block kind's `title`, and reused verbatim as a `blockquote`'s
  * own `text`. `heading`/`blockquote` use `childrenText` (their own CHILDREN
  * span — the NODE's own position starts at the `#` run / the `>` marker,
  * which `sourceText` would otherwise pull in); `code` uses its `value`
  * directly (never `sourceText`, which would pull in the fence lines),
- * falling back to `EMPTY_CODE_BLOCK_TITLE` when that value is blank;
+ * falling back to `EMPTY_CODE_BLOCK_TITLE` when that value is blank; `list`
+ * joins each VISIBLE item's own text (`options.skipListItem`-filtered, never
+ * raw `sourceText` over the whole node's span — that span still covers every
+ * excluded item's own markdown, checkbox syntax included, which would leak
+ * straight back into `title`/`detail` the moment any item was filtered);
  * everything else uses `sourceText` over the node's own span.
  */
-const blockTitle = (content: string, node: RootContent): string => {
+const blockTitle = (content: string, node: RootContent, options?: BlockWalkOptions): string => {
   if (node.type === "heading") return headingText(content, node, stripMarkerText)
   if (node.type === "blockquote") return childrenText(content, node.children)
   if (node.type === "code") {
     const text = stripMarkerText(node.value).replace(/\s+/g, " ").trim()
     return text.length > 0 ? text : EMPTY_CODE_BLOCK_TITLE
+  }
+  if (node.type === "list") {
+    return visibleListItems(node, options)
+      .map((item) => listItemText(content, item))
+      .filter((text) => text.length > 0)
+      .join(" ")
   }
   return stripMarkerText(sourceText(content, node)).replace(/\s+/g, " ").trim()
 }
@@ -107,7 +130,7 @@ const rawNodeText = (content: string, node: RootContent): string => {
 const blockOf = (
   content: string,
   node: RootContent,
-  options?: { readonly fullText?: boolean },
+  options?: BlockWalkOptions,
 ): SteeringViewNode["block"] | undefined => {
   const block = ((): SteeringViewNode["block"] | undefined => {
     switch (node.type) {
@@ -117,7 +140,7 @@ const blockOf = (
         return {
           kind: "list",
           ordered: node.ordered === true,
-          items: blockListItemsOf(content, node.children),
+          items: blockListItemsOf(content, visibleListItems(node, options)),
         }
       case "code":
         return {
@@ -151,24 +174,47 @@ const blockOf = (
  * `skipNode` excludes a top-level node outright (`qa`'s own `## Open
  * Questions`/`## Answered Questions` section headings); `skipLine` excludes
  * a node by its own start line (`qa`'s question spans, already projected
- * elsewhere as `question`/`option` nodes). Neither is required — a caller
- * passing neither gets every top-level block in the document.
+ * elsewhere as `question`/`option` nodes); `skipListItem` excludes individual
+ * `listItem`s of a top-level `list` by NODE IDENTITY (`qa`'s own option items
+ * — `optionListItems`'s exact return set — mixed in the SAME list as ordinary
+ * body bullets in source, never by line arithmetic or by dropping the whole
+ * list the moment ANY child matches: a list that still has visible items
+ * after filtering stays in the walk, with only the matched items gone from
+ * its own `items`/title). None is required — a caller passing none gets every
+ * top-level block, and every one of its items, unfiltered.
  */
 export interface BlockWalkOptions {
   readonly skipNode?: (content: string, node: RootContent) => boolean
   readonly skipLine?: (line: number) => boolean
+  readonly skipListItem?: (item: ListItem) => boolean
   /** See `blockOf`'s own doc — forwarded through to every node's own `block`. */
   readonly fullText?: boolean
 }
 
 /**
- * Every top-level block of the document as a view node, in document order —
- * headings, lists, code blocks, blockquotes and paragraphs alike. A
- * `footnoteDefinition` is skipped unconditionally: it is the note ITSELF,
- * surfaced below as a node's own `note`, never new document content in its
- * own right. `options.skipNode`/`options.skipLine` let a caller exclude its
- * own already-projected structure (see `BlockWalkOptions`) — a caller
- * passing neither gets every top-level block, unfiltered.
+ * `true` for a top-level `list` node that `options.skipListItem` empties out
+ * ENTIRELY (every child matches) — the one case still excluded from the walk
+ * wholesale, mirroring the old whole-list exclusion for `qa`'s pure option
+ * list. A list with at least one surviving item stays, filtered rather than
+ * dropped (see `BlockWalkOptions.skipListItem`'s own doc comment).
+ */
+const isEmptiedList = (node: RootContent, options?: BlockWalkOptions): boolean =>
+  node.type === "list" &&
+  node.children.length > 0 &&
+  options?.skipListItem !== undefined &&
+  visibleListItems(node, options).length === 0
+
+/**
+ * Every block of an arbitrary RUN of sibling `RootContent` nodes as a view
+ * node, in document order — headings, lists, code blocks, blockquotes and
+ * paragraphs alike. A `footnoteDefinition` is skipped unconditionally: it is
+ * the note ITSELF, surfaced below as a node's own `note`, never new document
+ * content in its own right. `options.skipNode`/`options.skipLine` let a
+ * caller exclude its own already-projected structure (see
+ * `BlockWalkOptions`) — a caller passing neither gets every node in `nodes`,
+ * unfiltered. `blockNodesOf` (below) is this walk over a WHOLE document's own
+ * `tree.children`; `qa.ts`'s question-body projection is this walk over one
+ * `QuestionBlock.body` array instead — the same per-node logic either way.
  *
  * Every node still carries a real, server-computed `{kind:"paragraph",
  * line}` anchor at its own start line, and an existing footnote marker
@@ -176,30 +222,38 @@ export interface BlockWalkOptions {
  * `review.ts#chunkNoteOf`'s exact-line-match convention), so a block already
  * carrying a note offers editing it, not a second one.
  */
-export const blockNodesOf = (
+export const blockNodesOfRun = (
   content: string,
-  tree: Root,
+  nodes: readonly RootContent[],
   options?: BlockWalkOptions,
 ): readonly SteeringView["nodes"][number][] => {
   const { markers, definitions } = parseFootnotes(content)
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
-  return tree.children
+  return nodes
     .filter((node) => node.position !== undefined)
     .filter((node) => node.type !== "footnoteDefinition")
     .filter((node) => !(options?.skipNode?.(content, node) ?? false))
     .filter((node) => !(options?.skipLine?.(toLspPosition(node.position!.start).line) ?? false))
+    .filter((node) => !isEmptiedList(node, options))
     .map((node) => {
       const startLine = toLspPosition(node.position!.start).line
       const noteBodies = markers
         .filter((marker) => marker.line === startLine)
         .map((marker) => definitionByName.get(marker.name))
         .filter((body): body is string => body !== undefined)
-      const block = blockOf(content, node, options?.fullText ? { fullText: true } : undefined)
+      const block = blockOf(content, node, options)
       return {
-        title: blockTitle(content, node),
+        title: blockTitle(content, node, options),
         anchor: { kind: "paragraph" as const, line: startLine },
         ...(block !== undefined ? { block } : {}),
         ...(noteBodies.length > 0 ? { note: noteBodies.join(" ") } : {}),
       }
     })
 }
+
+/** Every top-level block of the WHOLE document, in document order — `blockNodesOfRun` over `tree.children`. See that function's own doc comment for the shared per-node logic. */
+export const blockNodesOf = (
+  content: string,
+  tree: Root,
+  options?: BlockWalkOptions,
+): readonly SteeringView["nodes"][number][] => blockNodesOfRun(content, tree.children, options)

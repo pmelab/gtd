@@ -499,6 +499,58 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the file ".gtd/TODO.md" contains "Second edit."
     And the second write succeeded
 
+  # ── Package 06's Task 4: a design document's free-text answer, typed long
+  # enough to wrap past 80 columns, must survive a real save through a
+  # spawned `gtd ui` byte-for-byte — replacing a PREVIOUS wrapped answer's own
+  # continuation lines whole, never leaving a stale tail welded onto the new
+  # text (`qa.ts#optionTextSpan`'s whole-paragraph span, package 06 Task 1).
+  # ──────────────────────────────────────────────────────────────────────
+
+  @live
+  Scenario: a free-text answer typed long enough to wrap saves byte-for-byte through a spawned gtd ui, with no tail of the previous wrapped answer left behind
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start"
+                on:
+                  "* **": awaiting-review
+              awaiting-review:
+                actor: human
+                file: "REVIEW.md"
+                mode: qa
+                message: "awaiting your review"
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file ".gtd/REVIEW.md" with:
+      """
+      ## Open Questions
+
+      ### Which storage backend should the new cache layer use?
+
+      - [ ] Redis
+      - [x] a previous long answer that already wraps across two whole
+            continuation lines from an earlier save
+      """
+    When I answer option 1 of question 0 in ".gtd/REVIEW.md" mode "qa" with the text "Go with SQLite on the shared volume instead — it needs no additional infrastructure to operate, unlike every alternative the team considered." via a spawned gtd ui
+    Then the file ".gtd/REVIEW.md" contains "Go with SQLite on the shared volume instead"
+    And the file ".gtd/REVIEW.md" contains "unlike every alternative the team considered."
+    And the file ".gtd/REVIEW.md" does not contain "a previous long answer"
+    And the file ".gtd/REVIEW.md" does not contain "continuation lines from an earlier save"
+
   # `resolveBindHost`/`resolveCertPair` themselves (the Tailscale-scan
   # default, --self-signed, ui.cert/ui.key) are pinned deterministically at
   # the unit tier — `src/ui/Server.test.ts`'s own `describe("resolveBindHost"

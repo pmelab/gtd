@@ -141,6 +141,35 @@ export const OpenQuestionCardRendersTheAccentTreatmentAnsweredDoesNot: Story = {
 }
 
 /**
+ * Package 06's Task 3, fifth bullet: the list screen needs "no client
+ * change" because `QuestionCard` (`Plan.tsx`) already renders `node.detail`
+ * unconditionally in full — this pins that claim so a future regression that
+ * drops or truncates `detail` on the card is caught here, not just on the
+ * question screen `Question.tsx` renders after drilling in.
+ */
+export const OpenQuestionCardShowsAWrappedBodySummaryInFull: Story = {
+  args: {
+    contentHash: "qa-card-detail-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          ...openQuestion(0, "Which storage backend?"),
+          detail:
+            "A body long enough that it would once have been cut to its first source line alone, before this package required the card to show it whole.",
+        },
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("question-card-0")).toHaveTextContent(
+      "A body long enough that it would once have been cut to its first source line alone, before this package required the card to show it whole.",
+    )
+  },
+}
+
+/**
  * package 02, T1/T4: a plan carrying a heading, prose before the questions
  * section, one open question, one answered question and a trailing
  * paragraph — the open question renders ABOVE the prose (it's the task),
@@ -622,6 +651,68 @@ export const ParagraphAlreadyCarryingANoteOffersEditingNotASecondNote: Story = {
     await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Edit note")
     await fireEvent.click(canvas.getByTestId("note-seam-0"))
     await expect(canvas.getByTestId("note-sheet-textarea")).toHaveValue("the existing comment")
+  },
+}
+
+/**
+ * Package 06's Task 3: a question's own body block gets the SAME note seam
+ * every top-level prose block does — opening it, saving, and the note
+ * rendering inline, all through the `paragraph` anchor `body` blocks carry
+ * (`resolveQuestionsParagraphAnchor`), never a second anchor kind.
+ */
+export const AQuestionBodyParagraphsNoteSeamOpensSavesAndRendersInline: Story = {
+  args: {
+    contentHash: "qa-body-note-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          ...openQuestion(0, "Which storage backend?"),
+          body: [paragraphNode(4, "A tradeoff worth spelling out for future readers.")],
+        },
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent(
+      "A tradeoff worth spelling out for future readers.",
+    )
+    // The body sits between the heading and the first option row — a
+    // DOM-order assertion, not merely `toHaveTextContent` (which stays
+    // green even if the body rendered after the options).
+    const body = canvas.getByTestId("prose-paragraphs")
+    const firstOption = canvas.getByTestId("option-0")
+    expect(
+      body.compareDocumentPosition(firstOption) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    await fireEvent.click(canvas.getByTestId("note-seam-0"))
+    await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "worth flagging in the body" },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await expect(canvas.queryByTestId("note-sheet")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("question-screen")).toBeInTheDocument()
+    await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent(
+      "worth flagging in the body",
+    )
+  },
+}
+
+/** A question with no body renders no body region at all — no stray `prose-paragraphs` container, no seam. */
+export const AQuestionWithNoBodyRendersNoBodyRegion: Story = {
+  args: {
+    contentHash: "qa-no-body-hash",
+    isLoading: false,
+    view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("question-screen")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("prose-paragraphs")).not.toBeInTheDocument()
   },
 }
 

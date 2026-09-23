@@ -12,6 +12,7 @@ import { readRefusalFrom, trpc } from "../api.js"
 import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
 import { Hunk, type HunkProps } from "./Hunk.js"
+import { ProseBlocks } from "./ProseBlock.js"
 
 /**
  * Every hunk-anchored descendant of a chunk node, at any depth —
@@ -319,19 +320,26 @@ const HunkDeck = ({
 }) => {
   const hunks = hunksOf(chunk)
   return (
-    <Deck
-      items={hunks}
-      index={state.deckIndex}
-      onIndexChange={state.setDeckIndex}
-      onExit={state.exitToChunkList}
-      renderItem={(hunk, i) => {
-        const props = hunkPropsFor(hunk, i, hunks, state)
-        if (live) {
-          return <HunkWithDiff key={hunkKey(hunk.anchor)} {...props} />
-        }
-        return <Hunk key={hunkKey(hunk.anchor)} {...props} diff={undefined} />
-      }}
-    />
+    <div data-testid="hunk-deck" className="flex h-full min-h-0 flex-1 flex-col">
+      {chunk.body !== undefined && chunk.body.length > 0 && (
+        <div className="shrink-0 overflow-auto border-b border-border">
+          <ProseBlocks nodes={chunk.body} noteOverrides={{}} onOpenNote={() => {}} readOnly />
+        </div>
+      )}
+      <Deck
+        items={hunks}
+        index={state.deckIndex}
+        onIndexChange={state.setDeckIndex}
+        onExit={state.exitToChunkList}
+        renderItem={(hunk, i) => {
+          const props = hunkPropsFor(hunk, i, hunks, state)
+          if (live) {
+            return <HunkWithDiff key={hunkKey(hunk.anchor)} {...props} />
+          }
+          return <Hunk key={hunkKey(hunk.anchor)} {...props} diff={undefined} />
+        }}
+      />
+    </div>
   )
 }
 

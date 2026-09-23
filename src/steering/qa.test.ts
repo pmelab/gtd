@@ -352,28 +352,32 @@ describe("qa — structure (checkSteering)", () => {
       expect(option).toMatchObject({ sourceLine: 4, endLine: 6 })
     })
 
-    it("answered/text stay derived from the checkbox line alone for a wrapped ticked free-text option", () => {
+    it("answered/text include a wrapped ticked free-text option's whole paragraph span, not the checkbox line alone", () => {
       const result = parseOpenQuestions(
         q(["", "- [ ] REST", "- [x] use tRPC", "a wrapped continuation of the answer"]),
       )
       const question = result.questions[0]!
       expect(question.answered).toBe(true)
       const chosen = question.options.find((o) => o.checked)!
-      expect(chosen).toMatchObject({ text: "use tRPC", sourceLine: 5, endLine: 6 })
+      expect(chosen).toMatchObject({
+        text: "use tRPC a wrapped continuation of the answer",
+        sourceLine: 5,
+        endLine: 6,
+      })
     })
 
-    it("a bare marker with no text on its OWN line, whose text starts on the next (indented) line, has text '' — not the marker itself", () => {
+    it("a bare marker with no text on its OWN line, whose text starts on the next (indented) line, reads that continuation's text — where it read '' and refused before", () => {
       const result = parseOpenQuestions(q(["", "- [ ]", "  text here", "- [ ] _your answer_"]))
       const [option] = result.questions[0]!.options
-      expect(option).toMatchObject({ text: "", sourceLine: 4, endLine: 5 })
+      expect(option).toMatchObject({ text: "text here", sourceLine: 4, endLine: 5 })
     })
 
-    it("a ticked free-text option answered ONLY on its continuation line still reads text '' and stays UNANSWERED — the answer must be on the marker's own line", () => {
+    it("a ticked free-text option answered only on its continuation line reads that text and counts as ANSWERED — the paragraph span covers the whole wrap, not just the marker's own line", () => {
       const result = parseOpenQuestions(q(["", "- [ ] REST", "- [x]", "  my own answer"]))
       const question = result.questions[0]!
       const chosen = question.options.find((o) => o.checked)!
-      expect(chosen).toMatchObject({ text: "", freeText: true })
-      expect(question.answered).toBe(false)
+      expect(chosen).toMatchObject({ text: "my own answer", freeText: true })
+      expect(question.answered).toBe(true)
     })
   })
 
@@ -444,9 +448,9 @@ describe("qa — answer completeness (unansweredQuestions)", () => {
     expect(unansweredQuestions(qa, content)).toHaveLength(1)
   })
 
-  it("a ticked free-text option answered ONLY on its continuation line still reads unanswered — the answer must be on the marker's own line", () => {
+  it("a ticked free-text option answered only on its continuation line reads that text and counts as answered — the paragraph span covers the whole wrap", () => {
     const content = q(["", "- [ ] REST", "- [x]", "  my own answer"])
-    expect(unansweredQuestions(qa, content)).toHaveLength(1)
+    expect(unansweredQuestions(qa, content)).toEqual([])
   })
 
   it("returns [] once every open question is answered", () => {
@@ -963,11 +967,13 @@ describe("qa.view", () => {
     "",
   ].join("\n")
 
-  it("exposes both open and answered questions, in document order — title carries the actual question, detail the body summary", () => {
+  it("exposes both open and answered questions, in document order — title carries the actual question, detail the whole body's collapsed text", () => {
     const view = qa.view(CONTENT)
     const questionNodes = view.nodes.filter((n) => n.status !== undefined)
+    // "First?"'s own body is ONLY its option list — excluded from the body
+    // walk (that's `children`'s own job) — so its `detail` is "".
     expect(questionNodes.map((q) => [q.status, q.title, q.detail])).toEqual([
-      ["open", "First?", "- [ ] Option A"],
+      ["open", "First?", ""],
       ["answered", "Second?", "Already decided."],
     ])
     expect(questionNodes[0]!.children!.map((o) => o.title)).toEqual(["Option A", "Option B"])
@@ -1251,6 +1257,122 @@ describe("qa.view — block nodes (package 02, T1/T2)", () => {
   })
 })
 
+describe("qa.view — question body nodes (Task 2: a question's body projects as blocks, not a line)", () => {
+  const questionNodeOf = (content: string) =>
+    qa.view(content).nodes.find((n) => n.status !== undefined)!
+
+  it("a question whose body is a paragraph, a fenced code block and a list projects three body nodes carrying those kinds, in document order", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which approach?",
+      "",
+      "Some body prose.",
+      "",
+      "```",
+      "example code",
+      "```",
+      "",
+      "* a plain bullet",
+      "* another bullet",
+      "",
+      "- [ ] Option A",
+      "",
+    ].join("\n")
+    const question = questionNodeOf(content)
+    expect(question.body?.map((n) => n.block?.kind)).toEqual(["paragraph", "code", "list"])
+  })
+
+  it("the option list never appears in body, and body blocks never appear in children", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which approach?",
+      "",
+      "Body prose.",
+      "",
+      "- [ ] Option A",
+      "- [ ] Option B",
+      "",
+    ].join("\n")
+    const question = questionNodeOf(content)
+    expect(question.body?.map((n) => n.title)).toEqual(["Body prose."])
+    expect(question.children?.map((n) => n.title)).toEqual(["Option A", "Option B"])
+  })
+
+  it("a plain (non-task) bullet sharing the SAME list as real options is excluded from children but still surfaces in body — never dropped entirely", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which approach?",
+      "",
+      "Body prose that matters.",
+      "",
+      "- [ ] Option A",
+      "- a plain bullet that is NOT an option",
+      "- [ ] Option B",
+      "",
+    ].join("\n")
+    const question = questionNodeOf(content)
+    // The two real options are still `children`, exactly as before.
+    expect(question.children?.map((n) => n.title)).toEqual(["Option A", "Option B"])
+    // The plain bullet is excluded from `children` (it's not an option) —
+    // but it must not vanish outright: it belongs in `body`, alongside the
+    // question's other prose, not nowhere.
+    expect(question.body?.map((n) => n.title)).toEqual([
+      "Body prose that matters.",
+      "a plain bullet that is NOT an option",
+    ])
+    expect(question.detail).toContain("a plain bullet that is NOT an option")
+  })
+
+  it("detail on a question node is the whole body's collapsed text — a body wrapped across four source lines reads back complete", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which approach?",
+      "",
+      "This body prose deliberately wraps across several",
+      "source lines so the whole thing must be collapsed",
+      "into one detail string rather than only the first",
+      "of its own four lines.",
+      "",
+      "- [ ] Option A",
+      "",
+    ].join("\n")
+    const question = questionNodeOf(content)
+    expect(question.detail).toBe(
+      "This body prose deliberately wraps across several source lines so the whole thing must be collapsed into one detail string rather than only the first of its own four lines.",
+    )
+  })
+
+  it("a question with no body at all yields body: [] and detail: ''", () => {
+    const content = ["## Open Questions", "", "### Which approach?", "", "- [ ] Option A", ""].join(
+      "\n",
+    )
+    const question = questionNodeOf(content)
+    expect(question.body).toEqual([])
+    expect(question.detail).toBe("")
+  })
+
+  it("every body node carries a real {kind: 'paragraph', line} anchor at its own start line", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which approach?",
+      "",
+      "Body prose.",
+      "",
+      "- [ ] Option A",
+      "",
+    ].join("\n")
+    const question = questionNodeOf(content)
+    expect(question.body).toEqual([
+      expect.objectContaining({ anchor: { kind: "paragraph", line: 4 } }),
+    ])
+  })
+})
+
 /** Applies edits back-to-front — a local copy of the file's own `applyEdits` (defined further down, after `qa.apply`'s own describe block) so this earlier suite can assert on the resulting document text too. */
 const applyEditsLocal = (
   content: string,
@@ -1335,6 +1457,115 @@ describe("qa.annotate/note — block anchors carry structure beyond paragraphs (
       anchor: { kind: "paragraph", line: 0 },
     })
   })
+})
+
+describe("qa — option text span (Task 1: one span, read and written by one helper)", () => {
+  it("an option wrapped across three source lines reads back as its whole text, whitespace-collapsed and marker-stripped", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST, specifically a JSON:API-flavored",
+      "  REST endpoint set that keeps every response",
+      "  shaped consistently across the whole service.",
+      "",
+    ].join("\n")
+    const [option] = parseOpenQuestions(content).questions[0]!.options
+    expect(option!.text).toBe(
+      "REST, specifically a JSON:API-flavored REST endpoint set that keeps every response shaped consistently across the whole service.",
+    )
+  })
+
+  it("parse → apply({text}) → parse on a question whose existing free-text answer wraps across lines returns exactly the new answer — no tail of the old answer left behind, no duplication", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [x] a long previous answer that wraps",
+      "  across two whole continuation lines here",
+      "",
+    ].join("\n")
+    const before = parseOpenQuestions(content).questions[0]!
+    expect(before.options[1]!.text).toBe(
+      "a long previous answer that wraps across two whole continuation lines here",
+    )
+    const result = qa.apply(
+      content,
+      { kind: "option", questionIndex: 0, index: 1 },
+      { checked: true, text: "a short new answer" },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEditsLocal(content, result.edits)
+    const after = parseOpenQuestions(applied).questions[0]!
+    expect(after.options[1]!.text).toBe("a short new answer")
+    expect(applied).not.toContain("wraps")
+    expect(applied).not.toContain("continuation lines")
+  })
+
+  it("an option carrying a nested list under it keeps that nested list byte-for-byte after a free-text save", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [x] the previous answer",
+      "  - a nested detail that must survive",
+      "  - another nested detail",
+      "- [ ] GraphQL",
+      "",
+    ].join("\n")
+    const result = qa.apply(
+      content,
+      { kind: "option", questionIndex: 0, index: 0 },
+      { checked: true, text: "a brand new answer" },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEditsLocal(content, result.edits)
+    expect(applied).toContain("  - a nested detail that must survive")
+    expect(applied).toContain("  - another nested detail")
+    expect(applied).toContain("- [x] a brand new answer")
+  })
+
+  it("an option whose content starts on the line AFTER its marker reads its text and accepts a text edit, where it read '' and refused before", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ]",
+      "  content on the next line",
+      "",
+    ].join("\n")
+    const before = parseOpenQuestions(content).questions[0]!.options[0]!
+    expect(before.text).toBe("content on the next line")
+    const result = qa.apply(
+      content,
+      { kind: "option", questionIndex: 0, index: 0 },
+      { checked: true, text: "a replacement" },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEditsLocal(content, result.edits)
+    expect(parseOpenQuestions(applied).questions[0]!.options[0]).toMatchObject({
+      checked: true,
+      text: "a replacement",
+    })
+  })
+
+  // A bare, truly content-less "- [ ]" is never even recognized as a task
+  // item by the underlying GFM parser (its own micromark task-list-check
+  // tokenizer requires trailing content or a following sibling to fire at
+  // all — `item.checked` stays `null` and `optionListItems` excludes it
+  // upstream), so `optionTextSpan`'s "no paragraph" branch can't be reached
+  // through real parsed markdown. The `qa.apply` "erasing a free-text
+  // answer" test (below) covers the reachable shape of this same guard: an
+  // erase writes `FREE_TEXT_PLACEHOLDER` rather than truly empty text,
+  // specifically so this anchor never goes stale.
 })
 
 describe("qa.annotate", () => {
@@ -1574,5 +1805,75 @@ describe("qa.apply", () => {
     expect(qa.apply(CONTENT, { kind: "hunk", chunkIndex: 0, index: 0 }, { checked: true })).toEqual(
       { ok: false, reason: "anchor-not-found" },
     )
+  })
+})
+
+describe("qa — Task 4: the real projection over an 80-column-wrapped design document", () => {
+  // Hand-wrapped at 80 columns, the exact shape oxfmt's own hard wrap
+  // produces for a question body and an option written in this workflow's
+  // prescribed prose style — the first document this suite feeds through
+  // the REAL `qa.view`/`parseOpenQuestions`, rather than a hand-built node.
+  const CONTENT = [
+    "## Open Questions",
+    "",
+    "### Which storage backend should the new cache layer use?",
+    "",
+    "The cache needs to survive a process restart without losing recently",
+    "written entries, and it must stay readable by every worker process at",
+    "once rather than being pinned to whichever one wrote it.",
+    "",
+    "- [ ] Redis, since it already runs in every environment this service",
+    "      deploys to and the team already operates it for the session",
+    "      store, so there is no new infrastructure to stand up.",
+    "- [ ] SQLite on a shared volume, trading some write concurrency for",
+    "      zero additional infrastructure and a format every worker can",
+    "      already read directly off disk.",
+    `- [ ] ${FREE_TEXT_PLACEHOLDER}`,
+    "",
+  ].join("\n")
+
+  it("the question body and every option render complete on the question screen (view.nodes[].body), not merely the first source line", () => {
+    const question = qa.view(CONTENT).nodes.find((n) => n.status !== undefined)!
+    expect(question.body).toEqual([
+      expect.objectContaining({
+        title:
+          "The cache needs to survive a process restart without losing recently written entries, and it must stay readable by every worker process at once rather than being pinned to whichever one wrote it.",
+      }),
+    ])
+    expect(question.detail).toBe(question.body![0]!.title)
+    expect(question.children!.map((o) => o.title)).toEqual([
+      "Redis, since it already runs in every environment this service deploys to and the team already operates it for the session store, so there is no new infrastructure to stand up.",
+      "SQLite on a shared volume, trading some write concurrency for zero additional infrastructure and a format every worker can already read directly off disk.",
+      "",
+    ])
+  })
+
+  it("a free-text answer long enough to wrap survives a reopen-and-save round trip byte-for-byte apart from the answer itself", () => {
+    const longAnswer =
+      "Go with Redis for now — it is already deployed everywhere this service runs and the team has years of operational experience keeping it healthy, so there is nothing new to learn."
+    const firstSave = qa.apply(
+      CONTENT,
+      { kind: "option", questionIndex: 0, index: 2 },
+      { checked: true, text: longAnswer },
+    )
+    expect(firstSave.ok).toBe(true)
+    if (!firstSave.ok) return
+    const afterFirstSave = applyEdits(CONTENT, firstSave.edits)
+    const reopened = parseOpenQuestions(afterFirstSave).questions[0]!.options[2]!
+    expect(reopened.text).toBe(longAnswer)
+
+    const newAnswer = "Actually, SQLite on the shared volume — one less service to operate."
+    const secondSave = qa.apply(
+      afterFirstSave,
+      { kind: "option", questionIndex: 0, index: 2 },
+      { checked: true, text: newAnswer },
+    )
+    expect(secondSave.ok).toBe(true)
+    if (!secondSave.ok) return
+    const afterSecondSave = applyEdits(afterFirstSave, secondSave.edits)
+    const final = parseOpenQuestions(afterSecondSave).questions[0]!.options[2]!
+    expect(final.text).toBe(newAnswer)
+    expect(afterSecondSave).not.toContain("years of operational experience")
+    expect(afterSecondSave).not.toContain("nothing new to learn")
   })
 })

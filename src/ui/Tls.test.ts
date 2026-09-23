@@ -69,7 +69,15 @@ describe("generateSelfSignedCert", () => {
     const days =
       (new Date(x509.validTo).getTime() - new Date(x509.validFrom).getTime()) /
       (24 * 60 * 60 * 1000)
-    expect(days).toBeLessThanOrEqual(825)
+    // `openssl req -days 825` computes `notBefore`/`notAfter` from two
+    // separate reads of the system clock — under load (e.g. the full `npm
+    // test` run, many processes contending for CPU during RSA key
+    // generation) they can straddle a whole-second boundary, so the span
+    // lands a couple of SECONDS past the exact 825*86400s mark, not because
+    // the issued validity window is actually longer. Rounding to the
+    // nearest whole day absorbs that sub-day jitter while still catching a
+    // real regression (e.g. `-days 826`, a whole day off).
+    expect(Math.round(days)).toBeLessThanOrEqual(825)
   })
 
   it("also returns the matching private key, parseable by node:crypto", async () => {

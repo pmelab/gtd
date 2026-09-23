@@ -1,4 +1,5 @@
 import type { ListItem, Root, RootContent } from "mdast"
+import { blockNodesOfRun } from "./Blocks.js"
 import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
@@ -30,6 +31,7 @@ import type {
   SteeringLink,
   SteeringOutlineNode,
   SteeringView,
+  SteeringViewNode,
 } from "./SteeringFormat.js"
 import type { SteeringDescriptor } from "./Descriptor.js"
 
@@ -48,6 +50,8 @@ interface ReviewFile {
 interface Changeset {
   readonly title: string
   readonly description: string
+  /** The same leading run collapsed into `description`, projected as block nodes (`Blocks.ts#blockNodesOfRun`) instead of flattened text — `Review.tsx`'s chunk screen renders these through the shared prose-block rendering. */
+  readonly descriptionNodes: readonly SteeringViewNode[]
   readonly files: readonly ReviewFile[]
   /** 0-based index of this chunk's `##` heading. */
   readonly headingLine: number
@@ -318,10 +322,7 @@ const parseHunk = (
   return { file, ...(error ? { error } : {}) }
 }
 
-/** Prose node kinds a chunk's leading run may contribute to `description` — everything else (`heading`, `html`, `code`, `thematicBreak`, `footnoteDefinition`, …) is dropped even when it precedes the first pointer-bearing node. */
-const PROSE_NODE_KINDS = new Set(["paragraph", "blockquote", "list"])
-
-/** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own PROSE and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would), then keeps only prose-shaped nodes from what's left before that point. */
+/** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own leading run and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would). Every node kind in what's left before that point contributes — a `footnoteDefinition` is the one exception, excluded by `blockNodesOfRun` itself (it's a note, never document content). */
 const parseChunkBody = (
   content: string,
   lines: readonly string[],
@@ -329,6 +330,7 @@ const parseChunkBody = (
   body: readonly RootContent[],
 ): {
   readonly description: string
+  readonly descriptionNodes: readonly SteeringViewNode[]
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
 } => {
@@ -336,8 +338,9 @@ const parseChunkBody = (
     taskItems(n).some((item) => hasPointerToken(content, item)),
   )
   const leadingRun = firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)
-  const descriptionNodes = leadingRun.filter((n) => PROSE_NODE_KINDS.has(n.type))
-  const description = descriptionNodes
+  const descriptionNodes = blockNodesOfRun(content, leadingRun)
+  const description = leadingRun
+    .filter((n) => n.type !== "footnoteDefinition")
     .map((n) => sourceText(content, n))
     .join(" ")
     .trim()
@@ -350,7 +353,7 @@ const parseChunkBody = (
     files.push(parsed.file)
     if (parsed.error) errors.push(parsed.error)
   }
-  return { description, files, errors }
+  return { description, descriptionNodes, files, errors }
 }
 
 /** One `##` chunk heading node with its raw body block nodes (up to the next `##`-or-shallower heading). */
@@ -392,7 +395,12 @@ const parseChangesets = (
   const errors: SteeringFinding[] = []
   for (const { heading, headingLine, body } of splitChunks(tree)) {
     const title = headingText(content, heading)
-    const { description, files, errors: bodyErrors } = parseChunkBody(content, lines, title, body)
+    const {
+      description,
+      descriptionNodes,
+      files,
+      errors: bodyErrors,
+    } = parseChunkBody(content, lines, title, body)
     errors.push(...bodyErrors)
     if (files.length === 0) {
       errors.push({
@@ -401,7 +409,7 @@ const parseChangesets = (
         range: nodeRange(heading),
       })
     }
-    changesets.push({ title, description, files, headingLine })
+    changesets.push({ title, description, descriptionNodes, files, headingLine })
   }
   if (changesets.length === 0) errors.push({ message: "REVIEW.md has no '##' chunks" })
   return { changesets, errors }
@@ -805,6 +813,7 @@ const reviewView = (content: string): SteeringView => {
       return {
         title: chunk.title,
         detail: chunk.description,
+        body: chunk.descriptionNodes,
         anchor: { kind: "chunk", index: chunkIndex },
         ...(chunkNote !== undefined ? { note: chunkNote } : {}),
         children: chunk.files.map((file, index) => {

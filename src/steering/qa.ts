@@ -1,5 +1,5 @@
 import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
-import { blockNodesOf } from "./Blocks.js"
+import { blockNodesOf, blockNodesOfRun } from "./Blocks.js"
 import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
   footnoteAdditionEdits,
@@ -29,6 +29,7 @@ import type {
   SteeringFormat,
   SteeringOutlineNode,
   SteeringView,
+  SteeringViewNode,
 } from "./SteeringFormat.js"
 import type { SteeringDescriptor } from "./Descriptor.js"
 
@@ -37,7 +38,7 @@ type OpenQuestionStatus = "open" | "answered"
 /**
  * A marker's shape once it's plain text: `[^name]`, no whitespace, no `]` —
  * mirrors `Footnotes.ts`'s own orphan-marker pattern. Local to this module:
- * `headingText`, `firstBodyLineText`, and `optionText` (below) each extract
+ * `headingText` and `optionText` (below) each extract
  * text that is NOT a full node's own tree span (a heading's synthetic
  * children span, or a raw line slice) — `sourceText`'s own real-reference
  * exclusion only covers the former, so a marker (real, matched-by-definition
@@ -107,8 +108,10 @@ interface QuestionOption {
 interface OpenQuestion {
   readonly question: string
   readonly status: OpenQuestionStatus
-  /** First non-blank body line (trimmed), or `""` — a short summary for editor tooling. */
+  /** The whole body's collapsed text (every `bodyNodes` block's own title, joined), or `""` for a question with no body — feeds the phone view's `detail`, the question card, and the LSP outline's own `detail` alike. */
   readonly text: string
+  /** The question's own body run, projected through the shared block walk (`questionBodyNodes`) — every body block EXCEPT the option list itself, in document order. `[]` for a question with no body. */
+  readonly bodyNodes: readonly SteeringViewNode[]
   readonly headingLine: number
   /** Checkbox options in document order. `[]` for an ANSWERED question (prose, no checkboxes). The LAST option is the free-text slot. */
   readonly options: readonly QuestionOption[]
@@ -172,21 +175,6 @@ const splitQuestionBlocks = (tree: Root, sectionHeadingIndex: number): readonly 
 }
 
 /**
- * The first non-blank line of a question's body, verbatim (footnote markers
- * stripped, trimmed) — a short summary for editor tooling. Taken from the
- * first body block's OWN start line only, never the whole (possibly wrapped)
- * node's joined text: a multi-line paragraph's continuation lines are not
- * part of the summary. A `footnoteDefinition` block is skipped — it is never
- * the question's own text.
- */
-const firstBodyLineText = (lines: readonly string[], body: readonly RootContent[]): string => {
-  const node = body.find((n) => n.type !== "footnoteDefinition")
-  if (!node?.position) return ""
-  const lineIndex = toLspPosition(node.position.start).line
-  return stripMarkerText((lines[lineIndex] ?? "").trim())
-}
-
-/**
  * Every task-list `listItem` in the TOP-LEVEL list(s) that appear directly in
  * a question's body, in document order — never nested sub-lists (a
  * continuation indented far enough to form a nested list under an option is
@@ -219,6 +207,33 @@ const optionListItems = (body: readonly RootContent[]): readonly ListItem[] => {
 }
 
 /**
+ * A question's own body run, projected through the shared block walk
+ * (`Blocks.ts#blockNodesOfRun`) — every block of `body` with the question's
+ * own option ITEMS excluded, never a whole list swept out because SOME of its
+ * children happen to be options: `optionListItems`'s own return set is the
+ * exact node-identity set `skipListItem` excludes, so a plain (non-task)
+ * bullet sharing a list with real options — a shape CommonMark itself allows,
+ * whatever this format's own convention favors — still surfaces in `body`
+ * rather than vanishing along with the options beside it. Shares every helper
+ * the whole-document walk uses (`blockTitle`, `blockOf`, `blockListItemsOf`,
+ * note attachment) rather than re-deriving any of them.
+ */
+const questionBodyNodes = (
+  content: string,
+  body: readonly RootContent[],
+): readonly SteeringViewNode[] => {
+  const optionItems = new Set(optionListItems(body))
+  return blockNodesOfRun(content, body, { skipListItem: (item) => optionItems.has(item) })
+}
+
+/** The whole body's collapsed text — every `bodyNodes` block's own title, joined with a single space, or `""` for an empty body. Feeds `OpenQuestion.text`. */
+const bodyText = (bodyNodes: readonly SteeringViewNode[]): string =>
+  bodyNodes
+    .map((node) => node.title)
+    .filter((title) => title.length > 0)
+    .join(" ")
+
+/**
  * The source OFFSET right after an option's `- [ ]`/`- [x]` marker — the
  * first inline child of the item's paragraph, NOT the paragraph node's own
  * position. `mdast-util-gfm-task-list-item` splices the consumed `[x] `
@@ -235,38 +250,47 @@ const optionContentOffset = (item: ListItem): number | undefined => {
 }
 
 /**
- * An option's own text: everything after the `- [ ]`/`- [x]` marker on the
- * item's FIRST line only, never a wrapped continuation line — matching the
- * OLD per-line regex capture (`endLine` still spans the wrap; `text` never
- * did). When the marker is alone on its own line and the item's content
- * starts on the NEXT line (an indented or lazy wrap), `optionContentOffset`
- * still resolves to a real offset — just one on that later line, not the
- * marker's own — so the line the offset itself falls on is checked against
- * `sourceLine` before slicing; a mismatch means there is no text on the
- * marker's own line, and `""` is correct (matching the old regex, which
- * never captured a continuation line into `text` either).
+ * The ONE span an option's text is read from and written back over: the
+ * offset right after the `- [ ]`/`- [x]` marker (`optionContentOffset`)
+ * through the end of the item's FIRST PARAGRAPH node — never the list
+ * item's own end. A wrapped option is one paragraph with lazy continuation
+ * lines, so this span covers the whole wrap; a nested list, a second
+ * paragraph, or a footnote definition under the same item sits OUTSIDE it,
+ * so a free-text save can never delete it. `optionText` and
+ * `replaceOptionTextEdit` both call this — neither re-derives an end
+ * position of its own, so the two can never drift apart into the exact
+ * corruption this span exists to remove. `undefined` when the item has no
+ * paragraph (a bare `- [ ]`) — there is no span to read or write.
  */
-const optionText = (content: string, lines: readonly string[], item: ListItem): string => {
-  const offset = optionContentOffset(item)
-  if (offset === undefined || !item.position) return ""
-  const sourceLine = toLspPosition(item.position.start).line
-  const contentPosition = toLspPositionFromOffset(content, offset)
-  if (contentPosition.line !== sourceLine) return ""
-  const raw = (lines[sourceLine] ?? "").slice(contentPosition.character)
-  return stripMarkerText(raw).trim()
+const optionTextSpan = (
+  item: ListItem,
+): { readonly start: number; readonly end: number } | undefined => {
+  const start = optionContentOffset(item)
+  const paragraph = item.children.find((c) => c.type === "paragraph")
+  const end = paragraph?.position?.end.offset
+  if (start === undefined || end === undefined) return undefined
+  return { start, end }
+}
+
+/**
+ * An option's own text: the WHOLE `optionTextSpan`, marker-stripped and
+ * whitespace-collapsed — a wrapped option's continuation lines are part of
+ * this, unlike the old per-line-only capture. `""` when the option has no
+ * paragraph at all (a bare `- [ ]`).
+ */
+const optionText = (content: string, item: ListItem): string => {
+  const span = optionTextSpan(item)
+  if (!span) return ""
+  return stripMarkerText(content.slice(span.start, span.end)).replace(/\s+/g, " ").trim()
 }
 
 /** Extracts the checkbox options from a question block's body, in document order. */
-const parseOptions = (
-  content: string,
-  lines: readonly string[],
-  body: readonly RootContent[],
-): QuestionOption[] => {
+const parseOptions = (content: string, body: readonly RootContent[]): QuestionOption[] => {
   const items = optionListItems(body)
   const lastIndex = items.length - 1
   return items.map((item, i) => {
     const freeText = i === lastIndex
-    const rawText = optionText(content, lines, item)
+    const rawText = optionText(content, item)
     // `.toLowerCase()` on BOTH sides — never assume `FREE_TEXT_PLACEHOLDER`
     // itself is already lowercase, mirroring `Question.tsx`'s identical
     // client-side comparison exactly, so the two can never silently diverge
@@ -320,7 +344,6 @@ const headingRange = (heading: Heading) => ({
 
 const parseQuestionBlock = (
   content: string,
-  lines: readonly string[],
   block: QuestionBlock,
   status: OpenQuestionStatus,
 ): OpenQuestion | { readonly error: SteeringFinding } => {
@@ -337,13 +360,14 @@ const parseQuestionBlock = (
   }
 
   const headingLine = toLspPosition(block.heading.position!.start).line
-  const text = firstBodyLineText(lines, block.body)
-  const options = status === "open" ? parseOptions(content, lines, block.body) : []
+  const bodyNodes = questionBodyNodes(content, block.body)
+  const options = status === "open" ? parseOptions(content, block.body) : []
 
   return {
     question,
     status,
-    text,
+    text: bodyText(bodyNodes),
+    bodyNodes,
     headingLine,
     options,
     answered: status === "open" && options.length > 0 && isAnswered(options),
@@ -627,7 +651,6 @@ const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] =
  */
 export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   const tree = parseMarkdown(content)
-  const lines = content.split(/\r?\n/)
 
   const questions: OpenQuestion[] = []
   const findings: SteeringFinding[] = [
@@ -648,7 +671,7 @@ export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
     if (!headingNode) continue
     const index = tree.children.indexOf(headingNode)
     for (const block of splitQuestionBlocks(tree, index)) {
-      const result = parseQuestionBlock(content, lines, block, status)
+      const result = parseQuestionBlock(content, block, status)
       if ("error" in result) {
         findings.push(result.error)
       } else {
@@ -823,27 +846,25 @@ const setOptionCheckedEdits = (
 }
 
 /**
- * The edit that replaces `option`'s own label text — everything after the
- * checkbox marker, on its source line only — with `text` verbatim: used only
- * for the free-text slot, whose placeholder (or prior answer) the human's
- * typed answer replaces in place. `undefined` when the option's content
- * doesn't start on its own source line (mirrors `optionText`'s identical
- * guard) — there is no single-line span left to replace.
+ * The edit that replaces `option`'s own label text — the WHOLE
+ * `optionTextSpan`, wrap and all — with `text` verbatim: used only for the
+ * free-text slot, whose placeholder (or prior answer) the human's typed
+ * answer replaces in place. `undefined` when the option has no paragraph at
+ * all (a bare `- [ ]`, mirroring `optionText`'s identical guard) — there is
+ * no span to replace.
  */
 const replaceOptionTextEdit = (
   content: string,
-  lines: readonly string[],
   item: ListItem,
-  option: QuestionOption,
   text: string,
 ): SteeringEdit | undefined => {
-  const offset = optionContentOffset(item)
-  if (offset === undefined) return undefined
-  const position = toLspPositionFromOffset(content, offset)
-  if (position.line !== option.sourceLine) return undefined
-  const lineLength = (lines[option.sourceLine] ?? "").length
+  const span = optionTextSpan(item)
+  if (!span) return undefined
   return {
-    range: { start: position, end: { line: option.sourceLine, character: lineLength } },
+    range: {
+      start: toLspPositionFromOffset(content, span.start),
+      end: toLspPositionFromOffset(content, span.end),
+    },
     newText: text,
   }
 }
@@ -897,12 +918,11 @@ const questionsApply: SteeringFormat["apply"] = (content, anchor, opts) => {
 
   if (opts.text !== undefined) {
     const tree = parseMarkdown(content)
-    const lines = content.split(/\r?\n/)
     const item = taskItems(tree).find(
       (it) => toLspPosition(it.position!.start).line === option.sourceLine,
     )
     const textEdit = item
-      ? replaceOptionTextEdit(content, lines, item, option, normalizeFreeTextAnswer(opts.text))
+      ? replaceOptionTextEdit(content, item, normalizeFreeTextAnswer(opts.text))
       : undefined
     if (textEdit) edits.push(textEdit)
   }
@@ -1039,6 +1059,7 @@ const questionsView = (content: string): SteeringView => {
         status: question.status,
         answered: question.answered,
         anchor: { kind: "question" as const, index: questionIndex },
+        body: question.bodyNodes,
         children: question.options.map((option, index) => ({
           title: option.text,
           checked: option.checked,

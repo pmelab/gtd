@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
-import { FREE_TEXT_PLACEHOLDER } from "../../steering/index.js"
+import { FREE_TEXT_PLACEHOLDER, steeringFormatFor } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { RefusalBanner, useRefusal } from "../Refusal.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
@@ -681,5 +681,101 @@ export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<ty
     await fireEvent.change(textarea, { target: { value: "hello" } })
     await fireEvent.click(canvas.getByTestId("free-text-save"))
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(2))
+  },
+}
+
+/**
+ * Package 06's Task 4: a story built from the REAL `qa` steering format's own
+ * `view`, over an 80-column-wrapped document — not a hand-built node literal
+ * like every story above. Proves the steering parser (remark/mdast) actually
+ * bundles for the browser; if it didn't, this story would fail to even
+ * render rather than merely assert wrong.
+ */
+const REAL_PROJECTION_CONTENT = [
+  "## Open Questions",
+  "",
+  "### Which storage backend should the new cache layer use?",
+  "",
+  "The cache needs to survive a process restart without losing recently",
+  "written entries, and it must stay readable by every worker process at",
+  "once rather than being pinned to whichever one wrote it.",
+  "",
+  "- [ ] Redis, since it already runs in every environment this service",
+  "      deploys to and the team already operates it for the session",
+  "      store, so there is no new infrastructure to stand up.",
+  "- [ ] SQLite on a shared volume, trading some write concurrency for",
+  "      zero additional infrastructure and a format every worker can",
+  "      already read directly off disk.",
+  `- [ ] ${FREE_TEXT_PLACEHOLDER}`,
+  "",
+].join("\n")
+
+const realProjectionQuestionNode = (): SteeringViewNode => {
+  const qa = steeringFormatFor("qa")!
+  return qa.view(REAL_PROJECTION_CONTENT).nodes.find((n) => n.status !== undefined)!
+}
+
+export const RendersFromTheRealQaProjectionOverAnEightyColumnWrappedDocument: Story = {
+  args: { node: realProjectionQuestionNode() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The body's own wrapped prose renders complete, above the options.
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent(
+      "The cache needs to survive a process restart without losing recently written entries, and it must stay readable by every worker process at once rather than being pinned to whichever one wrote it.",
+    )
+    // Each wrapped option's whole label renders, not just its first line.
+    await expect(canvas.getByTestId("option-0")).toHaveTextContent(
+      "Redis, since it already runs in every environment this service deploys to and the team already operates it for the session store, so there is no new infrastructure to stand up.",
+    )
+    await expect(canvas.getByTestId("option-1")).toHaveTextContent(
+      "SQLite on a shared volume, trading some write concurrency for zero additional infrastructure and a format every worker can already read directly off disk.",
+    )
+  },
+}
+
+/**
+ * Package 06's Task 3, first bullet: a question whose body is a paragraph
+ * PLUS a fenced code block — proving `ProseBlocks` renders more than one body
+ * block kind inside `Question.tsx`, code included, unlike every other story
+ * here which sticks to a single paragraph. `code`'s own seam-suppression rule
+ * (`Plan.stories.tsx`'s `CodeBlockShowsNoNoteSeamEveryOtherKindDoes`) is
+ * `ProseBlocks`-internal and unchanged by `Question.tsx` at all, so it is not
+ * re-asserted here — only that both blocks render, in order.
+ */
+export const AQuestionBodyWithAParagraphAndAFencedCodeBlockRendersBothAboveTheOptionRows: Story = {
+  args: {
+    node: questionNode({
+      body: [
+        {
+          title: "A paragraph explaining the tradeoff.",
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "paragraph" },
+        },
+        {
+          title: "example code",
+          anchor: { kind: "paragraph", line: 2 },
+          block: { kind: "code", text: "const x = 1", language: "ts" },
+        },
+      ],
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent(
+      "A paragraph explaining the tradeoff.",
+    )
+    await expect(canvas.getByTestId("question-screen")).toHaveTextContent("const x = 1")
+
+    // Task 3's second bullet: the body sits between the heading and the
+    // first option row — a DOM-order assertion, not merely a text-content
+    // one (which would stay green even if `<ProseBlocks>` moved below
+    // `options.map(...)` in `Question.tsx`).
+    const status = canvas.getByTestId("question-status")
+    const body = canvas.getByTestId("prose-paragraphs")
+    const firstOption = canvas.getByTestId("option-0")
+    expect(status.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(
+      body.compareDocumentPosition(firstOption) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   },
 }
