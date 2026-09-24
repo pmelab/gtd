@@ -1,14 +1,4 @@
-import { cdp } from "@vitest/browser/context"
-
-/**
- * `context.d.ts`'s own `CDPSession` interface is intentionally empty ("methods
- * are defined by the provider type augmentation") — the playwright provider
- * this project uses supplies `.send()` at runtime, but nothing augments the
- * type in this package, so this is the one narrow cast needed to call it.
- */
-interface PlaywrightCdpSession {
-  send: (method: string, params?: Record<string, unknown>) => Promise<unknown>
-}
+import { cdpSession } from "./browserContext.js"
 
 /**
  * `getBoundingClientRect()` is relative to THIS document's own viewport —
@@ -52,14 +42,17 @@ const toTopLevelCoordinates = (element: Element): { x: number; y: number } => {
  * raw CDP `Input.dispatchMouseEvent` exposed via `cdp()` — a real,
  * OS-level-equivalent press the browser can't distinguish from hardware
  * input. Presses and holds at the element's center, runs `duringPress` while
- * held, then always releases.
+ * held, then always releases. Outside that runner (the Storybook dev UI has
+ * no CDP) there is no trusted press to assert against, so `duringPress` is
+ * SKIPPED rather than run against a state that can never be reached.
  */
 export const withRealMousePress = async (
   element: Element,
   duringPress: () => void | Promise<void>,
 ): Promise<void> => {
+  const session = await cdpSession()
+  if (session === null) return
   const { x, y } = toTopLevelCoordinates(element)
-  const session = cdp() as unknown as PlaywrightCdpSession
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y })
   await session.send("Input.dispatchMouseEvent", {
     type: "mousePressed",

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { page } from "@vitest/browser/context"
+import { viewport } from "./testing/browserContext.js"
 import { expect, fireEvent, fn, within } from "storybook/test"
+import { token } from "./testing/palette.js"
 import { Deck } from "./Deck.js"
 import { withRealMousePress } from "./testing/realMousePress.js"
 
@@ -125,7 +126,7 @@ export const ControlsRenderBelowContentNeverOverlaying: Story = {
     </Shell>
   ),
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const content = canvas.getByTestId("deck-content")
     const controls = canvas.getByTestId("deck-next")
@@ -159,7 +160,7 @@ export const BackAndNextMeetThe44pxFloor: Story = {
     </Shell>
   ),
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     for (const testId of ["deck-prev", "deck-next"]) {
       const rect = canvas.getByTestId(testId).getBoundingClientRect()
@@ -189,7 +190,7 @@ export const BackAndNextPressedStatesDifferFromRest: Story = {
     await withRealMousePress(prev, () => {
       const pressed = getComputedStyle(prev).backgroundColor
       expect(pressed).not.toBe(prevRest)
-      expect(pressed).toBe("rgb(107, 107, 112)") // secondary's active:bg-border
+      expect(pressed).toBe(token("border")) // secondary's active:bg-border
     })
 
     const next = canvas.getByTestId("deck-next")
@@ -197,7 +198,7 @@ export const BackAndNextPressedStatesDifferFromRest: Story = {
     await withRealMousePress(next, () => {
       const pressed = getComputedStyle(next).backgroundColor
       expect(pressed).not.toBe(nextRest)
-      expect(pressed).toBe("rgb(63, 127, 224)") // primary's active:bg-accent-pressed
+      expect(pressed).toBe(token("accent-pressed")) // primary's active:bg-accent-pressed
     })
   },
 }
@@ -221,7 +222,7 @@ export const ControlBarStaysReachableAtAShortKeyboardOpenViewport: Story = {
     </Shell>
   ),
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 500)
+    await viewport(390, 500)
     const canvas = within(canvasElement)
     const content = canvas.getByTestId("deck-content")
     const controls = canvas.getByTestId("deck-next")
@@ -251,7 +252,7 @@ export const ControlBarStaysPutWhileLongContentScrolls: Story = {
     </Shell>
   ),
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const content = canvas.getByTestId("deck-content")
     const controls = canvas.getByTestId("deck-next")

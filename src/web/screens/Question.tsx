@@ -1,7 +1,8 @@
-import { useId, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
+import { NoteSheet } from "../NoteSheet.js"
 import { ProseBlocks } from "./ProseBlock.js"
 
 /** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */
@@ -102,42 +103,32 @@ export interface QuestionProps {
   readonly onOpenNote?: (node: SteeringViewNode) => void
 }
 
+/**
+ * The free-text slot's own row. It carries NO field of its own: selecting it
+ * opens the same sheet a note uses, and the saved answer then reads back
+ * here as the option's value. A textarea living inline under one radio in a
+ * list of radios competed with the options it belonged to, and its own Save
+ * button was a second, differently-shaped commit beside a list where every
+ * other choice commits on tap.
+ */
 const FreeTextOption = ({
   freeText,
-  onFocus,
-  onFreeTextChange,
-  onSave,
+  onOpenSheet,
 }: {
   readonly freeText: string
-  readonly onFocus: () => void
-  readonly onFreeTextChange: (text: string) => void
-  /** The addition (package 03 Task 3): a deliberate tap is the ONLY way this slot writes through — never on type, blur, or unmount. Does not navigate; ending a view is Done's job. */
-  readonly onSave: () => void
-}) => {
-  const textareaId = useId()
-  return (
-    <div className="mt-2">
-      <label htmlFor={textareaId} className="block text-small text-muted">
-        Your answer
-      </label>
-      <textarea
-        id={textareaId}
-        data-testid="free-text-input"
-        placeholder={FREE_TEXT_PLACEHOLDER}
-        value={freeText}
-        onFocus={onFocus}
-        onChange={(event) => {
-          onFreeTextChange(event.target.value)
-          onFocus()
-        }}
-        className="min-h-[60px] w-full"
-      />
-      <Button variant="secondary" data-testid="free-text-save" onClick={onSave}>
-        Save
-      </Button>
-    </div>
-  )
-}
+  readonly onOpenSheet: () => void
+}) => (
+  <div className="pb-1 pl-8">
+    <Button
+      variant="ghost"
+      data-testid="free-text-value"
+      onClick={onOpenSheet}
+      className="w-full px-0 text-left text-small font-normal text-muted"
+    >
+      {freeText.trim().length > 0 ? freeText : "Tap to write your answer"}
+    </Button>
+  </div>
+)
 
 /** One option row — a radio, its label, and (only for the free-text slot) the textarea. */
 const OptionRow = ({
@@ -148,9 +139,7 @@ const OptionRow = ({
   isSelected,
   freeText,
   onSelect,
-  onFocusFreeText,
-  onFreeTextChange,
-  onSaveFreeText,
+  onOpenSheet,
 }: {
   readonly option: SteeringViewNode
   readonly index: number
@@ -158,15 +147,21 @@ const OptionRow = ({
   readonly isFreeText: boolean
   readonly isSelected: boolean
   readonly freeText: string
-  /** The radio's own click/change — writes through immediately (T4's "selecting an option calls setValue"). */
+  /** The radio's own click/change — writes through immediately (T4's "selecting an option calls setValue"), except for the free-text slot, whose answer is not known until the sheet it opens is saved. */
   readonly onSelect: () => void
-  /** The free-text slot's focus/keystroke tracking — LOCAL selection only, never a write; see `Question.tsx#Question`'s `selectLocally` doc comment for why. */
-  readonly onFocusFreeText: () => void
-  readonly onFreeTextChange: (text: string) => void
-  readonly onSaveFreeText: () => void
+  /** Opens the answer sheet — fired both by selecting the free-text slot and by tapping its value to edit it. */
+  readonly onOpenSheet: () => void
 }) => (
-  <div data-testid={`option-${index}`} className="border-b border-border py-2">
-    <label className="flex min-h-11 items-center gap-2">
+  <div
+    data-testid={`option-${index}`}
+    className={`mx-3 rounded border px-3 py-1 transition-[background-color,border-color] duration-150 ease-out ${
+      isSelected ? "border-accent bg-surface" : "border-transparent"
+    }`}
+  >
+    {/* The chosen option is marked by the radio AND by this row's own
+        surface + accent boundary — a filled radio dot alone is a ~6px cue
+        on a phone held at arm's length. */}
+    <label className="flex min-h-11 items-center gap-3">
       <input
         type="radio"
         name={`question-${questionTitle}`}
@@ -174,16 +169,9 @@ const OptionRow = ({
         checked={isSelected}
         onChange={onSelect}
       />
-      <span>{option.title}</span>
+      <span className={isSelected ? "font-medium" : undefined}>{option.title}</span>
     </label>
-    {isFreeText && (
-      <FreeTextOption
-        freeText={freeText}
-        onFocus={onFocusFreeText}
-        onFreeTextChange={onFreeTextChange}
-        onSave={onSaveFreeText}
-      />
-    )}
+    {isFreeText && <FreeTextOption freeText={freeText} onOpenSheet={onOpenSheet} />}
   </div>
 )
 
@@ -219,6 +207,7 @@ export const Question = ({
    * box is empty" is only true if the draft dies with the component.
    */
   const [freeText, setFreeTextState] = useState(() => defaultAnswerFor(node).freeText)
+  const [answerSheetOpen, setAnswerSheetOpen] = useState(false)
 
   /** Updates `selected` LOCALLY only — never a write. Used for the free-text slot's own focus/keystroke tracking (`onFocusFreeText` below), so merely tapping into (or typing in) the textarea never itself reaches the network: a stray focus-then-blur with nothing typed must change nothing, neither on disk nor in this local state. */
   const selectLocally = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
@@ -286,9 +275,20 @@ export const Question = ({
     ])
   }
 
+  /**
+   * Selecting the free-text slot writes nothing and ticks nothing — there is
+   * no answer yet to write, and a radio left ticked after the sheet is
+   * cancelled would claim an answer that does not exist. It only opens the
+   * sheet; saving there is what ticks the slot and writes (`commitFreeText`),
+   * and an empty save unticks it again. Tapping the value shown on the slot
+   * reopens the same sheet for editing.
+   */
+  const openAnswerSheet = () => setAnswerSheetOpen(true)
+
   /** The free-text slot's own anchor, when there is one. */
   const freeTextAnchor = (): SteeringAnchor | undefined =>
     lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
+  const freeTextOptionAnchor = freeTextAnchor()
 
   /**
    * The free-text slot's own commit point — fired ONLY by a deliberate tap
@@ -301,8 +301,8 @@ export const Question = ({
    * landing/failing independently in between can never be undone by this
    * write's own rejection, and vice versa.
    */
-  const commitFreeText = (): Promise<unknown> | undefined => {
-    const current = normalizeAnswerText(freeText)
+  const commitFreeText = (text: string = freeText): Promise<unknown> | undefined => {
+    const current = normalizeAnswerText(text)
     const previousSelected = selected
     const previousFreeText = freeText
     const anchor = freeTextAnchor()
@@ -317,7 +317,7 @@ export const Question = ({
       return commitAnchor(anchor, { checked: false, text: "" }, reverts)
     }
     selectLocally(lastIndex)
-    return commitAnchor(anchor, { checked: true, text: freeText }, reverts)
+    return commitAnchor(anchor, { checked: true, text }, reverts)
   }
 
   /**
@@ -339,11 +339,17 @@ export const Question = ({
   )
 
   return (
-    <div data-testid="question-screen">
-      <h2 className="m-0 mb-3 text-large font-semibold">{node.title}</h2>
-      <div data-testid="question-status" className="mb-2 text-small text-muted">
-        {answered ? "answered" : "unanswered"}
+    <div data-testid="question-screen" className="flex flex-col gap-1 py-3">
+      {/* This screen renders inside `Deck`'s own unpadded scroll container,
+          so its gutter has to come from here — without it every line of the
+          question ran to the bezel. */}
+      <div
+        data-testid="question-status"
+        className={`px-3 text-small font-medium ${answered ? "text-heading-c" : "text-warning"}`}
+      >
+        {answered ? "✓ Answered" : "● Not answered yet"}
       </div>
+      <h2 className="m-0 mb-2 px-3 text-large font-semibold">{node.title}</h2>
       {node.body !== undefined && node.body.length > 0 && (
         <ProseBlocks
           nodes={node.body}
@@ -360,12 +366,24 @@ export const Question = ({
           isFreeText={index === lastIndex}
           isSelected={selected === index}
           freeText={freeText}
-          onSelect={() => setSelected(index)}
-          onFocusFreeText={() => selectLocally(index)}
-          onFreeTextChange={setFreeTextState}
-          onSaveFreeText={() => commitFreeText()}
+          onSelect={() => (index === lastIndex ? openAnswerSheet() : setSelected(index))}
+          onOpenSheet={openAnswerSheet}
         />
       ))}
+      {answerSheetOpen && freeTextOptionAnchor !== undefined && (
+        <NoteSheet
+          anchor={freeTextOptionAnchor}
+          title="Your answer"
+          label="Answer text"
+          note={freeText}
+          onSave={(_anchor, text) => {
+            setFreeTextState(text)
+            setAnswerSheetOpen(false)
+            commitFreeText(text)
+          }}
+          onDismiss={() => setAnswerSheetOpen(false)}
+        />
+      )}
     </div>
   )
 }

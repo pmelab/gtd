@@ -155,7 +155,7 @@ export const ANodeWithTwoOptionsAlreadyCheckedSeedsAsUnanswered: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("option-radio-0")).not.toBeChecked()
     await expect(canvas.getByTestId("option-radio-1")).not.toBeChecked()
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("unanswered")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("Not answered yet")
   },
 }
 
@@ -164,19 +164,38 @@ export const TickedFreeTextOptionWithEmptyTextIsUnanswered: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("option-radio-2"))
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("unanswered")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("Not answered yet")
   },
+}
+
+/**
+ * The free-text path runs through the answer SHEET now: selecting the slot
+ * opens it, and saving there is the one commit point. Every story below that
+ * used to type into an inline field goes through these two helpers instead,
+ * so the flow is written once.
+ */
+const openAnswerSheet = async (canvas: ReturnType<typeof within>) => {
+  // Via the VALUE, not the radio: a radio that is already checked (a
+  // question reopened on an answer it already carries) emits no `change`, so
+  // clicking it would open nothing.
+  await fireEvent.click(canvas.getByTestId("free-text-value"))
+  return canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
+}
+
+const answerFreeText = async (canvas: ReturnType<typeof within>, text: string): Promise<void> => {
+  const field = await openAnswerSheet(canvas)
+  await fireEvent.change(field, { target: { value: text } })
+  await fireEvent.click(canvas.getByTestId("note-sheet-save"))
 }
 
 export const TickedFreeTextOptionWithTextIsAnswered: Story = {
   args: { node: questionNode() },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("option-radio-2"))
-    await fireEvent.change(canvas.getByTestId("free-text-input"), {
-      target: { value: "Do it the third way" },
-    })
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+    await answerFreeText(canvas, "Do it the third way")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("✓ Answered")
+    // The saved answer reads back as the option's own value.
+    await expect(canvas.getByTestId("free-text-value")).toHaveTextContent("Do it the third way")
   },
 }
 
@@ -186,12 +205,9 @@ export const FreeTextSlotIsIdentifiedByPositionNotLabel: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("option-2")).toHaveTextContent("Ship it this way")
-    await expect(canvas.getByTestId("free-text-input")).toBeInTheDocument()
-    await fireEvent.click(canvas.getByTestId("option-radio-2"))
-    await fireEvent.change(canvas.getByTestId("free-text-input"), {
-      target: { value: "answered via the last slot" },
-    })
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+    await expect(canvas.getByTestId("free-text-value")).toBeInTheDocument()
+    await answerFreeText(canvas, "answered via the last slot")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("✓ Answered")
   },
 }
 
@@ -199,14 +215,11 @@ export const PlaceholderDifferingOnlyInCaseNormalizesToEmpty: Story = {
   args: { node: questionNode() },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("option-radio-2"))
-    await fireEvent.change(canvas.getByTestId("free-text-input"), {
-      // The SAME sentinel `OpenQuestions.ts#FREE_TEXT_PLACEHOLDER` uses
-      // server-side, just differing in letter case — proving this component
-      // normalizes against the one real placeholder, not an invented hint.
-      target: { value: FREE_TEXT_PLACEHOLDER.toUpperCase() },
-    })
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("unanswered")
+    // The SAME sentinel `OpenQuestions.ts#FREE_TEXT_PLACEHOLDER` uses
+    // server-side, just differing in letter case — proving this component
+    // normalizes against the one real placeholder, not an invented hint.
+    await answerFreeText(canvas, FREE_TEXT_PLACEHOLDER.toUpperCase())
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("Not answered yet")
   },
 }
 
@@ -215,7 +228,7 @@ export const AnOrdinaryOptionAnswersImmediatelyOnceTicked: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("✓ Answered")
   },
 }
 
@@ -240,9 +253,7 @@ export const TypingThenTappingSaveCommitsOnceWithCheckedAndTextTogether: StoryOb
     render: (args) => <CommitCallRecordingHarness node={args.node} />,
     play: async ({ canvasElement }) => {
       const canvas = within(canvasElement)
-      const textarea = canvas.getByTestId("free-text-input")
-      await fireEvent.change(textarea, { target: { value: "the third way, typed" } })
-      await fireEvent.click(canvas.getByTestId("free-text-save"))
+      await answerFreeText(canvas, "the third way, typed")
       await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
       expect(readCommitCalls(canvas)[0]?.opts).toEqual({
         checked: true,
@@ -265,7 +276,7 @@ export const TypingWithoutTappingSaveFiresNoWriteEverNotAfterAnyElapsedTimeNorOn
   render: (args) => <CommitCallRecordingHarness node={args.node} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const textarea = canvas.getByTestId("free-text-input") as HTMLTextAreaElement
+    const textarea = await openAnswerSheet(canvas)
     await fireEvent.change(textarea, { target: { value: "typed but never saved" } })
     // A real wait past the OLD 800ms debounce window — proves no timer fires
     // a write, not just that none has fired yet.
@@ -274,7 +285,11 @@ export const TypingWithoutTappingSaveFiresNoWriteEverNotAfterAnyElapsedTimeNorOn
     // A genuine focus transition, not a bare `fireEvent.blur` — this runs
     // against a real browser (vitest-browser), so only an element that was
     // actually focused first emits a real blur when focus moves away.
-    ;(canvas.getByTestId("free-text-save") as HTMLButtonElement).focus()
+    ;(canvas.getByTestId("note-sheet-save") as HTMLButtonElement).focus()
+    expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
+    // Dismissing throws the text away: the sheet is the draft, and closing
+    // it is what "left unsaved" now means.
+    await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
     expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
   },
 }
@@ -319,9 +334,8 @@ export const TypingThenUnmountingWithoutSavingFiresNoWrite: StoryObj<typeof Ques
   render: (args) => <UnmountDiscardsFreeTextHarness node={args.node} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.change(canvas.getByTestId("free-text-input"), {
-      target: { value: "typed then torn down" },
-    })
+    const field = await openAnswerSheet(canvas)
+    await fireEvent.change(field, { target: { value: "typed then torn down" } })
     await fireEvent.click(canvas.getByTestId("unmount"))
     await waitFor(() => expect(canvas.queryByTestId("question-screen")).not.toBeInTheDocument())
     expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
@@ -360,10 +374,15 @@ export const DeletingAPreviouslyWrittenAnswerAndSavingErasesIt: StoryObj<typeof 
   render: (args) => <CommitCallRecordingHarness node={args.node} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const textarea = canvas.getByTestId("free-text-input")
+    // Reopening for editing pre-fills the sheet with the answer already on
+    // the option, rather than starting from an empty field.
+    await expect(canvas.getByTestId("free-text-value")).toHaveTextContent(
+      "an existing typed answer",
+    )
+    const textarea = await openAnswerSheet(canvas)
     await expect(textarea).toHaveValue("an existing typed answer")
     await fireEvent.change(textarea, { target: { value: "" } })
-    await fireEvent.click(canvas.getByTestId("free-text-save"))
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
     expect(readCommitCalls(canvas)[0]?.opts).toEqual({ checked: false, text: "" })
   },
@@ -489,9 +508,9 @@ export const ARejectedFreeTextWriteLeavesALaterRadioTickStanding: StoryObj<typeo
   render: (args) => <FreeTextRevertScopeHarness node={args.node} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const textarea = canvas.getByTestId("free-text-input")
+    const textarea = await openAnswerSheet(canvas)
     await fireEvent.change(textarea, { target: { value: "typed while in flight" } })
-    await fireEvent.click(canvas.getByTestId("free-text-save")) // write never resolves yet
+    await fireEvent.click(canvas.getByTestId("note-sheet-save")) // write never resolves yet
 
     await fireEvent.click(canvas.getByTestId("option-radio-0")) // resolves immediately
     await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
@@ -665,9 +684,9 @@ export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<ty
   render: (args) => <RefusalRetryHarness node={args.node} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const textarea = canvas.getByTestId("free-text-input")
+    const textarea = await openAnswerSheet(canvas)
     await fireEvent.change(textarea, { target: { value: "hello" } })
-    await fireEvent.click(canvas.getByTestId("free-text-save"))
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() =>
       expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
         "The file's content changed underneath you",
@@ -677,9 +696,10 @@ export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<ty
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
 
     // Retype the SAME text and tap Save again — must fire a second write.
-    await fireEvent.change(textarea, { target: { value: "" } })
-    await fireEvent.change(textarea, { target: { value: "hello" } })
-    await fireEvent.click(canvas.getByTestId("free-text-save"))
+    const reopened = await openAnswerSheet(canvas)
+    await fireEvent.change(reopened, { target: { value: "" } })
+    await fireEvent.change(reopened, { target: { value: "hello" } })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(2))
   },
 }
@@ -777,5 +797,87 @@ export const AQuestionBodyWithAParagraphAndAFencedCodeBlockRendersBothAboveTheOp
     expect(
       body.compareDocumentPosition(firstOption) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+  },
+}
+
+/**
+ * The chosen option is marked by its ROW — surface fill and an accent
+ * boundary — not by the radio dot alone, which is a ~6px cue on a phone. The
+ * assertion is on computed style: what changes is what a thumb can see.
+ */
+export const SelectingAnOptionMarksItsWholeRowNotJustTheRadio: Story = {
+  args: { node: questionNode() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const row = canvas.getByTestId("option-0")
+    const resting = getComputedStyle(row)
+    const restingBorder = resting.borderColor
+    const restingBackground = resting.backgroundColor
+
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+    // `waitFor`: both properties cross over a 150ms transition, so the frame
+    // right after the click still holds the resting values.
+    await waitFor(() => {
+      const selected = getComputedStyle(row)
+      expect(selected.borderColor).not.toBe(restingBorder)
+      expect(selected.backgroundColor).not.toBe(restingBackground)
+    })
+  },
+}
+
+/**
+ * The answered/unanswered state is a word AND a glyph in a distinct colour —
+ * never the colour on its own — and it reads as a sentence rather than the
+ * lowercase debug label ("answered") it used to be.
+ */
+export const AnswerStatusReadsAsALabelledStateNotAColour: Story = {
+  args: { node: questionNode() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const status = canvas.getByTestId("question-status")
+    expect(status).toHaveTextContent("Not answered yet")
+    const unansweredColor = getComputedStyle(status).color
+
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+    expect(status).toHaveTextContent("✓ Answered")
+    expect(getComputedStyle(status).color).not.toBe(unansweredColor)
+  },
+}
+
+/**
+ * Selecting the free-text slot opens the answer sheet, titled as an ANSWER
+ * rather than a note, with the field already focused — the keyboard comes up
+ * on the thing you selected the option to write. 16px is asserted literally:
+ * it is the floor below which iOS zooms the page on focus.
+ */
+export const SelectingTheFreeTextSlotOpensAFocusedAnswerSheet: Story = {
+  args: { node: questionNode() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("option-radio-2"))
+
+    const field = canvas.getByTestId("note-sheet-textarea")
+    expect(document.activeElement).toBe(field)
+    await expect(canvas.getByTestId("note-sheet")).toHaveTextContent("Your answer")
+    const style = getComputedStyle(field)
+    expect(style.fontSize).toBe("16px")
+    expect(parseFloat(style.borderTopWidth)).toBeGreaterThan(0)
+    expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)")
+  },
+}
+
+/** Tapping the value the slot already shows reopens the SAME sheet for editing — the second half of "clicking that again opens it for editing". */
+export const TappingTheAnswerValueReopensTheSheetForEditing: Story = {
+  args: { node: questionNode() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await answerFreeText(canvas, "first answer")
+    await waitFor(() => expect(canvas.queryByTestId("note-sheet-textarea")).not.toBeInTheDocument())
+
+    const reopened = await openAnswerSheet(canvas)
+    await expect(reopened).toHaveValue("first answer")
+    await fireEvent.change(reopened, { target: { value: "edited answer" } })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await expect(canvas.getByTestId("free-text-value")).toHaveTextContent("edited answer")
   },
 }

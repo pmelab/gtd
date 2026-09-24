@@ -7,6 +7,7 @@ import { Deck } from "../Deck.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
+import { existingNoteFor, optimisticNoteSave } from "../notes.js"
 import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
 import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
@@ -87,7 +88,10 @@ const QuestionCard = ({
   const testId = `question-card-${node.anchor.kind === "question" ? node.anchor.index : 0}`
   if (onOpen === undefined) {
     return (
-      <div data-testid={testId} className="border-b border-border p-3 opacity-[0.85]">
+      // An answered question is finished, not disabled: it reads in the
+      // muted text colour (which still clears AA) rather than at 85%
+      // opacity, which dims a row's every layer including its own contrast.
+      <div data-testid={testId} className="border-b border-divider p-3 text-muted">
         {content}
       </div>
     )
@@ -178,7 +182,16 @@ const QuestionSection = ({
   if (nodes.length === 0) return null
   return (
     <section>
-      <h2 className="m-3 text-small text-muted">{title}</h2>
+      {/* The section that still needs the reader is coloured; the finished
+          one stays muted — the list's own "what is left" cue, before a
+          single card is read. */}
+      <h2
+        className={`mx-3 mt-4 mb-1 text-small font-semibold tracking-wide uppercase ${
+          onOpen !== undefined ? "text-link" : "text-muted"
+        }`}
+      >
+        {title}
+      </h2>
       {nodes.map((node) => (
         <QuestionCard
           key={allNodes.indexOf(node)}
@@ -303,125 +316,124 @@ export const PlanView = ({
     )
   }
 
-  if (noteSheetAnchor !== undefined) {
-    const line = noteSheetAnchor.kind === "paragraph" ? noteSheetAnchor.line : undefined
-    // A `paragraph` anchor can name either a top-level prose block OR a
-    // block riding in one of `body` (a question's own body, package 06's
-    // Task 3) — so the existing-note lookup walks both, never just
-    // `view.nodes` itself, or reopening a body block's own note-editing seam
-    // would show no existing text at all.
-    const originalNote = view.nodes
-      .flatMap((node) => [node, ...(node.body ?? [])])
-      .find((node) => node.anchor.kind === "paragraph" && node.anchor.line === line)?.note
-    const existing = (line !== undefined ? noteOverrides[line] : undefined) ?? originalNote
-    return (
+  // Rendered OVER the screen it belongs to (a modal), never instead of it —
+  // so it is built here and mounted by each branch below rather than
+  // returned early.
+  const existingNote =
+    noteSheetAnchor === undefined
+      ? undefined
+      : existingNoteFor(view.nodes, noteSheetAnchor, noteOverrides)
+  const noteSheet =
+    noteSheetAnchor === undefined ? null : (
       <NoteSheet
         anchor={noteSheetAnchor}
-        {...(existing !== undefined ? { note: existing } : {})}
-        onSave={(anchor, text) => {
-          if (anchor.kind === "paragraph") {
-            setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
-          }
-          setNoteSheetAnchor(undefined)
-          // A refused/failed write reverts the optimistic override — see
-          // `Review.tsx#useReviewState`'s `saveNote`'s identical comment.
-          onSaveNote?.(anchor, text)?.catch((error: unknown) => {
-            // `onSaveNote` is surely defined here — this `.catch` only runs
-            // off a promise `onSaveNote?.(...)` itself returned.
-            onRefusal?.(error, () => onSaveNote(anchor, text))
-            if (anchor.kind === "paragraph") {
-              setNoteOverrides((prev) => {
-                const next = { ...prev }
-                delete next[anchor.line]
-                return next
-              })
-            }
-          })
-        }}
+        {...(existingNote !== undefined ? { note: existingNote } : {})}
+        onSave={optimisticNoteSave({
+          setOverrides: setNoteOverrides,
+          close: () => setNoteSheetAnchor(undefined),
+          ...(onSaveNote !== undefined ? { write: onSaveNote } : {}),
+          ...(onRefusal !== undefined ? { onRefusal } : {}),
+        })}
         onDismiss={() => setNoteSheetAnchor(undefined)}
         {...(onDoneNote !== undefined
           ? {
-              onDone: (anchor: SteeringAnchor, text: string) => {
-                if (anchor.kind === "paragraph") {
-                  setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
-                }
-                setNoteSheetAnchor(undefined)
-                onDoneNote(anchor, text)
-              },
+              onDone: optimisticNoteSave({
+                setOverrides: setNoteOverrides,
+                close: () => setNoteSheetAnchor(undefined),
+                write: onDoneNote,
+              }),
             }
           : {})}
       />
     )
-  }
 
   if (deckIndex !== undefined) {
     return (
-      <Deck
-        items={openQuestionNodesOf(view)}
-        index={deckIndex}
-        onIndexChange={setDeckIndex}
-        onExit={() => {
-          setDeckIndex(undefined)
-          scroll.restore(scrollRef)
-        }}
-        {...deckDoneProps(onDone)}
-        renderItem={(node, index) => (
-          <Question
-            key={index}
-            node={node}
-            answer={answers[index] ?? defaultAnswerFor(node)}
-            onAnswerChange={(update) =>
-              setAnswers((prev) => {
-                const current = prev[index] ?? defaultAnswerFor(node)
-                const next = typeof update === "function" ? update(current) : update
-                return { ...prev, [index]: next }
-              })
-            }
-            {...(onCommitAnswer !== undefined ? { onCommitAnswer } : {})}
-            {...(onRefusal !== undefined ? { onRefusal } : {})}
-            noteOverrides={noteOverrides}
-            onOpenNote={(bodyNode) => setNoteSheetAnchor(bodyNode.anchor)}
-          />
-        )}
-      />
+      <>
+        <Deck
+          items={openQuestionNodesOf(view)}
+          index={deckIndex}
+          onIndexChange={setDeckIndex}
+          onExit={() => {
+            setDeckIndex(undefined)
+            scroll.restore(scrollRef)
+          }}
+          {...deckDoneProps(onDone)}
+          renderItem={(node, index) => (
+            <Question
+              key={index}
+              node={node}
+              answer={answers[index] ?? defaultAnswerFor(node)}
+              onAnswerChange={(update) =>
+                setAnswers((prev) => {
+                  const current = prev[index] ?? defaultAnswerFor(node)
+                  const next = typeof update === "function" ? update(current) : update
+                  return { ...prev, [index]: next }
+                })
+              }
+              {...(onCommitAnswer !== undefined ? { onCommitAnswer } : {})}
+              {...(onRefusal !== undefined ? { onRefusal } : {})}
+              noteOverrides={noteOverrides}
+              onOpenNote={(bodyNode) => setNoteSheetAnchor(bodyNode.anchor)}
+            />
+          )}
+        />
+        {noteSheet}
+      </>
     )
   }
 
   return (
-    <div data-testid="plan-screen" className="flex h-full min-h-0 flex-1 flex-col">
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
-        <CardList>
-          <Card testId="read-plan-row" onOpen={confirm}>
-            Read the plan{confirmed ? " ✓" : ""}
-          </Card>
-          <PlanBody
-            view={view}
-            noteOverrides={noteOverrides}
-            onOpenQuestion={(index) => {
-              scroll.capture(scrollRef)
-              setDeckIndex(index)
-            }}
-            onOpenNote={(node) => setNoteSheetAnchor(node.anchor)}
-          />
-        </CardList>
-      </div>
-      {onDone !== undefined && (
-        <div
-          data-testid="plan-done-row"
-          className="flex shrink-0 items-center justify-end border-t border-border p-3"
-        >
-          <Button
-            variant="primary"
-            data-testid="plan-done"
-            onClick={() => {
-              onDone()
-            }}
-          >
-            Done
-          </Button>
+    <>
+      <div data-testid="plan-screen" className="flex h-full min-h-0 flex-1 flex-col">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+          <CardList>
+            {/* The confirmation is a state, so it gets a persistent mark, not
+              a tick appended to the label: the row reads the same before and
+              after otherwise. */}
+            <Card testId="read-plan-row" onOpen={confirm}>
+              <span className="flex items-center gap-2">
+                <span
+                  aria-hidden="true"
+                  className={`grid size-5 shrink-0 place-items-center rounded-full border text-small ${
+                    confirmed ? "border-accent text-accent" : "border-border"
+                  }`}
+                >
+                  {confirmed ? "✓" : ""}
+                </span>
+                <span className={confirmed ? "text-muted" : undefined}>Read the plan</span>
+              </span>
+            </Card>
+            <PlanBody
+              view={view}
+              noteOverrides={noteOverrides}
+              onOpenQuestion={(index) => {
+                scroll.capture(scrollRef)
+                setDeckIndex(index)
+              }}
+              onOpenNote={(node) => setNoteSheetAnchor(node.anchor)}
+            />
+          </CardList>
         </div>
-      )}
-    </div>
+        {onDone !== undefined && (
+          <div
+            data-testid="plan-done-row"
+            className="flex shrink-0 items-center justify-end border-t border-border p-3"
+          >
+            <Button
+              variant="primary"
+              data-testid="plan-done"
+              onClick={() => {
+                onDone()
+              }}
+            >
+              Done
+            </Button>
+          </div>
+        )}
+      </div>
+      {noteSheet}
+    </>
   )
 }
 

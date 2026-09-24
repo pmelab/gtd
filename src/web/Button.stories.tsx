@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, within } from "storybook/test"
+import { token } from "./testing/palette.js"
 import { Button } from "./Button.js"
 import { withRealMousePress } from "./testing/realMousePress.js"
 
@@ -23,7 +24,7 @@ export const PrimaryDefault: Story = {
     const canvas = within(canvasElement)
     const button = canvas.getByText("Primary")
     assertMeets44pxFloor(button)
-    expect(getComputedStyle(button).backgroundColor).toBe("rgb(91, 157, 255)")
+    expect(getComputedStyle(button).backgroundColor).toBe(token("accent"))
   },
 }
 
@@ -36,7 +37,7 @@ export const PrimaryPressed: Story = {
     await withRealMousePress(button, () => {
       const pressedColor = getComputedStyle(button).backgroundColor
       expect(pressedColor).not.toBe(restColor)
-      expect(pressedColor).toBe("rgb(63, 127, 224)")
+      expect(pressedColor).toBe(token("accent-pressed"))
     })
   },
 }
@@ -47,7 +48,7 @@ export const PrimaryDisabled: Story = {
     const canvas = within(canvasElement)
     const button = canvas.getByText("Primary") as HTMLButtonElement
     expect(button.disabled).toBe(true)
-    expect(getComputedStyle(button).backgroundColor).toBe("rgb(90, 90, 94)")
+    expect(getComputedStyle(button).backgroundColor).toBe(token("disabled"))
     button.click()
     expect(args.onClick).not.toHaveBeenCalled()
   },
@@ -59,7 +60,7 @@ export const SecondaryDefault: Story = {
     const canvas = within(canvasElement)
     const button = canvas.getByText("Secondary")
     assertMeets44pxFloor(button)
-    expect(getComputedStyle(button).backgroundColor).toBe("rgb(28, 28, 30)")
+    expect(getComputedStyle(button).backgroundColor).toBe(token("surface"))
   },
 }
 
@@ -72,7 +73,7 @@ export const SecondaryPressed: Story = {
     await withRealMousePress(button, () => {
       const pressedColor = getComputedStyle(button).backgroundColor
       expect(pressedColor).not.toBe(restColor)
-      expect(pressedColor).toBe("rgb(107, 107, 112)")
+      expect(pressedColor).toBe(token("border"))
     })
   },
 }
@@ -107,7 +108,7 @@ export const GhostPressed: Story = {
     await withRealMousePress(button, () => {
       const pressedColor = getComputedStyle(button).backgroundColor
       expect(pressedColor).not.toBe(restColor)
-      expect(pressedColor).toBe("rgb(28, 28, 30)")
+      expect(pressedColor).toBe(token("surface"))
     })
   },
 }

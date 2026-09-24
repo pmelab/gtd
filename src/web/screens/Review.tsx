@@ -267,6 +267,7 @@ const useReviewState = (
     exitToChunkList,
     isChecked,
     hasNoteText,
+    noteTextOf,
     openNoteSheet,
     saveNote,
     doneNote,
@@ -303,6 +304,7 @@ const hunkPropsFor = (
   total: hunks.length,
   checked: state.isChecked(hunk),
   hasNote: state.hasNoteText(hunk),
+  ...(state.noteTextOf(hunk) !== undefined ? { note: state.noteTextOf(hunk)! } : {}),
   onToggle: (checked) => state.setHunkChecked(hunk, checked),
   onApprove: () => state.approveAndAdvance(hunks),
   onOpenNote: () => state.openNoteSheet(hunk),
@@ -358,50 +360,76 @@ const ChunkRow = ({
   const allChecked = hunks.length > 0 && hunks.every(state.isChecked)
   const footnoteKeepsRoundOpen = state.hasNoteText(chunk)
   return (
-    <div data-testid={`chunk-card-${chunkIndex}`} className="flex items-start gap-2 px-3 py-2.5">
-      <label
-        data-testid={`chunk-check-all-label-${chunkIndex}`}
-        className="flex min-h-11 min-w-11 shrink-0 items-center justify-center"
-      >
-        <input
-          type="checkbox"
-          data-testid={`chunk-check-all-${chunkIndex}`}
-          checked={allChecked}
+    <div data-testid={`chunk-card-${chunkIndex}`} className="border-b border-divider px-3 py-2.5">
+      <div className="flex items-start gap-2">
+        <label
+          data-testid={`chunk-check-all-label-${chunkIndex}`}
+          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center"
+        >
+          <input
+            type="checkbox"
+            data-testid={`chunk-check-all-${chunkIndex}`}
+            checked={allChecked}
+            disabled={hunks.length === 0}
+            onChange={() => state.toggleChunk(chunk)}
+          />
+        </label>
+        <Button
+          variant="ghost"
+          data-testid={`chunk-open-${chunkIndex}`}
+          onClick={() => state.openChunk(chunkIndex)}
           disabled={hunks.length === 0}
-          onChange={() => state.toggleChunk(chunk)}
-        />
-      </label>
-      <Button
-        variant="ghost"
-        data-testid={`chunk-open-${chunkIndex}`}
-        onClick={() => state.openChunk(chunkIndex)}
-        disabled={hunks.length === 0}
-        className="flex-1 text-left"
-      >
-        <div className="font-semibold">{chunk.title}</div>
-        {chunk.detail !== undefined && chunk.detail.length > 0 && (
-          <div className="text-small text-muted">{chunk.detail}</div>
-        )}
-        {hunks.length === 0 && <div className="mt-0.5 text-small text-muted">No file pointers</div>}
-        {footnoteKeepsRoundOpen && (
-          <div
-            data-testid={`chunk-footnote-badge-${chunkIndex}`}
-            className="mt-1 text-small text-[#e0a030]"
+          className="flex-1 text-left"
+        >
+          <div className="font-semibold">{chunk.title}</div>
+          {chunk.detail !== undefined && chunk.detail.length > 0 && (
+            <div className="text-small text-muted">{chunk.detail}</div>
+          )}
+          {hunks.length === 0 && (
+            <div className="mt-0.5 text-small text-muted">No file pointers</div>
+          )}
+          {footnoteKeepsRoundOpen && (
+            <div
+              data-testid={`chunk-footnote-badge-${chunkIndex}`}
+              className="mt-1 text-small text-warning"
+            >
+              Note keeps this round open
+            </div>
+          )}
+        </Button>
+        {/* The control only exists while there is NO note. Once there is
+            one, the note itself takes its place below: "Edit note" says only
+            that a note exists, while the note says what it is. */}
+        {!footnoteKeepsRoundOpen && (
+          <Button
+            variant="secondary"
+            data-testid={`chunk-note-${chunkIndex}`}
+            onClick={() => state.openNoteSheet(chunk)}
           >
-            Note keeps this round open
-          </div>
+            Note
+          </Button>
         )}
-      </Button>
-      <Button
-        variant="secondary"
-        data-testid={`chunk-note-${chunkIndex}`}
-        onClick={() => state.openNoteSheet(chunk)}
-      >
-        {state.hasNoteText(chunk) ? "Edit note" : "Note"}
-      </Button>
+      </div>
+      {footnoteKeepsRoundOpen && (
+        <Button
+          variant="ghost"
+          data-testid={`chunk-note-${chunkIndex}`}
+          onClick={() => state.openNoteSheet(chunk)}
+          className="w-full rounded border border-divider px-2 py-1 text-left text-small font-normal text-muted"
+        >
+          {state.noteTextOf(chunk)}
+        </Button>
+      )}
     </div>
   )
 }
+
+/** Chunks whose every hunk is ticked — a chunk with no hunks at all is never "approved", matching `ChunkRow`'s own disabled tick. */
+const approvedCount = (nodes: SteeringView["nodes"], state: ReviewState): number =>
+  nodes.filter((chunk) => {
+    const hunks = hunksOf(chunk)
+    return hunks.length > 0 && hunks.every(state.isChecked)
+  }).length
 
 /** The chunk list itself — one `ChunkRow` per top-level node. */
 const ChunkList = ({
@@ -414,6 +442,18 @@ const ChunkList = ({
   readonly scrollRef: RefObject<HTMLDivElement | null>
 }) => (
   <div data-testid="review-screen" className="flex h-full min-h-0 flex-1 flex-col">
+    {/* The one place the round's own size is visible: a chunk list is
+        otherwise a stack of identical rows with no answer to "how much of
+        this is left". `shrink-0`, so it stays put while the list scrolls. */}
+    <div
+      data-testid="review-progress"
+      className="flex shrink-0 items-baseline justify-between gap-2 border-b border-divider px-3 py-2"
+    >
+      <h1 className="m-0 text-body font-semibold">Review</h1>
+      <span className="text-small text-muted tabular-nums">
+        {approvedCount(nodes, state)} / {nodes.length} chunks approved
+      </span>
+    </div>
     <div
       ref={scrollRef}
       data-testid="review-scroll-container"
@@ -463,7 +503,9 @@ export const ReviewView = ({
     )
   }
 
-  if (state.noteSheet !== undefined) {
+  // Rendered OVER the screen it belongs to (a modal), never instead of it.
+  const noteSheet = ((): React.ReactElement | null => {
+    if (state.noteSheet === undefined) return null
     return (
       <NoteSheet
         anchor={state.noteSheet.anchor}
@@ -475,7 +517,7 @@ export const ReviewView = ({
         {...(onDoneNote !== undefined ? { onDone: state.doneNote } : {})}
       />
     )
-  }
+  })()
 
   const openChunk =
     state.openChunkIndex !== undefined ? view.nodes[state.openChunkIndex] : undefined
@@ -485,10 +527,20 @@ export const ReviewView = ({
   // already disabled for this shape; this is the defensive backstop for any
   // other path that could still set `openChunkIndex` on one.
   if (openChunk !== undefined && hunksOf(openChunk).length > 0) {
-    return <HunkDeck chunk={openChunk} live={live === true} state={state} />
+    return (
+      <>
+        <HunkDeck chunk={openChunk} live={live === true} state={state} />
+        {noteSheet}
+      </>
+    )
   }
 
-  return <ChunkList nodes={view.nodes} state={state} scrollRef={scrollRef} />
+  return (
+    <>
+      <ChunkList nodes={view.nodes} state={state} scrollRef={scrollRef} />
+      {noteSheet}
+    </>
+  )
 }
 
 /**

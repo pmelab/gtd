@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { page } from "@vitest/browser/context"
+import { viewport } from "../testing/browserContext.js"
 import { useState } from "react"
-import { expect, fireEvent, within } from "storybook/test"
+import { expect, fireEvent, waitFor, within } from "storybook/test"
 import type { DiffResult } from "../../ui/index.js"
 import type { SteeringViewNode } from "../../steering/index.js"
 import { Hunk } from "./Hunk.js"
@@ -155,7 +155,7 @@ export const NoteAffordanceOpensTheNoteSheet: StoryObj<typeof TickableHunk> = {
 export const NoteAffordanceMeetsThe44pxFloorInItsDefaultState: StoryObj<typeof TickableHunk> = {
   render: () => <TickableHunk diff={RESOLVED_DIFF} />,
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const button = canvas.getByTestId("hunk-note-affordance")
     const rect = button.getBoundingClientRect()
@@ -168,7 +168,7 @@ export const NoteAffordanceMeetsThe44pxFloorInItsDefaultState: StoryObj<typeof T
 export const HunkTickRowMeetsThe44pxFloor: StoryObj<typeof TickableHunk> = {
   render: () => <TickableHunk diff={RESOLVED_DIFF} />,
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const input = canvas.getByTestId("hunk-tick")
     const label = input.closest("label")
@@ -515,5 +515,129 @@ export const MarkupInADiffLineRendersAsInertTextNeverParsedHtml: Story = {
     // never executed either.
     expect(line.querySelector("script")).toBeNull()
     expect((window as unknown as { __xss?: boolean }).__xss).toBeUndefined()
+  },
+}
+
+/**
+ * A long added line scrolled horizontally must keep its green band under the
+ * text all the way to the line's end: a block-level line sizes to the SCROLL
+ * PORT, not to the scrollable content, so without a content-width wrapper
+ * the background stops at the initial viewport edge. Pinned on real
+ * geometry — each line's painted width against the scroll container's
+ * `scrollWidth` — not on a class name.
+ */
+export const LineBackgroundsSpanTheFullScrollWidthNotJustTheViewport: Story = {
+  args: {
+    node: hunkNode(),
+    diff: {
+      kind: "hunk",
+      diff: { path: "src/x.ts", hunks: [] },
+      hunk: {
+        header: "@@ -1,2 +1,2 @@",
+        newStart: 1,
+        newLines: 2,
+        lines: [
+          "  const short = 1",
+          `+const wide = "${"x".repeat(400)}"`,
+          `-const gone = "${"y".repeat(400)}"`,
+        ],
+      },
+    } satisfies DiffResult,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    const addLine = canvas.getByTestId("diff-line-1")
+    const scroller = addLine.closest("[class*='overflow-x-auto']")
+    expect(scroller).not.toBeNull()
+    // The fixture really does overflow — otherwise this story would pass
+    // against a viewport wide enough to hide the bug.
+    expect(scroller!.scrollWidth).toBeGreaterThan(scroller!.clientWidth)
+    for (const id of ["diff-line-0", "diff-line-1", "diff-line-2"]) {
+      expect(canvas.getByTestId(id).getBoundingClientRect().width).toBeGreaterThanOrEqual(
+        scroller!.scrollWidth - 1,
+      )
+    }
+  },
+}
+
+/**
+ * Approving is this screen's whole purpose, so its control is painted as
+ * one: a bordered full-width row whose checked state is carried by the row's
+ * own accent boundary and its label ("Approved"), not by the ~20px tick box
+ * alone. Asserted on computed style, since the point is what a thumb sees
+ * from arm's length.
+ */
+export const ApproveRowMarksItsCheckedStateBeyondTheTickBox: StoryObj<typeof TickableHunk> = {
+  render: () => <TickableHunk diff={RESOLVED_DIFF} />,
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    const row = canvas.getByTestId("hunk-approve-row")
+    expect(row).toHaveTextContent("Approve this hunk")
+    const restingBorder = getComputedStyle(row).borderColor
+    expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+    expect(row).toHaveTextContent("Approved")
+    // `waitFor`: the boundary colour crosses over a 150ms transition, so the
+    // frame right after the click still holds the resting value.
+    await waitFor(() => expect(getComputedStyle(row).borderColor).not.toBe(restingBorder))
+  },
+}
+
+/**
+ * A hunk that already carries a note shows the NOTE where its control was —
+ * the same rule a chunk row follows on the list screen. The bare "Edit note"
+ * label survives only as the fallback for a caller that knows a note exists
+ * but not what it says.
+ */
+export const AHunksNoteTakesTheNoteControlsPlace: Story = {
+  args: {
+    node: hunkNode(),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: true,
+    note: "This drops the old value without migrating it.",
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    const affordance = canvas.getByTestId("hunk-note-affordance")
+    await expect(affordance).toHaveTextContent("This drops the old value without migrating it.")
+    await expect(affordance).not.toHaveTextContent("Edit note")
+    // Still a real tap target, and still the thing that opens the sheet.
+    expect(affordance.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+  },
+}
+
+/** The fallback: `hasNote` with no text to show still reads as a control rather than rendering an empty box. */
+export const AHunkKnownToCarryANoteWithoutItsTextStillReadsAsAControl: Story = {
+  args: {
+    node: hunkNode(),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: true,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("hunk-note-affordance")).toHaveTextContent("Edit note")
   },
 }

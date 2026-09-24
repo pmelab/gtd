@@ -1,3 +1,5 @@
+import { cn } from "./cn.js"
+
 export type NoticeTone = "info" | "error"
 
 export interface NoticeProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -19,10 +21,7 @@ const TONE_CLASSES: Record<NoticeTone, string> = {
 }
 
 export const Notice = ({ tone = "info", className, children, ...props }: NoticeProps) => (
-  <div
-    className={["p-4 text-body", TONE_CLASSES[tone], className].filter(Boolean).join(" ")}
-    {...props}
-  >
+  <div className={cn("m-3 rounded p-4 text-body", TONE_CLASSES[tone], className)} {...props}>
     {children}
   </div>
 )

@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { viewport } from "../testing/browserContext.js"
 import { useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
+import { token } from "../testing/palette.js"
 import type { SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { Plan, PlanView } from "./Plan.js"
@@ -25,13 +27,13 @@ const sampleOpenQuestionRead = () => ({
   view: { nodes: [openQuestion(0, "Which option?")] },
 })
 
-/** Opens paragraph 0's note seam and types `text` into the sheet — the setup every "real container" story below shares before diverging into Save vs Save & Done. */
+/** Double-taps paragraph 0 and types `text` into the note sheet it opens — the setup every "real container" story below shares before diverging into Save vs Save & Done. */
 const openNoteSeamAndType = async (
   canvas: ReturnType<typeof within>,
   text: string,
 ): Promise<void> => {
-  await waitFor(() => expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument())
-  await fireEvent.click(canvas.getByTestId("note-seam-0"))
+  await waitFor(() => expect(canvas.getByTestId("note-target-0")).toBeInTheDocument())
+  await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
   await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), { target: { value: text } })
 }
 
@@ -135,7 +137,7 @@ export const OpenQuestionCardRendersTheAccentTreatmentAnsweredDoesNot: Story = {
     const openCard = getComputedStyle(canvas.getByTestId("question-card-0"))
     const answeredCard = getComputedStyle(canvas.getByTestId("question-card-1"))
     expect(openCard.borderLeftWidth).toBe("4px")
-    expect(openCard.backgroundColor).toBe("rgb(28, 28, 30)")
+    expect(openCard.backgroundColor).toBe(token("surface"))
     expect(answeredCard.borderLeftWidth).not.toBe("4px")
   },
 }
@@ -306,7 +308,7 @@ export const AnAnswerSurvivesPagingNextThenBackThroughTheDeck: Story = {
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
     await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("✓ Answered")
 
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("Second?")
@@ -315,7 +317,7 @@ export const AnAnswerSurvivesPagingNextThenBackThroughTheDeck: Story = {
     await fireEvent.click(canvas.getByTestId("deck-prev"))
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
     await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("✓ Answered")
   },
 }
 
@@ -339,17 +341,22 @@ export const AnUnsavedFreeTextDraftDoesNotSurvivePagingAwayAndBack: Story = {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("question-card-0"))
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
-    await fireEvent.change(canvas.getByTestId("free-text-input"), {
+    // Typed into the answer sheet and dismissed without saving — the draft
+    // lives only as long as the sheet does.
+    await fireEvent.click(canvas.getByTestId("free-text-value"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "typed but never saved" },
     })
-    await expect(canvas.getByTestId("free-text-input")).toHaveValue("typed but never saved")
+    await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
+    await waitFor(() => expect(canvas.queryByTestId("note-sheet-textarea")).not.toBeInTheDocument())
 
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("Second?")
 
     await fireEvent.click(canvas.getByTestId("deck-prev"))
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
-    await expect(canvas.getByTestId("free-text-input")).toHaveValue("")
+    await fireEvent.click(canvas.getByTestId("free-text-value"))
+    await expect(canvas.getByTestId("note-sheet-textarea")).toHaveValue("")
   },
 }
 
@@ -366,10 +373,11 @@ export const TappingFreeTextSaveStaysOnTheQuestionScreen: Story = {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("question-card-0"))
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
-    await fireEvent.change(canvas.getByTestId("free-text-input"), {
+    await fireEvent.click(canvas.getByTestId("free-text-value"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "an answer worth saving" },
     })
-    await fireEvent.click(canvas.getByTestId("free-text-save"))
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await expect(canvas.getByTestId("question-screen")).toBeInTheDocument()
     await expect(canvas.getByTestId("question-screen")).toHaveTextContent("First?")
   },
@@ -446,26 +454,24 @@ export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.getByText("First paragraph of the plan.")).toBeInTheDocument()
     await expect(canvas.getByText("Second paragraph with more detail.")).toBeInTheDocument()
-    // A REAL, visible affordance — legible label text and a non-zero touch
-    // target — not a 0-visible-pixels strip a test could only ever find by
-    // testid.
-    const seam = canvas.getByTestId("note-seam-0")
-    await expect(seam).toHaveTextContent("Add note")
-    expect(seam.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
-    // "spans the full width" — geometrically, not just `style.width`: the
-    // seam's own box must equal the width of the paragraph it belongs to
-    // (their shared container), never a fraction of it.
+    // The note gesture has no visible control of its own any more, so what
+    // has to hold instead is: the gesture is STATED once, and each block is
+    // a real, announced, keyboard-reachable target — a bare `onDoubleClick`
+    // on a plain `<div>` would pass a testid-only check while being
+    // unreachable by keyboard and silent to a screen reader.
+    await expect(canvas.getByTestId("note-gesture-hint")).toHaveTextContent("Double-tap")
+    const target = canvas.getByTestId("note-target-0")
+    expect(target).toHaveAttribute("role", "button")
+    expect(target).toHaveAttribute("tabindex", "0")
+    expect(target).toHaveAccessibleName("Add a note to this block")
+    // The target IS the block, so it covers the paragraph's own box rather
+    // than sitting beside it as a strip of its own.
     const paragraph = canvas.getByText("First paragraph of the plan.")
-    const container = paragraph.parentElement!
-    expect(seam.getBoundingClientRect().width).toBe(container.getBoundingClientRect().width)
-    // "sits below its paragraph" — geometrically: the seam's own top edge
-    // is at or after the paragraph's own bottom edge, never above/overlapping
-    // it (which a mutant moving the seam ABOVE the `<p>` in the JSX would
-    // otherwise still pass a testid-only or text-only assertion).
-    expect(seam.getBoundingClientRect().top).toBeGreaterThanOrEqual(
-      paragraph.getBoundingClientRect().bottom,
+    expect(target.contains(paragraph)).toBe(true)
+    expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(
+      paragraph.getBoundingClientRect().height,
     )
-    await expect(canvas.getByTestId("note-seam-1")).toHaveTextContent("Add note")
+    await expect(canvas.getByTestId("note-target-1")).toBeInTheDocument()
     await expect(canvas.queryByText("Open Questions")).not.toBeInTheDocument()
     await expect(canvas.queryByTestId("question-card-0")).not.toBeInTheDocument()
   },
@@ -518,12 +524,12 @@ export const PlanRendersEveryBlockKindWithStructureIntact: Story = {
   },
 }
 
-/** A note attaches to a heading and lands on that heading's own line — its note seam behaves exactly like a paragraph's. */
+/** A note attaches to a heading and lands on that heading's own line — a heading is a note target exactly like a paragraph. */
 /**
  * A note attaches to a heading and lands on that heading's own ANCHOR LINE —
  * asserted on the real `writeNote` call's `anchor`, the way
  * `RealContainerWriteThroughsAParagraphNoteViaWriteNote` does, never on the
- * `paragraph-note-N`/`note-seam-N` testid alone: those are keyed by ARRAY
+ * `paragraph-note-N`/`note-target-N` testid alone: those are keyed by ARRAY
  * index, so a heading sitting at array index 1 but a stale/wrong anchor line
  * would still render under the SAME testid and pass a testid-only assertion.
  * The heading sits behind a preceding paragraph and at a non-zero line
@@ -566,8 +572,8 @@ export const NoteAttachesToAHeadingOnItsOwnLine: StoryObj<typeof Plan> = {
   args: REAL_PLAN_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("note-seam-1")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("note-seam-1"))
+    await waitFor(() => expect(canvas.getByTestId("note-target-1")).toBeInTheDocument())
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-1"))
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
     await expect(canvas.getByText("Note on this block")).toBeInTheDocument()
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
@@ -586,7 +592,7 @@ export const NoteAttachesToAHeadingOnItsOwnLine: StoryObj<typeof Plan> = {
   },
 }
 
-/** Every block kind except `code` shows a note seam; the code block shows neither a seam nor an inline note row (T3/T4's own reason: a marker there would corrupt the fence). */
+/** Every block kind except `code` is a note target; a code block is neither a target nor a carrier of an inline note row (T3/T4's own reason: a marker there would corrupt the fence). */
 export const CodeBlockShowsNoNoteSeamEveryOtherKindDoes: Story = {
   args: {
     contentHash: "code-seam-hash",
@@ -610,10 +616,10 @@ export const CodeBlockShowsNoNoteSeamEveryOtherKindDoes: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument()
-    await expect(canvas.queryByTestId("note-seam-1")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("note-target-0")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("note-target-1")).not.toBeInTheDocument()
     await expect(canvas.queryByTestId("paragraph-note-1")).not.toBeInTheDocument()
-    await expect(canvas.getByTestId("note-seam-2")).toBeInTheDocument()
+    await expect(canvas.getByTestId("note-target-2")).toBeInTheDocument()
   },
 }
 
@@ -625,7 +631,7 @@ export const ParagraphNoteSeamOpensTheNoteSheetOnTheRealAnchor: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("note-seam-0"))
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
     await expect(canvas.getByText("Note on this block")).toBeInTheDocument()
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
@@ -648,14 +654,16 @@ export const ParagraphAlreadyCarryingANoteOffersEditingNotASecondNote: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("the existing comment")
-    await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Edit note")
-    await fireEvent.click(canvas.getByTestId("note-seam-0"))
+    // "already carries one" now shows in the target's accessible name, the
+    // only place that state is worded since the visible control went away.
+    await expect(canvas.getByTestId("note-target-0")).toHaveAccessibleName("Edit this block's note")
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
     await expect(canvas.getByTestId("note-sheet-textarea")).toHaveValue("the existing comment")
   },
 }
 
 /**
- * Package 06's Task 3: a question's own body block gets the SAME note seam
+ * Package 06's Task 3: a question's own body block gets the SAME note gesture
  * every top-level prose block does — opening it, saving, and the note
  * rendering inline, all through the `paragraph` anchor `body` blocks carry
  * (`resolveQuestionsParagraphAnchor`), never a second anchor kind.
@@ -687,7 +695,7 @@ export const AQuestionBodyParagraphsNoteSeamOpensSavesAndRendersInline: Story = 
     expect(
       body.compareDocumentPosition(firstOption) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    await fireEvent.click(canvas.getByTestId("note-seam-0"))
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "worth flagging in the body" },
@@ -701,7 +709,7 @@ export const AQuestionBodyParagraphsNoteSeamOpensSavesAndRendersInline: Story = 
   },
 }
 
-/** A question with no body renders no body region at all — no stray `prose-paragraphs` container, no seam. */
+/** A question with no body renders no body region at all — no stray `prose-paragraphs` container, no note target. */
 export const AQuestionWithNoBodyRendersNoBodyRegion: Story = {
   args: {
     contentHash: "qa-no-body-hash",
@@ -904,7 +912,9 @@ export const RealContainerRevertsTheOptimisticNoteOnARefusedWrite: StoryObj<type
     await openNoteSeamAndType(canvas, "This never actually lands.")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() => expect(canvas.queryByTestId("paragraph-note-0")).not.toBeInTheDocument())
-    await expect(canvas.getByTestId("note-seam-0")).toHaveTextContent("Add note")
+    await expect(canvas.getByTestId("note-target-0")).toHaveAccessibleName(
+      "Add a note to this block",
+    )
   },
 }
 
@@ -1546,7 +1556,7 @@ export const RealContainerRevertsTheOptimisticAnswerOnARefusedWrite: StoryObj<ty
     // Immediately after the tap, the optimistic radio shows checked (before
     // the refusal resolves) — then the refusal reverts it.
     await waitFor(() => expect(canvas.getByTestId("option-radio-0")).not.toBeChecked())
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("unanswered")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("Not answered yet")
   },
 }
 
@@ -1592,9 +1602,11 @@ export const RealContainerFocusingAndBlurringFreeTextWithNoTypingSendsNoWrite: S
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("question-card-0")).toBeInTheDocument())
     await fireEvent.click(canvas.getByTestId("question-card-0"))
-    const textarea = canvas.getByTestId("free-text-input")
-    await fireEvent.focus(textarea)
-    await fireEvent.blur(textarea)
+    // Opening the answer sheet and closing it again writes nothing AND ticks
+    // nothing: the slot has no answer until that sheet is saved, so a radio
+    // left ticked here would claim one that does not exist.
+    await fireEvent.click(canvas.getByTestId("free-text-value"))
+    await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
     // No `waitFor` here on purpose — a write-through, if one fired, would
     // already have resolved synchronously against this mock resolver; a
     // fixed assertion right after the blur is what actually catches a
@@ -1799,7 +1811,7 @@ export const RealContainerReadsAnAlreadyAnsweredOptionOnFreshMount: StoryObj<typ
     await waitFor(() => expect(canvas.getByTestId("question-card-0")).toBeInTheDocument())
     await fireEvent.click(canvas.getByTestId("question-card-0"))
     await expect(canvas.getByTestId("option-radio-0")).toBeChecked()
-    await expect(canvas.getByTestId("question-status")).toHaveTextContent("answered")
+    await expect(canvas.getByTestId("question-status")).toHaveTextContent("✓ Answered")
   },
 }
 
@@ -1964,3 +1976,260 @@ export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: Sto
       await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
     },
   }
+
+/**
+ * A plan at REAL length — the reference for judging density, hierarchy and
+ * wrapping, which every other fixture here hides: they are 2–5 nodes of
+ * one-sentence prose built to carry a single assertion, and a layout only
+ * fails on content that runs long. Nothing about this document is special to
+ * the code paths above; what it adds is sentences that wrap, headings that
+ * compete with question cards for attention, a question title longer than
+ * the viewport, and enough rows that the list actually scrolls.
+ *
+ * The assertions are the two things length can break: nothing overflows
+ * sideways at 390px, and a long title wraps to several lines instead of
+ * being clipped to one.
+ */
+export const ADetailedPlanAtRealisticLength: Story = {
+  args: {
+    contentHash: "detailed-plan-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          title: "Rate limiting for the public API",
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "heading", depth: 2 },
+        },
+        planNode(
+          2,
+          "The public API has no per-client limit today, so a single misbehaving integration can saturate the request pool and slow every other tenant down. This plan adds a token-bucket limiter in front of the router, keyed by API key, with the budget stored in Redis so it holds across instances.",
+        ),
+        planNode(
+          4,
+          "Scope is the public API only. The internal service-to-service calls keep their existing circuit breaker and are explicitly out of scope, as is the admin console, which authenticates differently and has no API key to key a bucket on.",
+        ),
+        {
+          title: "What changes",
+          anchor: { kind: "paragraph", line: 6 },
+          block: { kind: "heading", depth: 3 },
+        },
+        {
+          title: "Limiter middleware Redis bucket store Response headers",
+          anchor: { kind: "paragraph", line: 8 },
+          block: {
+            kind: "list",
+            ordered: false,
+            items: [
+              {
+                text: "A limiter middleware that runs before routing, so a rejected request never touches a handler",
+                items: [
+                  { text: "Rejects with 429 and a Retry-After header" },
+                  { text: "Emits one counter per outcome: allowed, throttled, degraded" },
+                ],
+              },
+              {
+                text: "A Redis-backed bucket store, with an in-memory fallback for local development",
+              },
+              {
+                text: "Rate headers on every response, so a client can back off before it is throttled",
+              },
+            ],
+          },
+        },
+        {
+          title: "x-ratelimit-limit: 1000",
+          anchor: { kind: "paragraph", line: 14 },
+          block: {
+            kind: "code",
+            language: "http",
+            text: "x-ratelimit-limit: 1000\nx-ratelimit-remaining: 994\nx-ratelimit-reset: 1719158400",
+          },
+        },
+        planNode(
+          18,
+          "Rollout is behind a flag, in shadow mode first: the limiter computes a verdict and reports it without rejecting anything, so a week of traffic tells us whether the default budget is wrong before any customer sees a 429.",
+        ),
+        openQuestion(
+          0,
+          "Should the default budget be per API key, or per key and endpoint group, given that a single export endpoint costs roughly forty times a read?",
+        ),
+        openQuestion(1, "What happens when Redis is unreachable — fail open, or fail closed?"),
+        openQuestion(2, "Do we ship the response headers in the same release as the enforcement?"),
+        answeredQuestion(3, "Which storage backs the bucket? — Redis, alongside the session store"),
+        answeredQuestion(4, "Does this cover internal traffic? — No, out of scope"),
+        planNode(
+          30,
+          "Once the questions above are settled, the build splits into three packages: the limiter itself with its bucket store, the header surface, and the shadow-mode reporting that has to land first.",
+        ),
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText("Open Questions")).toBeInTheDocument()
+    await expect(canvas.getByText("Already answered")).toBeInTheDocument()
+
+    // Nothing overflows sideways: a phone scrolls a document vertically, and
+    // a single unwrapped word or an over-wide code block turns the whole
+    // page into a horizontal scroller.
+    const list = canvas.getByTestId("card-list")
+    expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth)
+
+    // The long question title wraps rather than being clipped to one line:
+    // more than one line-box tall, and no wider than the row it sits in.
+    const longCard = canvas.getByTestId("question-card-0")
+    const title = longCard.getBoundingClientRect()
+    expect(title.height).toBeGreaterThan(60)
+    expect(title.width).toBeLessThanOrEqual(390)
+  },
+}
+
+/**
+ * Markdown structure carries COLOUR, not just size and weight: each heading
+ * depth has its own hue, links and list markers are the link colour, code is
+ * its own, and a blockquote's rule is distinct again. Asserted as a set of
+ * distinct computed colours rather than per-token literals, so the palette
+ * can move without this story moving with it — what it pins is that the
+ * roles stay visually separable at all.
+ */
+export const MarkdownStructureIsColouredByRole: Story = {
+  args: {
+    contentHash: "markdown-colour-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          title: "Section",
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "heading", depth: 2 },
+        },
+        {
+          title: "Subsection",
+          anchor: { kind: "paragraph", line: 2 },
+          block: { kind: "heading", depth: 3 },
+        },
+        {
+          title: "See the [docs](https://example.com/docs) for more.",
+          anchor: { kind: "paragraph", line: 4 },
+        },
+        {
+          title: "const x = 1",
+          anchor: { kind: "paragraph", line: 6 },
+          block: { kind: "code", language: "ts", text: "const x = 1" },
+        },
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const section = canvas.getByText("Section")
+    const subsection = canvas.getByText("Subsection")
+    const link = canvas.getByText("docs")
+    const code = canvas.getByText((_, element) => element?.tagName === "CODE")
+    const body = canvas.getByText("Read the plan")
+
+    const colors = [section, subsection, link, code, body].map(
+      (element) => getComputedStyle(element).color,
+    )
+    // Five roles, five distinct colours — a regression that collapses two of
+    // them (a heading losing its hue, a link rendering as body text) drops
+    // the set size.
+    expect(new Set(colors).size).toBe(5)
+
+    // Depth is the thing that separates the two headings, so it is asserted
+    // on its own rather than left to the set above.
+    expect(getComputedStyle(section).color).not.toBe(getComputedStyle(subsection).color)
+  },
+}
+
+/**
+ * The gesture's three halves, pinned together because dropping any one of
+ * them leaves a note path only a sighted mouse user can reach: a double tap
+ * opens the sheet, Enter on the focused block opens the same sheet, and a
+ * link inside a block is NOT a note target (double-tapping a link is the
+ * link's own gesture, and the sheet must not open behind the page it
+ * opens).
+ */
+export const DoubleTapAndEnterBothOpenTheNoteSheetButALinkDoesNot: Story = {
+  args: {
+    contentHash: "gesture-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        paragraphNode(0, "A paragraph with a [link](https://example.com) inside it."),
+        paragraphNode(2, "A plain second paragraph."),
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+
+    // A double tap opens it. Dismissal plays the sheet's exit animation
+    // before the screen above it drops the sheet, so "it closed" is a
+    // `waitFor`, never the next line after the tap.
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
+    await expect(canvas.getByTestId("note-sheet-textarea")).toBeInTheDocument()
+    await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
+    await waitFor(() => expect(canvas.queryByTestId("note-sheet-textarea")).not.toBeInTheDocument())
+
+    // Enter on the focused block opens the same sheet — the keyboard and
+    // screen-reader path, which a bare `onDoubleClick` would not have.
+    const second = canvas.getByTestId("note-target-1")
+    second.focus()
+    await fireEvent.keyDown(second, { key: "Enter" })
+    await expect(canvas.getByTestId("note-sheet-textarea")).toBeInTheDocument()
+    await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
+    await waitFor(() => expect(canvas.queryByTestId("note-sheet-textarea")).not.toBeInTheDocument())
+
+    // Double-tapping the link itself does not.
+    await fireEvent.doubleClick(canvas.getByText("link"))
+    await expect(canvas.queryByTestId("note-sheet-textarea")).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * A block carrying a note is marked WHILE SKIMMING: a small coloured badge
+ * overlaid on the block itself, not only the note's own text below it (which
+ * is legible only once you are already reading that block). Pinned on
+ * geometry and colour, since "is it findable at a glance" is what the badge
+ * exists for — and on its absence from a block with no note, which is what
+ * makes the mark mean anything.
+ */
+export const ABlockWithANoteCarriesAColouredBadge: Story = {
+  args: {
+    contentHash: "badge-hash",
+    isLoading: false,
+    view: {
+      nodes: [
+        paragraphNode(0, "A paragraph somebody remarked on.", "the remark itself"),
+        paragraphNode(2, "A paragraph nobody has remarked on."),
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+
+    const badge = canvas.getByTestId("note-badge-0")
+    expect(canvas.queryByTestId("note-badge-1")).not.toBeInTheDocument()
+
+    // Coloured, and not merely the body text colour — the badge is the one
+    // cue that survives skimming past the block.
+    const badgeColor = getComputedStyle(badge).color
+    expect(badgeColor).toBe(token("warning"))
+    expect(badgeColor).not.toBe(getComputedStyle(canvas.getByTestId("note-target-1")).color)
+
+    // Overlaid ON the block it belongs to, inside its box — never floating
+    // in the gap between blocks, where it would read as belonging to either.
+    const block = canvas.getByTestId("note-target-0").getBoundingClientRect()
+    const mark = badge.getBoundingClientRect()
+    expect(mark.top).toBeGreaterThanOrEqual(block.top)
+    expect(mark.bottom).toBeLessThanOrEqual(block.bottom)
+    expect(mark.right).toBeLessThanOrEqual(block.right)
+
+    // It marks the block; it does not replace the note's own text.
+    await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("the remark itself")
+  },
+}

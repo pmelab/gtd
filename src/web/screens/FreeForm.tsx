@@ -7,6 +7,7 @@ import { useContentHashOverride } from "../contentHashOverride.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
+import { existingNoteFor, optimisticNoteSave } from "../notes.js"
 import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
 import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
@@ -139,32 +140,36 @@ const FreeFormBlockRow = ({
           index={index}
           noteOverrides={noteOverrides}
           onOpenNote={onOpenNote}
+          actions={
+            <>
+              <Button
+                variant="ghost"
+                data-testid={`freeform-edit-${index}`}
+                onClick={() => {
+                  setDraft(readDraft(filePath, discriminator) ?? node.block?.text ?? "")
+                  onOpen()
+                }}
+                className="text-small text-muted"
+              >
+                Edit
+              </Button>
+              <Button
+                variant="ghost"
+                data-testid={`freeform-delete-${index}`}
+                onClick={() => {
+                  // The rejection is already reported via the caller's own
+                  // `onRefusal` (`FreeFormView`'s delete wrapper) — swallow
+                  // it here so a refused delete never surfaces as an
+                  // unhandled promise rejection.
+                  onDelete().catch(() => {})
+                }}
+                className="text-small text-muted active:text-danger"
+              >
+                Delete
+              </Button>
+            </>
+          }
         />
-        <div className="flex justify-end gap-2 border-t border-border px-3 py-2">
-          <Button
-            variant="ghost"
-            data-testid={`freeform-edit-${index}`}
-            onClick={() => {
-              setDraft(readDraft(filePath, discriminator) ?? node.block?.text ?? "")
-              onOpen()
-            }}
-          >
-            Edit
-          </Button>
-          <Button
-            variant="ghost"
-            data-testid={`freeform-delete-${index}`}
-            onClick={() => {
-              // The rejection is already reported via the caller's own
-              // `onRefusal` (`FreeFormView`'s delete wrapper) — swallow it
-              // here so a refused delete never surfaces as an unhandled
-              // promise rejection.
-              onDelete().catch(() => {})
-            }}
-          >
-            Delete
-          </Button>
-        </div>
       </div>
     )
   }
@@ -178,7 +183,7 @@ const FreeFormBlockRow = ({
           setDraft(e.target.value)
           writeDraft(filePath, discriminator, e.target.value)
         }}
-        className="min-h-32 w-full resize-none rounded border border-border bg-surface p-2 text-[16px] text-text"
+        className="min-h-32 resize-y"
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" data-testid={`freeform-cancel-${index}`} onClick={onClose}>
@@ -232,7 +237,7 @@ const AppendRow = ({
           setDraft(readDraft(filePath, APPEND_DISCRIMINATOR) ?? "")
           onOpen()
         }}
-        className="w-full border-t border-border px-3 py-3 text-left"
+        className="w-full border-t border-divider px-3 py-3 text-left text-link"
       >
         + Add content
       </Button>
@@ -248,7 +253,7 @@ const AppendRow = ({
           setDraft(e.target.value)
           writeDraft(filePath, APPEND_DISCRIMINATOR, e.target.value)
         }}
-        className="min-h-32 w-full resize-none rounded border border-border bg-surface p-2 text-[16px] text-text"
+        className="min-h-32 resize-y"
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" data-testid="freeform-append-cancel" onClick={onClose}>
@@ -312,120 +317,110 @@ export const FreeFormView = ({
     )
   }
 
-  if (noteSheetAnchor !== undefined) {
-    const line = noteSheetAnchor.kind === "paragraph" ? noteSheetAnchor.line : undefined
-    const originalNote = view.nodes.find(
-      (node) => node.anchor.kind === "paragraph" && node.anchor.line === line,
-    )?.note
-    const existing = (line !== undefined ? noteOverrides[line] : undefined) ?? originalNote
-    return (
+  // Rendered OVER the screen it belongs to (a modal), never instead of it.
+  const existingNote =
+    noteSheetAnchor === undefined
+      ? undefined
+      : existingNoteFor(view.nodes, noteSheetAnchor, noteOverrides)
+  const noteSheet =
+    noteSheetAnchor === undefined ? null : (
       <NoteSheet
         anchor={noteSheetAnchor}
-        {...(existing !== undefined ? { note: existing } : {})}
-        onSave={(anchor, text) => {
-          if (anchor.kind === "paragraph") {
-            setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
-          }
-          setNoteSheetAnchor(undefined)
-          // A refused/failed write reverts the optimistic override — mirrors
-          // `Plan.tsx#PlanView`'s identical note-sheet `onSave` handler.
-          onSaveNote?.(anchor, text)?.catch((error: unknown) => {
-            onRefusal?.(error, () => onSaveNote(anchor, text))
-            if (anchor.kind === "paragraph") {
-              setNoteOverrides((prev) => {
-                const next = { ...prev }
-                delete next[anchor.line]
-                return next
-              })
-            }
-          })
-        }}
+        {...(existingNote !== undefined ? { note: existingNote } : {})}
+        onSave={optimisticNoteSave({
+          setOverrides: setNoteOverrides,
+          close: () => setNoteSheetAnchor(undefined),
+          ...(onSaveNote !== undefined ? { write: onSaveNote } : {}),
+          ...(onRefusal !== undefined ? { onRefusal } : {}),
+        })}
         onDismiss={() => setNoteSheetAnchor(undefined)}
       />
     )
-  }
 
   return (
-    <div data-testid="freeform-screen" className="flex h-full min-h-0 flex-1 flex-col">
-      {mode !== undefined && steeringFormatFor(mode) === undefined && (
-        <Notice data-testid="freeform-fallback-notice">
-          {`"${mode}" has no screen — editing as plain markdown`}
-        </Notice>
-      )}
-      <div data-testid="freeform-scroll" className="min-h-0 flex-1 overflow-auto">
-        <CardList>
-          {view.nodes.map((node, index) => {
-            const line = lineOf(node, index)
-            return (
-              <FreeFormBlockRow
-                key={line}
-                node={node}
-                index={index}
-                filePath={filePath}
-                isOpen={openLine === line}
-                onOpen={() => setOpenLine(line)}
-                onClose={() => setOpenLine(undefined)}
-                onSave={(text) => {
-                  if (onSave === undefined) return Promise.resolve()
-                  return onSave(line, text).catch((error: unknown) => {
-                    onRefusal?.(error, () => onSave(line, text))
-                    throw error
-                  })
-                }}
-                onDelete={() => {
-                  if (onDelete === undefined) return Promise.resolve()
-                  return onDelete(line).catch((error: unknown) => {
-                    onRefusal?.(error, () => onDelete(line))
-                    throw error
-                  })
-                }}
-                noteOverrides={noteOverrides}
-                onOpenNote={(n) => setNoteSheetAnchor(n.anchor)}
-              />
-            )
-          })}
-        </CardList>
-      </div>
-      {/*
-       * OUTSIDE the scroll container (`shrink-0`, matching the `plan-done-row`
-       * footer right below it) — Requirement B's "lands new content at the
-       * end without scrolling the whole document first": a 200-line file
-       * would otherwise bury this affordance at the bottom of a long scroll
-       * region, exactly the dominant-capture-case friction it exists to
-       * avoid.
-       */}
-      <div className="shrink-0">
-        <AppendRow
-          filePath={filePath}
-          isOpen={openLine === APPEND_LINE}
-          onOpen={() => setOpenLine(APPEND_LINE)}
-          onClose={() => setOpenLine(undefined)}
-          onSave={(text) => {
-            if (onSave === undefined) return Promise.resolve()
-            return onSave(APPEND_LINE, text).catch((error: unknown) => {
-              onRefusal?.(error, () => onSave(APPEND_LINE, text))
-              throw error
-            })
-          }}
-        />
-      </div>
-      {onDone !== undefined && (
-        <div
-          data-testid="plan-done-row"
-          className="flex shrink-0 items-center justify-end border-t border-border p-3"
-        >
-          <Button
-            variant="primary"
-            data-testid="plan-done"
-            onClick={() => {
-              onDone()
-            }}
-          >
-            Done
-          </Button>
+    <>
+      <div data-testid="freeform-screen" className="flex h-full min-h-0 flex-1 flex-col">
+        {mode !== undefined && steeringFormatFor(mode) === undefined && (
+          <Notice data-testid="freeform-fallback-notice">
+            {`"${mode}" has no screen — editing as plain markdown`}
+          </Notice>
+        )}
+        <div data-testid="freeform-scroll" className="min-h-0 flex-1 overflow-auto">
+          <CardList>
+            {view.nodes.map((node, index) => {
+              const line = lineOf(node, index)
+              return (
+                <FreeFormBlockRow
+                  key={line}
+                  node={node}
+                  index={index}
+                  filePath={filePath}
+                  isOpen={openLine === line}
+                  onOpen={() => setOpenLine(line)}
+                  onClose={() => setOpenLine(undefined)}
+                  onSave={(text) => {
+                    if (onSave === undefined) return Promise.resolve()
+                    return onSave(line, text).catch((error: unknown) => {
+                      onRefusal?.(error, () => onSave(line, text))
+                      throw error
+                    })
+                  }}
+                  onDelete={() => {
+                    if (onDelete === undefined) return Promise.resolve()
+                    return onDelete(line).catch((error: unknown) => {
+                      onRefusal?.(error, () => onDelete(line))
+                      throw error
+                    })
+                  }}
+                  noteOverrides={noteOverrides}
+                  onOpenNote={(n) => setNoteSheetAnchor(n.anchor)}
+                />
+              )
+            })}
+          </CardList>
         </div>
-      )}
-    </div>
+        {/*
+         * OUTSIDE the scroll container (`shrink-0`, matching the `plan-done-row`
+         * footer right below it) — Requirement B's "lands new content at the
+         * end without scrolling the whole document first": a 200-line file
+         * would otherwise bury this affordance at the bottom of a long scroll
+         * region, exactly the dominant-capture-case friction it exists to
+         * avoid.
+         */}
+        <div className="shrink-0">
+          <AppendRow
+            filePath={filePath}
+            isOpen={openLine === APPEND_LINE}
+            onOpen={() => setOpenLine(APPEND_LINE)}
+            onClose={() => setOpenLine(undefined)}
+            onSave={(text) => {
+              if (onSave === undefined) return Promise.resolve()
+              return onSave(APPEND_LINE, text).catch((error: unknown) => {
+                onRefusal?.(error, () => onSave(APPEND_LINE, text))
+                throw error
+              })
+            }}
+          />
+        </div>
+        {onDone !== undefined && (
+          <div
+            data-testid="plan-done-row"
+            className="flex shrink-0 items-center justify-end border-t border-border p-3"
+          >
+            <Button
+              variant="primary"
+              data-testid="plan-done"
+              onClick={() => {
+                onDone()
+              }}
+            >
+              Done
+            </Button>
+          </div>
+        )}
+      </div>
+      {noteSheet}
+    </>
   )
 }
 
