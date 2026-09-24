@@ -57,6 +57,22 @@ describe("styles.css contrast", () => {
       "accent",
       "accent-pressed",
       "disabled",
+      "divider",
+      "warning",
+      "danger",
+      "link",
+      "code",
+      "quote",
+      "diff-add",
+      "diff-del",
+      "heading-a",
+      "heading-b",
+      "heading-c",
+      "syntax-kw",
+      "syntax-str",
+      "syntax-num",
+      "syntax-typ",
+      "syntax-com",
     ]) {
       expect(tokens[name], `missing --color-${name}`).toBeDefined()
     }
@@ -84,5 +100,61 @@ describe("styles.css contrast", () => {
 
   it("body text on surface clears the 4.5:1 AA body-text threshold", () => {
     expect(contrastRatio(tokens.text!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it("the warning colour (a chunk's footnote badge) on page clears the 4.5:1 AA body-text threshold", () => {
+    expect(contrastRatio(tokens.warning!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it("the danger colour (a destructive control's label) on page clears the 4.5:1 AA body-text threshold", () => {
+    expect(contrastRatio(tokens.danger!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it.each(["link", "warning", "danger", "heading-a", "heading-b", "heading-c"])(
+    "%s reads as body text on the page (4.5:1 AA)",
+    (name) => {
+      expect(contrastRatio(tokens[name]!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
+    },
+  )
+
+  it("code text clears AA on the surface it is painted on", () => {
+    expect(contrastRatio(tokens.code!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  /**
+   * A syntax token has to stay readable on THREE backgrounds, not one: the
+   * page, and both diff line fills. A colour picked against the page alone
+   * is the failure this catches — an added line is exactly where code is
+   * read most carefully.
+   */
+  it.each(["syntax-kw", "syntax-str", "syntax-num", "syntax-typ", "syntax-com"])(
+    "%s clears AA on the page and on both diff backgrounds",
+    (name) => {
+      for (const background of ["page", "diff-add", "diff-del"]) {
+        expect(
+          contrastRatio(tokens[name]!, tokens[background]!),
+          `${name} on ${background}`,
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    },
+  )
+
+  it("each diff fill is distinguishable from the page it sits on", () => {
+    for (const name of ["diff-add", "diff-del"]) {
+      expect(contrastRatio(tokens[name]!, tokens.page!), name).toBeGreaterThan(1.2)
+    }
+  })
+
+  /**
+   * A divider is NOT a control boundary and deliberately misses 3:1 — it
+   * separates rows rather than outlining anything tappable. The pair of
+   * bounds is the point: visible against the page, and quieter than
+   * `border`, which is the token a control must keep using.
+   */
+  it("the divider is visible against the page yet quieter than a control boundary", () => {
+    expect(contrastRatio(tokens.divider!, tokens.page!)).toBeGreaterThan(1.2)
+    expect(contrastRatio(tokens.divider!, tokens.page!)).toBeLessThan(
+      contrastRatio(tokens.border!, tokens.page!),
+    )
   })
 })

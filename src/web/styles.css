@@ -7,20 +7,64 @@
  * test is the failure mode the test exists to catch.
  */
 @theme {
-  --color-page: #111111;
-  --color-surface: #1c1c1e;
-  --color-border: #6b6b70;
-  --color-text: #f0f0f0;
-  --color-muted: #a8a8ad;
-  --color-accent: #5b9dff;
-  --color-accent-pressed: #3f7fe0;
-  --color-disabled: #5a5a5e;
+  /*
+   * Every colour below is a step of a Radix Colors DARK scale, named in the
+   * trailing `radix:` comment — `src/web/palette.test.ts` reads those
+   * comments and fails if a value stops matching the step it claims, so the
+   * provenance is checked, not asserted in prose. Radix's steps are roles,
+   * not shades: 1-2 are app/page backgrounds, 3-5 component backgrounds,
+   * 6-8 borders, 9-10 solid fills, 11 accessible text, 12 high-contrast
+   * text. Picking by role is what keeps `tokens.test.ts`'s contrast
+   * assertions passing by construction rather than by luck.
+   */
+  --color-page: #111111; /* radix: gray-dark.1 */
+  --color-surface: #222222; /* radix: gray-dark.3 */
+  /* Hairlines BETWEEN rows, never a control's own boundary: a divider only
+     has to be seen, not read, so it sits at the low end of Radix's border
+     range while `border` sits at the high end. */
+  --color-divider: #3a3a3a; /* radix: gray-dark.6 */
+  --color-border: #6e6e6e; /* radix: gray-dark.9 */
+  --color-text: #eeeeee; /* radix: gray-dark.12 */
+  --color-muted: #b4b4b4; /* radix: gray-dark.11 */
+  /* 9 is the solid fill a primary button paints with; 11 is the text
+     colour, which is why a link never uses `accent`. */
+  --color-accent: #0090ff; /* radix: blue-dark.9 */
+  --color-accent-pressed: #3b9eff; /* radix: blue-dark.10 */
+  --color-link: #70b8ff; /* radix: blue-dark.11 */
+  --color-disabled: #606060; /* radix: gray-dark.8 */
+  --color-warning: #ffca16; /* radix: amber-dark.11 */
+  --color-danger: #ff9592; /* radix: red-dark.11 */
 
-  --text-body: 15px;
-  --text-body--line-height: 1.4;
+  /* Diff line backgrounds. Step 4, not 3: step 3 is the resting component
+     background and sits so close to the page that the band reads as hue
+     alone — which a WCAG ratio cannot see and a phone in daylight loses
+     first. Bright syntax tokens still clear AA over both. */
+  --color-diff-add: #113b29; /* radix: green-dark.4 */
+  --color-diff-del: #500f1c; /* radix: red-dark.4 */
+
+  /* Markdown roles. Heading depth carries a hue as well as a size, the way
+     an editor colours structure — a plan is skimmed for its sections far
+     more often than it is read start to finish. */
+  --color-heading-a: #baa7ff; /* radix: violet-dark.11 */
+  --color-heading-b: #4ccce6; /* radix: cyan-dark.11 */
+  --color-heading-c: #1fd8a4; /* radix: jade-dark.11 */
+  --color-code: #ffa057; /* radix: orange-dark.11 */
+  --color-quote: #6e56cf; /* radix: violet-dark.9 */
+
+  /* Syntax tokens (`Highlight.ts`'s five classes). */
+  --color-syntax-kw: #baa7ff; /* radix: violet-dark.11 */
+  --color-syntax-str: #ffca16; /* radix: amber-dark.11 */
+  --color-syntax-num: #4ccce6; /* radix: cyan-dark.11 */
+  --color-syntax-typ: #1fd8a4; /* radix: jade-dark.11 */
+  --color-syntax-com: #b4b4b4; /* radix: gray-dark.11 */
+
+  /* 16px, not 15: iOS Safari zooms the page on focusing any input whose text
+     is under 16px, and this size is shared with the textareas. */
+  --text-body: 16px;
+  --text-body--line-height: 1.5;
   --text-large: 20px;
   --text-large--line-height: 1.3;
-  --text-small: 12px;
+  --text-small: 13px;
   --text-small--line-height: 1.3;
 }
 
@@ -31,4 +75,95 @@ body {
   background: var(--color-page);
   color: var(--color-text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/*
+ * Native form controls, styled once: every checkbox and radio in this client
+ * is a phone tap target, and at the browser default (~13px) the box is a
+ * fraction of the 44px label it sits in — visible size and hit size are
+ * different things, and only the second one was ever set. `accent-color`
+ * paints the checked state in the palette's own accent instead of the UA's
+ * blue.
+ */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-accent);
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/*
+ * Every multi-line input here is a note or an answer — one appearance for
+ * all of them, set where they can't each forget it (the free-text answer
+ * slot did, and rendered as an unbordered transparent box). 16px is the
+ * iOS focus-zoom floor, so it is NOT expressed as a token-relative size.
+ */
+textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0.5rem;
+  font: inherit;
+  font-size: 16px;
+}
+
+textarea:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * One-shot entrances only. Anything a control does in response to a tap is a
+ * CSS transition (interruptible mid-flight, which a keyframe is not) — see
+ * `Button.tsx`. These are the staged, infrequent moments instead: a sheet
+ * arriving over the document, and the deck swapping the thing you are
+ * reading. Both are cancelled by the reduced-motion rule above, which
+ * shortens every animation as well as every transition.
+ */
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes sheet-out {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes scrim-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/*
+ * Opacity ONLY, never a transform: a deck item that slid in would move its
+ * own hit targets while a thumb is already reaching for them, and every
+ * story that measures a control's geometry would be sampling a moving box.
+ */
+@keyframes deck-item-in {
+  from {
+    opacity: 0.2;
+  }
 }

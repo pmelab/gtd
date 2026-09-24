@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { page } from "@vitest/browser/context"
+import { viewport } from "./testing/browserContext.js"
 import { useRef, useState } from "react"
 import { expect, fireEvent, within } from "storybook/test"
+import { token } from "./testing/palette.js"
 import { Card, CardList } from "./Card.js"
 import { Deck } from "./Deck.js"
 import { withRealMousePress } from "./testing/realMousePress.js"
@@ -110,7 +111,7 @@ export const ListOfCards: Story = {
 export const OneLineRowMeetsThe44pxFloor: Story = {
   render: () => <TwoLevelShellDemo />,
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const row = canvas.getByTestId("card-alpha")
     const rect = row.getBoundingClientRect()
@@ -129,7 +130,7 @@ export const RowPressedStateDiffersFromRest: Story = {
     await withRealMousePress(row, () => {
       const pressedColor = getComputedStyle(row).backgroundColor
       expect(pressedColor).not.toBe(restColor)
-      expect(pressedColor).toBe("rgb(28, 28, 30)")
+      expect(pressedColor).toBe(token("surface"))
     })
   },
 }
@@ -144,9 +145,12 @@ export const CardWithoutAccentPropIsUnchanged: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const card = canvas.getByTestId("plain-card")
-    expect(card.className).toBe(
-      "block min-h-11 w-full border-b border-border px-3 py-2.5 text-left text-body text-text active:bg-surface",
-    )
+    // Asserted on what `accent` actually paints, not on a frozen class
+    // string: the accent treatment is a left rule plus the surface
+    // background, and a plain card carries neither.
+    const style = getComputedStyle(card)
+    expect(style.borderLeftWidth).toBe("0px")
+    expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)")
   },
 }
 
@@ -164,7 +168,7 @@ export const CardWithAccentPropRendersTheAccentTreatment: Story = {
     expect(style.borderLeftWidth).toBe("4px")
     // `--color-surface`, the SAME rgb `RowPressedStateDiffersFromRest` above
     // pins as the pressed-state background — here it's the RESTING background.
-    expect(style.backgroundColor).toBe("rgb(28, 28, 30)")
+    expect(style.backgroundColor).toBe(token("surface"))
   },
 }
 
@@ -181,7 +185,7 @@ export const OpeningACardsDeck: Story = {
 export const BackFromFirstItemReturnsToListWithoutLosingScroll: Story = {
   render: () => <TwoLevelShellDemo />,
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const list = canvas.getByTestId("shell-list")
     list.scrollTop = 500
@@ -205,7 +209,7 @@ export const BackFromFirstItemReturnsToListWithoutLosingScroll: Story = {
 export const RendersCorrectlyAt390pxWide: Story = {
   render: () => <TwoLevelShellDemo items={[...ITEMS, LONG_DETAIL_ITEM]} />,
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const list = canvas.getByTestId("shell-list")
     expect(list.scrollWidth).toBeLessThanOrEqual(390)

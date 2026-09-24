@@ -499,8 +499,8 @@ export const RealContainerNoteSeamWriteThroughsAParagraphNoteViaWriteNote: Story
   args: REAL_FREEFORM_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("note-seam-0")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("note-seam-0"))
+    await waitFor(() => expect(canvas.getByTestId("note-target-0")).toBeInTheDocument())
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "worth flagging" },

@@ -59,6 +59,12 @@
     "react-dom",
     "@tanstack/react-query",
     "@trpc/client",
-    "@trpc/react-query"
+    "@trpc/react-query",
+    "tailwind-merge",
+    // @radix-ui/colors is never imported: src/web/palette.test.ts READS its
+    // CSS files as data to check that every token in styles.css still equals
+    // the Radix step it claims. fallow only sees imports, so without this it
+    // reports the package as unused.
+    "@radix-ui/colors"
   ]
 }

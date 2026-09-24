@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { page } from "@vitest/browser/context"
+import { viewport } from "../testing/browserContext.js"
 import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
+import { token } from "../testing/palette.js"
 import type { SteeringAnchor, SteeringView } from "../../steering/index.js"
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { withRealMousePress } from "../testing/realMousePress.js"
@@ -113,7 +114,7 @@ const SAMPLE_VIEW: SteeringView = {
 export const BothChunkControlsMeetThe44pxFloor: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const openRect = canvas.getByTestId("chunk-open-0").getBoundingClientRect()
     expect(openRect.width).toBeGreaterThanOrEqual(44)
@@ -128,7 +129,7 @@ export const BothChunkControlsMeetThe44pxFloor: Story = {
 export const ChunkCheckAllMeetsThe44pxFloor: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const rect = canvas.getByTestId("chunk-check-all-label-0").getBoundingClientRect()
     expect(rect.width).toBeGreaterThanOrEqual(44)
@@ -153,7 +154,7 @@ export const ChunkOpenPressedStateDiffersFromRest: Story = {
     const openRest = getComputedStyle(open).backgroundColor
     await withRealMousePress(open, () => {
       expect(getComputedStyle(open).backgroundColor).not.toBe(openRest)
-      expect(getComputedStyle(open).backgroundColor).toBe("rgb(28, 28, 30)")
+      expect(getComputedStyle(open).backgroundColor).toBe(token("surface"))
     })
   },
 }
@@ -167,7 +168,7 @@ export const ChunkNotePressedStateDiffersFromRest: Story = {
     const noteRest = getComputedStyle(note).backgroundColor
     await withRealMousePress(note, () => {
       expect(getComputedStyle(note).backgroundColor).not.toBe(noteRest)
-      expect(getComputedStyle(note).backgroundColor).toBe("rgb(107, 107, 112)")
+      expect(getComputedStyle(note).backgroundColor).toBe(token("border"))
     })
   },
 }
@@ -192,7 +193,7 @@ export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
     // `Button`'s ghost variant: rest text is `--color-text` (#f0f0f0), disabled
     // text is `--color-disabled` (#5a5a5e) — the computed style, not just the
     // `disabled` DOM attribute, is what actually proves it's visually distinct.
-    expect(getComputedStyle(button).color).toBe("rgb(90, 90, 94)")
+    expect(getComputedStyle(button).color).toBe(token("disabled"))
   },
 }
 
@@ -255,7 +256,7 @@ export const AChunkDescriptionsHeadingAndFencedCodeBlockBothRenderOnTheChunksScr
   play: async ({ canvasElement }) => {
     // Phone width — the same 390px convention `Card.stories.tsx`'s
     // `RendersCorrectlyAt390pxWide` measures against.
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     // The chunk card itself still renders `detail` as a single text row —
     // unchanged, no block structure leaking into the list.
@@ -274,7 +275,7 @@ export const AChunkDescriptionsHeadingAndFencedCodeBlockBothRenderOnTheChunksScr
     // `overflow-auto`.
     const pre = body.querySelector("pre")
     expect(pre).not.toBeNull()
-    expect(pre?.className).toContain("overflow-auto")
+    expect(pre?.className).toContain("overflow-x-auto")
     // The line has no whitespace to wrap on and is far wider than 390px, so
     // the `pre`'s OWN scroll region genuinely overflows its box — this is
     // the positive control proving the line really is long enough to widen
@@ -291,7 +292,7 @@ export const AChunkDescriptionsHeadingAndFencedCodeBlockBothRenderOnTheChunksScr
 
 /**
  * The bug this fixes: `ProseBlocks` normally draws a full-width "+ Add
- * note"/"Edit note" seam below every non-code block — real in
+ * note"/"Edit note" control below every non-code block — real in
  * `Question.tsx`/`Plan.tsx`, which wire a real `onOpenNote` handler, but a
  * review document has no per-block write path at all (its only phone edit is
  * ticking a pointer's checkbox). `Review.tsx` passes `readOnly` so the seam
@@ -306,7 +307,7 @@ export const DescriptionBlocksShowAnExistingNoteButNoDeadEditSeam: Story = {
     await fireEvent.click(canvas.getByTestId("chunk-open-3"))
     const body = canvas.getByTestId("prose-paragraphs")
     await expect(body).toHaveTextContent("left over from an earlier pass")
-    expect(body.querySelector("[data-testid^='note-seam-']")).toBeNull()
+    expect(body.querySelector("[data-testid^='note-target-']")).toBeNull()
   },
 }
 
@@ -514,7 +515,7 @@ export const BackFromAChunksDeckRestoresScrollPosition: Story = {
     ),
   ],
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
     const container = canvas.getByTestId("review-scroll-container")
     container.scrollTop = 500
@@ -553,7 +554,11 @@ export const NoteAffordanceOnAChunkOpensTheNoteSheet: Story = {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("chunk-note-0"))
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
-    await expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
+    // The sheet is a MODAL over the list, not a screen instead of it: the
+    // chunk the note is about stays on screen (blurred) behind it, which is
+    // the whole reason the takeover was dropped.
+    await expect(canvas.getByTestId("review-screen")).toBeInTheDocument()
+    await expect(canvas.getByTestId("note-sheet-scrim")).toBeInTheDocument()
 
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "Looks good, one nit inline." },
@@ -562,7 +567,10 @@ export const NoteAffordanceOnAChunkOpensTheNoteSheet: Story = {
 
     await expect(canvas.getByTestId("review-screen")).toBeInTheDocument()
     await expect(canvas.getByTestId("chunk-footnote-badge-0")).toBeInTheDocument()
-    await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note")
+    // The note itself replaces the control that created it.
+    await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent(
+      "Looks good, one nit inline.",
+    )
   },
 }
 
@@ -588,9 +596,16 @@ export const NoteAffordanceOnAHunkOpensTheNoteSheet: Story = {
     })
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
 
-    // Back on the hunk screen, note visible via the affordance's own label.
+    // Back on the hunk screen, the note itself has taken the control's
+    // place — the same rule a chunk row follows on the list screen.
     await expect(canvas.getByTestId("hunk-screen")).toBeInTheDocument()
-    await expect(canvas.getByTestId("hunk-note-affordance")).toHaveTextContent("Edit note")
+    await expect(canvas.getByTestId("hunk-note-affordance")).toHaveTextContent(
+      "Double-check this line.",
+    )
+
+    // And tapping it reopens the sheet on that text.
+    await fireEvent.click(canvas.getByTestId("hunk-note-affordance"))
+    await expect(canvas.getByTestId("note-sheet-textarea")).toHaveValue("Double-check this line.")
   },
 }
 
@@ -862,9 +877,11 @@ export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof R
     const canvas = within(canvasElement)
     await openChunkNoteAndType(canvas, "Looks good overall.")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    // `chunk-note-0` is a fixed-label button ("Note"/"Edit note"), never the
-    // note's own text — "Edit note" is what proves a note now exists.
-    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note"))
+    // Once a note exists, `chunk-note-0` IS the note: its own text is what
+    // proves the write landed, and tapping it reopens the sheet.
+    await waitFor(() =>
+      expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Looks good overall."),
+    )
     // The silent retry must never surface the refusal banner — see
     // `Plan.stories.tsx#RealContainerRecoversInPlaceFromAStaleShaRefusal`'s
     // identical doc comment for why a "Saved" status label is fine here.
@@ -928,7 +945,7 @@ export const RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem: StoryObj<
 
     await openChunkNoteAndType(canvas, "first note")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note"))
+    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("first note"))
 
     // Fired immediately — the mock `readSteeringFile` still answers with the
     // ORIGINAL "deadbeef", so this only succeeds off `Review`'s own local
@@ -936,7 +953,7 @@ export const RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem: StoryObj<
     await openChunkNoteAndType(canvas, "second note")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
-    await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note")
+    await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("second note")
   },
 }
 
@@ -1000,7 +1017,7 @@ export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: Sto
 
     await openChunkNoteAndType(canvas, "first note")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Edit note"))
+    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("first note"))
 
     await openChunkNoteAndType(canvas, "second note")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
@@ -1318,5 +1335,91 @@ export const RealContainerReadsAnAlreadyTickedHunkOnFreshMount: StoryObj<typeof 
     await expect(canvas.getByTestId("chunk-check-all-0")).toBeChecked()
     await fireEvent.click(canvas.getByTestId("chunk-open-0"))
     await expect(canvas.getByTestId("hunk-tick")).toBeChecked()
+  },
+}
+
+/**
+ * A chunk list is otherwise a stack of identical rows with no answer to "how
+ * much of this round is left" — the header is the only place the round's own
+ * size is stated. A chunk counts as approved only when every one of its
+ * hunks is ticked.
+ */
+export const ChunkListHeaderCountsApprovedChunks: Story = {
+  args: {
+    view: {
+      nodes: [
+        {
+          title: "Chunk one",
+          anchor: { kind: "chunk", index: 0 },
+          children: [
+            {
+              title: "src/a.ts#1",
+              checked: true,
+              anchor: { kind: "hunk", chunkIndex: 0, index: 0 },
+            },
+          ],
+        },
+        {
+          title: "Chunk two",
+          anchor: { kind: "chunk", index: 1 },
+          children: [
+            {
+              title: "src/b.ts#1",
+              checked: false,
+              anchor: { kind: "hunk", chunkIndex: 1, index: 0 },
+            },
+          ],
+        },
+      ],
+    } satisfies SteeringView,
+    isLoading: false,
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    expect(canvas.getByTestId("review-progress")).toHaveTextContent("1 / 2 chunks approved")
+
+    await fireEvent.click(canvas.getByTestId("chunk-check-all-1"))
+    expect(canvas.getByTestId("review-progress")).toHaveTextContent("2 / 2 chunks approved")
+  },
+}
+
+/**
+ * Once a chunk carries a note, the note itself takes the control's place:
+ * "Edit note" says only that one exists, while the note says what it is —
+ * and tapping it reopens the same sheet that wrote it. The "Note" control
+ * only exists while there is nothing to show.
+ */
+export const AChunksNoteReplacesItsNoteControlAndReopensForEditing: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+
+    // Nothing written yet: a control, labelled as one.
+    await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("Note")
+
+    await fireEvent.click(canvas.getByTestId("chunk-note-0"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "The retry loop needs a ceiling." },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+
+    const note = canvas.getByTestId("chunk-note-0")
+    await expect(note).toHaveTextContent("The retry loop needs a ceiling.")
+    expect(note.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+
+    // Tapping the note reopens the sheet on that same text, ready to edit.
+    await fireEvent.click(note)
+    await expect(canvas.getByTestId("note-sheet-textarea")).toHaveValue(
+      "The retry loop needs a ceiling.",
+    )
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "Edited: the retry loop needs a ceiling." },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent(
+      "Edited: the retry loop needs a ceiling.",
+    )
   },
 }
