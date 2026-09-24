@@ -50,13 +50,13 @@ describe("the bundled unified workflow template", () => {
     expect(validateDefinition(definition).warnings).toEqual([])
   })
 
-  it("declares `retry` on exactly build.fix and packages.item.fix-suite, and nothing else (package 01)", () => {
+  it("declares `retry` on exactly build.fix, build.fix-quality, and packages.item.fix-suite, and nothing else (package 01)", () => {
     const { definition } = compileTemplate()
     const withRetry = Object.entries(definition.states)
       .filter(([, state]) => state.retry !== undefined)
       .map(([name]) => name)
       .sort()
-    expect(withRetry).toEqual(["build.fix", "packages.item.fix-suite"])
+    expect(withRetry).toEqual(["build.fix", "build.fix-quality", "packages.item.fix-suite"])
   })
 
   it("pins the `file:` prepend round trip: every compiled value starts with `.gtd/`, no raw declaration does", () => {
@@ -714,13 +714,18 @@ describe("the bundled unified workflow template", () => {
     },
     {
       machine: "buildTail",
-      states: ["build.fix"],
+      states: ["build.fix", "build.fix-quality"],
       personaVar: "finisherPersona",
     },
     {
       machine: "healthGate",
       states: ["build.health.describe", "packages.item.health.describe"],
       personaVar: "escalationPersona",
+    },
+    {
+      machine: "qualityReview",
+      states: ["build.quality.reviewing"],
+      personaVar: "reviewerPersona",
     },
   ]
 
@@ -765,7 +770,9 @@ describe("the bundled unified workflow template", () => {
         .map((s) => s.system?.match(/it\.vars\.(\w+Persona)\b/)?.[1])
         .filter((v): v is string => v !== undefined),
     )
-    expect([...referencedVars].sort()).toEqual(PERSONA_MACHINES.map((m) => m.personaVar).sort())
+    expect([...referencedVars].sort()).toEqual(
+      [...new Set(PERSONA_MACHINES.map((m) => m.personaVar))].sort(),
+    )
   })
 
   it("every persona-carrying machine also declares `model:`, and its persona states carry `prompt` content (package 04)", () => {
@@ -791,9 +798,21 @@ describe("the bundled unified workflow template", () => {
     { state: "packages.item.spec.review", skillsVar: "specReviewSkills" },
     { state: "build.health.describe", skillsVar: "escalateSkills" },
     { state: "packages.item.health.describe", skillsVar: "escalateSkills" },
+    // `skillsVar` is a placeholder here, not a real mapping-table var — its
+    // `skills:` renders from the quality-review queue file, not a var. See
+    // the explicit opt-out below.
+    { state: "build.quality.reviewing", skillsVar: "reviewSkills" },
+    { state: "build.fix-quality", skillsVar: "reviewFixSkills" },
   ]
 
-  it("declares `skills:` on exactly the eleven compiled states the mapping table names, and nowhere else — build.review.collecting included (package 02)", () => {
+  // `build.quality.reviewing`'s own `skills:` renders from
+  // `it.read(".gtd/NEXT_REVIEW.md")`, a queue file, not a var — the one
+  // state exempt from the "references its own mapping-table var" assertion
+  // below. The assertion itself stays tight for the other twelve, which
+  // still catches a real var typo.
+  const SKILLS_VAR_OPT_OUT = ["build.quality.reviewing"]
+
+  it("declares `skills:` on exactly the thirteen compiled states the mapping table names, and nowhere else — build.review.collecting included (package 02)", () => {
     const { definition } = compileTemplate()
     const withSkills = Object.entries(definition.states)
       .filter(([, s]) => s.skills !== undefined)
@@ -840,9 +859,17 @@ describe("the bundled unified workflow template", () => {
       fileNeedle: ".gtd/ESCALATION.md",
       finishNeedle: "only writes the document",
     },
+    "build.quality.reviewing": {
+      fileNeedle: ".gtd/QUALITY.md",
+      finishNeedle: "leave everything uncommitted",
+    },
+    "build.fix-quality": {
+      fileNeedle: ".gtd/QUALITY.md",
+      finishNeedle: "finish your turn",
+    },
   }
 
-  it("each of the eleven skills-bearing states still names its own steering file and its own finish condition after the trim (package 02, task 4)", () => {
+  it("each of the thirteen skills-bearing states still names its own steering file and its own finish condition after the trim (package 02, task 4)", () => {
     const { definition } = compileTemplate()
     // `statesReferencing` alone misses `packages.item.fix-suite`/`build.fix`:
     // their prompt text reaches `.gtd/FEEDBACK.md` only through the shared
@@ -868,6 +895,7 @@ describe("the bundled unified workflow template", () => {
     "packages.item.spec.review",
     "build.health.describe",
     "packages.item.health.describe",
+    "build.fix-quality",
   ]
 
   it("every branching state's `on:` routing still names, in its own prompt, each `.gtd/*.md` path its routing keys off (package 02, task 4)", () => {
@@ -887,7 +915,11 @@ describe("the bundled unified workflow template", () => {
 
   it("declares each of the nine `*Skills` vars, non-blank (package 02)", () => {
     const { vars } = compileTemplate()
-    const skillsVars = [...new Set(SKILLS_STATES.map((s) => s.skillsVar))]
+    const skillsVars = [
+      ...new Set(
+        SKILLS_STATES.filter((s) => !SKILLS_VAR_OPT_OUT.includes(s.state)).map((s) => s.skillsVar),
+      ),
+    ]
     expect(skillsVars).toHaveLength(9)
     for (const name of skillsVars) {
       expect(vars[name], name).toBeTruthy()
@@ -898,6 +930,7 @@ describe("the bundled unified workflow template", () => {
     const { definition, vars } = compileTemplate()
     const context = { ...varsOnlyContext(vars), read: () => "stub file content" }
     for (const { state, skillsVar } of SKILLS_STATES) {
+      if (SKILLS_VAR_OPT_OUT.includes(state)) continue
       const raw = definition.states[state]?.skills
       expect(raw, `state "${state}"`).toMatch(new RegExp(`it\\.vars\\.${skillsVar}\\b`))
       const rendered = renderStateTemplate(raw!, context)
@@ -1355,7 +1388,8 @@ describe("the bundled template's machine boundaries line up with conversational 
     expect(ownPromptStates("specReview")).toEqual(["review"])
 
     expect(ownPromptStates("packageItem")).toEqual(["building", "fix-spec", "fix-suite"])
-    expect(ownPromptStates("buildTail")).toEqual(["fix"])
+    expect(ownPromptStates("buildTail")).toEqual(["fix", "fix-quality"])
+    expect(ownPromptStates("qualityReview")).toEqual(["reviewing"])
 
     expect(ownPromptStates("entryGate")).toEqual([])
     expect(ownPromptStates("healthGate")).toEqual(["describe"])

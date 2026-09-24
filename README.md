@@ -325,6 +325,14 @@ noted in steps 2, 3, and 4 below.
    every one of these correctly: it shows you the message and stops, same as any
    other question.
 
+   The `gtd --entry fix-precheck` side door (below) repairs a red baseline
+   through this same loop's own green check, and that check also runs a
+   qualitative review lap first: one configured skill per turn, each looking at
+   the change from its own angle (a security checklist, a simplification pass)
+   and fixing what it finds once, with no re-review after the fix. It never
+   replaces step 4 — your review stays the final gate, and nothing here skips
+   it.
+
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
    `.gtd/ESCALATION.md` — what's failing, why the earlier attempts didn't fix

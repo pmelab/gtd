@@ -76,7 +76,7 @@ vars:
   # until real `architecture-pre` history exists to mine a value from.
   architectureSkipMinP: "0.85"
   # The nine `*Skills` vars below each name a bare, comma-separated skill
-  # list for exactly one mapping in the ten authored `skills:` states (see
+  # list for exactly one mapping in the twelve authored `skills:` states (see
   # each state's own `skills:` line) — carried verbatim into the rendered
   # `skillsPreamble`, never split or validated by gtd itself. Repointing one
   # in a project config (or its `GTD_<NAME>` env override) changes only that
@@ -87,9 +87,13 @@ vars:
   buildSkills: test-driven-development, incremental-implementation
   fixSkills: debugging-and-error-recovery
   reviewFixSkills: incremental-implementation, code-simplification
-  reviewSkills: code-review-and-quality, security-and-hardening, code-simplification
+  reviewSkills: code-review-and-quality
   specReviewSkills: code-review-and-quality, spec-driven-development
   escalateSkills: debugging-and-error-recovery
+  # One qualitative review lap per entry, each its own turn/context. Extend per
+  # project (a company security checklist, a house style skill) — every name is
+  # handed to the agent's harness untouched.
+  qualityReviews: owasp-security, code-simplification
   # Prepended ahead of a state's own prompt whenever BOTH that state's own
   # `skills:` and this var render non-blank (see `Edge.ts`'s `renderRest`) —
   # blanking this one var switches the whole mechanism off repo-wide without
@@ -1816,11 +1820,15 @@ machines:
           # the `on` rows below, never here.
           set +e
           mkdir -p .gtd
-          # Sweep spent design/architecture steering files (gone by now) and
-          # any REVIEW_RAW.md the review loop-back left behind — the only
-          # sweeper on that path before it would leak into a later `gtd
-          # summary` prompt's diff range.
-          rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md
+          # Sweep spent design/architecture steering files (gone by now), any
+          # REVIEW_RAW.md the review loop-back left behind, and the quality
+          # lap's own state (its queue, its picked lens, its findings and
+          # markers) — the only sweeper on that path before any of these
+          # would leak into a later `gtd summary` prompt's diff range. A
+          # feedback loop-back therefore clears `.gtd/QUALITY_DONE.md` too,
+          # re-running the whole lap.
+          rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md .gtd/NEXT_REVIEW.md .gtd/QUALITY*.md
+          rm -rf .gtd/reviews
           # Names are gtd-authored, never containing whitespace — safe to
           # disable SC2012.
           # shellcheck disable=SC2012
@@ -1958,6 +1966,104 @@ machines:
           onApproved: closing
           onFix: fix-spec
 
+  # The qualitative review lap — one dimension per turn, each its own fresh
+  # context (a gtd state invocation IS a separate context window). `seeding`
+  # and `picking` are `check` (mechanics only); `reviewing` is `prompt` (the
+  # one turn that judges). ▸ planner identity — reviewing is a planner turn,
+  # not a coder one; the fix turn lives in buildTail instead (see its
+  # `fix-quality`), so this machine stamps no coder model/system anywhere.
+  qualityReview:
+    model: <%= it.vars.plannerModel %>
+    system: |-
+      <%~ it.vars.reviewerPersona %>
+
+
+      <%~ it.vars.agentConduct %>
+    params: [onClean, onFindings]
+    entry: seeding
+    states:
+      # Short-circuits on `.gtd/QUALITY_DONE.md` — without it, `build.health`'s
+      # green route re-enters this lap forever, since both `build.fix` and
+      # `fix-quality` hand back to `build.health.check`. The guard is per
+      # EPISODE: written once by `picking` when the queue drains, swept only
+      # on the feedback loop-back path (`packageLoop.picking`'s sweep).
+      seeding:
+        actor: check
+        label: Seeding the quality review queue
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          [ -f .gtd/QUALITY_DONE.md ] && exit 0
+          mkdir -p .gtd/reviews
+          i=1
+          list="<%~ it.vars.qualityReviews %>"
+          IFS=,
+          for name in $list; do
+            trimmed=$(printf '%s' "$name" | sed 's/^ *//; s/ *$//')
+            if [ -n "$trimmed" ]; then
+              printf '%s' "$trimmed" > "$(printf '.gtd/reviews/%02d-%s.md' "$i" "$trimmed")"
+              i=$((i + 1))
+            fi
+          done
+        on:
+          "* .gtd/reviews/**": picking
+          "C": $onClean
+      # The `ls .gtd/reviews/*.md | head -n 1` idiom `packageLoop.picking`
+      # already uses — draining its own queue is what ends the loop; the
+      # reviewer never touches `.gtd/reviews/` itself.
+      picking:
+        actor: check
+        label: Picking the next quality lens
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          # Names are gtd-authored, never containing whitespace — safe to
+          # disable SC2012.
+          # shellcheck disable=SC2012
+          next=$(ls .gtd/reviews/*.md 2>/dev/null | head -n 1)
+          if [ -n "$next" ]; then
+            cp "$next" .gtd/NEXT_REVIEW.md
+            rm -f "$next"
+          else
+            rm -f .gtd/NEXT_REVIEW.md
+            : > .gtd/QUALITY_DONE.md
+            if [ -s .gtd/QUALITY.md ]; then
+              : > .gtd/QUALITY_READY.md
+            fi
+          fi
+        # First-match-wins ordering is what routes a drained-with-findings
+        # turn (whose diff carries the queue deletions AND both markers) to
+        # the fix turn rather than the clean exit.
+        on:
+          "A .gtd/NEXT_REVIEW.md": reviewing
+          "M .gtd/NEXT_REVIEW.md": reviewing
+          "A .gtd/QUALITY_READY.md": $onFindings
+          "* **": $onClean
+          "C": $onClean
+      reviewing:
+        actor: agent
+        label: Reviewing (one quality lens)
+        file: NEXT_REVIEW.md
+        skills: <%~ it.read(".gtd/NEXT_REVIEW.md").trim() %>
+        prompt: |
+          <%~ it.vars.stateFileRules %>
+
+          - The only state file this turn writes is `.gtd/QUALITY.md` — no
+            other files for notes or output
+          - Review the whole assembled change, from `<%= it.startCommit %>`
+            to the working tree, through this ONE quality lens only — the
+            lens is named in `.gtd/NEXT_REVIEW.md`, already loaded as this
+            turn's own skill
+          - Where you find something blocking, APPEND a `## ` chunk to
+            `.gtd/QUALITY.md` describing it — never overwrite what an
+            earlier dimension already wrote there
+          - Write nothing when nothing is blocking under this lens — a
+            clean turn IS this dimension's approval
+          - Touch no other state file, and leave everything uncommitted
+        on:
+          "* **": picking
+          "C": picking
+
   # The process's build identity. ▸ coder identity — model/system stamped
   # onto fix.
   buildTail:
@@ -1992,10 +2098,47 @@ machines:
       health:
         machine: healthGate
         with:
-          onGreen: review
+          onGreen: quality
           onRed: fix
           checkLabel: Running checks
           escalateLabel: Escalating to a human
+
+      # Sits ahead of the whole humanReview machine — before `pre`, not
+      # inside it — so both the fast path and the full path pay it. The lap
+      # runs on EVERY round reaching this point, mechanical or not: a wrong
+      # `mechanicalOnly` verdict must never be what silently skips it.
+      quality:
+        machine: qualityReview
+        with:
+          onClean: review
+          onFindings: fix-quality
+
+      # A sibling of `fix`, not a state inside `qualityReview`: a machine
+      # stamps one `model:`/`system:` on every state it owns, and reviewing
+      # is a planner turn while fixing is a coder turn. The split also lets
+      # `health.check`/`health.escalate` resolve as plain local targets —
+      # targets never resolve upward in this workflow.
+      fix-quality:
+        actor: agent
+        label: Fixing quality findings
+        file: QUALITY.md
+        skills: <%= it.vars.reviewFixSkills %>
+        prompt: |
+          <%~ it.vars.stateFileRules %>
+
+          - Read `.gtd/QUALITY.md` — one `## ` chunk per quality dimension
+            that found something blocking. Merge duplicate findings across
+            dimensions FIRST, then fix every chunk
+          - Delete `.gtd/QUALITY.md` and `.gtd/QUALITY_READY.md` once every
+            finding is resolved
+          - Leave everything else uncommitted and finish your turn
+        retry:
+          max: 3
+          otherwise: health.escalate
+        on:
+          "D .gtd/QUALITY.md": health.check
+          "* **": fix-quality
+          "C": fix-quality
 
       # Nested here (not root) so the sign-off's boundary commit stays inside
       # the builder's own scope — see humanReview above.
