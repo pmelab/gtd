@@ -1987,6 +1987,13 @@ machines:
       # `fix-quality` hand back to `build.health.check`. The guard is per
       # EPISODE: written once by `picking` when the queue drains, swept only
       # on the feedback loop-back path (`packageLoop.picking`'s sweep).
+      # `seeding`'s script below interpolates `<%~ it.vars.qualityReviews %>`
+      # raw into a `list="..."` shell assignment, run with `sh -c` — a value
+      # containing `$(...)` or a backtick executes. Accepted: a repository's
+      # own gtd config (`.gtdrc`, `GTD_QUALITYREVIEWS`) is TRUSTED input —
+      # `testCommand` already reaches `sh -c` raw by design (it IS a command
+      # line), so a config that could set `qualityReviews` could already set
+      # `testCommand` to anything. This reaches a shell deliberately.
       seeding:
         actor: check
         label: Seeding the quality review queue

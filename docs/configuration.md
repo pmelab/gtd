@@ -7,7 +7,13 @@ current directory to your home directory and merging every level found (the
 closest to the current directory wins on overlap). With no `workflow:`
 configured anywhere in the cwd→home config chain, the bundled unified workflow
 is used automatically, so a state command works out of the box with no config at
-all. Supported filenames (searched in this order):
+all.
+
+A `.gtdrc` value can end up on a command line gtd runs — `vars:` entries like
+`testCommand` are deliberately interpolated into shell commands. Only run gtd in
+a repository whose build scripts you would already run.
+
+Supported filenames (searched in this order):
 
 - `.gtdrc`
 - `.gtdrc.json`

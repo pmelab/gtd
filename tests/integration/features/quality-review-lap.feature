@@ -15,7 +15,9 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   Every scenario here fabricates each turn's own resulting diff by hand —
   same convention as `default-workflow.feature` and
   `spec-review-judgments.feature` — since no real driver runs a script or an
-  agent in this harness; only gtd's own routing is under test.
+  agent in this harness; only gtd's own routing is under test. The
+  `seeding`/`picking` scripts themselves are rendered and executed for real by
+  `src/workflows/qualityLapScripts.test.ts`.
 
   @inmem
   Scenario: two dimensions queue and drain in padded order, then the clean lap hands straight on to the human review
