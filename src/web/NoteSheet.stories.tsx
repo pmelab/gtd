@@ -399,7 +399,13 @@ export const TheSheetSlidesInAndPlaysItsExitBeforeDismissing: Story = {
     const entering = panel.getAnimations()
     expect(entering).toHaveLength(1)
     await settled(canvasElement)
-    expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight + 1)
+    // Polled, not read once: `finished` resolving is a microtask, and the
+    // style with the animation removed is only guaranteed by the next
+    // rendering update — so the first rect after it can still carry the
+    // entrance transform.
+    await waitFor(() =>
+      expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight + 1),
+    )
 
     await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
     // Still on screen, now playing its exit — the gesture has not yet
