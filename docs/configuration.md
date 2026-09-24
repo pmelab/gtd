@@ -387,6 +387,17 @@ a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
    to match, so the full architecture pass always runs — the same fail-closed
    direction as `judgeIdenticalMinP`. Unmeasured too — a deliberately
    conservative default, the same posture `specPreJudge` takes.
+   **`qualityReviews`** (`owasp-security, code-simplification`) names the
+   qualitative review lap `build.quality` runs ahead of the human review, one
+   comma-separated skill per turn/context, whenever the bundled workflow's build
+   tail reaches its own green health check — today that is the
+   `gtd --entry fix-precheck` baseline-repair path, not an ordinary round's
+   hand-off to review, which goes straight to `build.review.pre`. Once reached,
+   a wrong `mechanicalOnly` fast-path verdict never skips it, since it runs
+   before `build.review.pre` is even entered. Every entry costs a full turn on
+   every round that reaches that green health check, so extend the list only as
+   far as that's worth paying for. Blanking it disables the lap outright — the
+   same convention `skillsPreamble` uses.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
 3. **The current process's entry `--var` overrides**, if it was started via

@@ -42,6 +42,9 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     And the git log contains "gtd(check): fix-precheck → idle"
 
   Scenario: a red suite drops into the shared build.fix loop and out through build.health.check to build.review.reviewing
+    # Blanks the queue so a green health check hands straight to the human
+    # review tail — the quality lap itself is covered in its own feature.
+    Given an environment variable "GTD_QUALITYREVIEWS" set to ""
     When I run gtd with args "--entry fix-precheck"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
@@ -62,7 +65,12 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.review.pre"
+    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
+    # Blank GTD_QUALITYREVIEWS empties the queue — seeding's own clean tree
+    # hands straight on to the human review tail.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality.seeding → build.review.pre"
     # Landed untouched, with no verdict — the conservative default runs the
     # full review lap.
     When I run gtd land
