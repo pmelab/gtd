@@ -358,11 +358,11 @@ is fixed before the next one begins.
 
 Prefer a phone or another device over your editor? `gtd ui` opens the file whose
 turn it is as a small web app, over Tailscale — including a step that names no
-format, or one nothing recognizes, which still opens as plain, editable markdown
-structure instead of refusing to start. It also binds on an idle worktree —
-nothing pending yet — opening `.gtd/TODO.md` free-form so you can sketch from
-your phone; the sketch stays un-triaged on disk until you run `gtd` again, from
-anywhere, to pick it up. See
+format, or one nothing recognizes, which still opens as plain markdown structure
+instead of refusing to start: read, plus a note on any block. It also binds on
+an idle worktree — nothing pending yet — opening `.gtd/TODO.md` free-form with a
+bare textfield so you can sketch from your phone; the sketch stays un-triaged on
+disk until you run `gtd` again, from anywhere, to pick it up. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 

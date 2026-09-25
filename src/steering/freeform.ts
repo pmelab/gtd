@@ -88,13 +88,12 @@ const appendEdit = (content: string, text: string): SteeringEdit => {
 
 /**
  * Free-form's `apply`: only a `paragraph` anchor resolves (the only kind
- * `view` ever reports). `anchor.line` matching a real top-level block's own
- * start line replaces that block's whole source span with `opts.text`
- * (`""` deletes the block AND its one trailing blank line, so repeated
- * deletes never pile up blank runs); a `line` at or beyond the document's
- * last line — past every real block — appends instead (`appendEdit`); any
- * other `line` (inside the document, but not a block's own start) refuses
- * `anchor-not-found`.
+ * `view` ever reports), and it only ever APPENDS, at or past the document's
+ * last line. An `anchor.line` landing on a real top-level block's own start
+ * line — or anywhere else inside the document short of its last line —
+ * refuses `anchor-not-found`: per-block replace/delete were dropped with the
+ * phone's own per-block editing UI (this package), leaving append as the
+ * only write this format still performs.
  */
 const freeFormApply: SteeringFormat["apply"] = (content, anchor, opts): SteeringAnnotateResult => {
   if (anchor.kind !== "paragraph") return { ok: false, reason: "anchor-not-found" }
@@ -102,41 +101,20 @@ const freeFormApply: SteeringFormat["apply"] = (content, anchor, opts): Steering
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
   const lastLineIndex = lines.length - 1
-  const block = tree.children.find(
+  const isBlockStart = tree.children.some(
     (node) =>
       node.position !== undefined && toLspPosition(node.position.start).line === anchor.line,
   )
 
-  if (!block) {
-    if (anchor.line < lastLineIndex) return { ok: false, reason: "anchor-not-found" }
-    return { ok: true, edits: [appendEdit(content, text)] }
-  }
-
-  const startLine = toLspPosition(block.position!.start).line
-  const endLine = toLspPosition(block.position!.end).line
-
-  const eol = eolOf(content)
-
-  if (text.length === 0) {
-    const hasTrailingBlank =
-      endLine + 1 <= lastLineIndex && (lines[endLine + 1] ?? "").trim() === ""
-    const deleteThroughLine = hasTrailingBlank ? endLine + 1 : endLine
-    const newLines = [...lines.slice(0, startLine), ...lines.slice(deleteThroughLine + 1)]
-    return { ok: true, edits: [wholeDocumentEdit(content, newLines.join(eol))] }
-  }
-
-  const newLines = [
-    ...lines.slice(0, startLine),
-    ...text.split(/\r?\n/),
-    ...lines.slice(endLine + 1),
-  ]
-  return { ok: true, edits: [wholeDocumentEdit(content, newLines.join(eol))] }
+  if (isBlockStart) return { ok: false, reason: "anchor-not-found" }
+  if (anchor.line < lastLineIndex) return { ok: false, reason: "anchor-not-found" }
+  return { ok: true, edits: [appendEdit(content, text)] }
 }
 
-/** Free-form's `view`: every top-level block, in document order, each carrying its own raw source bytes verbatim as `block.text` — no format-specific structure (no questions, no chunks) to project beyond the shared block walk. */
+/** Free-form's `view`: every top-level block, in document order — no format-specific structure (no questions, no chunks) to project beyond the shared block walk. */
 const freeFormView = (content: string): SteeringView => {
   const tree = parseMarkdown(content)
-  return { nodes: blockNodesOf(content, tree, { fullText: true }) }
+  return { nodes: blockNodesOf(content, tree) }
 }
 
 /**

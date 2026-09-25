@@ -17,8 +17,9 @@ const openable = (step: StepRead | undefined): step is StepRead & { status: "ok"
  * `"review"` always means `Review` (that screen's own `readSteeringFile` call
  * is hardcoded to `mode: "review"`, matching `.gtd/REVIEW.md`'s one format);
  * `"qa"` means `Plan`; anything else (absent, or an unregistered mode name)
- * falls through to `FreeForm`, which edits the file block-by-block as plain
- * markdown. Neither screen offers a way back to a list — `done` is the only
+ * falls through to `FreeForm`, which reads the file as plain markdown and
+ * offers only a note per block, plus a textfield when it's empty. Neither
+ * screen offers a way back to a list — `done` is the only
  * thing that ends the turn, and it exits the process.
  *
  * Never returns `null`: a blank white screen was package 03's own regression

@@ -139,6 +139,18 @@ describe("generateSelfSignedCert", () => {
   const gtdTlsDirs = (): string[] =>
     readdirSync(tmpdir()).filter((name) => name.startsWith("gtd-tls-"))
 
+  // `tmpdir()` is a single shared OS directory — other real-openssl tests in
+  // this same suite (`Server.test.ts`'s `--self-signed` case, this file's
+  // own earlier `it()`s) can legitimately create and remove their OWN
+  // `gtd-tls-*` dirs concurrently, in a different vitest worker. Asserting
+  // exact equality against a `before` snapshot would flake on THEIR timing,
+  // not this function's own cleanup — the real invariant is narrower: no
+  // `gtd-tls-*` dir that wasn't present before THIS call survives after it.
+  const expectNoNewGtdTlsDirsSurvive = (before: readonly string[]): void => {
+    const newSurvivors = gtdTlsDirs().filter((name) => !before.includes(name))
+    expect(newSurvivors).toEqual([])
+  }
+
   it("removes its private-key tmpdir even after openssl reports a non-zero exit", async () => {
     const before = gtdTlsDirs()
     const nonZeroExit = CommandRunner.layer(() =>
@@ -147,7 +159,7 @@ describe("generateSelfSignedCert", () => {
     await Effect.runPromiseExit(
       generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(nonZeroExit)),
     )
-    expect(gtdTlsDirs()).toEqual(before)
+    expectNoNewGtdTlsDirsSurvive(before)
   })
 
   it("removes its private-key tmpdir even when reading back the issued cert/key fails", async () => {
@@ -159,7 +171,7 @@ describe("generateSelfSignedCert", () => {
       generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(liesAboutSuccess)),
     )
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(gtdTlsDirs()).toEqual(before)
+    expectNoNewGtdTlsDirsSurvive(before)
   })
 })
 
@@ -210,13 +222,21 @@ describe("obtainTailscaleCert", () => {
   const gtdTlsDirs = (): string[] =>
     readdirSync(tmpdir()).filter((name) => name.startsWith("gtd-tls-"))
 
+  // See the same helper's doc comment above (`generateSelfSignedCert`'s own
+  // describe block) — `tmpdir()` is shared machine-wide, so the invariant
+  // worth asserting is narrower than exact equality with a snapshot.
+  const expectNoNewGtdTlsDirsSurvive = (before: readonly string[]): void => {
+    const newSurvivors = gtdTlsDirs().filter((name) => !before.includes(name))
+    expect(newSurvivors).toEqual([])
+  }
+
   it("removes its private-key tmpdir even after a non-zero exit", async () => {
     const before = gtdTlsDirs()
     const runner = CommandRunner.layer(() => Effect.succeed({ status: 1, output: "denied" }))
     await Effect.runPromiseExit(
       obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner)),
     )
-    expect(gtdTlsDirs()).toEqual(before)
+    expectNoNewGtdTlsDirsSurvive(before)
   })
 
   it("removes its private-key tmpdir even when reading back the issued cert/key fails", async () => {
@@ -226,7 +246,7 @@ describe("obtainTailscaleCert", () => {
       obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(liesAboutSuccess)),
     )
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(gtdTlsDirs()).toEqual(before)
+    expectNoNewGtdTlsDirsSurvive(before)
   })
 
   it("fails naming tailscale on a spawn failure (binary absent)", async () => {

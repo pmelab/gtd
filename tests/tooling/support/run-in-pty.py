@@ -16,19 +16,39 @@ Exit code is the child's exit code.
 
 import os
 import pty
-import select
 import subprocess
 import sys
+import threading
+
+# The parent's own `slave` fd is closed right after spawn, so the child holds
+# the only remaining reference to it: `os.read(master, ...)` blocks until the
+# child writes, and returns `b""` (or raises `OSError`/`EIO` on macOS) once
+# the child's own copies of that fd are all closed — a real EOF signal, not a
+# timeout guess. A poll-then-drain loop (this file's previous shape) checked
+# `proc.poll()` and a `select()` readiness window separately, and could
+# observe "child exited" before "child's last write arrived at the master
+# end" under CPU contention, returning truncated (sometimes empty) output.
+# Reading straight to EOF removes that race by construction instead of
+# widening the drain timeout further.
+WEDGE_BUDGET_SECONDS = 10.0
 
 
-def run_in_pty(argv):
+def run_in_pty(argv, timeout=WEDGE_BUDGET_SECONDS):
     master, slave = pty.openpty()
     proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave)
     os.close(slave)
+
+    # A genuine wedge (the read never reaching EOF — e.g. some other process
+    # still holding the slave fd open) must fail fast and visibly rather than
+    # consume the outer test/CI timeout: killing the child closes its fd
+    # copies, which unblocks the read loop below with an EOF/OSError.
+    timed_out = threading.Event()
+    watchdog = threading.Timer(timeout, lambda: (timed_out.set(), proc.kill()))
+    watchdog.start()
+
     chunks = []
-    while True:
-        ready, _, _ = select.select([master], [], [], 1.0)
-        if master in ready:
+    try:
+        while True:
             try:
                 data = os.read(master, 65536)
             except OSError:
@@ -36,29 +56,13 @@ def run_in_pty(argv):
             if not data:
                 break
             chunks.append(data)
-        if proc.poll() is not None:
-            # Drain whatever the child already flushed before it exited. A
-            # generous 0.5s (not the original 0.05s): under heavy CPU
-            # contention (e.g. this suite's own full `npm test` running
-            # build/lint/etc. concurrently), the write() that fills the pty
-            # buffer can lag behind the scheduler noticing the child has
-            # already exited — a short timeout here read that gap as "no
-            # more data" and returned empty output, flaky in a way a
-            # standalone run of this test never reproduced.
-            while True:
-                ready, _, _ = select.select([master], [], [], 0.5)
-                if master not in ready:
-                    break
-                try:
-                    data = os.read(master, 65536)
-                except OSError:
-                    data = b""
-                if not data:
-                    break
-                chunks.append(data)
-            break
+    finally:
+        watchdog.cancel()
+
     os.close(master)
     proc.wait()
+    if timed_out.is_set():
+        raise TimeoutError(f"run-in-pty: child wedged past a {timeout}s budget")
     return proc.returncode, b"".join(chunks)
 
 

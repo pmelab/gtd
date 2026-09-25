@@ -329,8 +329,16 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the rendered view has a "list" block at index 1
     And the rendered view has a "code" block at index 2
 
+  # Package 02 (improve-free-form-ui) dropped free-form's per-block
+  # replace/delete: `freeform.ts#freeFormApply` now only ever appends, at or
+  # past the document's own last line — an anchor matching a real block's
+  # own start line (paragraph 0 below) now refuses `anchor-not-found`
+  # instead. "Paragraph zero here.\n" splits into two lines
+  # (`["Paragraph zero here.", ""]`), so paragraph 1 is that trailing blank
+  # row past the last real block — the append target this scenario now
+  # exercises.
   @live
-  Scenario: editing a block of a mode-less steering file writes the bytes to disk
+  Scenario: writing to a mode-less steering file via setValue appends the bytes to disk
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -359,8 +367,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       Paragraph zero here.
       """
-    When I edit paragraph 0 of ".gtd/TODO.md" with the text "Edited paragraph." via a spawned gtd ui
-    Then the file ".gtd/TODO.md" contains "Edited paragraph."
+    When I edit paragraph 1 of ".gtd/TODO.md" with the text "Appended paragraph." via a spawned gtd ui
+    Then the file ".gtd/TODO.md" contains "Paragraph zero here."
+    And the file ".gtd/TODO.md" contains "Appended paragraph."
 
   @live
   Scenario: writing against a stale token refuses instead of clobbering the file
@@ -494,7 +503,11 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       Paragraph zero here.
       """
-    When I write "First edit." then "Second edit." to paragraph 0 of ".gtd/TODO.md" via a spawned gtd ui, reusing the first write's returned hash
+    # `freeFormApply` now only ever appends (package 02, improve-free-form-ui)
+    # — line 9999 is always past the document's own last line, both before
+    # and after `ui.format` grows the file, so both writes below land as
+    # appends rather than needing to track the file's real length.
+    When I write "First edit." then "Second edit." to paragraph 9999 of ".gtd/TODO.md" via a spawned gtd ui, reusing the first write's returned hash
     Then the file ".gtd/TODO.md" contains "FORMATTED"
     And the file ".gtd/TODO.md" contains "Second edit."
     And the second write succeeded

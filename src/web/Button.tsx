@@ -22,8 +22,6 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   secondary:
     "bg-surface text-text border border-border active:bg-border disabled:bg-surface disabled:text-disabled",
   ghost: "bg-transparent text-text active:bg-surface disabled:text-disabled",
-  // Destructive actions are never distinguished by position alone — `Delete`
-  // sits beside `Edit` in the same row on every FreeForm block.
   danger: "bg-transparent text-danger active:bg-surface disabled:text-disabled",
 }
 
