@@ -121,70 +121,30 @@ describe("freeFormFormat.view", () => {
     ])
   })
 
-  it("sets block.text to the block's own raw source bytes, verbatim, for every kind", () => {
-    const content = [
-      "# A heading",
-      "",
-      "- one",
-      "- two",
-      "",
-      "```js",
-      "code();",
-      "```",
-      "",
-      "> Quoted.",
-      "",
-      "Plain paragraph.",
-      "",
-    ].join("\n")
+  it("a fenced ts code block's own text is the fence-stripped body, byte-identical to qa/review's own view", () => {
+    const content = ["```ts", "const x = 1", "```", ""].join("\n")
     const view = freeFormFormat.view(content)
-    expect(view.nodes.map((n) => n.block?.text)).toEqual([
-      "# A heading",
-      "- one\n- two",
-      "```js\ncode();\n```",
-      "> Quoted.",
-      "Plain paragraph.",
-    ])
+    expect(view.nodes.map((n) => n.block?.text)).toEqual(["const x = 1"])
+  })
+
+  it("a two-line '>' quote's own text is marker-free, byte-identical to qa/review's own view", () => {
+    const content = ["> quoted line", "> more", ""].join("\n")
+    const view = freeFormFormat.view(content)
+    expect(view.nodes.map((n) => n.block?.text)).toEqual(["quoted line more"])
   })
 })
 
-describe("freeFormFormat.apply — replacing a block", () => {
-  it("replaces the whole source range of the top-level block starting at line with text", () => {
+describe("freeFormFormat.apply — a block-start anchor now refuses", () => {
+  it("refuses anchor-not-found for a line matching a top-level block's own start line, on a non-empty document", () => {
     const content = ["# Heading", "", "Paragraph one.", "", "Paragraph two.", ""].join("\n")
-    const result = freeFormFormat.apply(
-      content,
-      { kind: "paragraph", line: 2 },
-      { text: "Edited." },
-    )
-    expect(result.ok).toBe(true)
-    const applied = result.ok ? applyEdits(content, result.edits) : ""
-    expect(applied).toBe(["# Heading", "", "Edited.", "", "Paragraph two.", ""].join("\n"))
+    const result = freeFormFormat.apply(content, { kind: "paragraph", line: 2 }, { text: "x" })
+    expect(result).toEqual({ ok: false, reason: "anchor-not-found" })
   })
 
-  it("replaces a heading block", () => {
+  it("refuses a heading's own start line the same way", () => {
     const content = ["# Old heading", "", "Body.", ""].join("\n")
     const result = freeFormFormat.apply(content, { kind: "paragraph", line: 0 }, { text: "# New" })
-    expect(result.ok).toBe(true)
-    const applied = result.ok ? applyEdits(content, result.edits) : ""
-    expect(applied).toBe(["# New", "", "Body.", ""].join("\n"))
-  })
-})
-
-describe("freeFormFormat.apply — deleting a block", () => {
-  it("text: '' deletes the block and its trailing blank line", () => {
-    const content = ["# Heading", "", "Paragraph one.", "", "Paragraph two.", ""].join("\n")
-    const result = freeFormFormat.apply(content, { kind: "paragraph", line: 2 }, { text: "" })
-    expect(result.ok).toBe(true)
-    const applied = result.ok ? applyEdits(content, result.edits) : ""
-    expect(applied).toBe(["# Heading", "", "Paragraph two.", ""].join("\n"))
-  })
-
-  it("deleting the last block leaves no trailing blank run behind", () => {
-    const content = ["Paragraph one.", "", "Paragraph two.", ""].join("\n")
-    const result = freeFormFormat.apply(content, { kind: "paragraph", line: 2 }, { text: "" })
-    expect(result.ok).toBe(true)
-    const applied = result.ok ? applyEdits(content, result.edits) : ""
-    expect(applied).toBe(["Paragraph one.", ""].join("\n"))
+    expect(result).toEqual({ ok: false, reason: "anchor-not-found" })
   })
 })
 
@@ -219,6 +179,17 @@ describe("freeFormFormat.apply — appending", () => {
     expect(result.ok).toBe(true)
     const applied = result.ok ? applyEdits("", result.edits) : ""
     expect(applied).toBe("First line.\n")
+  })
+
+  it("the empty-document save path: Number.MAX_SAFE_INTEGER against '' reaches the append edit, reading no block's raw text", () => {
+    const result = freeFormFormat.apply(
+      "",
+      { kind: "paragraph", line: Number.MAX_SAFE_INTEGER },
+      { text: "x" },
+    )
+    expect(result.ok).toBe(true)
+    const applied = result.ok ? applyEdits("", result.edits) : ""
+    expect(applied).toBe("x\n")
   })
 
   it("an empty append (opts.text omitted, an append row submitted with nothing typed) leaves the document unchanged, not a bare trailing blank line", () => {
@@ -271,24 +242,14 @@ describe("freeFormFormat.annotate", () => {
 })
 
 describe("freeFormFormat.apply — CRLF documents preserve untouched bytes", () => {
-  it("replacing one block leaves every other line's bytes byte-identical", () => {
+  it("a block-start anchor refuses on a CRLF document exactly as it does on LF", () => {
     const content = ["# Heading", "", "Paragraph one.", "", "Paragraph two.", ""].join("\r\n")
     const result = freeFormFormat.apply(
       content,
       { kind: "paragraph", line: 2 },
       { text: "Edited." },
     )
-    expect(result.ok).toBe(true)
-    const applied = result.ok ? applyEditsExact(content, result.edits) : ""
-    expect(applied).toBe(["# Heading", "", "Edited.", "", "Paragraph two.", ""].join("\r\n"))
-  })
-
-  it("deleting one block leaves every other line's bytes byte-identical", () => {
-    const content = ["# Heading", "", "Paragraph one.", "", "Paragraph two.", ""].join("\r\n")
-    const result = freeFormFormat.apply(content, { kind: "paragraph", line: 2 }, { text: "" })
-    expect(result.ok).toBe(true)
-    const applied = result.ok ? applyEditsExact(content, result.edits) : ""
-    expect(applied).toBe(["# Heading", "", "Paragraph two.", ""].join("\r\n"))
+    expect(result).toEqual({ ok: false, reason: "anchor-not-found" })
   })
 
   it("appending to a CRLF document uses CRLF for the new bytes too", () => {
@@ -304,29 +265,19 @@ describe("freeFormFormat.apply — CRLF documents preserve untouched bytes", () 
     expect(applied).toBe(["Paragraph one.", "", "New content.", ""].join("\r\n"))
   })
 
-  it("pasting LF text into a CRLF document introduces no mixed endings", () => {
+  it("pasting LF text into a CRLF document via append introduces no mixed endings", () => {
     const content = ["# Heading", "", "Paragraph one.", ""].join("\r\n")
+    const lastLine = content.split(/\r?\n/).length - 1
     const result = freeFormFormat.apply(
       content,
-      { kind: "paragraph", line: 2 },
+      { kind: "paragraph", line: lastLine },
       { text: "Line one.\nLine two." },
     )
     expect(result.ok).toBe(true)
     const applied = result.ok ? applyEditsExact(content, result.edits) : ""
-    expect(applied).toBe(["# Heading", "", "Line one.", "Line two.", ""].join("\r\n"))
-    expect(applied).not.toContain("\n\n")
-    expect(applied.replace(/\r\n/g, "")).not.toContain("\n")
-  })
-
-  it("an LF document's existing byte-for-byte behaviour is unchanged", () => {
-    const content = ["# Heading", "", "Paragraph one.", "", "Paragraph two.", ""].join("\n")
-    const result = freeFormFormat.apply(
-      content,
-      { kind: "paragraph", line: 2 },
-      { text: "Edited." },
+    expect(applied).toBe(
+      ["# Heading", "", "Paragraph one.", "", "Line one.", "Line two.", ""].join("\r\n"),
     )
-    expect(result.ok).toBe(true)
-    const applied = result.ok ? applyEditsExact(content, result.edits) : ""
-    expect(applied).toBe(["# Heading", "", "Edited.", "", "Paragraph two.", ""].join("\n"))
+    expect(applied.replace(/\r\n/g, "")).not.toContain("\n")
   })
 })

@@ -57,6 +57,42 @@ describe("blockNodesOf — default walk, no skip predicates", () => {
     const nodes = blockNodesOf(content, tree)
     expect(nodes[0]?.note).toBe("A note on the heading.")
   })
+
+  it("strips the '> ' continuation marker from a soft-broken blockquote's title and block.text", () => {
+    const content = ["> quoted line", "> more", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const nodes = blockNodesOf(content, tree)
+    expect(nodes[0]?.title).not.toContain(">")
+    expect(nodes[0]?.block).toMatchObject({ kind: "blockquote", text: "quoted line more" })
+  })
+
+  it("keeps a two-paragraph blockquote's title unchanged (blank '>' line between paragraphs)", () => {
+    const content = ["> First line.", ">", "> Second para.", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const nodes = blockNodesOf(content, tree)
+    expect(nodes[0]?.title).toBe("First line. Second para.")
+  })
+
+  it("keeps a literal '>' typed mid-prose inside a blockquote", () => {
+    const content = ["> a > b", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const nodes = blockNodesOf(content, tree)
+    expect(nodes[0]?.title).toBe("a > b")
+  })
+
+  it("keeps an inline link's [label](url) syntax intact across a multi-line blockquote", () => {
+    const content = ["> see [label](url)", "> more text", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const nodes = blockNodesOf(content, tree)
+    expect(nodes[0]?.title).toBe("see [label](url) more text")
+  })
+
+  it("keeps a line-leading '>' inside a list item's own fenced code block — the blockquote strip is scoped to blockquotes only", () => {
+    const content = ["- item", "", "  ```", "  a", "  > b", "  ```", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const nodes = blockNodesOf(content, tree)
+    expect(nodes[0]?.block).toMatchObject({ kind: "list", items: [{ text: "item ``` a > b ```" }] })
+  })
 })
 
 describe("blockNodesOf — caller-supplied skip predicates", () => {
@@ -77,37 +113,15 @@ describe("blockNodesOf — caller-supplied skip predicates", () => {
   })
 })
 
-describe("blockNodesOf — fullText option", () => {
-  it("sets block.text to the node's own raw source bytes, verbatim, for every kind when fullText is set", () => {
-    const content = ["# A heading", "", "- one", "- two", "", "Plain paragraph.", ""].join("\n")
-    const tree = parseMarkdown(content)
-    const nodes = blockNodesOf(content, tree, { fullText: true })
-    expect(nodes.map((n) => n.block?.text)).toEqual([
-      "# A heading",
-      "- one\n- two",
-      "Plain paragraph.",
-    ])
-  })
-
-  it("omits block.text entirely for heading/list/paragraph when fullText is not set", () => {
+describe("blockNodesOf — block.text", () => {
+  it("omits block.text entirely for heading/list/paragraph", () => {
     const content = ["# A heading", "", "Plain paragraph.", ""].join("\n")
     const tree = parseMarkdown(content)
     const nodes = blockNodesOf(content, tree)
     expect(nodes.map((n) => n.block?.text)).toEqual([undefined, undefined])
   })
 
-  it("still carries a block with the raw source bytes for a node kind this walk otherwise projects no structure for (a thematicBreak)", () => {
-    const content = ["Above.", "", "---", "", "Below.", ""].join("\n")
-    const tree = parseMarkdown(content)
-    const nodes = blockNodesOf(content, tree, { fullText: true })
-    expect(nodes.map((n) => n.block)).toEqual([
-      { kind: "paragraph", text: "Above." },
-      { kind: "paragraph", text: "---" },
-      { kind: "paragraph", text: "Below." },
-    ])
-  })
-
-  it("omits block entirely for a thematicBreak when fullText is not set — unchanged from qa/review's own behaviour", () => {
+  it("omits block entirely for a thematicBreak — unchanged from qa/review's own behaviour", () => {
     const content = ["Above.", "", "---", "", "Below.", ""].join("\n")
     const tree = parseMarkdown(content)
     const nodes = blockNodesOf(content, tree)

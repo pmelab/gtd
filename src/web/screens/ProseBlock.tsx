@@ -184,21 +184,18 @@ const BlockBody = ({ node }: { readonly node: SteeringViewNode }) => {
  * no-op `onOpenNote` otherwise.
  */
 // fallow-ignore-next-line complexity
-export const ProseBlock = ({
+const ProseBlock = ({
   node,
   index,
   noteOverrides,
   onOpenNote,
   readOnly,
-  actions,
 }: {
   readonly node: SteeringViewNode
   readonly index: number
   readonly noteOverrides: Readonly<Record<number, string>>
   readonly onOpenNote: (node: SteeringViewNode) => void
   readonly readOnly?: boolean
-  /** Per-block controls (FreeForm's Edit/Delete) — rendered in the note seam's own row rather than a second one below it. */
-  readonly actions?: React.ReactNode
 }) => {
   const line = node.anchor.kind === "paragraph" ? node.anchor.line : index
   const noteText = noteOverrides[line] ?? node.note
@@ -253,11 +250,6 @@ export const ProseBlock = ({
           </div>
         )}
       </div>
-      {actions !== undefined && (
-        <div className="flex items-center gap-1 border-b border-divider">
-          <div className="ml-auto flex items-center pr-2">{actions}</div>
-        </div>
-      )}
     </div>
   )
 }

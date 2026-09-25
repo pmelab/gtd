@@ -1237,6 +1237,26 @@ describe("qa.view — block nodes (package 02, T1/T2)", () => {
     expect(view.nodes[0]?.block?.text).toBe("First line. Second para.")
   })
 
+  it("a soft-broken blockquote (one paragraph, no blank '>' line) carries title and block.text with no '>' character in it", () => {
+    const content = ["> quoted line", "> more", ""].join("\n")
+    const view = qa.view(content)
+    expect(view.nodes[0]?.title).not.toContain(">")
+    expect(view.nodes[0]?.block?.text).not.toContain(">")
+    expect(view.nodes[0]?.block).toMatchObject({ kind: "blockquote", text: "quoted line more" })
+  })
+
+  it("a literal '>' typed mid-prose inside a blockquote survives into title", () => {
+    const content = ["> a > b", ""].join("\n")
+    const view = qa.view(content)
+    expect(view.nodes[0]?.title).toBe("a > b")
+  })
+
+  it("an inline link inside a multi-line blockquote keeps its [label](url) syntax intact", () => {
+    const content = ["> see [label](url)", "> more text", ""].join("\n")
+    const view = qa.view(content)
+    expect(view.nodes[0]?.title).toBe("see [label](url) more text")
+  })
+
   it("every node still carries a non-empty title", () => {
     const content = [
       "# Heading",
